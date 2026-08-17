@@ -1,0 +1,914 @@
+name: "pccl checkin test"
+
+triggers:
+  merge_request:
+    target-branches:
+      - master
+    types:
+      - opened
+
+params:
+  comm_internal_testbox_ref:
+    type: string
+    default: "master"
+    description: "comm-internal-testbox checkout ref"
+  comm_toolbox_ref:
+    type: string
+    default: "master"
+    description: "comm-toolbox checkout ref"
+  pccl_tests_ref:
+    type: string
+    default: "master"
+    description: "pccl-tests checkout ref"
+
+jobs:
+  ubuntu24_hggcrt13_test:
+    name: "ubuntu24_hggcrt13_test"
+    image: "reg.docker.alibaba-inc.com/ai-tmp/pytorch:ubuntu24.04-py312.06"
+    timeout: 12h
+    runs-on:
+      - 32-128Gi
+      - amd64
+    outputs:
+      oss_url: ${{steps.artifact.outputs.oss_url}}
+    steps:
+      - uses: checkout
+        inputs:
+          repository-url: 'git@gitlab.alibaba-inc.com:PPU-comm/pccl.git'
+          path: '/aoneci/runner/work/source/pccl'
+          ssh-key: ${{secrets.private_ssh_key}}
+      - uses: checkout
+        inputs:
+          repository-url: 'git@gitlab.alibaba-inc.com:PPU-comm/comm-internal-testbox.git'
+          ref: '${{pipeline.inst.triggerMode == "manual" ? params.comm_internal_testbox_ref : "master"}}'
+          path: '/aoneci/runner/work/source/comm-internal-testbox'
+          ssh-key: ${{secrets.private_ssh_key}}
+      - uses: checkout
+        inputs:
+          repository-url: 'git@gitlab.alibaba-inc.com:PPU-comm/comm-toolbox.git'
+          ref: '${{pipeline.inst.triggerMode == "manual" ? params.comm_toolbox_ref : "master"}}'
+          path: '/aoneci/runner/work/source/comm-toolbox'
+          ssh-key: ${{secrets.private_ssh_key}}
+      - uses: checkout
+        inputs:
+          repository-url: 'git@gitlab.alibaba-inc.com:PPU-comm/pccl-tests.git'
+          ref: '${{pipeline.inst.triggerMode == "manual" ? params.pccl_tests_ref : "master"}}'
+          path: '/aoneci/runner/work/source/pccl-tests'
+          ssh-key: ${{secrets.private_ssh_key}}
+      - id: ubuntu24_hggcrt13_build
+        timeout: 5h
+        run: |
+          echo "---------------------"
+          export source_home=$AONE_CI_SOURCE
+          export build_output=$AONE_CI_SOURCE/output
+          mkdir -p $build_output
+          echo $PWD
+          echo $AONE_CI_SOURCE
+          ls
+          cd /aoneci/runner/work/source/
+          ls
+          ls /aoneci/runner/work/source/pccl/
+          cp /aoneci/runner/work/source/pccl/.aoneci/script/ubuntu24_hggcrt13_build.sh ./
+          cp /aoneci/runner/work/source/pccl/.aoneci/test/run_composite_test.sh ./
+          cp /aoneci/runner/work/source/pccl/.aoneci/test/run_cuda_graph_test.sh ./
+          cp /aoneci/runner/work/source/pccl/.aoneci/test/run_copyengine_test.sh ./
+          cp /aoneci/runner/work/source/pccl/.aoneci/test/run_register_test.sh ./
+          cp /aoneci/runner/work/source/pccl/.aoneci/test/run_customAllreduce_test.sh ./
+          cp /aoneci/runner/work/source/pccl/.aoneci/test/run_memcpy_test.sh ./
+          cp /aoneci/runner/work/source/pccl/.aoneci/test/run_nonblocking_test.sh ./
+          cp /aoneci/runner/work/source/pccl/.aoneci/test/run_commabort_test.sh ./
+          source ubuntu24_hggcrt13_build.sh
+          ls ${build_output}
+      - id: package
+        name: pack
+        run: |
+          ls
+          echo "---------------------"
+          tar -zcvf output_hggcrt13.tar.gz $AONE_CI_SOURCE/output/*
+          echo "---------------------"
+          ls $AONE_CI_SOURCE/output/*
+      - uses: upload-oss
+        inputs:
+          path: output_hggcrt13.tar.gz
+          retention-days: 1
+      - id: artifact
+        run: |
+          echo ${{ #array(steps.upload-oss.outputs.result)[0].remote }} > ${{outputs.oss_url.path}}
+
+  composite_test_hggcrt13:
+    name: "composite_test_hggcrt13"
+    image: "reg.docker.alibaba-inc.com/ai-tmp/pytorch:ubuntu24.04-py312.06"
+    timeout: 12h
+    runs-on:
+      - 32-128Gi
+      - amd64
+    needs:
+      - ubuntu24_hggcrt13_test
+    steps:
+      - uses: ptg-ai-test
+        inputs:
+          ppu: 2
+          run_image: reg.docker.alibaba-inc.com/ai-tmp/pytorch:ubuntu24.04-py312.06
+          cmd: cd ./aoneci/runner/work/source/output; ls; find -name "run_composite_test.sh"; export TEST_ROOT=`pwd`; bash $TEST_ROOT/pccl/.aoneci/test/run_composite_test.sh
+          labels: OAM-810E
+          image_url: ${{jobs.ubuntu24_hggcrt13_test.outputs.oss_url}}
+          timeout: 10800
+
+  cuda_graph_test_hggcrt13:
+    name: "cuda_graph_test_hggcrt13"
+    image: "reg.docker.alibaba-inc.com/ai-tmp/pytorch:ubuntu24.04-py312.06"
+    timeout: 12h
+    runs-on:
+      - 32-128Gi
+      - amd64
+    needs:
+      - ubuntu24_hggcrt13_test
+    steps:
+      - uses: ptg-ai-test
+        inputs:
+          ppu: 4
+          run_image: reg.docker.alibaba-inc.com/ai-tmp/pytorch:ubuntu24.04-py312.06
+          cmd: cd ./aoneci/runner/work/source/output; ls; find -name "run_cuda_graph_test.sh"; export TEST_ROOT=`pwd`; bash $TEST_ROOT/pccl/.aoneci/test/run_cuda_graph_test.sh
+          labels: OAM-810E
+          image_url: ${{jobs.ubuntu24_hggcrt13_test.outputs.oss_url}}
+          timeout: 10800
+    
+  copyengine_test_hggcrt13:
+    name: "copyengine_test_hggcrt13"
+    image: "reg.docker.alibaba-inc.com/ai-tmp/pytorch:ubuntu24.04-py312.06"
+    timeout: 12h
+    runs-on:
+      - 32-128Gi
+      - amd64
+    needs:
+      - ubuntu24_hggcrt13_test
+    steps:
+      - uses: ptg-ai-test
+        inputs:
+          ppu: 2
+          run_image: reg.docker.alibaba-inc.com/ai-tmp/pytorch:ubuntu24.04-py312.06
+          cmd: cd ./aoneci/runner/work/source/output; ls; find -name "run_copyengine_test.sh"; export TEST_ROOT=`pwd`; bash $TEST_ROOT/pccl/.aoneci/test/run_copyengine_test.sh
+          labels: OAM-810E
+          image_url: ${{jobs.ubuntu24_hggcrt13_test.outputs.oss_url}}
+          timeout: 10800
+
+  register_test_hggcrt13:
+    name: "register_test_hggcrt13"
+    image: "reg.docker.alibaba-inc.com/ai-tmp/pytorch:ubuntu24.04-py312.06"
+    timeout: 12h
+    runs-on:
+      - 32-128Gi
+      - amd64
+    needs:
+      - ubuntu24_hggcrt13_test
+    steps:
+      - uses: ptg-ai-test
+        inputs:
+          ppu: 2
+          run_image: reg.docker.alibaba-inc.com/ai-tmp/pytorch:ubuntu24.04-py312.06
+          cmd: cd ./aoneci/runner/work/source/output; ls; find -name "run_register_test.sh"; export TEST_ROOT=`pwd`; bash $TEST_ROOT/pccl/.aoneci/test/run_register_test.sh
+          labels: OAM-810E
+          image_url: ${{jobs.ubuntu24_hggcrt13_test.outputs.oss_url}}
+          timeout: 10800
+
+  customAllreduce_test_hggcrt13:
+    name: "customAllreduce_test_hggcrt13"
+    image: "reg.docker.alibaba-inc.com/ai-tmp/pytorch:ubuntu24.04-py312.06"
+    timeout: 12h
+    runs-on:
+      - 32-128Gi
+      - amd64
+    needs:
+      - ubuntu24_hggcrt13_test
+    steps:
+      - uses: ptg-ai-test
+        inputs:
+          ppu: 2
+          run_image: reg.docker.alibaba-inc.com/ai-tmp/pytorch:ubuntu24.04-py312.06
+          cmd: cd ./aoneci/runner/work/source/output; ls; find -name "run_customAllreduce_test.sh"; export TEST_ROOT=`pwd`; bash $TEST_ROOT/pccl/.aoneci/test/run_customAllreduce_test.sh
+          labels: OAM-810E
+          image_url: ${{jobs.ubuntu24_hggcrt13_test.outputs.oss_url}}
+          timeout: 10800
+
+  memcpy_test_hggcrt13:
+    name: "memcpy_test_hggcrt13"
+    image: "reg.docker.alibaba-inc.com/ai-tmp/pytorch:ubuntu24.04-py312.06"
+    timeout: 12h
+    runs-on:
+      - 32-128Gi
+      - amd64
+    needs:
+      - ubuntu24_hggcrt13_test
+    steps:
+      - uses: ptg-ai-test
+        inputs:
+          ppu: 2
+          run_image: reg.docker.alibaba-inc.com/ai-tmp/pytorch:ubuntu24.04-py312.06
+          cmd: cd ./aoneci/runner/work/source/output; ls; find -name "run_memcpy_test.sh"; export TEST_ROOT=`pwd`; bash $TEST_ROOT/pccl/.aoneci/test/run_memcpy_test.sh
+          labels: OAM-810E
+          image_url: ${{jobs.ubuntu24_hggcrt13_test.outputs.oss_url}}
+          timeout: 10800
+
+  nonblocking_test_hggcrt13:
+    name: "nonblocking_test_hggcrt13"
+    image: "reg.docker.alibaba-inc.com/ai-tmp/pytorch:ubuntu24.04-py312.06"
+    timeout: 12h
+    runs-on:
+      - 32-128Gi
+      - amd64
+    needs:
+      - ubuntu24_hggcrt13_test
+    steps:
+      - uses: ptg-ai-test
+        inputs:
+          ppu: 2
+          run_image: reg.docker.alibaba-inc.com/ai-tmp/pytorch:ubuntu24.04-py312.06
+          cmd: cd ./aoneci/runner/work/source/output; ls; find -name "run_nonblocking_test.sh"; export TEST_ROOT=`pwd`; bash $TEST_ROOT/pccl/.aoneci/test/run_nonblocking_test.sh
+          labels: OAM-810E
+          image_url: ${{jobs.ubuntu24_hggcrt13_test.outputs.oss_url}}
+          timeout: 10800
+
+  commabort_test_hggcrt13:
+    name: "commabort_test_hggcrt13"
+    image: "reg.docker.alibaba-inc.com/ai-tmp/pytorch:ubuntu24.04-py312.06"
+    timeout: 12h
+    runs-on:
+      - 32-128Gi
+      - amd64
+    needs:
+      - ubuntu24_hggcrt13_test
+    steps:
+      - uses: ptg-ai-test
+        inputs:
+          ppu: 2
+          run_image: reg.docker.alibaba-inc.com/ai-tmp/pytorch:ubuntu24.04-py312.06
+          cmd: cd ./aoneci/runner/work/source/output; ls; find -name "run_commabort_test.sh"; export TEST_ROOT=`pwd`; bash $TEST_ROOT/pccl/.aoneci/test/run_commabort_test.sh
+          labels: OAM-810E
+          image_url: ${{jobs.ubuntu24_hggcrt13_test.outputs.oss_url}}
+          timeout: 10800
+  
+  ubuntu24_hggcrt12_test:
+    name: "ubuntu24_hggcrt12_test"
+    image: "reg.docker.alibaba-inc.com/ai-tmp/pytorch:ubuntu24.04-py312.06"
+    timeout: 12h
+    runs-on:
+      - 32-128Gi
+      - amd64
+    outputs:
+      oss_url: ${{steps.artifact.outputs.oss_url}}
+    steps:
+      - uses: checkout
+        inputs:
+          repository-url: 'git@gitlab.alibaba-inc.com:PPU-comm/pccl.git'
+          path: '/aoneci/runner/work/source/pccl'
+          ssh-key: ${{secrets.private_ssh_key}}
+      - uses: checkout
+        inputs:
+          repository-url: 'git@gitlab.alibaba-inc.com:PPU-comm/comm-internal-testbox.git'
+          ref: '${{pipeline.inst.triggerMode == "manual" ? params.comm_internal_testbox_ref : "master"}}'
+          path: '/aoneci/runner/work/source/comm-internal-testbox'
+          ssh-key: ${{secrets.private_ssh_key}}
+      - uses: checkout
+        inputs:
+          repository-url: 'git@gitlab.alibaba-inc.com:PPU-comm/comm-toolbox.git'
+          ref: '${{pipeline.inst.triggerMode == "manual" ? params.comm_toolbox_ref : "master"}}'
+          path: '/aoneci/runner/work/source/comm-toolbox'
+          ssh-key: ${{secrets.private_ssh_key}}
+      - uses: checkout
+        inputs:
+          repository-url: 'git@gitlab.alibaba-inc.com:PPU-comm/pccl-tests.git'
+          ref: '${{pipeline.inst.triggerMode == "manual" ? params.pccl_tests_ref : "master"}}'
+          path: '/aoneci/runner/work/source/pccl-tests'
+          ssh-key: ${{secrets.private_ssh_key}}
+      - id: ubuntu24_hggcrt12_build
+        timeout: 5h
+        run: |
+          echo "---------------------"
+          export source_home=$AONE_CI_SOURCE
+          export build_output=$AONE_CI_SOURCE/output
+          mkdir -p $build_output
+          echo $PWD
+          echo $AONE_CI_SOURCE
+          ls
+          cd /aoneci/runner/work/source/
+          ls
+          ls /aoneci/runner/work/source/pccl/
+          cp /aoneci/runner/work/source/pccl/.aoneci/script/ubuntu24_hggcrt12_build.sh ./
+          cp /aoneci/runner/work/source/pccl/.aoneci/test/run_composite_test.sh ./
+          cp /aoneci/runner/work/source/pccl/.aoneci/test/run_cuda_graph_test.sh ./
+          cp /aoneci/runner/work/source/pccl/.aoneci/test/run_copyengine_test.sh ./
+          cp /aoneci/runner/work/source/pccl/.aoneci/test/run_register_test.sh ./
+          cp /aoneci/runner/work/source/pccl/.aoneci/test/run_customAllreduce_test.sh ./
+          cp /aoneci/runner/work/source/pccl/.aoneci/test/run_memcpy_test.sh ./
+          cp /aoneci/runner/work/source/pccl/.aoneci/test/run_nonblocking_test.sh ./
+          cp /aoneci/runner/work/source/pccl/.aoneci/test/run_commabort_test.sh ./
+          source ubuntu24_hggcrt12_build.sh
+          ls ${build_output}
+      - id: package
+        name: pack
+        run: |
+          ls
+          echo "---------------------"
+          tar -zcvf output_hggcrt12.tar.gz $AONE_CI_SOURCE/output/*
+          echo "---------------------"
+          ls $AONE_CI_SOURCE/output/*
+      - uses: upload-oss
+        inputs:
+          path: output_hggcrt12.tar.gz
+          retention-days: 1
+      - id: artifact
+        run: |
+          echo ${{ #array(steps.upload-oss.outputs.result)[0].remote }} > ${{outputs.oss_url.path}}
+
+  composite_test_hggcrt12:
+    name: "composite_test_hggcrt12"
+    image: "reg.docker.alibaba-inc.com/ai-tmp/pytorch:ubuntu24.04-py312.06"
+    timeout: 12h
+    runs-on:
+      - 32-128Gi
+      - amd64
+    needs:
+      - ubuntu24_hggcrt12_test
+    steps:
+      - uses: ptg-ai-test
+        inputs:
+          ppu: 2
+          run_image: reg.docker.alibaba-inc.com/ai-tmp/pytorch:ubuntu24.04-py312.06
+          cmd: cd ./aoneci/runner/work/source/output; ls; find -name "run_composite_test.sh"; export TEST_ROOT=`pwd`; bash $TEST_ROOT/pccl/.aoneci/test/run_composite_test.sh
+          labels: OAM-810E
+          image_url: ${{jobs.ubuntu24_hggcrt12_test.outputs.oss_url}}
+          timeout: 10800
+
+  cuda_graph_test_hggcrt12:
+    name: "cuda_graph_test_hggcrt12"
+    image: "reg.docker.alibaba-inc.com/ai-tmp/pytorch:ubuntu24.04-py312.06"
+    timeout: 12h
+    runs-on:
+      - 32-128Gi
+      - amd64
+    needs:
+      - ubuntu24_hggcrt12_test
+    steps:
+      - uses: ptg-ai-test
+        inputs:
+          ppu: 4
+          run_image: reg.docker.alibaba-inc.com/ai-tmp/pytorch:ubuntu24.04-py312.06
+          cmd: cd ./aoneci/runner/work/source/output; ls; find -name "run_cuda_graph_test.sh"; export TEST_ROOT=`pwd`; bash $TEST_ROOT/pccl/.aoneci/test/run_cuda_graph_test.sh
+          labels: OAM-810E
+          image_url: ${{jobs.ubuntu24_hggcrt12_test.outputs.oss_url}}
+          timeout: 10800
+    
+  copyengine_test_hggcrt12:
+    name: "copyengine_test_hggcrt12"
+    image: "reg.docker.alibaba-inc.com/ai-tmp/pytorch:ubuntu24.04-py312.06"
+    timeout: 12h
+    runs-on:
+      - 32-128Gi
+      - amd64
+    needs:
+      - ubuntu24_hggcrt12_test
+    steps:
+      - uses: ptg-ai-test
+        inputs:
+          ppu: 2
+          run_image: reg.docker.alibaba-inc.com/ai-tmp/pytorch:ubuntu24.04-py312.06
+          cmd: cd ./aoneci/runner/work/source/output; ls; find -name "run_copyengine_test.sh"; export TEST_ROOT=`pwd`; bash $TEST_ROOT/pccl/.aoneci/test/run_copyengine_test.sh
+          labels: OAM-810E
+          image_url: ${{jobs.ubuntu24_hggcrt12_test.outputs.oss_url}}
+          timeout: 10800
+
+  register_test_hggcrt12:
+    name: "register_test_hggcrt12"
+    image: "reg.docker.alibaba-inc.com/ai-tmp/pytorch:ubuntu24.04-py312.06"
+    timeout: 12h
+    runs-on:
+      - 32-128Gi
+      - amd64
+    needs:
+      - ubuntu24_hggcrt12_test
+    steps:
+      - uses: ptg-ai-test
+        inputs:
+          ppu: 2
+          run_image: reg.docker.alibaba-inc.com/ai-tmp/pytorch:ubuntu24.04-py312.06
+          cmd: cd ./aoneci/runner/work/source/output; ls; find -name "run_register_test.sh"; export TEST_ROOT=`pwd`; bash $TEST_ROOT/pccl/.aoneci/test/run_register_test.sh
+          labels: OAM-810E
+          image_url: ${{jobs.ubuntu24_hggcrt12_test.outputs.oss_url}}
+          timeout: 10800
+
+  customAllreduce_test_hggcrt12:
+    name: "customAllreduce_test_hggcrt12"
+    image: "reg.docker.alibaba-inc.com/ai-tmp/pytorch:ubuntu24.04-py312.06"
+    timeout: 12h
+    runs-on:
+      - 32-128Gi
+      - amd64
+    needs:
+      - ubuntu24_hggcrt12_test
+    steps:
+      - uses: ptg-ai-test
+        inputs:
+          ppu: 2
+          run_image: reg.docker.alibaba-inc.com/ai-tmp/pytorch:ubuntu24.04-py312.06
+          cmd: cd ./aoneci/runner/work/source/output; ls; find -name "run_customAllreduce_test.sh"; export TEST_ROOT=`pwd`; bash $TEST_ROOT/pccl/.aoneci/test/run_customAllreduce_test.sh
+          labels: OAM-810E
+          image_url: ${{jobs.ubuntu24_hggcrt12_test.outputs.oss_url}}
+          timeout: 10800
+
+  memcpy_test_hggcrt12:
+    name: "memcpy_test_hggcrt12"
+    image: "reg.docker.alibaba-inc.com/ai-tmp/pytorch:ubuntu24.04-py312.06"
+    timeout: 12h
+    runs-on:
+      - 32-128Gi
+      - amd64
+    needs:
+      - ubuntu24_hggcrt12_test
+    steps:
+      - uses: ptg-ai-test
+        inputs:
+          ppu: 2
+          run_image: reg.docker.alibaba-inc.com/ai-tmp/pytorch:ubuntu24.04-py312.06
+          cmd: cd ./aoneci/runner/work/source/output; ls; find -name "run_memcpy_test.sh"; export TEST_ROOT=`pwd`; bash $TEST_ROOT/pccl/.aoneci/test/run_memcpy_test.sh
+          labels: OAM-810E
+          image_url: ${{jobs.ubuntu24_hggcrt12_test.outputs.oss_url}}
+          timeout: 10800
+
+  nonblocking_test_hggcrt12:
+    name: "nonblocking_test_hggcrt12"
+    image: "reg.docker.alibaba-inc.com/ai-tmp/pytorch:ubuntu24.04-py312.06"
+    timeout: 12h
+    runs-on:
+      - 32-128Gi
+      - amd64
+    needs:
+      - ubuntu24_hggcrt12_test
+    steps:
+      - uses: ptg-ai-test
+        inputs:
+          ppu: 2
+          run_image: reg.docker.alibaba-inc.com/ai-tmp/pytorch:ubuntu24.04-py312.06
+          cmd: cd ./aoneci/runner/work/source/output; ls; find -name "run_nonblocking_test.sh"; export TEST_ROOT=`pwd`; bash $TEST_ROOT/pccl/.aoneci/test/run_nonblocking_test.sh
+          labels: OAM-810E
+          image_url: ${{jobs.ubuntu24_hggcrt12_test.outputs.oss_url}}
+          timeout: 10800
+
+  commabort_test_hggcrt12:
+    name: "commabort_test_hggcrt12"
+    image: "reg.docker.alibaba-inc.com/ai-tmp/pytorch:ubuntu24.04-py312.06"
+    timeout: 12h
+    runs-on:
+      - 32-128Gi
+      - amd64
+    needs:
+      - ubuntu24_hggcrt12_test
+    steps:
+      - uses: ptg-ai-test
+        inputs:
+          ppu: 2
+          run_image: reg.docker.alibaba-inc.com/ai-tmp/pytorch:ubuntu24.04-py312.06
+          cmd: cd ./aoneci/runner/work/source/output; ls; find -name "run_commabort_test.sh"; export TEST_ROOT=`pwd`; bash $TEST_ROOT/pccl/.aoneci/test/run_commabort_test.sh
+          labels: OAM-810E
+          image_url: ${{jobs.ubuntu24_hggcrt12_test.outputs.oss_url}}
+          timeout: 10800
+  
+  ubuntu24_hggcrt13_tsm_test:
+    name: "ubuntu24_hggcrt13_tsm_test"
+    image: "reg.docker.alibaba-inc.com/ai-tmp/pytorch:ubuntu24.04-py312.06"
+    timeout: 12h
+    runs-on:
+      - 32-128Gi
+      - amd64
+    outputs:
+      oss_url: ${{steps.artifact.outputs.oss_url}}
+    steps:
+      - uses: checkout
+        inputs:
+          repository-url: 'git@gitlab.alibaba-inc.com:PPU-comm/pccl.git'
+          path: '/aoneci/runner/work/source/pccl'
+          ssh-key: ${{secrets.private_ssh_key}}
+      - uses: checkout
+        inputs:
+          repository-url: 'git@gitlab.alibaba-inc.com:PPU-comm/comm-internal-testbox.git'
+          ref: '${{pipeline.inst.triggerMode == "manual" ? params.comm_internal_testbox_ref : "master"}}'
+          path: '/aoneci/runner/work/source/comm-internal-testbox'
+          ssh-key: ${{secrets.private_ssh_key}}
+      - uses: checkout
+        inputs:
+          repository-url: 'git@gitlab.alibaba-inc.com:PPU-comm/comm-toolbox.git'
+          ref: '${{pipeline.inst.triggerMode == "manual" ? params.comm_toolbox_ref : "master"}}'
+          path: '/aoneci/runner/work/source/comm-toolbox'
+          ssh-key: ${{secrets.private_ssh_key}}
+      - uses: checkout
+        inputs:
+          repository-url: 'git@gitlab.alibaba-inc.com:PPU-comm/pccl-tests.git'
+          ref: '${{pipeline.inst.triggerMode == "manual" ? params.pccl_tests_ref : "master"}}'
+          path: '/aoneci/runner/work/source/pccl-tests'
+          ssh-key: ${{secrets.private_ssh_key}}
+      - id: ubuntu24_hggcrt13_tsm_build
+        timeout: 5h
+        run: |
+          echo "---------------------"
+          export source_home=$AONE_CI_SOURCE
+          export build_output=$AONE_CI_SOURCE/output_tsm
+          mkdir -p $build_output
+          echo $PWD
+          echo $AONE_CI_SOURCE
+          ls
+          cd /aoneci/runner/work/source/
+          ls
+          ls /aoneci/runner/work/source/pccl/
+          cp /aoneci/runner/work/source/pccl/.aoneci/script/ubuntu24_hggcrt13_tsm_build.sh ./
+          cp /aoneci/runner/work/source/pccl/.aoneci/test/run_common_test.sh ./
+          source ubuntu24_hggcrt13_tsm_build.sh
+          ls ${build_output}
+      - id: package
+        name: pack
+        run: |
+          ls
+          echo "---------------------"
+          tar -zcvf output_tsm.tar.gz $AONE_CI_SOURCE/output_tsm/*
+          echo "---------------------"
+          ls $AONE_CI_SOURCE/output_tsm/*
+      - uses: upload-oss
+        inputs:
+          path: output_tsm.tar.gz
+          retention-days: 1
+      - id: artifact
+        run: |
+          echo ${{ #array(steps.upload-oss.outputs.result)[0].remote }} > ${{outputs.oss_url.path}}
+      - uses: ptg-ai-test
+        inputs:
+          ppu: 4
+          run_image: reg.docker.alibaba-inc.com/ai-tmp/pytorch:ubuntu24.04-py312.06
+          cmd: cd ./aoneci/runner/work/source/output_tsm; ls; find -name "run_common_test.sh"; export TEST_ROOT=`pwd`; bash $TEST_ROOT/pccl/.aoneci/test/run_common_test.sh
+          labels: OAM-810E
+          image_url: ${{steps.artifact.outputs.oss_url}}
+          timeout: 10800
+
+  ubuntu24_hggcrt13_notsm_test:
+    name: "ubuntu24_hggcrt13_notsm_test"
+    image: "reg.docker.alibaba-inc.com/ai-tmp/pytorch:ubuntu24.04-py312.06"
+    timeout: 12h
+    runs-on:
+      - 32-128Gi
+      - amd64
+    outputs:
+      oss_url: ${{steps.artifact.outputs.oss_url}}
+    steps:
+      - uses: checkout
+        inputs:
+          repository-url: 'git@gitlab.alibaba-inc.com:PPU-comm/pccl.git'
+          path: '/aoneci/runner/work/source/pccl'
+          ssh-key: ${{secrets.private_ssh_key}}
+      - uses: checkout
+        inputs:
+          repository-url: 'git@gitlab.alibaba-inc.com:PPU-comm/comm-internal-testbox.git'
+          ref: '${{pipeline.inst.triggerMode == "manual" ? params.comm_internal_testbox_ref : "master"}}'
+          path: '/aoneci/runner/work/source/comm-internal-testbox'
+          ssh-key: ${{secrets.private_ssh_key}}
+      - uses: checkout
+        inputs:
+          repository-url: 'git@gitlab.alibaba-inc.com:PPU-comm/comm-toolbox.git'
+          ref: '${{pipeline.inst.triggerMode == "manual" ? params.comm_toolbox_ref : "master"}}'
+          path: '/aoneci/runner/work/source/comm-toolbox'
+          ssh-key: ${{secrets.private_ssh_key}}
+      - uses: checkout
+        inputs:
+          repository-url: 'git@gitlab.alibaba-inc.com:PPU-comm/pccl-tests.git'
+          ref: '${{pipeline.inst.triggerMode == "manual" ? params.pccl_tests_ref : "master"}}'
+          path: '/aoneci/runner/work/source/pccl-tests'
+          ssh-key: ${{secrets.private_ssh_key}}
+      - id: ubuntu24_hggcrt13_notsm_build
+        timeout: 5h
+        run: |
+          echo "---------------------"
+          export source_home=$AONE_CI_SOURCE
+          export build_output=$AONE_CI_SOURCE/output_notsm
+          mkdir -p $build_output
+          echo $PWD
+          echo $AONE_CI_SOURCE
+          ls
+          cd /aoneci/runner/work/source/
+          ls
+          ls /aoneci/runner/work/source/pccl/
+          cp /aoneci/runner/work/source/pccl/.aoneci/script/ubuntu24_hggcrt13_notsm_build.sh ./
+          cp /aoneci/runner/work/source/pccl/.aoneci/test/run_common_test.sh ./
+          source ubuntu24_hggcrt13_notsm_build.sh
+          ls ${build_output}
+      - id: package
+        name: pack
+        run: |
+          ls
+          echo "---------------------"
+          tar -zcvf output_notsm.tar.gz $AONE_CI_SOURCE/output_notsm/*
+          echo "---------------------"
+          ls $AONE_CI_SOURCE/output_notsm/*
+      - uses: upload-oss
+        inputs:
+          path: output_notsm.tar.gz
+          retention-days: 1
+      - id: artifact
+        run: |
+          echo ${{ #array(steps.upload-oss.outputs.result)[0].remote }} > ${{outputs.oss_url.path}}
+      - uses: ptg-ai-test
+        inputs:
+          ppu: 4
+          run_image: reg.docker.alibaba-inc.com/ai-tmp/pytorch:ubuntu24.04-py312.06
+          cmd: cd ./aoneci/runner/work/source/output_notsm; ls; find -name "run_common_test.sh"; export TEST_ROOT=`pwd`; bash $TEST_ROOT/pccl/.aoneci/test/run_common_test.sh
+          labels: OAM-810E
+          image_url: ${{steps.artifact.outputs.oss_url}}
+          timeout: 10800
+
+  ubuntu24_hggcrt13_acu_test:
+    name: "ubuntu24_hggcrt13_acu_test"
+    image: "reg.docker.alibaba-inc.com/ai-tmp/pytorch:ubuntu24.04-py312.06"
+    timeout: 12h
+    runs-on:
+      - 32-128Gi
+      - amd64
+    outputs:
+      oss_url: ${{steps.artifact.outputs.oss_url}}
+    steps:
+      - uses: checkout
+        inputs:
+          repository-url: 'git@gitlab.alibaba-inc.com:PPU-comm/pccl.git'
+          path: '/aoneci/runner/work/source/pccl'
+          ssh-key: ${{secrets.private_ssh_key}}
+      - uses: checkout
+        inputs:
+          repository-url: 'git@gitlab.alibaba-inc.com:PPU-comm/comm-internal-testbox.git'
+          ref: '${{pipeline.inst.triggerMode == "manual" ? params.comm_internal_testbox_ref : "master"}}'
+          path: '/aoneci/runner/work/source/comm-internal-testbox'
+          ssh-key: ${{secrets.private_ssh_key}}
+      - uses: checkout
+        inputs:
+          repository-url: 'git@gitlab.alibaba-inc.com:PPU-comm/comm-toolbox.git'
+          ref: '${{pipeline.inst.triggerMode == "manual" ? params.comm_toolbox_ref : "master"}}'
+          path: '/aoneci/runner/work/source/comm-toolbox'
+          ssh-key: ${{secrets.private_ssh_key}}
+      - uses: checkout
+        inputs:
+          repository-url: 'git@gitlab.alibaba-inc.com:PPU-comm/pccl-tests.git'
+          ref: '${{pipeline.inst.triggerMode == "manual" ? params.pccl_tests_ref : "master"}}'
+          path: '/aoneci/runner/work/source/pccl-tests'
+          ssh-key: ${{secrets.private_ssh_key}}
+      - id: ubuntu24_hggcrt13_acu_build
+        timeout: 5h
+        run: |
+          echo "---------------------"
+          export source_home=$AONE_CI_SOURCE
+          export build_output=$AONE_CI_SOURCE/output_acu
+          mkdir -p $build_output
+          echo $PWD
+          echo $AONE_CI_SOURCE
+          ls
+          cd /aoneci/runner/work/source/
+          ls
+          cp /aoneci/runner/work/source/pccl/.aoneci/script/ubuntu24_hggcrt13_acu_build.sh ./
+          cp /aoneci/runner/work/source/pccl/.aoneci/test/run_acu_test.sh ./
+          source ubuntu24_hggcrt13_acu_build.sh
+          ls ${build_output}
+      - id: package
+        name: pack
+        run: |
+          ls
+          echo "---------------------"
+          tar -zcvf output_acu.tar.gz $AONE_CI_SOURCE/output_acu/*
+          echo "---------------------"
+          ls $AONE_CI_SOURCE/output_acu/*
+      - uses: upload-oss
+        inputs:
+          path: output_acu.tar.gz
+          retention-days: 1
+      - id: artifact
+        run: |
+          echo ${{ #array(steps.upload-oss.outputs.result)[0].remote }} > ${{outputs.oss_url.path}}
+      - uses: ptg-ai-test
+        inputs:
+          ppu: 2
+          run_image: reg.docker.alibaba-inc.com/ai-tmp/pytorch:ubuntu24.04-py312.06
+          cmd: cd ./aoneci/runner/work/source/output_acu; ls; find -name "run_acu_test.sh"; export TEST_ROOT=`pwd`; bash $TEST_ROOT/pccl/.aoneci/test/run_acu_test.sh
+          labels: OAM-810E
+          image_url: ${{steps.artifact.outputs.oss_url}}
+          timeout: 10800
+
+  ubuntu20_hggcrt12_build:
+    name: "ubuntu20_hggcrt12_build"
+    image: "reg.docker.alibaba-inc.com/ai-tmp/pytorch:ubuntu20.04-py39.01"
+    timeout: 12h
+    runs-on:
+      - 32-128Gi
+      - amd64
+    outputs:
+      oss_url: ${{steps.artifact.outputs.oss_url}}
+    steps:
+      - uses: checkout
+        inputs:
+          repository-url: 'git@gitlab.alibaba-inc.com:PPU-comm/pccl.git'
+          path: '/aoneci/runner/work/source/pccl'
+          ssh-key: ${{secrets.private_ssh_key}}
+      - uses: checkout
+        inputs:
+          repository-url: 'git@gitlab.alibaba-inc.com:PPU-comm/comm-internal-testbox.git'
+          ref: '${{pipeline.inst.triggerMode == "manual" ? params.comm_internal_testbox_ref : "master"}}'
+          path: '/aoneci/runner/work/source/comm-internal-testbox'
+          ssh-key: ${{secrets.private_ssh_key}}
+      - uses: checkout
+        inputs:
+          repository-url: 'git@gitlab.alibaba-inc.com:PPU-comm/comm-toolbox.git'
+          ref: '${{pipeline.inst.triggerMode == "manual" ? params.comm_toolbox_ref : "master"}}'
+          path: '/aoneci/runner/work/source/comm-toolbox'
+          ssh-key: ${{secrets.private_ssh_key}}
+      - uses: checkout
+        inputs:
+          repository-url: 'git@gitlab.alibaba-inc.com:PPU-comm/pccl-tests.git'
+          ref: '${{pipeline.inst.triggerMode == "manual" ? params.pccl_tests_ref : "master"}}'
+          path: '/aoneci/runner/work/source/pccl-tests'
+          ssh-key: ${{secrets.private_ssh_key}}
+      - id: ubuntu20_hggcrt12_build
+        timeout: 5h
+        run: |
+          echo "---------------------"
+          export source_home=$AONE_CI_SOURCE
+          export build_output=$AONE_CI_SOURCE/output
+          mkdir -p $build_output
+          echo $PWD
+          echo $AONE_CI_SOURCE
+          ls
+          cd /aoneci/runner/work/source/
+          ls
+          ls /aoneci/runner/work/source/pccl/
+          cp /aoneci/runner/work/source/pccl/.aoneci/script/ubuntu20_hggcrt12_build.sh ./
+          source ubuntu20_hggcrt12_build.sh
+          ls ${build_output}
+      - id: package
+        name: pack
+        run: |
+          ls
+          echo "---------------------"
+          tar -zcvf output.tar.gz $AONE_CI_SOURCE/output/*
+          echo "---------------------"
+          ls $AONE_CI_SOURCE/output/*
+      - uses: upload-oss
+        inputs:
+          path: output.tar.gz
+          retention-days: 1
+      - id: artifact
+        run: |
+          echo ${{ #array(steps.upload-oss.outputs.result)[0].remote }} > ${{outputs.oss_url.path}}
+  
+  ubuntu24_hggcrt13_comshrink_test:
+    name: "ubuntu24_hggcrt13_comshrink_test"
+    image: "reg.docker.alibaba-inc.com/ai-tmp/pytorch:ubuntu24.04-py312.06"
+    timeout: 12h
+    runs-on:
+      - 32-128Gi
+      - amd64
+    outputs:
+      oss_url: ${{steps.artifact.outputs.oss_url}}
+    steps:
+      - uses: checkout
+        inputs:
+          repository-url: 'git@gitlab.alibaba-inc.com:PPU-comm/pccl.git'
+          path: '/aoneci/runner/work/source/pccl'
+          ssh-key: ${{secrets.private_ssh_key}}
+      - uses: checkout
+        inputs:
+          repository-url: 'git@gitlab.alibaba-inc.com:PPU-comm/comm-internal-testbox.git'
+          ref: '${{pipeline.inst.triggerMode == "manual" ? params.comm_internal_testbox_ref : "master"}}'
+          path: '/aoneci/runner/work/source/comm-internal-testbox'
+          ssh-key: ${{secrets.private_ssh_key}}
+      - uses: checkout
+        inputs:
+          repository-url: 'git@gitlab.alibaba-inc.com:PPU-comm/comm-toolbox.git'
+          ref: '${{pipeline.inst.triggerMode == "manual" ? params.comm_toolbox_ref : "master"}}'
+          path: '/aoneci/runner/work/source/comm-toolbox'
+          ssh-key: ${{secrets.private_ssh_key}}
+      - uses: checkout
+        inputs:
+          repository-url: 'git@gitlab.alibaba-inc.com:PPU-comm/pccl-tests.git'
+          ref: '${{pipeline.inst.triggerMode == "manual" ? params.pccl_tests_ref : "master"}}'
+          path: '/aoneci/runner/work/source/pccl-tests'
+          ssh-key: ${{secrets.private_ssh_key}}
+      - id: ubuntu24_hggcrt13_comshrink_build
+        timeout: 5h
+        run: |
+          echo "---------------------"
+          export source_home=$AONE_CI_SOURCE
+          export build_output=$AONE_CI_SOURCE/output_comshrink13
+          mkdir -p $build_output
+          echo $PWD
+          echo $AONE_CI_SOURCE
+          ls
+          cd /aoneci/runner/work/source/
+          ls
+          ls /aoneci/runner/work/source/comm-internal-testbox/
+          cp /aoneci/runner/work/source/pccl/.aoneci/script/ubuntu24_hggcrt13_comshrink_build.sh ./
+          cp /aoneci/runner/work/source/pccl/.aoneci/test/run_commshrink_test.sh ./
+          source ubuntu24_hggcrt13_comshrink_build.sh
+          ls ${build_output}
+      - id: package
+        name: pack
+        run: |
+          ls
+          echo "---------------------"
+          tar -zcvf output_comshrink13.tar.gz $AONE_CI_SOURCE/output_comshrink13/*
+          echo "---------------------"
+          ls $AONE_CI_SOURCE/output_comshrink13/*
+      - uses: upload-oss
+        inputs:
+          path: output_comshrink13.tar.gz
+          retention-days: 1
+      - id: artifact
+        run: |
+          echo ${{ #array(steps.upload-oss.outputs.result)[0].remote }} > ${{outputs.oss_url.path}}
+      - uses: ptg-ai-test
+        inputs:
+          ppu: 4
+          run_image: reg.docker.alibaba-inc.com/ai-tmp/pytorch:ubuntu24.04-py312.06
+          cmd: cd ./aoneci/runner/work/source/output_comshrink13; ls; find -name "run_commshrink_test.sh"; export TEST_ROOT=`pwd`; bash $TEST_ROOT/pccl/.aoneci/test/run_commshrink_test.sh
+          labels: OAM-810E
+          image_url: ${{steps.artifact.outputs.oss_url}}
+          timeout: 10800
+  
+  ubuntu24_hggcrt12_comshrink_test:
+    name: "ubuntu24_hggcrt12_comshrink_test"
+    image: "reg.docker.alibaba-inc.com/ai-tmp/pytorch:ubuntu24.04-py312.06"
+    timeout: 12h
+    runs-on:
+      - 32-128Gi
+      - amd64
+    outputs:
+      oss_url: ${{steps.artifact.outputs.oss_url}}
+    steps:
+      - uses: checkout
+        inputs:
+          repository-url: 'git@gitlab.alibaba-inc.com:PPU-comm/pccl.git'
+          path: '/aoneci/runner/work/source/pccl'
+          ssh-key: ${{secrets.private_ssh_key}}
+      - uses: checkout
+        inputs:
+          repository-url: 'git@gitlab.alibaba-inc.com:PPU-comm/comm-internal-testbox.git'
+          ref: '${{pipeline.inst.triggerMode == "manual" ? params.comm_internal_testbox_ref : "master"}}'
+          path: '/aoneci/runner/work/source/comm-internal-testbox'
+          ssh-key: ${{secrets.private_ssh_key}}
+      - uses: checkout
+        inputs:
+          repository-url: 'git@gitlab.alibaba-inc.com:PPU-comm/comm-toolbox.git'
+          ref: '${{pipeline.inst.triggerMode == "manual" ? params.comm_toolbox_ref : "master"}}'
+          path: '/aoneci/runner/work/source/comm-toolbox'
+          ssh-key: ${{secrets.private_ssh_key}}
+      - uses: checkout
+        inputs:
+          repository-url: 'git@gitlab.alibaba-inc.com:PPU-comm/pccl-tests.git'
+          ref: '${{pipeline.inst.triggerMode == "manual" ? params.pccl_tests_ref : "master"}}'
+          path: '/aoneci/runner/work/source/pccl-tests'
+          ssh-key: ${{secrets.private_ssh_key}}
+      - id: ubuntu24_hggcrt12_comshrink_build
+        timeout: 5h
+        run: |
+          echo "---------------------"
+          export source_home=$AONE_CI_SOURCE
+          export build_output=$AONE_CI_SOURCE/output_comshrink12
+          mkdir -p $build_output
+          echo $PWD
+          echo $AONE_CI_SOURCE
+          ls
+          cd /aoneci/runner/work/source/
+          ls
+          ls /aoneci/runner/work/source/pccl/
+          cp /aoneci/runner/work/source/pccl/.aoneci/script/ubuntu24_hggcrt12_comshrink_build.sh ./
+          cp /aoneci/runner/work/source/pccl/.aoneci/test/run_commshrink_test.sh ./
+          source ubuntu24_hggcrt12_comshrink_build.sh
+          ls ${build_output}
+      - id: package
+        name: pack
+        run: |
+          ls
+          echo "---------------------"
+          tar -zcvf output_comshrink12.tar.gz $AONE_CI_SOURCE/output_comshrink12/*
+          echo "---------------------"
+          ls $AONE_CI_SOURCE/output_comshrink12/*
+      - uses: upload-oss
+        inputs:
+          path: output_comshrink12.tar.gz
+          retention-days: 1
+      - id: artifact
+        run: |
+          echo ${{ #array(steps.upload-oss.outputs.result)[0].remote }} > ${{outputs.oss_url.path}}
+      - uses: ptg-ai-test
+        inputs:
+          ppu: 4
+          run_image: reg.docker.alibaba-inc.com/ai-tmp/pytorch:ubuntu24.04-py312.06
+          cmd: cd ./aoneci/runner/work/source/output_comshrink12; ls; find -name "run_commshrink_test.sh"; export TEST_ROOT=`pwd`; bash $TEST_ROOT/pccl/.aoneci/test/run_commshrink_test.sh
+          labels: OAM-810E
+          image_url: ${{steps.artifact.outputs.oss_url}}
+          timeout: 10800
+
+strategy:
+  fast-fail: false
+  concurrency:
+    group: "${{git.merge_request?.id ?: git.branch ?: pipeline.inst.creator}}"
+    parallelism: 1
+    cancel-in-progress: true

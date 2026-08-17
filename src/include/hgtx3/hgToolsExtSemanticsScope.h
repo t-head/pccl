@@ -1,0 +1,57 @@
+/*
+ * SPDX-FileCopyrightText: Copyright (c) 2009-2025 NVIDIA CORPORATION & AFFILIATES. All rights reserved.
+ * SPDX-License-Identifier: Apache-2.0 WITH LLVM-exception
+ *
+ * Licensed under the Apache License, Version 2.0 (the "License");
+ * you may not use this file except in compliance with the License.
+ * You may obtain a copy of the License at
+ *
+ *     http://www.apache.org/licenses/LICENSE-2.0
+ *
+ * Unless required by applicable law or agreed to in writing, software
+ * distributed under the License is distributed on an "AS IS" BASIS,
+ * WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
+ * See the License for the specific language governing permissions and
+ * limitations under the License.
+ *
+ * Licensed under the Apache License v2.0 with LLVM Exceptions.
+ * See https://nvidia.github.io/NVTX/LICENSE.txt for license information.
+ */
+
+/*
+ * Modified by T-Head Semiconductor.
+ * Changes: Replaced all nvtx* symbols with hgtx* (function names, types,
+ * macros, headers) while preserving full API compatibility.
+ * Original source: https://github.com/NVIDIA/NVTX
+ */
+
+#if defined(HGTX_AS_SYSTEM_HEADER)
+#if defined(__clang__)
+#pragma clang system_header
+#elif defined(__GNUC__) || defined(__HGCOMPILER)
+#pragma GCC system_header
+#elif defined(_MSC_VER)
+#pragma system_header
+#endif
+#endif
+
+#include "hgToolsExtPayload.h"
+
+#ifndef HGTX_SEMANTIC_ID_SCOPE_V1
+#define HGTX_SEMANTIC_ID_SCOPE_V1 1
+
+/**
+ * \brief Specify the HGTX scope for a payload entry.
+ *
+ * This allows the scope to be set for a specific value or counter in a payload.
+ * The scope must be known at schema registration time.
+ */
+typedef struct hgtxSemanticsScope_v1
+{
+    struct hgtxSemanticsHeader_v1 header;
+
+    /** Specifies the scope of a payload entry, e.g. a counter or timestamp. */
+    uint64_t scopeId;
+} hgtxSemanticsScope_t;
+
+#endif /* HGTX_SEMANTIC_ID_SCOPE_V1 */

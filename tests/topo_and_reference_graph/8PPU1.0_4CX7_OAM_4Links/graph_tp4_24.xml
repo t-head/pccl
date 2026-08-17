@@ -1,0 +1,54 @@
+<graphs version="1">
+  <graph id="0" pattern="4" crossnic="1" nchannels="4" speedintra="21" speedinter="21" typeintra="ICN" typeinter="PHBH" samechannels="0">
+    <channel proxyDev="-1">
+      <net dev="0x1"/>
+      <gpu dev="2"/>
+      <gpu dev="4"/>
+      <net dev="0x2"/>
+    </channel>
+    <channel proxyDev="-1">
+      <net dev="0x2"/>
+      <gpu dev="4"/>
+      <gpu dev="2"/>
+      <net dev="0x1"/>
+    </channel>
+    <channel proxyDev="-1">
+      <net dev="0x1"/>
+      <gpu dev="2"/>
+      <gpu dev="4"/>
+      <net dev="0x2"/>
+    </channel>
+    <channel proxyDev="-1">
+      <net dev="0x2"/>
+      <gpu dev="4"/>
+      <gpu dev="2"/>
+      <net dev="0x1"/>
+    </channel>
+  </graph>
+  <graph id="1" pattern="3" crossnic="0" nchannels="4" speedintra="21" speedinter="21" typeintra="ICN" typeinter="PHBH" samechannels="0">
+    <channel proxyDev="-1">
+      <net dev="0x1"/>
+      <gpu dev="2"/>
+      <gpu dev="4"/>
+      <net dev="0x1"/>
+    </channel>
+    <channel proxyDev="-1">
+      <net dev="0x2"/>
+      <gpu dev="4"/>
+      <gpu dev="2"/>
+      <net dev="0x2"/>
+    </channel>
+    <channel proxyDev="-1">
+      <net dev="0x1"/>
+      <gpu dev="2"/>
+      <gpu dev="4"/>
+      <net dev="0x1"/>
+    </channel>
+    <channel proxyDev="-1">
+      <net dev="0x2"/>
+      <gpu dev="4"/>
+      <gpu dev="2"/>
+      <net dev="0x2"/>
+    </channel>
+  </graph>
+</graphs>

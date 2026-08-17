@@ -1,0 +1,123 @@
+<system version="1">
+  <cpu host_hash="0x10fcf4a956d47c2" numaid="4" affinity="00000000,0000ffff,00000000,00000000,00000000,0000ffff,00000000,00000000" arch="x86_64" vendor="AuthenticAMD" familyid="191" modelid="2">
+    <pci busid="0001:f3:00.0" class="0x060400" vendor="0x1000" device="0xc030" subsystem_vendor="0x1000" subsystem_device="0x100b" link_speed="32.0 GT/s PCIe" link_width="16">
+      <pci busid="0001:f7:00.0" class="0x030200" vendor="0x1ded" device="0x6005" subsystem_vendor="0x1ded" subsystem_device="0x6101" link_speed="32.0 GT/s PCIe" link_width="16">
+        <gpu dev="0" sm="89" rank="0" gdr="1" net_affinity="3">
+          <nvlink target="0001:13:00.0" count="2" bandwidth="100" tclass="0x030200"/>
+          <nvlink target="0001:05:00.0" count="2" bandwidth="100" tclass="0x030200"/>
+          <nvlink target="0000:f5:00.0" count="2" bandwidth="100" tclass="0x030200"/>
+          <nvlink target="0001:3d:00.0" count="2" bandwidth="100" tclass="0x030200"/>
+        </gpu>
+      </pci>
+      <pci busid="0001:f5:00.0" class="0x020000" vendor="0x15b3" device="0xa2dc" subsystem_vendor="0x15b3" subsystem_device="0x0031" link_speed="32.0 GT/s PCIe" link_width="16">
+        <nic>
+          <net name="mlx5_bond_3" dev="3" speed="400000" port="1" guid="0xf83f16000350bcf0" maxconn="131072" gdr="1"/>
+        </nic>
+      </pci>
+    </pci>
+  </cpu>
+  <cpu host_hash="0x10fcf4a956d47c2" numaid="5" affinity="00000000,ffff0000,00000000,00000000,00000000,ffff0000,00000000,00000000" arch="x86_64" vendor="AuthenticAMD" familyid="191" modelid="2">
+    <pci busid="0001:01:00.0" class="0x060400" vendor="0x1000" device="0xc030" subsystem_vendor="0x1000" subsystem_device="0x100b" link_speed="32.0 GT/s PCIe" link_width="16">
+      <pci busid="0001:03:00.0" class="0x020000" vendor="0x15b3" device="0xa2dc" subsystem_vendor="0x15b3" subsystem_device="0x0031" link_speed="32.0 GT/s PCIe" link_width="16">
+        <nic>
+          <net name="mlx5_bond_4" dev="4" speed="400000" port="1" guid="0xc0dc15000350bcf0" maxconn="131072" gdr="1"/>
+        </nic>
+      </pci>
+      <pci busid="0001:05:00.0" class="0x030200" vendor="0x1ded" device="0x6005" subsystem_vendor="0x1ded" subsystem_device="0x6101" link_speed="32.0 GT/s PCIe" link_width="16">
+        <gpu dev="2" sm="89" rank="2" gdr="1" net_affinity="4">
+          <nvlink target="0001:13:00.0" count="2" bandwidth="100" tclass="0x030200"/>
+          <nvlink target="0000:03:00.0" count="2" bandwidth="100" tclass="0x030200"/>
+          <nvlink target="0001:f7:00.0" count="2" bandwidth="100" tclass="0x030200"/>
+          <nvlink target="0001:3d:00.0" count="2" bandwidth="100" tclass="0x030200"/>
+        </gpu>
+      </pci>
+    </pci>
+  </cpu>
+  <cpu host_hash="0x10fcf4a956d47c2" numaid="0" affinity="00000000,00000000,00000000,0000ffff,00000000,00000000,00000000,0000ffff" arch="x86_64" vendor="AuthenticAMD" familyid="191" modelid="2">
+    <pci busid="0000:f3:00.0" class="0x060400" vendor="0x1000" device="0xc030" subsystem_vendor="0x1000" subsystem_device="0x100b" link_speed="32.0 GT/s PCIe" link_width="16">
+      <pci busid="0000:f7:00.0" class="0x020000" vendor="0x15b3" device="0xa2dc" subsystem_vendor="0x15b3" subsystem_device="0x0031" link_speed="32.0 GT/s PCIe" link_width="16">
+        <nic>
+          <net name="mlx5_bond_1" dev="1" speed="400000" port="1" guid="0x6eda15000350bcf0" maxconn="131072" gdr="1"/>
+        </nic>
+      </pci>
+      <pci busid="0000:f5:00.0" class="0x030200" vendor="0x1ded" device="0x6005" subsystem_vendor="0x1ded" subsystem_device="0x6101" link_speed="32.0 GT/s PCIe" link_width="16">
+        <gpu dev="4" sm="89" rank="4" gdr="1" net_affinity="1">
+          <nvlink target="0000:bd:00.0" count="2" bandwidth="100" tclass="0x030200"/>
+          <nvlink target="0000:03:00.0" count="2" bandwidth="100" tclass="0x030200"/>
+          <nvlink target="0001:f7:00.0" count="2" bandwidth="100" tclass="0x030200"/>
+          <nvlink target="0000:e7:00.0" count="2" bandwidth="100" tclass="0x030200"/>
+        </gpu>
+      </pci>
+    </pci>
+  </cpu>
+  <cpu host_hash="0x10fcf4a956d47c2" numaid="1" affinity="00000000,00000000,00000000,ffff0000,00000000,00000000,00000000,ffff0000" arch="x86_64" vendor="AuthenticAMD" familyid="191" modelid="2">
+    <pci busid="0000:01:00.0" class="0x060400" vendor="0x1000" device="0xc030" subsystem_vendor="0x1000" subsystem_device="0x100b" link_speed="32.0 GT/s PCIe" link_width="16">
+      <pci busid="0000:05:00.0" class="0x020000" vendor="0x15b3" device="0xa2dc" subsystem_vendor="0x15b3" subsystem_device="0x0031" link_speed="32.0 GT/s PCIe" link_width="16">
+        <nic>
+          <net name="mlx5_bond_2" dev="2" speed="400000" port="1" guid="0xe0d015000350bcf0" maxconn="131072" gdr="1"/>
+        </nic>
+      </pci>
+      <pci busid="0000:03:00.0" class="0x030200" vendor="0x1ded" device="0x6005" subsystem_vendor="0x1ded" subsystem_device="0x6101" link_speed="32.0 GT/s PCIe" link_width="16">
+        <gpu dev="6" sm="89" rank="6" gdr="1" net_affinity="2">
+          <nvlink target="0000:bd:00.0" count="2" bandwidth="100" tclass="0x030200"/>
+          <nvlink target="0001:05:00.0" count="2" bandwidth="100" tclass="0x030200"/>
+          <nvlink target="0000:f5:00.0" count="2" bandwidth="100" tclass="0x030200"/>
+          <nvlink target="0000:e7:00.0" count="2" bandwidth="100" tclass="0x030200"/>
+        </gpu>
+      </pci>
+    </pci>
+  </cpu>
+  <cpu host_hash="0x10fcf4a956d47c2" numaid="2" affinity="00000000,00000000,0000ffff,00000000,00000000,00000000,0000ffff,00000000" arch="x86_64" vendor="AuthenticAMD" familyid="191" modelid="2">
+    <pci busid="0000:0f:00.0" class="0x020000" vendor="0x15b3" device="0xa2dc" subsystem_vendor="0x15b3" subsystem_device="0x0031" link_speed="32.0 GT/s PCIe" link_width="16">
+      <nic>
+        <net name="mlx5_bond_0" dev="0" speed="400000" port="1" guid="0xd60c16000350bcf0" maxconn="131072" gdr="1"/>
+      </nic>
+    </pci>
+    <pci busid="0000:bb:00.0" class="0x060400" vendor="0x1000" device="0xc030" subsystem_vendor="0x1000" subsystem_device="0x100b" link_speed="32.0 GT/s PCIe" link_width="16">
+      <pci busid="0000:bd:00.0" class="0x030200" vendor="0x1ded" device="0x6005" subsystem_vendor="0x1ded" subsystem_device="0x6101" link_speed="32.0 GT/s PCIe" link_width="16">
+        <gpu dev="7" sm="89" rank="7" gdr="1" net_affinity="2">
+          <nvlink target="0000:03:00.0" count="2" bandwidth="100" tclass="0x030200"/>
+          <nvlink target="0001:13:00.0" count="2" bandwidth="100" tclass="0x030200"/>
+          <nvlink target="0000:e7:00.0" count="2" bandwidth="100" tclass="0x030200"/>
+          <nvlink target="0000:f5:00.0" count="2" bandwidth="100" tclass="0x030200"/>
+        </gpu>
+      </pci>
+    </pci>
+  </cpu>
+  <cpu host_hash="0x10fcf4a956d47c2" numaid="7" affinity="ffff0000,00000000,00000000,00000000,ffff0000,00000000,00000000,00000000" arch="x86_64" vendor="AuthenticAMD" familyid="191" modelid="2">
+    <pci busid="0001:39:00.0" class="0x060400" vendor="0x1000" device="0xc030" subsystem_vendor="0x1000" subsystem_device="0x100b" link_speed="32.0 GT/s PCIe" link_width="16">
+      <pci busid="0001:3d:00.0" class="0x030200" vendor="0x1ded" device="0x6005" subsystem_vendor="0x1ded" subsystem_device="0x6101" link_speed="32.0 GT/s PCIe" link_width="16">
+        <gpu dev="1" sm="89" rank="1" gdr="1" net_affinity="3">
+          <nvlink target="0001:05:00.0" count="2" bandwidth="100" tclass="0x030200"/>
+          <nvlink target="0001:13:00.0" count="2" bandwidth="100" tclass="0x030200"/>
+          <nvlink target="0000:e7:00.0" count="2" bandwidth="100" tclass="0x030200"/>
+          <nvlink target="0001:f7:00.0" count="2" bandwidth="100" tclass="0x030200"/>
+        </gpu>
+      </pci>
+    </pci>
+  </cpu>
+  <cpu host_hash="0x10fcf4a956d47c2" numaid="6" affinity="0000ffff,00000000,00000000,00000000,0000ffff,00000000,00000000,00000000" arch="x86_64" vendor="AuthenticAMD" familyid="191" modelid="2">
+    <pci busid="0001:0f:00.0" class="0x060400" vendor="0x1000" device="0xc030" subsystem_vendor="0x1000" subsystem_device="0x100b" link_speed="32.0 GT/s PCIe" link_width="16">
+      <pci busid="0001:13:00.0" class="0x030200" vendor="0x1ded" device="0x6005" subsystem_vendor="0x1ded" subsystem_device="0x6101" link_speed="32.0 GT/s PCIe" link_width="16">
+        <gpu dev="3" sm="89" rank="3" gdr="1" net_affinity="4">
+          <nvlink target="0001:05:00.0" count="2" bandwidth="100" tclass="0x030200"/>
+          <nvlink target="0000:bd:00.0" count="2" bandwidth="100" tclass="0x030200"/>
+          <nvlink target="0001:3d:00.0" count="2" bandwidth="100" tclass="0x030200"/>
+          <nvlink target="0001:f7:00.0" count="2" bandwidth="100" tclass="0x030200"/>
+        </gpu>
+      </pci>
+    </pci>
+  </cpu>
+  <cpu host_hash="0x10fcf4a956d47c2" numaid="3" affinity="00000000,00000000,ffff0000,00000000,00000000,00000000,ffff0000,00000000" arch="x86_64" vendor="AuthenticAMD" familyid="191" modelid="2">
+    <pci busid="0000:e5:00.0" class="0x060400" vendor="0x1000" device="0xc030" subsystem_vendor="0x1000" subsystem_device="0x100b" link_speed="32.0 GT/s PCIe" link_width="16">
+      <pci busid="0000:e7:00.0" class="0x030200" vendor="0x1ded" device="0x6005" subsystem_vendor="0x1ded" subsystem_device="0x6101" link_speed="32.0 GT/s PCIe" link_width="16">
+        <gpu dev="5" sm="89" rank="5" gdr="1" net_affinity="1">
+          <nvlink target="0000:03:00.0" count="2" bandwidth="100" tclass="0x030200"/>
+          <nvlink target="0000:bd:00.0" count="2" bandwidth="100" tclass="0x030200"/>
+          <nvlink target="0001:3d:00.0" count="2" bandwidth="100" tclass="0x030200"/>
+          <nvlink target="0000:f5:00.0" count="2" bandwidth="100" tclass="0x030200"/>
+        </gpu>
+      </pci>
+    </pci>
+  </cpu>
+</system>

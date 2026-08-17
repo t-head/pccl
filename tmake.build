@@ -1,0 +1,175 @@
+#*************************************************************************
+# SPDX-FileCopyrightText: Copyright (c) 2022-2026 T-Head (Shanghai) Semiconductor Co., Ltd. All rights reserved.
+# SPDX-License-Identifier: Apache-2.0
+#
+# See LICENSE.txt for more license information
+#*************************************************************************
+
+#!/bin/bash
+
+#define target
+target pccl
+
+build_command '
+make_option="-j${CPU_NUM}"
+
+if [ ${PPU_BUILD_TYPE} == rel ]
+then
+  make_option+=" REL_NO_SYM=1"
+elif [ ${PPU_BUILD_TYPE} == dbg ]
+then
+  make_option+=" DEBUG=1"
+fi
+
+declare -A arch_mapping
+arch_mapping["ppu1.0"]="ppu_10"
+arch_mapping["ppu1.5"]="ppu_15"
+
+IFS=";" read -r -a ppu_arch_arr <<< "$PPU_TARGET_TYPE"
+for arch_item in ${ppu_arch_arr[@]}; do
+    if [[ -n "${arch_mapping[$arch_item]}" ]]; then
+        if [[ -z "$ppu_target_arch" ]]; then
+            ppu_target_arch="${arch_mapping[$arch_item]}"
+        else
+            ppu_target_arch="${ppu_target_arch},${arch_mapping[$arch_item]}"
+        fi
+    fi
+done
+
+if [[ -n "$ppu_target_arch" ]]; then
+    make_option+=" PPU_ARCHS=$ppu_target_arch"
+fi
+
+if [[ ${PPU_HGGCRT_TYPE} == "v12" ]]
+then
+  make_option+=" HGGCRT_VERSION=12"
+elif [[ ${PPU_HGGCRT_TYPE} == "v13" ]]
+then
+  make_option+=" HGGCRT_VERSION=13"
+fi
+
+if [ ${PPU_INST_TYPE} == simt ]
+then
+  make_option+=" USE_SIMT=1"
+fi
+
+if [[ ${PPU_GCOV} == "all" ]] || [[ ${PPU_GCOV} == *"pccl"* ]]
+then
+  make_option+=" CC=1"
+fi
+
+if [ ${keep} == 1 ]
+then
+  make_option+=" KEEP=1"
+fi
+
+if [ ${kernel_loopback} == 1 ]
+then
+  make_option+=" KERNEL_LOOPBACK=1"
+fi
+
+if [ ${no_extra_warp} == 1 ]
+then
+  make_option+=" NO_EXTRA_WARP=1"
+fi
+
+if [ ${max_vregs} -gt 0 ]
+then
+  make_option+=" MAX_VREGS=${max_vregs}"
+fi
+
+if [ -n "${test_dt}" ]
+then
+  make_option+=" TEST_DT=${test_dt}"
+fi
+
+if [ -n "${test_op}" ]
+then
+  make_option+=" TEST_OP=${test_op}"
+fi
+
+if [ ${keep_going} == 1 ]
+then
+  make_option+=" -k"
+fi
+
+if [ ${ignore_fail} == 1 ]
+then
+  make_option+=" -i"
+fi
+
+if [ ${no_dlto} == 1 ]
+then
+  make_option+=" NO_DLTO=1"
+fi
+
+if [ ${verbose} == 1 ]
+then
+  make_option+=" VERBOSE=1"
+fi
+
+if [ ${no_tsm} == 1 ]
+then
+  make_option+=" NO_TSM=1"
+fi
+
+if [ ${PPU_BUILD_STATIC_LINK} == 1 ]
+then
+  make_option+=" STATIC_LINK=1"
+fi
+
+if [[ -n ${ppu_option} ]]; then
+  echo "using extra ppu option = ${ppu_option}"
+  # replace space with ; which will be interpreted to cmake string list
+  ppu_option_=$(sed "s/ /;/g" <<< ${ppu_option})
+  make_option+=" PPU_OPTION=${ppu_option_}"
+fi
+
+export PPU_HOME=${PPU_HOME}
+export PPU_HOST_ARCH=${PPU_HOST_ARCH}
+export PPU_TARGET_ARCH=${PPU_TARGET_ARCH}
+if [ ${PPU_HOST_ARCH} != ${PPU_TARGET_ARCH} ]; then
+  export CC=${PPU_TARGET_ARCH}-linux-gnu-gcc
+  export CXX=${PPU_TARGET_ARCH}-linux-gnu-g++
+fi
+export CLANG_TARGET=${PPU_TARGET_ARCH}-linux-gnu
+
+cd ${PPU_HOME}/pccl
+make ${make_option} default
+
+echo "Begin to generate cuda header"
+python3 ${PPU_HOME}/pccl/scripts/generate_cuda_header.py
+'
+
+clean_command '
+cd ${PPU_HOME}/pccl
+make clean && rm -rf build
+'
+
+install_command '
+mkdir -p ${OUTPUT_DIR}/lib
+find ${PPU_HOME}/pccl/build/lib -name "lib*.so*" ! -name "*.dbginfo" | xargs -i cp -arv {} ${OUTPUT_DIR}/lib/
+mkdir -p ${OUTPUT_DIR}/include
+cp -arv ${PPU_HOME}/pccl/build/include/* ${OUTPUT_DIR}/include/
+'
+
+symbol_install_command '
+mkdir -p ${OUTPUT_DIR}/lib
+find ${PPU_HOME}/pccl/build/lib -name "*.dbginfo" | xargs -i cp -arv {} ${OUTPUT_DIR}/lib/
+'
+
+option 'name=keep' 'value=0' 'choices=(0 1)'
+option 'name=kernel_loopback' 'value=0' 'choices=(0 1)'
+option 'name=no_extra_warp' 'value=0' 'choices=(0 1)'
+option 'name=max_vregs' 'value=-1'
+option 'name=test_dt' 'value=' 'choices=(i8 u8 i32 u32 i64 u64 f16 f32 f64)'
+option 'name=test_op' 'value=' 'choices=(sendrecv all_reduce all_gather broadcast reduce reduce_scatter)'
+option 'name=keep_going' 'value=0' 'choices=(0 1)'
+option 'name=ignore_fail' 'value=0' 'choices=(0 1)'
+option 'name=verbose' 'value=0' 'choices=(0 1)'
+option 'name=ppu_option' 'value='
+option 'name=no_dlto' 'value=1' 'choices=(0 1)'
+option 'name=no_tsm' 'value=0' 'choices=(0 1)'
+
+dependency llvm api_loader hgml hgcc longtan
+#end define target
