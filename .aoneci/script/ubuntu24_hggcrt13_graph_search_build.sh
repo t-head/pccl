@@ -10,6 +10,7 @@ if [ -z "${build_output}" ]; then
     echo "Error: build_output environment variable is not set"
     exit 1
 fi
+echo "11.162.25.191 art-pub.eng.t-head.cn" >> /etc/hosts
 echo $PWD
 echo "pwd has:"
 ls

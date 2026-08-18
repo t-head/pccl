@@ -34,25 +34,25 @@ jobs:
     steps:
       - uses: checkout
         inputs:
-          repository-url: 'git@gitlab.alibaba-inc.com:PPU-comm/pccl.git'
+          repository-url: 'git@gitlab.alibaba-inc.com:PPU-comm-open-source/pccl.git'
           path: '/aoneci/runner/work/source/pccl'
           ssh-key: ${{secrets.private_ssh_key}}
       - uses: checkout
         inputs:
           repository-url: 'git@gitlab.alibaba-inc.com:PPU-comm/comm-internal-testbox.git'
-          ref: '${{pipeline.inst.triggerMode == "manual" ? params.comm_internal_testbox_ref : "master"}}'
+          ref: '${{pipeline.inst.triggerMode == "MANUAL" ? params.comm_internal_testbox_ref : "master"}}'
           path: '/aoneci/runner/work/source/comm-internal-testbox'
           ssh-key: ${{secrets.private_ssh_key}}
       - uses: checkout
         inputs:
           repository-url: 'git@gitlab.alibaba-inc.com:PPU-comm/comm-toolbox.git'
-          ref: '${{pipeline.inst.triggerMode == "manual" ? params.comm_toolbox_ref : "master"}}'
+          ref: '${{pipeline.inst.triggerMode == "MANUAL" ? params.comm_toolbox_ref : "master"}}'
           path: '/aoneci/runner/work/source/comm-toolbox'
           ssh-key: ${{secrets.private_ssh_key}}
       - uses: checkout
         inputs:
-          repository-url: 'git@gitlab.alibaba-inc.com:PPU-comm/pccl-tests.git'
-          ref: '${{pipeline.inst.triggerMode == "manual" ? params.pccl_tests_ref : "master"}}'
+          repository-url: 'git@gitlab.alibaba-inc.com:PPU-comm-open-source/pccl-tests.git'
+          ref: '${{pipeline.inst.triggerMode == "MANUAL" ? params.pccl_tests_ref : "master"}}'
           path: '/aoneci/runner/work/source/pccl-tests'
           ssh-key: ${{secrets.private_ssh_key}}
       - id: ubuntu24_hggcrt13_build
@@ -259,25 +259,25 @@ jobs:
     steps:
       - uses: checkout
         inputs:
-          repository-url: 'git@gitlab.alibaba-inc.com:PPU-comm/pccl.git'
+          repository-url: 'git@gitlab.alibaba-inc.com:PPU-comm-open-source/pccl.git'
           path: '/aoneci/runner/work/source/pccl'
           ssh-key: ${{secrets.private_ssh_key}}
       - uses: checkout
         inputs:
           repository-url: 'git@gitlab.alibaba-inc.com:PPU-comm/comm-internal-testbox.git'
-          ref: '${{pipeline.inst.triggerMode == "manual" ? params.comm_internal_testbox_ref : "master"}}'
+          ref: '${{pipeline.inst.triggerMode == "MANUAL" ? params.comm_internal_testbox_ref : "master"}}'
           path: '/aoneci/runner/work/source/comm-internal-testbox'
           ssh-key: ${{secrets.private_ssh_key}}
       - uses: checkout
         inputs:
           repository-url: 'git@gitlab.alibaba-inc.com:PPU-comm/comm-toolbox.git'
-          ref: '${{pipeline.inst.triggerMode == "manual" ? params.comm_toolbox_ref : "master"}}'
+          ref: '${{pipeline.inst.triggerMode == "MANUAL" ? params.comm_toolbox_ref : "master"}}'
           path: '/aoneci/runner/work/source/comm-toolbox'
           ssh-key: ${{secrets.private_ssh_key}}
       - uses: checkout
         inputs:
-          repository-url: 'git@gitlab.alibaba-inc.com:PPU-comm/pccl-tests.git'
-          ref: '${{pipeline.inst.triggerMode == "manual" ? params.pccl_tests_ref : "master"}}'
+          repository-url: 'git@gitlab.alibaba-inc.com:PPU-comm-open-source/pccl-tests.git'
+          ref: '${{pipeline.inst.triggerMode == "MANUAL" ? params.pccl_tests_ref : "master"}}'
           path: '/aoneci/runner/work/source/pccl-tests'
           ssh-key: ${{secrets.private_ssh_key}}
       - id: ubuntu24_hggcrt12_build
@@ -484,25 +484,25 @@ jobs:
     steps:
       - uses: checkout
         inputs:
-          repository-url: 'git@gitlab.alibaba-inc.com:PPU-comm/pccl.git'
+          repository-url: 'git@gitlab.alibaba-inc.com:PPU-comm-open-source/pccl.git'
           path: '/aoneci/runner/work/source/pccl'
           ssh-key: ${{secrets.private_ssh_key}}
       - uses: checkout
         inputs:
           repository-url: 'git@gitlab.alibaba-inc.com:PPU-comm/comm-internal-testbox.git'
-          ref: '${{pipeline.inst.triggerMode == "manual" ? params.comm_internal_testbox_ref : "master"}}'
+          ref: '${{pipeline.inst.triggerMode == "MANUAL" ? params.comm_internal_testbox_ref : "master"}}'
           path: '/aoneci/runner/work/source/comm-internal-testbox'
           ssh-key: ${{secrets.private_ssh_key}}
       - uses: checkout
         inputs:
           repository-url: 'git@gitlab.alibaba-inc.com:PPU-comm/comm-toolbox.git'
-          ref: '${{pipeline.inst.triggerMode == "manual" ? params.comm_toolbox_ref : "master"}}'
+          ref: '${{pipeline.inst.triggerMode == "MANUAL" ? params.comm_toolbox_ref : "master"}}'
           path: '/aoneci/runner/work/source/comm-toolbox'
           ssh-key: ${{secrets.private_ssh_key}}
       - uses: checkout
         inputs:
-          repository-url: 'git@gitlab.alibaba-inc.com:PPU-comm/pccl-tests.git'
-          ref: '${{pipeline.inst.triggerMode == "manual" ? params.pccl_tests_ref : "master"}}'
+          repository-url: 'git@gitlab.alibaba-inc.com:PPU-comm-open-source/pccl-tests.git'
+          ref: '${{pipeline.inst.triggerMode == "MANUAL" ? params.pccl_tests_ref : "master"}}'
           path: '/aoneci/runner/work/source/pccl-tests'
           ssh-key: ${{secrets.private_ssh_key}}
       - id: ubuntu24_hggcrt13_tsm_build
@@ -558,25 +558,25 @@ jobs:
     steps:
       - uses: checkout
         inputs:
-          repository-url: 'git@gitlab.alibaba-inc.com:PPU-comm/pccl.git'
+          repository-url: 'git@gitlab.alibaba-inc.com:PPU-comm-open-source/pccl.git'
           path: '/aoneci/runner/work/source/pccl'
           ssh-key: ${{secrets.private_ssh_key}}
       - uses: checkout
         inputs:
           repository-url: 'git@gitlab.alibaba-inc.com:PPU-comm/comm-internal-testbox.git'
-          ref: '${{pipeline.inst.triggerMode == "manual" ? params.comm_internal_testbox_ref : "master"}}'
+          ref: '${{pipeline.inst.triggerMode == "MANUAL" ? params.comm_internal_testbox_ref : "master"}}'
           path: '/aoneci/runner/work/source/comm-internal-testbox'
           ssh-key: ${{secrets.private_ssh_key}}
       - uses: checkout
         inputs:
           repository-url: 'git@gitlab.alibaba-inc.com:PPU-comm/comm-toolbox.git'
-          ref: '${{pipeline.inst.triggerMode == "manual" ? params.comm_toolbox_ref : "master"}}'
+          ref: '${{pipeline.inst.triggerMode == "MANUAL" ? params.comm_toolbox_ref : "master"}}'
           path: '/aoneci/runner/work/source/comm-toolbox'
           ssh-key: ${{secrets.private_ssh_key}}
       - uses: checkout
         inputs:
-          repository-url: 'git@gitlab.alibaba-inc.com:PPU-comm/pccl-tests.git'
-          ref: '${{pipeline.inst.triggerMode == "manual" ? params.pccl_tests_ref : "master"}}'
+          repository-url: 'git@gitlab.alibaba-inc.com:PPU-comm-open-source/pccl-tests.git'
+          ref: '${{pipeline.inst.triggerMode == "MANUAL" ? params.pccl_tests_ref : "master"}}'
           path: '/aoneci/runner/work/source/pccl-tests'
           ssh-key: ${{secrets.private_ssh_key}}
       - id: ubuntu24_hggcrt13_notsm_build
@@ -632,25 +632,25 @@ jobs:
     steps:
       - uses: checkout
         inputs:
-          repository-url: 'git@gitlab.alibaba-inc.com:PPU-comm/pccl.git'
+          repository-url: 'git@gitlab.alibaba-inc.com:PPU-comm-open-source/pccl.git'
           path: '/aoneci/runner/work/source/pccl'
           ssh-key: ${{secrets.private_ssh_key}}
       - uses: checkout
         inputs:
           repository-url: 'git@gitlab.alibaba-inc.com:PPU-comm/comm-internal-testbox.git'
-          ref: '${{pipeline.inst.triggerMode == "manual" ? params.comm_internal_testbox_ref : "master"}}'
+          ref: '${{pipeline.inst.triggerMode == "MANUAL" ? params.comm_internal_testbox_ref : "master"}}'
           path: '/aoneci/runner/work/source/comm-internal-testbox'
           ssh-key: ${{secrets.private_ssh_key}}
       - uses: checkout
         inputs:
           repository-url: 'git@gitlab.alibaba-inc.com:PPU-comm/comm-toolbox.git'
-          ref: '${{pipeline.inst.triggerMode == "manual" ? params.comm_toolbox_ref : "master"}}'
+          ref: '${{pipeline.inst.triggerMode == "MANUAL" ? params.comm_toolbox_ref : "master"}}'
           path: '/aoneci/runner/work/source/comm-toolbox'
           ssh-key: ${{secrets.private_ssh_key}}
       - uses: checkout
         inputs:
-          repository-url: 'git@gitlab.alibaba-inc.com:PPU-comm/pccl-tests.git'
-          ref: '${{pipeline.inst.triggerMode == "manual" ? params.pccl_tests_ref : "master"}}'
+          repository-url: 'git@gitlab.alibaba-inc.com:PPU-comm-open-source/pccl-tests.git'
+          ref: '${{pipeline.inst.triggerMode == "MANUAL" ? params.pccl_tests_ref : "master"}}'
           path: '/aoneci/runner/work/source/pccl-tests'
           ssh-key: ${{secrets.private_ssh_key}}
       - id: ubuntu24_hggcrt13_acu_build
@@ -705,25 +705,25 @@ jobs:
     steps:
       - uses: checkout
         inputs:
-          repository-url: 'git@gitlab.alibaba-inc.com:PPU-comm/pccl.git'
+          repository-url: 'git@gitlab.alibaba-inc.com:PPU-comm-open-source/pccl.git'
           path: '/aoneci/runner/work/source/pccl'
           ssh-key: ${{secrets.private_ssh_key}}
       - uses: checkout
         inputs:
           repository-url: 'git@gitlab.alibaba-inc.com:PPU-comm/comm-internal-testbox.git'
-          ref: '${{pipeline.inst.triggerMode == "manual" ? params.comm_internal_testbox_ref : "master"}}'
+          ref: '${{pipeline.inst.triggerMode == "MANUAL" ? params.comm_internal_testbox_ref : "master"}}'
           path: '/aoneci/runner/work/source/comm-internal-testbox'
           ssh-key: ${{secrets.private_ssh_key}}
       - uses: checkout
         inputs:
           repository-url: 'git@gitlab.alibaba-inc.com:PPU-comm/comm-toolbox.git'
-          ref: '${{pipeline.inst.triggerMode == "manual" ? params.comm_toolbox_ref : "master"}}'
+          ref: '${{pipeline.inst.triggerMode == "MANUAL" ? params.comm_toolbox_ref : "master"}}'
           path: '/aoneci/runner/work/source/comm-toolbox'
           ssh-key: ${{secrets.private_ssh_key}}
       - uses: checkout
         inputs:
-          repository-url: 'git@gitlab.alibaba-inc.com:PPU-comm/pccl-tests.git'
-          ref: '${{pipeline.inst.triggerMode == "manual" ? params.pccl_tests_ref : "master"}}'
+          repository-url: 'git@gitlab.alibaba-inc.com:PPU-comm-open-source/pccl-tests.git'
+          ref: '${{pipeline.inst.triggerMode == "MANUAL" ? params.pccl_tests_ref : "master"}}'
           path: '/aoneci/runner/work/source/pccl-tests'
           ssh-key: ${{secrets.private_ssh_key}}
       - id: ubuntu20_hggcrt12_build
@@ -770,25 +770,25 @@ jobs:
     steps:
       - uses: checkout
         inputs:
-          repository-url: 'git@gitlab.alibaba-inc.com:PPU-comm/pccl.git'
+          repository-url: 'git@gitlab.alibaba-inc.com:PPU-comm-open-source/pccl.git'
           path: '/aoneci/runner/work/source/pccl'
           ssh-key: ${{secrets.private_ssh_key}}
       - uses: checkout
         inputs:
           repository-url: 'git@gitlab.alibaba-inc.com:PPU-comm/comm-internal-testbox.git'
-          ref: '${{pipeline.inst.triggerMode == "manual" ? params.comm_internal_testbox_ref : "master"}}'
+          ref: '${{pipeline.inst.triggerMode == "MANUAL" ? params.comm_internal_testbox_ref : "master"}}'
           path: '/aoneci/runner/work/source/comm-internal-testbox'
           ssh-key: ${{secrets.private_ssh_key}}
       - uses: checkout
         inputs:
           repository-url: 'git@gitlab.alibaba-inc.com:PPU-comm/comm-toolbox.git'
-          ref: '${{pipeline.inst.triggerMode == "manual" ? params.comm_toolbox_ref : "master"}}'
+          ref: '${{pipeline.inst.triggerMode == "MANUAL" ? params.comm_toolbox_ref : "master"}}'
           path: '/aoneci/runner/work/source/comm-toolbox'
           ssh-key: ${{secrets.private_ssh_key}}
       - uses: checkout
         inputs:
-          repository-url: 'git@gitlab.alibaba-inc.com:PPU-comm/pccl-tests.git'
-          ref: '${{pipeline.inst.triggerMode == "manual" ? params.pccl_tests_ref : "master"}}'
+          repository-url: 'git@gitlab.alibaba-inc.com:PPU-comm-open-source/pccl-tests.git'
+          ref: '${{pipeline.inst.triggerMode == "MANUAL" ? params.pccl_tests_ref : "master"}}'
           path: '/aoneci/runner/work/source/pccl-tests'
           ssh-key: ${{secrets.private_ssh_key}}
       - id: ubuntu24_hggcrt13_comshrink_build
@@ -844,25 +844,25 @@ jobs:
     steps:
       - uses: checkout
         inputs:
-          repository-url: 'git@gitlab.alibaba-inc.com:PPU-comm/pccl.git'
+          repository-url: 'git@gitlab.alibaba-inc.com:PPU-comm-open-source/pccl.git'
           path: '/aoneci/runner/work/source/pccl'
           ssh-key: ${{secrets.private_ssh_key}}
       - uses: checkout
         inputs:
           repository-url: 'git@gitlab.alibaba-inc.com:PPU-comm/comm-internal-testbox.git'
-          ref: '${{pipeline.inst.triggerMode == "manual" ? params.comm_internal_testbox_ref : "master"}}'
+          ref: '${{pipeline.inst.triggerMode == "MANUAL" ? params.comm_internal_testbox_ref : "master"}}'
           path: '/aoneci/runner/work/source/comm-internal-testbox'
           ssh-key: ${{secrets.private_ssh_key}}
       - uses: checkout
         inputs:
           repository-url: 'git@gitlab.alibaba-inc.com:PPU-comm/comm-toolbox.git'
-          ref: '${{pipeline.inst.triggerMode == "manual" ? params.comm_toolbox_ref : "master"}}'
+          ref: '${{pipeline.inst.triggerMode == "MANUAL" ? params.comm_toolbox_ref : "master"}}'
           path: '/aoneci/runner/work/source/comm-toolbox'
           ssh-key: ${{secrets.private_ssh_key}}
       - uses: checkout
         inputs:
-          repository-url: 'git@gitlab.alibaba-inc.com:PPU-comm/pccl-tests.git'
-          ref: '${{pipeline.inst.triggerMode == "manual" ? params.pccl_tests_ref : "master"}}'
+          repository-url: 'git@gitlab.alibaba-inc.com:PPU-comm-open-source/pccl-tests.git'
+          ref: '${{pipeline.inst.triggerMode == "MANUAL" ? params.pccl_tests_ref : "master"}}'
           path: '/aoneci/runner/work/source/pccl-tests'
           ssh-key: ${{secrets.private_ssh_key}}
       - id: ubuntu24_hggcrt12_comshrink_build

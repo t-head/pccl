@@ -11,6 +11,7 @@ if [ -z "${build_output}" ]; then
 fi
 yum install -y boost boost-devel
 yum install -y cmake
+echo "11.162.25.191 art-pub.eng.t-head.cn" >> /etc/hosts
 echo $PWD
 echo "pwd has:"
 ls
