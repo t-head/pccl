@@ -11,7 +11,6 @@
 
 #include "customDeviceUtils.h"
 
-// 3 dtypes × 4 nranks × 4 align × 2 elt_wise_tail = 96 kernel variants.
 #define RS_DTYPES_NUM 3
 
 // Forward declaration of the ReduceScatter kernel template. Defined and
@@ -39,7 +38,8 @@ __global__ void pcclKernel_oneShotReduceScatterKernel(struct oneShotDevParams pa
   RS_ONE_SHOT_FUNCS_RANK(2, dtype) \
   RS_ONE_SHOT_FUNCS_RANK(4, dtype) \
   RS_ONE_SHOT_FUNCS_RANK(8, dtype) \
-  RS_ONE_SHOT_FUNCS_RANK(16, dtype)
+  RS_ONE_SHOT_FUNCS_RANK(16, dtype) \
+  RS_ONE_SHOT_FUNCS_RANK(32, dtype)
 
 #define RS_ONE_SHOT_FUNCS() \
   RS_ONE_SHOT_FUNCS_DTYPE(half) \
@@ -68,7 +68,8 @@ __global__ void pcclKernel_oneShotReduceScatterKernel(struct oneShotDevParams pa
   RS_ONE_SHOT_FUNCS_IMPL_RANK(2, dtype) \
   RS_ONE_SHOT_FUNCS_IMPL_RANK(4, dtype) \
   RS_ONE_SHOT_FUNCS_IMPL_RANK(8, dtype) \
-  RS_ONE_SHOT_FUNCS_IMPL_RANK(16, dtype)
+  RS_ONE_SHOT_FUNCS_IMPL_RANK(16, dtype) \
+  RS_ONE_SHOT_FUNCS_IMPL_RANK(32, dtype)
 
 #define RS_ONE_SHOT_FUNCS_IMPL() \
   RS_ONE_SHOT_FUNCS_IMPL_DTYPE(half) \

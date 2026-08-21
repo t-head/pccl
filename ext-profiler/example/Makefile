@@ -23,9 +23,9 @@ ${DST_DIR}/libpccl-profiler-example.so: ${SRC_FILES}
 	@mkdir -p ${DST_DIR}
 	$(CXX) $(INCDIR:%=-I%) $(CXXFLAGS) -fPIC -shared -o  $@ $^
 ifeq ($(REL_NO_SYM), 1)
-	objcopy --only-keep-debug $(DST_DIR)/libpccl-profiler-example.so $(DST_DIR)/libpccl-profiler-example.so.dbginfo
-	strip --strip-all $(DST_DIR)/libpccl-profiler-example.so
-	objcopy --add-gnu-debuglink=$(DST_DIR)/libpccl-profiler-example.so.dbginfo $(DST_DIR)/libpccl-profiler-example.so
+	$(OBJCOPY) --only-keep-debug $(DST_DIR)/libpccl-profiler-example.so $(DST_DIR)/libpccl-profiler-example.so.dbginfo
+	$(STRIP) --strip-all $(DST_DIR)/libpccl-profiler-example.so
+	$(OBJCOPY) --add-gnu-debuglink=$(DST_DIR)/libpccl-profiler-example.so.dbginfo $(DST_DIR)/libpccl-profiler-example.so
 endif
 
 clean:

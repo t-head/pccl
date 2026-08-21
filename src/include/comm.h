@@ -641,7 +641,7 @@ struct pcclComm {
   struct ncclDevrState devrState;
   struct ncclSymkState symkState;
   struct pcclP2pDmaState p2pDmaState;
-  ncclGinConnectionType_t globalGinSupport; // negotiated across all ranks; NONE if no GIN hw
+  pcclGinConnectionType_t globalGinSupport; // negotiated across all ranks; NONE if no GIN hw
 
   void* ginContext;       // per-comm GIN plugin instance context
   int ginPluginIndex;     // index into ginPluginLibs[] in plugin/gin.cc

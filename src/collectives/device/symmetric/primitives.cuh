@@ -13,7 +13,7 @@
 #include "bitops.h"
 #include "sym_reduce_kernel.h"
 #include "op128.h"
-#include "nccl_device/coop.h"
+#include "pccl_device/coop.h"
 
 // align to 128B could get enough icn performance
 #define BULK_ALIGN_BYTES 128u

@@ -352,7 +352,15 @@ class Primitives<T, FUNC, ProtoLL128, NRECV, NSEND, DIRECT, P2P>:
           T* srcPtrForPeer = (T*)srcPtr + peerOffset;
           if (SRC) loadRegsBegin(regs[0], srcPtrForPeer, eltInSlice);
           __syncwarp();
-          if (SRC) loadRegsFinish(regs[0]);
+          if (SRC) {
+            loadRegsFinish(regs[0]);
+            #pragma unroll
+            for (int u=0; u<NCCL_LL128_SHMEM_ELEMS_PER_THREAD; u+=2) {
+              regs[0][u] = MULTI<FUNC, T>().preOp(redOp, regs[0][u]);
+              if (!flagThread)
+                regs[0][u+1] = MULTI<FUNC, T>().preOp(redOp, regs[0][u+1]);
+            }
+          }
           uint64_t flag = sendFlag(0);
           uint64_t* dstPtrForPeer = sendPtr(0) + wireOffset;
           #pragma unroll
@@ -369,7 +377,15 @@ class Primitives<T, FUNC, ProtoLL128, NRECV, NSEND, DIRECT, P2P>:
             T* srcPtrForPeer = (T*)srcPtr + peerOffset;
             if (SRC) loadRegsBegin(regs[i%2], srcPtrForPeer, eltInSlice);
             __syncwarp();
-            if (SRC) loadRegsFinish(regs[i%2]);
+            if (SRC) {
+              loadRegsFinish(regs[i%2]);
+              #pragma unroll
+              for (int u=0; u<NCCL_LL128_SHMEM_ELEMS_PER_THREAD; u+=2) {
+                regs[i%2][u] = MULTI<FUNC, T>().preOp(redOp, regs[i%2][u]);
+                if (!flagThread)
+                  regs[i%2][u+1] = MULTI<FUNC, T>().preOp(redOp, regs[i%2][u+1]);
+              }
+            }
             uint64_t flag = sendFlag(i);
             uint64_t* dstPtrForPeer = sendPtr(i) + wireOffset;
             #pragma unroll

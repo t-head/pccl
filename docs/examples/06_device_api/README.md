@@ -64,9 +64,9 @@ The device API allows PCCL communication within PPU kernels, fusing communicatio
 pcclDevComm devComm;
 pcclDevCommRequirements reqs = PCCL_DEV_COMM_REQUIREMENTS_INITIALIZER;
 reqs.lsaBarrierCount = PCCL_DEVICE_CTA_COUNT;
-NCCLCHECK(pcclDevCommCreate(comm, &reqs, &devComm));
-NCCLCHECK(pcclCommWindowRegister(comm, d_sendbuff, size_bytes, &send_win, PCCL_WIN_COLL_SYMMETRIC));
-NCCLCHECK(pcclCommWindowRegister(comm, d_recvbuff, size_bytes, &recv_win, PCCL_WIN_COLL_SYMMETRIC));
+PCCLCHECK(pcclDevCommCreate(comm, &reqs, &devComm));
+PCCLCHECK(pcclCommWindowRegister(comm, d_sendbuff, size_bytes, &send_win, PCCL_WIN_COLL_SYMMETRIC));
+PCCLCHECK(pcclCommWindowRegister(comm, d_recvbuff, size_bytes, &recv_win, PCCL_WIN_COLL_SYMMETRIC));
 
 // Device:
 // - Use LSA barriers for cross-GPU synchronization
@@ -81,7 +81,7 @@ To check for the required Device API and GIN support, the communicator propertie
 
 ```cpp
 pcclCommProperties_t props = PCCL_COMM_PROPERTIES_INITIALIZER;
-NCCLCHECK(pcclCommQueryProperties(comm, &props));
+PCCLCHECK(pcclCommQueryProperties(comm, &props));
 
 // Check for Device API support
 if (!props.deviceApiSupport) {

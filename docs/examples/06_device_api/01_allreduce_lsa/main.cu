@@ -8,7 +8,7 @@
 
 #include "hggc_runtime.h"
 #include "pccl.h"
-#include "nccl_device.h"
+#include "pccl_device.h"
 #include "utils.h"
 #include <stdio.h>
 #include <stdlib.h>
@@ -31,11 +31,11 @@
  * - Practice LSA (Load Store Access) barrier synchronization
  *
  * Key Device API Concepts:
- * - ncclDevComm: Device-side communicator for kernel use (PCCL keeps the
- *   ncclDevComm name internally)
+ * - pcclDevComm: Device-side communicator for kernel use (PCCL keeps the
+ *   pcclDevComm name internally)
  * - pcclWindow_t: Memory windows that enable direct peer access
  * - LSA barriers: Synchronization primitives for device-side coordination
- * - ncclGetLsaPointer: Direct access to peer memory from device code
+ * - pcclGetLsaPointer: Direct access to peer memory from device code
  *
  * When to Use Device API:
  * - Compute kernels that need immediate communication results
@@ -52,8 +52,8 @@
 
 // Device API kernel launch configuration
 // CTA count must match lsaBarrierCount for proper barrier synchronization
-#define NCCL_DEVICE_CTA_COUNT 16
-#define NCCL_DEVICE_THREADS_PER_CTA 512
+#define PCCL_DEVICE_CTA_COUNT 16
+#define PCCL_DEVICE_THREADS_PER_CTA 512
 
 // ==========================================================================
 // Device Kernel Implementation
@@ -63,13 +63,13 @@
 // This kernel demonstrates direct PCCL communication from GPU threads
 __global__ void simpleAllReduceKernel(pcclWindow_t sendwin, size_t sendoffset,
                                       pcclWindow_t recvwin, size_t recvoffset,
-                                      size_t count, struct ncclDevComm devComm) {
+                                      size_t count, struct pcclDevComm devComm) {
   // LSA barriers enable coordination between GPU threads across different ranks
   // Barrier scope: CTA (all threads in this block participate)
   // Barrier index: blockIdx.x selects this CTA's dedicated barrier (one barrier per CTA)
-  ncclLsaBarrierSession<ncclCoopCta> bar { ncclCoopCta(), devComm, ncclTeamLsa(devComm),
+  pcclLsaBarrierSession<pcclCoopCta> bar { pcclCoopCta(), devComm, pcclTeamLsa(devComm),
                                            devComm.lsaBarrier, blockIdx.x };
-  bar.sync(ncclCoopCta(), hggc::memory_order_acquire);
+  bar.sync(pcclCoopCta(), hggc::memory_order_acquire);
 
   const int rank = devComm.rank, nRanks = devComm.nRanks;
 
@@ -85,19 +85,19 @@ __global__ void simpleAllReduceKernel(pcclWindow_t sendwin, size_t sendoffset,
     // Access remote (and local [peer==rank]) memory and reduce locally
     for (int peer=0; peer<nRanks; peer++) {
       // Access peer memory directly using LSA (Load/Store Accessible) pointers
-      float* sendPtr = (float*)ncclGetLsaPointer(sendwin, sendoffset, peer);
+      float* sendPtr = (float*)pcclGetLsaPointer(sendwin, sendoffset, peer);
       v += sendPtr[offset];
     }
     // Write the result back to remote and local memory
     for (int peer=0; peer<nRanks; peer++) {
-      float* recvPtr = (float*)ncclGetLsaPointer(recvwin, recvoffset, peer);
+      float* recvPtr = (float*)pcclGetLsaPointer(recvwin, recvoffset, peer);
       recvPtr[offset] = v;
     }
   }
   // Release barrier ensures that we received data from everyone before we unblock the stream
   // and allow the next kernel(s) to process the data.
   // Critical for correctness in device-side collective operations
-  bar.sync(ncclCoopCta(), hggc::memory_order_release);
+  bar.sync(pcclCoopCta(), hggc::memory_order_release);
 }
 
 // ==========================================================================
@@ -138,8 +138,8 @@ void* allReduce(int my_rank, int total_ranks, int local_device, int devices_per_
   printf("  Rank %d initialized PCCL communicator for %d total ranks\n", my_rank, total_ranks);
 
   // Check for Device API support
-  ncclCommProperties_t props = NCCL_COMM_PROPERTIES_INITIALIZER;
-  PCCLCHECK(ncclCommQueryProperties(comm, &props));
+  pcclCommProperties_t props = PCCL_COMM_PROPERTIES_INITIALIZER;
+  PCCLCHECK(pcclCommQueryProperties(comm, &props));
   if (!props.deviceApiSupport) {
     printf("ERROR: rank %d communicator does not support Device API!\n", my_rank);
     PCCLCHECK(pcclCommFinalize(comm));
@@ -196,11 +196,11 @@ void* allReduce(int my_rank, int total_ranks, int local_device, int devices_per_
 
   // Create device communicator - this is the key Device API component
   // Requirements specify resources to allocate (e.g., one barrier per CTA)
-  ncclDevComm devComm;
-  ncclDevCommRequirements reqs = NCCL_DEV_COMM_REQUIREMENTS_INITIALIZER;
-  reqs.lsaBarrierCount = NCCL_DEVICE_CTA_COUNT; // Must match kernel launch config
-  PCCLCHECK(ncclDevCommCreate(comm, &reqs, &devComm));
-  printf("  Rank %d created device communicator with %d LSA barriers\n", my_rank, NCCL_DEVICE_CTA_COUNT);
+  pcclDevComm devComm;
+  pcclDevCommRequirements reqs = PCCL_DEV_COMM_REQUIREMENTS_INITIALIZER;
+  reqs.lsaBarrierCount = PCCL_DEVICE_CTA_COUNT; // Must match kernel launch config
+  PCCLCHECK(pcclDevCommCreate(comm, &reqs, &devComm));
+  printf("  Rank %d created device communicator with %d LSA barriers\n", my_rank, PCCL_DEVICE_CTA_COUNT);
 
   if (my_rank == 0) {
     printf("Starting AllReduce with %zu elements (%zu MB) using Device API\n",
@@ -215,7 +215,7 @@ void* allReduce(int my_rank, int total_ranks, int local_device, int devices_per_
 
   // Launch device kernel to perform AllReduce
   // This kernel will directly access peer memory and perform collective operation
-  simpleAllReduceKernel<<<NCCL_DEVICE_CTA_COUNT, NCCL_DEVICE_THREADS_PER_CTA, 0, stream>>>(send_win, 0, recv_win, 0, count, devComm);
+  simpleAllReduceKernel<<<PCCL_DEVICE_CTA_COUNT, PCCL_DEVICE_THREADS_PER_CTA, 0, stream>>>(send_win, 0, recv_win, 0, count, devComm);
 
   // Wait for completion - kernel performs AllReduce.
   HGGCCHECK(hggcStreamSynchronize(stream));
@@ -249,7 +249,7 @@ void* allReduce(int my_rank, int total_ranks, int local_device, int devices_per_
   free(h_data);
 
   // Device API specific cleanup
-  PCCLCHECK(ncclDevCommDestroy(comm, &devComm));
+  PCCLCHECK(pcclDevCommDestroy(comm, &devComm));
   PCCLCHECK(pcclCommWindowDeregister(comm, send_win));
   PCCLCHECK(pcclCommWindowDeregister(comm, recv_win));
   PCCLCHECK(pcclMemFree(d_sendbuff));

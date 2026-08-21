@@ -8,7 +8,7 @@
 
 #include "hggc_runtime.h"
 #include "pccl.h"
-#include "nccl_device.h"
+#include "pccl_device.h"
 #include "utils.h"
 #include <stdio.h>
 #include <stdlib.h>
@@ -50,8 +50,8 @@
  *
  * Implementation notes (this example):
  * - GIN for peers outside the LSA team; LSA stores for peers on the same node.
- * - ginConnectionType NCCL_GIN_CONNECTION_FULL: full GIN connectivity (each rank to all peers).
- * - Uses ncclBarrierSession (world team + GIN), not ncclGinBarrierSession, so
+ * - ginConnectionType PCCL_GIN_CONNECTION_FULL: full GIN connectivity (each rank to all peers).
+ * - Uses pcclBarrierSession (world team + GIN), not pcclGinBarrierSession, so
  *   reqs sets barrierCount, not worldGinBarrierCount.
  *
  * Kernel flow:
@@ -63,8 +63,8 @@
  */
 
 // Grid width (CTAs). Must match reqs.barrierCount and reqs.ginSignalCount.
-#define NCCL_DEVICE_CTA_COUNT 16
-#define NCCL_DEVICE_THREADS_PER_CTA 512
+#define PCCL_DEVICE_CTA_COUNT 16
+#define PCCL_DEVICE_THREADS_PER_CTA 512
 
 // ==========================================================================
 // Device Kernel Implementation
@@ -74,20 +74,20 @@
 template <typename T>
 __global__ void HybridAlltoAllKernel(pcclWindow_t sendwin, size_t sendoffset,
                                       pcclWindow_t recvwin, size_t recvoffset,
-                                      size_t count, struct ncclDevComm devComm) {
+                                      size_t count, struct pcclDevComm devComm) {
   int ginContext = 0; // single context for simplicity
   unsigned int signalIndex = blockIdx.x;
-  ncclGin gin { devComm, ginContext };
+  pcclGin gin { devComm, ginContext };
   uint64_t signalValue = gin.readSignal(signalIndex);
 
-  ncclBarrierSession<ncclCoopCta> bar { ncclCoopCta(), ncclTeamTagWorld(), gin, blockIdx.x };
-  bar.sync(ncclCoopCta(), hggc::memory_order_acquire, ncclGinFenceLevel::Relaxed);
+  pcclBarrierSession<pcclCoopCta> bar { pcclCoopCta(), pcclTeamTagWorld(), gin, blockIdx.x };
+  bar.sync(pcclCoopCta(), hggc::memory_order_acquire, pcclGinFenceLevel::Relaxed);
 
   int tid = threadIdx.x + blockIdx.x * blockDim.x;
   int nthreads = blockDim.x * gridDim.x;
 
-  ncclTeam world = ncclTeamWorld(devComm);
-  ncclTeam lsa = ncclTeamLsa(devComm);
+  pcclTeam world = pcclTeamWorld(devComm);
+  pcclTeam lsa = pcclTeamLsa(devComm);
   const int startLsa = world.rank - lsa.rank;
   const int lsaSize = lsa.nRanks;
 
@@ -98,21 +98,21 @@ __global__ void HybridAlltoAllKernel(pcclWindow_t sendwin, size_t sendoffset,
     gin.put(world, r,
         recvwin, recvoffset + world.rank * size,
         sendwin, sendoffset + r * size,
-        size, ncclGin_SignalInc{signalIndex});
+        size, pcclGin_SignalInc{signalIndex});
   }
   for (int r = startLsa + lsaSize + tid; r < world.nRanks; r += nthreads) {
     gin.put(world, r,
         recvwin, recvoffset + world.rank * size,
         sendwin, sendoffset + r * size,
-        size, ncclGin_SignalInc{signalIndex});
+        size, pcclGin_SignalInc{signalIndex});
   }
 
   // Local ranks: LSA ranks (single loop for clarity).
-  T* sendLocal = (T*)ncclGetLocalPointer(sendwin, sendoffset);
+  T* sendLocal = (T*)pcclGetLocalPointer(sendwin, sendoffset);
   for (size_t offset = tid; offset < count; offset += nthreads) {
     for (int lp = 0; lp < lsa.nRanks; lp++) {
       int wr = startLsa + lp;
-      T* recvPtr = (T*)ncclGetLsaPointer(recvwin, recvoffset, lp);
+      T* recvPtr = (T*)pcclGetLsaPointer(recvwin, recvoffset, lp);
       recvPtr[world.rank * count + offset] = sendLocal[wr * count + offset];
     }
   }
@@ -121,11 +121,11 @@ __global__ void HybridAlltoAllKernel(pcclWindow_t sendwin, size_t sendoffset,
   // Wait only on the CTA whose signalIndex sees all GIN puts targeting this rank.
   int receivingCta = (world.rank % nthreads) / blockDim.x;
   if (blockIdx.x == receivingCta)
-    gin.waitSignal(ncclCoopCta(), signalIndex, signalValue + numRemotePeers);
+    gin.waitSignal(pcclCoopCta(), signalIndex, signalValue + numRemotePeers);
 
-  gin.flush(ncclCoopCta());
+  gin.flush(pcclCoopCta());
 
-  bar.sync(ncclCoopCta(), hggc::memory_order_release, ncclGinFenceLevel::Relaxed);
+  bar.sync(pcclCoopCta(), hggc::memory_order_release, pcclGinFenceLevel::Relaxed);
 }
 
 // ==========================================================================
@@ -161,15 +161,15 @@ void* hybridAlltoAll(int my_rank, int total_ranks, int local_device, int devices
   printf("  Rank %d initialized PCCL communicator for %d total ranks\n", my_rank, total_ranks);
 
   // Check for Device API and GIN support
-  ncclCommProperties_t props = NCCL_COMM_PROPERTIES_INITIALIZER;
-  PCCLCHECK(ncclCommQueryProperties(comm, &props));
+  pcclCommProperties_t props = PCCL_COMM_PROPERTIES_INITIALIZER;
+  PCCLCHECK(pcclCommQueryProperties(comm, &props));
   if (!props.deviceApiSupport) {
     printf("ERROR: rank %d communicator does not support Device API!\n", my_rank);
     PCCLCHECK(pcclCommFinalize(comm));
     PCCLCHECK(pcclCommDestroy(comm));
     return NULL;
   }
-  if (props.ginType == NCCL_GIN_TYPE_NONE) {
+  if (props.ginType == PCCL_GIN_TYPE_NONE) {
     printf("ERROR: rank %d communicator does not support GIN!\n", my_rank);
     PCCLCHECK(pcclCommFinalize(comm));
     PCCLCHECK(pcclCommDestroy(comm));
@@ -218,12 +218,12 @@ void* hybridAlltoAll(int my_rank, int total_ranks, int local_device, int devices
   HGGCCHECK(hggcStreamCreate(&stream));
 
   // Create device communicator with both LSA and GIN support
-  ncclDevComm devComm;
-  ncclDevCommRequirements reqs = NCCL_DEV_COMM_REQUIREMENTS_INITIALIZER;
-  reqs.barrierCount = NCCL_DEVICE_CTA_COUNT;       // ncclBarrierSession (world + GIN)
-  reqs.ginSignalCount = NCCL_DEVICE_CTA_COUNT;       // one signal index per CTA
-  reqs.ginConnectionType = NCCL_GIN_CONNECTION_FULL;  // full GIN connectivity: each rank to all peers
-  PCCLCHECK(ncclDevCommCreate(comm, &reqs, &devComm));
+  pcclDevComm devComm;
+  pcclDevCommRequirements reqs = PCCL_DEV_COMM_REQUIREMENTS_INITIALIZER;
+  reqs.barrierCount = PCCL_DEVICE_CTA_COUNT;       // pcclBarrierSession (world + GIN)
+  reqs.ginSignalCount = PCCL_DEVICE_CTA_COUNT;       // one signal index per CTA
+  reqs.ginConnectionType = PCCL_GIN_CONNECTION_FULL;  // full GIN connectivity: each rank to all peers
+  PCCLCHECK(pcclDevCommCreate(comm, &reqs, &devComm));
   printf("  Rank %d created device communicator with hybrid support\n", my_rank);
 
   if (my_rank == 0) {
@@ -244,7 +244,7 @@ void* hybridAlltoAll(int my_rank, int total_ranks, int local_device, int devices
   HGGCCHECK(hggcMemset(d_recvbuff, 0, size_bytes));
 
   // Launch hybrid AlltoAll kernel
-  HybridAlltoAllKernel<float><<<NCCL_DEVICE_CTA_COUNT, NCCL_DEVICE_THREADS_PER_CTA, 0, stream>>>(
+  HybridAlltoAllKernel<float><<<PCCL_DEVICE_CTA_COUNT, PCCL_DEVICE_THREADS_PER_CTA, 0, stream>>>(
       send_win, 0, recv_win, 0, count, devComm);
 
   // Wait for completion
@@ -288,7 +288,7 @@ void* hybridAlltoAll(int my_rank, int total_ranks, int local_device, int devices
     free(h_recvbuff);
 
     // Device API specific cleanup
-    PCCLCHECK(ncclDevCommDestroy(comm, &devComm));
+    PCCLCHECK(pcclDevCommDestroy(comm, &devComm));
     PCCLCHECK(pcclCommWindowDeregister(comm, send_win));
     PCCLCHECK(pcclCommWindowDeregister(comm, recv_win));
     PCCLCHECK(pcclMemFree(d_sendbuff));

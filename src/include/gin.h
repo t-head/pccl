@@ -9,7 +9,7 @@
 #ifndef NCCL_INT_GIN_H_
 #define NCCL_INT_GIN_H_
 
-#include "nccl_gin.h"
+#include "pccl_gin.h"
 
 ncclResult_t ncclGinInit(struct pcclComm* comm);
 ncclResult_t ncclGinInitFromParent(struct pcclComm* comm, struct pcclComm* parent);

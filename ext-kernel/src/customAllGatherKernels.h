@@ -17,7 +17,6 @@
 // NOTE: AG_DTYPES_NUM MUST remain 1 (only int8_t is supported by design).
 // AllGather kernels do not use RELAX_MODE (Phase 2 reads only from the local
 // buffer, so no trailing barrier is needed).
-// 1 dtype × 4 nranks × 4 align = 16 kernel variants per strategy.
 #define AG_DTYPES_NUM 1
 
 // Forward declaration of the AllGather kernel template. Defined and explicitly
@@ -44,7 +43,8 @@ __global__ void pcclKernel_oneShotAllGatherKernel(struct oneShotDevParams params
   AG_ONE_SHOT_FUNCS_RANK(2, dtype) \
   AG_ONE_SHOT_FUNCS_RANK(4, dtype) \
   AG_ONE_SHOT_FUNCS_RANK(8, dtype) \
-  AG_ONE_SHOT_FUNCS_RANK(16, dtype)
+  AG_ONE_SHOT_FUNCS_RANK(16, dtype) \
+  AG_ONE_SHOT_FUNCS_RANK(32, dtype)
 
 #define AG_ONE_SHOT_FUNCS() \
   AG_ONE_SHOT_FUNCS_DTYPE(int8_t)
@@ -69,7 +69,8 @@ __global__ void pcclKernel_oneShotAllGatherKernel(struct oneShotDevParams params
   AG_ONE_SHOT_FUNCS_IMPL_RANK(2, dtype) \
   AG_ONE_SHOT_FUNCS_IMPL_RANK(4, dtype) \
   AG_ONE_SHOT_FUNCS_IMPL_RANK(8, dtype) \
-  AG_ONE_SHOT_FUNCS_IMPL_RANK(16, dtype)
+  AG_ONE_SHOT_FUNCS_IMPL_RANK(16, dtype) \
+  AG_ONE_SHOT_FUNCS_IMPL_RANK(32, dtype)
 
 #define AG_ONE_SHOT_FUNCS_IMPL() \
   AG_ONE_SHOT_FUNCS_IMPL_DTYPE(int8_t)

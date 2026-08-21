@@ -1681,13 +1681,34 @@ static ncclResult_t scheduleCollTasksToPlan(ncclComm_t comm, struct ncclKernelPl
   return ncclSuccess;
 }
 
-static void finishPlan(ncclComm_t comm, struct ncclKernelPlan* plan) {
+static ncclResult_t finishPlan(ncclComm_t comm, struct ncclKernelPlan* plan) {
   ncclKernelPlanner::WipPlan::Channel* wipChannels = comm->planner.wipPlan.channels;
   size_t workBytes = plan->workBytes;
   size_t batchBytes = plan->nWorkBatches*sizeof(struct ncclDevWorkBatch);
 
-  if (plan->isSymColl) return;
+  if (plan->isSymColl) return ncclSuccess;
   plan->threadPerBlock = std::max(plan->threadPerBlock, NCCL_MIN_NTHREADS);
+
+  // Debug: dump the sizes that decide whether we promote to Args mode, and
+  // guard against the batch table alone overflowing the fixed kernel-args
+  // budget (device-side loadWorkBatchToShmem indexes batches without any
+  // bounds check, so a too-large table would silently corrupt following
+  // args/work bytes).
+  constexpr size_t kMaxKernelArgsBytes = ncclMaxKernelArgsSize(); // 1<<10 = 1024
+  VERBOSE(NCCL_COLL,
+       "finishPlan sizes: sizeof(pcclDevKernelArgs)=%zu batchBytes=%zu workBytes=%zu "
+       "nWorkBatches=%d workArgsBytes=%zu kernelArgsBudget=%zu",
+       sizeof(ncclDevKernelArgs), batchBytes, workBytes, plan->nWorkBatches,
+       (size_t)comm->workArgsBytes, kMaxKernelArgsBytes);
+  if (sizeof(ncclDevKernelArgs) + batchBytes > kMaxKernelArgsBytes) {
+    ERROR("finishPlan: sizeof(pcclDevKernelArgs)(%zu) + batchBytes(%zu) = %zu exceeds "
+          "the %zu-byte kernel-args budget (nWorkBatches=%d). "
+          "Device-side batch indexing would OOB; aborting launch.",
+          sizeof(ncclDevKernelArgs), batchBytes,
+          sizeof(ncclDevKernelArgs) + batchBytes, kMaxKernelArgsBytes,
+          plan->nWorkBatches);
+    return ncclInternalError;
+  }
 
   // If we can fit everything into the kernel args we do so.
   if (sizeof(ncclDevKernelArgs) + batchBytes + workBytes <= comm->workArgsBytes) {
@@ -1758,6 +1779,7 @@ static void finishPlan(ncclComm_t comm, struct ncclKernelPlan* plan) {
     nHeads -= opNext ? 0 : 1;
     ncclIntruQueueEnqueue(&plan->proxyOpQueue, op);
   }
+  return ncclSuccess;
 }
 
 PCCL_PARAM(SymOpAccPrecisionInc, "SYM_OP_ACC_PRECISION_INC", 0);
@@ -1846,7 +1868,7 @@ ncclResult_t ncclLaunchPrepare(ncclComm_t comm) {
           }
         }
 
-        finishPlan(comm, plan);
+        NCCLCHECKGOTO(finishPlan(comm, plan), result, failure);
         if (plan->workBytes != 0) {
           ncclIntruQueueEnqueue(&planner->planQueue, plan);
           nPlans += 1;

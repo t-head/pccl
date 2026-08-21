@@ -24,7 +24,6 @@
 #define NCCL_THREAD_NAMELEN 16
 
 /* we will redefine below log api to contain module & level */
-#define NCCL_MODULE "nccl"
 #define NCCL_LOG_N_LEVEL 30
 inline int get_hggc_device() {
   int hggcDev;

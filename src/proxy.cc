@@ -1474,8 +1474,24 @@ static ncclResult_t proxyProgressInit(struct ncclProxyState* proxyState) {
   return ncclSuccess;
 }
 
+static ncclResult_t proxyOpsPoolUnlink(struct ncclProxyProgressState* state) {
+  if (state->opsPool == NULL) return ncclSuccess;
+
+  char shmPath[] = "/dev/shm/pccl-XXXXXX";
+  memcpy(shmPath+sizeof("/dev/shm/pccl-")-1, state->opsPoolShmSuffix, sizeof("XXXXXX")-1);
+  return ncclShmUnlink(shmPath);
+}
+
 static void proxyOpsFree(struct ncclProxyState* proxyState) {
   struct ncclProxyProgressState* state = &proxyState->progressState;
+  // The ops pool shm is only unlinked at the end of init when cuMem is disabled;
+  // with cuMem or splitShare, late proxy connections may still open it by name,
+  // so it must stay linked while the service is alive. The service has exited at
+  // this point and no new attach can happen: unlink it here so the file does not
+  // leak in /dev/shm. ENOENT (already unlinked at init) is tolerated.
+  if (proxyOpsPoolUnlink(state) != ncclSuccess) {
+    WARN("[Service thread] shm unlink failed");
+  }
   if (ncclShmClose(state->opsPool, NULL, sizeof(struct ncclProxyOpsPool)) != ncclSuccess) {
     WARN("[Service thread] shm close failed");
   }
@@ -1483,11 +1499,7 @@ static void proxyOpsFree(struct ncclProxyState* proxyState) {
 
 ncclResult_t ncclProxyShmUnlink(ncclComm_t comm) {
   struct ncclProxyProgressState* state = &comm->proxyState->progressState;
-  if (state->opsPool == NULL) return ncclSuccess;
-
-  char shmPath[] = "/dev/shm/pccl-XXXXXX";
-  memcpy(shmPath+sizeof("/dev/shm/pccl-")-1, state->opsPoolShmSuffix, sizeof("XXXXXX")-1);
-  if (ncclShmUnlink(shmPath) != ncclSuccess) {
+  if (proxyOpsPoolUnlink(state) != ncclSuccess) {
     WARN("[Service thread] shm unlink failed");
   }
   return ncclSuccess;

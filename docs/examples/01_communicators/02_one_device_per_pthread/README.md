@@ -50,7 +50,7 @@ make  [PCCL_HOME=<path-to-pccl>] [PPU_SDK=<path-to-ppu-sdk>]
 
 ### Run with PCCL debug output
 ```shell
-NCCL_DEBUG=INFO ./one_device_per_pthread
+PCCL_DEBUG=INFO ./one_device_per_pthread
 ```
 
 ## Code Walk-through
@@ -67,7 +67,7 @@ typedef struct {
 threadData_t* data;
 
 // Each thread initializes its own communicator
-NCCLCHECK(pcclCommInitRank(&data->comms[thread_id], data->num_gpus, data->commId, data->thread_id));
+PCCLCHECK(pcclCommInitRank(&data->comms[thread_id], data->num_gpus, data->commId, data->thread_id));
 ```
 
 In this approach:
@@ -115,7 +115,7 @@ In this approach:
 
 The example uses simplified error handling with CHECK macros:
 - **HGGCCHECK**: Exits immediately on HGGC errors
-- **NCCLCHECK**: Exits immediately on PCCL errors
+- **PCCLCHECK**: Exits immediately on PCCL errors
 - **No async error checking**: Simplified for clarity
 - **Thread safety**: Each thread handles its own errors
 

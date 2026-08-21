@@ -11,7 +11,7 @@
 #define NCCL_DEV_RUNTIME_H_
 
 #include "pccl_internal.h"
-#include "nccl_device/core.h"
+#include "pccl_device/core.h"
 #include "allocator.h"
 #include "bitops.h"
 #include "utils.h"
@@ -42,7 +42,7 @@ struct ncclDevrRegTask {
   void* userPtr;
   size_t userSize;
   int winFlags;
-  ncclDevWin_t* outWinDev;   // Output: pointer to device window location
+  ncclWindow_t* outWinDev;   // Output: pointer to device window location
 };
 
 struct ncclDevrCommCreateTask {
@@ -96,7 +96,7 @@ ncclResult_t ncclDevrFindWindow(struct pcclComm* comm, void const* userPtr, stru
 
 // Register a user buffer as a symmetric window (called during group commit).
 ncclResult_t ncclDevrWindowRegisterInGroup(
-  struct pcclComm* comm, void* ptr, size_t size, int winFlags, ncclDevWin_t* outWinDev
+  struct pcclComm* comm, void* ptr, size_t size, int winFlags, ncclWindow_t* outWinDev
 );
 
 // Create a device communicator with the given resource requirements.
@@ -130,8 +130,8 @@ void ncclDevCommDump(struct ncclDevComm* devComm);
 extern "C" ncclResult_t ncclWinGetUserPtr(struct pcclComm* comm, struct ncclWindow_vidmem* win, void** outUserPtr);
 
 // Get LSA/peer device pointers from a device window
-ncclResult_t ncclGetLsaDevicePointer(ncclDevWin_t window, size_t offset, int lsaRank, void** outPtr);
-ncclResult_t ncclGetPeerDevicePointer(ncclDevWin_t window, size_t offset, int peer, void** outPtr);
+ncclResult_t ncclGetLsaDevicePointer(ncclWindow_t window, size_t offset, int lsaRank, void** outPtr);
+ncclResult_t ncclGetPeerDevicePointer(ncclWindow_t window, size_t offset, int peer, void** outPtr);
 
 ////////////////////////////////////////////////////////////////////////////////
 // Team API: Host-side functions (take ncclComm_t / pcclComm*)
@@ -143,7 +143,7 @@ int ncclTeamRankToWorld(ncclComm_t comm, ncclTeam_t team, int rank);
 int ncclTeamRankToLsa(ncclComm_t comm, ncclTeam_t team, int rank);
 
 // Inline team math (host + device compatible, operate on ncclTeam_t only) is
-// provided by nccl_device/impl/core__funcs.h in the canonical NCCL form. The
+// provided by pccl_device/impl/core__funcs.h in the canonical NCCL form. The
 // duplicate static-inline copies that previously lived here have been removed.
 
 #endif // NCCL_DEV_RUNTIME_H_

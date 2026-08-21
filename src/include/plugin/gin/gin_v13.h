@@ -10,7 +10,8 @@
 #define GIN_V13_H_
 
 #include <stddef.h>
-#include "nccl_device/net_device.h"
+#include "pccl_compat.h"
+#include "pccl_device/net_device.h"
 
 #define NCCL_NET_MAX_DEVS_PER_NIC_V11 4
 #define NCCL_NET_MAX_DEVS_PER_NIC_V12 8

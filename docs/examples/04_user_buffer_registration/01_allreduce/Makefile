@@ -66,7 +66,7 @@ install: $(TARGET)
 
 # Help
 help:
-	@echo "NCCL Example: User Buffer Registration Allreduce"
+	@echo "PCCL Example: User Buffer Registration Allreduce"
 	@echo "=============================================="
 	@echo ""
 	@echo "Targets:"

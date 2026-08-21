@@ -7,7 +7,7 @@ This directory contains shared utilities and helper functions used across all PC
 
 ### Headers (`include/`)
 - **utils.h**: General utility functions
-- **nccl_utils.h**: PCCL error checking macros
+- **pccl_utils.h**: PCCL error checking macros
 - **mpi_utils.h**: MPI error checking macros
 
 ### Source Files (`src/`)
@@ -17,7 +17,7 @@ This directory contains shared utilities and helper functions used across all PC
 
 ### Error Checking Macros
 ```c
-#define NCCLCHECK(cmd)  // PCCL error checking
+#define PCCLCHECK(cmd)  // PCCL error checking
 #define HGGCCHECK(cmd)  // HGGC runtime error checking
 #define MPICHECK(cmd)   // MPI error checking
 ```

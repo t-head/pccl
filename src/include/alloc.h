@@ -119,7 +119,7 @@ static inline ncclResult_t ncclHgMemAllocAddr(void **ptr, HGmemGenericAllocation
   HGmemAllocationProp prop = {};
   HGmemAccessDesc accessDesc = {};
   int hggcDev = -1;
-  VERBOSE(NCCL_ALLOC, "ncclHgMemAllocAddr(ptr=%p, handle=%llx, size=%zu)", ptr, *handleIn, size);
+  VERBOSE(NCCL_ALLOC, "pcclHgMemAllocAddr(ptr=%p, handle=%llx, size=%zu)", ptr, *handleIn, size);
   HGGCCHECK(hggcGetDevice(&hggcDev));
   HGCHECK(hgMemGetAllocationPropertiesFromHandle(&prop, *handleIn));
   HGCHECK(hgMemGetAllocationGranularity(&granularityVir, &prop, HG_MEM_ALLOC_GRANULARITY_MINIMUM));
@@ -149,7 +149,7 @@ static inline ncclResult_t ncclHgMemFreeAddr(void *ptr) {
   size_t granularityVir = 0;
   HGmemAllocationProp prop = {};
 
-  VERBOSE(NCCL_ALLOC, "ncclHgMemFreeAddr(ptr=%p)", ptr);
+  VERBOSE(NCCL_ALLOC, "pcclHgMemFreeAddr(ptr=%p)", ptr);
   HGCHECK(hgMemRetainAllocationHandle(&handle, ptr));
   HGCHECK(hgMemRelease(handle));
   HGCHECK(hgMemGetAllocationPropertiesFromHandle(&prop, handle));
@@ -176,7 +176,7 @@ static inline ncclResult_t ncclHgMemAlloc(void **ptr, HGmemGenericAllocationHand
   HGmemGenericAllocationHandle handle;
   int hggcDev;
   int flag = 0;
-  VERBOSE(NCCL_ALLOC, "ncclHgMemAlloc(ptr=%p, size=%zu)", ptr, size);
+  VERBOSE(NCCL_ALLOC, "pcclHgMemAlloc(ptr=%p, size=%zu)", ptr, size);
   HGGCCHECK(hggcGetDevice(&hggcDev));
   HGCHECK(hgDeviceGet(&currentDev, hggcDev));
   prop.type = HG_MEM_ALLOCATION_TYPE_PINNED;
@@ -219,7 +219,7 @@ static inline ncclResult_t ncclHgMemFree(void *ptr) {
   size_t granularityVir = 0;
   HGmemAllocationProp prop = {};
 
-  VERBOSE(NCCL_ALLOC, "ncclHgMemFree(ptr=%p)", ptr);
+  VERBOSE(NCCL_ALLOC, "pcclHgMemFree(ptr=%p)", ptr);
   HGCHECK(hgMemRetainAllocationHandle(&handle, ptr));
   HGCHECK(hgMemRelease(handle));
   HGCHECK(hgMemGetAllocationPropertiesFromHandle(&prop, handle));
@@ -243,7 +243,7 @@ ncclResult_t ncclHggcCallocAsyncDebug(T** ptr, size_t nelem, uint64_t* pDevMemUs
   size_t sizeAligned = nelem * sizeof(T);
   hggcStreamCaptureMode mode = hggcStreamCaptureModeRelaxed;
   *ptr = nullptr;
-  VERBOSE(NCCL_ALLOC, "ncclHggcCallocAsync(ptr=%p, nelem=%zu, stream=%p)", ptr, nelem, stream);
+  VERBOSE(NCCL_ALLOC, "pcclHggcCallocAsync(ptr=%p, nelem=%zu, stream=%p)", ptr, nelem, stream);
   HGGCCHECK(hggcThreadExchangeStreamCaptureMode(&mode));
   if (ncclCuMemEnable()) {
     NCCLCHECKGOTO(ncclHgMemAlloc((void **)ptr, NULL, ncclHgMemHandleType, nelem*sizeof(T), pDevMemUsed, &sizeAligned), result, finish);
@@ -345,7 +345,7 @@ static ncclResult_t ncclHggcCallocOrigin(T** ptr, size_t nelem, size_t *sizeAlig
   }
 
   hggcStream_t stream;
-  VERBOSE(NCCL_ALLOC, "ncclHggcCallocOrigin(ptr=%p, nelem=%zu)", ptr, nelem);
+  VERBOSE(NCCL_ALLOC, "pcclHggcCallocOrigin(ptr=%p, nelem=%zu)", ptr, nelem);
   HGGCCHECK(hggcEitInterface::getInstance().wrapHggcStreamCreateForCopyEngine(&stream));
   if (ncclCuMemEnable()) {
     NCCLCHECK(ncclHgMemAlloc((void **)ptr, NULL, ncclHgMemHandleType, nelem*sizeof(T), nullptr, sizeAligned, memMode));
@@ -467,7 +467,7 @@ static ncclResult_t ncclHggcMemset(T* ptr, int val, size_t nelem) {
   ncclResult_t result = ncclSuccess;
   hggcStream_t stream;
   hggcStreamCaptureMode mode = hggcStreamCaptureModeRelaxed;
-  VERBOSE(NCCL_ALLOC, "ncclHggcMemset(ptr=%p, nelem=%zu)", ptr, nelem);
+  VERBOSE(NCCL_ALLOC, "pcclHggcMemset(ptr=%p, nelem=%zu)", ptr, nelem);
   HGGCCHECK(hggcThreadExchangeStreamCaptureMode(&mode));
 
   // use memMode to specify other kinds of memory alloc
@@ -485,7 +485,7 @@ template <typename T, int needSwitchCaptureMode=1>
 ncclResult_t ncclHggcMemcpyAsync(T* dst, T* src, size_t nelem, hggcStream_t stream) {
   ncclResult_t result = ncclSuccess;
   hggcStreamCaptureMode mode = hggcStreamCaptureModeRelaxed;
-  VERBOSE(NCCL_ALLOC, "ncclHggcMemcpyAsync(dst=%p, src=%p, stream=%p)", dst, src, stream);
+  VERBOSE(NCCL_ALLOC, "pcclHggcMemcpyAsync(dst=%p, src=%p, stream=%p)", dst, src, stream);
   if (needSwitchCaptureMode) HGGCCHECK(hggcThreadExchangeStreamCaptureMode(&mode));
   HGGCCHECKGOTO(hggcMemcpyAsync(dst, src, nelem*ncclSizeOfT<T>(), hggcMemcpyDefault, stream), result, finish);
 finish:
@@ -497,7 +497,7 @@ template <typename T, int needSwitchCaptureMode=1>
 static ncclResult_t ncclHggcMemsetAsync(T* ptr, int val, size_t nelem, hggcStream_t stream) {
   ncclResult_t result = ncclSuccess;
   hggcStreamCaptureMode mode = hggcStreamCaptureModeRelaxed;
-  VERBOSE(NCCL_ALLOC, "ncclHggcMemsetAsync(ptr=%p, nelem=%zu, stream=%p)", ptr, nelem, stream);
+  VERBOSE(NCCL_ALLOC, "pcclHggcMemsetAsync(ptr=%p, nelem=%zu, stream=%p)", ptr, nelem, stream);
   if (needSwitchCaptureMode) HGGCCHECK(hggcThreadExchangeStreamCaptureMode(&mode));
 
   // use memMode to specify other kinds of memory alloc
@@ -575,7 +575,7 @@ static ncclResult_t ncclHggcCallocOriginLegacy(T** ptr, size_t nelem) {
     return ncclSuccess;
   }
 
-  VERBOSE(NCCL_ALLOC, "ncclHggcCallocOriginLegacy(ptr=%p, nelem=%zu)", ptr, nelem);
+  VERBOSE(NCCL_ALLOC, "pcclHggcCallocOriginLegacy(ptr=%p, nelem=%zu)", ptr, nelem);
   HGGCCHECK(hggcMalloc(ptr, nelem*sizeof(T)));
 
   if (ncclParamNoMemsetFlag == 0) {
@@ -607,7 +607,7 @@ ncclResult_t ncclHggcCallocAsyncDebugLegacy(T** ptr, size_t nelem, uint64_t* pDe
   ncclResult_t result = ncclSuccess;
   hggcStreamCaptureMode mode = hggcStreamCaptureModeRelaxed;
   *ptr = nullptr;
-  VERBOSE(NCCL_ALLOC, "ncclHggcCallocAsyncLegacy(ptr=%p, nelem=%zu, stream=%p)", ptr, nelem, stream);
+  VERBOSE(NCCL_ALLOC, "pcclHggcCallocAsyncLegacy(ptr=%p, nelem=%zu, stream=%p)", ptr, nelem, stream);
   HGGCCHECK(hggcThreadExchangeStreamCaptureMode(&mode));
   HGGCCHECKGOTO(hggcMalloc(ptr, nelem*sizeof(T)), result, finish);
   HGGCCHECKGOTO(hggcMemsetAsync(*ptr, 0, nelem*sizeof(T), stream), result, finish);

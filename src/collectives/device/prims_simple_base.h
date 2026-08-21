@@ -247,71 +247,71 @@ class PrimitivesSimpleBase {
   }
 
   __device__ __forceinline__ void loadRecvConn(ncclDevChannelPeer *devChannelPeer, T* directBuff, int connIndex, struct ncclDevWorkColl* collWork, struct ncclDevWorkP2p* p2pWork) {
-    if (role & (ROLE_WAIT_RECV|ROLE_POST_RECV)) {
-      conn = &devChannelPeer->recv[connIndex];
-      step = conn->step;
-      step = ROUNDUP(step, SLICESPERCHUNK*SLICESTEPS);
-      if (role & ROLE_POST_RECV) {
-        connHeadPtr = conn->head;
-        // Return credits in case we rounded up.
-        volatileStoreU64(connHeadPtr, step);
-      }
-      if (role & ROLE_WAIT_RECV) {
-        buff = (T*)conn->buffs[NCCL_PROTO_SIMPLE];
-        if (DIRECT && ((P2P ? ((p2pWork != nullptr && p2pWork->recvRegUsed)) : (collWork != nullptr && collWork->recvRegUsed)) && (conn->direct & NCCL_DIRECT_GPU))) {
-          hangSpins = spins = 0;
-          void **slot = conn->ptrExchange;
-          void *ptr;
+    // Caller already gates this with (role & (ROLE_WAIT_RECV|ROLE_POST_RECV)),
+    // so devChannelPeer is guaranteed non-null here.
+    conn = &devChannelPeer->recv[connIndex];
+    step = conn->step;
+    step = ROUNDUP(step, SLICESPERCHUNK*SLICESTEPS);
+    if (role & ROLE_POST_RECV) {
+      connHeadPtr = conn->head;
+      // Return credits in case we rounded up.
+      volatileStoreU64(connHeadPtr, step);
+    }
+    if (role & ROLE_WAIT_RECV) {
+      buff = (T*)conn->buffs[NCCL_PROTO_SIMPLE];
+      if (DIRECT && ((P2P ? ((p2pWork != nullptr && p2pWork->recvRegUsed)) : (collWork != nullptr && collWork->recvRegUsed)) && (conn->direct & NCCL_DIRECT_GPU))) {
+        hangSpins = spins = 0;
+        void **slot = conn->ptrExchange;
+        void *ptr;
+        loadPtr(slot, ptr);
+        // Wait for consumer to consume previous value before trampling it.
+        while (ptr != NULL && !checkAbort(comm, spins, abort, hangSpins)) {
           loadPtr(slot, ptr);
-          // Wait for consumer to consume previous value before trampling it.
-          while (ptr != NULL && !checkAbort(comm, spins, abort, hangSpins)) {
-            loadPtr(slot, ptr);
-          }
-          direct = directBuff;
-          // Encode pointer by XOR'ing against some address they definitely wouldn't send
-          // since we want to allow them sending us nullptr while not colliding with
-          // the empty slot value.
-          uintptr_t exchange = reinterpret_cast<uintptr_t>(directBuff);
-          if (!P2P) {
-            int localPeer = comm->rankToLocalRank[peer];
-            int regUsed = collWork != nullptr ? collWork->recvRegUsed : 0;
-            if (regUsed) exchange = collWork->recvbuffOffset + collWork->recvbuffRmtAddrs[localPeer];
-          }
-          storePtr(slot, reinterpret_cast<T*>(reinterpret_cast<uintptr_t>(exchange) ^ ptrExchangeMagicNum));
         }
-        connTailPtr = conn->tail;
-        connTailCache = volatileLoadU64(connTailPtr);
-        connOffsFifoPtr = conn->offsFifo;
+        direct = directBuff;
+        // Encode pointer by XOR'ing against some address they definitely wouldn't send
+        // since we want to allow them sending us nullptr while not colliding with
+        // the empty slot value.
+        uintptr_t exchange = reinterpret_cast<uintptr_t>(directBuff);
+        if (!P2P) {
+          int localPeer = comm->rankToLocalRank[peer];
+          int regUsed = collWork != nullptr ? collWork->recvRegUsed : 0;
+          if (regUsed) exchange = collWork->recvbuffOffset + collWork->recvbuffRmtAddrs[localPeer];
+        }
+        storePtr(slot, reinterpret_cast<T*>(reinterpret_cast<uintptr_t>(exchange) ^ ptrExchangeMagicNum));
       }
+      connTailPtr = conn->tail;
+      connTailCache = volatileLoadU64(connTailPtr);
+      connOffsFifoPtr = conn->offsFifo;
     }
   }
 
   __device__ __forceinline__ void loadSendConn(ncclDevChannelPeer *devChannelPeer, int connIndex, struct ncclDevWorkColl* collWork, struct ncclDevWorkP2p* p2pWork) {
-    if (role & (ROLE_WAIT_SEND|ROLE_POST_SEND)) {
-      conn = &devChannelPeer->send[connIndex];
-      step = conn->step;
-      step = ROUNDUP(step, SLICESPERCHUNK*SLICESTEPS);
-      if (role & ROLE_POST_SEND) {
-        connTailPtr = conn->tail;
-      }
-      if (role & ROLE_WAIT_SEND) {
-        buff = (T*)conn->buffs[NCCL_PROTO_SIMPLE];
-        if (DIRECT && ((P2P ? ((p2pWork != nullptr && p2pWork->sendRegUsed)) : (collWork != nullptr && collWork->sendRegUsed)) && (conn->direct & NCCL_DIRECT_GPU))) {
-          hangSpins = spins = 0;
-          void **slot = conn->ptrExchange;
-          void *ptr = NULL;
+    // Caller already gates this with (role & (ROLE_WAIT_SEND|ROLE_POST_SEND)),
+    // so devChannelPeer is guaranteed non-null here.
+    conn = &devChannelPeer->send[connIndex];
+    step = conn->step;
+    step = ROUNDUP(step, SLICESPERCHUNK*SLICESTEPS);
+    if (role & ROLE_POST_SEND) {
+      connTailPtr = conn->tail;
+    }
+    if (role & ROLE_WAIT_SEND) {
+      buff = (T*)conn->buffs[NCCL_PROTO_SIMPLE];
+      if (DIRECT && ((P2P ? ((p2pWork != nullptr && p2pWork->sendRegUsed)) : (collWork != nullptr && collWork->sendRegUsed)) && (conn->direct & NCCL_DIRECT_GPU))) {
+        hangSpins = spins = 0;
+        void **slot = conn->ptrExchange;
+        void *ptr = NULL;
+        loadPtr(slot, ptr);
+        while (ptr == NULL && !checkAbort(comm, spins, abort, hangSpins)) {
           loadPtr(slot, ptr);
-          while (ptr == NULL && !checkAbort(comm, spins, abort, hangSpins)) {
-            loadPtr(slot, ptr);
-          }
-          direct = reinterpret_cast<T*>(reinterpret_cast<uintptr_t>(ptr) ^ ptrExchangeMagicNum);
-          storePtr(slot, (T*)NULL);
         }
-        connHeadPtr = conn->head;
-        connHeadCache = volatileLoadU64(connHeadPtr);
-        connSizesFifoPtr = conn->sizesFifo;
-        connOffsFifoPtr = conn->offsFifo;
+        direct = reinterpret_cast<T*>(reinterpret_cast<uintptr_t>(ptr) ^ ptrExchangeMagicNum);
+        storePtr(slot, (T*)NULL);
       }
+      connHeadPtr = conn->head;
+      connHeadCache = volatileLoadU64(connHeadPtr);
+      connSizesFifoPtr = conn->sizesFifo;
+      connOffsFifoPtr = conn->offsFifo;
     }
   }
 
@@ -362,8 +362,10 @@ class PrimitivesSimpleBase {
     if (role & (ROLE_WAIT_RECV|ROLE_POST_RECV)) peer = recvPeers[index];
     if (role & (ROLE_WAIT_SEND|ROLE_POST_SEND)) peer = sendPeers[index];
 
-    loadRecvConn(getShmemPtr(comm)->channel.peers[peer], directBuff, connIndexRecv, collWork, p2pWork);
-    loadSendConn(getShmemPtr(comm)->channel.peers[peer], connIndexSend, collWork, p2pWork);
+    if (role & (ROLE_WAIT_RECV|ROLE_POST_RECV))
+      loadRecvConn(getShmemPtr(comm)->channel.peers[peer], directBuff, connIndexRecv, collWork, p2pWork);
+    if (role & (ROLE_WAIT_SEND|ROLE_POST_SEND))
+      loadSendConn(getShmemPtr(comm)->channel.peers[peer], connIndexSend, collWork, p2pWork);
   }
 
   __device__ __forceinline__ void

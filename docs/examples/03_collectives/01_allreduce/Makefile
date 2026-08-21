@@ -50,7 +50,7 @@ install: $(TARGET)
 
 # Help
 help:
-	@echo "NCCL Example: Allreduce"
+	@echo "PCCL Example: Allreduce"
 	@echo "=============================================="
 	@echo ""
 	@echo "Targets:"

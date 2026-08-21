@@ -189,6 +189,3 @@ if [[ $EXAMPLES ]]; then
     [[ $IGNORE_FAIL ]] && examples_args+=(--ignore_fail)
     "${EXAMPLES_SCRIPT}" "${examples_args[@]}"
 fi
-
-echo "Begin to generate cuda header"
-python3 ${PCCL_ROOT}/scripts/generate_cuda_header.py

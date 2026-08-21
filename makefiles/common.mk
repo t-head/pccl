@@ -91,11 +91,11 @@ CXXFLAGS   := -DHGGC_MAJOR=$(HGGC_MAJOR) -DHGGC_MINOR=$(HGGC_MINOR) \
               -Wall -Wno-unused-function -Wno-sign-compare -Wno-deprecated-declarations \
               -std=c++14 -Wvla \
               $(PPU_INC:%=-I%) \
-              -DNCCL_OS_LINUX \
+              -DPCCL_OS_LINUX \
               $(CXXFLAGS)
 
 HGFLAGS    := -std=c++14 -Xcompiler -fPIC \
-              -DNCCL_OS_LINUX -DPCCL_HGGC_VERSION=$(PCCL_HGGC_VERSION) $(PPU_INC:%=-I%)
+              -DPCCL_OS_LINUX -DPCCL_HGGC_VERSION=$(PCCL_HGGC_VERSION) $(PPU_INC:%=-I%)
 
 HGCC_THREADS ?= 1
 HGFLAGS += --threads $(HGCC_THREADS)
@@ -124,9 +124,13 @@ else
   HGLDFLAGS += -dlto
 endif
 
+OBJCOPY ?= objcopy
+STRIP ?= strip
 ifneq ($(PPU_HOST_ARCH),$(PPU_TARGET_ARCH))
   HGFLAGS += -ccbin ${PPU_TARGET_ARCH}-linux-gnu-g++
   HGLDFLAGS += -ccbin ${PPU_TARGET_ARCH}-linux-gnu-g++
+  OBJCOPY := ${PPU_TARGET_ARCH}-linux-gnu-objcopy
+  STRIP := ${PPU_TARGET_ARCH}-linux-gnu-strip
 endif
 
 ifneq ($(USE_SDK), 1)
@@ -220,7 +224,7 @@ ifeq ($(KEEP), 1)
 endif
 
 ifeq ($(DOCA_DEBUG), 1)
-  HGFLAGS += -DNCCL_DEVICE_GIN_GDAKI_ENABLE_DEBUG
+  HGFLAGS += -DPCCL_DEVICE_GIN_GDAKI_ENABLE_DEBUG
 endif
 
 ifneq ($(PROFAPI), 0)

@@ -231,7 +231,7 @@ for (fname, coll), ks in kernels_by_file.items():
   with open(os.path.join(gensrc, fname), "w") as f:
     emitln(f, '#include "symmetric.h"')
     emitln(f, '#include "sym_kernels.h"')
-    emitln(f, '#include "nccl_device/core.h"')
+    emitln(f, '#include "pccl_device/core.h"')
     emitln(f, '#include "symmetric/kernel.cuh"')
     emitln(f, '#include "symmetric/{coll}.cuh"'.format(coll=coll_to_lower[coll]))
     for k in ks:

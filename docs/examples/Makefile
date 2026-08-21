@@ -6,7 +6,7 @@
 # See LICENSE.txt for more license information
 #
 
-# NCCL Examples Main Makefile
+# PCCL Examples Main Makefile
 
 # Define all category directories
 CATEGORIES := 01_communicators 02_point_to_point 03_collectives 04_user_buffer_registration 05_symmetric_memory 06_device_api
@@ -42,7 +42,7 @@ install: all
 
 # Help target
 help:
-	@echo "NCCL Examples Main Makefile"
+	@echo "PCCL Examples Main Makefile"
 	@echo "==========================="
 	@echo ""
 	@echo "Available targets:"

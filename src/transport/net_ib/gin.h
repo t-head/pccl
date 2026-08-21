@@ -6,8 +6,8 @@
  * See LICENSE.txt for more license information
  *************************************************************************/
 
-#ifndef _NCCL_NET_IB_GIN_H_
-#define _NCCL_NET_IB_GIN_H_
+#ifndef _PCCL_NET_IB_GIN_H_
+#define _PCCL_NET_IB_GIN_H_
 
 #include <stddef.h>
 #include <stdint.h>

@@ -9,7 +9,7 @@
 # Include common build rules
 include ../../../makefiles/common.mk
 
-# NCCL Fundamental Examples
+# PCCL Fundamental Examples
 EXAMPLES = 01_multiple_devices_single_process 02_one_device_per_pthread
 
 ifeq ($(MPI), 1)
@@ -41,7 +41,7 @@ test: all
 
 # Help
 help:
-	@echo "NCCL Communicator Init Examples"
+	@echo "PCCL Communicator Init Examples"
 	@echo "==============================="
 	@echo ""
 	@echo "Targets:"

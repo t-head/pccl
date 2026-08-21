@@ -8,9 +8,9 @@
 
 #include "dev_runtime.h"
 #include "comm.h"
-#include "nccl_device/core.h"
-#include "nccl_device/gin_barrier.h"
-#include "nccl_device/lsa_barrier.h"
+#include "pccl_device/core.h"
+#include "pccl_device/gin_barrier.h"
+#include "pccl_device/lsa_barrier.h"
 #include "devcomm.h"
 #include "sym_kernels.h"
 #include "transport.h"
@@ -1019,7 +1019,7 @@ bool ncclGinResourcesRequested(struct ncclDevCommRequirements const* reqs) {
   return requestedGinResources;
 }
 
-#include "nccl_device/gin/gdaki/gin_gdaki_device_host_common.h"
+#include "pccl_device/gin/gdaki/gin_gdaki_device_host_common.h"
 static void ncclDevCommGdakiDump(void* handle) {
   struct ncclGinGdakiGPUContext ctx;
   if (hggcMemcpy(&ctx, handle, sizeof(ctx), hggcMemcpyDeviceToHost) == hggcSuccess) {
@@ -1031,7 +1031,7 @@ static void ncclDevCommGdakiDump(void* handle) {
   }
 }
 
-#include "nccl_device/gin/proxy/gin_proxy_device_host_common.h"
+#include "pccl_device/gin/proxy/gin_proxy_device_host_common.h"
 static void ncclDevCommProxyDump(void* handle) {
   ncclGinProxyGpuCtx_t ctx;
   if (hggcMemcpy(&ctx, handle, sizeof(ctx), hggcMemcpyDeviceToHost) == hggcSuccess) {
@@ -1383,8 +1383,8 @@ void ncclDevCommCopyLsaData(void* dstRankPtr, void const* srcRankPtr) {
   memcpy(dstRankPtr, srcRankPtr, offsetof(struct ncclDevComm, railGinBarrier) - offsetof(struct ncclDevComm, rank));
 }
 
-NCCL_API(ncclResult_t, ncclCommQueryProperties, ncclComm_t, ncclCommProperties_t*);
-ncclResult_t ncclCommQueryProperties(ncclComm_t comm, ncclCommProperties_t* props) {
+NCCL_API(ncclResult_t, pcclCommQueryProperties, ncclComm_t, pcclCommProperties_t*);
+ncclResult_t pcclCommQueryProperties(ncclComm_t comm, ncclCommProperties_t* props) {
   NCCLCHECK(CommCheck(comm, __func__, "comm"));
   NCCLCHECK(PtrCheck(props, __func__, "props"));
 
@@ -1413,7 +1413,7 @@ ncclResult_t ncclCommQueryProperties(ncclComm_t comm, ncclCommProperties_t* prop
   return ncclSuccess;
 }
 
-NCCL_API(ncclResult_t, ncclDevCommCreate, ncclComm_t comm, ncclDevCommRequirements_t const* reqs, ncclDevComm_t* outDevComm);
+NCCL_API(ncclResult_t, pcclDevCommCreate, ncclComm_t comm, pcclDevCommRequirements_t const* reqs, pcclDevComm_t* outDevComm);
 ncclResult_t ncclDevCommCreate(
     ncclComm_t comm, struct ncclDevCommRequirements const* reqs,
     struct ncclDevComm* outDevComm
@@ -1460,7 +1460,7 @@ fail:
   goto exit;
 }
 
-NCCL_API(ncclResult_t, ncclDevCommDestroy, ncclComm_t comm, ncclDevComm_t const* devComm);
+NCCL_API(ncclResult_t, pcclDevCommDestroy, ncclComm_t comm, pcclDevComm_t const* devComm);
 ncclResult_t ncclDevCommDestroy(
     struct pcclComm* comm, struct ncclDevComm const* devComm
   ) {
@@ -1484,8 +1484,8 @@ end:
   return ret;
 }
 
-NCCL_API(ncclResult_t, ncclWinGetUserPtr, ncclComm_t comm, ncclWindow_t win, void** outUserPtr);
-ncclResult_t ncclWinGetUserPtr(struct pcclComm* comm, struct ncclWindow_vidmem* win, void** outUserPtr) {
+NCCL_API(ncclResult_t, pcclWinGetUserPtr, ncclComm_t comm, ncclWindow_t win, void** outUserPtr);
+ncclResult_t pcclWinGetUserPtr(struct pcclComm* comm, struct ncclWindow_vidmem* win, void** outUserPtr) {
   NCCLCHECK(CommCheck(comm, __func__, "comm"));
   NCCLCHECK(PtrCheck(outUserPtr, __func__, "outUserPtr"));
 
@@ -1561,8 +1561,8 @@ static ncclResult_t findCommAndHostWindowFromDeviceWindow(ncclWindow_t devWindow
   return ncclSuccess;
 }
 
-NCCL_API(ncclResult_t, ncclGetLsaDevicePointer, ncclWindow_t window, size_t offset, int lsaRank, void** outPtr);
-ncclResult_t ncclGetLsaDevicePointer(ncclWindow_t window, size_t offset, int lsaRank, void** outPtr) {
+NCCL_API(ncclResult_t, pcclGetLsaDevicePointer, ncclWindow_t window, size_t offset, int lsaRank, void** outPtr);
+ncclResult_t pcclGetLsaDevicePointer(ncclWindow_t window, size_t offset, int lsaRank, void** outPtr) {
   NCCLCHECK(PtrCheck(window, __func__, "window"));
   NCCLCHECK(PtrCheck(outPtr, __func__, "outPtr"));
 
@@ -1585,8 +1585,8 @@ ncclResult_t ncclGetLsaDevicePointer(ncclWindow_t window, size_t offset, int lsa
   return ncclSuccess;
 }
 
-NCCL_API(ncclResult_t, ncclGetPeerDevicePointer, ncclWindow_t window, size_t offset, int peer, void** outPtr);
-ncclResult_t ncclGetPeerDevicePointer(ncclWindow_t window, size_t offset, int peer, void** outPtr) {
+NCCL_API(ncclResult_t, pcclGetPeerDevicePointer, ncclWindow_t window, size_t offset, int peer, void** outPtr);
+ncclResult_t pcclGetPeerDevicePointer(ncclWindow_t window, size_t offset, int peer, void** outPtr) {
   NCCLCHECK(PtrCheck(window, __func__, "window"));
   NCCLCHECK(PtrCheck(outPtr, __func__, "outPtr"));
 
@@ -1626,14 +1626,14 @@ ncclResult_t ncclGetPeerDevicePointer(ncclWindow_t window, size_t offset, int pe
 ////////////////////////////////////////////////////////////////////////////////
 
 // Multimem API stubs - PPU does not support multimem/NVLS
-NCCL_API(ncclResult_t, ncclGetMultimemDevicePointer, ncclWindow_t window, size_t offset, ncclMultimemHandle_t multimem, void** outPtr);
-ncclResult_t ncclGetMultimemDevicePointer(ncclWindow_t window, size_t offset, ncclMultimemHandle_t multimem, void** outPtr) {
+NCCL_API(ncclResult_t, pcclGetMultimemDevicePointer, ncclWindow_t window, size_t offset, pcclMultimemHandle_t multimem, void** outPtr);
+ncclResult_t pcclGetMultimemDevicePointer(ncclWindow_t window, size_t offset, ncclMultimemHandle_t multimem, void** outPtr) {
   WARN("pcclGetMultimemDevicePointer is not supported on PPU");
   return ncclInvalidUsage;
 }
 
-NCCL_API(ncclResult_t, ncclGetLsaMultimemDevicePointer, ncclWindow_t window, size_t offset, void** outPtr);
-ncclResult_t ncclGetLsaMultimemDevicePointer(ncclWindow_t window, size_t offset, void** outPtr) {
+NCCL_API(ncclResult_t, pcclGetLsaMultimemDevicePointer, ncclWindow_t window, size_t offset, void** outPtr);
+ncclResult_t pcclGetLsaMultimemDevicePointer(ncclWindow_t window, size_t offset, void** outPtr) {
   WARN("pcclGetLsaMultimemDevicePointer is not supported on PPU");
   return ncclInvalidUsage;
 }

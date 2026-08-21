@@ -484,7 +484,7 @@ __hidden ncclResult_t inspectorPluginRecordEventState(void* eHandle,
   return ncclSuccess;
 }
 
-ncclProfiler_t ncclProfiler_v5 = {
+ncclProfiler_t pcclProfiler_v5 = {
   "Inspector",
   inspectorPluginInit,
   inspectorPluginStartEvent,

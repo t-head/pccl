@@ -58,10 +58,10 @@ install: $(TARGET)
 
 # Help
 help:
-	@echo "NCCL Example: One Device per Thread (pthread)"
+	@echo "PCCL Example: One Device per Thread (pthread)"
 	@echo "============================================"
 	@echo ""
-	@echo "This example shows how to use ncclCommInitRank to create"
+	@echo "This example shows how to use pcclCommInitRank to create"
 	@echo "communicators for multiple GPUs using pthreads."
 	@echo ""
 	@echo "Targets:"

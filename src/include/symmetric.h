@@ -10,6 +10,7 @@
 #define NCCL_DEVICE_SYMMETRIC_H_
 
 #include "pccl_internal.h"
+#include "pccl_compat.h"
 #include "pccl_common.h"
 #include "bitops.h"
 #include "utils.h"

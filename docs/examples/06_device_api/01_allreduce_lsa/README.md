@@ -70,7 +70,7 @@ pcclDevCommRequirements reqs = PCCL_DEV_COMM_REQUIREMENTS_INITIALIZER;
 reqs.lsaBarrierCount = PCCL_DEVICE_CTA_COUNT;
 
 // Create device communicator with LSA barrier support
-NCCLCHECK(pcclDevCommCreate(comm, &reqs, &devComm));
+PCCLCHECK(pcclDevCommCreate(comm, &reqs, &devComm));
 ```
 
 ### Memory Window Registration (Host-side)
@@ -86,8 +86,8 @@ pcclWindow_t send_win;
 pcclWindow_t recv_win;
 
 // Register symmetric windows for device-side peer access
-NCCLCHECK(pcclCommWindowRegister(comm, d_sendbuff, size_bytes, &send_win, PCCL_WIN_COLL_SYMMETRIC));
-NCCLCHECK(pcclCommWindowRegister(comm, d_recvbuff, size_bytes, &recv_win, PCCL_WIN_COLL_SYMMETRIC));
+PCCLCHECK(pcclCommWindowRegister(comm, d_sendbuff, size_bytes, &send_win, PCCL_WIN_COLL_SYMMETRIC));
+PCCLCHECK(pcclCommWindowRegister(comm, d_recvbuff, size_bytes, &recv_win, PCCL_WIN_COLL_SYMMETRIC));
 ```
 
 ### LSA Barriers (Device-side)

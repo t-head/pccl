@@ -6,7 +6,7 @@
 # See LICENSE.txt for more license information
 #
 
-# NCCL Fundamental Examples
+# PCCL Fundamental Examples
 EXAMPLES = 01_ring_pattern
 
 # Default target
@@ -31,7 +31,7 @@ test: all
 
 # Help
 help:
-	@echo "NCCL Point to Point Examples"
+	@echo "PCCL Point to Point Examples"
 	@echo "============================"
 	@echo ""
 	@echo "Targets:"

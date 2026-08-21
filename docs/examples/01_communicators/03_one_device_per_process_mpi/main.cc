@@ -9,7 +9,7 @@
 #include "hggc_runtime.h"
 #include "mpi.h"
 #include "pccl.h"
-#include "nccl_utils.h"
+#include "pccl_utils.h"
 #include <stdio.h>
 #include <stdlib.h>
 #include <string.h>

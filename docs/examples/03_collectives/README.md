@@ -41,7 +41,7 @@ clique of communicators in one call.
 // Initialize all GPUs in one call
 pcclComm_t* comms;
 int num_gpus;
-NCCLCHECK(pcclCommInitAll(comms, num_gpus, NULL));
+PCCLCHECK(pcclCommInitAll(comms, num_gpus, NULL));
 ```
 
 A more advanced setup using MPI to initialize communicators across multiple

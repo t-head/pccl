@@ -138,7 +138,7 @@
   ncclResult_t res = call; \
   if (res != ncclSuccess && res != ncclInProgress) { \
     /* Print the back trace*/ \
-    if (ncclDebugNoWarn == 0) WARN_IMPL(false, "NCCLCHECK failed: call=%s res=0x%x", #call, (int)res);    \
+    if (ncclDebugNoWarn == 0) WARN_IMPL(false, "PCCLCHECK failed: call=%s res=0x%x", #call, (int)res);    \
     return res; \
   } \
 } while (0)
@@ -147,7 +147,7 @@
   ncclResult_t res = call; \
   if (res != ncclSuccess && res != ncclInProgress) { \
     /* Print the back trace*/ \
-    if (ncclDebugNoWarn == 0) WARN_IMPL(false, "NCCLVERIFY failed: call=%s res=0x%x", #call, (int)res);    \
+    if (ncclDebugNoWarn == 0) WARN_IMPL(false, "PCCLVERIFY failed: call=%s res=0x%x", #call, (int)res);    \
   } \
 } while (0)
 
@@ -155,7 +155,7 @@
   res = call; \
   if (res != ncclSuccess && res != ncclInProgress) { \
     /* Print the back trace*/ \
-    if (ncclDebugNoWarn == 0) WARN_IMPL(false, "NCCLCHECKGOTO failed: call=%s res=0x%x", #call, (int)res);    \
+    if (ncclDebugNoWarn == 0) WARN_IMPL(false, "PCCLCHECKGOTO failed: call=%s res=0x%x", #call, (int)res);    \
     goto label; \
   } \
 } while (0)

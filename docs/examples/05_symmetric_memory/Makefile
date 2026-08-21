@@ -6,7 +6,7 @@
 # See LICENSE.txt for more license information
 #
 
-# NCCL Shared Memory Examples
+# PCCL Shared Memory Examples
 EXAMPLES = 01_allreduce
 
 # Default target
@@ -31,7 +31,7 @@ test: all
 
 # Help
 help:
-	@echo "NCCL Symmetric Memeory Examples"
+	@echo "PCCL Symmetric Memeory Examples"
 	@echo "==============================="
 	@echo ""
 	@echo "Targets:"

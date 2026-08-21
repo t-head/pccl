@@ -59,7 +59,7 @@ extern "C" {
 #endif
 
 typedef struct pcclComm* pcclComm_t;
-typedef struct ncclWindow_vidmem* pcclWindow_t;
+typedef struct pcclWindow_vidmem* pcclWindow_t;
 
 typedef enum {
   pcclScalarDevice = 0,
@@ -201,6 +201,7 @@ pcclResult_t  pcclCommRegister(const pcclComm_t comm, void* buff, size_t size, v
 pcclResult_t  pcclCommDeregister(const pcclComm_t comm, void* handle);
 pcclResult_t  pcclCommWindowRegister(pcclComm_t comm, void* buff, size_t size, pcclWindow_t* win, int winFlags);
 pcclResult_t  pcclCommWindowDeregister(pcclComm_t comm, pcclWindow_t win);
+pcclResult_t  pcclWinGetUserPtr(pcclComm_t comm, pcclWindow_t win, void** outUserPtr);
 pcclResult_t  pcclMemAlloc(void** ptr, size_t size);
 pcclResult_t  pcclMemFree(void *ptr);
 

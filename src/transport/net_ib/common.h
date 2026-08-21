@@ -302,6 +302,7 @@ int ncclIbGidIndexFromDevice(int netDev);
 ncclResult_t ncclIbGetRequest(struct ncclIbNetCommBase* base, struct ncclIbRequest** req);
 ncclResult_t ncclIbFreeRequest(struct ncclIbRequest* r);
 
+
 // Net IB plugin entry functions.
 ncclResult_t ncclIbInit(ncclDebugLogger_t logFunction);
 ncclResult_t ncclIbDevices(int* ndev);

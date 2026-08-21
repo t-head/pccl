@@ -6,7 +6,7 @@
 # See LICENSE.txt for more license information
 #
 
-# NCCL User Buffer Examples
+# PCCL User Buffer Examples
 EXAMPLES = 01_allreduce
 
 # Default target
@@ -31,7 +31,7 @@ test: all
 
 # Help
 help:
-	@echo "NCCL User Buffer Registration Examples"
+	@echo "PCCL User Buffer Registration Examples"
 	@echo "======================================"
 	@echo ""
 	@echo "Targets:"

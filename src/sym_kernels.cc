@@ -9,7 +9,7 @@
 #include "comm.h"
 #include "compiler.h"
 #include "devcomm.h"
-#include "nccl_device/core.h"
+#include "pccl_device/core.h"
 #include "transport.h"
 #include "symmetric.h"
 #include "graph/topo.h"
@@ -288,7 +288,7 @@ ncclResult_t ncclSymkFinalize(struct pcclComm* comm) {
     NCCLCHECKIGNORE(ncclDevCommDestroy(comm, &symk->kcomm.devComm), ret);
     if (symk->symkWin) {
       void* userPtr = symk->symkWin->userPtr;
-      NCCLCHECKIGNORE(pcclCommWindowDeregister(comm, symk->symkWin->vidmem), ret);
+      NCCLCHECKIGNORE(ncclCommWindowDeregister(comm, symk->symkWin->vidmem), ret);
       NCCLCHECKIGNORE(pcclMemFree(userPtr), ret);
       symk->symkWin = nullptr;
     }

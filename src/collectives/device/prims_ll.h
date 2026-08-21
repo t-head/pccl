@@ -294,7 +294,7 @@ class Primitives<T, FUNC, ProtoLL, NRECV, NSEND, DIRECT, P2P>:
         int eltInLine = min(EltPerLine, (realPeerNelem[index] - elem));
         T* src = (T*)(srcPtr + peerOffsets[index] + elem);
         union ncclLLFifoLine* dst = sendPtr(index) + pack;
-        uint64_t val = readAL(src, eltInLine);
+        uint64_t val = MULTI<FUNC, T>().preOp(redOp, readAL(src, eltInLine));
         storeLL(dst, val, sendFlag(index));
       } else if (RECV) {
         int index = (offset / peerNpacks) % nrecv;

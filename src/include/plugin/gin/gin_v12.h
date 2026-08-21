@@ -9,6 +9,7 @@
 #ifndef GIN_V12_H_
 #define GIN_V12_H_
 #include "gin_v13.h"
+#include "pccl_compat.h"
 
 typedef struct {
   // Name of the GIN support (mainly for logs)

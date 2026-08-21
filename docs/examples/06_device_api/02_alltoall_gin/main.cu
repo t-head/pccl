@@ -8,7 +8,7 @@
 
 #include "hggc_runtime.h"
 #include "pccl.h"
-#include "nccl_device.h"
+#include "pccl_device.h"
 #include "utils.h"
 #include <stdio.h>
 #include <stdlib.h>
@@ -27,12 +27,12 @@
  *
  * Learning Objectives:
  * - Understand pure GIN (GPU-Initiated Networking) communication
- * - Learn how to use ncclGin for device-initiated network communication
+ * - Learn how to use pcclGin for device-initiated network communication
  * - See pure GIN AlltoAll implementation for network-based communication
  * - Practice GIN barriers and signal-based synchronization
  *
  * Key GIN Concepts:
- * - ncclGin: Device-side networking object for kernel-initiated communication
+ * - pcclGin: Device-side networking object for kernel-initiated communication
  * - GIN contexts: Network communication channels for parallel operations
  * - GIN signals: Completion notifications for asynchronous operations
  * - GIN barriers: Network-based synchronization across ranks
@@ -52,21 +52,21 @@
  *
  * Device setup (this example):
  * - worldGinBarrierCount and ginSignalCount: one per CTA (grid dimension x).
- * - ginConnectionType NCCL_GIN_CONNECTION_FULL: full GIN connectivity (each rank to all peers).
- * - ncclGinBarrierSession for cross-rank barriers before the puts.
+ * - ginConnectionType PCCL_GIN_CONNECTION_FULL: full GIN connectivity (each rank to all peers).
+ * - pcclGinBarrierSession for cross-rank barriers before the puts.
  * - A single GIN context (index 0) is used for simplicity; production code may
  *   use multiple contexts for throughput.
  *
  * Kernel notes:
  * - signalIndex is blockIdx.x; all puts targeting a given rank use the same
  *   signal index, so only the CTA receivingCta must waitSignal for nRanks.
- * - After flush, a release ncclGinBarrierSession::sync pairs with the acquire
+ * - After flush, a release pcclGinBarrierSession::sync pairs with the acquire
  *   at entry so ranks do not exit the kernel before the collective completes.
  */
 
 // Grid width (CTAs). Must match reqs.worldGinBarrierCount and reqs.ginSignalCount.
-#define NCCL_DEVICE_CTA_COUNT 16
-#define NCCL_DEVICE_THREADS_PER_CTA 512
+#define PCCL_DEVICE_CTA_COUNT 16
+#define PCCL_DEVICE_THREADS_PER_CTA 512
 
 // ==========================================================================
 // Device Kernel Implementations
@@ -76,33 +76,33 @@
 template <typename T>
 __global__ void PureGinAlltoAllKernel(pcclWindow_t sendwin, size_t sendoffset,
                                       pcclWindow_t recvwin, size_t recvoffset,
-                                      size_t count, struct ncclDevComm devComm) {
+                                      size_t count, struct pcclDevComm devComm) {
   int ginContext = 0; // single context for simplicity
   unsigned int signalIndex = blockIdx.x;
-  ncclGin gin { devComm, ginContext };
+  pcclGin gin { devComm, ginContext };
   uint64_t signalValue = gin.readSignal(signalIndex);
 
-  ncclGinBarrierSession<ncclCoopCta> bar { ncclCoopCta(), gin, ncclTeamTagWorld(), blockIdx.x };
-  bar.sync(ncclCoopCta(), hggc::memory_order_acquire, ncclGinFenceLevel::Relaxed);
+  pcclGinBarrierSession<pcclCoopCta> bar { pcclCoopCta(), gin, pcclTeamTagWorld(), blockIdx.x };
+  bar.sync(pcclCoopCta(), hggc::memory_order_acquire, pcclGinFenceLevel::Relaxed);
 
   int tid = threadIdx.x + blockIdx.x * blockDim.x;
   int nthreads = blockDim.x * gridDim.x;
 
   const size_t size = count * sizeof(T);
   for (int r = tid; r < devComm.nRanks; r += nthreads) {
-    gin.put(ncclTeamWorld(devComm), r,
+    gin.put(pcclTeamWorld(devComm), r,
         recvwin, recvoffset + devComm.rank * size,
         sendwin, sendoffset + r * size,
-        size, ncclGin_SignalInc{signalIndex});
+        size, pcclGin_SignalInc{signalIndex});
   }
 
   // Wait only on the CTA whose blockIdx.x (signalIndex) accumulates all puts to this rank.
   int receivingCta = (devComm.rank % nthreads) / blockDim.x;
   if (blockIdx.x == receivingCta)
-    gin.waitSignal(ncclCoopCta(), signalIndex, signalValue + devComm.nRanks);
+    gin.waitSignal(pcclCoopCta(), signalIndex, signalValue + devComm.nRanks);
 
-  gin.flush(ncclCoopCta());
-  bar.sync(ncclCoopCta(), hggc::memory_order_release, ncclGinFenceLevel::Relaxed);
+  gin.flush(pcclCoopCta());
+  bar.sync(pcclCoopCta(), hggc::memory_order_release, pcclGinFenceLevel::Relaxed);
 }
 
 // ==========================================================================
@@ -138,15 +138,15 @@ void* pureGinAlltoAll(int my_rank, int total_ranks, int local_device, int device
   printf("  Rank %d initialized PCCL communicator for %d total ranks\n", my_rank, total_ranks);
 
   // Check for Device API and GIN support
-  ncclCommProperties_t props = NCCL_COMM_PROPERTIES_INITIALIZER;
-  PCCLCHECK(ncclCommQueryProperties(comm, &props));
+  pcclCommProperties_t props = PCCL_COMM_PROPERTIES_INITIALIZER;
+  PCCLCHECK(pcclCommQueryProperties(comm, &props));
   if (!props.deviceApiSupport) {
     printf("ERROR: rank %d communicator does not support Device API!\n", my_rank);
     PCCLCHECK(pcclCommFinalize(comm));
     PCCLCHECK(pcclCommDestroy(comm));
     return NULL;
   }
-  if (props.ginType == NCCL_GIN_TYPE_NONE) {
+  if (props.ginType == PCCL_GIN_TYPE_NONE) {
     printf("ERROR: rank %d communicator does not support GIN!\n", my_rank);
     PCCLCHECK(pcclCommFinalize(comm));
     PCCLCHECK(pcclCommDestroy(comm));
@@ -195,12 +195,12 @@ void* pureGinAlltoAll(int my_rank, int total_ranks, int local_device, int device
   HGGCCHECK(hggcStreamCreate(&stream));
 
   // Create device communicator with GIN support
-  ncclDevComm devComm;
-  ncclDevCommRequirements reqs = NCCL_DEV_COMM_REQUIREMENTS_INITIALIZER;
-  reqs.worldGinBarrierCount = NCCL_DEVICE_CTA_COUNT;  // ncclGinBarrierSession (world team)
-  reqs.ginSignalCount = NCCL_DEVICE_CTA_COUNT; // one signal index per CTA (blockIdx.x)
-  reqs.ginConnectionType = NCCL_GIN_CONNECTION_FULL;  // full GIN connectivity: each rank to all peers
-  PCCLCHECK(ncclDevCommCreate(comm, &reqs, &devComm));
+  pcclDevComm devComm;
+  pcclDevCommRequirements reqs = PCCL_DEV_COMM_REQUIREMENTS_INITIALIZER;
+  reqs.worldGinBarrierCount = PCCL_DEVICE_CTA_COUNT;  // pcclGinBarrierSession (world team)
+  reqs.ginSignalCount = PCCL_DEVICE_CTA_COUNT; // one signal index per CTA (blockIdx.x)
+  reqs.ginConnectionType = PCCL_GIN_CONNECTION_FULL;  // full GIN connectivity: each rank to all peers
+  PCCLCHECK(pcclDevCommCreate(comm, &reqs, &devComm));
   printf("  Rank %d created device communicator with GIN support\n", my_rank);
 
   if (my_rank == 0) {
@@ -220,7 +220,7 @@ void* pureGinAlltoAll(int my_rank, int total_ranks, int local_device, int device
   HGGCCHECK(hggcMemset(d_recvbuff, 0, size_bytes));
 
   // Launch pure GIN AlltoAll kernel
-  PureGinAlltoAllKernel<float><<<NCCL_DEVICE_CTA_COUNT, NCCL_DEVICE_THREADS_PER_CTA, 0, stream>>>(
+  PureGinAlltoAllKernel<float><<<PCCL_DEVICE_CTA_COUNT, PCCL_DEVICE_THREADS_PER_CTA, 0, stream>>>(
       send_win, 0, recv_win, 0, count, devComm);
 
   // Wait for completion
@@ -278,7 +278,7 @@ void* pureGinAlltoAll(int my_rank, int total_ranks, int local_device, int device
   free(h_recvbuff);
 
   // Device API specific cleanup
-  PCCLCHECK(ncclDevCommDestroy(comm, &devComm));
+  PCCLCHECK(pcclDevCommDestroy(comm, &devComm));
   PCCLCHECK(pcclCommWindowDeregister(comm, send_win));
   PCCLCHECK(pcclCommWindowDeregister(comm, recv_win));
   PCCLCHECK(pcclMemFree(d_sendbuff));

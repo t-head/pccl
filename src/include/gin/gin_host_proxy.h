@@ -15,7 +15,7 @@
 #include <linux/types.h>
 #include "pccl_internal.h"
 #include "gin/gin_host.h"
-#include "plugin/nccl_gin.h"
+#include "plugin/pccl_gin.h"
 
 ncclResult_t ncclGinProxyInit(ncclGin_t** proxyGin);
 

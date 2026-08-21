@@ -22,22 +22,20 @@ class Primitives<T, FUNC, ProtoSignalBulk<UNROLL, SLICESPERCHUNK, SLICESTEPS, SE
   uint32_t signalMarkerCache; // Cache last seen value
 
   __device__ __forceinline__ void loadRecvConnExtra(ncclDevChannelPeer *devChannelPeer, int connIndex, T* directBuff) {
-    if (role & (ROLE_WAIT_RECV|ROLE_POST_RECV)) {
-      conn = &devChannelPeer->recv[connIndex];
-      minPathNum = conn->minPathNum;
-      if (role & ROLE_WAIT_RECV) {
-        signalMarkerPtr = conn->signalMarker;
-        signalMarkerCache = signalMarkerPtr[step % NCCL_STEPS];
-      }
+    // Caller already gates with (role & (ROLE_WAIT_RECV|ROLE_POST_RECV)).
+    conn = &devChannelPeer->recv[connIndex];
+    minPathNum = conn->minPathNum;
+    if (role & ROLE_WAIT_RECV) {
+      signalMarkerPtr = conn->signalMarker;
+      signalMarkerCache = signalMarkerPtr[step % NCCL_STEPS];
     }
   }
 
   __device__ __forceinline__ void loadSendConnExtra(ncclDevChannelPeer *devChannelPeer, int connIndex) {
-    if (role & (ROLE_WAIT_SEND|ROLE_POST_SEND)) {
-      conn = &devChannelPeer->send[connIndex];
-      if (role & ROLE_POST_SEND) {
-        signalMarkerPtr = conn->signalMarker;
-      }
+    // Caller already gates with (role & (ROLE_WAIT_SEND|ROLE_POST_SEND)).
+    conn = &devChannelPeer->send[connIndex];
+    if (role & ROLE_POST_SEND) {
+      signalMarkerPtr = conn->signalMarker;
     }
   }
 
@@ -71,8 +69,10 @@ class Primitives<T, FUNC, ProtoSignalBulk<UNROLL, SLICESPERCHUNK, SLICESTEPS, SE
         ProtoSignalBulk<UNROLL, SLICESPERCHUNK, SLICESTEPS, SENDCONNTYPE, RECVCONNTYPE>,
         Primitives<T, FUNC, ProtoSignalBulk<UNROLL, SLICESPERCHUNK, SLICESTEPS, SENDCONNTYPE, RECVCONNTYPE>, NRECV, NSEND, DIRECT, P2P>, P2P>
         (tid, nworkers, recvPeers, sendPeers, directBuff, comm, redOpArg, ptrs, group, connIndexRecv, connIndexSend, collWork, p2pWork, ncclSteps, noRed) {
-    loadRecvConnExtra(getShmemPtr(comm)->channel.peers[peer], connIndexRecv, directBuff);
-    loadSendConnExtra(getShmemPtr(comm)->channel.peers[peer], connIndexSend);
+    if (role & (ROLE_WAIT_RECV|ROLE_POST_RECV))
+      loadRecvConnExtra(getShmemPtr(comm)->channel.peers[peer], connIndexRecv, directBuff);
+    if (role & (ROLE_WAIT_SEND|ROLE_POST_SEND))
+      loadSendConnExtra(getShmemPtr(comm)->channel.peers[peer], connIndexSend);
   }
 
   template <int SRC, int DIRECTRECV>

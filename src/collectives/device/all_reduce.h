@@ -201,7 +201,7 @@ namespace {
         ssize_t chunkOffset = gridOffset + bid*realChunkSize;
         int nelem = min(realChunkSize, size-chunkOffset);
         prims.send(thisInput+chunkOffset, nelem);
-        prims.recvReduceCopy(thisInput+chunkOffset, thisOutput+chunkOffset, nelem);
+        prims.recvReduceCopy(thisInput+chunkOffset, thisOutput+chunkOffset, nelem, /*postOp=*/true);
       }
     } else {
       for (ssize_t gridOffset = 0; gridOffset < size; gridOffset += nranks*loopSize) {

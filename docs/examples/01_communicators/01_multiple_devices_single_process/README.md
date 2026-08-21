@@ -63,7 +63,7 @@ CUDA_VISIBLE_DEVICES=0,1 ./multiple_devices_single_process
 
 ### Run with PCCL debug output
 ```shell
-NCCL_DEBUG=INFO ./multiple_devices_single_process
+PCCL_DEBUG=INFO ./multiple_devices_single_process
 ```
 
 ## Code Walk-through
@@ -76,7 +76,7 @@ pcclComm_t* comms;
 int* devices; // devices needs to be populated with PPU devices used
 
 // Create communicators for all devices in one call
-NCCLCHECK(pcclCommInitAll(comms, num_gpus, devices));
+PCCLCHECK(pcclCommInitAll(comms, num_gpus, devices));
 ```
 
 This single function call:

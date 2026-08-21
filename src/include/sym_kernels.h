@@ -11,7 +11,7 @@
 #define NCCL_SYM_KERNELS_H_
 
 #include "pccl_internal.h"
-#include "nccl_device/core.h"
+#include "pccl_device/core.h"
 #include "../device/symmetric/gin_scratch.h"
 #include "dev_runtime.h"
 #include "bitops.h"
@@ -74,7 +74,7 @@ struct pcclSymkChannelWorkRange {
 struct alignas(16) pcclSymkDevWork {
   uint64_t redOpArg;
   size_t nElts;
-  ncclDevWin_t inputWin, outputWin;
+  struct ncclWindow_vidmem* inputWin, *outputWin;
   size_t inputOff, outputOff;
   int rootRank;
   uint64_t sChannelId:16, nChannels:16, padding:32;

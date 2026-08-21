@@ -47,12 +47,11 @@
 #include "../common/doca_gpunetio_verbs_dev.h"
 
 // DOCA upstream defaults to st.mmio.relaxed.sys.global.b64 for the doorbell
-// store, but neither ppu0010 (ZW810E, compCap 80) nor ppu0015 (ZW890, compCap
-// 89) support that PTX instruction; clang emits an inline-ptx warning at
-// compile time and the device runtime aborts the kernel with 'device-side
-// assert triggered' on the first doorbell ring. Leave the macro undefined so
-// the existing fallback (atomic_ref store with explicit fence_release) is
-// taken, see doca_gpunetio_dev_verbs_qp.cuh:291.
+// store, but the target architectures do not support that PTX instruction; the
+// compiler emits an inline-ptx warning at compile time and the device runtime
+// aborts the kernel with 'device-side assert triggered' on the first doorbell
+// ring. Leave the macro undefined so the existing fallback (atomic_ref store
+// with explicit fence_release) is taken, see doca_gpunetio_dev_verbs_qp.cuh:291.
 // #define DOCA_GPUNETIO_VERBS_HAS_STORE_RELAXED_MMIO 1
 
 /**

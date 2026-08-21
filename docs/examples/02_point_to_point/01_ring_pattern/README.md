@@ -69,15 +69,15 @@ pcclComm_t *comms;  // comms are set during pcclCommInitAll
 hggcStream_t *streams; // streams are set in hggcStreamCreate
 
 // Each GPU simultaneously sends to next and receives from previous
-NCCLCHECK(pcclGroupStart());
+PCCLCHECK(pcclGroupStart());
 for (int i = 0; i < num_gpus; i++) {
     int next = (i + 1) % num_gpus;
     int prev = (i - 1 + num_gpus) % num_gpus;
 
-    NCCLCHECK(pcclSend(d_sendbuff[i], count, pcclFloat, next, comms[i], streams[i]));
-    NCCLCHECK(pcclRecv(d_recvbuff[i], count, pcclFloat, prev, comms[i], streams[i]));
+    PCCLCHECK(pcclSend(d_sendbuff[i], count, pcclFloat, next, comms[i], streams[i]));
+    PCCLCHECK(pcclRecv(d_recvbuff[i], count, pcclFloat, prev, comms[i], streams[i]));
 }
-NCCLCHECK(pcclGroupEnd());
+PCCLCHECK(pcclGroupEnd());
 ```
 
 ## When to Use
@@ -108,7 +108,7 @@ Ensure correct neighbor calculations.
 
 ## Error Handling
 
-This example uses comprehensive error checking with `NCCLCHECK` and `HGGCCHECK`
+This example uses comprehensive error checking with `PCCLCHECK` and `HGGCCHECK`
 macros that immediately exit on any failure. In production code, consider more
 graceful error handling and recovery mechanisms.
 

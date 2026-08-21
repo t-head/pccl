@@ -11,8 +11,8 @@ include ../makefiles/version.mk
 
 ##### src files
 SRCDIR ?= $(abspath .)
-INCEXPORTS  := pccl.h nccl_device.h \
-	$(patsubst include/%,%,$(wildcard include/nccl_device/*.h include/nccl_device/*/*.h include/nccl_device/*/*/*.h))
+INCEXPORTS  := pccl.h pccl_device.h \
+	$(patsubst include/%,%,$(wildcard include/pccl_device/*.h include/pccl_device/*/*.h include/pccl_device/*/*/*.h))
 LIBSRCFILES := $(filter-out ce_coll_oki.cc,$(wildcard *.cc)) \
                $(wildcard graph/*.cc) \
                $(wildcard register/*.cc) \
@@ -25,7 +25,7 @@ LIBSRCFILES := $(filter-out ce_coll_oki.cc,$(wildcard *.cc)) \
                $(wildcard plugin/*.cc) \
                $(wildcard plugin/profiler/*.cc) \
                $(filter-out ras/client.cc,$(wildcard ras/*.cc)) \
-               $(wildcard nccl_device/*.cc) \
+               $(wildcard pccl_device/*.cc) \
                $(wildcard gin/*.cc) \
                $(wildcard plugin/gin/*.cc)
 ifeq ($(HGGC_HAS_OKI), 1)
@@ -57,12 +57,12 @@ INCTARGETS := $(INCEXPORTS:%=$(INCDIR)/%)
 
 # DOCA-GPUNetIO headers ship inside src/transport/net_ib/gdaki/doca-gpunetio/
 # but are exposed to downstream consumers (ext-kernel, ext-tuner) under
-# build/include/nccl_device/gin/gdaki/doca_gpunetio/. Append the install
+# build/include/pccl_device/gin/gdaki/doca_gpunetio/. Append the install
 # targets and define the install rules BEFORE any rule that takes
 # $(INCTARGETS) as prerequisites — Make expands the prereq list at the time
 # the rule is parsed, so a later `+=` would never reach them.
 DOCA_GPUNETIO_INC := $(SRCDIR)/transport/net_ib/gdaki/doca-gpunetio/include
-DOCA_INC_INSTALL  := $(INCDIR)/nccl_device/gin/gdaki/doca_gpunetio
+DOCA_INC_INSTALL  := $(INCDIR)/pccl_device/gin/gdaki/doca_gpunetio
 DOCA_INC_SRC      := $(DOCA_GPUNETIO_INC)/doca_gpunetio_device.h \
                      $(wildcard $(DOCA_GPUNETIO_INC)/common/*.h) \
                      $(wildcard $(DOCA_GPUNETIO_INC)/device/*.cuh)
@@ -187,13 +187,13 @@ $(LIBDIR)/$(LIBTARGET): $(LIBOBJ) $(DEVICELIB)
 	@printf "Linking    %-35s > %s\n" $(LIBTARGET) $@
 	mkdir -p $(LIBDIR)
 	$(CXX) $(CXXFLAGS) -shared -Wl,--no-as-needed -Wl,-soname,$(LIBSONAME) -o $@ $(LIBOBJ) $(DEVICELIB) $(LDFLAGS)
-ifeq ($(REL_NO_SYM), 1)
-	objcopy --only-keep-debug $(LIBDIR)/$(LIBTARGET) $(LIBDIR)/$(LIBTARGET).dbginfo
-	strip --strip-all $(LIBDIR)/$(LIBTARGET)
-	objcopy --add-gnu-debuglink=$(LIBDIR)/$(LIBTARGET).dbginfo $(LIBDIR)/$(LIBTARGET)
-endif
 	ln -sf $(LIBSONAME) $(LIBDIR)/$(LIBNAME)
 	ln -sf $(LIBTARGET) $(LIBDIR)/$(LIBSONAME)
+ifeq ($(REL_NO_SYM), 1)
+	$(OBJCOPY) --only-keep-debug $(LIBDIR)/$(LIBTARGET) $(LIBDIR)/$(LIBTARGET).dbginfo
+	$(STRIP) --strip-all $(LIBDIR)/$(LIBTARGET)
+	$(OBJCOPY) --add-gnu-debuglink=$(LIBDIR)/$(LIBTARGET).dbginfo $(LIBDIR)/$(LIBTARGET)
+endif
 
 null :=
 space := $(null) #
@@ -209,9 +209,9 @@ $(BINDIR)/$(BINNAME): $(BINOBJ)
 	mkdir -p $(BINDIR)
 	$(CXX) $(CXXFLAGS) $^ -o $@
 ifeq ($(REL_NO_SYM), 1)
-	objcopy --only-keep-debug $(BINDIR)/$(BINNAME) $(BINDIR)/$(BINNAME).dbginfo
-	strip --strip-all $(BINDIR)/$(BINNAME)
-	objcopy --add-gnu-debuglink=$(BINDIR)/$(BINNAME).dbginfo $(BINDIR)/$(BINNAME)
+	$(OBJCOPY) --only-keep-debug $(BINDIR)/$(BINNAME) $(BINDIR)/$(BINNAME).dbginfo
+	$(STRIP) --strip-all $(BINDIR)/$(BINNAME)
+	$(OBJCOPY) --add-gnu-debuglink=$(BINDIR)/$(BINNAME).dbginfo $(BINDIR)/$(BINNAME)
 endif
 
 $(PKGDIR)/pccl.pc : pccl.pc.in
@@ -234,12 +234,12 @@ $(INCDIR)/pccl_%.h : $(SRCDIR)/include/pccl_%.h
 	mkdir -p $(INCDIR)
 	install -m 644 $< $@
 
-$(INCDIR)/nccl_device/%.h : $(SRCDIR)/include/nccl_device/%.h
+$(INCDIR)/pccl_device/%.h : $(SRCDIR)/include/pccl_device/%.h
 	@printf "Grabbing   %-35s > %s\n" $< $@
 	@mkdir -p $(dir $@)
 	install -m 644 $< $@
 
-$(INCDIR)/nccl_device.h : $(SRCDIR)/include/nccl_device.h
+$(INCDIR)/pccl_device.h : $(SRCDIR)/include/pccl_device.h
 	@printf "Grabbing   %-35s > %s\n" $< $@
 	mkdir -p $(INCDIR)
 	install -m 644 $< $@

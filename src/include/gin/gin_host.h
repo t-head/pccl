@@ -6,14 +6,14 @@
  * See LICENSE.txt for more license information
  *************************************************************************/
 
-#ifndef _NCCL_GIN_HOST_H_
-#define _NCCL_GIN_HOST_H_
+#ifndef _PCCL_GIN_HOST_H_
+#define _PCCL_GIN_HOST_H_
 
 #include "allocator.h"
 #include "pccl_internal.h"
 #include "pccl_net_internal.h"
-#include "nccl_gin.h"
-#include "nccl_device/gin/gin_device_host_common.h"
+#include "pccl_gin.h"
+#include "pccl_device/gin/gin_device_host_common.h"
 #include <thread>
 #include <mutex>
 #include <condition_variable>

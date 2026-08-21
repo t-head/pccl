@@ -171,7 +171,7 @@ ncclResult_t ncclMakeSymmetricTaskList(
       // - Otherwise, we have to fall back to a legacy kernel if running the selected symmetric LL
       //   kernel is not possible (if the buffers are not registered and we manage multiple GPUs
       //   in a single process, i.e. intraRanks > 1).
-      // - If the user forced a symmetric kernel via NCCL_SYM_KERNEL or requested preference for
+      // - If the user forced a symmetric kernel via PCCL_SYM_KERNEL or requested preference for
       //   using symmetric kernels even without symmetric buffers via NCCL_SYM_NOWIN_ENABLE, we
       //   respect that.
       if (headTask->winRegType == ncclSymSendRegRecvReg || headTask->algorithm == NCCL_ALGO_UNDEF) {

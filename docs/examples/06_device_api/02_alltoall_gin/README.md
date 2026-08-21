@@ -60,7 +60,7 @@ reqs.ginSignalCount = PCCL_DEVICE_CTA_COUNT;
 reqs.ginConnectionType = PCCL_GIN_CONNECTION_FULL;
 
 // Create device communicator with pure GIN support
-NCCLCHECK(pcclDevCommCreate(comm, &reqs, &devComm));
+PCCLCHECK(pcclDevCommCreate(comm, &reqs, &devComm));
 ```
 
 ### Memory Window Registration (Host-side)
@@ -71,8 +71,8 @@ pcclWindow_t send_win;
 pcclWindow_t recv_win;
 
 // Register symmetric windows for GIN network access
-NCCLCHECK(pcclCommWindowRegister(comm, d_sendbuff, size_bytes, &send_win, PCCL_WIN_COLL_SYMMETRIC));
-NCCLCHECK(pcclCommWindowRegister(comm, d_recvbuff, size_bytes, &recv_win, PCCL_WIN_COLL_SYMMETRIC));
+PCCLCHECK(pcclCommWindowRegister(comm, d_sendbuff, size_bytes, &send_win, PCCL_WIN_COLL_SYMMETRIC));
+PCCLCHECK(pcclCommWindowRegister(comm, d_recvbuff, size_bytes, &recv_win, PCCL_WIN_COLL_SYMMETRIC));
 ```
 
 ### GIN Barriers (Device-side)

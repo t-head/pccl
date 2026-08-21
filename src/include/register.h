@@ -10,7 +10,7 @@
 #define NCCL_REGISTER_H_
 
 #include "devcomm.h"
-#include "nccl_device/core.h"
+#include "pccl_device/core.h"
 #include <hggc.h>
 #include <stdint.h>
 

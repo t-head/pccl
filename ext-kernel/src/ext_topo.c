@@ -32,7 +32,8 @@ const char*  topoStr[] = {
   "EIGHT_RANKS_M890P_TOPO",
   "EIGHT_RANKS_M890P_SHM_TOPO",
   "SIXTEEN_RANKS_810E",
-  "SIXTEEN_RANKS_M890P_SHM_TOPO"
+  "SIXTEEN_RANKS_M890P_SHM_TOPO",
+  "THIRTY_TWO_RANKS_M890P_SHM_TOPO"
 };
 
 const int TWO_RANKS_1LINK_TOPO_IMPL[] = {
@@ -200,6 +201,7 @@ extKernelTuner shmTuners[] = {
   {.family = PPU_FAMILY_M890 , .nRanks = 4 , .topoInfo = {.linkCount = 8} , .topo = FOUR_RANKS_M890P_SHM_TOPO  } ,
   {.family = PPU_FAMILY_M890 , .nRanks = 8 , .topoInfo = {.linkCount = 8} , .topo = EIGHT_RANKS_M890P_SHM_TOPO } ,
   {.family = PPU_FAMILY_M890 , .nRanks = 16, .topoInfo = {.linkCount = 8} , .topo = SIXTEEN_RANKS_M890P_SHM_TOPO } ,
+  {.family = PPU_FAMILY_M890 , .nRanks = 32, .topoInfo = {.linkCount = 8} , .topo = THIRTY_TWO_RANKS_M890P_SHM_TOPO } ,
 };
 
 
@@ -223,6 +225,7 @@ const extTopoConfig topoConfigs[] = {
 {EIGHT_RANKS_M890P_SHM_TOPO       , 0        , 16_MB     , 16_KB              , 312_KB             , 32          , 16_MB       , 16_MB}       ,
 {SIXTEEN_RANKS_810E               , 0        , 2_MB      , 8_KB               , 96_KB              , 16          , 2_MB        , 2_MB }       ,
 {SIXTEEN_RANKS_M890P_SHM_TOPO     , 0        , 32_MB     , 32_KB              , 128_KB             , 32          , 32_MB       , 16_MB}        ,
+{THIRTY_TWO_RANKS_M890P_SHM_TOPO  , 0        , 32_MB     , 4_KB               , 4_KB               , 32          , 16_MB       , 16_MB}        ,
 };
 
 void swapRowsAndCols(int* matrix, const int N, int i, int j){

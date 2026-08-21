@@ -171,7 +171,7 @@ ncclResult_t pcclP2pDmaInitOnce(struct pcclComm* comm) {
   return ncclSuccess;
 
 fail:
-  if (mboxWinDev) (void)pcclCommWindowDeregister(comm, mboxWinDev);
+  if (mboxWinDev) (void)ncclCommWindowDeregister(comm, mboxWinDev);
   if (mboxDev) (void)pcclMemFree(mboxDev);
   state->mboxWin = nullptr;
   state->mboxBase = nullptr;
@@ -184,7 +184,7 @@ ncclResult_t pcclP2pDmaFinalize(struct pcclComm* comm) {
   if (!state->initialized) return ncclSuccess;
   if (state->mboxWin) {
     void* userPtr = state->mboxWin->userPtr;
-    NCCLCHECKIGNORE(pcclCommWindowDeregister(comm, state->mboxWin->vidmem), ret);
+    NCCLCHECKIGNORE(ncclCommWindowDeregister(comm, state->mboxWin->vidmem), ret);
     NCCLCHECKIGNORE(pcclMemFree(userPtr), ret);
     state->mboxWin = nullptr;
   }
@@ -497,7 +497,6 @@ static ncclResult_t p2pDmaLaunchOki(struct pcclComm* comm, struct pcclP2pDmaPlan
 
 ncclResult_t pcclP2pDmaLaunch(struct pcclComm* comm, struct ncclKernelPlan* plan) {
   struct pcclP2pDmaPlanArgs* pa = (struct pcclP2pDmaPlanArgs*)plan->kernelSymkArgs;
-  hggcStream_t stream = comm->planner.streams->stream;
   if (pa->devArgs.nSend == 0 && pa->devArgs.nRecv == 0) return ncclSuccess;
 
 #if PCCL_HGGC_VERSION >= PCCL_HGGC_DRIVER_VERSION(2, 2, 0)
@@ -506,7 +505,7 @@ ncclResult_t pcclP2pDmaLaunch(struct pcclComm* comm, struct ncclKernelPlan* plan
   // handshake. A self copy is just a work on the local D2D queues, so it runs
   // concurrently with the peer traffic instead of being serialized in front of
   // it by a host-side memcpy on the same stream.
-  return p2pDmaLaunchOki(comm, pa, stream);
+  return p2pDmaLaunchOki(comm, pa, comm->planner.streams->stream);
 #else
   return ncclInternalError;
 #endif

@@ -41,15 +41,15 @@ Virtual Memory Management (VMM) API and registered with PCCL.
 
 ```c
 // Allocate using PCCL provided convenience function and register symmetric windows
-NCCLCHECK(pcclMemAlloc(&buffer, size_bytes));
-NCCLCHECK(pcclCommWindowRegister(comm, buffer, size_bytes, &win, PCCL_WIN_COLL_SYMMETRIC));
+PCCLCHECK(pcclMemAlloc(&buffer, size_bytes));
+PCCLCHECK(pcclCommWindowRegister(comm, buffer, size_bytes, &win, PCCL_WIN_COLL_SYMMETRIC));
 
 // Collective using symmetric windows
-NCCLCHECK(pcclAllReduce(buffer, buffer, count, pcclFloat, pcclSum, comm, stream));
+PCCLCHECK(pcclAllReduce(buffer, buffer, count, pcclFloat, pcclSum, comm, stream));
 
 // Deregister and free
-NCCLCHECK(pcclCommWindowDeregister(comm, win));
-NCCLCHECK(pcclMemFree(buffer));
+PCCLCHECK(pcclCommWindowDeregister(comm, win));
+PCCLCHECK(pcclMemFree(buffer));
 ```
 
 ## Building

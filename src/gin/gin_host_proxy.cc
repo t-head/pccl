@@ -14,7 +14,7 @@
 #include "alloc.h"
 #include "checks.h"
 #include "gdrwrap.h"
-#include "nccl_device/gin/proxy/gin_proxy_device_host_common.h"
+#include "pccl_device/gin/proxy/gin_proxy_device_host_common.h"
 #include "compiler.h"
 
 NCCL_PARAM(GinProxyQueueSize, "GIN_PROXY_QUEUE_SIZE", -1);
@@ -535,7 +535,7 @@ static ncclResult_t ncclGinProxyCreateContext(void* collComm, ncclGinConfig_t* c
 
   NCCLCHECKGOTO(ncclCalloc(&devHandle, 1), ret, fail);
   devHandle->netDeviceType = NCCL_NET_DEVICE_GIN_PROXY;
-  devHandle->netDeviceVersion = NCCL_GIN_PROXY_VERSION;
+  devHandle->netDeviceVersion = PCCL_GIN_PROXY_VERSION;
   devHandle->handle = (void *)devGpuCtx_d;
   devHandle->size = 0;
   devHandle->needsProxyProgress = 1;

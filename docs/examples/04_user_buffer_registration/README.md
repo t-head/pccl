@@ -42,15 +42,15 @@ such as symmetric memory or device API calls.
 
 ```c
 // Allocate using PCCL convenience function and register buffers
-NCCLCHECK(pcclMemAlloc((void**)&d_send, size_bytes));
-NCCLCHECK(pcclCommRegister(comm, d_send, size_bytes, &send_handle));
+PCCLCHECK(pcclMemAlloc((void**)&d_send, size_bytes));
+PCCLCHECK(pcclCommRegister(comm, d_send, size_bytes, &send_handle));
 
 // Use in collectives
-NCCLCHECK(pcclAllReduce(d_send, d_recv, count, pcclFloat, pcclSum, comm, stream));
+PCCLCHECK(pcclAllReduce(d_send, d_recv, count, pcclFloat, pcclSum, comm, stream));
 
 // Deregister and free
-NCCLCHECK(pcclCommDeregister(comm, send_handle));
-NCCLCHECK(pcclMemFree(d_send));
+PCCLCHECK(pcclCommDeregister(comm, send_handle));
+PCCLCHECK(pcclMemFree(d_send));
 ```
 
 ## Building

@@ -130,7 +130,7 @@ build these examples:
   Defaults to number of visible GPUs.
 - `CUDA_VISIBLE_DEVICES`: Comma delimited list of GPUs visible to the
   application.
-- All other PCCL environment variables (e.g. `NCCL_DEBUG`) apply.
+- All other PCCL environment variables (e.g. `PCCL_DEBUG`) apply.
 
 ## Supported OS
 Linux
@@ -138,4 +138,4 @@ Linux
 ## Troubleshooting
 Each example includes a /Common Issues and Solutions/ section for the individual
 tests. For general runtime issues use the debug output enabled by setting
-`NCCL_DEBUG=INFO` for detailed logging.
+`PCCL_DEBUG=INFO` for detailed logging.

@@ -59,7 +59,7 @@ mpirun -np <num_processes> ./one_device_per_process_mpi
 
 ### Run with PCCL debug output
 ```shell
-NCCL_DEBUG=INFO mpirun -np <num_processes> ./one_device_per_process_mpi
+PCCL_DEBUG=INFO mpirun -np <num_processes> ./one_device_per_process_mpi
 ```
 
 ## Code Walk-through
@@ -74,7 +74,7 @@ The PCCL unique ID must be shared with all process which call `pcclCommInitRank`
 ```c
 // Rank 0 generates unique ID
 if (mpi_rank == 0) {
-    NCCLCHECK(pcclGetUniqueId(&pccl_id));
+    PCCLCHECK(pcclGetUniqueId(&pccl_id));
 }
 
 // Broadcast to all processes
@@ -94,7 +94,7 @@ int mpi_rank, mpi_size; // mpi_rank & mpi_size are set during MPI initialization
 pcclUniqueId pccl_id; // pccl_id is generated and broadcasted as above
 
 // Initialize PCCL communicator across all processes
-NCCLCHECK(pcclCommInitRank(&comm, mpi_size, pccl_id, mpi_rank));
+PCCLCHECK(pcclCommInitRank(&comm, mpi_size, pccl_id, mpi_rank));
 ```
 
 ## When to Use MPI Approach
@@ -135,13 +135,13 @@ NCCLCHECK(pcclCommInitRank(&comm, mpi_size, pccl_id, mpi_rank));
 
 3. **Multi-node communication fails**:
    - Check firewall settings and network configuration
-   - Set `NCCL_SOCKET_IFNAME` to specify network interface
+   - Set `PCCL_SOCKET_IFNAME` to specify network interface
 
 ## Error Handling
 
 The example uses simplified error handling with CHECK macros:
 - **HGGCCHECK**: Exits immediately on HGGC errors
-- **NCCLCHECK**: Exits immediately on PCCL errors
+- **PCCLCHECK**: Exits immediately on PCCL errors
 - **No async error checking**: Simplified for clarity
 - **No global error coordination**: Each process exits on its own errors
 

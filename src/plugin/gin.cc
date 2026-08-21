@@ -10,7 +10,7 @@
 #include "bootstrap.h"
 #include "checks.h"
 #include "plugin.h"
-#include "nccl_gin.h"
+#include "pccl_gin.h"
 
 #include <string.h>
 #include <errno.h>
@@ -45,7 +45,7 @@ typedef struct ginPluginLib {
   int ncclGinVersion;                           // Version of the nccl gin plugin
   ncclGinPluginState_t ncclGinPluginState;      // State of the nccl gin plugin
   int ncclGinPluginRefCount;                    // Reference count for the nccl gin plugin
-  int ginPhysDevs;                              // ncclGin - number of physical devices
+  int ginPhysDevs;                              // pcclGin - number of physical devices
 } ginPluginLib_t;
 
 static int pluginCount = 0;
@@ -171,7 +171,7 @@ static void initPluginLibsOnceFunc() {
     // Iterate over list until the list is empty
     ginPluginName = strtok_r(envGinPluginList, ",", &savePtr);
     while(ginPluginName) {
-      // So, we can have at most( NCCL_GIN_MAX_PLUGINS - (NCCL_GIN_NUM_INTERNAL_PLUGINS)) in the NCCL_GIN_PLUGIN list
+      // So, we can have at most( NCCL_GIN_MAX_PLUGINS - (NCCL_GIN_NUM_INTERNAL_PLUGINS)) in the PCCL_GIN_PLUGIN list
       if (pluginCounter >= (NCCL_GIN_MAX_PLUGINS - (NCCL_GIN_NUM_INTERNAL_PLUGINS))) {
         INFO(NCCL_NET|NCCL_ENV,"PCCL_GIN_PLUGIN list contains more than %d plugins, ignoring the rest", (NCCL_GIN_MAX_PLUGINS - (NCCL_GIN_NUM_INTERNAL_PLUGINS + 1)));
         break;

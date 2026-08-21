@@ -176,7 +176,7 @@ struct extKernelParams {
 #define LL_EFFICIENCY (1/2)
 
 // Template parameter space dimensions shared across collectives
-#define CUSTOM_NRANKS_NUM 4
+#define CUSTOM_NRANKS_NUM 5
 #define CUSTOM_ALIGN_NUM 4
 
 static inline int ranksToIndex(const int nRanks) {
@@ -185,6 +185,7 @@ static inline int ranksToIndex(const int nRanks) {
     case 4:  return 1;
     case 8:  return 2;
     case 16: return 3;
+    case 32: return 4;
     default: return -1;
   }
 }

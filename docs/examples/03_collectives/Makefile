@@ -6,7 +6,7 @@
 # See LICENSE.txt for more license information
 #
 
-# NCCL Collective Examples
+# PCCL Collective Examples
 EXAMPLES = 01_allreduce
 
 # Default target
@@ -31,7 +31,7 @@ test: all
 
 # Help
 help:
-	@echo "NCCL Collective Communication Examples"
+	@echo "PCCL Collective Communication Examples"
 	@echo "====================================="
 	@echo ""
 	@echo "Targets:"

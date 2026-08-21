@@ -203,7 +203,8 @@ pcclResult_t customAllReduceImpl(struct extKernelDevParams& devParams, struct ex
   ONE_SHOT_FUNCS_RANK(2, dtype) \
   ONE_SHOT_FUNCS_RANK(4, dtype) \
   ONE_SHOT_FUNCS_RANK(8, dtype) \
-  ONE_SHOT_FUNCS_RANK(16, dtype)
+  ONE_SHOT_FUNCS_RANK(16, dtype) \
+  ONE_SHOT_FUNCS_RANK(32, dtype)
 
 // Generate all oneShot kernels
 #define ONE_SHOT_FUNCS() \
@@ -232,7 +233,8 @@ pcclResult_t customAllReduceImpl(struct extKernelDevParams& devParams, struct ex
   TWO_SHOT_FUNCS_RANK(2,  dtype) \
   TWO_SHOT_FUNCS_RANK(4,  dtype) \
   TWO_SHOT_FUNCS_RANK(8,  dtype) \
-  TWO_SHOT_FUNCS_RANK(16, dtype)
+  TWO_SHOT_FUNCS_RANK(16, dtype) \
+  TWO_SHOT_FUNCS_RANK(32, dtype)
 
 // Generate all oneShot kernels
 #define TWO_SHOT_FUNCS() \
@@ -256,7 +258,8 @@ pcclResult_t customAllReduceImpl(struct extKernelDevParams& devParams, struct ex
   TWO_SHOT_REG_FUNCS_RANK(2,  dtype) \
   TWO_SHOT_REG_FUNCS_RANK(4,  dtype) \
   TWO_SHOT_REG_FUNCS_RANK(8,  dtype) \
-  TWO_SHOT_REG_FUNCS_RANK(16, dtype)
+  TWO_SHOT_REG_FUNCS_RANK(16, dtype) \
+  TWO_SHOT_REG_FUNCS_RANK(32, dtype)
 
 // Generate all twoShotReg kernels
 #define TWO_SHOT_REG_FUNCS() \
@@ -280,7 +283,8 @@ pcclResult_t customAllReduceImpl(struct extKernelDevParams& devParams, struct ex
   ONESHOT_LL_FUNCS_RANK(2, dtype) \
   ONESHOT_LL_FUNCS_RANK(4, dtype) \
   ONESHOT_LL_FUNCS_RANK(8, dtype) \
-  ONESHOT_LL_FUNCS_RANK(16, dtype)
+  ONESHOT_LL_FUNCS_RANK(16, dtype) \
+  ONESHOT_LL_FUNCS_RANK(32, dtype)
 
 // Generate all oneShotLL kernels
 #define ONESHOT_LL_FUNCS() \

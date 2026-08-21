@@ -62,16 +62,16 @@ void *d_sendbuff;
 void *d_recvbuff;
 
 // Allocate buffers using pcclMemAlloc (compatible with symmetric memory)
-NCCLCHECK(pcclMemAlloc(&d_sendbuff, size_bytes));
-NCCLCHECK(pcclMemAlloc(&d_recvbuff, size_bytes));
+PCCLCHECK(pcclMemAlloc(&d_sendbuff, size_bytes));
+PCCLCHECK(pcclMemAlloc(&d_recvbuff, size_bytes));
 
 pcclComm_t comm;
 pcclWindow_t send_win;
 pcclWindow_t recv_win;
 
 // Register buffers as symmetric windows
-NCCLCHECK(pcclCommWindowRegister(comm, d_sendbuff, size_bytes, &send_win, PCCL_WIN_COLL_SYMMETRIC));
-NCCLCHECK(pcclCommWindowRegister(comm, d_recvbuff, size_bytes, &recv_win, PCCL_WIN_COLL_SYMMETRIC));
+PCCLCHECK(pcclCommWindowRegister(comm, d_sendbuff, size_bytes, &send_win, PCCL_WIN_COLL_SYMMETRIC));
+PCCLCHECK(pcclCommWindowRegister(comm, d_recvbuff, size_bytes, &recv_win, PCCL_WIN_COLL_SYMMETRIC));
 ```
 
 2. **AllReduce Operation**:
@@ -80,19 +80,19 @@ size_t count;  // set to number of floats to exchange
 hggcStream_t stream; // stream is set in hggcStreamCreate
 
 // Perform AllReduce with symmetric memory optimization
-NCCLCHECK(pcclAllReduce(d_sendbuff, d_recvbuff, count, pcclFloat, pcclSum,
+PCCLCHECK(pcclAllReduce(d_sendbuff, d_recvbuff, count, pcclFloat, pcclSum,
                         comm, stream));
 ```
 
 3. **Window Deregistration and Cleanup**:
 ```c
 // Deregister symmetric memory windows
-NCCLCHECK(pcclCommWindowDeregister(comm, send_win));
-NCCLCHECK(pcclCommWindowDeregister(comm, recv_win));
+PCCLCHECK(pcclCommWindowDeregister(comm, send_win));
+PCCLCHECK(pcclCommWindowDeregister(comm, recv_win));
 
 // Free buffers allocated with pcclMemAlloc
-NCCLCHECK(pcclMemFree(d_sendbuff));
-NCCLCHECK(pcclMemFree(d_recvbuff));
+PCCLCHECK(pcclMemFree(d_sendbuff));
+PCCLCHECK(pcclMemFree(d_recvbuff));
 ```
 
 ## Performance Benefits of Symmetric Memory

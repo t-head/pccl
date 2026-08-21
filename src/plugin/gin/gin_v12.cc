@@ -6,7 +6,7 @@
  * See LICENSE.txt for more license information
  *************************************************************************/
 
-#include "nccl_gin.h"
+#include "pccl_gin.h"
 #include "comm.h"
 #include "proxy.h"
 #include <dlfcn.h>
@@ -93,7 +93,7 @@ static ncclResult_t ncclGin_getProperties(int dev, ncclNetProperties_v12_t* prop
 }
 
 ncclGin_t* getNcclGin_v12(void* lib) {
-  ncclGin_v12 = (ncclGin_v12_t*)dlsym(lib, "ncclGinPlugin_v12");
+  ncclGin_v12 = (ncclGin_v12_t*)dlsym(lib, "pcclGinPlugin_v12");
   if (ncclGin_v12) {
     INFO(NCCL_INIT|NCCL_NET, "NET/Plugin: Loaded gin plugin %s (v12)", ncclGin_v12->name);
     ncclGinShim.name = ncclGin_v12->name;

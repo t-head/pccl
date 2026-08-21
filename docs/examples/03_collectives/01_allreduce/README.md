@@ -76,12 +76,12 @@ hggcStream_t *streams; // streams are set in hggcStreamCreate
 // Allocate device memory for receive buffers
 HGGCCHECK(hggcMalloc((void **)&recvbuff[i], size * sizeof(float)));
 
-NCCLCHECK(pcclGroupStart());
+PCCLCHECK(pcclGroupStart());
 for (int i = 0; i < num_gpus; i++) {
-    NCCLCHECK(pcclAllReduce(sendbuff[i], recvbuff[i], size, pcclFloat,
+    PCCLCHECK(pcclAllReduce(sendbuff[i], recvbuff[i], size, pcclFloat,
                             pcclSum, comms[i], streams[i]));
 }
-NCCLCHECK(pcclGroupEnd());
+PCCLCHECK(pcclGroupEnd());
 ```
 
 ## When to Use
@@ -110,7 +110,7 @@ value.
 
 ## Error Handling
 
-This example uses comprehensive error checking with `NCCLCHECK` and `HGGCCHECK`
+This example uses comprehensive error checking with `PCCLCHECK` and `HGGCCHECK`
 macros that immediately exit on any failure. In production code, consider more
 graceful error handling and recovery mechanisms.
 

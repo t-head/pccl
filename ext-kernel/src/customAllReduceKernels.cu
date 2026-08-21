@@ -475,7 +475,8 @@ __global__ void pcclKernel_oneShotLLAllReduceKernel(struct oneShotLLDevParams pa
   ONE_SHOT_FUNCS_IMPL_RANK(2, dtype) \
   ONE_SHOT_FUNCS_IMPL_RANK(4, dtype) \
   ONE_SHOT_FUNCS_IMPL_RANK(8, dtype) \
-  ONE_SHOT_FUNCS_IMPL_RANK(16, dtype)
+  ONE_SHOT_FUNCS_IMPL_RANK(16, dtype) \
+  ONE_SHOT_FUNCS_IMPL_RANK(32, dtype)
 
 // Generate all oneShot kernels
 #define ONE_SHOT_FUNCS_IMPL() \
@@ -504,7 +505,8 @@ __global__ void pcclKernel_oneShotLLAllReduceKernel(struct oneShotLLDevParams pa
   TWO_SHOT_FUNCS_IMPL_RANK(2,  dtype) \
   TWO_SHOT_FUNCS_IMPL_RANK(4,  dtype) \
   TWO_SHOT_FUNCS_IMPL_RANK(8,  dtype) \
-  TWO_SHOT_FUNCS_IMPL_RANK(16, dtype)
+  TWO_SHOT_FUNCS_IMPL_RANK(16, dtype) \
+  TWO_SHOT_FUNCS_IMPL_RANK(32, dtype)
 
 // Generate all oneShot kernels
 #define TWO_SHOT_FUNCS_IMPL() \
@@ -528,7 +530,8 @@ __global__ void pcclKernel_oneShotLLAllReduceKernel(struct oneShotLLDevParams pa
   TWO_SHOT_REG_FUNCS_IMPL_RANK(2,  dtype) \
   TWO_SHOT_REG_FUNCS_IMPL_RANK(4,  dtype) \
   TWO_SHOT_REG_FUNCS_IMPL_RANK(8,  dtype) \
-  TWO_SHOT_REG_FUNCS_IMPL_RANK(16, dtype)
+  TWO_SHOT_REG_FUNCS_IMPL_RANK(16, dtype) \
+  TWO_SHOT_REG_FUNCS_IMPL_RANK(32, dtype)
 
 // Generate all twoShotReg kernels
 #define TWO_SHOT_REG_FUNCS_IMPL() \
@@ -552,7 +555,8 @@ __global__ void pcclKernel_oneShotLLAllReduceKernel(struct oneShotLLDevParams pa
   ONESHOT_LL_FUNCS_IMPL_RANK(2, dtype) \
   ONESHOT_LL_FUNCS_IMPL_RANK(4, dtype) \
   ONESHOT_LL_FUNCS_IMPL_RANK(8, dtype) \
-  ONESHOT_LL_FUNCS_IMPL_RANK(16, dtype)
+  ONESHOT_LL_FUNCS_IMPL_RANK(16, dtype) \
+  ONESHOT_LL_FUNCS_IMPL_RANK(32, dtype)
 
 // Generate all oneShotLL kernels
 #define ONESHOT_LL_FUNCS_IMPL() \

@@ -136,9 +136,6 @@ export CLANG_TARGET=${PPU_TARGET_ARCH}-linux-gnu
 
 cd ${PPU_HOME}/pccl
 make ${make_option} default
-
-echo "Begin to generate cuda header"
-python3 ${PPU_HOME}/pccl/scripts/generate_cuda_header.py
 '
 
 clean_command '

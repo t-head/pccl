@@ -6,7 +6,7 @@
 # See LICENSE.txt for more license information
 #
 
-# NCCL Device API Examples
+# PCCL Device API Examples
 EXAMPLES = 01_allreduce_lsa 02_alltoall_gin 03_alltoall_hybrid
 
 # Default target
@@ -31,7 +31,7 @@ test: all
 
 # Help
 help:
-	@echo "NCCL Device API Examples"
+	@echo "PCCL Device API Examples"
 	@echo "========================"
 	@echo ""
 	@echo "Targets:"

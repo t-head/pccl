@@ -7,9 +7,10 @@
  *************************************************************************/
 
 #include "common.h"
+#include "pccl_compat.h"
 #include "alloc.h"
 #include "connect.h"
-#include "nccl_gin.h"
+#include "pccl_gin.h"
 #include "gin/gin_host.h"
 #include "gin.h"
 #include "gdaki/gin_host_gdaki.h"
@@ -625,7 +626,7 @@ ncclResult_t ncclGinIbProxyIPut(void* ginCtx, int context, uint64_t srcOff, void
   struct ncclIbRequest* req;
   NCCLCHECK(ncclIbGetRequest(&comm->base, &req));
   // pcclIbGetRequest presets events=1 for p2p, but GIN counts one event per signaled WQE via
-  // pcclIbAddEvent below. Start from zero or the request never drains back to 0.
+  // ncclIbAddEvent below. Start from zero or the request never drains back to 0.
   req->events = 0;
   req->ginProxyCtx = ginProxyCtx;
   req->type = NCCL_NET_IB_REQ_GIN_IPUT;
@@ -672,7 +673,7 @@ ncclResult_t ncclGinIbProxyIGet(void* ginCtx, int context, uint64_t remoteOffset
 
   struct ncclIbRequest* req;
   NCCLCHECK(ncclIbGetRequest(&comm->base, &req));
-  // See pcclGinIbProxyIPut.
+  // See ncclGinIbProxyIPut.
   req->events = 0;
   req->ginProxyCtx = ginProxyCtx;
   req->type = NCCL_NET_IB_REQ_GIN_IGET;
@@ -731,7 +732,7 @@ ncclResult_t ncclGinIbProxyIPutSignal(void* ginCtx, int context, uint64_t srcOff
 
   struct ncclIbRequest* req;
   NCCLCHECK(ncclIbGetRequest(&comm->base, &req));
-  // See pcclGinIbProxyIPut. Only the atomic WQE is signaled, so one completion either way.
+  // See ncclGinIbProxyIPut. Only the atomic WQE is signaled, so one completion either way.
   req->events = 0;
   req->ginProxyCtx = ginProxyCtx;
   req->type = NCCL_NET_IB_REQ_GIN_IPUT;
@@ -846,7 +847,7 @@ ncclResult_t ncclGinIbProxyIFlush(void* ginCtx, int context, void* mhandle, uint
 
   struct ncclIbRequest* req;
   NCCLCHECK(ncclIbGetRequest(&comm->base, &req));
-  // See pcclGinIbProxyIPut.
+  // See ncclGinIbProxyIPut.
   req->events = 0;
   req->type = NCCL_NET_IB_REQ_FLUSH;
   req->sock = &comm->base.sock;

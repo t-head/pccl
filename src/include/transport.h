@@ -13,7 +13,7 @@
 #include "graph.h"
 #include "nvmlwrap.h"
 #include "core.h"
-#include "nccl_device/core.h"
+#include "pccl_device/core.h"
 
 #define NTRANSPORTS 4
 #define TRANSPORT_P2P 0

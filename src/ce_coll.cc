@@ -274,7 +274,7 @@ exit:
   if (ceArStepInitMem) ncclFree(ceArStepInitMem);
   return ret;
 fail:
-  if (ceWinDev) (void)pcclCommWindowDeregister(comm, ceWinDev);
+  if (ceWinDev) (void)ncclCommWindowDeregister(comm, ceWinDev);
   if (ceDevBase) (void)pcclMemFree(ceDevBase);
   cec->ceSyncWin = nullptr;
   cec->ceSyncBase = nullptr;
@@ -287,7 +287,7 @@ ncclResult_t ncclCeFinalize(ncclComm_t comm) {
   if (!cec->initialized) return ncclSuccess;
   if (cec->ceSyncWin) {
     void* userPtr = cec->ceSyncWin->userPtr;
-    NCCLCHECKIGNORE(pcclCommWindowDeregister(comm, cec->ceSyncWin->vidmem), ret);
+    NCCLCHECKIGNORE(ncclCommWindowDeregister(comm, cec->ceSyncWin->vidmem), ret);
     NCCLCHECKIGNORE(pcclMemFree(userPtr), ret);
     cec->ceSyncWin = nullptr;
     cec->ceSyncBase = nullptr;

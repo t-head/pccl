@@ -2369,9 +2369,9 @@ ncclResult_t pcclCommInitAll(ncclComm_t* comms, int ndev, const int* devlist) {
   int offset = 0;
   NCCLCHECKGOTO(ncclCalloc(&devlist_str, 128), ret, fail);
   for (int i = 0; i < ndev; i++) {
-    if (i > 0) sprintf(devlist_str+offset, " %d", devlist[i]);
-    else sprintf(devlist_str+offset, "%d", devlist[i]);
-    offset = strlen(devlist_str);
+    int n = snprintf(devlist_str + offset, 128 - offset, i > 0 ? " %d" : "%d", devlist ? devlist[i] : i);
+    if (n < 0 || n >= 128 - offset) break;
+    offset += n;
   }
   INFO_CALL("PCCL API: pcclCommInitAll(comms=%p, ndev=%d, devlist=[%s])", comms, ndev, devlist_str);
 

@@ -109,8 +109,9 @@ ncclResult_t pcclExtKernelPluginLoad(ncclComm_t comm) {
     return ncclSuccess;
   }
 
-  if ((comm->nRanks != 2 && comm->nRanks != 4 && comm->nRanks != 8 && comm->nRanks != 16)) {
-    INFO(NCCL_EXT, "Skip ext kernel init due to nRanks(%d) not 2/4/8", comm->nRanks);
+  if ((comm->nRanks != 2 && comm->nRanks != 4 && comm->nRanks != 8 &&
+       comm->nRanks != 16 && comm->nRanks != 32)) {
+    INFO(NCCL_EXT, "Skip ext kernel init due to nRanks(%d) not 2/4/8/16/32", comm->nRanks);
     return ncclSuccess;
   }
 

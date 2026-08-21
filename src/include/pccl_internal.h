@@ -13,23 +13,21 @@
 
 #include "pccl_common.h"
 
+#include "pccl_compat.h"
+
 // Internal-only nccl* type aliases used by .cc translation units that keep
 // the nccl* spelling internally.
 typedef pcclComm_t   ncclComm_t;
 typedef pcclResult_t ncclResult_t;
 typedef pcclWindow_t ncclWindow_t;
-typedef pcclWindow_t ncclDevWin_t;   // internal-only; no public counterpart
 typedef pcclConfig_t ncclConfig_t;
 typedef pcclUniqueId ncclUniqueId;
-#define NCCL_VERSION_CODE PCCL_VERSION_CODE
-#define NCCL_CONFIG_UNDEF_INT PCCL_CONFIG_UNDEF_INT
 #define NCCL_CONFIG_INITIALIZER PCCL_CONFIG_INITIALIZER
 #define NCCL_VERSION(X,Y,Z) (((X) <= 2 && (Y) <= 8) ? (X) * 1000 + (Y) * 100 + (Z) : (X) * 10000 + (Y) * 100 + (Z))
 #define NCCL_UNIQUE_ID_BYTES 128
 #define NCCL_API_MAGIC 0xcafebeef
 
 constexpr auto ncclSuccess = pcclSuccess;
-constexpr auto ncclTimeout = pcclTimeout;
 constexpr auto ncclUnhandledHggcError = pcclUnhandledHggcError;
 constexpr auto ncclUnhandledLtOkiError = pcclUnhandledLtOkiError;
 constexpr auto ncclSystemError = pcclSystemError;
@@ -102,7 +100,6 @@ constexpr auto NCCL_DUMP = PCCL_DUMP;
 constexpr auto NCCL_PROFILE = PCCL_PROFILE;
 constexpr auto NCCL_REG = PCCL_REG;
 constexpr auto NCCL_RAS = PCCL_RAS;
-constexpr auto NCCL_DESTROY = PCCL_DESTROY;
 constexpr auto NCCL_ALL = PCCL_ALL;
 constexpr auto NCCL_PROXY = PCCL_PROXY;
 constexpr auto NCCL_INSPECTOR = PCCL_INSPECTOR;
@@ -113,13 +110,17 @@ typedef pcclSimInfo_t ncclSimInfo_t;
 
 #define NCCL_WIN_DEFAULT PCCL_WIN_DEFAULT
 #define NCCL_WIN_COLL_SYMMETRIC PCCL_WIN_COLL_SYMMETRIC
-#define NCCL_WIN_STRICT_ORDERING PCCL_WIN_STRICT_ORDERING
 #define NCCL_WIN_REQUIRED_ALIGNMENT 4096
 
-// Note: ncclDevCommRequirements_t and NCCL_COMM_PROPERTIES_INITIALIZER come from
-// nccl_device/core.h. The previous *_pub_t / *_ptr_t aliases against unbuilt
+// Note: pcclDevCommRequirements_t and PCCL_COMM_PROPERTIES_INITIALIZER come from
+// pccl_device/core.h. The previous *_pub_t / *_ptr_t aliases against unbuilt
 // pccl* types are dropped — they had no callers.
 
+#define NCCL_VERSION_CODE PCCL_VERSION_CODE
+#define NCCL_CONFIG_UNDEF_INT PCCL_CONFIG_UNDEF_INT
+#define NCCL_WIN_STRICT_ORDERING PCCL_WIN_STRICT_ORDERING
+constexpr auto ncclTimeout = pcclTimeout;
+constexpr auto NCCL_DESTROY = PCCL_DESTROY;
 #define ncclCommRegister pcclCommRegister
 #define ncclCommDeregister pcclCommDeregister
 #define ncclCommWindowRegister pcclCommWindowRegister

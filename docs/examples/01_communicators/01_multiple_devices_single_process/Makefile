@@ -50,10 +50,10 @@ install: $(TARGET)
 
 # Help
 help:
-	@echo "NCCL Example: Multiple Devices Single Process"
+	@echo "PCCL Example: Multiple Devices Single Process"
 	@echo "=============================================="
 	@echo ""
-	@echo "This example shows how to use ncclCommInitAll to create"
+	@echo "This example shows how to use pcclCommInitAll to create"
 	@echo "communicators for multiple GPUs in a single process."
 	@echo ""
 	@echo "Targets:"

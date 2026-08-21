@@ -13,7 +13,7 @@ include ../../../../makefiles/examples.mk
 # Target executable
 TARGET = ring_pattern
 
-# Common utilities (for utils.h, nccl_utils.h, etc.)
+# Common utilities (for utils.h, pccl_utils.h, etc.)
 COMMON_INC = ../../common/include
 INCLUDES += -I$(COMMON_INC)
 
@@ -50,7 +50,7 @@ install: $(TARGET)
 
 # Help
 help:
-	@echo "NCCL Example: P2P Ring Pattern"
+	@echo "PCCL Example: P2P Ring Pattern"
 	@echo "=============================================="
 	@echo ""
 	@echo "Targets:"

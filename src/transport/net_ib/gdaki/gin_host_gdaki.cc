@@ -7,6 +7,7 @@
  *************************************************************************/
 
 #include <assert.h>
+#include "pccl_compat.h"
 #include <stdbool.h>
 #include <stddef.h>
 #include <stdint.h>
@@ -21,7 +22,7 @@
 #include "param.h"
 
 #include "doca_gpunetio_host.h"
-#include "nccl_device/gin/gdaki/gin_gdaki_device_host_common.h"
+#include "pccl_device/gin/gdaki/gin_gdaki_device_host_common.h"
 #include "../common.h"
 #include "../gin.h"
 
@@ -819,7 +820,7 @@ retry_create_qp_group_hl:
   NCCLCHECKGOTO(gin_gdaki_gpu_ctx_hd_mhandle->copy_h_to_d(), status, out);
 
   devHandle->netDeviceType = NCCL_NET_DEVICE_GIN_GDAKI;
-  devHandle->netDeviceVersion = NCCL_GIN_GDAKI_VERSION;
+  devHandle->netDeviceVersion = PCCL_GIN_GDAKI_VERSION;
   devHandle->handle = (void *)gin_gdaki_gpu_ctx_hd_mhandle->gpu_buf;
   devHandle->size = 0;
   devHandle->needsProxyProgress = need_cpu_proxy;
