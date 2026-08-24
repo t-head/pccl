@@ -9,15 +9,6 @@
 #ifndef NCCL_RAS_INTERNAL_H_
 #define NCCL_RAS_INTERNAL_H_
 
-#define NCCL_RAS_CLIENT_PORT 28028
-#define NCCL_RAS_CLIENT_PROTOCOL 2
-
-#define RAS_COLLECTIVE_LEG_TIMEOUT_SEC 5
-#define RAS_COLLECTIVE_EXTRA_TIMEOUT_SEC RAS_COLLECTIVE_LEG_TIMEOUT_SEC
-
-// End of the client section; everything below is meant for the NCCL threads only.
-#ifndef NCCL_RAS_CLIENT
-
 #include <mutex>
 
 #include "alloc.h"
@@ -26,6 +17,8 @@
 #include "socket.h"
 #include "utils.h"
 #include "devcomm.h"
+
+#include "ras_wire.h"
 
 // Type of a RAS network or client message.
 typedef enum {
@@ -48,13 +41,17 @@ typedef enum {
   RAS_COLL_COMMS = 1002, // Collect data about all communicators.
 } rasCollectiveType;
 
-// Unique communicator identifier.  commHash by itself is definitely not guaranteed to be unique.
-// Combined with the two other hashes, the chance is much better...
-// All three fields are used for sorting.
-struct rasCommId {
-  uint64_t commHash;
-  uint64_t hostHash, pidHash; // These are the hashes of the *first* rank (comm->peerInfo[0]).
-};
+// Flags for rasCollRequest::comms.flags.
+// RAS_COMMS_FLAG_INCLUDE_DIAG asks every responding rank to append a per-rank diag block
+// (snapshot of channel/peer state needed by the hang analyzer) after the missingRanks
+// array of its own comm entry.
+#define RAS_COMMS_FLAG_INCLUDE_DIAG (1u << 0)
+// RAS_COMMS_FLAG_TRIGGER_LOCAL_DUMP asks every responding rank to also run pcclCommDump
+// (rough mode) for the comm(s) matching diagOnlyCommHash (or all comms if 0), with the
+// same lastTimeoutIndex/seq dedup as RAS_BC_DUMP.  Set by the monitor path to fuse what
+// used to be two cross-cluster collectives (BC_DUMP + COMMS+DIAG) into one traversal.
+// Honored only when RAS_COMMS_FLAG_INCLUDE_DIAG is also set.
+#define RAS_COMMS_FLAG_TRIGGER_LOCAL_DUMP (1u << 1)
 
 // Payload of a collective request message (RAS_MSG_COLLREQ).
 struct rasCollRequest {
@@ -78,6 +75,22 @@ struct rasCollRequest {
     struct {
     } conns;
     struct {
+      uint32_t flags; // RAS_COMMS_FLAG_* below.
+      // Override for the pcclCommDump mask when RAS_COMMS_FLAG_TRIGGER_LOCAL_DUMP is set;
+      // 0 means "use the global mask".  Mirrors rasCollRequest::dump.dumpLevel semantics so
+      // the integrated trigger path can carry the same control bits as RAS_BC_DUMP.
+      uint32_t dumpLevel;
+      // When RAS_COMMS_FLAG_INCLUDE_DIAG is set:
+      //   - diagOnlyCommHash == 0  -> populate the diag tier for every comm in the response.
+      //   - diagOnlyCommHash != 0  -> populate the diag tier only for the comm whose
+      //                               commId.commHash matches (used by the state monitor, which
+      //                               only cares about the hanging comm).
+      // diagSeq is informational (the trigger sequence; reported in the on-disk report).
+      // When RAS_COMMS_FLAG_TRIGGER_LOCAL_DUMP is set, diagOnlyCommHash/diagSeq also drive the
+      // local pcclCommDump fan-out: zero hash dumps every comm, non-zero dumps only the matching
+      // commHash, and diagSeq is used for the same lastTimeoutIndex dedup as RAS_BC_DUMP.
+      uint64_t diagOnlyCommHash;
+      uint64_t diagSeq;
       int nSkipMissingRanksComms; // Number of elements in the array below.
       // Communicators for which we do *not* need the missingRanks data in the responses
       // (see struct rasCollCommsMissingRank later).
@@ -284,6 +297,12 @@ struct rasCollective {
 
   char* data; // Collective (from this process and the responses we received).
   int nData;
+
+  // Optional completion callback for collectives originated by the RAS thread itself (i.e. no
+  // client, no upstream connection).  When the collective is ready to respond and onComplete is
+  // set, rasCollReadyResp invokes it instead of trying to forward upstream or resume a client;
+  // the callback owns freeing the collective via rasCollFree().
+  void (*onComplete)(struct rasCollective* coll) = nullptr;
 };
 
 // Collective data in RAS_COLL_CONNS responses.
@@ -301,43 +320,8 @@ struct rasCollConns {
   } negativeMins[0]; // Variable length.
 };
 
-// Collective data in RAS_COLL_COMMS responses.
-struct rasCollComms {
-  int nComms;
-  struct comm {
-    struct rasCommId commId;
-    int commNRanks; // >= nRanks + nMissingRanks
-    int nRanks; // Number of elements in the ranks array below, *not* in the communicator.
-    int nMissingRanks; // Number of elements in the missingRanks array below.
-    struct rank {
-      int commRank;
-      int peerIdx; // Index within rasCollective->peers, *not* rasPeers.
-      uint64_t collOpCount;
-      struct {
-        ncclResult_t initState:4;
-        ncclResult_t asyncError:4;
-        bool finalizeCalled:1;
-        bool destroyFlag:1;
-        bool abortFlag:1;
-      } status;
-      char hggcDev;
-      char hgmlDev;
-    } ranks[0]; // Variable length. Sorted by commRank.  Optimized for 1 GPU/process.
-    // The ranks array is followed by:
-    // struct rasCollCommsMissingRank missingRanks[0]; // Variable length.  Sorted by commRank.
-  } comms[0]; // Variable length.  Sorted by commId.
-};
-
-// Provides info about missing ranks.  An array of these structures can be part of struct rasCollComms above.
-// Because the arrays are of variable length, we can't describe them in C.  To ensure that adding
-// rasCollCommsMissingRank structures doesn't mess up the alignment, we explicitly request one.
-struct alignas(struct rasCollComms) rasCollCommsMissingRank {
-  int commRank;
-  union ncclSocketAddress addr;
-  // We don't need pid here as we can look it up in rasPeers via addr.
-  char hggcDev;
-  char hgmlDev;
-};
+// rasCollComms, rasCollCommsMissingRank, rasCommId, and walk helpers
+// are defined in ras_wire.h (included above after socket.h).
 
 // Holds data needed to keep track of a connection belonging to a RAS network link (either the primary one
 // or one of the fallbacks).
@@ -491,6 +475,15 @@ struct rasClient {
 
   rasOutputFormat outputFormat;  // TEXT or JSON output format.
 
+  // When true, the client's COMMS collective sets RAS_COMMS_FLAG_INCLUDE_DIAG
+  // and the rendering path appends the hang-analysis summary section.
+  int analyzeFlag;
+
+  // Dump level requested by "-d LEVEL".  0 = no dump.  When > 0, the COMMS
+  // collective also carries RAS_COMMS_FLAG_TRIGGER_LOCAL_DUMP and the
+  // completion path writes pccl_diag_data.bin + per-category report files.
+  int dumpLevel;
+
   // State stored during asynchronous operations such as collectives.
   struct rasCollective* coll;
 };
@@ -581,7 +574,8 @@ extern struct rasCollective* rasCollectivesTail;
 
 void rasCollReqInit(struct rasCollRequest* req);
 ncclResult_t rasNetSendCollReq(const struct rasCollRequest* req, bool* pAllDone = nullptr,
-                               struct rasCollective** pColl = nullptr, struct rasConnection* fromConn = nullptr);
+                               struct rasCollective** pColl = nullptr, struct rasConnection* fromConn = nullptr,
+                               void (*onComplete)(struct rasCollective*) = nullptr);
 ncclResult_t rasMsgHandleCollReq(struct rasMsg* msg, struct rasSocket* sock);
 ncclResult_t rasMsgHandleCollResp(struct rasMsg* msg, struct rasSocket* sock);
 void rasCollsPurgeConn(struct rasConnection* conn);
@@ -603,11 +597,30 @@ const char* rasGpuDevsToString(uint64_t hggcDevs, uint64_t hgmlDevs, char* buf, 
 void rasClientSupportTerminate();
 
 // monitor.cc
+struct pcclCommDiagCollector;
 void rasStateMonitor();
 void rasStateMonitorInit(rasNcclComm *rasComm, ncclComm_t comm);
-void rasStateMonitorDump(const struct rasCollRequest* req, bool *pDone);
+// `collector` is forwarded to pcclCommDump; when non-null the dump path also
+// fires diag-tier callbacks so the caller can piggyback on the dump's device
+// reads.  Pass nullptr for the legacy fire-and-forget dump (BC_DUMP path).
+void rasStateMonitorDump(const struct rasCollRequest* req, bool *pDone,
+                         struct pcclCommDiagCollector* collector = nullptr);
 void rasStateMonitorAbort(const struct rasCollRequest* req, bool *pDone);
 
-#endif // !NCCL_RAS_CLIENT
+
+// diag.cc — analyzer trigger / report / persistence
+void rasDiagTriggerFromMonitor(uint64_t commHash, uint64_t seq);
+ncclResult_t rasDiagWriteFullReport(const struct rasCollComms* commsBlob,
+                                    int nBlobBytes, int nLegTimeouts,
+                                    char* pathOut, size_t pathLen);
+void rasDiagOnComplete(struct rasCollective* coll);
+
+// diag.cc — ras diag (snapshot / collector)
+size_t rasDiagTotalSnapshotDataSize(ncclComm_t comm);
+size_t rasDiagSnapshotInto(char* buf, size_t bufLen, ncclComm_t comm);
+struct pcclCommDiagCollector* rasDiagCollectorCreate();
+const char* rasDiagCollectorGet(struct pcclCommDiagCollector* collector,
+                                ncclComm_t comm, size_t* pBytes);
+void rasDiagCollectorDestroy(struct pcclCommDiagCollector* collector);
 
 #endif // !NCCL_RAS_INTERNAL_H_

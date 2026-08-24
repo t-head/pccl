@@ -34,7 +34,7 @@ endif
 
 LIBSRCFILES_CPP := $(wildcard transport/net_ib/gdaki/doca-gpunetio/src/*.cpp)
 
-BINSRCFILES := ras/client.cc
+BINSRCFILES := ras/client.cc ras/analyzer.cc
 
 ##### lib files
 LIBNAME     := libpccl.so

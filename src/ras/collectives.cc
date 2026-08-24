@@ -111,7 +111,8 @@ void rasCollReqInit(struct rasCollRequest* req) {
 // pColl provides on return a pointer to the allocated rasCollective structure to track this collective (unless
 // it's a broadcast, which require no such tracking).
 ncclResult_t rasNetSendCollReq(const struct rasCollRequest* req, bool* pAllDone,
-                               struct rasCollective** pColl, struct rasConnection* fromConn) {
+                               struct rasCollective** pColl, struct rasConnection* fromConn,
+                               void (*onComplete)(struct rasCollective*)) {
   struct rasCollective* coll = nullptr;
   struct rasCollRequest* reqMod = (struct rasCollRequest*)req;
   size_t reqLen = 0;
@@ -125,6 +126,7 @@ ncclResult_t rasNetSendCollReq(const struct rasCollRequest* req, bool* pAllDone,
     coll->type = req->type;
     coll->timeout = req->timeout;
     coll->fromConn = fromConn;
+    coll->onComplete = onComplete;
     if (ncclCalloc(&coll->peers, 1) == ncclSuccess) {
       memcpy(coll->peers, &rasNetListeningSocket.addr, sizeof(*coll->peers));
       coll->nPeers = 1;
@@ -275,6 +277,11 @@ static ncclResult_t rasCollReadyResp(struct rasCollective* coll) {
     rasCollHistNextIdx = (rasCollHistNextIdx + 1) % COLL_HISTORY_SIZE;
 
     rasCollFree(coll);
+  } else if (coll->onComplete) {
+    // RAS-thread-internal collective (e.g., hang analyzer triggered from the state monitor):
+    // hand off to the registered callback, which owns the rasCollective and is responsible for
+    // calling rasCollFree on it when done.
+    coll->onComplete(coll);
   } else {
     // For locally-initiated collectives, invoke the client code again (which will release it, once finished).
     NCCLCHECK(rasClientResume(coll));
@@ -598,10 +605,42 @@ static ncclResult_t rasCollCommsInit(struct rasCollRequest** pReq, size_t* pReqL
   struct rasCollRequest* req = nullptr;
   struct rasPeerInfo** peersReSorted = nullptr;
   int firstNewSkipMissingIdx = -1;
+  bool includeDiag = (((*pReq)->comms.flags & RAS_COMMS_FLAG_INCLUDE_DIAG) != 0);
+  uint64_t diagOnly = (*pReq)->comms.diagOnlyCommHash;
+  size_t* diagBytesPerComm = nullptr; // Index is the collective comm index; only allocated when includeDiag.
+  size_t totalDiagBytes = 0;
+  // Item 3: when the synth dump runs, route its device reads through the diag
+  // collector so the diag tier is filled as a byproduct (vs a second cold IO pass via
+  // rasDiagSnapshotInto).  Stays null when no dump is being triggered, or when
+  // creation fails (we just fall back to the cold path).
+  struct pcclCommDiagCollector* diagCollector = nullptr;
 
   *pReqLen = rasCollDataLength(RAS_COLL_COMMS) +
     (*pReq)->comms.nSkipMissingRanksComms * sizeof(*(*pReq)->comms.skipMissingRanksComms);
   *pData = nullptr;
+
+  if (includeDiag) {
+    // Pessimistically allocate one slot per ncclComm; only the first nComms slots are used.
+    NCCLCHECKGOTO(ncclCalloc(&diagBytesPerComm, nNcclComms + 1), ret, fail);
+  }
+
+  // Item 2: RAS_COMMS_FLAG_TRIGGER_LOCAL_DUMP folds what used to be a separate RAS_BC_DUMP
+  // broadcast into this collective.  When set, every responder also runs pcclCommDump
+  // (rough-by-default) for matching comms via the existing rasStateMonitorDump helper, which
+  // shares the same lastTimeoutIndex/seq dedup as the legacy BC_DUMP path.  Honored only
+  // with INCLUDE_DIAG; without diag the COMMS collective has no business firing dumps.
+  if (includeDiag && ((*pReq)->comms.flags & RAS_COMMS_FLAG_TRIGGER_LOCAL_DUMP) != 0) {
+    diagCollector = rasDiagCollectorCreate();
+    struct rasCollRequest synthDumpReq;
+    memset(&synthDumpReq, 0, sizeof(synthDumpReq));
+    synthDumpReq.type = RAS_BC_DUMP;
+    synthDumpReq.dump.dumpAllComms = (diagOnly == 0);
+    synthDumpReq.dump.dumpLevel = (*pReq)->comms.dumpLevel;
+    synthDumpReq.dump.commHash = diagOnly;
+    synthDumpReq.dump.seq = (*pReq)->comms.diagSeq;
+    bool dumpDone = false;
+    rasStateMonitorDump(&synthDumpReq, &dumpDone, diagCollector);
+  }
 
   // Start by counting the communicators so that we know how much space to allocate.
   // We also need to sort the comms array, to make the subsequent merging easier, both between the ranks (in case
@@ -645,6 +684,15 @@ static ncclResult_t rasCollCommsInit(struct rasCollRequest** pReq, size_t* pReqL
     nRanks++;
     if (!skipMissing)
       nMissingRanks--;
+
+    if (includeDiag) {
+      uint64_t h = ncclComms[commIdx].comm->commHash;
+      if (diagOnly == 0 || h == diagOnly) {
+        size_t sz = rasDiagTotalSnapshotDataSize(ncclComms[commIdx].comm);
+        diagBytesPerComm[nComms - 1] += sz;
+        totalDiagBytes += sz;
+      }
+    }
   } // for (commIdx)
 
   // rasCollComms has nested variable-length arrays, which makes the size calculation and subsequent
@@ -652,7 +700,7 @@ static ncclResult_t rasCollCommsInit(struct rasCollRequest** pReq, size_t* pReqL
   // This is extra complicated because of the "hidden" array of struct rasCollCommsMissingRank following the
   // ranks array for each communicator.
   *pNData = sizeof(*commsData) + nComms * sizeof(*commsData->comms) + nRanks * sizeof(*commsData->comms[0].ranks) +
-    nMissingRanks * sizeof(struct rasCollCommsMissingRank);
+    nMissingRanks * sizeof(struct rasCollCommsMissingRank) + totalDiagBytes;
   NCCLCHECKGOTO(ncclCalloc(pData, *pNData), ret, fail);
   commsData = (struct rasCollComms*)*pData;
   commsData->nComms = nComms;
@@ -668,36 +716,38 @@ static ncclResult_t rasCollCommsInit(struct rasCollRequest** pReq, size_t* pReqL
     comm->commId.commHash = ncclComm->commHash;
     comm->commId.hostHash = ncclComm->peerInfo->hostHash;
     comm->commId.pidHash = ncclComm->peerInfo->pidHash;
-    comm->commNRanks = ncclComm->nRanks;
-    comm->nRanks = comm->nMissingRanks = 0;
+    comm->nRanks = ncclComm->nRanks;
+    comm->nValidRanks = comm->nMissingRanks = 0;
+    comm->nDiagBytes = 0;
+    int rankStartIdx = commIdx; // For walking the same ncclComms range again for the diag tier.
 
     // Fill in the comm->ranks array.
     for (; commIdx < nNcclComms && ncclComms[commIdx].comm && ncclComms[commIdx].comm->commHash == comm->commId.commHash;
          commIdx++) {
       ncclComm = ncclComms[commIdx].comm;
-      struct rasCollComms::comm::rank* rank = comm->ranks+comm->nRanks;
+      struct rasCollComms::comm::rank* rank = comm->ranks+comm->nValidRanks;
       rank->commRank = ncclComm->rank;
       // rasNetSendCollReq initializes coll->peers[0] to our rasNetListeningSocket.addr, so peerIdx is initially
       // always 0.  It will increase after we send this response back to the peer we got the request from.
       rank->peerIdx = 0;
       rank->collOpCount = ncclComm->collOpCount;
-      rank->status.initState = ncclComm->initState;
-      rank->status.asyncError = __atomic_load_n(&ncclComm->asyncResult, __ATOMIC_ACQUIRE);
+      rank->status.initState = (uint32_t)ncclComm->initState;
+      rank->status.asyncError = (uint32_t)__atomic_load_n(&ncclComm->asyncResult, __ATOMIC_ACQUIRE);
       // TODO: check proxyState asyncResult
-      // if (rank->status.asyncError == ncclSuccess && ncclComm->proxyState)
-      //   rank->status.asyncError = __atomic_load_n(&ncclComm->proxyState->asyncResult, __ATOMIC_ACQUIRE);
+      // if (rank->status.asyncError == (uint32_t)ncclSuccess && ncclComm->proxyState)
+      //   rank->status.asyncError = (uint32_t)__atomic_load_n(&ncclComm->proxyState->asyncResult, __ATOMIC_ACQUIRE);
       rank->status.finalizeCalled = (ncclComm->finalizeCalled != 0);
       rank->status.destroyFlag = (ncclComm->destroyFlag != 0);
       rank->status.abortFlag = (__atomic_load_n(ncclComm->abortFlag, __ATOMIC_ACQUIRE) != 0);
       rank->hggcDev = ncclComm->hggcDev;
       rank->hgmlDev = ncclComm->hgmlDev;
-      comm->nRanks++;
+      comm->nValidRanks++;
     } // for (commIdx)
 
     if (__atomic_load_n(&ncclComm->peerInfoValid, __ATOMIC_ACQUIRE) && firstNewSkipMissingIdx != -1 &&
         memcmp(req->comms.skipMissingRanksComms+firstNewSkipMissingIdx, &comm->commId, sizeof(comm->commId)) == 0) {
       // Fill in the missingRanks array that follows the comm->ranks.
-      struct rasCollCommsMissingRank* missingRanks = (struct rasCollCommsMissingRank*)(comm->ranks+comm->nRanks);
+      struct rasCollCommsMissingRank* missingRanks = (struct rasCollCommsMissingRank*)(comm->ranks+comm->nValidRanks);
 
       if (peersReSorted == nullptr) {
         // Create a lookup table to rasPeers that is sorted by hostHash and pidHash, to reduce the complexity of the
@@ -708,14 +758,14 @@ static ncclResult_t rasCollCommsInit(struct rasCollRequest** pReq, size_t* pReqL
         qsort(peersReSorted, nRasPeers, sizeof(*peersReSorted), peersHashesCompare);
       }
 
-      comm->nMissingRanks = comm->commNRanks - comm->nRanks;
+      comm->nMissingRanks = comm->nRanks - comm->nValidRanks;
       for (int missingRankIdx = 0, rankIdx = 0; missingRankIdx < comm->nMissingRanks; missingRankIdx++) {
         struct rasCollCommsMissingRank* missingRank;
         struct ncclPeerInfo* info;
         struct rasPeerInfo** peer;
         uint64_t key[2];
         // Look for the next "hole" in the ranks array.
-        while (rankIdx < comm->nRanks && comm->ranks[rankIdx].commRank == rankIdx+missingRankIdx)
+        while (rankIdx < comm->nValidRanks && comm->ranks[rankIdx].commRank == rankIdx+missingRankIdx)
           rankIdx++;
 
         missingRank = missingRanks + missingRankIdx;
@@ -734,8 +784,44 @@ static ncclResult_t rasCollCommsInit(struct rasCollRequest** pReq, size_t* pReqL
         firstNewSkipMissingIdx = -1;
     } // if need to fill in the missingRanks
 
-    comm = (struct rasCollComms::comm*)(((char*)(comm+1)) + comm->nRanks * sizeof(*comm->ranks) +
-                                        comm->nMissingRanks * sizeof(struct rasCollCommsMissingRank));
+    // Diag tier (per-rank snapshots) follows the missingRanks array.  We only emit it when the
+    // request asked for it (RAS_COMMS_FLAG_INCLUDE_DIAG) and either this is the comm of interest
+    // (diagOnly == its commHash) or all comms were requested (diagOnly == 0).  The byte budget
+    // for this comm was computed in the first pass and stored in diagBytesPerComm.
+    //
+    // Item 3: when the synth dump above ran with a collector attached, the per-rank diag bytes
+    // were already captured during the dump's device IO -- copy them in from the collector and
+    // skip the cold rasDiagSnapshotInto pass.  Per-rank fallback: a rank that wasn't
+    // visited by the dump (e.g. dedup'd via lastTimeoutIndex or aborted) gets the cold path.
+    if (includeDiag && diagBytesPerComm != nullptr &&
+        (diagOnly == 0 || comm->commId.commHash == diagOnly)) {
+      char* diagBase = rasCollCommsDiagBytesMut(comm);
+      size_t diagWritten = 0;
+      size_t diagBudget = diagBytesPerComm[collCommIdx];
+      for (int rIdx = rankStartIdx; rIdx < commIdx; rIdx++) {
+        ncclComm_t rcomm = ncclComms[rIdx].comm;
+        if (rcomm == nullptr) continue;
+        if (!__atomic_load_n(&rcomm->peerInfoValid, __ATOMIC_ACQUIRE)) continue;
+        size_t sz = 0;
+        if (diagCollector != nullptr) {
+          size_t got = 0;
+          const char* bytes = rasDiagCollectorGet(diagCollector, rcomm, &got);
+          if (bytes != nullptr && got > 0 && diagWritten + got <= diagBudget) {
+            memcpy(diagBase + diagWritten, bytes, got);
+            sz = got;
+          }
+        }
+        if (sz == 0) {
+          sz = rasDiagSnapshotInto(diagBase + diagWritten,
+                                        diagBudget - diagWritten,
+                                        rcomm);
+        }
+        diagWritten += sz;
+      }
+      comm->nDiagBytes = (int)diagWritten;
+    }
+
+    comm = rasCollCommsCommNext(comm);
   } // for (collCommIdx)
   assert(((char*)comm) - (char*)commsData <= *pNData);
 
@@ -748,6 +834,8 @@ static ncclResult_t rasCollCommsInit(struct rasCollRequest** pReq, size_t* pReqL
   }
 ret:
   free(peersReSorted);
+  free(diagBytesPerComm);
+  if (diagCollector != nullptr) rasDiagCollectorDestroy(diagCollector);
   return ret;
 fail:
   if (req) {
@@ -785,40 +873,40 @@ static ncclResult_t rasCollCommsMerge(struct rasCollective* coll, struct rasMsg*
       else
         cmp = (collIdx < collData->nComms ? -1 : 1);
 
-      if (cmp == 0 && collComm->commNRanks != msgComm->commNRanks) {
+      if (cmp == 0 && collComm->nRanks != msgComm->nRanks) {
         INFO(NCCL_RAS, "RAS encountered inconsistent communicator data: size %d != %d -- "
-             "possible hash collision (0x%lx, 0x%lx, 0x%lx)", collComm->commNRanks, msgComm->commNRanks,
+             "possible hash collision (0x%lx, 0x%lx, 0x%lx)", collComm->nRanks, msgComm->nRanks,
              collComm->commId.commHash, collComm->commId.hostHash, collComm->commId.pidHash);
-        cmp = (collComm->commNRanks < msgComm->commNRanks ? -1 : 1);
+        cmp = (collComm->nRanks < msgComm->nRanks ? -1 : 1);
         // We try to preserve them both separately...
       }
 
       if (cmp == 0) {
         // Merge the comms.
         memcpy(&newComm->commId, &collComm->commId, sizeof(newComm->commId));
-        newComm->commNRanks = collComm->commNRanks;
-        if (collComm->nRanks + msgComm->nRanks > collComm->commNRanks) {
+        newComm->nRanks = collComm->nRanks;
+        if (collComm->nValidRanks + msgComm->nValidRanks > collComm->nRanks) {
           INFO(NCCL_RAS,
                "RAS encountered more ranks (%d) than the communicator size (%d) -- possible hash collision "
-               "(0x%lx, 0x%lx, 0x%lx)", collComm->nRanks + msgComm->nRanks, newComm->commNRanks,
+               "(0x%lx, 0x%lx, 0x%lx)", collComm->nValidRanks + msgComm->nValidRanks, newComm->nRanks,
                collComm->commId.commHash, collComm->commId.hostHash, collComm->commId.pidHash);
-          newComm->nRanks = newComm->commNRanks;
+          newComm->nValidRanks = newComm->nRanks;
           // We'll skip the extras in the loop below.
         } else {
-          newComm->nRanks = collComm->nRanks + msgComm->nRanks;
+          newComm->nValidRanks = collComm->nValidRanks + msgComm->nValidRanks;
         }
         // Merge the ranks.
         for (int newRankIdx = 0, collRankIdx = 0, msgRankIdx = 0;
-             collRankIdx < collComm->nRanks || msgRankIdx < msgComm->nRanks;
+             collRankIdx < collComm->nValidRanks || msgRankIdx < msgComm->nValidRanks;
              newRankIdx++) {
           int cmpRank;
-          if (newRankIdx == newComm->commNRanks)
+          if (newRankIdx == newComm->nRanks)
             break; // Short of failing, the best we can do is skip...
-          if (collRankIdx < collComm->nRanks && msgRankIdx < msgComm->nRanks) {
+          if (collRankIdx < collComm->nValidRanks && msgRankIdx < msgComm->nValidRanks) {
             cmpRank = (collComm->ranks[collRankIdx].commRank < msgComm->ranks[msgRankIdx].commRank ? -1 :
                        (collComm->ranks[collRankIdx].commRank > msgComm->ranks[msgRankIdx].commRank ? 1 : 0));
           } else {
-            cmpRank = (collRankIdx < collComm->nRanks ? -1 : 1);
+            cmpRank = (collRankIdx < collComm->nValidRanks ? -1 : 1);
           }
 
           // There shouldn't be any overlaps in ranks between different sources.
@@ -838,7 +926,7 @@ static ncclResult_t rasCollCommsMerge(struct rasCollective* coll, struct rasMsg*
               // Remove the corresponding entry from missingRanks.
               struct rasCollCommsMissingRank* missingRank;
               missingRank = (struct rasCollCommsMissingRank*)bsearch(&newComm->ranks[newRankIdx].commRank,
-                                                                     collComm->ranks+collComm->nRanks,
+                                                                     collComm->ranks+collComm->nValidRanks,
                                                                      collComm->nMissingRanks,
                                                                      sizeof(struct rasCollCommsMissingRank),
                                                                      rasCollCommsMissingRankSearch);
@@ -859,8 +947,8 @@ static ncclResult_t rasCollCommsMerge(struct rasCollective* coll, struct rasMsg*
           int newRankIdx;
 
           memset(&emptyAddr, '\0', sizeof(emptyAddr));
-          collMissingRanks = (struct rasCollCommsMissingRank*)(collComm->ranks+collComm->nRanks);
-          newMissingRanks = (struct rasCollCommsMissingRank*)(newComm->ranks+newComm->nRanks);
+          collMissingRanks = (struct rasCollCommsMissingRank*)(collComm->ranks+collComm->nValidRanks);
+          newMissingRanks = (struct rasCollCommsMissingRank*)(newComm->ranks+newComm->nValidRanks);
           newRankIdx = 0;
           for (int collRankIdx = 0; collRankIdx < collComm->nMissingRanks; collRankIdx++) {
             if (memcmp(&collMissingRanks[collRankIdx].addr, &emptyAddr, sizeof(emptyAddr))) {
@@ -868,30 +956,38 @@ static ncclResult_t rasCollCommsMerge(struct rasCollective* coll, struct rasMsg*
             }
           }
           newComm->nMissingRanks = newRankIdx;
-          assert(newComm->nRanks + newComm->nMissingRanks == newComm->commNRanks);
+          assert(newComm->nValidRanks + newComm->nMissingRanks == newComm->nRanks);
         }
-        newComm = (struct rasCollComms::comm*)(((char*)(newComm+1)) + newComm->nRanks * sizeof(*newComm->ranks) +
-                                               newComm->nMissingRanks * sizeof(struct rasCollCommsMissingRank));
-        collComm = (struct rasCollComms::comm*)(((char*)(collComm+1)) + collComm->nRanks * sizeof(*collComm->ranks) +
-                                                collComm->nMissingRanks * sizeof(struct rasCollCommsMissingRank));
+        // Concatenate diag tiers (collComm's first, then msgComm's).  newData was sized
+        // pessimistically as collData.nData+msgData.nData, so there is always room.
+        if (collComm->nDiagBytes > 0 || msgComm->nDiagBytes > 0) {
+          char* dst = rasCollCommsDiagBytesMut(newComm);
+          if (collComm->nDiagBytes > 0) {
+            memcpy(dst, rasCollCommsDiagBytes(collComm), collComm->nDiagBytes);
+            dst += collComm->nDiagBytes;
+          }
+          if (msgComm->nDiagBytes > 0) {
+            memcpy(dst, rasCollCommsDiagBytes(msgComm), msgComm->nDiagBytes);
+          }
+          newComm->nDiagBytes = collComm->nDiagBytes + msgComm->nDiagBytes;
+        }
+        newComm = rasCollCommsCommNext(newComm);
+        collComm = rasCollCommsCommNext(collComm);
         collIdx++;
-        msgComm = (struct rasCollComms::comm*)(((char*)(msgComm+1)) + msgComm->nRanks * sizeof(*msgComm->ranks) +
-                                               msgComm->nMissingRanks * sizeof(struct rasCollCommsMissingRank));
+        msgComm = rasCollCommsCommNext(msgComm);
         msgIdx++;
       } else if (cmp < 0) {
-        // Copy from collComm.
-        int commSize = sizeof(*collComm) + collComm->nRanks * sizeof(*collComm->ranks) +
-          collComm->nMissingRanks * sizeof(struct rasCollCommsMissingRank);
+        // Copy from collComm (including its diag tier, which the memcpy carries verbatim).
+        size_t commSize = rasCollCommsCommSize(collComm);
         memcpy(newComm, collComm, commSize);
         newComm = (struct rasCollComms::comm*)(((char*)(newComm)) + commSize);
         collComm = (struct rasCollComms::comm*)(((char*)(collComm)) + commSize);
         collIdx++;
       } else { // cmp > 0
-        // Copy from msgComm.
-        int commSize = sizeof(*msgComm) + msgComm->nRanks * sizeof(*msgComm->ranks) +
-          msgComm->nMissingRanks * sizeof(struct rasCollCommsMissingRank);
+        // Copy from msgComm (including its diag tier).
+        size_t commSize = rasCollCommsCommSize(msgComm);
         memcpy(newComm, msgComm, commSize);
-        for (int i = 0; i < newComm->nRanks; i++) {
+        for (int i = 0; i < newComm->nValidRanks; i++) {
           // peerIdx values from msgComm need to shift after merge.
           newComm->ranks[i].peerIdx += coll->nPeers;
         }

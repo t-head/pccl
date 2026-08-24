@@ -12,8 +12,10 @@
 #include "alloc.h"
 #include "checks.h"
 #include "comm.h"
+#include "comm_dumper.h"
 #include "utils.h"
 #include "ras_internal.h"
+#include "analyzer.h"
 
 // Outlier count above which we don't print individual details about each of them.
 #define RAS_CLIENT_DETAIL_THRESHOLD 10
@@ -402,25 +404,21 @@ void rasClientEventLoop(struct rasClient* client, int pollIdx) {
       } else if  (strncasecmp(cmd, "dump ", strlen("dump ")) == 0) {
         char* endPtr = nullptr;
         int dumpLevel = strtol(cmd+strlen("dump "), &endPtr, 10);
-        if (dumpLevel <= 0 || !endPtr || *endPtr != '\0') {
+        if (dumpLevel < 0 || !endPtr || *endPtr != '\0') {
           snprintf(rasLine, sizeof(rasLine), "ERROR: Invalid dump level %s\n", cmd+strlen("dump "));
+          msgLen = strlen(rasLine);
+          if (rasClientAllocMsg(&msg, msgLen) != ncclSuccess) {
+            rasClientTerminate(client);
+            return;
+          }
+          memcpy(msg, rasLine, msgLen);
+          rasClientEnqueueMsg(client, msg, msgLen);
         } else {
-          struct rasCollRequest bCast;
-          rasCollReqInit(&bCast);
-          bCast.type = RAS_BC_DUMP;
-          bCast.dump.dumpAllComms = true;
-          bCast.dump.dumpLevel = dumpLevel;
-          (void)rasNetSendCollReq(&bCast);
-          strcpy(rasLine, "OK\n");
+          client->status = RAS_CLIENT_INIT;
+          client->analyzeFlag = 1;
+          client->dumpLevel = dumpLevel;
+          (void)rasClientRun(client);
         }
-        msgLen = strlen(rasLine);
-        if (rasClientAllocMsg(&msg, msgLen) != ncclSuccess) {
-          rasClientTerminate(client);
-          return;
-        }
-        // We don't copy the terminating '\0', hence memcpy rather than strcpy.
-        memcpy(msg, rasLine, msgLen);
-        rasClientEnqueueMsg(client, msg, msgLen);
       } else if  (strncasecmp(cmd, "abort", strlen("abort")) == 0) {
         struct rasCollRequest bCast;
         rasCollReqInit(&bCast);
@@ -826,6 +824,15 @@ static ncclResult_t rasClientRunInit(struct rasClient* client) {
     rasCollReqInit(&collReq);
     collReq.timeout = client->timeout;
     collReq.type = RAS_COLL_COMMS;
+    if (client->analyzeFlag) {
+      collReq.comms.flags = RAS_COMMS_FLAG_INCLUDE_DIAG;
+      if (client->dumpLevel > 0) {
+        collReq.comms.flags |= RAS_COMMS_FLAG_TRIGGER_LOCAL_DUMP;
+        collReq.comms.dumpLevel = (uint32_t)client->dumpLevel;
+      }
+      collReq.comms.diagOnlyCommHash = 0;
+      collReq.comms.diagSeq = 0;
+    }
     NCCLCHECKGOTO(rasNetSendCollReq(&collReq, &allDone, &client->coll), ret, fail);
     if (!allDone)
       ret = ncclInProgress;
@@ -1025,10 +1032,10 @@ static ncclResult_t rasClientRunComms(struct rasClient* client) {
   maxCommSize = 0;
   comm = commsData->comms;
   for (int commIdx = 0; commIdx < commsData->nComms; commIdx++) {
-    if (maxCommSize < comm->commNRanks)
-      maxCommSize = comm->commNRanks;
+    if (maxCommSize < comm->nRanks)
+      maxCommSize = comm->nRanks;
     auxComms[commIdx].comm = comm;
-    comm = (struct rasCollComms::comm*)(((char*)(comm+1)) + comm->nRanks * sizeof(*comm->ranks));
+    comm = rasCollCommsCommNext(comm);
   }
   NCCLCHECKGOTO(ncclCalloc(&auxCommRanks, maxCommSize), ret, fail);
   TRACE(NCCL_RAS, "RAS: maxCommSize %d", maxCommSize);
@@ -1062,9 +1069,9 @@ static ncclResult_t rasClientRunComms(struct rasClient* client) {
     struct rasAuxComm* auxComm = auxComms+commIdx;
     int nRanks = 0;
     comm = auxComm->comm;
-    TRACE(NCCL_RAS, "RAS: coll comms[%d]: commId (0x%lx, 0x%lx, 0x%lx), commNRanks %d, nRanks %d, nMissingRanks %d",
+    TRACE(NCCL_RAS, "RAS: coll comms[%d]: commId (0x%lx, 0x%lx, 0x%lx), nRanks %d, nValidRanks %d, nMissingRanks %d",
           commIdx, comm->commId.commHash, comm->commId.hostHash, comm->commId.pidHash,
-          comm->commNRanks, comm->nRanks, comm->nMissingRanks);
+          comm->nRanks, comm->nValidRanks, comm->nMissingRanks);
 
     if (comm->nMissingRanks > 0) {
       // There are two possibilities here.  Either we are missing the data on some ranks because the processes are
@@ -1078,7 +1085,7 @@ static ncclResult_t rasClientRunComms(struct rasClient* client) {
         // We failed to receive data from some processes but we don't know if that's why we don't have the info about
         // some ranks of this communicator.  We need to check all the missing ranks one-by-one as different ranks may
         // have different reason.
-        struct rasCollCommsMissingRank* missingRanks = (struct rasCollCommsMissingRank*)(comm->ranks+comm->nRanks);
+        struct rasCollCommsMissingRank* missingRanks = (struct rasCollCommsMissingRank*)(comm->ranks+comm->nValidRanks);
 
         for (int rankIdx = 0; rankIdx < comm->nMissingRanks; rankIdx++) {
           struct rasCollCommsMissingRank* missingRank = missingRanks + rankIdx;
@@ -1102,7 +1109,7 @@ static ncclResult_t rasClientRunComms(struct rasClient* client) {
 
     // Initialize auxCommRanks from comm->rank, converting peerIdx to rasPeers, then sort by it -- that way we will
     // have the ranks sorted by node and process, which makes counting easy.
-    for (int rankIdx = 0; rankIdx < comm->nRanks; rankIdx++) {
+    for (int rankIdx = 0; rankIdx < comm->nValidRanks; rankIdx++) {
       struct rasCollComms::comm::rank* rank = comm->ranks+rankIdx;
       auxCommRanks[rankIdx].rank = rank;
       auxCommRanks[rankIdx].value = peerIdxConv[rank->peerIdx];
@@ -1114,10 +1121,10 @@ static ncclResult_t rasClientRunComms(struct rasClient* client) {
             rank->status.destroyFlag, rank->status.abortFlag); /**/
     }
     // This also sorts by the commRank, which we don't care about here, but it won't hurt.
-    qsort(auxCommRanks, comm->nRanks, sizeof(*auxCommRanks), rasAuxCommRanksValueCompare);
+    qsort(auxCommRanks, comm->nValidRanks, sizeof(*auxCommRanks), rasAuxCommRanksValueCompare);
 
     // Count the peers and nodes, get the status/error indicators.
-    for (int rankIdx = 0; rankIdx < comm->nRanks; rankIdx++) {
+    for (int rankIdx = 0; rankIdx < comm->nValidRanks; rankIdx++) {
       struct rasAuxCommRank* auxRank = auxCommRanks+rankIdx;
       if (rankIdx == 0) {
         auxComm->nPeers = auxComm->nNodes = 1;
@@ -1139,7 +1146,7 @@ static ncclResult_t rasClientRunComms(struct rasClient* client) {
         } // if (auxRank->value != auxRank[-1].value)
         nRanks++;
       } // rankIdx > 0
-      if (rankIdx == comm->nRanks-1) {
+      if (rankIdx == comm->nValidRanks-1) {
         // Last iteration of the loop.
         if (auxComm->ranksPerNodeMin > nRanks)
           auxComm->ranksPerNodeMin = nRanks;
@@ -1187,7 +1194,7 @@ static ncclResult_t rasClientRunComms(struct rasClient* client) {
   nValCounts = 0;
   for (int commIdx = 0; commIdx < commsData->nComms; commIdx++) {
     if (commIdx == 0 ||
-        auxComms[commIdx].comm->commNRanks != auxComms[commIdx-1].comm->commNRanks ||
+        auxComms[commIdx].comm->nRanks != auxComms[commIdx-1].comm->nRanks ||
         auxComms[commIdx].nNodes != auxComms[commIdx-1].nNodes ||
         // __builtin_clz returns the number of leading 0-bits, which is a proxy for the index of the highest 1-bit.
         __builtin_clz(auxComms[commIdx].status) != __builtin_clz(auxComms[commIdx-1].status) ||
@@ -1232,7 +1239,7 @@ static ncclResult_t rasClientRunComms(struct rasClient* client) {
         ranksPerNodeMin = auxComm[commIdx].ranksPerNodeMin;
       if (ranksPerNodeMax < auxComm[commIdx].ranksPerNodeMax)
         ranksPerNodeMax = auxComm[commIdx].ranksPerNodeMax;
-      for (int rankIdx = 0; rankIdx < auxComm[commIdx].comm->nRanks; rankIdx++) {
+      for (int rankIdx = 0; rankIdx < auxComm[commIdx].comm->nValidRanks; rankIdx++) {
         struct rasCollComms::comm::rank* rank = auxComm[commIdx].comm->ranks+rankIdx;
         peerHgmlDevs[rank->peerIdx] |= (1UL << rank->hgmlDev);
       }
@@ -1245,7 +1252,7 @@ static ncclResult_t rasClientRunComms(struct rasClient* client) {
     else
       snprintf(rasLine, sizeof(rasLine), "%d-%d", ranksPerNodeMin, ranksPerNodeMax);
     rasOutAppend("%5d  %8d  %8d  %8s  %8d  %8d  %8s  %6s\n",
-                 vcIdx, vc->count, auxComm->nNodes, rasLine, auxComm->comm->commNRanks, ranksTotal,
+                 vcIdx, vc->count, auxComm->nNodes, rasLine, auxComm->comm->nRanks, ranksTotal,
                  // __builtin_clz returns the number of leading 0-bits.  This makes it possible to translate the
                  // status (which is a bitmask) into an array index.
                  statusStr[(sizeof(unsigned int)*8-1)-__builtin_clz(auxComm->status)], errorStr[auxComm->errors]);
@@ -1371,7 +1378,7 @@ static ncclResult_t rasClientRunComms(struct rasClient* client) {
                      "  Missing communicator data from %d rank%s\n", vcIdx, commIdx - vc->firstIdx,
                      comm->commId.commHash, auxComm->nIncompleteRanks, (auxComm->nIncompleteRanks > 1 ? "s" : ""));
         if (rasCountIsOutlier(auxComm->nIncompleteRanks, client->verbose)) {
-          struct rasCollCommsMissingRank* missingRanks = (struct rasCollCommsMissingRank*)(comm->ranks+comm->nRanks);
+          struct rasCollCommsMissingRank* missingRanks = (struct rasCollCommsMissingRank*)(comm->ranks+comm->nValidRanks);
           for (int rankIdx = 0; rankIdx < comm->nMissingRanks; rankIdx++) {
             struct rasCollCommsMissingRank* missingRank = missingRanks + rankIdx;
             // Filter out ranks that provided a response but not for this communicator.
@@ -1399,9 +1406,9 @@ static ncclResult_t rasClientRunComms(struct rasClient* client) {
         rasOutAppend("#%d-%d (%016lx) ERROR\n", vcIdx, commIdx - vc->firstIdx, comm->commId.commHash);
 
         memset(ncclErrors, '\0', sizeof(ncclErrors));
-        for (int rankIdx = 0; rankIdx < comm->nRanks; rankIdx++)
+        for (int rankIdx = 0; rankIdx < comm->nValidRanks; rankIdx++)
           ncclErrors[comm->ranks[rankIdx].status.initState]++;
-        nErrors = comm->nRanks - (ncclErrors[ncclSuccess] + ncclErrors[ncclInProgress]);
+        nErrors = comm->nValidRanks - (ncclErrors[ncclSuccess] + ncclErrors[ncclInProgress]);
         if (nErrors > 0) {
           rasOutAppend("  Initialization error%s on %d rank%s\n",
                        (nErrors > 1 ? "s" : ""), nErrors, (nErrors > 1 ? "s" : ""));
@@ -1409,9 +1416,9 @@ static ncclResult_t rasClientRunComms(struct rasClient* client) {
         }
 
         memset(ncclErrors, '\0', sizeof(ncclErrors));
-        for (int rankIdx = 0; rankIdx < comm->nRanks; rankIdx++)
+        for (int rankIdx = 0; rankIdx < comm->nValidRanks; rankIdx++)
           ncclErrors[comm->ranks[rankIdx].status.asyncError]++;
-        nErrors = comm->nRanks - (ncclErrors[ncclSuccess] + ncclErrors[ncclInProgress]);
+        nErrors = comm->nValidRanks - (ncclErrors[ncclSuccess] + ncclErrors[ncclInProgress]);
         if (nErrors > 0) {
           rasOutAppend("  Asynchronous error%s on %d rank%s\n",
                        (nErrors > 1 ? "s" : ""), nErrors, (nErrors > 1 ? "s" : ""));
@@ -1447,10 +1454,10 @@ static ncclResult_t rasClientRunComms(struct rasClient* client) {
         rasOutAppend("#%d-%d (%016lx) MISMATCH\n", vcIdx, commIdx - vc->firstIdx, comm->commId.commHash);
 
         if (collOpCounts == nullptr) {
-          // Allocating comm->commNRanks elements ensures that we won't need to reallocate, because the valCounts
-          // array is reverse-sorted by commNRanks.  On the other hand, for this purpose allocating commNRanks
+          // Allocating comm->nRanks elements ensures that we won't need to reallocate, because the valCounts
+          // array is reverse-sorted by nRanks.  On the other hand, for this purpose allocating nRanks
           // elements may be massively overpessimistic...
-          NCCLCHECKGOTO(ncclCalloc(&collOpCounts, comm->commNRanks), ret, fail);
+          NCCLCHECKGOTO(ncclCalloc(&collOpCounts, comm->nRanks), ret, fail);
         }
 
         if (__builtin_popcount(auxComm->status) > 1) {
@@ -1458,7 +1465,7 @@ static ncclResult_t rasClientRunComms(struct rasClient* client) {
 
           // We need to sort the ranks by status.  However, status is normally calculated from other fields.
           // We will store it in the auxCommRanks' value.
-          for (int rankIdx = 0; rankIdx < comm->nRanks; rankIdx++) {
+          for (int rankIdx = 0; rankIdx < comm->nValidRanks; rankIdx++) {
             struct rasCollComms::comm::rank* rank = comm->ranks+rankIdx;
             struct rasAuxCommRank* auxRank = auxCommRanks+rankIdx;
             auxRank->rank = rank;
@@ -1472,10 +1479,10 @@ static ncclResult_t rasClientRunComms(struct rasClient* client) {
             else
               auxRank->value = RAS_ACS_INIT;
           }
-          qsort(auxCommRanks, comm->nRanks, sizeof(*auxCommRanks), rasAuxCommRanksValueCompare);
+          qsort(auxCommRanks, comm->nValidRanks, sizeof(*auxCommRanks), rasAuxCommRanksValueCompare);
           // Calculate the frequency of different status values.
           int nCollOpCounts = 0;
-          for (int rankIdx = 0; rankIdx < comm->nRanks; rankIdx++) {
+          for (int rankIdx = 0; rankIdx < comm->nValidRanks; rankIdx++) {
             if (rankIdx == 0 || auxCommRanks[rankIdx].value != auxCommRanks[rankIdx-1].value) {
               // __builtin_clz returns the number of leading 0-bits.  This makes it possible to translate the
               // status (which is a bitmask) into an array index.  The argument is an unsigned int (there is no
@@ -1503,7 +1510,7 @@ static ncclResult_t rasClientRunComms(struct rasClient* client) {
             struct rasValCount* vcc = collOpCounts+coc;
             if (vcc->count > 1)
               rasOutAppend("  %d ranks have status %s\n", vcc->count, statusStr[vcc->value]);
-            if (rasCountIsOutlier(vcc->count, client->verbose, comm->commNRanks)) {
+            if (rasCountIsOutlier(vcc->count, client->verbose, comm->nRanks)) {
               if (vcc->firstIdx != -1) {
                 // auxCommRanks is sorted by commRank as the secondary key, which comes in handy when printing...
                 for (int rankIdx = vcc->firstIdx; rankIdx < vcc->count+vcc->firstIdx; rankIdx++) {
@@ -1533,7 +1540,7 @@ static ncclResult_t rasClientRunComms(struct rasClient* client) {
               } else {
                 // NOCOMM ranks are in a different array.
                 struct rasCollCommsMissingRank* missingRanks = (struct rasCollCommsMissingRank*)(comm->ranks +
-                                                                                                 comm->nRanks);
+                                                                                                 comm->nValidRanks);
                 for (int rankIdx = 0; rankIdx < comm->nMissingRanks; rankIdx++) {
                   struct rasCollCommsMissingRank* missingRank = missingRanks + rankIdx;
                   // Filter out ranks that did not respond at all.
@@ -1572,7 +1579,7 @@ static ncclResult_t rasClientRunComms(struct rasClient* client) {
         // TODO: report operation counts separately for each collective operation type
         bool inconsistent = false;
 
-        for (int rankIdx = 0; rankIdx < comm->nRanks; rankIdx++) {
+        for (int rankIdx = 0; rankIdx < comm->nValidRanks; rankIdx++) {
           if (comm->ranks[rankIdx].collOpCount != auxComm->firstCollOpCount) {
             inconsistent = true;
             break;
@@ -1583,16 +1590,16 @@ static ncclResult_t rasClientRunComms(struct rasClient* client) {
           rasOutAppend("  Communicator ranks have different collective operation counts\n");
 
           // Sort the ranks by collOpCount and commRank for easy counting.
-          for (int rankIdx = 0; rankIdx < comm->nRanks; rankIdx++) {
+          for (int rankIdx = 0; rankIdx < comm->nValidRanks; rankIdx++) {
             struct rasCollComms::comm::rank* rank = comm->ranks+rankIdx;
             struct rasAuxCommRank* auxRank = auxCommRanks+rankIdx;
             auxRank->rank = rank;
             auxRank->value = rank->collOpCount;
           }
-          qsort(auxCommRanks, comm->nRanks, sizeof(*auxCommRanks), rasAuxCommRanksValueCompare);
+          qsort(auxCommRanks, comm->nValidRanks, sizeof(*auxCommRanks), rasAuxCommRanksValueCompare);
           // Calculate the frequency of different collOpCount values.
           int nCollOpCounts = 0;
-          for (int rankIdx = 0; rankIdx < comm->nRanks; rankIdx++) {
+          for (int rankIdx = 0; rankIdx < comm->nValidRanks; rankIdx++) {
             if (rankIdx == 0 || auxCommRanks[rankIdx].value != auxCommRanks[rankIdx-1].value) {
               collOpCounts[nCollOpCounts].value = auxCommRanks[rankIdx].value;
               collOpCounts[nCollOpCounts].count = 1;
@@ -1613,7 +1620,7 @@ static ncclResult_t rasClientRunComms(struct rasClient* client) {
               else
                 rasOutAppend("  %d ranks have not launched any operations\n", vcc->count);
             }
-            if (rasCountIsOutlier(vcc->count, client->verbose, comm->commNRanks)) {
+            if (rasCountIsOutlier(vcc->count, client->verbose, comm->nRanks)) {
               // auxCommRanks is sorted by commRank as the secondary key, which comes in handy when printing...
               for (int rankIdx = vcc->firstIdx; rankIdx < vcc->count+vcc->firstIdx; rankIdx++) {
                 int peerIdx = peerIdxConv[auxCommRanks[rankIdx].rank->peerIdx];
@@ -1660,6 +1667,38 @@ static ncclResult_t rasClientRunComms(struct rasClient* client) {
       } // if (auxComm->errors & RAS_ACE_MISMATCH)
     } // for (commIdx)
   } // for (vcIdx)
+
+  // Hang analysis (pcclras -a <LEVEL>) is appended *after* the standard Errors /
+  // Warnings sections so the user still gets the regular RAS status view.  Use
+  // open_memstream as a FILE* sink for analyzerFormatSummary(), then splice
+  // the captured text into our rasOutBuffer.
+  if (client->analyzeFlag > 0) {
+    rasOutAppend("\nHang Check\n"
+                 "==========\n\n");
+    char* hangBuf = nullptr;
+    size_t hangLen = 0;
+    FILE* mem = open_memstream(&hangBuf, &hangLen);
+    if (mem != nullptr) {
+      analyzerFormatSummary(mem, commsData);
+      fclose(mem);
+      if (hangBuf != nullptr && hangLen > 0) {
+        rasOutAppend("%.*s", (int)hangLen, hangBuf);
+      }
+      free(hangBuf);
+    } else {
+      rasOutAppend("(failed to allocate hang-analyzer buffer)\n");
+    }
+    if (client->dumpLevel > 0) {
+      char fullPath[PATH_MAX + 1] = {0};
+      ncclResult_t wr = rasDiagWriteFullReport(commsData, coll->nData, coll->nLegTimeouts,
+                                               fullPath, sizeof(fullPath));
+      if (wr == ncclSuccess && fullPath[0] != '\0') {
+        rasOutAppend("\nFull reports saved under %s\n", fullPath);
+      } else {
+        rasOutAppend("\nFull report not written (no diag tier received)\n");
+      }
+    }
+  }
   rasCollFree(coll);
 
   msgLen = rasOutLength();
@@ -1701,7 +1740,7 @@ static void rasClientBreakDownErrors(struct rasClient* client, struct rasCollCom
     if (maxCount > 1)
       rasOutAppend("  %d ranks reported %s\n", maxCount, ncclErrorToString(maxCountIdx));
     if (rasCountIsOutlier(maxCount, client->verbose)) {
-      for (int rankIdx = 0; rankIdx < comm->nRanks; rankIdx++) {
+      for (int rankIdx = 0; rankIdx < comm->nValidRanks; rankIdx++) {
         if ((isAsync ? comm->ranks[rankIdx].status.asyncError : comm->ranks[rankIdx].status.initState) == maxCountIdx) {
           int peerIdx = peerIdxConv[comm->ranks[rankIdx].peerIdx];
           if (peerIdx != -1) {
@@ -1863,15 +1902,15 @@ static int rasValCountsCompareRev(const void* p1, const void* p2) {
 }
 
 // Sorting callback for rasAuxComm elements.
-// Sorts the comms by the rank count (commNRanks), nNodes as secondary key, status as the tertiary, and errors as
+// Sorts the comms by the rank count (nRanks), nNodes as secondary key, status as the tertiary, and errors as
 // the quaternary.  Sorts in reverse (largest first).
-// The final key is the comm's nRanks, sorted in reverse to the other keys, so comms with the largest number
+// The final key is the comm's nValidRanks, sorted in reverse to the other keys, so comms with the largest number
 // of ranks *missing* will be first.
 static int rasAuxCommsCompareRev(const void* p1, const void* p2) {
   const struct rasAuxComm* c1 = (const struct rasAuxComm*)p1;
   const struct rasAuxComm* c2 = (const struct rasAuxComm*)p2;
 
-  if (c1->comm->commNRanks == c2->comm->commNRanks) {
+  if (c1->comm->nRanks == c2->comm->nRanks) {
     if (c1->nNodes == c2->nNodes) {
       // We don't want to compare the status values directly because they could be bitmasks and we are only
       // interested in the highest bit set.
@@ -1882,10 +1921,10 @@ static int rasAuxCommsCompareRev(const void* p1, const void* p2) {
       int s2 = __builtin_clz(c2->status);
       if (s1 == s2) {
         if (c1->errors == c2->errors) {
-          if (c1->comm->nRanks == c2->comm->nRanks) {
+          if (c1->comm->nValidRanks == c2->comm->nValidRanks) {
             return 0;
           } else {
-            return (c1->comm->nRanks < c2->comm->nRanks ? -1 : 1);
+            return (c1->comm->nValidRanks < c2->comm->nValidRanks ? -1 : 1);
           }
         } else {
           return (c1->errors > c2->errors ? -1 : 1);
@@ -1897,7 +1936,7 @@ static int rasAuxCommsCompareRev(const void* p1, const void* p2) {
       return (c1->nNodes > c2->nNodes ? -1 : 1);
     }
   } else {
-    return (c1->comm->commNRanks > c2->comm->commNRanks ? -1 : 1);
+    return (c1->comm->nRanks > c2->comm->nRanks ? -1 : 1);
   }
 }
 
@@ -2104,10 +2143,10 @@ static void rasDumpCommsToJSON(struct rasClient* client, struct rasCollComms* co
   // Iterate through communicators.
   for (int commIdx = 0; commIdx < commsData->nComms; commIdx++) {
     jsonStartCommunicator(comm->commId.commHash, comm->commId.hostHash, comm->commId.pidHash,
-                          comm->commNRanks, comm->nRanks, comm->nMissingRanks, (commIdx == 0));
+                          comm->nRanks, comm->nValidRanks, comm->nMissingRanks, (commIdx == 0));
 
     // Add each rank.
-    for (int rankIdx = 0; rankIdx < comm->nRanks; rankIdx++) {
+    for (int rankIdx = 0; rankIdx < comm->nValidRanks; rankIdx++) {
       struct rasCollComms::comm::rank* rank = comm->ranks + rankIdx;
 
       // Get host and pid information.
@@ -2129,7 +2168,7 @@ static void rasDumpCommsToJSON(struct rasClient* client, struct rasCollComms* co
     jsonStartMissingRanks();
 
     // Add missing ranks.
-    struct rasCollCommsMissingRank* missingRanks = (struct rasCollCommsMissingRank*)(comm->ranks + comm->nRanks);
+    struct rasCollCommsMissingRank* missingRanks = (struct rasCollCommsMissingRank*)(comm->ranks + comm->nValidRanks);
     for (int missingIdx = 0; missingIdx < comm->nMissingRanks; missingIdx++) {
       struct rasCollCommsMissingRank* missingRank = missingRanks + missingIdx;
 
@@ -2152,8 +2191,7 @@ static void rasDumpCommsToJSON(struct rasClient* client, struct rasCollComms* co
     jsonEndCommunicator();
 
     // Move to the next communicator.
-    comm = (struct rasCollComms::comm*)(((char*)(comm+1)) + comm->nRanks * sizeof(*comm->ranks) +
-                                        comm->nMissingRanks * sizeof(struct rasCollCommsMissingRank));
+    comm = rasCollCommsCommNext(comm);
   }
 
   // Write JSON footer with RAS metadata.

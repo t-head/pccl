@@ -23,11 +23,6 @@ extern int ncclParamStateMonitorLevelFlag;
 PCCL_PARAM(StateMonitorLogEveryMs, "STATE_MONITOR_LOG_EVERY_MS", 0 /* disabled */);
 PCCL_PARAM(StateMonitorDumpWhenExceptionDisable, "STATE_MONITOR_DUMP_WHEN_EXCEPTION_DISABLE", 0 /* dump */);
 
-struct rasStateMonitorStatus {
-  int timeout;
-  uint64_t commHash;
-  uint64_t seq;
-};
 
 void rasStateMonitorAtHost();
 void rasStateMonitorAtDevice();
@@ -78,7 +73,7 @@ static inline void rasStateMonitorRecord(ncclComm_t comm, const char* info) {
   }
 }
 
-void rasStateMonitorDump(const struct rasCollRequest* req, bool *pDone) {
+void rasStateMonitorDump(const struct rasCollRequest* req, bool *pDone, pcclCommDiagCollector* collector) {
   *pDone = true;
   if (pcclParamStateMonitorDumpWhenExceptionDisable() != 0) return;
   std::lock_guard<std::recursive_mutex> lock(ncclCommsMutex);
@@ -96,7 +91,11 @@ void rasStateMonitorDump(const struct rasCollRequest* req, bool *pDone) {
       pcclCommDumpMaskType dumpMask;
       NCCLVERIFY(getGlobalCommDumpMask(&dumpMask));
       if (req->dump.dumpLevel > 0) setCommDumpMaskByVal(req->dump.dumpLevel, &dumpMask);
-      pcclCommDump(comm, dumpMask);
+      // Force DUMP_ROUGH when a collector is supplied: the dump path only walks
+      // channels/peers (and fires collector callbacks) under DUMP_ROUGH, so the
+      // collector would otherwise see no callbacks and produce no diag bytes.
+      if (collector != nullptr) dumpMask = (pcclCommDumpMaskType)(dumpMask | DUMP_ROUGH);
+      pcclCommDump(comm, dumpMask, collector);
       if (comm->nNodes > 1) pcclDumpProxyState(comm->proxyState);
     }
   }
@@ -117,20 +116,8 @@ void rasStateMonitorAbort(const struct rasCollRequest* req, bool *pDone) {
   }
 }
 
-void rasStateMonitorBroadcastTimeout(const struct rasStateMonitorStatus& status) {
-  struct rasCollRequest bCast;
-  rasCollReqInit(&bCast);
-  bCast.type = RAS_BC_DUMP;
-  bCast.dump.dumpAllComms = false;
-  bCast.dump.dumpLevel = 0;
-  bCast.dump.commHash = status.commHash;
-  bCast.dump.seq = status.seq;
-  (void)rasNetSendCollReq(&bCast);
-}
 
 void rasStateMonitorAtDevice() {
-  VERBOSE(NCCL_RAS, "rasStateMonitorAtDevice stopMonitor %d eitEnable %d", stopMonitor, eitEnable);
-
   char timeStr[64];
   char infoStr[STATE_DUMP_LINE_LENGTH];
   for (int i = 0; i < nNcclComms; i++) {
@@ -163,15 +150,10 @@ void rasStateMonitorAtDevice() {
     }
 
     if (currentMaxDevIndex > rasComm->lastTimeoutIndex) {
-      struct rasStateMonitorStatus status;
-      // detect hang
       snprintf(infoStr, STATE_DUMP_LINE_LENGTH-1, "RAS broadcast kernel timeout status, comm %p, rank %d, nranks %d, commhash %lx, seq %ld, time %s",
                 comm, comm->rank, comm->nRanks, comm->commHash, currentMaxDevIndex, getDateTime(timeStr));
       rasStateMonitorRecord(comm, infoStr);
-      status.timeout = 1;
-      status.commHash = comm->commHash;
-      status.seq = currentMaxDevIndex;
-      rasStateMonitorBroadcastTimeout(status);
+      rasDiagTriggerFromMonitor(comm->commHash, currentMaxDevIndex);
     }
   }
 }
@@ -248,14 +230,10 @@ void rasStateMonitorAtHost() {
     // broadcast hang status and trigger hang dump when a larger timeout index detected
     if (detectTimeout) {
       if (currentMaxDevIndex > rasComm->lastTimeoutIndex) {
-        struct rasStateMonitorStatus status;
         snprintf(infoStr, STATE_DUMP_LINE_LENGTH-1, "RAS broadcast kernel timeout status, comm %p, rank %d, nranks %d, commhash %lx, seq %ld, time %s",
                   comm, comm->rank, comm->nRanks, comm->commHash, currentMaxDevIndex, getDateTime(timeStr));
         rasStateMonitorRecord(comm, infoStr);
-        status.timeout = 1;
-        status.commHash = comm->commHash;
-        status.seq = currentMaxDevIndex;
-        rasStateMonitorBroadcastTimeout(status);
+        rasDiagTriggerFromMonitor(comm->commHash, currentMaxDevIndex);
       }
       rasComm->timeout += std::min(rasComm->timeout, UINT64_MAX-rasComm->timeout);
     }

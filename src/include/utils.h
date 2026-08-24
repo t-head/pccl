@@ -280,7 +280,8 @@ T* ncclIntruQueueMpscAbandon(ncclIntruQueueMpsc<T,next>* me) {
 
 // pccl internal dump functions
 int64_t pcclDevKernelArgsFifoDepth();
-ncclResult_t pcclCommDump(ncclComm_t comm, pcclCommDumpMaskType pcclCommDumpMask);
+ncclResult_t pcclCommDump(ncclComm_t comm, pcclCommDumpMaskType pcclCommDumpMask,
+                          struct pcclCommDiagCollector* collector = nullptr);
 ncclResult_t getGlobalCommDumpMask(pcclCommDumpMaskType* pcclCommDumpMask);
 void getKerFuncStr(const int funcIndexIn, char *funcStr, int *funcType=NULL, int *dataType=NULL);
 

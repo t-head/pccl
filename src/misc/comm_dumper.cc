@@ -216,39 +216,6 @@ static ncclResult_t dumpKernelInfoFifoToFile(ncclComm_t comm, int stateMonitorLe
   return ncclSuccess;
 }
 
-// 0: unlockable device ptr
-// 1: lockable device ptr
-// 2: host ptr;
-ncclResult_t checkPtrLockable(uint64_t* devPtr, int* lockablePtr) {
-  *lockablePtr = 0;
-  if (devPtr == NULL) return ncclSuccess;
-  hggcPointerAttributes ptrAttr;
-  hggcError_t err = hggcPointerGetAttributes(&ptrAttr, reinterpret_cast<const void*>(devPtr));
-  if (err != hggcSuccess) {
-    return ncclSuccess;
-  }
-
-  if (ptrAttr.type == hggcMemoryTypeHost) {
-    *lockablePtr = 2;
-    return ncclSuccess;
-  }
-
-  if (ptrAttr.type != hggcMemoryTypeDevice) {
-    return ncclSuccess;
-  }
-
-  hggcEitInterface& hggcEit = hggcEitInterface::getInstance();
-  HGpointerIpc_attribute ptrIpcAttr;
-  HGGCCHECKWITHWARN(hggcEit.wrapHggcPointerGetIpcAttribute((HGdeviceptr)devPtr, &ptrIpcAttr));
-
-  if (ptrIpcAttr == HG_POINTER_IPC_ATTRIBUTE_IMPORTED) {
-    return ncclSuccess;
-  }
-
-  *lockablePtr = 1;
-  return ncclSuccess;
-}
-
 template<typename T>
 ncclResult_t dumpLockPtr(T* devPtr, T** cpuPtr, T* constZeroPtr) {
   hggcEitInterface& hggcEit = hggcEitInterface::getInstance();
@@ -269,7 +236,8 @@ ncclResult_t dumpLockPtr(T* devPtr, T** cpuPtr, T* constZeroPtr) {
 }
 
 
-ncclResult_t dumpPeerInfoToFile(FILE* file, int peer, struct ncclChannelPeer* hostPeer, struct ncclDevChannelPeer* devPeer, int indentLevel) {
+ncclResult_t dumpPeerInfoToFile(FILE* file, int peer, struct ncclChannelPeer* hostPeer, struct ncclDevChannelPeer* devPeer, int indentLevel,
+                                pcclCommDiagCollector* collector, ncclComm_t collectorComm, int collectorChannelId) {
   hggcEitInterface& hggcEit = hggcEitInterface::getInstance();
   uint64_t constZero = 0;
   for (int c = 0; c < NCCL_MAX_CONNS; c++) {
@@ -310,12 +278,22 @@ ncclResult_t dumpPeerInfoToFile(FILE* file, int peer, struct ncclChannelPeer* ho
             recvConn->connected);
     const char *subIndentStr = getIndentStr(indentLevel + 1);
     if (sendConn->connected == 1) {
-      fprintf(file, "%ssend step:%20lu, head:%20lu, tail: %20lu, headPtr:%p, tailPtr: %p, connector: %s\n",
-              subIndentStr, *sendStep, *sendHeadPtr, *sendTailPtr, sendConn->conn.head, sendConn->conn.tail, c == 0 ? "coll" : "p2p");
+      fprintf(file, "%ssend step:%20ld, head:%20ld, tail: %20ld, headPtr:%p, tailPtr: %p, connector: %s\n",
+              subIndentStr, (int64_t)*sendStep, (int64_t)*sendHeadPtr, (int64_t)*sendTailPtr, sendConn->conn.head, sendConn->conn.tail, c == 0 ? "coll" : "p2p");
+      if (collector && collector->collectPeerConn) {
+        collector->collectPeerConn(collector->ctx, collectorComm, collectorChannelId, peer,
+                          (uint8_t)c, /*direction=send*/0,
+                          *sendHeadPtr, *sendTailPtr, *sendStep);
+      }
     }
     if (recvConn->connected == 1) {
-      fprintf(file, "%srecv step:%20lu, head:%20lu, tail: %20lu, headPtr:%p, tailPtr: %p, connector: %s\n",
-              subIndentStr, *recvStep, *recvHeadPtr, *recvTailPtr, recvConn->conn.head, recvConn->conn.tail, c == 0 ? "coll" : "p2p");
+      fprintf(file, "%srecv step:%20ld, head:%20ld, tail: %20ld, headPtr:%p, tailPtr: %p, connector: %s\n",
+              subIndentStr, (int64_t)*recvStep, (int64_t)*recvHeadPtr, (int64_t)*recvTailPtr, recvConn->conn.head, recvConn->conn.tail, c == 0 ? "coll" : "p2p");
+      if (collector && collector->collectPeerConn) {
+        collector->collectPeerConn(collector->ctx, collectorComm, collectorChannelId, peer,
+                          (uint8_t)c, /*direction=recv*/1,
+                          *recvHeadPtr, *recvTailPtr, *recvStep);
+      }
     }
 
     for (int i = 0; i < num; i++) {
@@ -326,43 +304,78 @@ ncclResult_t dumpPeerInfoToFile(FILE* file, int peer, struct ncclChannelPeer* ho
   return ncclSuccess;
 }
 
-static ncclResult_t dumpChannelToFile(ncclComm_t comm, int channelId, int nRanks, int stateMonitorLevel, FILE* file, int indentLevel) {
+static ncclResult_t dumpChannelToFile(ncclComm_t comm, int channelId, int nRanks, int stateMonitorLevel, FILE* file, int indentLevel,
+                                      pcclCommDiagCollector* collector) {
   struct ncclChannel* channel = comm->channels + channelId;
   fprintf(file, "channelId:%d\n", channel->id);
   const char* indentStr = getIndentStr(indentLevel);
 
   // TODO: to make the logic simpler, we would dump hostDevIndex after watch dog.
   fprintf(file, "%schannelKernelIdx:%lu ", indentStr, comm->channelKernelIdx[channelId]);
-  bool unkown = false;
+  bool unknown = false;
+  // Two distinct kernel indices captured for the collector:
+  //   hangReported = hostDevIndexLevel1 (written by primitives.h checkAbort when
+  //     the kernel detects it has been spinning; level-agnostic, sticky 0).
+  //   completed    = devIndexLevel1 (level==1) or hostDevIndexLevel2 (level==2),
+  //     written at kernel FINI; ground truth of how many kernels actually ran.
+  // Each has its own `valid` bool so 0 (legitimate "never written") is distinct
+  // from a failed device read.
+  uint64_t hangReportedIdx = 0; bool hangReportedValid = false;
+  uint64_t completedIdx = 0;    bool completedValid = false;
   hggcEitInterface& hggcEit = hggcEitInterface::getInstance();
   if (hggcEit.checkExtTable()) {
     uint64_t currentDevIndex;
-    if (stateMonitorLevel == 1 && hggcEit.wrapHggcMemDump(&currentDevIndex, (HGdeviceptr)(channel->hostDevIndexLevel1), sizeof(uint64_t)) == hggcSuccess) {
+    // hangReported is the same field (hostDevIndexLevel1) regardless of level.
+    if (hggcEit.wrapHggcMemDump(&currentDevIndex, (HGdeviceptr)(channel->hostDevIndexLevel1), sizeof(uint64_t)) == hggcSuccess) {
+      hangReportedIdx = currentDevIndex;
+      hangReportedValid = true;
       if (currentDevIndex > 0) fprintf(file, " lastTimeoutKernelIndex:%lu", currentDevIndex);
+    }
+    if (stateMonitorLevel == 1) {
       if (hggcEit.wrapHggcMemDump(&currentDevIndex, (HGdeviceptr)(channel->devIndexLevel1), sizeof(uint64_t)) == hggcSuccess) {
+        completedIdx = currentDevIndex;
+        completedValid = true;
         fprintf(file, " completeKernelIndex:%lu", currentDevIndex);
+      } else {
+        unknown = true;
       }
       if (hggcEit.wrapHggcMemDump(&currentDevIndex, (HGdeviceptr)(channel->devPerKernelBatchCounter), sizeof(uint64_t)) == hggcSuccess) {
         fprintf(file, " completePerKernelBatchCounter:%lu", currentDevIndex);
       }
-    } else if (stateMonitorLevel == 2 && hggcEit.wrapHggcMemDump(&currentDevIndex, (HGdeviceptr)(channel->hostDevIndexLevel2), sizeof(uint64_t)) == hggcSuccess) {
-      fprintf(file, " completeCount:%lu", currentDevIndex);
+    } else if (stateMonitorLevel == 2) {
+      if (hggcEit.wrapHggcMemDump(&currentDevIndex, (HGdeviceptr)(channel->hostDevIndexLevel2), sizeof(uint64_t)) == hggcSuccess) {
+        completedIdx = currentDevIndex;
+        completedValid = true;
+        fprintf(file, " completeCount:%lu", currentDevIndex);
+      } else {
+        unknown = true;
+      }
     } else {
-      unkown = true;
+      unknown = true;
     }
   } else {
-    unkown = true;
+    unknown = true;
   }
-  if (unkown) fprintf(file, " unkownDevIndex");
+  if (unknown) fprintf(file, " unknownDevIndex");
   fprintf(file, "\n");
 
   NCCLVERIFY(dumpRingToFile(file, &channel->ring, indentLevel));
   NCCLVERIFY(dumpTreeToFile(file, &channel->tree, indentLevel));
 
+  // Fire collectChannelState BEFORE the peer loop so collectors that anchor per-channel
+  // state (e.g. a "current rasDiagChannel" pointer) are positioned correctly when
+  // collectPeerConn fires.
+  if (collector && collector->collectChannelState) {
+    collector->collectChannelState(collector->ctx, comm, channelId,
+                         hangReportedIdx, hangReportedValid,
+                         completedIdx,    completedValid);
+  }
+
   if (hggcEit.checkExtTable()) {
     fprintf(file, "%speers: \n", indentStr);
     for (int p=0; p<nRanks; p++) {
-      NCCLVERIFY(dumpPeerInfoToFile(file, p, channel->peers[p], channel->devPeersHostPtr[p],  indentLevel+1));
+      NCCLVERIFY(dumpPeerInfoToFile(file, p, channel->peers[p], channel->devPeersHostPtr[p], indentLevel+1,
+                                     collector, comm, channelId));
     }
   } else {
     fprintf(file, "invalid hggc eit, no valid peers head&tail.\n");
@@ -371,7 +384,7 @@ static ncclResult_t dumpChannelToFile(ncclComm_t comm, int channelId, int nRanks
   return ncclSuccess;
 }
 
-static ncclResult_t dumpRoughComm(ncclComm_t comm, char* commDumpRoughFile) {
+static ncclResult_t dumpRoughComm(ncclComm_t comm, char* commDumpRoughFile, pcclCommDiagCollector* collector) {
   FILE* roughDumpFile = NULL;
   INFO(NCCL_DUMP, "dump comm rough to file:%s", commDumpRoughFile);
   roughDumpFile = fopen(commDumpRoughFile, "w");
@@ -388,10 +401,15 @@ static ncclResult_t dumpRoughComm(ncclComm_t comm, char* commDumpRoughFile) {
 
   NCCLVERIFY(dumpKernelInfoFifoToFile(comm, stateMonitorLevel, roughDumpFile, indentLevel+1));
 
+  if (collector && collector->initRankDiagHeader) collector->initRankDiagHeader(collector->ctx, comm);
+
   fprintf(roughDumpFile, "%stotalKernelNum:%lu ", indentStr, comm->kernelNum);
   for (int c=0; c<comm->nChannels; c++) {
-    NCCLVERIFY(dumpChannelToFile(comm, c, comm->nRanks, stateMonitorLevel, roughDumpFile, indentLevel+1));
+    NCCLVERIFY(dumpChannelToFile(comm, c, comm->nRanks, stateMonitorLevel, roughDumpFile, indentLevel+1, collector));
   }
+
+  if (collector && collector->finalizeRankDiagHeader) collector->finalizeRankDiagHeader(collector->ctx, comm);
+
   fclose(roughDumpFile);
   return ncclSuccess;
 }
@@ -418,7 +436,7 @@ ncclResult_t dumpDevObj(FILE* file, T* cpuPtr, T* devPtr,  int num=1){
       return ncclUnhandledHggcError;
     }
     if (ptrAttr.type != hggcMemoryTypeDevice && ptrAttr.type != hggcMemoryTypeManaged && ptrAttr.type != hggcMemoryTypeHost) {
-      WARN("devPtr(%p)'s type(%d) is unregistered or unkown! Ignore dump", devPtr, ptrAttr.type);
+      WARN("devPtr(%p)'s type(%d) is unregistered or unknown! Ignore dump", devPtr, ptrAttr.type);
       return ncclUnhandledHggcError;
     }
 
@@ -602,7 +620,7 @@ ncclResult_t getGlobalCommDumpMask(pcclCommDumpMaskType* dumpMask) {
   return ncclSuccess;
 }
 
-ncclResult_t pcclCommDump(ncclComm_t comm, pcclCommDumpMaskType dumpMask) {
+ncclResult_t pcclCommDump(ncclComm_t comm, pcclCommDumpMaskType dumpMask, pcclCommDiagCollector* collector) {
   if (dumpMask == DUMP_NONE) {
     INFO(NCCL_DUMP, "dump Mask:%x, skip dump.", dumpMask);
     return ncclSuccess;
@@ -631,7 +649,7 @@ ncclResult_t pcclCommDump(ncclComm_t comm, pcclCommDumpMaskType dumpMask) {
     strncpy(commDumpRoughFile, dumpFileNamePrefix, offset);
     if (PATH_MAX-offset < sizeof(".txt")) offset = PATH_MAX-sizeof(".txt");
     snprintf(commDumpRoughFile+offset, PATH_MAX-offset, ".txt");
-    dumpRoughComm(comm, commDumpRoughFile);
+    dumpRoughComm(comm, commDumpRoughFile, collector);
 
     if (comm->extKernel) {
       comm->extKernel->kernelPluginDump(comm->extKernelPluginWorkspace.extKernelPluginParams, commDumpRoughFile);

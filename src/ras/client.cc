@@ -12,13 +12,15 @@
 #include <cstdio>
 #include <cstdlib>
 #include <cstring>
+#include <dirent.h>
 #include <getopt.h>
 #include <netdb.h>
+#include <sys/stat.h>
 #include <unistd.h>
 
-#include "checks.h"
-#define NCCL_RAS_CLIENT // Only pull client-specific definitions from the header file below.
-#include "ras_internal.h"
+#include "pccl.h"
+#include "ras_wire.h"
+#include "analyzer.h"
 
 #define STR2(v) #v
 #define STR(v) STR2(v)
@@ -33,6 +35,8 @@ static bool verbose = false;
 static const char* format = "text";
 static bool abortFlag = false;
 static uint32_t dump = false;
+static bool analyzeFlag = false;
+static const char* offlineDir = nullptr;
 static int sock = -1;
 
 static void printUsage(const char* argv0) {
@@ -48,9 +52,14 @@ static void printUsage(const char* argv0) {
           "  -t, --timeout=SECS  Maximum time for the local PCCL process to wait for\n"
           "                      responses from other PCCL processes\n"
           "                      (" STR(RAS_COLLECTIVE_LEG_TIMEOUT_SEC) " secs by default; 0 disables the timeout)\n"
-          "  -d, --dump=LEVEL    trigger debugging dump at level=LEVEL.\n"
+          "  -d, --dump=LEVEL    trigger debugging dump at level=LEVEL, persist the\n"
+          "                      full analyzer report, and print the summary.\n"
           "                      0x1: rough, 0x2: raw, 0x4: buffer, 0x8: inout, 0x10: hwinfo\n"
           "  -q, --quit          abort pccl job\n"
+          "  -a, --analyze       Run the online hang analyzer and print the summary\n"
+          "                      (text format only, no files written).\n"
+          "  -O, --offline=DIR   Load diag blob(s) from DIR and run offline analysis\n"
+          "                      (no RAS server needed)\n"
           "  -v, --verbose       Increase the verbosity level of the RAS output\n"
           "      --help          Print this help and exit\n"
           "      --version       Print the version number and exit\n", argv0);
@@ -66,14 +75,16 @@ static void parseArgs(int argc, char** argv) {
     {"port",    required_argument, NULL, 'p'},
     {"timeout", required_argument, NULL, 't'},
     {"dump",    required_argument, NULL, 'd'},
-    {"quit",    no_argument,       NULL, 'q'},
-    {"verbose", no_argument,       NULL, 'v'},
-    {"version", no_argument,       NULL, 'r'},
+    {"quit",         no_argument, NULL, 'q'},
+    {"analyze",      no_argument, NULL, 'a'},
+    {"offline",      required_argument, NULL, 'O'},
+    {"verbose",      no_argument, NULL, 'v'},
+    {"version",      no_argument, NULL, 'r'},
     {0}
   };
 
   char* endPtr = nullptr;
-  while ((c = getopt_long(argc, argv, "f:h:p:t:d:q:v", longOpts, &optIdx)) != -1) {
+  while ((c = getopt_long(argc, argv, "f:h:p:t:d:q:vaO:", longOpts, &optIdx)) != -1) {
     switch (c) {
       case 'f':
         format = optarg;
@@ -107,9 +118,16 @@ static void parseArgs(int argc, char** argv) {
           fprintf(stderr, "Invalid dump: %s\n", optarg);
           exit(1);
         }
+        analyzeFlag = true;
         break;
       case 'q':
         abortFlag = true;
+        break;
+      case 'a':
+        analyzeFlag = true;
+        break;
+      case 'O':
+        offlineDir = optarg;
         break;
       case 'e':
         printUsage(argv[0]);
@@ -250,13 +268,11 @@ retry:
 
   if (timeout >= 0) {
     snprintf(msgBuf, sizeof(msgBuf), "TIMEOUT %d\n", timeout);
-  } else if (dump > 0) {
-    snprintf(msgBuf, sizeof(msgBuf), "DUMP %d\n", dump);
   } else if (abortFlag > 0) {
     snprintf(msgBuf, sizeof(msgBuf), "ABORT\n");
   }
 
-  if (timeout >= 0 || dump > 0 || abortFlag) {
+  if (timeout >= 0 || abortFlag) {
     if (socketWrite(sock, msgBuf, strlen(msgBuf)) != strlen(msgBuf)) {
       if (errno == EAGAIN || errno == EWOULDBLOCK) {
         goto timeout;
@@ -349,7 +365,11 @@ int getNCCLStatus() {
   }
 
   // Send the status command.
-  snprintf(msgBuf, sizeof(msgBuf), "%sSTATUS\n", (verbose ? "VERBOSE " : ""));
+  if (analyzeFlag) {
+    snprintf(msgBuf, sizeof(msgBuf), "DUMP %d\n", dump);
+  } else {
+    snprintf(msgBuf, sizeof(msgBuf), "%sSTATUS\n", (verbose ? "VERBOSE " : ""));
+  }
   if (socketWrite(sock, msgBuf, strlen(msgBuf)) != strlen(msgBuf)) {
     if (errno == EAGAIN || errno == EWOULDBLOCK)
       fprintf(stderr, "Connection timed out\n");
@@ -380,8 +400,59 @@ int getNCCLStatus() {
   return 0;
 }
 
+static int runOfflineAnalysis(const char* dir) {
+  DIR* dp = opendir(dir);
+  if (dp == nullptr) {
+    fprintf(stderr, "Cannot open directory: %s (%s)\n", dir, strerror(errno));
+    return 1;
+  }
+
+  int nAnalyzed = 0;
+  struct dirent* ent;
+  while ((ent = readdir(dp)) != nullptr) {
+    const char* name = ent->d_name;
+    if (strstr(name, "_diag_") == nullptr || strstr(name, ".bin") == nullptr)
+      continue;
+
+    char path[PATH_MAX + 1];
+    snprintf(path, sizeof(path), "%s/%s", dir, name);
+
+    FILE* f = fopen(path, "rb");
+    if (f == nullptr) {
+      fprintf(stderr, "Cannot open %s: %s\n", path, strerror(errno));
+      continue;
+    }
+    struct stat st;
+    if (fstat(fileno(f), &st) != 0 || !S_ISREG(st.st_mode)) {
+      fclose(f);
+      continue;
+    }
+
+    int nBytes = 0, nLeg = 0;
+    struct rasCollComms* blob = analyzerLoadData(f, &nBytes, &nLeg);
+    fclose(f);
+    if (blob == nullptr) continue;
+
+    fprintf(stdout, "\n========== Offline analysis: %s ==========\n", name);
+    analyzerFormatReport(stdout, blob, nLeg, -1);
+    free(blob);
+    nAnalyzed++;
+  }
+  closedir(dp);
+
+  if (nAnalyzed == 0) {
+    fprintf(stderr, "No valid *_diag_*.bin files found in %s\n", dir);
+    return 1;
+  }
+  fprintf(stdout, "\nOffline analysis complete: %d blob(s) processed.\n", nAnalyzed);
+  return 0;
+}
+
 int main(int argc, char** argv) {
   parseArgs(argc, argv);
+
+  if (offlineDir != nullptr)
+    return runOfflineAnalysis(offlineDir);
 
   if (connectToNCCL())
     return 1;
