@@ -15,8 +15,9 @@
 // every AllGather to ncclInt8 + count-as-bytes before dispatch, and the kernel
 // body is a byte-level memcpy (BulkLoad128/Store128) — fully type-agnostic.
 // NOTE: AG_DTYPES_NUM MUST remain 1 (only int8_t is supported by design).
-// AllGather kernels do not use RELAX_MODE (Phase 2 reads only from the local
-// buffer, so no trailing barrier is needed).
+// AllGather kernels do not use RELAX_MODE. Phase 2 reads from the local
+// staging buffer and uses a trailing peer barrier to protect its lifetime
+// from the next collective's remote writes.
 #define AG_DTYPES_NUM 1
 
 // Forward declaration of the AllGather kernel template. Defined and explicitly
@@ -76,7 +77,7 @@ __global__ void pcclKernel_oneShotAllGatherKernel(struct oneShotDevParams params
   AG_ONE_SHOT_FUNCS_IMPL_DTYPE(int8_t)
 
 // Index calculation: dtype dimension removed (int8-only), relax dimension removed
-// (AG reads only from local buffer in Phase 2, no trailing barrier needed).
+// (the trailing barrier is mandatory for staging-buffer lifetime safety).
 // Layout matches macro expansion order: rank → align.
 static int getAllGatherKernelIndex(int nRanks, int inputAlign, int outputAlign) {
   const int alignNum = CUSTOM_ALIGN_NUM;

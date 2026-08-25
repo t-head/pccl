@@ -225,7 +225,7 @@ const extTopoConfig topoConfigs[] = {
 {EIGHT_RANKS_M890P_SHM_TOPO       , 0        , 16_MB     , 16_KB              , 312_KB             , 32          , 16_MB       , 16_MB}       ,
 {SIXTEEN_RANKS_810E               , 0        , 2_MB      , 8_KB               , 96_KB              , 16          , 2_MB        , 2_MB }       ,
 {SIXTEEN_RANKS_M890P_SHM_TOPO     , 0        , 32_MB     , 32_KB              , 128_KB             , 32          , 32_MB       , 16_MB}        ,
-{THIRTY_TWO_RANKS_M890P_SHM_TOPO  , 0        , 32_MB     , 4_KB               , 4_KB               , 32          , 16_MB       , 16_MB}        ,
+{THIRTY_TWO_RANKS_M890P_SHM_TOPO  , 0        , 32_MB     , 4_KB               , 4_KB               , 32          , 32_MB       , 16_MB}        ,
 };
 
 void swapRowsAndCols(int* matrix, const int N, int i, int j){

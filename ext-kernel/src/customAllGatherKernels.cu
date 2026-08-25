@@ -110,6 +110,10 @@ __global__ void pcclKernel_oneShotAllGatherKernel(struct oneShotDevParams params
         srcPtrs[0] + (int32_t)peerRank * buffEltsPerRank,
         peerRankElts, warpGroupSize, widInGroup, laneId);
 
+  // Make sure every rank is done reading this round before the next round
+  // starts overwriting the shared staging buffers.
+  __syncthreads();
+  blockBarrier<NRANKS>(params.peerBarrierOut, barrierFlag, params.myRank, tidx, bidx);
 }
 
 // Template instantiations (macros defined in header)
