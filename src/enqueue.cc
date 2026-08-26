@@ -1465,7 +1465,9 @@ static int getP2pSwitchMaxWorkPerBatch(ncclComm_t comm, ssize_t maxPeerBytes) {
       NCCL_MAX_DEV_WORK_P2P_PER_BATCH, configuredMaxWorks)));
 }
 
-static size_t getP2pChunkSize(ncclComm_t comm, size_t totalSize, int minChannels, int maxChannels, size_t minSize, size_t maxSize, int *nChannelsPtr) {
+static size_t getP2pChunkSize(ncclComm_t comm, size_t totalSize, int minChannels, int maxChannels,
+                            size_t minSize, size_t maxSize, int* nChannelsPtr, bool* switchTiled) {
+  *switchTiled = false;
   size_t size = std::max(minSize, DIVUP(totalSize, minChannels));
   int nChannels = minChannels;
   while (size > maxSize && nChannels <= maxChannels/2) {
@@ -1479,12 +1481,13 @@ static size_t getP2pChunkSize(ncclComm_t comm, size_t totalSize, int minChannels
     size_t thresholdSize = pcclParamP2pSwitchSerialThreshold() * comm->nRanks * serialFactor;
     size_t tileSize = DIVUP(totalSize, *nChannelsPtr);
     if (tileSize >= thresholdSize && nChannels < (*nChannelsPtr)) {
-      ALIGN_SIZE(tileSize, thresholdSize);
+      // The threshold decides eligibility; chunks only need transport alignment.
       ALIGN_SIZE(tileSize, minSize);
       int nChannelsTile = DIVUP(totalSize, tileSize);
-      if (nChannelsTile == (*nChannelsPtr)) {
+      if (nChannelsTile > nChannels && nChannelsTile <= (*nChannelsPtr)) {
         nChannels = nChannelsTile;
         size = tileSize;
+        *switchTiled = true;
       }
     }
   }
@@ -1541,8 +1544,11 @@ static ncclResult_t scheduleP2pTasksToPlan(ncclComm_t comm, int* p2pEpoch, int* 
       if (send != NULL) totSendBytes = send->bytes;
       if (recv != NULL) totRecvBytes = recv->bytes;
       int nChannelsSend = comm->p2pnChannelsPerPeer, nChannelsRecv = comm->p2pnChannelsPerPeer;
-      ssize_t sendChunkSize = getP2pChunkSize(comm, totSendBytes, nChannelsMin, nChannelsMax, stepSize, SENDRECV_SLICEFACTOR*stepSize, &nChannelsSend);
-      ssize_t recvChunkSize = getP2pChunkSize(comm, totRecvBytes, nChannelsMin, nChannelsMax, stepSize, SENDRECV_SLICEFACTOR*stepSize, &nChannelsRecv);
+      bool sendSwitchTiled, recvSwitchTiled;
+      ssize_t sendChunkSize = getP2pChunkSize(comm, totSendBytes, nChannelsMin, nChannelsMax,
+          stepSize, SENDRECV_SLICEFACTOR*stepSize, &nChannelsSend, &sendSwitchTiled);
+      ssize_t recvChunkSize = getP2pChunkSize(comm, totRecvBytes, nChannelsMin, nChannelsMax,
+          stepSize, SENDRECV_SLICEFACTOR*stepSize, &nChannelsRecv, &recvSwitchTiled);
       // Ensure room for worst case of one new batch per channel.
       int maxNBatches = 0;
       if (send && (nChannelsSend > maxNBatches)) {
@@ -1571,8 +1577,10 @@ static ncclResult_t scheduleP2pTasksToPlan(ncclComm_t comm, int* p2pEpoch, int* 
         if (sendBytes >= 0 || recvBytes >= 0) {
           struct ncclTaskP2p* p2pTasks[2] = { recv, send };
           int maxP2pWorkPerBatch = NCCL_MAX_DEV_WORK_P2P_PER_BATCH;
+          // Include partial switch tiles without changing ordinary channel splitting.
           if (pcclEnableGlobalIcnP2pThroughSwitchOpt(comm) &&
-              (nChannelsRecv == comm->p2pnChannelsPerPeer || nChannelsSend == comm->p2pnChannelsPerPeer)) {
+              (recvSwitchTiled || sendSwitchTiled ||
+               nChannelsRecv == comm->p2pnChannelsPerPeer || nChannelsSend == comm->p2pnChannelsPerPeer)) {
             // Only native AllToAll has communicator-wide symmetric peer sizes.
             maxP2pWorkPerBatch = pureAlltoallGroup ?
                 getP2pSwitchMaxWorkPerBatch(comm, std::max(totSendBytes, totRecvBytes)) : 1;
