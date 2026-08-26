@@ -66,6 +66,16 @@ __device__ inline void* ncclScratchForWarp(int warp) {
   return (char*)pcclShmemPerWarp + warp*ncclShmemScratchWarpSize();
 }
 
+__device__ inline struct ncclPatShmem* ncclPatShmemPtr(struct ncclKernelComm* comm) {
+#ifdef NO_TSM
+  return (struct ncclPatShmem*)comm->channels[blockIdx.x].patShmem;
+#else
+  static_assert(sizeof(struct ncclPatShmem) <= ncclShmemScratchWarpSize()*(NCCL_MAX_NTHREADS/WARP_SIZE),
+                "PAT scratch too small");
+  return (struct ncclPatShmem*)ncclScratchForWarp(0);
+#endif
+}
+
 #ifdef NO_TSM
 __device__ inline int find_nth_set_bit(uint32_t bitmask, int n) {
     int result;
@@ -495,7 +505,8 @@ __device__ void NCCL_FUNC_NAME(func, algo, proto, devredop, type)(void* args) { 
   IMPL_COLL4(func, TREE,    devredop, type, ncclType) \
   IMPL_COLL4(func, RING,    devredop, type, ncclType) \
   IMPL_COLL4(func, COLLNET, devredop, type, ncclType) \
-  IMPL_COLL4(func, FC, devredop, type, ncclType)
+  IMPL_COLL4(func, FC,      devredop, type, ncclType) \
+  IMPL_COLL4(func, PAT,     devredop, type, ncclType)
 
 #if NCCL_TYPE == 0
 #define IMPL_COLL2(func, devredop) IMPL_COLL3(func, devredop, int8_t,   ncclInt8)

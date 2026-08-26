@@ -59,6 +59,38 @@ fail:
   goto exit;
 }
 
+ncclResult_t ncclTransportPatConnect(ncclComm_t comm) {
+  ncclResult_t ret = ncclSuccess;
+  uint64_t devMemUsedStart = comm->devMemUsed;
+  uint64_t pinnedMemUsedStart = comm->pinnedMemUsed;
+  uint64_t sharedDevMemUsedStart = comm->sharedRes->devMemUsed;
+  uint64_t sharedPinnedMemUsedStart = comm->sharedRes->pinnedMemUsed;
+
+  if (comm && comm->nRanks > 1) {
+    for (int mask = 1; mask < comm->nRanks; mask <<= 1) {
+      int prevPeer = (comm->rank + mask) % comm->nRanks;
+      int nextPeer = (comm->rank + comm->nRanks - mask) % comm->nRanks;
+      for (int c = 0; c < comm->nChannels; c++) {
+        struct ncclChannel* channel = comm->channels + c;
+        NCCLCHECKGOTO(ncclTransportP2pConnect(comm, channel, 1, &prevPeer, 1, &nextPeer, 0), ret, fail); // ReduceScatter
+      }
+      NCCLCHECKGOTO(ncclTransportP2pSetup(comm, &comm->graphs[NCCL_ALGO_TREE], 0), ret, fail);
+      for (int c = 0; c < comm->nChannels; c++) {
+        struct ncclChannel* channel = comm->channels + c;
+        NCCLCHECKGOTO(ncclTransportP2pConnect(comm, channel, 1, &nextPeer, 1, &prevPeer, 0), ret, fail); // AllGather
+      }
+      NCCLCHECKGOTO(ncclTransportP2pSetup(comm, &comm->graphs[NCCL_ALGO_TREE], 0), ret, fail);
+    }
+  }
+  VERBOSE(NCCL_ALLOC, "comm %p PAT totally used %ldB %ldB(sharedRes) device memory splitShare %d nranks %d rank %d", comm, comm->devMemUsed - devMemUsedStart, comm->sharedRes->devMemUsed - sharedDevMemUsedStart, comm->config.splitShare, comm->nRanks, comm->rank);
+  VERBOSE(NCCL_ALLOC, "comm %p PAT totally used %ldB %ldB(sharedRes) pinned memory splitShare %d nranks %d rank %d", comm, comm->pinnedMemUsed - pinnedMemUsedStart, comm->sharedRes->pinnedMemUsed - sharedPinnedMemUsedStart, comm->config.splitShare, comm->nRanks, comm->rank);
+  INFO(NCCL_INIT, "Connected binomial trees");
+exit:
+  return ret;
+fail:
+  goto exit;
+}
+
 // All ranks must participate in collNetSetup call
 // type: 0 for send, 1 for recv
 // return: 0 - unsupported, 1 - supported

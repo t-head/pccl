@@ -67,6 +67,11 @@ ncclResult_t initChannel(ncclComm_t comm, int channelId) {
 
 #ifdef NO_TSM
   NCCLCHECK(ncclHggcCallocAsyncLegacy(&channel->shmem, 1, &(comm->devMemUsed), comm->sharedRes->deviceStream.hggcStream));
+  if (pcclPatEnable(comm)) {
+    NCCLCHECK(ncclHggcCallocAsyncLegacy((char**)&channel->patShmem, NCCL_PAT_SHMEM_SIZE, &(comm->devMemUsed), comm->sharedRes->deviceStream.hggcStream));
+  } else {
+    channel->patShmem = nullptr;
+  }
 #endif
 
   /* guarantee addr has been copied into channel->devPeers */
@@ -89,6 +94,7 @@ ncclResult_t freeChannel(struct ncclChannel* channel, int nRanks) {
   NCCLCHECK(ncclHggcFreeLegacy(channel->devPerKernelBatchCounter));
 #ifdef NO_TSM
   NCCLCHECK(ncclHggcFreeLegacy(channel->shmem));
+  if (channel->patShmem) NCCLCHECK(ncclHggcFreeLegacy(channel->patShmem));
 #endif
 
   // Free Ring index to rank tables

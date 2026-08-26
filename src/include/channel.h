@@ -12,5 +12,7 @@
 
 ncclResult_t initChannel(ncclComm_t comm, int channelid);
 ncclResult_t freeChannel(struct ncclChannel* channel, int nRanks);
+// For PAT algorithm.
+int pcclPatEnable(ncclComm_t comm);
 
 #endif

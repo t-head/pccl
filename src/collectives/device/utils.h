@@ -36,6 +36,14 @@ inline __device__ void volatileStoreU64(volatile uint64_t* ptr, uint64_t val) {
   __ppu_global_store_volatile_b64(ptr, val);
 }
 
+inline __device__ uint64_t patConnStepLoadVolatile(volatile uint64_t* ptr) {
+  return volatileLoadU64(ptr);
+}
+
+inline __device__ void patConnStepStoreVolatile(volatile uint64_t* ptr, uint64_t val) {
+  volatileStoreU64(ptr, val);
+}
+
 inline __device__ void printU64Value(int rank, int bid, int tid,
     const char* u64ValName, const uint64_t u64Val) {
   printf("rank: %d; bid: %d; tid: %d; %s: h32 0x%lx, l32 0x%lx\n",

@@ -33,7 +33,8 @@
   (void*)NCCL_FUNC5(func, TREE,    devredop, type), \
   (void*)NCCL_FUNC5(func, RING,    devredop, type), \
   (void*)NCCL_FUNC5(func, COLLNET, devredop, type), \
-  (void*)NCCL_FUNC5(func, FC, devredop, type)
+  (void*)NCCL_FUNC5(func, FC,      devredop, type), \
+  (void*)NCCL_FUNC5(func, PAT,     devredop, type)
 
 // Must be consistent with ncclDataType_t
 #define NCCL_FUNCS3A(func, devredop) \
@@ -655,6 +656,13 @@ ncclResult_t ncclLaunchReset(ncclComm_t comm) {
 /*****************************************************************************/
 
 PCCL_PARAM(UseStaticLaunchGrid, "USE_STATIC_LAUNCH_GRID", -2);
+
+static bool algoSupportsRedOp(ncclTaskColl* info, int algorithm) {
+  if (algorithm == NCCL_ALGO_PAT && info->func == ncclFuncReduceScatter &&
+      (info->opDev.op == ncclDevPreMulSum || info->opDev.op == ncclDevSumPostDiv)) return false;
+  return true;
+}
+
 static ncclResult_t defaultGetAlgoInfo(ncclComm_t comm, ncclTaskColl* info) {
   float minTime = 3600000000.0; // Hopefully no operation will take an hour to complete.
   // Find algorithm / protocol.
@@ -666,6 +674,8 @@ static ncclResult_t defaultGetAlgoInfo(ncclComm_t comm, ncclTaskColl* info) {
     NCCLCHECK(collNetReduceSupport(info->datatype, info->opHost, &collNetTypeSupport));
   for (int a=0; a<NCCL_NUM_ALGORITHMS; a++) {
     if (a == NCCL_ALGO_COLLNET && collNetTypeSupport != 1) continue;
+    /* PAT reduceScatter doesn't support scaling yet */
+    if (!algoSupportsRedOp(info, a)) continue;
     for (int p=0; p<NCCL_NUM_PROTOCOLS; p++) {
       float time;
       NCCLCHECK(ncclTopoGetAlgoTime(comm, info->func, a, p, info->nBytes, info->nChannels, &time));
@@ -713,6 +723,7 @@ static ncclResult_t defaultGetAlgoInfo(ncclComm_t comm, ncclTaskColl* info) {
     nt += WARP_SIZE;
   }
 #endif
+  if (info->algorithm == NCCL_ALGO_PAT) nt = NCCL_MAX_NTHREADS;
   info->nChannels = nc;
   info->nThreads = nt;
   return ncclSuccess;
@@ -740,6 +751,12 @@ static ncclResult_t getAlgoInfo(ncclComm_t comm, ncclTaskColl* info, ncclSimInfo
           info->func, comm->nRanks, info->nBytes,
           0, 0, 0,
           &info->algorithm, &info->protocol, &nChannels, &info->nThreads));
+
+    if (nChannels > 0 && !algoSupportsRedOp(info, info->algorithm)) {
+      WARN("Tuner plugin selected %s for %s, which does not support the requested reduction op; using the internal tuner instead",
+          ncclAlgoStr[info->algorithm], ncclFuncStr[info->func]);
+      nChannels = 0;
+    }
   }
   // if plugin do not provide valid config, use default;
   if (nChannels <= 0) {
@@ -776,8 +793,9 @@ static ncclResult_t getPatternInfo(struct ncclInfo* info) {
     case ncclFuncReduce:
       info->pattern = info->algorithm == NCCL_ALGO_TREE ? ncclPatternTreeUp : ncclPatternPipelineTo; break;
     case ncclFuncReduceScatter:
+      info->pattern = info->algorithm == NCCL_ALGO_PAT ? ncclPatternPatUp : ncclPatternRing; break;
     case ncclFuncAllGather:
-      info->pattern = ncclPatternRing; break;
+      info->pattern = info->algorithm == NCCL_ALGO_PAT ? ncclPatternPatDown : ncclPatternRing; break;
     case ncclFuncAllReduce:
       info->pattern = info->algorithm == NCCL_ALGO_COLLNET ? ncclPatternCollTreeUp : info->algorithm == NCCL_ALGO_TREE ? ncclPatternTreeUpDown : ncclPatternRingTwice; break;
     default:
@@ -796,7 +814,9 @@ static ncclResult_t getLoopInfo(struct ncclInfo* info) {
     case ncclPatternPipelineTo:
     case ncclPatternCollTreeUp:
     case ncclPatternCollTreeDown:
-      info->nstepsPerLoop = info-> nchunksPerLoop = 1; break;
+    case ncclPatternPatUp:
+    case ncclPatternPatDown:
+      info->nstepsPerLoop = info->nchunksPerLoop = 1; break;
     case ncclPatternRing:
       info->nstepsPerLoop = info->comm->nRanks-1; info->nchunksPerLoop = info->comm->nRanks; break;
     case ncclPatternRingTwice:
@@ -858,6 +878,14 @@ static ncclResult_t computeColl(struct ncclInfo* info /* input */, struct ncclDe
     while (info->nBytes / (info->nChannels*chunkSize) < info->comm->channels[0].collTree.depth && chunkSize > 32768) chunkSize /= 2;
     // Use lastChunkSize as chunkSize
     work->lastChunkSize = chunkSize / ncclTypeSize(info->datatype);
+  } else if (info->algorithm == NCCL_ALGO_PAT &&
+      (info->protocol == NCCL_PROTO_SIMPLE || info->protocol == NCCL_PROTO_SIGNAL
+       || info->protocol == NCCL_PROTO_SIMPLE_BULK || info->protocol == NCCL_PROTO_SIGNAL_BULK
+       || info->protocol == NCCL_PROTO_SIMPLE_BULK_AR)) {
+    // Optimize chunkSize / nSteps for PAT
+    while (chunkSize*info->nChannels*32 > info->nBytes && chunkSize > 65536) chunkSize /= 2;
+    // Use lastChunkSize as chunkSize
+    work->lastChunkSize = chunkSize / ncclTypeSize(info->datatype);
   } else if (info->protocol == NCCL_PROTO_LL) {
     const ssize_t sliceSize = stepSize*sizeof(uint64_t)/sizeof(union ncclLLFifoLine);
     const ssize_t loopSize = info->nChannels*info->nchunksPerLoop*(ssize_t)sliceSize;
@@ -896,7 +924,10 @@ static ncclResult_t computeColl(struct ncclInfo* info /* input */, struct ncclDe
   // This is used by P2P to reduce the receive buffer size. We don't use it in collectives
   // because some protocols need to transmit more than the total size, plus they sometimes
   // round up
-  proxyOp->nbytes = stepSize*proxyOp->sliceSteps;
+  if (info->pattern == ncclPatternPatUp || info->pattern == ncclPatternPatDown)
+    proxyOp->nbytes = DIVUP(info->nBytes, info->nChannels);
+  else
+    proxyOp->nbytes = stepSize*proxyOp->sliceSteps;
 
   TRACE(NCCL_COLL,"opCount %lx slicesteps %d spl %d cpl %d nbytes %zi -> protocol %d nchannels %d nthreads %d, nloops %d nsteps %d chunksize %d comm %p",
       proxyOp->opCount, sliceSteps, info->nstepsPerLoop, info->nchunksPerLoop, info->nBytes, info->protocol, info->nChannels, info->nThreads,

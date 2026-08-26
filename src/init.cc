@@ -52,7 +52,7 @@ std::chrono::high_resolution_clock::time_point ncclEpoch;
 #endif
 
 const char* ncclFuncStr[NCCL_NUM_FUNCTIONS+1] = { "Broadcast", "Reduce", "AllGather", "ReduceScatter", "AllReduce", "SendRecv"};
-const char* ncclAlgoStr[NCCL_NUM_ALGORITHMS] = { "Tree", "Ring", "CollNet", "FC"};
+const char* ncclAlgoStr[NCCL_NUM_ALGORITHMS] = { "Tree", "Ring", "CollNet", "FC", "PAT"};
 const char* ncclProtoStr[NCCL_NUM_PROTOCOLS] = { "LL", "LL128", "Simple", "Signal", "SimpleBulk", "SignalBulk", "SimpleBulkAR" };
 const bool ncclSendRecvProtoSupport[NCCL_NUM_PROTOCOLS] = {false, false, true, true, true, true, true};
 
@@ -763,7 +763,7 @@ static ncclResult_t commAlloc(ncclComm_t comm, ncclComm_t parentComm, int ndev, 
    * fc is enabled by default only in certain cases, other cases could be enabled by env
    * collnet is disabled by default
    * **/
-  int algoDefaultEnable[NCCL_NUM_ALGORITHMS] = {ncclTuningEnable, ncclTuningEnable, ncclTuningDisable, ncclTuningCustomEnable};
+  int algoDefaultEnable[NCCL_NUM_ALGORITHMS] = {ncclTuningEnable, ncclTuningEnable, ncclTuningDisable, ncclTuningCustomEnable, ncclTuningEnable};
   for (int f=0; f<NCCL_NUM_FUNCTIONS; f++) {
     for (int a=0; a<NCCL_NUM_ALGORITHMS; a++) {
       comm->algoEnable[f*NCCL_NUM_ALGORITHMS+a] = algoDefaultEnable[a];
@@ -1644,6 +1644,9 @@ static ncclResult_t initTransportsRank(ncclComm_t comm, ncclComm_t parent, uint6
 
     // Connect Trees
     NCCLCHECKGOTO(ncclTransportTreeConnect(comm), res, fail);
+
+    // Connect PAT only for communicators with 1 GPU per node
+    if (comm->maxLocalRanks == 1) NCCLCHECKGOTO(ncclTransportPatConnect(comm), res, fail);
 
     // Check if we can setup CollNet
     if (comm->nNodes > 1 &&

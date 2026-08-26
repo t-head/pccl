@@ -24,7 +24,8 @@
   NCCL_FUNC5(func, TREE,    devredop, type, nullify), \
   NCCL_FUNC5(func, RING,    devredop, type, nullify), \
   NCCL_FUNC5(func, COLLNET, devredop, type, nullify), \
-  NCCL_FUNC5(func, FC, devredop, type, nullify)
+  NCCL_FUNC5(func, FC,      devredop, type, nullify), \
+  NCCL_FUNC5(func, PAT,     devredop, type, nullify)
 
 // Must be consistent with ncclDataType_t
 #define NCCL_FUNCS3A(func, devredop, nullForFloat) \

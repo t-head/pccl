@@ -263,6 +263,96 @@ class RunWorkColl<ncclFuncReduceScatter, NCCL_ALGO_RING, NCCL_PROTO_SIMPLE_BULK_
     }
 };
 
+#if defined(__HGGC_ARCH__)
+namespace {
+  template<class FUNC, typename T, int UNROLL>
+  __device__ __forceinline__ void runPAT(struct ncclDevWorkColl* work) {
+    struct ncclKernelComm* comm = getShmemComm(work);
+    const int nranks = comm->nRanks;
+    const int rank = comm->rank;
+
+    const int tid = threadIdx.x;
+    const int nthreads = work->nThreads;
+
+    const int nChannels = work->nChannels;
+    int bid = (blockIdx.x >= work->startChannelId) ?
+      (blockIdx.x - work->startChannelId) :
+      (blockIdx.x + work->commNChannels - work->startChannelId);
+    bid = bid % nChannels;
+
+    const ssize_t count = work->count;
+    ssize_t channelCount = (count + nChannels - 1) / nChannels;
+    ssize_t channelOffset = bid * channelCount;
+    if (channelOffset + channelCount > count) channelCount = count - channelOffset;
+
+    const int chunkCount = work->lastChunkSize;
+
+    static constexpr int nworkers = NCCL_PAT_NWORKERS;
+    struct ncclPatShmem* shmem = ncclPatShmemPtr(comm);
+    uint64_t pollCount = 0;
+
+    __syncthreads();
+    for (int i = tid; i < NCCL_SHMEM_PAT_STEPS; i += nthreads) shmem->patSteps[i].flags = 0;
+    if (tid == 0) shmem->localAccSize = 0;
+    if (tid == nworkers) shmem->parallelFactor = 0;
+    __syncthreads();
+
+    if (tid == nworkers) { // Algo computation thread
+      PatRSAlgorithm<T> patAlgo(chunkCount*sizeof(T), NCCL_STEPS, NCCL_PAT_NWORKERS/WARP_SIZE, channelOffset, channelOffset + channelCount, count, chunkCount, rank, nranks);
+      shmem->parallelFactor = patAlgo.getParallelFactor();
+      int step = 0;
+      while (1) {
+        struct ncclPatStep* ps = shmem->patSteps+(step%NCCL_SHMEM_PAT_STEPS);
+        volatile int* poll = &ps->flags;
+        while (patStepFlagsLoadAcquire(poll) != 0) pollCount++; // Wait for workers to be done with step 'step-NCCL_SHMEM_PAT_STEPS'
+        patAlgo.getNextOp(ps);
+        int last = ps->last;
+        step++;
+        if (last == 2) break;
+      }
+    } else if (tid < nworkers) { // Worker threads
+      T* inputBuf = (T*)work->sendbuff;
+      T* outputBuf = (T*)work->recvbuff;
+      int parallelFactor = 0;
+      volatile int* pfPtr = &shmem->parallelFactor;
+      while (parallelFactor == 0) parallelFactor = *pfPtr;
+
+      int groupSize = nworkers/(WARP_SIZE*parallelFactor) * WARP_SIZE;
+      int group = tid / groupSize;
+      int nGroups = nworkers / groupSize;
+      int tidInGroup = tid - group*groupSize;
+      // We don't use recvPeers/sendPeers so let's pass shmem structs instead
+      Primitives<T, FUNC, ProtoSimple<UNROLL, 1, 1>, 1, 1, 0, 0> prims
+        (tidInGroup, groupSize, (int*)shmem->recvDims, (int*)shmem->sendDims,
+         nullptr /*directBuff*/, comm, work->redOpArg, getShmemPtr(comm)->groups,
+         group, 0, 0, nullptr, nullptr, NCCL_STEPS, false,
+         inputBuf, outputBuf, primsModePatRs);
+
+      int step = group;
+      while (1) {
+        struct ncclPatStep* ps = shmem->patSteps+(step%NCCL_SHMEM_PAT_STEPS);
+        volatile int* poll = &ps->flags;
+        while (patStepFlagsLoadAcquire(poll) == 0) pollCount++; // Wait for compute thread
+        int last = ps->last;
+        prims.patReduce(ps, shmem);
+        if (tidInGroup == 0) patStepFlagsStoreRelease(poll, 0); // Return element to compute thread
+        if (last) break;
+        step += nGroups;
+      }
+    }
+  }
+}
+
+template<class FUNC, typename T, int UNROLL>
+class RunWorkColl<ncclFuncReduceScatter, NCCL_ALGO_PAT, NCCL_PROTO_SIMPLE, FUNC, T, UNROLL> {
+  public:
+    __device__ void run(struct ncclDevWorkColl* work) {
+      runPAT<FUNC, T, UNROLL>(work);
+    }
+};
+
+#endif
+
 template<int PROTO, class REDOP, typename T, int UNROLL>
 class RunWorkColl<ncclFuncReduceScatter, NCCL_ALGO_TREE, PROTO, REDOP, T, UNROLL> {
   public:

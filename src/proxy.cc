@@ -636,6 +636,74 @@ ncclResult_t ncclProxySaveOp(ncclComm_t comm, struct ncclProxyOp* op, bool* just
       NCCLCHECK(SaveProxy(comm, channel, proxySend, tree->down[0], op, 0, justInquire));
       NCCLCHECK(SaveProxy(comm, channel, proxyRecv, tree->up,      op, 0, justInquire));
     } break;
+    case ncclPatternPatUp: {
+      // Run full algorithm to count the number of steps for each peer.
+      ncclResult_t result = ncclSuccess;
+      const ssize_t size = op->nbytes/comm->nRanks;
+      const int rank = comm->rank, nranks = comm->nRanks;
+      int *nstepsSend = NULL, *nstepsRecv = NULL;
+      PatRSAlgorithm<char> algo(op->chunkSize, NCCL_STEPS, 16, 0, size, size, op->chunkSize, rank, nranks);
+      struct ncclPatStep ps = {0};
+      NCCLCHECKGOTO(ncclCalloc(&nstepsSend, log2Up(nranks)), result, exit_pat_up);
+      NCCLCHECKGOTO(ncclCalloc(&nstepsRecv, log2Up(nranks)), result, exit_pat_up);
+
+      do {
+        algo.getNextOp(&ps);
+        if (ps.flags & PatSkipped) continue;
+        if (ps.recvDim != -1 && ps.postRecv) nstepsRecv[ps.recvDim]++;
+        if (ps.sendDim != -1 && ps.postSend) nstepsSend[ps.sendDim]++;
+      } while (ps.last != 2);
+      for (int i=0; i<log2Up(nranks); i++) {
+        if (nstepsSend[i]) {
+          int sendPeer = (rank + (1<<i)) % nranks;
+          op->nsteps = nstepsSend[i];
+          NCCLCHECKGOTO(SaveProxy(comm, channel, proxySend, sendPeer, op, 0, justInquire), result, exit_pat_up);
+        }
+        if (nstepsRecv[i]) {
+          int recvPeer = (rank - (1<<i) + nranks) % nranks;
+          op->nsteps = nstepsRecv[i];
+          NCCLCHECKGOTO(SaveProxy(comm, channel, proxyRecv, recvPeer, op, 0, justInquire), result, exit_pat_up);
+        }
+      }
+    exit_pat_up:
+      free(nstepsSend);
+      free(nstepsRecv);
+      NCCLCHECK(result);
+    } break;
+    case ncclPatternPatDown:{
+      // Run full algorithm to count the number of steps for each peer.
+      ncclResult_t result = ncclSuccess;
+      const ssize_t size = op->nbytes/comm->nRanks;
+      const int rank = comm->rank, nranks = comm->nRanks;
+      int *nstepsSend = NULL, *nstepsRecv = NULL;
+      PatAGAlgorithm<char> algo(op->chunkSize, NCCL_STEPS, 16, 0, size, size, op->chunkSize, rank, nranks);
+      struct ncclPatStep ps = {0};
+      NCCLCHECKGOTO(ncclCalloc(&nstepsSend, log2Up(nranks)), result, exit_pat_down);
+      NCCLCHECKGOTO(ncclCalloc(&nstepsRecv, log2Up(nranks)), result, exit_pat_down);
+
+      do {
+        algo.getNextOp(&ps);
+        if (ps.flags & PatSkipped) continue;
+        if (ps.recvDim != -1 && ps.postRecv) nstepsRecv[ps.recvDim]++;
+        if (ps.sendDim != -1 && ps.postSend) nstepsSend[ps.sendDim]++;
+      } while (ps.last != 2);
+      for (int i=0; i<log2Up(nranks); i++) {
+        if (nstepsSend[i]) {
+          int sendPeer = (rank - (1<<i) + nranks) % nranks;
+          op->nsteps = nstepsSend[i];
+          NCCLCHECKGOTO(SaveProxy(comm, channel, proxySend, sendPeer, op, 0, justInquire), result, exit_pat_down);
+        }
+        if (nstepsRecv[i]) {
+          int recvPeer = (rank + (1<<i)) % nranks;
+          op->nsteps = nstepsRecv[i];
+          NCCLCHECKGOTO(SaveProxy(comm, channel, proxyRecv, recvPeer, op, 0, justInquire), result, exit_pat_down);
+        }
+      }
+    exit_pat_down:
+      free(nstepsSend);
+      free(nstepsRecv);
+      NCCLCHECK(result);
+    } break;
     case ncclPatternSend:
     case ncclPatternRecv: {
       if (op->root == comm->rank) return ncclSuccess;

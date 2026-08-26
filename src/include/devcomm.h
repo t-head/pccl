@@ -76,6 +76,7 @@ static_assert(NCCL_LL_CLEAN_MASK % NCCL_STEPS == 0, "Invalid NCCL_LL_CLEAN_MASK 
 
 #define NCCL_LL128_SHMEM_ELEMS_PER_THREAD 8
 #define NCCL_LL128_SHMEM_SIZE (NCCL_LL128_SHMEM_ELEMS_PER_THREAD*NCCL_LL128_MAX_NTHREADS)
+#define NCCL_PAT_SHMEM_SIZE 8192
 
 #define NCCL_DIRECT_GPU 0x01
 #define NCCL_DIRECT_NIC 0x10
@@ -402,7 +403,12 @@ __host__ __device__ constexpr int ncclShmemScratchWarpSize() {
 #ifdef NO_TSM
   return 0;
 #else
-  return 64;
+  // PAT stores ncclPatShmem across the whole dynamic per-warp scratch region
+  // (accessed via ncclScratchForWarp(0)), so the total must be large enough to
+  // hold NCCL_PAT_SHMEM_SIZE. Otherwise only existing small users need 64B/warp.
+  return max_constexpr<int>(
+           64,
+           ((( NCCL_PAT_SHMEM_SIZE + (NCCL_MAX_NTHREADS/WARP_SIZE) - 1 ) / (NCCL_MAX_NTHREADS/WARP_SIZE)) + 15) & -16);
 #endif
 }
 
@@ -450,6 +456,8 @@ struct ncclChannel {
 
 #ifdef NO_TSM
       struct ncclShmemData* shmem;
+      // For the PAT algorithm
+      void* patShmem;
 #endif
 
       uint64_t workCounter;

@@ -9,6 +9,8 @@
 #ifndef NCCL_PRIMS_SIMPLE_BASE_H_
 #define NCCL_PRIMS_SIMPLE_BASE_H_
 
+enum primsMode { primsModeDefault = 0, primsModePatRs = 1, primsModePatAg = 2 };
+
 // Implementation of primitive types
 template <typename T, int NRECV, int NSEND, class FUNC, int UNROLL, int SLICESPERCHUNK, int SLICESTEPS, int DIRECT, typename Proto, class RealPrimitives, int P2P>
 class PrimitivesSimpleBase {
@@ -59,6 +61,14 @@ class PrimitivesSimpleBase {
   int* totalSendSize;
   FUNC redOp;
 
+ protected:
+  __device__ __forceinline__ int getTid() const { return tid; }
+  __device__ __forceinline__ int getNthreads() const { return nthreads; }
+  __device__ __forceinline__ int getGroup() const { return group; }
+  __device__ __forceinline__ struct ncclKernelComm* getComm() const { return comm; }
+  __device__ __forceinline__ FUNC getRedOp() const { return redOp; }
+
+ private:
   const uintptr_t ptrExchangeMagicNum = 0x5a5a5a5a5a5a5a5a;
 
   // Don't use barrier 0 as it's used by the final sync
@@ -320,7 +330,8 @@ class PrimitivesSimpleBase {
   PrimitivesSimpleBase(
       const int tid, const int nworkers, int* recvPeers, int* sendPeers, T* directBuff,
       struct ncclKernelComm* comm, uint64_t redOpArg, struct ncclShmemGroup* ptrs, int group, uint8_t connIndexRecv = 0, uint8_t connIndexSend = 0,
-      struct ncclDevWorkColl* collWork = nullptr, struct ncclDevWorkP2p* p2pWork = nullptr, const uint64_t ncclSteps=NCCL_STEPS, bool noRed=false
+      struct ncclDevWorkColl* collWork = nullptr, struct ncclDevWorkP2p* p2pWork = nullptr, const uint64_t ncclSteps=NCCL_STEPS, bool noRed=false,
+      int mode = primsModeDefault
       ):
     // WR: fix potential double preOp for up/down tree.
     redOp(noRed ? RedOpIdentityArg<FUNC>::value() : redOpArg),
@@ -328,44 +339,46 @@ class PrimitivesSimpleBase {
     srcs((const T**)ptrs[group].srcs), dsts((T**)ptrs[group].dsts), realSizes(ptrs[group].realSizes), group(group),
     totalSendSize(ptrs[group].totalSendSize), ncclSteps(ncclSteps) {
     nthreads = nworkers;
+    if (mode == primsModeDefault) {
 #ifndef NO_EXTRA_WARP
-    // For send operations, we need an extra warp to overlap the threadfence and the copy
-    int postThreads = NSEND && nworkers >= 64 ? WARP_SIZE : 0;
-    nthreads += postThreads;
+      // For send operations, we need an extra warp to overlap the threadfence and the copy
+      int postThreads = NSEND && nworkers >= 64 ? WARP_SIZE : 0;
+      nthreads += postThreads;
 #endif
 
-    // Make sure step is updated before we read it.
-    barrier();
+      // Make sure step is updated before we read it.
+      barrier();
 
-    for (int i=0; i<NRECV; i++) if (recvPeers[i] != -1) nrecv++;
-    for (int i=0; i<NSEND; i++) if (sendPeers[i] != -1) nsend++;
+      for (int i=0; i<NRECV; i++) if (recvPeers[i] != -1) nrecv++;
+      for (int i=0; i<NSEND; i++) if (sendPeers[i] != -1) nsend++;
 
-    #define SYNC_GROUP 8
-    static_assert(NSEND < SYNC_GROUP && NRECV < SYNC_GROUP, "Not enough threads to cover all peers");
+      #define SYNC_GROUP 8
+      static_assert(NSEND < SYNC_GROUP && NRECV < SYNC_GROUP, "Not enough threads to cover all peers");
 
-    int g = tid / SYNC_GROUP;
-    int ng = nthreads / SYNC_GROUP;
-    index = tid % SYNC_GROUP;
+      int g = tid / SYNC_GROUP;
+      int ng = nthreads / SYNC_GROUP;
+      index = tid % SYNC_GROUP;
 
-    if (g == 0) {
-      if (index < nrecv) role |= ROLE_WAIT_RECV;
-      if (index == nrecv) role |= ROLE_SRC;
-    } else if (g == 1) {
-      if (index < nsend) role |= ROLE_WAIT_SEND;
-      if (index == nsend) role |= ROLE_DST;
-    } else if (g == ng - 2) {
-      if (index < nrecv) role |= ROLE_POST_RECV;
-    } else if (g == ng - 1) {
-      if (index < nsend) role |= ROLE_POST_SEND;
+      if (g == 0) {
+        if (index < nrecv) role |= ROLE_WAIT_RECV;
+        if (index == nrecv) role |= ROLE_SRC;
+      } else if (g == 1) {
+        if (index < nsend) role |= ROLE_WAIT_SEND;
+        if (index == nsend) role |= ROLE_DST;
+      } else if (g == ng - 2) {
+        if (index < nrecv) role |= ROLE_POST_RECV;
+      } else if (g == ng - 1) {
+        if (index < nsend) role |= ROLE_POST_SEND;
+      }
+
+      if (role & (ROLE_WAIT_RECV|ROLE_POST_RECV)) peer = recvPeers[index];
+      if (role & (ROLE_WAIT_SEND|ROLE_POST_SEND)) peer = sendPeers[index];
+
+      if (role & (ROLE_WAIT_RECV|ROLE_POST_RECV))
+        loadRecvConn(getShmemPtr(comm)->channel.peers[peer], directBuff, connIndexRecv, collWork, p2pWork);
+      if (role & (ROLE_WAIT_SEND|ROLE_POST_SEND))
+        loadSendConn(getShmemPtr(comm)->channel.peers[peer], connIndexSend, collWork, p2pWork);
     }
-
-    if (role & (ROLE_WAIT_RECV|ROLE_POST_RECV)) peer = recvPeers[index];
-    if (role & (ROLE_WAIT_SEND|ROLE_POST_SEND)) peer = sendPeers[index];
-
-    if (role & (ROLE_WAIT_RECV|ROLE_POST_RECV))
-      loadRecvConn(getShmemPtr(comm)->channel.peers[peer], directBuff, connIndexRecv, collWork, p2pWork);
-    if (role & (ROLE_WAIT_SEND|ROLE_POST_SEND))
-      loadSendConn(getShmemPtr(comm)->channel.peers[peer], connIndexSend, collWork, p2pWork);
   }
 
   __device__ __forceinline__ void

@@ -98,6 +98,7 @@ ncclResult_t ncclTransportCheckP2pType(ncclComm_t comm, bool* localP2pSupport, b
 
 ncclResult_t ncclTransportRingConnect(ncclComm_t comm);
 ncclResult_t ncclTransportTreeConnect(ncclComm_t comm);
+ncclResult_t ncclTransportPatConnect(ncclComm_t comm);
 ncclResult_t ncclTransportCollnetConnect(ncclComm_t comm);
 ncclResult_t ncclTransportFcConnect(ncclComm_t comm);
 

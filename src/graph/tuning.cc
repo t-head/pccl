@@ -10,6 +10,7 @@
 #include "devcomm.h"
 #include "comm.h"
 #include "topo.h"
+#include "channel.h"
 
 #include <unordered_map>
 #include <array>
@@ -139,30 +140,35 @@ static const int kernelEnabled[NCCL_NUM_FUNCTIONS][NCCL_NUM_ALGORITHMS][NCCL_NUM
     /* Ring (LL/LL128/Simple/Signal/SimpleBulk/SignalBulk/SimpleBulkAR) */    {80, 80, 80, 80, 80, 80, 89},
     /* CollNet (LL/LL128/Simple/Signal/SimpleBulk/SignalBulk/SimpleBulkAR) */ {0,  0,  0,  0,  0,  0,  0 },
     /* FC (LL/LL128/Simple/Signal/SimpleBulk/SignalBulk/SimpleBulkAR) */      {80, 0,  80, 0,  80, 0,  0 },
+    /* PAT (LL/LL128/Simple/Signal/SimpleBulk/SignalBulk/SimpleBulkAR) */     {0,  0,  0,  0,  0,  0,  0 },
   },
   { /* Reduce */
     /* Tree (LL/LL128/Simple/Signal/SimpleBulk/SignalBulk/SimpleBulkAR) */    {0,  0,  0,  0,  0,  0,  0 },
     /* Ring (LL/LL128/Simple/Signal/SimpleBulk/SignalBulk/SimpleBulkAR) */    {80, 80, 80, 80, 80, 80, 89},
     /* CollNet (LL/LL128/Simple/Signal/SimpleBulk/SignalBulk/SimpleBulkAR) */ {0,  0,  0,  0,  0,  0,  0 },
     /* FC (LL/LL128/Simple/Signal/SimpleBulk/SignalBulk/SimpleBulkAR) */      {80, 0,  80, 0,  80, 0,  0 },
+    /* PAT (LL/LL128/Simple/Signal/SimpleBulk/SignalBulk/SimpleBulkAR) */     {0,  0,  0,  0,  0,  0,  0 },
   },
   { /* AllGather */
     /* Tree (LL/LL128/Simple/Signal/SimpleBulk/SignalBulk/SimpleBulkAR) */    {0,  0,  0,  0,  0,  0,  0 },
     /* Ring (LL/LL128/Simple/Signal/SimpleBulk/SignalBulk/SimpleBulkAR) */    {80, 80, 80, 80, 80, 80, 89},
     /* CollNet (LL/LL128/Simple/Signal/SimpleBulk/SignalBulk/SimpleBulkAR) */ {0,  0,  0,  0,  0,  0,  0 },
     /* FC (LL/LL128/Simple/Signal/SimpleBulk/SignalBulk/SimpleBulkAR) */      {80, 0,  80, 0,  80, 0,  0 },
+    /* PAT (LL/LL128/Simple/Signal/SimpleBulk/SignalBulk/SimpleBulkAR) */     {0,  0,  80, 0,  0,  0,  0 },
   },
   { /* ReduceScatter */
     /* Tree (LL/LL128/Simple/Signal/SimpleBulk/SignalBulk/SimpleBulkAR) */    {0,  0,  0,  0,  0,  0,  0 },
     /* Ring (LL/LL128/Simple/Signal/SimpleBulk/SignalBulk/SimpleBulkAR) */    {80, 80, 80, 80, 80, 80, 89},
     /* CollNet (LL/LL128/Simple/Signal/SimpleBulk/SignalBulk/SimpleBulkAR) */ {0,  0,  0,  0,  0,  0,  0 },
     /* FC (LL/LL128/Simple/Signal/SimpleBulk/SignalBulk/SimpleBulkAR) */      {80, 0,  80, 0,  80, 0,  0 },
+    /* PAT (LL/LL128/Simple/Signal/SimpleBulk/SignalBulk/SimpleBulkAR) */     {0,  0,  80, 0,  0,  0,  0 },
   },
   { /* AllReduce */
     /* Tree (LL/LL128/Simple/Signal/SimpleBulk/SignalBulk/SimpleBulkAR) */    {80, 80, 80, 80, 80, 80, 0 },
     /* Ring (LL/LL128/Simple/Signal/SimpleBulk/SignalBulk/SimpleBulkAR) */    {80, 80, 80, 80, 80, 80, 89},
     /* CollNet (LL/LL128/Simple/Signal/SimpleBulk/SignalBulk/SimpleBulkAR) */ {80, 80, 80, 80, 80, 80, 0 },
     /* FC (LL/LL128/Simple/Signal/SimpleBulk/SignalBulk/SimpleBulkAR) */      {80, 0,  80, 0,  80, 0,  0 },
+    /* PAT (LL/LL128/Simple/Signal/SimpleBulk/SignalBulk/SimpleBulkAR) */     {0,  0,  0,  0,  0,  0,  0 },
   }
 };
 
@@ -172,9 +178,11 @@ static const int p2pKernelEnabled[NCCL_NUM_PROTOCOLS] = {0, 0, 80, 80, 80, 80, 8
 // Latencies in us, Bandwidths in GB/s
 // Tree { LL, LL128, Simple, Signal, SimpleBulk, simpleBulkAR } , Ring { LL, LL128, Simple, Signal, SimpleBulk, simpleBulkAR }
 // CollNet { LL, LL128, Simple, Signal, SimpleBulk, simpleBulkAR } , FC { LL, LL128, Simple, Signal, SimpleBulk, simpleBulkAR }
+// PAT { LL, LL128, Simple, Signal, SimpleBulk, simpleBulkAR }
 static const float baseLat  [NCCL_NUM_ALGORITHMS][NCCL_NUM_PROTOCOLS] = {
   { 4.4, 4.4,  0, 0, 0, 0, 0 }, { 3.6, 10.0, 8.4, 8.4, 8.4, 8.4, 8.4 },
-  { 4.4, 4.4,  0, 0, 0, 0, 0 }, { 3.6, 10.0, 8.0, 8.4, 8.4, 8.4, 8.4 } };
+  { 4.4, 4.4,  0, 0, 0, 0, 0 }, { 3.6, 10.0, 8.0, 8.4, 8.4, 8.4, 8.4 },
+  { 4.4, 4.4,  0, 0, 0, 0, 0 } };
 
 // NVLink, PCI, Network
 #define NCCL_HW_NVLINK 0
@@ -186,19 +194,22 @@ static const float hwLat [3][NCCL_NUM_ALGORITHMS][NCCL_NUM_PROTOCOLS] =
   { /* Tree (LL/LL128/Simple/Signal/SimpleBulk/SignalBulk/simpleBulkAR)*/ { .52, 1.25, 28, 28, 28, 28, 28 },
     /* Ring (LL/LL128/Simple/Signal/SimpleBulk/SignalBulk/simpleBulkAR)*/ { .47, 1.9, 3.4, 3.4, 3.4, 3.4, 3.4 },
     /* CollNet (LL/LL128/Simple/Signal/SimpleBulk/SignalBulk/simpleBulkAR)*/ {  .5, 1.2, 4.0, 4.0, 4.0, 4.0, 4.0 },
-    /* FC (LL/LL128/Simple/Signal/SimpleBulk/SignalBulk/simpleBulkAR)*/ { .47, 1.9, 3.4, 3.4, 3.4, 3.4, 3.4 }
+    /* FC (LL/LL128/Simple/Signal/SimpleBulk/SignalBulk/simpleBulkAR)*/ { .47, 1.9, 3.4, 3.4, 3.4, 3.4, 3.4 },
+    /* PAT (LL/LL128/Simple/Signal/SimpleBulk/SignalBulk/simpleBulkAR)*/ { .47, 1.9, 3.4, 3.4, 3.4, 3.4, 3.4 }
   },
   /* PCI */
   { /* Tree (LL/LL128/Simple/Signal/SimpleBulk/SignalBulk/simpleBulkAR)*/ { 1.0, 1.9, 28, 28, 28, 28, 28 },
     /* Ring (LL/LL128/Simple/Signal/SimpleBulk/SignalBulk/simpleBulkAR)*/ { 1.0, 2.5, 5.7, 5.7, 5.7, 5.7, 5.7 },
     /* CollNet (LL/LL128/Simple/Signal/SimpleBulk/SignalBulk/simpleBulkAR)*/ { 1.0, 1.9, 5.5, 5.5, 5.5, 5.5, 5.5 },
-    /* FC (LL/LL128/Simple/Signal/SimpleBulk/SignalBulk/simpleBulkAR)*/ { 1.0, 2.5, 5.7, 5.7, 5.7, 5.7, 5.7 }
+    /* FC (LL/LL128/Simple/Signal/SimpleBulk/SignalBulk/simpleBulkAR)*/ { 1.0, 2.5, 5.7, 5.7, 5.7, 5.7, 5.7 },
+    /* PAT (LL/LL128/Simple/Signal/SimpleBulk/SignalBulk/simpleBulkAR)*/ { 1.0, 2.5, 5.7, 5.7, 5.7, 5.7, 5.7 }
   },
   /* NET */
   { /* Tree (LL/LL128/Simple/Signal/SimpleBulk/SignalBulk/simpleBulkAR)*/ { 5.0, 8.5, 28, 28, 28, 28, 28 },
     /* Ring (LL/LL128/Simple/Signal/SimpleBulk/SignalBulk/simpleBulkAR)*/ { 2.7, 4.0, 9.6, 9.6, 9.6, 9.6, 9.6 },
     /* CollNet (LL/LL128/Simple/Signal/SimpleBulk/SignalBulk/simpleBulkAR)*/ { 5.0, 5.0, 10.7, 10.7, 10.7, 10.7, 10.7 },
-    /* FC (LL/LL128/Simple/Signal/SimpleBulk/SignalBulk/simpleBulkAR)*/ { 2.7, 4.0, 9.6, 9.6, 9.6, 9.6, 9.6 }
+    /* FC (LL/LL128/Simple/Signal/SimpleBulk/SignalBulk/simpleBulkAR)*/ { 2.7, 4.0, 9.6, 9.6, 9.6, 9.6, 9.6 },
+    /* PAT (LL/LL128/Simple/Signal/SimpleBulk/SignalBulk/simpleBulkAR)*/ { 2.7, 4.0, 9.6, 9.6, 9.6, 9.6, 9.6 }
   }
 };
 
@@ -207,6 +218,14 @@ static const float hwLat [3][NCCL_NUM_ALGORITHMS][NCCL_NUM_PROTOCOLS] =
 static const double ll128MaxBwPerCh[NCCL_NUM_FUNCTIONS] = { 18.8, 12.0, 18.3, 15.2, 16.9 };
 static const double llMaxBws[2][3] = { /* Volta-N1/Intel-N2/Intel-N4) */ {39.0, 39.0, 20.4}, /* Ampere-N1/AMD-N2/AMD-N4) */ {87.7, 22.5 /*avg of ring & tree*/, 19.0} };
 static const double perChMaxTreeBws[2][3] = { /* Volta (N1/N2/N4) */ {26.5, 18.5, 10.0}, /* Ampere (N1/N2/N4) */ {24.0, 22.5, 16.0} };
+
+PCCL_PARAM(PatEnable, "PAT_ENABLE", 2);
+int pcclPatEnable(ncclComm_t comm) {
+  int patEnable = pcclParamPatEnable();
+  if (patEnable != 2) return patEnable;
+  if (comm->nNodes != comm->nRanks) return 0; // PAT only supports 1 GPU per node
+  return 1;
+}
 
 ncclResult_t ncclTopoTuneModel(ncclComm_t comm, int minCompCap, int maxCompCap, struct ncclTopoGraph* treeGraph,
     struct ncclTopoGraph* ringGraph, struct ncclTopoGraph* collNetGraph, struct ncclTopoGraph* fcGraph) {
@@ -242,6 +261,8 @@ ncclResult_t ncclTopoTuneModel(ncclComm_t comm, int minCompCap, int maxCompCap, 
     getNthreads("PCCL_NTHREADS", ncclParamNthreads(), 2*WARP_SIZE, NCCL_SIMPLE_MAX_NTHREADS, simpleDefaultThreads);
   comm->maxThreads[NCCL_ALGO_TREE][NCCL_PROTO_SIMPLE] = comm->maxThreads[NCCL_ALGO_COLLNET][NCCL_PROTO_SIMPLE] =
     getNthreads("PCCL_NTHREADS", ncclParamNthreads(), 2*WARP_SIZE, NCCL_SIMPLE_MAX_NTHREADS, NCCL_SIMPLE_MAX_NTHREADS);
+  // PAT needs NCCL_MAX_NTHREADS to fit NCCL_PAT_NWORKERS + the algorithm thread.
+  comm->maxThreads[NCCL_ALGO_PAT][NCCL_PROTO_SIMPLE] = NCCL_MAX_NTHREADS;
   comm->maxThreads[NCCL_ALGO_FC][NCCL_PROTO_SIMPLE] = comm->maxThreads[NCCL_ALGO_TREE][NCCL_PROTO_SIMPLE];
   // LL
   comm->maxThreads[NCCL_ALGO_RING][NCCL_PROTO_LL] =
@@ -273,7 +294,7 @@ ncclResult_t ncclTopoTuneModel(ncclComm_t comm, int minCompCap, int maxCompCap, 
   float ppn = (float)nRanks / nNodes; // if ppn < 2, then we are sending/receiving at the same GPU through the NIC, apply some bw discount
   int multiHostsBulkMode = pcclParamMultiHostsBulkMode();
 
-  struct ncclTopoGraph* graphs[NCCL_NUM_ALGORITHMS] = { treeGraph, ringGraph, collNetGraph, fcGraph };
+  struct ncclTopoGraph* graphs[NCCL_NUM_ALGORITHMS] = { treeGraph, ringGraph, collNetGraph, fcGraph, treeGraph };
   int intraHw[NCCL_NUM_ALGORITHMS], hw[NCCL_NUM_ALGORITHMS];
   for (int a=0; a<NCCL_NUM_ALGORITHMS; a++) intraHw[a] = graphs[a]->typeIntra == LINK_NVL ? NCCL_HW_NVLINK : NCCL_HW_PCI;
   for (int a=0; a<NCCL_NUM_ALGORITHMS; a++) hw[a] = nNodes == 1 ? intraHw[a] : NCCL_HW_NET;
@@ -290,6 +311,7 @@ ncclResult_t ncclTopoTuneModel(ncclComm_t comm, int minCompCap, int maxCompCap, 
     for (int a=0; a<NCCL_NUM_ALGORITHMS; a++) {
       for (int p=0; p<NCCL_NUM_PROTOCOLS; p++) {
         if (kernelEnabled[coll][a][p] == 0 || kernelEnabled[coll][a][p] > maxCompCap) continue;
+        if (a == NCCL_ALGO_PAT && ((coll != ncclFuncAllGather && coll != ncclFuncReduceScatter) || p != NCCL_PROTO_SIMPLE || pcclPatEnable(comm) == 0)) continue;
         float speed = nNodes <= 2 || a == NCCL_ALGO_COLLNET ? graphs[a]->speedIntra : graphs[a]->speedInter;
         float busBw = graphs[a]->nChannels * speed;
 
@@ -356,6 +378,11 @@ ncclResult_t ncclTopoTuneModel(ncclComm_t comm, int minCompCap, int maxCompCap, 
             2 * (nRanks/nNodes-1) * intraLat + interLat;
         } else if (a == NCCL_ALGO_FC) {
           comm->latencies[coll][a][p] += fcnSteps * hwLat[intraHw[a]][a][p];
+        } else if (a == NCCL_ALGO_PAT) {
+          // PAT is a binomial tree; latency grows logarithmically with rank count.
+          int patSteps = log2i(nRanks);
+          int interPatSteps = log2i(nNodes);
+          comm->latencies[coll][a][p] += 2 * ((patSteps - interPatSteps) * intraLat + interPatSteps * interLat);
         } else {
           // for now, FC only supports nNodes == 1 scene, so no interLat count
           // TODO: need to support latency theoretical evaluation of 'FC' for runtime algo selection

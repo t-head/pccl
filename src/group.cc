@@ -166,6 +166,10 @@ static ncclResult_t ncclCollPreconnect(ncclComm_t comm, bool* algoNeedConnect) {
           NCCLCHECK(ncclTransportFcConnect(comm));
           break;
         }
+        case NCCL_ALGO_PAT: {
+          NCCLCHECK(ncclTransportPatConnect(comm));
+          break;
+        }
         // Yes, it's a dead code.  That's fine...
         // coverity[dead_error_begin]
         default: {
