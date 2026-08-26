@@ -25,6 +25,7 @@ constexpr char const* kernelName[] = {
   "AllGather_LL",
   "AllGather_ST",
   "AllGather_ST_Ring",
+  "AllGather_ST_2D",
   "ReduceScatter_LL",
   "ReduceScatter_LD",
 };
@@ -35,7 +36,8 @@ constexpr uint32_t kernelMask_LL = 1<<ncclSymkKernelId_AllReduce_AGxLL_R |
 
 constexpr uint32_t kernelMask_AG = 1<<ncclSymkKernelId_AllGather_LL |
                                    1<<ncclSymkKernelId_AllGather_ST |
-                                   1<<ncclSymkKernelId_AllGather_ST_Ring;
+                                   1<<ncclSymkKernelId_AllGather_ST_Ring |
+                                   1<<ncclSymkKernelId_AllGather_ST_2D;
 
 constexpr uint32_t kernelMask_AR = 1<<ncclSymkKernelId_AllReduce_AGxLL_R |
                                    1<<ncclSymkKernelId_AllReduce_RSxLD_AGxST;
@@ -142,7 +144,8 @@ static void queryModel(struct pcclComm* comm, ncclSymkKernelId k, size_t nBytes,
   case ncclSymkKernelId_AllReduce_RSxLD_AGxST:   busBytes = 2*nBytes*(nRanks-1)/nRanks; break;
   case ncclSymkKernelId_AllGather_LL:            busBytes = nRanks*nBytes*LL_BusFactor; break;
   case ncclSymkKernelId_AllGather_ST:
-  case ncclSymkKernelId_AllGather_ST_Ring:       busBytes = (nRanks-1)*nBytes; break;
+  case ncclSymkKernelId_AllGather_ST_Ring:
+  case ncclSymkKernelId_AllGather_ST_2D:      busBytes = (nRanks-1)*nBytes; break;
   case ncclSymkKernelId_ReduceScatter_LL:        busBytes = nRanks*nBytes*LL_BusFactor; break;
   case ncclSymkKernelId_ReduceScatter_LD:        busBytes = (nRanks-1)*nBytes; break;
   }
@@ -170,6 +173,8 @@ static void queryModel(struct pcclComm* comm, ncclSymkKernelId k, size_t nBytes,
                               : std::min<int>(nRanks-1, MAX_DIRECT_CONNS) * PEAKBW[topoIdx][protoIdx] * GBps;
 
   if (k == ncclSymkKernelId_AllGather_ST_Ring && isICNSTopo && nRanks > 2) peakBw *= 1.1; // to beat AllGather_ST
+  // to beat AllGather_ST_Ring, whose write-target contention degrades at 64 ranks
+  if (k == ncclSymkKernelId_AllGather_ST_2D && isICNSTopo && nRanks >= 64) peakBw *= 1.15;
 
   *nBlocks = nMaxBlocks;
   *timeUs = model(busBytes, baseLat, nMaxBlocks, smBw, busMultiplier, peakBw);
@@ -382,18 +387,36 @@ static void ncclSymkApplySpecialCases(int nRanks, ncclFunc_t coll, bool isICNSTo
 static uint32_t ncclSymkMask(struct pcclComm* comm, ncclFunc_t coll, int/*ncclDevRedOp_t*/ red, ncclDataType_t ty, size_t nElts) {
   uint32_t kmask = kernelMask_coll(coll);
   kmask &= kernelMask_user();
+  // A forced kernel skips the auto-selection policy below; only the hard
+  // correctness limits still apply.
+  bool isUserSetKernel = kernelMask_user() != (1u<<(int)ncclSymkKernelId_Count)-1;
 
   size_t nBytes = nElts*ncclTypeSize(ty);
   size_t nBusBytes = (coll == ncclFuncAllReduce ? 1 : comm->nRanks)*nBytes;
-  // LL kernels use 32-bit ints to track element counts and indices.
+
+  // Correctness limits, even under force: kernels track element counts and
+  // unrolled-chunk indices with 32-bit ints, which overflow past these sizes.
   if (nBusBytes >= (size_t(2)<<30)) kmask &= ~kernelMask_LL;
-  // Any kernel might use 32-bit int to track unrolled loop chunks (which are going
-  // to be at least 32 bytes per chunk)
   if (nBusBytes >= 32*(size_t(2)<<30)) kmask = 0;
 
   bool isICNSTopo = (comm->topo->nodes[NVS].count > 0);
-  if (!ncclSymkBeneficial(comm->nRanks, coll, isICNSTopo, nBusBytes)) kmask = 0;
-  ncclSymkApplySpecialCases(comm->nRanks, coll, isICNSTopo, nBusBytes, &kmask);
+
+  // Hard eligibility for the 2D kernel. The kernel itself derives nGroups as
+  // nRanks/8, so only keep it when the rank count can form full 8-rank groups.
+  if (comm->nRanks % ncclSymkAg2DGroupSize != 0)
+    kmask &= ~(1u<<ncclSymkKernelId_AllGather_ST_2D);
+
+  // Auto-selection policy from here on: whether symmetric is worth it and which
+  // kernel is fastest.
+  if (!isUserSetKernel) {
+    if (!ncclSymkBeneficial(comm->nRanks, coll, isICNSTopo, nBusBytes)) kmask = 0;
+    ncclSymkApplySpecialCases(comm->nRanks, coll, isICNSTopo, nBusBytes, &kmask);
+    // Below ~1MB the 2D kernel is latency-bound (3 barriers vs the flat ring's 2),
+    // yet the cost model's peakBw bonus would still pick it in the 512KB..1MB
+    // window that LL does not cover.
+    if (coll == ncclFuncAllGather && nBusBytes < 1_MB)
+      kmask &= ~(1u<<ncclSymkKernelId_AllGather_ST_2D);
+  }
   return kmask;
 }
 

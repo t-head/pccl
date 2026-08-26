@@ -36,6 +36,7 @@ enum ncclSymkKernelId {
   ncclSymkKernelId_AllGather_LL,
   ncclSymkKernelId_AllGather_ST,
   ncclSymkKernelId_AllGather_ST_Ring,
+  ncclSymkKernelId_AllGather_ST_2D,
 
   ncclSymkKernelId_ReduceScatter_LL,
   ncclSymkKernelId_ReduceScatter_LD,
@@ -148,5 +149,10 @@ const char* ncclSymkKernelIdToString(int kernelId);
 ncclResult_t ncclGetSymRegType(struct ncclDevrWindow* sendWin, struct ncclDevrWindow* recvWin, ncclSymRegType_t* winRegType);
 
 int ncclSymkLLKernelMask();
+
+// Ranks per group for the 2D (hierarchical) AllGather. One group maps to one
+// node; this is a functional constant, not a tuning knob. The kernel derives
+// nGroups directly as nRanks/ncclSymkAg2DGroupSize.
+constexpr int ncclSymkAg2DGroupSize = 8;
 
 #endif // NCCL_SYM_KERNELS_H_

@@ -350,12 +350,168 @@ static __device__ void pccl_symRun_AllGather_LL_impl(ncclSymDevArgs const* args)
   }
 }
 
+// 2D (hierarchical) AllGather: view the ranks as a grid (g = rank/groupSize,
+// lr = rank%groupSize) and allgather along each dimension. Phase 1 broadcasts a
+// rank's own block to its group mates, ring-staggered; phase 2 exchanges whole
+// group regions, with a partner that stays fixed for all of a group's sends.
+// Bytes moved per rank match the flat ring, but the ring's nRanks-way rotating
+// write contention becomes two phases with at most groupSize writers per target.
+
+// Warp-collective bulk copy to a peer, grid-strided over chunks. With AlsoLocal
+// the fetch also lands in `locBase`, which lets the out-of-place self copy ride
+// along with the first remote send instead of costing a whole extra pass;
+// `locBase` must be a valid pointer either way. Every lane of a warp must present
+// the same base address, hence read_firstlane_u64.
+template<int BytePerPack, int UnrollPacks, bool AlsoLocal>
+static __device__ void copyDeep(
+    int tn, int t, char* srcBase, char* locBase, char* dstBase, size_t nBytes
+  ) {
+  using Pack = BytePack<BytePerPack>;
+  const int wn = __ppu_read_firstlane(tn/WARP_SIZE);
+  const int w  = __ppu_read_firstlane(t/WARP_SIZE);
+  constexpr size_t BytePerWarp = (size_t)WARP_SIZE*BytePerPack*UnrollPacks;
+  size_t chunks = nBytes / BytePerWarp;
+  if (chunks == 0) return;
+  uint64_t srcPW = read_firstlane_u64((uint64_t)srcBase);
+  uint64_t locPW = read_firstlane_u64((uint64_t)locBase);
+  uint64_t dstPW = read_firstlane_u64((uint64_t)dstBase);
+  Pack* s = (Pack*)srcPW + (intptr_t)w*UnrollPacks*WARP_SIZE;
+  Pack* l = (Pack*)locPW + (intptr_t)w*UnrollPacks*WARP_SIZE;
+  Pack* d = (Pack*)dstPW + (intptr_t)w*UnrollPacks*WARP_SIZE;
+  for (size_t it = w; it < chunks; it += wn) {
+    Pack tmp[UnrollPacks];
+    #pragma unroll
+    for (int u=0; u < UnrollPacks; u++)
+      applyFetch<BytePerPack, true, LOC_BULK_CP, RTMD_PA>(reinterpret_cast<uintptr_t>(s+u*WARP_SIZE), tmp[u]);
+    #pragma unroll
+    for (int u=0; u < UnrollPacks; u++) {
+      if (AlsoLocal)
+        applyStore<BytePerPack, true, LOC_BULK_CP, RTMD_PA>(reinterpret_cast<uintptr_t>(l+u*WARP_SIZE), tmp[u]);
+      applyStore<BytePerPack, false, RMT_BULK_CP_C, RTMD_PA>(reinterpret_cast<uintptr_t>(d+u*WARP_SIZE), tmp[u]);
+    }
+    s += (intptr_t)wn*UnrollPacks*WARP_SIZE;
+    d += (intptr_t)wn*UnrollPacks*WARP_SIZE;
+    if (AlsoLocal) l += (intptr_t)wn*UnrollPacks*WARP_SIZE;
+  }
+}
+
+// End of the 2KB-per-warp region, then of the 512B one.
+static __device__ void slotChunkEnds(size_t nBytes, size_t* bigEnd, size_t* smallEnd) {
+  constexpr size_t Big = (size_t)WARP_SIZE*16*4;
+  constexpr size_t Small = (size_t)WARP_SIZE*16;
+  *bigEnd = (nBytes/Big)*Big;
+  *smallEnd = *bigEnd + ((nBytes - *bigEnd)/Small)*Small;
+}
+
+// Copy one slot to a peer: 2KB per warp, then 512B, then the sub-512B tail per lane.
+template<bool AlsoLocal>
+static __device__ void bulkCopy(
+    int tn, int t, char* src, char* loc, char* dst, size_t nBytes
+  ) {
+  size_t bigEnd, smallEnd;
+  slotChunkEnds(nBytes, &bigEnd, &smallEnd);
+  copyDeep<16, 4, AlsoLocal>(tn, t, src, loc, dst, bigEnd);
+  copyDeep<16, 1, AlsoLocal>(tn, t, src+bigEnd, loc+bigEnd, dst+bigEnd, smallEnd-bigEnd);
+  for (size_t i = smallEnd + t; i < nBytes; i += tn) {
+    char v = src[i];
+    if (AlsoLocal) loc[i] = v;
+    dst[i] = v;
+  }
+}
+
+__device__ __forceinline__ void pccl_symRun_AllGather_ST_2D_impl(ncclSymDevArgs const* args) {
+  ncclSymPrims prim(args->comm, args->nBlocks, ncclSymPrims_UseBarrier);
+  int const& rank = prim.rank;
+  int const& nRanks = prim.nRanks;
+
+  int bt = flattenIx(threadIdx.x%WARP_SIZE, WARP_SIZE,
+                     prim.block, prim.nBlocks,
+                     threadIdx.x/WARP_SIZE, blockDim.x/WARP_SIZE);
+  int btn = prim.nBlocks*blockDim.x;
+
+  size_t nBytes = args->nElts; // per-rank block size in bytes
+  char* input = (char*)args->input;
+  char* output = (char*)args->output;
+
+  int groupSize = ncclSymkAg2DGroupSize;
+  int nGroups = nRanks / groupSize;
+  int groupId = rank / groupSize;
+  int groupBase = groupId * groupSize;
+  int lr = rank - groupBase; // local rank within group
+
+  // The hierarchy is only worth it when every slot base sits on a bulk boundary;
+  // otherwise the flat broadcast is faster than anything this kernel can do. A slot
+  // base is output + b*nBytes, so the test covers output, input and nBytes -- all of
+  // which have the same low bits on every rank (symmetric window), so every rank
+  // takes the same branch. That is required: phase 2 forwards what phase 1 laid
+  // down, and the two must agree on every chunk boundary.
+  bool bulkAligned = ((((uint32_t)reinterpret_cast<uintptr_t>(output)
+                      | (uint32_t)reinterpret_cast<uintptr_t>(input)
+                      | (uint32_t)nBytes) % BULK_ALIGN_BYTES) == 0);
+  char* selfSlot = output + (size_t)rank*nBytes;
+
+  // Make the previous kernel's remote writes visible before overwriting output.
+  prim.barrierArrive(ncclCoopCta(), /*release=*/false);
+  prim.barrierWait(ncclCoopCta(), /*acquire=*/true);
+
+  if (!bulkAligned) {
+    bcast<char, false>(prim, btn, bt, /*waitNeeded=*/false, input, selfSlot, nBytes);
+    prim.barrierArrive(ncclCoopCta(), /*release=*/true);
+    prim.barrierWait(ncclCoopCta(), /*acquire=*/false);
+    return;
+  }
+
+  // Phase 1: intra-group allgather of this rank's own block. Out of place, the
+  // copy into our own slot is fused into the first remote send (one fetch, two
+  // stores) so it costs no extra pass -- which relies on there being a remote send
+  // to ride along with.
+  static_assert(ncclSymkAg2DGroupSize >= 2, "phase 1 needs at least one group mate");
+  bool selfPending = (input != selfSlot);
+  for (int dr = 1; dr < groupSize; dr++) {
+    int dstRank = groupBase + (lr + dr) % groupSize;
+    char* rmtSlot = prim.peerPtr(dstRank, output) + (size_t)rank*nBytes;
+    if (selfPending) {
+      bulkCopy<true>(btn, bt, input, selfSlot, rmtSlot, nBytes);
+      selfPending = false;
+    } else {
+      bulkCopy<false>(btn, bt, input, selfSlot, rmtSlot, nBytes);
+    }
+  }
+
+  // Phase 2 only needs my group mates' phase-1 writes into MY output, so an
+  // in-group barrier suffices. My phase-2 writes land in the partner's output at my
+  // group's block range, disjoint from what the partner itself touches, so the
+  // groups may run out of step.
+  prim.groupBarrierArrive(ncclCoopCta(), groupBase, groupSize, /*release=*/true);
+  prim.groupBarrierWait(ncclCoopCta(), groupBase, groupSize, /*acquire=*/true);
+
+  // Phase 2: one outer step per other group, target staggered by groupId so
+  // every group sends to a distinct group instead of piling onto the lowest one.
+  // The partner is fixed for all groupSize sends, which keeps the pacing flat.
+  for (int gi = 1; gi < nGroups; gi++) {
+    int g = (groupId + gi) % nGroups;
+    int partner = g * groupSize + lr;
+    for (int k = 0; k < groupSize; k++) {
+      size_t slotOff = (size_t)(groupBase + k)*nBytes;
+      char* slot = output + slotOff;
+      bulkCopy<false>(btn, bt, slot, slot, prim.peerPtr(partner, output) + slotOff, nBytes);
+    }
+  }
+
+  prim.barrierArrive(ncclCoopCta(), /*release=*/true);
+  prim.barrierWait(ncclCoopCta(), /*acquire=*/false);
+}
+
 __device__ __forceinline__ void pccl_symRun_AllGather_ST(ncclSymDevArgs const* args) {
   pccl_symRun_AllGather_ST_impl<false>(args);
 }
 
 __device__ __forceinline__ void pccl_symRun_AllGather_ST_Ring(ncclSymDevArgs const* args) {
   pccl_symRun_AllGather_ST_impl<true>(args);
+}
+
+__device__ __forceinline__ void pccl_symRun_AllGather_ST_2D(ncclSymDevArgs const* args) {
+  pccl_symRun_AllGather_ST_2D_impl(args);
 }
 
 __device__ __forceinline__ void pccl_symRun_AllGather_LL(ncclSymDevArgs const* args) {

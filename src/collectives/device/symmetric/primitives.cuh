@@ -141,6 +141,44 @@ struct ncclSymPrims {
     cta.sync();
   }
 
+  // Barrier restricted to a contiguous range of ranks [groupBase, groupBase+groupSize).
+  // Reuses the all-rank barInboxPerPeer slots, touching only the in-group ones.
+  //
+  // Contract: every rank must issue the same total number of arrive/wait calls
+  // (full or group) so barEpoch stays in lockstep. Inbox values only increase, so
+  // peers skipped by a group barrier are still satisfied by a later full barrier
+  // writing a strictly larger epoch.
+  __device__ void groupBarrierArrive(ncclCoopCta cta, int groupBase, int groupSize, bool release) {
+    cta.sync();
+    int r = cta.thread_rank();
+    if (r != rank && r >= groupBase && r < groupBase + groupSize && r < nRanks) {
+      uint32_t* inbox = &peerPtr(r, base)->barInboxPerPeer[block*nRanks + rank];
+      if (release) {
+        asm volatile("ppu.st.release.sys.u32 [%0],%1;" :: "l"(inbox), "r"(barEpoch+1));
+      } else {
+        asm volatile("ppu.st.relaxed.sys.u32 [%0],%1;" :: "l"(inbox), "r"(barEpoch+1));
+      }
+    }
+  }
+
+  __device__ void groupBarrierWait(ncclCoopCta cta, int groupBase, int groupSize, bool acquire) {
+    int r = cta.thread_rank();
+    if (r != rank && r >= groupBase && r < groupBase + groupSize && r < nRanks) {
+      uint32_t* inbox = &base->barInboxPerPeer[block*nRanks + r];
+      while (true) {
+        uint32_t got;
+        if (acquire) {
+          asm volatile("ppu.ld.acquire.sys.u32 %0,[%1];" : "=r"(got) : "l"(inbox));
+        } else {
+          asm volatile("ppu.ld.relaxed.sys.u32 %0,[%1];" : "=r"(got) : "l"(inbox));
+        }
+        if (got-(barEpoch+1) <= uint32_t(-1)>>1) break;
+      }
+    }
+    barEpoch += 1;
+    cta.sync();
+  }
+
   __device__ void endLL(ncclCoopCta cta) {
     if (__builtin_expect(llEpoch >= -2u, false)) {
       cta.sync();
