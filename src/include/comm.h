@@ -350,7 +350,6 @@ struct ncclKernelPlanner {
         int workBytes; // Sum size of work metadata referenced by this batch.
         int nP2ps; // Number of p2p works in this batch
         int p2pRounds[NCCL_MAX_DEV_WORK_P2P_PER_BATCH]; // which rounds are present in this batch.
-        int delta;
         int p2pEpoch; // which p2p epoch (schedule sweep) this batch belongs to.
       } wipBatch; // work-in-progress batch which will be next tail of workBatchQueue
       int nWorkBatchesP2p; // number of p2p batches for this channel.
@@ -453,14 +452,8 @@ struct pcclComm {
   // Channels (per peer) for p2p
   int p2pnChannels;
   int p2pnChannelsPerPeer;
+  int p2pSchedGroupSize;
   int p2pChannels[MAXCHANNELS];
-  // P2p schedule: pre-computed per-rank (sendRank, recvRank) pairs for each
-  // round in the delta walk order (0, +1, -1, +2, -2, ... with dedup).
-  // Built once at comm init; used by scheduleP2pTasksToPlan to iterate peers.
-  struct P2pSchedulePair {
-    int sendRank;
-    int recvRank;
-  }* p2pSchedule; // array of nRanks pairs, built once at init
   // Channel shuffle
   bool channelShuffle;
   // Buffer sizes
@@ -611,6 +604,10 @@ struct pcclComm {
   struct pcclComm* groupNext[ncclGroupTaskTypeNum];
   // Subset of those in groupNext list. Holds 0x1 if not needing preconnect.
   struct pcclComm* preconnectNext;
+  struct P2pSchedulePair {
+    int sendRank;
+    int recvRank;
+  }* p2pSchedule;
 
   // pools backed by comm->memPermanent
   struct ncclMemoryPool memPool_ncclTaskColl;

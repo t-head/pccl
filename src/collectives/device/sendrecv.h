@@ -75,8 +75,7 @@ __device__ __forceinline__ void runSendRecv(struct ncclDevWorkP2p* work) {
       const ssize_t sendCount = work->sendCount;
       const ssize_t recvCount = work->recvCount;
 
-      const int delta = work->delta;
-      if (delta == 0) {
+      if (work->sendRank == comm->rank) {
         if (tid < nThreads && sendbuff != recvbuff) {
           // local copy : ReduceOrCopyMulti takes an int as number of elements,
           // so we split it in blocks of 1G elements.
@@ -98,7 +97,7 @@ __device__ __forceinline__ void runSendRecv(struct ncclDevWorkP2p* work) {
         const bool sendLL = kAllowLLSwitch && work->sendProtoLL;
         if ((tid < nThreadsSplit) && recvCount >= 0) {
           const int chunkSize = work->recvRegUsed ? NCCL_MAX_NET_SIZE : work->recvChunkSize/sizeof(T);
-          int peer = (comm->rank-delta+comm->nRanks)%comm->nRanks;
+          int peer = work->recvRank;
           int nt = nThreadsSplit;
           if (recvLL) {
             runRecv<FUNC, T, ProtoLL>(tid, nt, peer, recvbuff, recvCount, chunkSize, comm, groupRecv, work);
@@ -108,7 +107,7 @@ __device__ __forceinline__ void runSendRecv(struct ncclDevWorkP2p* work) {
         }
         if ((tid >= nThreadsSplit) && sendCount >= 0) {
           const int chunkSize = work->sendRegUsed ? NCCL_MAX_NET_SIZE : work->sendChunkSize/sizeof(T);
-          int peer = (comm->rank+delta)%comm->nRanks;
+          int peer = work->sendRank;
           int nt = sendLL ? (nThreadsSegment - nThreadsSplit) : (nThreads - nThreadsSplit);
           if (sendLL) {
             runSend<FUNC, T, ProtoLL>(tid-nThreadsSplit, nt, peer, sendbuff, recvbuff, sendCount, chunkSize, comm, groupSend, work);

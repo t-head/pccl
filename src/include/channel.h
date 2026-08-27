@@ -15,4 +15,18 @@ ncclResult_t freeChannel(struct ncclChannel* channel, int nRanks);
 // For PAT algorithm.
 int pcclPatEnable(ncclComm_t comm);
 
+inline int pcclP2pChannelId(ncclComm_t comm, int p2pRound, int part) {
+  int base;
+  if (comm->nNodes > 1) {
+    int localSize = comm->p2pSchedGroupSize;
+    int groupDelta = p2pRound / localSize;
+    int localDelta = p2pRound % localSize;
+    base = groupDelta * divUp(localSize, NCCL_MAX_DEV_WORK_P2P_PER_BATCH);
+    base += localDelta / NCCL_MAX_DEV_WORK_P2P_PER_BATCH;
+  } else {
+    base = p2pRound;
+  }
+  return (base + comm->p2pChannels[part % comm->p2pnChannelsPerPeer]) % comm->p2pnChannels;
+}
+
 #endif

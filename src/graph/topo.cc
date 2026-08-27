@@ -1456,3 +1456,11 @@ out:
   NCCLCHECK(ncclFree(isAffinityNet));
   return res;
 }
+
+ncclResult_t pcclTopoGetGpuPerNetBw(ncclComm_t comm, float* gpuPerNetBw) {
+  if (comm->topo == NULL || comm->localRanks <= 0) {
+    return ncclInternalError;
+  }
+  *gpuPerNetBw = comm->topo->totalNetWidth / comm->localRanks;
+  return ncclSuccess;
+}

@@ -1126,33 +1126,101 @@ NCCL_PARAM(MNNVLEnable, "MNNVL_ENABLE", 2);
 #define TIMER_INIT_CONNECT 6
 #define TIMERS_INIT_COUNT 7
 
-// Build the p2p schedule once at comm init: pre-compute per-rank (sendRank,
-// recvRank) pairs for the delta walk order (0, +1, -1, +2, -2, ... with dedup).
-// Each rank gets its own schedule because sendRank/recvRank depend on comm->rank.
-// The schedule lives on the comm (memPermanent) for the comm lifetime; it must
-// not live on the planner, which is memset-reset at every group end.
+NCCL_PARAM(GroupSize, "P2P_SCHEDULE_GROUP_SIZE", -1);
+
 static ncclResult_t ncclP2pSchedule(ncclComm_t comm) {
-  int nRanks = comm->nRanks;
-  int rank = comm->rank;
-  comm->p2pSchedule = ncclMemoryStackAlloc<pcclComm::P2pSchedulePair>(&comm->memPermanent, nRanks);
-  int count = 0;
-  for (int d = 0; d <= nRanks/4; d++) {
-    int deltas[4] = { d, (nRanks-d)%nRanks, nRanks/2-d, (nRanks-(nRanks/2-d))%nRanks };
-    int index = 0;
-    while (index < 4) {
-      // Dedup: skip deltas that equal an earlier one in this group of 4
-      if (index == 1 && deltas[1] == deltas[0]) { index++; continue; }
-      if (index == 2 && deltas[2] == deltas[0]) { index++; continue; }
-      if (index == 3 && (deltas[3] == deltas[2] || deltas[3] == deltas[1])) { index++; continue; }
-      int delta = deltas[index];
-      comm->p2pSchedule[count].sendRank = (rank + delta) % nRanks;
-      comm->p2pSchedule[count].recvRank = (rank + nRanks - delta) % nRanks;
-      count++;
-      index++;
+  struct ncclNodeRanks* nodeRanks = comm->nodeRanks;
+  // For MNNVL systems, we need to split the nodes into different groups to guarantee the proper PXN
+  // aggregation factor.
+  int groupSize;
+  if (comm->nNodes > 1) {
+    if (ncclParamGroupSize() > 0) {
+      groupSize = ncclParamGroupSize();
+    } else {
+      float gpuPerNetBw;
+      pcclTopoGetGpuPerNetBw(comm, &gpuPerNetBw);
+      if (gpuPerNetBw <= 12.0) {
+        groupSize = NCCL_MAX_DEV_WORK_P2P_PER_BATCH;
+      } else {
+        groupSize = 2;
+        while (comm->nRanks > comm->p2pnChannels * groupSize && groupSize * 2 <= NCCL_MAX_DEV_WORK_P2P_PER_BATCH) { 
+          groupSize *= 2;
+        }
+      }
     }
+  } else {
+    groupSize = comm->maxLocalRanks;
   }
-  if (count != nRanks) {
-    WARN("P2p schedule creation has bugs: count=%d nRanks=%d", count, nRanks);
+
+  for (int node = 0; node < comm->nNodes; node++) {
+    int localRanks = nodeRanks[node].localRanks;
+    if (localRanks % groupSize != 0 || localRanks < groupSize) groupSize = gcd(groupSize, nodeRanks[node].localRanks);
+  }
+  comm->p2pSchedGroupSize = groupSize;
+
+  int local = comm->localRank % groupSize; // local id inside my group
+  int group = comm->localRank / groupSize; // id of my group, incremented when going over the previous nodes
+  int nGroups = comm->nRanks / groupSize;
+  int nGroupsPow2 = pow2Up(nGroups);
+
+  int *groupToNode, *groupToLocal;
+  NCCLCHECK(ncclCalloc(&groupToNode, nGroups));  // node hosting the group
+  NCCLCHECK(ncclCalloc(&groupToLocal, nGroups)); // local offset of the group
+  int groupCount = 0;
+  for (int n = 0; n < comm->nNodes; ++n) {
+    if (0 != comm->nodeRanks[n].localRanks % groupSize) {
+      WARN("nLocals = %d should be a diviser of the number of ranks in node %d = %d", groupSize, n,
+           comm->nodeRanks[n].localRanks);
+      NCCLCHECK(ncclFree(groupToNode));
+      NCCLCHECK(ncclFree(groupToLocal));
+      return ncclInternalError;
+    }
+    int nGroupsInNode = comm->nodeRanks[n].localRanks / groupSize;
+    for (int g = 0; g < nGroupsInNode; ++g) {
+      groupToLocal[groupCount] = g * groupSize;
+      groupToNode[groupCount] = n;
+      groupCount++;
+    }
+    if (n < comm->node) group += nGroupsInNode;
+  }
+  if (groupCount != nGroups) {
+    WARN("Group creation failed: %d vs %d", groupCount, nGroups);
+    NCCLCHECK(ncclFree(groupToNode));
+    NCCLCHECK(ncclFree(groupToLocal));
+    return ncclInternalError;
+  }
+  INFO(NCCL_GRAPH, "%s: group size used is %d", __func__, groupSize);
+
+  uint32_t groupRound = 0, groupDelta = 0;
+  int round = 0;
+  // When enumerating peer deltas we use the quadratic formula (x*x+x)/2 mod N.
+  // Since that formula only produces valid permutations when N is a pow of 2,
+  // we let N = pow2Up(n) and filter out results greater-eq to n.
+  // Example sequence for 16 ranks: 0, 1, 3, 6, 10, 15, 5, 12, 4, 13, 7, 2, 14, 11, 9, 8
+  do {
+    if (groupDelta < nGroups) {
+      // Filter nonsensical group deltas
+      int sendGroup = (group + groupDelta) % nGroups;
+      int recvGroup = (group - groupDelta + nGroups) % nGroups;
+      int sendNode = groupToNode[sendGroup];
+      int recvNode = groupToNode[recvGroup];
+      for (int delta = 0; delta < groupSize; delta++) {
+        int sendLocal = groupToLocal[sendGroup] + (local + delta) % groupSize;
+        int recvLocal = groupToLocal[recvGroup] + (local - delta + groupSize) % groupSize;
+        comm->p2pSchedule[round].sendRank = nodeRanks[sendNode].localRankToRank[sendLocal];
+        comm->p2pSchedule[round].recvRank = nodeRanks[recvNode].localRankToRank[recvLocal];
+        round += 1;
+      }
+    }
+    groupRound += 1;
+    groupDelta = (groupDelta + groupRound) & (nGroupsPow2 - 1); // Quadratic update
+  } while (groupRound != nGroupsPow2);
+
+  NCCLCHECK(ncclFree(groupToNode));
+  NCCLCHECK(ncclFree(groupToLocal));
+
+  if (round != comm->nRanks) {
+    WARN("P2p schedule creation has bugs.");
     return ncclInternalError;
   }
   return ncclSuccess;
@@ -1622,6 +1690,11 @@ static ncclResult_t initTransportsRank(ncclComm_t comm, ncclComm_t parent, uint6
       INFO(NCCL_INIT, "u2mm does not support vmm api for now, so we cannot use runtime connection establishment");
     }
   }
+
+  // Build p2p schedule
+  comm->p2pSchedule = ncclMemoryStackAlloc<ncclComm::P2pSchedulePair>(&comm->memPermanent, comm->nRanks);
+  NCCLCHECK(ncclP2pSchedule(comm));
+
   // Connect with prev/next for each ring
   for (int c=0; c<comm->nChannels; c++) {
     NCCLCHECKGOTO(setupChannel(comm, c, rank, nranks, rings+c*nranks), res, fail);
@@ -1674,9 +1747,6 @@ static ncclResult_t initTransportsRank(ncclComm_t comm, ncclComm_t parent, uint6
         collNetGraph, fcGraph), res, fail);
 
   comm->planner.peers = ncclMemoryStackAlloc<ncclKernelPlanner::Peer>(&comm->memPermanent, comm->nRanks);
-
-  // Build the p2p schedule (comm->p2pSchedule: per-rank sendRank/recvRank pairs).
-  NCCLCHECKGOTO(ncclP2pSchedule(comm), res, fail);
 
   if (netCount > 0) {
     // Connect to local net proxy

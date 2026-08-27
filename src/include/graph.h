@@ -140,5 +140,5 @@ ncclResult_t ncclTopoConnectCollNet(ncclComm_t comm, struct ncclTopoGraph* collN
 ncclResult_t ncclTopoTuneModel(ncclComm_t comm, int minCompCap, int maxCompCap, struct ncclTopoGraph* treeGraph, struct ncclTopoGraph* ringGraph, struct ncclTopoGraph* collNetGraph, struct ncclTopoGraph* fcGraph);
 #include "info.h"
 ncclResult_t ncclTopoGetAlgoTime(ncclComm_t comm, int coll, int algorithm, int protocol, size_t nBytes, int nChannels, float* time);
-
+ncclResult_t pcclTopoGetGpuPerNetBw(ncclComm_t comm, float* gpuPerNetBw);
 #endif

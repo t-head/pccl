@@ -208,11 +208,9 @@ struct alignas(16) ncclDevWorkP2p {
   const void * sendbuff;
   void * recvbuff;
 
-  ssize_t sendCount;
-  ssize_t recvCount;
-  int sendChunkSize;
-  int recvChunkSize;
-  int32_t delta;
+  ssize_t sendCount, recvCount;
+  int sendRank, recvRank;
+  int sendChunkSize, recvChunkSize;
 };
 
 struct alignas(16) ncclDevWorkColl {

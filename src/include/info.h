@@ -63,7 +63,6 @@ struct ncclInfo {
   ssize_t recvbytes;
   int recvChunkSize;
   int sendChunkSize;
-  uint32_t delta;
   int channelId;
 };
 

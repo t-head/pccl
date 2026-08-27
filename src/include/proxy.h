@@ -44,7 +44,6 @@ struct ncclProxyOp {
   uint8_t /*ncclPattern_t*/ pattern;
   uint8_t protocol;
   int sendrecv;
-  int delta;
   ncclComm_t perfComm;
   uint8_t* sendbuff;
   uint8_t* recvbuff;
