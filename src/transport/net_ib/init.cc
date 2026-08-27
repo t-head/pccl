@@ -9,6 +9,7 @@
 #include "common.h"
 
 pthread_mutex_t ncclIbLock = PTHREAD_MUTEX_INITIALIZER;
+int ncclIbRelaxedOrderingEnabled = 0;
 
 NCCL_PARAM(IbDisable, "IB_DISABLE", 0);
 NCCL_PARAM(DmaBufEnable, "DMABUF_ENABLE", 0);
@@ -176,6 +177,17 @@ static int ncclIbSpeed(int speed) {
   return ibvSpeeds[firstBitSet(speed, sizeof(ibvSpeeds)/sizeof(int)-1)];
 }
 
+// Determine whether relaxed ordering is requested and the required
+// IBVERBS_1.8 memory registration API is available.
+static int ncclIbRelaxedOrderingCapable(void) {
+  int roMode = ncclParamIbPciRelaxedOrdering();
+  ncclResult_t result = ncclInternalError;
+  if (roMode == 1 || roMode == 2) {
+    result = wrap_ibv_reg_mr_iova2(NULL, NULL, NULL, 0, 0, 0);
+  }
+  return result == ncclInternalError ? 0 : 1;
+}
+
 static ncclResult_t ncclIbGetSpeed(char* ifName, const struct ibv_port_attr *portAttr, int *ibSpeed) {
   *ibSpeed = ncclIbSpeed(portAttr->active_speed) * ncclIbWidth(portAttr->active_width) * pcclParamIbNicSpeedScalingFactor();
   if (pcclParamIbDisableAccBondingPort() != 0 || strlen(ifName) <= 0 || strncmp("N/A", ifName, 2) == 0) return ncclSuccess;
@@ -336,6 +348,7 @@ ncclResult_t ncclIbInit(ncclDebugLogger_t logFunction) {
     if (ncclNIbDevs == 0) {
       INFO(NCCL_INIT|NCCL_NET, "NET/IB : No device found.");
     } else {
+      ncclIbRelaxedOrderingEnabled = ncclIbRelaxedOrderingCapable();
       char line[1024];
       line[0] = '\0';
       for (int d=0; d<ncclNIbDevs; d++) {
@@ -344,7 +357,9 @@ ncclResult_t ncclIbInit(ncclDebugLogger_t logFunction) {
       }
       line[1023] = '\0';
       char addrline[SOCKET_NAME_MAXLEN+1];
-      INFO(NCCL_INIT|NCCL_NET, "NET/IB : Using%s ; OOB %s:%s", line, ncclIbIfName, ncclSocketToString(&ncclIbIfAddr, addrline));
+      INFO(NCCL_INIT|NCCL_NET, "NET/IB : Using%s %s; OOB %s:%s", line,
+           ncclIbRelaxedOrderingEnabled ? "[RO]" : "", ncclIbIfName,
+           ncclSocketToString(&ncclIbIfAddr, addrline));
     }
 exit:
     NCCLCHECK(ncclFree(ncclIbBondIfName));

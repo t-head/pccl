@@ -25,7 +25,13 @@ ncclResult_t ncclIbRegMrInternal(void* comm, void* data, size_t size, int type, 
   uint64_t regSize = addr + size - regAddr;
   regSize = ((regSize + REG_ALIGN - 1) / REG_ALIGN ) * REG_ALIGN;
   struct ibv_mr* mr;
-  NCCLCHECK(wrap_ibv_reg_mr(&mr, devComm->pd, (void*)regAddr, regSize, IBV_ACCESS_LOCAL_WRITE|IBV_ACCESS_REMOTE_WRITE|IBV_ACCESS_REMOTE_READ|IBV_ACCESS_REMOTE_ATOMIC));
+  unsigned int flags = IBV_ACCESS_LOCAL_WRITE|IBV_ACCESS_REMOTE_WRITE|IBV_ACCESS_REMOTE_READ|IBV_ACCESS_REMOTE_ATOMIC;
+  if (ncclIbRelaxedOrderingEnabled) {
+    flags |= IBV_ACCESS_RELAXED_ORDERING;
+    NCCLCHECK(wrap_ibv_reg_mr_iova2(&mr, devComm->pd, (void*)regAddr, regSize, regAddr, flags));
+  } else {
+    NCCLCHECK(wrap_ibv_reg_mr(&mr, devComm->pd, (void*)regAddr, regSize, flags));
+  }
   *mhandle = (void*)mr;
   TRACE(NCCL_INIT,"regAddr %lx size %ld rkey %x", regAddr, regSize, mr->rkey);
   return ncclSuccess;

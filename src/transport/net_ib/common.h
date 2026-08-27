@@ -36,6 +36,7 @@ struct ncclIbStats {
 };
 
 extern int ncclNIbDevs;
+extern int ncclIbRelaxedOrderingEnabled;
 enum ncclIbProvider {
   IB_PROVIDER_NONE = 0,
   IB_PROVIDER_MLX5 = 1,
