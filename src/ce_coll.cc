@@ -28,16 +28,7 @@ PCCL_PARAM(CeAg2StageMinSize, "CE_AG_2STAGE_MIN_SIZE", 0);
 PCCL_PARAM(CeCollOneStream, "CE_COLL_ONE_STREAM", 0);
 PCCL_PARAM(CeAg2StageOptMinSize, "CE_AG_2STAGE_OPT_MIN_SIZE", 0);
 PCCL_PARAM(CeEnableAr, "CE_ENABLE_AR", 0);
-PCCL_PARAM(CeEnableRs, "CE_ENABLE_RS", 0);
 PCCL_PARAM(CeDieByRank, "CE_DIE_BY_RANK", 1);
-
-// Translate a local symmetric pointer (inside devr window `win`) to the
-// corresponding address on targetRank. `win->userPtr` is this rank's base of
-// the window, so the intra-window offset is localPtr - userPtr.
-static inline ncclResult_t ceGetSymPeerPtr(ncclComm_t comm, struct ncclDevrWindow* win, void* localPtr, int targetRank, void** outPtr) {
-  ssize_t offset = (uint8_t*)localPtr - (uint8_t*)win->userPtr;
-  return ncclDevrGetLsaRankPtr(comm, win, offset, targetRank, outPtr);
-}
 
 // Machine types that support two-stage topology optimization for CE allgather
 static const PPU_TYPE ceAllGatherTwoStageTypes[] = {
@@ -130,9 +121,9 @@ ncclResult_t ncclInitCeAllGatherStrategy(struct ncclCeAllGatherStrategy* strateg
   return ncclSuccess;
 }
 
-// Datatype/op gating shared by reduce-family CE collectives (AllReduce, ReduceScatter).
-// Runtime gating that needs comm/buffers (nRanks, dies, recvbuff alignment) lives in
-// ncclCeAvailable; here we only have coll/red/ty.
+// Datatype/op gating for CE AllReduce. Runtime gating that needs comm/buffers
+// (nRanks, dies, recvbuff alignment, OKI availability) lives in ncclCeAvailable;
+// here we only have coll/red/ty.
 static inline bool ceReduceTypeSupported(int/*ncclRedOp_t*/ red, ncclDataType_t ty) {
   if (ty != pcclHalf && ty != pcclBfloat16 && ty != pcclFloat) return false;
   if (red != ncclSum) return false;
@@ -147,19 +138,17 @@ bool ncclCeImplemented(ncclFunc_t coll, int/*ncclRedOp_t*/ red, ncclDataType_t t
   case ncclFuncGather:
     return true;
   case ncclFuncAllReduce:
+#if PCCL_HGGC_VERSION < PCCL_HGGC_DRIVER_VERSION(2, 2, 0)
+    // CE AllReduce is OKI-only, and OKI is not compiled for this driver.
+    return false;
+#else
     if (pcclParamCeEnableAr() != 1) return false;
     if (ppuDiesNum > PCCL_CE_MAX_DIE_NUM) {
       WARN("CE: config %d dies, but max %d dies supported for ce AllReduce", ppuDiesNum, PCCL_CE_MAX_DIE_NUM);
       return false;
     }
     return ceReduceTypeSupported(red, ty);
-  case ncclFuncReduceScatter:
-    if (pcclParamCeEnableRs() != 1) return false;
-    if (ppuDiesNum > PCCL_CE_MAX_DIE_NUM) {
-      WARN("CE: config %d dies, but max %d dies supported for ce ReduceScatter", ppuDiesNum, PCCL_CE_MAX_DIE_NUM);
-      return false;
-    }
-    return ceReduceTypeSupported(red, ty);
+#endif
   default:
     return false;
   }
@@ -180,28 +169,32 @@ bool ncclCeAvailable(ncclComm_t comm, ncclFunc_t coll, int/*ncclRedOp_t*/ red, n
     TRACE(NCCL_TUNING, "Skipping CE collective: not implemented");
     return false;
   }
-  bool isReduceFamily = (coll == ncclFuncAllReduce || coll == ncclFuncReduceScatter);
-  // The reduce-family tail/head handshake is driven by host-side step counters
-  // (comm->ceReduceStep, comm->ceOkiStep) that advance once per launch. A captured graph
-  // replays the values baked in at capture time, so the waits would never be satisfied.
-  if (isReduceFamily && ceStreamCapturing(stream)) {
-    TRACE(NCCL_TUNING, "Skipping CE reduce: graph capture is not supported");
-    return false;
-  }
-  if (coll == ncclFuncAllReduce && comm->nRanks > 8) {
-    WARN("CE: AllReduce only support nRanks <=8");
-    return false;
-  }
-  // Reduce-family CE kernels only exist for nRanks 2/4/8 (see localReduceFuncIndex).
-  if (isReduceFamily && comm->nRanks != 2 && comm->nRanks != 4 && comm->nRanks != 8) {
-    TRACE(NCCL_TUNING, "Skipping CE reduce: nRanks %d not in {2,4,8}", comm->nRanks);
-    return false;
-  }
-  // TODO: the initial version of ce reduce always stores with bulk first,
-  // without the pre/aft handling of the symmetric kernel, so recvbuff must be 4B aligned.
-  if (isReduceFamily && (uint64_t)recvbuff % 4 != 0) {
-    TRACE(NCCL_TUNING, "Skipping CE reduce: recvbuff %p is not 4-byte aligned", recvbuff);
-    return false;
+  if (coll == ncclFuncAllReduce) {
+#if PCCL_HGGC_VERSION >= PCCL_HGGC_DRIVER_VERSION(2, 2, 0)
+    // The only CE AllReduce left is the OKI one.
+    if (!comm->okiSupport) {
+      TRACE(NCCL_TUNING, "Skipping CE AllReduce: OKI is not available");
+      return false;
+    }
+#endif
+    // The AllReduce tail/head handshake is driven by host-side step counters
+    // (comm->ceReduceStep, comm->ceOkiStep) that advance once per launch. A captured graph
+    // replays the values baked in at capture time, so the waits would never be satisfied.
+    if (ceStreamCapturing(stream)) {
+      TRACE(NCCL_TUNING, "Skipping CE AllReduce: graph capture is not supported");
+      return false;
+    }
+    // CE reduce kernels only exist for nRanks 2/4/8 (see localReduceFuncIndex).
+    if (comm->nRanks != 2 && comm->nRanks != 4 && comm->nRanks != 8) {
+      TRACE(NCCL_TUNING, "Skipping CE AllReduce: nRanks %d not in {2,4,8}", comm->nRanks);
+      return false;
+    }
+    // TODO: the initial version of ce reduce always stores with bulk first,
+    // without the pre/aft handling of the symmetric kernel, so recvbuff must be 4B aligned.
+    if ((uint64_t)recvbuff % 4 != 0) {
+      TRACE(NCCL_TUNING, "Skipping CE AllReduce: recvbuff %p is not 4-byte aligned", recvbuff);
+      return false;
+    }
   }
   if (ncclTeamLsa(comm).nRanks < comm->nRanks) {
     TRACE(NCCL_TUNING, "Skipping CE collective: not all ranks have NVLink connectivity");
@@ -253,13 +246,10 @@ ncclResult_t ncclCeInit(ncclComm_t comm) {
   cec->symDevComm.rank = comm->localRank;
 
   HGGCCHECKGOTO(hggcMemset(cec->ceSyncBase, 0, ceDevBaseSize), ret, fail);
-  // AllReduce and ReduceScatter share the same CE tail/head sync arrays and the
-  // same waitValue semantics (waitValue = 1 + iter - pcclCeReduceMaxSect, with the
-  // first iter == comm->ceReduceStep). The arrays must be pre-seeded to ceReduceStep
-  // so the first GEQ wait passes; otherwise a reduce-family collective deadlocks.
-  // Seed whenever either reduce collective is CE-enabled (not just AllReduce).
-  if (ncclCeImplemented(ncclFuncAllReduce, ncclSum, pcclFloat32) ||
-      ncclCeImplemented(ncclFuncReduceScatter, ncclSum, pcclFloat32)) {
+  // CE AllReduce's waitValue semantics are waitValue = 1 + iter - pcclCeReduceMaxSect,
+  // with the first iter == comm->ceReduceStep. The tail/head arrays must be pre-seeded
+  // to ceReduceStep so the first GEQ wait passes; otherwise AllReduce deadlocks.
+  if (ncclCeImplemented(ncclFuncAllReduce, ncclSum, pcclFloat32)) {
     int count = comm->nRanks * PCCL_CE_MAX_DIE_NUM;
     NCCLCHECKGOTO(ncclCalloc(&ceArStepInitMem, count), ret, fail);
     for (int i = 0; i < count; i++) ceArStepInitMem[i] = comm->ceReduceStep;
@@ -370,93 +360,10 @@ void splitSize(ssize_t totalSize, int round, int numRounds, ssize_t* size) {
   if (*size > perRoundSize) *size = perRoundSize;
 }
 
-ncclResult_t ncclCeLaunchBatchOpsAsync(ncclComm_t comm, const struct ncclCeBatchOpsParams* params, hggcStream_t stream, int64_t iter, uint64_t* tailBasePtr, uint64_t* headBasePtr) {
-  ncclResult_t ret = ncclSuccess;
-
-  // Check if there are any operations to perform
-  if (params->numOps == 0) {
-    return ncclSuccess;
-  }
-  uint64_t waitValue = 1L + iter - pcclCeReduceMaxSect;
-  uint64_t postValue = 1L + iter;
-
-#ifdef SYNC_WITH_KERNEL
-  void* pargs[] = {&tailBasePtr, &waitValue, &ppuDiesNum};
-  HGGCCHECK(hggcLaunchKernel((const void*)gpuPreDma, 1, comm->nRanks, pargs, 0, comm->waitReduceStream));
-  HGGCCHECKGOTO(hggcEventRecord(comm->dmaWaitEvent, comm->waitReduceStream), ret, fail);
-#endif
-
-
-  for (int i = 0; i < params->numOps; i++) {
-    ssize_t offset = 0;
-    int targetRank = params->targets[i];
-    for (int dieIdx = 0; dieIdx < ppuDiesNum; dieIdx++) {
-      ssize_t size = 0;
-      if (targetRank == comm->rank) {
-        size = dieIdx == 0 ? params->sizes[i] : 0;
-      } else {
-        splitSize(params->sizes[i], dieIdx, ppuDiesNum, &size);
-      }
-
-      // fix streamId by rank and die, to guarantee head/tail store consequently.
-      int streamId = (targetRank % HG_DMA_RING_PER_DIE) * ppuDiesNum + dieIdx;
-#ifdef SYNC_WITH_WAIT_VALUE
-      uint64_t* tailPtrPerDie = tailBasePtr + targetRank * PCCL_CE_MAX_DIE_NUM + dieIdx;
-      HGCHECKGOTO(hgStreamWaitValue64(comm->ceStreams[streamId], (HGdeviceptr)tailPtrPerDie, waitValue, HG_STREAM_WAIT_VALUE_GEQ), ret, fail);
-#endif
-
-
-      if (size >= 0) {
-#ifdef SYNC_WITH_KERNEL
-        HGGCCHECKGOTO(hggcStreamWaitEvent(comm->ceStreams[streamId], comm->dmaWaitEvent), ret, fail);
-#endif
-        HGGCCHECKGOTO(hggcMemcpyAsync(
-          (void*)((uintptr_t)params->dsts[i] + offset),
-          (void*)((uintptr_t)params->srcs[i] + offset),
-          size,
-          hggcMemcpyDeviceToDevice,
-          comm->ceStreams[streamId]), ret, fail);
-        offset += size;
-      }
-
-#ifdef SYNC_WITH_WAIT_VALUE
-      uint64_t* headPtrPerDie = headBasePtr + targetRank * PCCL_CE_MAX_DIE_NUM + dieIdx;
-      HGCHECKGOTO(hgStreamWriteValue64(comm->ceStreams[streamId], (HGdeviceptr)headPtrPerDie, postValue, HG_STREAM_WRITE_VALUE_DEFAULT), ret, fail);
-#endif
-    }
-  }
-
-#ifdef SYNC_WITH_KERNEL
-  {
-    for (int i = 0; i < params->numOps; i++) {
-      int targetRank = params->targets[i];
-      for (int dieIdx = 0; dieIdx < ppuDiesNum; dieIdx++) {
-        int id = (targetRank % HG_DMA_RING_PER_DIE) * ppuDiesNum + dieIdx;
-        HGGCCHECKGOTO(hggcEventRecord(comm->ceEvents[id], comm->ceStreams[id]), ret, fail);
-        HGGCCHECKGOTO(hggcStreamWaitEvent(comm->notifyReduceStream, comm->ceEvents[id]), ret, fail);
-      }
-    }
-    void* pargs1[] = {&headBasePtr, &postValue};
-    HGGCCHECK(hggcLaunchKernel((const void*)gpuPostDma, 1, comm->nRanks, pargs1, 0, comm->notifyReduceStream));
-  }
-#endif
-
-
-exit:
-  return ret;
-fail:
-  goto exit;
-}
-
 // Collectives that build one op per target rank with a symmetric target set, so
 // the distance-keyed die assignment below stays balanced on both the sending and
 // the receiving side. Scatter and Gather have a single sender resp. receiver, so
 // only that side has anything to balance, and that side is the bottleneck.
-//
-// The reduce family is left out: its scatter phase goes through
-// ncclCeLaunchBatchOpsAsync, which pairs the even split with per-die head/tail
-// counters, so only its broadcast phase would change here and that combination is
-// not measured yet.
 static inline bool ceDieByRankApplies(ncclFunc_t coll) {
   switch (coll) {
   case ncclFuncAllGather:
@@ -948,231 +855,6 @@ fail:
   goto exit;
 }
 
-extern void* localReduceFuncs[];
-
-// Shared scatter-reduce pipeline: DMA scatter chunks to staging buffers,
-// then GPU ceLocalReduce reduces them into myRecvBuff.
-// Caller must fully populate ctx (partition, myRecvBuff, etc.) before calling.
-// On return, ctx->batchOpsParams is initialized for optional use by ceReduceBroadcast.
-static ncclResult_t ceReduceScatterImpl(ncclComm_t comm, struct ncclCeCollArgs* args,
-                                        hggcStream_t stream, struct pcclCeReduceCtx* ctx) {
-  ncclResult_t ret = ncclSuccess;
-  hggcEvent_t event = nullptr;
-
-  ssize_t splitElts = pcclCeReduceChunkSize / args->eltSize;
-  uint8_t* myStaBuff = (uint8_t*)ncclSymDevBase_getStaBuf((struct ncclSymDevBase*)comm->ceColl.ceSyncBase, comm->nRanks);
-
-  NCCLCHECKGOTO(ncclCeInitBatchOpsParams(&ctx->batchOpsParams, comm->nRanks), ret, fail);
-
-  // Ensure all ranks are ready before starting transfers
-  NCCLCHECKGOTO(ncclMemOpSync(comm, args, stream), ret, fail);
-
-  HGGCCHECKGOTO(hggcEventCreateWithFlags(&event, hggcEventDisableTiming), ret, fail);
-  HGGCCHECKGOTO(hggcEventRecord(event, stream), ret, fail);
-  for (int i = 0; i < comm->nRanks * ppuDiesNum; i++) {
-    HGGCCHECKGOTO(hggcStreamWaitEvent(comm->ceStreams[i], event), ret, fail);
-  }
-
-  {
-    uint32_t maxBlockNum = pcclCeReduceMaxBlocks;
-    constexpr uint32_t maxThreadNum = pcclCeReduceMaxThreads;
-    uint32_t myRank = comm->rank;
-    // every rank should have the same blockNum, even they may process different elts.
-    uint32_t blockNum = DIVUP(ctx->rankElts[0], (maxThreadNum * bulkBytesPerThread / args->eltSize));
-    blockNum = nextPow2(blockNum);
-    blockNum = std::min(blockNum, maxBlockNum);
-    blockNum = std::max(blockNum, 1U);
-    uint32_t threadNum = maxThreadNum;
-
-    uint64_t* myTailPtr = ctx->tailBasePtr + comm->rank * PCCL_CE_MAX_DIE_NUM;
-    void* myTailOnRank0Ptr = nullptr;
-    NCCLCHECKGOTO(ceGetSymPeerPtr(comm, comm->ceColl.ceSyncWin, myTailPtr, 0, &myTailOnRank0Ptr), ret, fail);
-
-    uint64_t* myHeadPtr = ctx->headBasePtr + comm->rank * PCCL_CE_MAX_DIE_NUM;
-    void* myHeadOnRank0Ptr = nullptr;
-    NCCLCHECKGOTO(ceGetSymPeerPtr(comm, comm->ceColl.ceSyncWin, myHeadPtr, 0, &myHeadOnRank0Ptr), ret, fail);
-
-    struct ncclCeGridSyncMem* gridSyncPtr =
-        (struct ncclCeGridSyncMem*)ncclSymDevBase_getGridSyncBase((struct ncclSymDevBase*)comm->ceColl.ceSyncBase, comm->nRanks);
-
-    int funcIndex = localReduceFuncIndex(args->datatype, comm->nRanks);
-    if (funcIndex == -1) {
-      ERROR("not implemented");
-      return ncclInternalError;
-    }
-    const void* func = localReduceFuncs[funcIndex];
-    uint32_t stride4G = comm->devrState.bigSize >> 32;
-    int64_t baseStep = comm->ceReduceStep;
-
-    struct dispatchStrategyExAD launchConfig = {1, 1, 1, -2, /*cooperative=*/1};
-    dim3 grid = {blockNum, 1, 1};
-    dim3 block = {threadNum, 1, 1};
-    void* dummyPtr = nullptr;
-    uint64_t dummy = 0;
-    void* pargs[] = {&myStaBuff, &ctx->myRecvBuff, &ctx->currentRankElts, &myRank,
-                     &blockNum, &ppuDiesNum, &myTailOnRank0Ptr, &myHeadOnRank0Ptr,
-                     &ctx->rank0LoopCnt, &stride4G, &gridSyncPtr, &baseStep, &dummyPtr, &dummy};
-    LAUNCH_KERNEL(func, grid, block, pargs, (ssize_t)0, stream, 1, launchConfig);
-  }
-
-  // DMA scatter: send each rank's chunk to the corresponding peer's staging buffer
-  // Use local copy to avoid mutating ctx->rankElts (which may be needed by caller)
-  ssize_t rankEltsRemain[8];
-  for (int i = 0; i < comm->nRanks; i++) rankEltsRemain[i] = ctx->rankElts[i];
-
-  for (uint32_t iter = 0; iter < ctx->rank0LoopCnt; ++iter) {
-    ctx->batchOpsParams.numOps = 0;
-    int32_t sect = iter % 2;
-
-    for (int r = 0; r < comm->nRanks; r++) {
-      int targetRank = (comm->rank + r + 1) % comm->nRanks;
-      uint8_t* peerStaBuff = nullptr;
-
-      ssize_t perChunkSize = 0;
-      if (rankEltsRemain[targetRank] > splitElts) perChunkSize = splitElts * args->eltSize;
-      else perChunkSize = rankEltsRemain[targetRank] * args->eltSize;
-      rankEltsRemain[targetRank] -= splitElts;
-
-      uint8_t* mySendBuff = (uint8_t*)args->sendBuff + ctx->rankOffset[targetRank] +
-                             iter * splitElts * args->eltSize;
-
-      NCCLCHECKGOTO(ceGetSymPeerPtr(comm, comm->ceColl.ceSyncWin, myStaBuff, targetRank, (void**)&peerStaBuff), ret, fail);
-      uint8_t* peerStaDst = peerStaBuff + comm->rank * pcclSymMidBufferPerRank +
-                             sect * splitElts * args->eltSize;
-
-      ctx->batchOpsParams.targets[ctx->batchOpsParams.numOps] = targetRank;
-      ctx->batchOpsParams.srcs[ctx->batchOpsParams.numOps] = (void*)mySendBuff;
-      ctx->batchOpsParams.dsts[ctx->batchOpsParams.numOps] = (void*)peerStaDst;
-      ctx->batchOpsParams.sizes[ctx->batchOpsParams.numOps] = perChunkSize > 0 ? perChunkSize : 0;
-      ctx->batchOpsParams.numOps++;
-    }
-
-    NCCLCHECKGOTO(ncclCeLaunchBatchOpsAsync(comm, &ctx->batchOpsParams, stream,
-                  comm->ceReduceStep + iter, ctx->tailBasePtr, ctx->headBasePtr), ret, fail);
-  }
-
-exit:
-  if (event) hggcEventDestroy(event);
-  return ret;
-fail:
-  goto exit;
-}
-
-// Broadcast phase: copy this rank's reduced slice to all peers' recvBuff.
-// Only called by AllReduce after ceReduceScatterImpl.
-// When sync=false, caller is responsible for the final barrier.
-static ncclResult_t ceReduceBroadcast(ncclComm_t comm, struct ncclCeCollArgs* args,
-                                      hggcStream_t stream, struct pcclCeReduceCtx* ctx,
-                                      bool sync = true) {
-  ncclResult_t ret = ncclSuccess;
-  ssize_t sliceOffset = 0;
-
-  ctx->batchOpsParams.numOps = 0;
-  NCCLCHECKGOTO(ncclMemOpSync(comm, args, stream), ret, fail);
-
-  sliceOffset = ctx->myRecvBuff - (uint8_t*)args->recvBuff;
-
-  for (int r = 1; r < comm->nRanks; r++) {
-    int targetRank = (comm->rank + r) % comm->nRanks;
-    void* peerRecvBase = nullptr;
-    NCCLCHECKGOTO(ceGetSymPeerPtr(comm, args->recvWin, args->recvBuff, targetRank, &peerRecvBase), ret, fail);
-    uint8_t* peerRecvBuff = (uint8_t*)peerRecvBase + sliceOffset;
-    ctx->batchOpsParams.targets[ctx->batchOpsParams.numOps] = targetRank;
-    ctx->batchOpsParams.srcs[ctx->batchOpsParams.numOps] = (void*)ctx->myRecvBuff;
-    ctx->batchOpsParams.dsts[ctx->batchOpsParams.numOps] = (void*)peerRecvBuff;
-    ctx->batchOpsParams.sizes[ctx->batchOpsParams.numOps] = ctx->currentRankElts * args->eltSize;
-    ctx->batchOpsParams.numOps++;
-  }
-
-  NCCLCHECKGOTO(ncclCeLaunchBatchOpsImpl(comm, args, &ctx->batchOpsParams, stream), ret, fail);
-  if (sync) {
-    NCCLCHECKGOTO(ncclMemOpSync(comm, args, stream), ret, fail);
-  }
-
-exit:
-  return ret;
-fail:
-  goto exit;
-}
-
-// Initialize partition context: compute per-rank element counts, byte offsets,
-// loop count, and sync pointers. Caller must set ctx->myRecvBuff after this call.
-static void ceReduceCtxInit(struct pcclCeReduceCtx* ctx, ncclComm_t comm,
-                            ssize_t totalElts, size_t eltSize,
-                            size_t recvCount = 0) {
-  ssize_t eltsPerRank = DIVUP(totalElts, comm->nRanks);
-  eltsPerRank = ROUNDUP(eltsPerRank, 512 / eltSize);
-
-  ctx->totalElts = totalElts;
-
-  // For ReduceScatter: each rank's chunk is exactly recvcount elements (no rounding).
-  // For AllReduce: use rounded-up eltsPerRank for kernel alignment.
-  ssize_t chunkSize = (recvCount > 0) ? (ssize_t)recvCount : eltsPerRank;
-
-  ctx->rankElts[0] = totalElts > chunkSize ? chunkSize : totalElts;
-  ctx->rankOffset[0] = 0;
-  for (int i = 1; i < comm->nRanks; i++) {
-    int64_t remain = ((int64_t)totalElts - ((int64_t)i + 1) * chunkSize);
-    ctx->rankElts[i] = (remain >= 0) ? chunkSize : std::max<ssize_t>(0, totalElts - i * chunkSize);
-    ctx->rankOffset[i] = ctx->rankOffset[i - 1] + ctx->rankElts[i - 1] * eltSize;
-  }
-  ctx->currentRankElts = ctx->rankElts[comm->rank];
-
-  ssize_t splitElts = pcclCeReduceChunkSize / eltSize;
-  ctx->rank0LoopCnt = DIVUP(ctx->rankElts[0], splitElts);
-
-  ctx->tailBasePtr = (uint64_t*)ncclSymDevBase_getCeTailBase((struct ncclSymDevBase*)comm->ceColl.ceSyncBase, comm->nRanks);
-  ctx->headBasePtr = (uint64_t*)ncclSymDevBase_getCeHeadBase((struct ncclSymDevBase*)comm->ceColl.ceSyncBase, comm->nRanks);
-}
-
-// INFO: not all oop can be processed without buffer easily without staBuff;
-//       although it can be done. but need careful handle for scenario as below:
-//       totalElts 14 elts for 4 ranks. we can use rank 0 to handle all 14 elts but
-//       rank0's recvbuff can only hold 14 elts from one rank.
-ncclResult_t pcclCeAllReduce(ncclComm_t comm, struct ncclCeCollArgs* args, hggcStream_t stream) {
-  ncclResult_t ret = ncclSuccess;
-
-  struct pcclCeReduceCtx ctx = {};
-  ceReduceCtxInit(&ctx, comm, (ssize_t)args->nElts, args->eltSize);
-  // AllReduce: recvBuff has nElts elements, this rank's slice starts at rankOffset[rank]
-  ctx.myRecvBuff = (uint8_t*)args->recvBuff + ctx.rankOffset[comm->rank];
-
-  NCCLCHECKGOTO(ceReduceScatterImpl(comm, args, stream, &ctx), ret, fail);
-  NCCLCHECKGOTO(ceReduceBroadcast(comm, args, stream, &ctx, /*sync=*/false), ret, fail);
-  NCCLCHECKGOTO(ncclMemOpSync(comm, args, stream), ret, fail);
-  comm->ceReduceStep += ctx.rank0LoopCnt;
-
-exit:
-  NCCLCHECK(ncclCeFreeBatchOpsParams(&ctx.batchOpsParams));
-  return ret;
-fail:
-  goto exit;
-}
-
-ncclResult_t pcclCeReduceScatter(ncclComm_t comm, struct ncclCeCollArgs* args, hggcStream_t stream) {
-  ncclResult_t ret = ncclSuccess;
-
-  struct pcclCeReduceCtx ctx = {};
-  // For ReduceScatter: args->nElts = recvcount (per-rank count).
-  // totalElts = recvcount * nRanks (full sendBuff size in elements).
-  ssize_t totalElts = (ssize_t)args->nElts * comm->nRanks;
-  ceReduceCtxInit(&ctx, comm, totalElts, args->eltSize, args->nElts);
-  // ReduceScatter: recvBuff IS this rank's reduced slice (no offset)
-  ctx.myRecvBuff = (uint8_t*)args->recvBuff;
-
-  NCCLCHECKGOTO(ceReduceScatterImpl(comm, args, stream, &ctx), ret, fail);
-  // No broadcast phase — each rank already has its reduced slice in recvBuff.
-  // Final sync to ensure all ranks complete before returning.
-  NCCLCHECKGOTO(ncclMemOpSync(comm, args, stream), ret, fail);
-  comm->ceReduceStep += ctx.rank0LoopCnt;
-
-exit:
-  NCCLCHECK(ncclCeFreeBatchOpsParams(&ctx.batchOpsParams));
-  return ret;
-fail:
-  goto exit;
-}
-
 ncclResult_t ncclLaunchCeColl(ncclComm_t comm, struct ncclKernelPlan* plan) {
   ncclResult_t ret = ncclSuccess;
   hggcStream_t stream = comm->planner.streams->stream;
@@ -1211,10 +893,8 @@ ncclResult_t ncclLaunchCeColl(ncclComm_t comm, struct ncclKernelPlan* plan) {
         break;
       }
 #endif
-      NCCLCHECKGOTO(pcclCeAllReduce(comm, args, stream), ret, fail);
-      break;
-    case ncclFuncReduceScatter:
-      NCCLCHECKGOTO(pcclCeReduceScatter(comm, args, stream), ret, fail);
+      // ncclCeAvailable admits AllReduce only on the OKI path.
+      ret = ncclInvalidUsage;
       break;
     default:
       ret = ncclInvalidUsage;

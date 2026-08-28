@@ -203,11 +203,6 @@ static ncclResult_t ncclOkiDestroyResources(ncclComm_t comm) {
   }
   HGGCCHECK(hggcFreeHost(comm->okiQps));
   NCCLCHECK(ncclHggcFree(comm->okiDependencyAddr));
-  for (int i = 0; i < PCCL_CE_OKI_MAX_PIPE_DEPTH; i++) {
-    if (comm->okiPipeEvents[i] == NULL) continue;
-    HGGCCHECK(hggcEventDestroy(comm->okiPipeEvents[i]));
-    comm->okiPipeEvents[i] = NULL;
-  }
   LT_OKI_CHECK(ltOkiCloseDevice(comm->okiDevice));
   comm->okiQps = NULL;
   comm->okiDevice = NULL;
@@ -568,13 +563,6 @@ static ncclResult_t commFree(ncclComm_t comm) {
       HGGCCHECK(hggcStreamDestroy(comm->ceStreams[i]));
       HGGCCHECK(hggcEventDestroy(comm->ceEvents[i]));
     }
-    HGGCCHECK(hggcStreamDestroy(comm->ceReduceStream));
-#ifdef SYNC_WITH_KERNEL
-    HGGCCHECK(hggcStreamDestroy(comm->waitReduceStream));
-    HGGCCHECK(hggcStreamDestroy(comm->notifyReduceStream));
-    HGGCCHECK(hggcEventDestroy(comm->dmaWaitEvent));
-#endif
-
     HGGCCHECK(hggcEventDestroy(comm->ceSyncEvent));
 
     NCCLCHECK(ncclFree(comm->ceStreams));
@@ -1790,12 +1778,6 @@ static ncclResult_t initTransportsRank(ncclComm_t comm, ncclComm_t parent, uint6
       }
     }
     HGGCCHECKGOTO(hggcEventCreateWithFlags(&comm->ceSyncEvent, hggcEventDisableTiming), res, fail);
-    HGGCCHECKGOTO(hggcStreamCreateWithFlags(&comm->ceReduceStream, hggcStreamNonBlocking), res, fail);
-#ifdef SYNC_WITH_KERNEL
-    HGGCCHECKGOTO(hggcStreamCreateWithFlags(&comm->waitReduceStream, hggcStreamNonBlocking), res, fail);
-    HGGCCHECKGOTO(hggcStreamCreateWithFlags(&comm->notifyReduceStream, hggcStreamNonBlocking), res, fail);
-    HGGCCHECKGOTO(hggcEventCreateWithFlags(&comm->dmaWaitEvent, hggcEventDisableTiming), res, fail);
-#endif
     NCCLCHECKGOTO(ncclCalloc(&comm->ceCollConfigs.agOneStageStrategy, 1), res, fail);
     NCCLCHECKGOTO(ncclInitCeAllGatherStrategy(comm->ceCollConfigs.agOneStageStrategy, comm, /* twoStage */ 0), res, fail);
 
@@ -2076,12 +2058,6 @@ static ncclResult_t ncclCommInitRankFunc(struct ncclAsyncJob* job_) {
     // Allocate PCCL-managed dependency fence address, used as the cross-collective
     // trigger point (written by gpuBarrierWithTrigger, read by okiMemcpyBatchAsync).
     NCCLCHECKGOTO(ncclHggcCalloc(&comm->okiDependencyAddr, 1, &comm->devMemUsed), res, fail);
-
-    // Sliding-window flow-control events for the AllReduce cmd kernel.
-    comm->okiCollCount = 0;
-    for (int i = 0; i < PCCL_CE_OKI_MAX_PIPE_DEPTH; i++) {
-      HGGCCHECKGOTO(hggcEventCreateWithFlags(&comm->okiPipeEvents[i], hggcEventDisableTiming), res, fail);
-    }
   }
 #endif
 

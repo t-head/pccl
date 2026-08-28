@@ -148,39 +148,6 @@ inline __device__ void Load128(uint4& v, const uint4* p) {
   v = __ppu_global_load_volatile_b32x4((const void*)(p));
 }
 
-// polling tail >= value
-__global__ void gpuPreDma(uint64_t* tailPtr, uint64_t value, int32_t nDies) {
-  tailPtr += threadIdx.x * PCCL_CE_MAX_DIE_NUM;
-  PackedInt64_t tail;
-  Load128(tail.upacked, (uint4*)tailPtr);
-#ifdef DEBUG_KERN_TIMEOUT
-  uint64_t start = clock64();
-  while(tail.i64[0] < value || (nDies > 1 && tail.i64[1] < value)) {
-    // limit the remote flag load freq: 1 us
-    sleepClock(800);
-    Load128(tail.upacked, (uint4*)tailPtr);
-    uint64_t end = clock64();
-    if (end - start > 100000000L) {
-      printf("preDma, rank:%d, <%d, %d>, timeout here: barrierFlag:%p:%lx, 0:%lx, 1:%lx\n", -1, blockIdx.x, threadIdx.x, tailPtr, value, tail.i64[0], tail.i64[1]);
-      break;
-    }
-  }
-#else
-  while(tail.i64[0] < value || (nDies > 1 && tail.i64[1] < value)) {
-    // sleepClock(800);
-    Load128(tail.upacked, (uint4*)tailPtr);
-  }
-#endif
-}
-
-__global__ void gpuPostDma(uint64_t* headPtr, uint64_t flag) {
-   headPtr = headPtr + threadIdx.x * PCCL_CE_MAX_DIE_NUM ;
-   PackedInt64_t head;
-   head.i64[0] = flag;
-   head.i64[1] = flag;
-   Store128(head.upacked, (uint4 *)headPtr);
-}
-
 __device__ void grid_sync(
     volatile uint32_t* gridSyncCounter,         // Atomic counter for blocks reaching sync in current generation
     volatile uint32_t* gridSyncGeneration,   // Tracks different sync rounds (generations)
@@ -297,16 +264,24 @@ __inline__ __device__ void reduceFromMultiSource(volatile T* srcs[NRANKS], volat
   }
 }
 
-template<typename T, int NRANKS>
-__global__ void ceLocalReduce(T* src, T* dst, ssize_t eltsTotal, uint32_t myRank, uint32_t blockNum,
-                              uint32_t nDies, uint64_t* tailBase, uint64_t* headBase, uint32_t iters,
-                              uint32_t stride4G, void* gridSyncPtr, int64_t baseStep
 #if PCCL_HGGC_VERSION >= PCCL_HGGC_DRIVER_VERSION(2, 2, 0)
-                              , ltOkiQP_t* qps,
-                              uint64_t okiStep
-#endif
-                              ) {
-  assert(blockNum == 1 || blockNum == 2 || blockNum == 4);
+// The reduce half of the fused AllReduce kernel: consume one chunk per iteration out of the
+// station buffers as the peers' DMA fills them, and publish this rank's consumption through the
+// tail slots that every peer's cmd block spins on.
+template<typename T, int NRANKS>
+__device__ void ceArLocalReduce(const struct pcclCeOkiArArgs& args) {
+  T* src = (T*)args.myStaBuff;
+  T* dst = (T*)args.myRecvBuff;
+  ssize_t eltsTotal = args.myElts;
+  uint32_t myRank = args.myRank;
+  uint32_t nDies = args.nDies;
+  uint64_t* tailBase = args.tailOnRank0;
+  uint64_t* headBase = args.headOnRank0;
+  uint32_t iters = args.loopCnt;
+  uint32_t stride4G = args.stride4G;
+  void* gridSyncPtr = args.gridSyncPtr;
+  int64_t baseStep = args.reduceStepBase;
+  constexpr uint32_t blockNum = pcclCeReduceMaxBlocks;
 
   static constexpr int PACKED_ELTS_PER_THREAD = 16 / sizeof(T);
   static constexpr int PACKED_ELTS_PER_WARP = PACKED_ELTS_PER_THREAD * WARP_SIZE;
@@ -409,59 +384,55 @@ __global__ void ceLocalReduce(T* src, T* dst, ssize_t eltsTotal, uint32_t myRank
 
     dst = dst + chunkElts;
   }
-
-  // wait ltoki broadcast done.
-#if PCCL_HGGC_VERSION >= PCCL_HGGC_DRIVER_VERSION(2, 2, 0)
-  if (blockIdx.x == 0 && qps != NULL) {
-    // cooperate with okiMemcpyBatchAsyncForAR
-    uint64_t finishStep = okiStep + iters;
-    uint32_t targetRank = 0xFFFF;
-    uint32_t rankToQid = 0xFFFF;
-    if (wid < NRANKS && laneId < nDies) {
-      targetRank = wid;
-      rankToQid = (targetRank + NRANKS -  myRank) % NRANKS; // shift myRank to 0 as only queue[0] support local D2D
-    }
-
-    __syncthreads();
-    if (targetRank < NRANKS) {    // only worker thread can enter.
-      int qid = rankToQid * nDies + laneId;
-      ltOkiQP_t qp = qps[qid];
-      uint64_t* cq = ltOkiQPGetCQ(qp);
-      ltOkiPollCQ(cq, finishStep);
-    }
-    __syncthreads();
-  }
-#endif
 }
 
-#if PCCL_HGGC_VERSION >= PCCL_HGGC_DRIVER_VERSION(2, 2, 0)
-#define LOCAL_REDUCE_IMPL(T, nRanks) \
-  template __global__ void ceLocalReduce<T, nRanks>(T* src, T* dst, ssize_t eltsTotal, uint32_t myRank, uint32_t blockNum, uint32_t nDies, uint64_t* tailBase, uint64_t* headBase, uint32_t iters, uint32_t stride4G, void* gridSyncPtr, int64_t baseStep, ltOkiQP_t* qps, uint64_t okiStep);
-#else
-#define LOCAL_REDUCE_IMPL(T, nRanks) \
-  template __global__ void ceLocalReduce<T, nRanks>(T* src, T* dst, ssize_t eltsTotal, uint32_t myRank, uint32_t blockNum, uint32_t nDies, uint64_t* tailBase, uint64_t* headBase, uint32_t iters, uint32_t stride4G, void* gridSyncPtr, int64_t baseStep);
-#endif
+template<typename T, int NRANKS>
+__global__ void pcclCeOkiArFused(struct pcclCeOkiArArgs args) {
+  if (blockIdx.x < pcclCeReduceMaxBlocks) {
+    ceArLocalReduce<T, NRANKS>(args);
+    return;
+  }
 
-#define LOCAL_REDUCE_T_IMPL(nRanks) \
-  LOCAL_REDUCE_IMPL(half, nRanks) \
-  LOCAL_REDUCE_IMPL(__ppu_bfloat16, nRanks) \
-  LOCAL_REDUCE_IMPL(float, nRanks)
+  // The cmd block. The barriers around the DMA are what used to be gpuBarrierWithTrigger and
+  // the trailing gpuBarrier: the first one keeps any rank from writing into a peer's station
+  // buffer before that peer is in this collective, the second one -- placed after the cmd path
+  // has polled its own queues -- is what makes every peer's allgather data visible in recvBuff
+  // by the time the kernel retires.
+  ncclSymPrims prim(args.comm, 1, ncclSymPrims_UseBarrier);
+  prim.barrierArrive(ncclCoopCta(), /*release=*/true);
+  prim.barrierWait(ncclCoopCta(), /*acquire=*/false);
 
-#define LOCAL_REDUCE() \
-  LOCAL_REDUCE_T_IMPL(2) \
-  LOCAL_REDUCE_T_IMPL(4) \
-  LOCAL_REDUCE_T_IMPL(8)
+  if (args.nDies == 1) okiArDmaCmd<1>(args, NRANKS);
+  else okiArDmaCmd<2>(args, NRANKS);
 
-#define LOCAL_REDUCE_FUNCNAME(T, nRanks) \
-  (void*)ceLocalReduce<T, nRanks>,
+  prim.barrierArrive(ncclCoopCta(), /*release=*/true);
+  prim.barrierWait(ncclCoopCta(), /*acquire=*/false);
+}
 
-#define LOCAL_REDUCE_T_FUNCNAME(nRanks) \
-  LOCAL_REDUCE_FUNCNAME(half, nRanks) \
-  LOCAL_REDUCE_FUNCNAME(__ppu_bfloat16, nRanks) \
-  LOCAL_REDUCE_FUNCNAME(float, nRanks)
+#define CE_OKI_AR_IMPL(T, nRanks) \
+  template __global__ void pcclCeOkiArFused<T, nRanks>(struct pcclCeOkiArArgs args);
 
-void* localReduceFuncs[] = {
-  LOCAL_REDUCE_T_FUNCNAME(2)
-  LOCAL_REDUCE_T_FUNCNAME(4)
-  LOCAL_REDUCE_T_FUNCNAME(8)
+#define CE_OKI_AR_T_IMPL(nRanks) \
+  CE_OKI_AR_IMPL(half, nRanks) \
+  CE_OKI_AR_IMPL(__ppu_bfloat16, nRanks) \
+  CE_OKI_AR_IMPL(float, nRanks)
+
+CE_OKI_AR_T_IMPL(2)
+CE_OKI_AR_T_IMPL(4)
+CE_OKI_AR_T_IMPL(8)
+
+#define CE_OKI_AR_FUNCNAME(T, nRanks) \
+  (void*)pcclCeOkiArFused<T, nRanks>,
+
+#define CE_OKI_AR_T_FUNCNAME(nRanks) \
+  CE_OKI_AR_FUNCNAME(half, nRanks) \
+  CE_OKI_AR_FUNCNAME(__ppu_bfloat16, nRanks) \
+  CE_OKI_AR_FUNCNAME(float, nRanks)
+
+// Indexed by localReduceFuncIndex(): nRanks {2,4,8} major, dtype {half, bf16, float} minor.
+void* pcclCeOkiArFuncs[] = {
+  CE_OKI_AR_T_FUNCNAME(2)
+  CE_OKI_AR_T_FUNCNAME(4)
+  CE_OKI_AR_T_FUNCNAME(8)
 };
+#endif

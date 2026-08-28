@@ -18,14 +18,6 @@
 #include "sym_kernels.h"
 #include <mutex>
 
-#define SYNC_WITH_KERNEL
-// #define SYNC_WITH_WAIT_VALUE
-
-#if defined(SYNC_WITH_WAIT_VALUE) && defined(SYNC_WITH_KERNEL)
-static_assert(false, "ERROR: SYNC_WITH_KERNEL and SYNC_WITH_WAIT_VALUE should not be defined simultaneously.")
-#endif
-
-
 struct ncclCeAllGatherStrategy {
   int peerNumStage1;
   int peerNumStage2;
@@ -81,24 +73,6 @@ struct ncclCeBatchOpsParams {
 #endif
 };
 
-// Context for CE reduce-family collectives (AllReduce, ReduceScatter).
-// Caller sets inputs before calling ceReduceScatterImpl; the impl fills
-// computed fields which ceReduceBroadcast (AllReduce only) then consumes.
-struct pcclCeReduceCtx {
-  // --- inputs (set by caller) ---
-  ssize_t totalElts;            // total elements across all ranks' sendBuff
-  ssize_t rankElts[8];          // per-rank element count after partition
-  ssize_t rankOffset[8];        // byte offset of each rank's slice in sendBuff
-  uint8_t* myRecvBuff;          // this rank's reduce output pointer
-  ssize_t currentRankElts;      // elements this rank is responsible for
-
-  // --- computed (filled by ceReduceScatterImpl, read by ceReduceBroadcast) ---
-  uint32_t rank0LoopCnt;        // number of chunk iterations
-  uint64_t* tailBasePtr;        // tail sync array base
-  uint64_t* headBasePtr;        // head sync array base
-  struct ncclCeBatchOpsParams batchOpsParams;  // DMA batch params (init'd in impl, reused in broadcast)
-};
-
 ncclResult_t ncclCeInitBatchOpsParams(struct ncclCeBatchOpsParams* params, int nRanks);
 ncclResult_t ncclCeFreeBatchOpsParams(struct ncclCeBatchOpsParams* params);
 
@@ -147,10 +121,6 @@ ncclResult_t ncclCeScatter(ncclComm_t comm, struct ncclCeCollArgs* args, hggcStr
 ncclResult_t ncclCeGather(ncclComm_t comm, struct ncclCeCollArgs* args, hggcStream_t stream);
 
 ncclResult_t ncclCeAlltoAll(ncclComm_t comm, struct ncclCeCollArgs* args, hggcStream_t stream);
-
-ncclResult_t pcclCeAllReduce(ncclComm_t comm, struct ncclCeCollArgs* args, hggcStream_t stream);
-
-ncclResult_t pcclCeReduceScatter(ncclComm_t comm, struct ncclCeCollArgs* args, hggcStream_t stream);
 
 ncclResult_t ncclInitCeAllGatherStrategy(struct ncclCeAllGatherStrategy* strategy, ncclComm_t comm, int twoStage);
 #endif /* NCCL_CE_COLL_H_ */

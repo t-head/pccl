@@ -178,36 +178,40 @@ __global__ void gpuBarrier(ncclSymDevArgs const args);
 __global__ void gpuBarrierWithTrigger(ncclSymDevArgs const args, uint64_t* addr, uint64_t value);
 #endif
 __global__ void gpuGEQ(volatile uint64_t* ptr, uint64_t data);
-__global__ void gpuPreDma(uint64_t* tailPtr, uint64_t flag, int32_t nDies);
-__global__ void gpuPostDma(uint64_t* headPtr, uint64_t flag);
 
+#if PCCL_HGGC_VERSION >= PCCL_HGGC_DRIVER_VERSION(2, 2, 0)
+// Everything the fused OKI AllReduce kernel needs, passed by value: the reduce blocks read the
+// station buffers and the rank0-flat head/tail slots, the cmd block drives the OKI queues.
+struct alignas(16) pcclCeOkiArArgs {
+  struct ncclSymDevComm comm;      // the in-kernel barrier peers through this
+  ltOkiQP_t* qps;
+  void* sendBuff;
+  uint8_t* myRecvBuff;             // reduce dst, allgather src
+  uint8_t* myStaBuff;              // reduce srcs base
+  uint8_t* rank0RecvBuff;          // lsa-flat, + targetRank * stride4G
+  uint8_t* rank0StaBuff;           // lsa-flat, + targetRank * stride4G
+  uint64_t* rank0RemoteFenceAddrs; // lsa-flat, + targetRank * stride4G
+  uint64_t* tailPtr;               // local tail base, spun on by the cmd block
+  uint64_t* headPtr;               // local head base, written by the cmd block's fence WQEs
+  uint64_t* tailOnRank0;           // lsa-flat tail slot, remote-written by the reduce blocks
+  uint64_t* headOnRank0;           // lsa-flat head slot, polled by the reduce blocks
+  void* gridSyncPtr;
+  ssize_t myElts;
+  uint64_t nElts;
+  uint64_t okiBaseStep;
+  int64_t reduceStepBase;
+  int eltSize;
+  uint32_t loopCnt;
+  uint32_t nDies;
+  uint32_t stride4G;
+  uint32_t myRank;
+};
+
+// Blocks [0, pcclCeReduceMaxBlocks) reduce; the last block barriers, drives the OKI queues and
+// barriers again. Must be launched cooperatively: the reduce blocks grid_sync among themselves
+// and the cmd block spins on fences they produce, so every block has to be resident.
 template<typename T, int NRANKS>
-__global__ void ceLocalReduce(T* src, T* dst, ssize_t eltsTotal, uint32_t myRank, uint32_t blockNum, uint32_t nDies, uint64_t* tailBase, uint64_t* headBase, uint32_t iters, uint32_t stride4G, void* gridSyncBase, int64_t baseStep
-#if PCCL_HGGC_VERSION >= PCCL_HGGC_DRIVER_VERSION(2, 2, 0)
-  , ltOkiQP_t* qps, uint64_t okiStep
-#endif
-);
-
-#if PCCL_HGGC_VERSION >= PCCL_HGGC_DRIVER_VERSION(2, 2, 0)
-template<int DIE_NUM>
-__global__ void okiMemcpyBatchAsyncForAR(
-  ltOkiQP_t* qps,
-  uint64_t* dependencyFenceAddr,
-  void* sendBuff,
-  uint8_t* myRecvBuff,
-  uint8_t* rank0RecvBuff,
-  uint8_t* rank0StaBuff,
-  int myRank, int nRanks,
-  uint64_t nElts,
-  int eltSize,
-  int loopCnt,
-  uint64_t* rank0RemoteFenceAddrs,
-  uint64_t okiBaseStep,
-  uint64_t* tailPtr,
-  uint64_t* headPtr,
-  uint64_t ceReduceStepBase,
-  int stride4G
-);
+__global__ void pcclCeOkiArFused(struct pcclCeOkiArArgs args);
 #endif
 
 #define PCCL_OKI_MAX_LOCAL_RANKS 64

@@ -20,12 +20,7 @@
 #include "lt_oki.h"
 #include "ce_coll_oki.h"
 extern int ppuDiesNum;
-extern void* localReduceFuncs[];
-
-// Sliding-window depth for the AllReduce cmd kernel: the cmd kernel of collective N is not
-// launched until collective N-depth's DMA has drained. This keeps a backlog of queued cmd
-// work from monopolizing the queue and blocking other cmd tasks from being submitted.
-PCCL_PARAM(CeOkiPipeDepth, "CE_OKI_PIPE_DEPTH", 2);
+extern void* pcclCeOkiArFuncs[];
 
 // pcclCeLaunchBatchOpsMultiStreamWithOki — OKI batch DMA two-kernel pipeline
 //
@@ -111,7 +106,6 @@ struct pcclCeOkiAllReduceState {
   ssize_t currentRankElts;
   uint32_t rank0LoopCnt;
   ssize_t splitElts;
-  uint32_t blockNum;
 };
 
 static ncclResult_t pcclCeOkiAllReduceSetup(
@@ -120,62 +114,31 @@ static ncclResult_t pcclCeOkiAllReduceSetup(
   struct pcclCeOkiAllReduceState* state
 );
 
-static ncclResult_t pcclCeOkiAllReduceLocalReduce(
+static ncclResult_t pcclCeOkiAllReduceLaunch(
   ncclComm_t comm,
   struct ncclCeCollArgs* args,
   struct pcclCeOkiAllReduceState* state,
   hggcStream_t stream
 );
 
-static ncclResult_t pcclCeOkiAllReduceDma(
-  ncclComm_t comm,
-  struct ncclCeCollArgs* args,
-  struct pcclCeOkiAllReduceState* state,
-  hggcStream_t stream
-);
-
-static ncclResult_t pcclCeOkiAllReduceFinalize(
-  ncclComm_t comm,
-  struct ncclCeCollArgs* args,
-  struct pcclCeOkiAllReduceState* state,
-  hggcStream_t stream
-);
-
+// One cooperative kernel does the whole collective on the caller's stream: blocks
+// [0, pcclCeReduceMaxBlocks) reduce the chunks as the peers' DMA delivers them, and the last
+// block barriers with the peers, drives the OKI queues for both the reduce-scatter and the
+// allgather, waits for its own completion queues, and barriers again.
+//
+// The barriers used to be two kernels (gpuBarrierWithTrigger / gpuBarrier) with a device fence
+// carrying the handoff to the cmd kernel on comm->ceStreams[0]. Fused, the handoff is program
+// order, and because the kernel does not retire until the cmd block has drained its queues,
+// stream ordering alone provides the back-pressure that the host-side sliding window used to.
 ncclResult_t pcclCeOkiAllReduce(ncclComm_t comm, struct ncclCeCollArgs* args, hggcStream_t stream) {
-  ncclResult_t res = ncclSuccess;
-  struct ncclCeBatchOpsParams batchOpsParams = {};
   struct pcclCeOkiAllReduceState state = {};
-  uint64_t* dependencyFenceAddr = comm->okiDependencyAddr;
 
-  int64_t depthParam = pcclParamCeOkiPipeDepth();
-  if (depthParam < 1) depthParam = 1;
-  if (depthParam > PCCL_CE_OKI_MAX_PIPE_DEPTH) depthParam = PCCL_CE_OKI_MAX_PIPE_DEPTH;
-  uint32_t depth = (uint32_t)depthParam;
-  uint32_t slot = (uint32_t)(comm->okiCollCount % depth);
+  NCCLCHECK(pcclCeOkiAllReduceSetup(comm, args, &state));
+  NCCLCHECK(pcclCeOkiAllReduceLaunch(comm, args, &state, stream));
 
-  NCCLCHECKGOTO(ncclCeInitBatchOpsParams(&batchOpsParams, comm->nRanks), res, fail);
-  NCCLCHECKGOTO(ncclMemOpSyncWithTrigger(args, stream, dependencyFenceAddr, comm->ceOkiStep + 1), res, fail);
-  NCCLCHECKGOTO(pcclCeOkiAllReduceSetup(comm, args, &state), res, fail);
-  // Sliding-window flow control: hold the cmd kernel until collective (N-depth) has drained,
-  // so queued cmd work cannot pile up and block other cmd tasks from being submitted.
-  if (comm->okiCollCount >= depth) {
-    HGGCCHECKGOTO(hggcStreamWaitEvent(comm->ceStreams[0], comm->okiPipeEvents[slot]), res, fail);
-  }
-  NCCLCHECKGOTO(pcclCeOkiAllReduceDma(comm, args, &state, stream), res, fail);
-  NCCLCHECKGOTO(pcclCeOkiAllReduceLocalReduce(comm, args, &state, stream), res, fail);
-  // Local reduce runs concurrently with the cmd kernel; join before finalize.
-  HGGCCHECKGOTO(hggcStreamWaitEvent(stream, comm->ceEvents[0]), res, fail);
-  // Mark this collective's drain point: local reduce polls the CQ until DMA completes, so its
-  // completion on `stream` means this collective's queued cmd work is fully consumed.
-  HGGCCHECKGOTO(hggcEventRecord(comm->okiPipeEvents[slot], stream), res, fail);
-  comm->okiCollCount += 1;
-  NCCLCHECKGOTO(pcclCeOkiAllReduceFinalize(comm, args, &state, stream), res, fail);
-
-exit:
-  NCCLCHECK(ncclCeFreeBatchOpsParams(&batchOpsParams));
-  return res;
-fail:
-  goto exit;
+  comm->ceOkiStep += (state.rank0LoopCnt + 1);
+  comm->ceReduceStep += state.rank0LoopCnt;
+  return ncclSuccess;
 }
 
 static ncclResult_t pcclCeOkiAllReduceSetup(
@@ -209,133 +172,68 @@ static ncclResult_t pcclCeOkiAllReduceSetup(
   state->tailBasePtr = (uint64_t*)ncclSymDevBase_getCeTailBase((struct ncclSymDevBase*)comm->ceColl.ceSyncBase, comm->nRanks);
   state->headBasePtr = (uint64_t*)ncclSymDevBase_getCeHeadBase((struct ncclSymDevBase*)comm->ceColl.ceSyncBase, comm->nRanks);
 
-  uint32_t maxBlockNum = pcclCeReduceMaxBlocks;
-  constexpr uint32_t maxThreadNum = pcclCeReduceMaxThreads;
-  state->blockNum = DIVUP(state->rankElts[0], (maxThreadNum * bulkBytesPerThread / args->eltSize));
-  state->blockNum = nextPow2(state->blockNum);
-  state->blockNum = std::min(state->blockNum, maxBlockNum);
-  state->blockNum = std::max(state->blockNum, 1U);
-
   return ncclSuccess;
 }
 
-static ncclResult_t pcclCeOkiAllReduceLocalReduce(
+static ncclResult_t pcclCeOkiAllReduceLaunch(
   ncclComm_t comm,
   struct ncclCeCollArgs* args,
   struct pcclCeOkiAllReduceState* state,
   hggcStream_t stream
 ) {
-  ncclResult_t res = ncclSuccess;
-  uint32_t myRank = comm->rank;
-  uint32_t threadNum = pcclCeReduceMaxThreads;
-
-  void* myTailOnRank0Ptr = nullptr;
-  uint64_t* myTailPtr = state->tailBasePtr + comm->rank * PCCL_CE_MAX_DIE_NUM;
-  ssize_t offset = (uint8_t*)myTailPtr - (uint8_t*)comm->ceColl.ceSyncBase;
-  NCCLCHECK(ncclDevrGetLsaRankPtr(comm, comm->ceColl.ceSyncWin, offset, 0, &myTailOnRank0Ptr));
-
-  void* myHeadOnRank0Ptr = nullptr;
-  uint64_t* myHeadPtr = state->headBasePtr + comm->rank * PCCL_CE_MAX_DIE_NUM;
-  offset = (uint8_t*)myHeadPtr - (uint8_t*)comm->ceColl.ceSyncBase;
-  NCCLCHECK(ncclDevrGetLsaRankPtr(comm, comm->ceColl.ceSyncWin, offset, 0, &myHeadOnRank0Ptr));
-
-  struct ncclCeGridSyncMem* gridSyncPtr =
-    (struct ncclCeGridSyncMem*)ncclSymDevBase_getGridSyncBase((struct ncclSymDevBase*)comm->ceColl.ceSyncBase, comm->nRanks);
-
   int funcIndex = localReduceFuncIndex(args->datatype, comm->nRanks);
   if (funcIndex == -1) {
     ERROR("not implemented");
     return ncclInternalError;
   }
-  const void* func = localReduceFuncs[funcIndex];
-  uint32_t stride4G = comm->devrState.bigSize >> 32;
-  int64_t baseStep = comm->ceReduceStep;
-  uint64_t okiStep = comm->ceOkiStep + 1;
-  ltOkiQP_t* qps = comm->okiQps;
 
-  struct dispatchStrategyExAD launchConfig = {/*blocksPerMultiprocessor=*/1, /*gridStepX=*/1, /*gridStepY=*/1, /*subDispatch=*/-2, /*cooperative=*/1};
-  dim3 grid = {state->blockNum, 1, 1};
-  dim3 block = {threadNum, 1, 1};
-  void* pargs[] = {
-    &state->myStaBuff, &state->myRecvBuff, &state->currentRankElts, &myRank,
-    &state->blockNum, &ppuDiesNum, &myTailOnRank0Ptr, &myHeadOnRank0Ptr,
-    &state->rank0LoopCnt, &stride4G, &gridSyncPtr, &baseStep, &qps, &okiStep
-  };
-  LAUNCH_KERNEL(func, grid, block, pargs, (ssize_t)0, stream, 1, launchConfig);
+  struct pcclCeOkiArArgs kargs = {};
+  kargs.comm = args->comm;
+  kargs.qps = comm->okiQps;
+  kargs.sendBuff = args->sendBuff;
+  kargs.myRecvBuff = state->myRecvBuff;
+  kargs.myStaBuff = state->myStaBuff;
+  kargs.tailPtr = state->tailBasePtr;
+  kargs.headPtr = state->headBasePtr;
+  kargs.gridSyncPtr = ncclSymDevBase_getGridSyncBase((struct ncclSymDevBase*)comm->ceColl.ceSyncBase, comm->nRanks);
+  kargs.myElts = state->currentRankElts;
+  kargs.nElts = args->nElts;
+  kargs.okiBaseStep = comm->ceOkiStep + 1;
+  kargs.reduceStepBase = comm->ceReduceStep;
+  kargs.eltSize = args->eltSize;
+  kargs.loopCnt = state->rank0LoopCnt;
+  kargs.nDies = ppuDiesNum;
+  kargs.stride4G = comm->devrState.bigSize >> 32;
+  kargs.myRank = comm->rank;
 
-  return res;
-}
-
-static ncclResult_t pcclCeOkiAllReduceDma(
-  ncclComm_t comm,
-  struct ncclCeCollArgs* args,
-  struct pcclCeOkiAllReduceState* state,
-  hggcStream_t stream
-) {
-  ncclResult_t res = ncclSuccess;
-  uint64_t* dependencyFenceAddr = comm->okiDependencyAddr;
-  ltOkiQP_t* qps = comm->okiQps;
-
-  uint64_t* rank0RemoteFenceAddrs = nullptr;
-  uint64_t okiBaseStep = comm->ceOkiStep + 1;
-  uint8_t* rank0StaBuff = nullptr;
-  uint8_t* rank0RecvBuff = nullptr;
-  uint32_t stride4G = comm->devrState.bigSize >> 32;
-  struct dispatchStrategyExAD launchConfig = {1, 1, 1, -2, /*cooperative=*/0};
-  dim3 grid = {1, 1, 1};
-  dim3 block = {(uint32_t)WARP_SIZE * comm->nRanks, 1, 1};
-  void* func = nullptr;
-
-  if (ppuDiesNum == 1) func = (void**)okiMemcpyBatchAsyncForAR<1>;
-  else if (ppuDiesNum == 2) func = (void**)okiMemcpyBatchAsyncForAR<2>;
-  else return ncclInternalError;
-
+  // The cmd block reaches a peer by adding targetRank * stride4G to rank 0's lsa-flat address;
+  // the reduce blocks reach their own slot on a peer the same way.
   char* rankRemoteFenceAddrs = (char*)ncclSymDevBase_getKuiRemoteFenceAddr((struct ncclSymDevBase*)comm->ceColl.ceSyncBase, comm->nRanks);
   uint64_t offset = (uint8_t*)rankRemoteFenceAddrs - (uint8_t*)comm->ceColl.ceSyncBase;
-  NCCLCHECK(ncclDevrGetLsaRankPtr(comm, comm->ceColl.ceSyncWin, offset, 0, (void**)&rank0RemoteFenceAddrs));
+  NCCLCHECK(ncclDevrGetLsaRankPtr(comm, comm->ceColl.ceSyncWin, offset, 0, (void**)&kargs.rank0RemoteFenceAddrs));
 
   offset = state->myStaBuff - (uint8_t*)comm->ceColl.ceSyncBase;
-  NCCLCHECK(ncclDevrGetLsaRankPtr(comm, comm->ceColl.ceSyncWin, offset, 0, (void**)&rank0StaBuff));
+  NCCLCHECK(ncclDevrGetLsaRankPtr(comm, comm->ceColl.ceSyncWin, offset, 0, (void**)&kargs.rank0StaBuff));
 
   offset = (uint8_t*)args->recvBuff - (uint8_t*)args->recvWin->userPtr;
-  NCCLCHECK(ncclDevrGetLsaRankPtr(comm, args->recvWin, offset, 0, (void**)&rank0RecvBuff));
-  rank0RecvBuff += state->myRecvBuff - (uint8_t*)args->recvBuff;
+  NCCLCHECK(ncclDevrGetLsaRankPtr(comm, args->recvWin, offset, 0, (void**)&kargs.rank0RecvBuff));
+  kargs.rank0RecvBuff += state->myRecvBuff - (uint8_t*)args->recvBuff;
 
-  void* pargs[] = {
-    &qps,
-    &dependencyFenceAddr,
-    &args->sendBuff,
-    &state->myRecvBuff,
-    &rank0RecvBuff,
-    &rank0StaBuff,
-    &comm->rank,
-    &comm->nRanks,
-    &args->nElts,
-    &args->eltSize,
-    &state->rank0LoopCnt,
-    &rank0RemoteFenceAddrs,
-    &okiBaseStep,
-    &state->tailBasePtr,
-    &state->headBasePtr,
-    &comm->ceReduceStep,
-    &stride4G
-  };
+  offset = (uint8_t*)(state->tailBasePtr + comm->rank * PCCL_CE_MAX_DIE_NUM) - (uint8_t*)comm->ceColl.ceSyncBase;
+  NCCLCHECK(ncclDevrGetLsaRankPtr(comm, comm->ceColl.ceSyncWin, offset, 0, (void**)&kargs.tailOnRank0));
 
-  LAUNCH_KERNEL(func, grid, block, pargs, (ssize_t)0, comm->ceStreams[0], 1, launchConfig);
-  HGGCCHECK(hggcEventRecord(comm->ceEvents[0], comm->ceStreams[0]));
+  offset = (uint8_t*)(state->headBasePtr + comm->rank * PCCL_CE_MAX_DIE_NUM) - (uint8_t*)comm->ceColl.ceSyncBase;
+  NCCLCHECK(ncclDevrGetLsaRankPtr(comm, comm->ceColl.ceSyncWin, offset, 0, (void**)&kargs.headOnRank0));
 
-  return res;
-}
+  // Cooperative: the reduce blocks grid_sync among themselves and the cmd block spins on the
+  // fences they publish, so every block must be resident.
+  struct dispatchStrategyExAD launchConfig = {/*blocksPerMultiprocessor=*/1, /*gridStepX=*/1, /*gridStepY=*/1, /*subDispatch=*/-2, /*cooperative=*/1};
+  dim3 grid = {pcclCeReduceMaxBlocks + 1, 1, 1};
+  dim3 block = {pcclCeReduceMaxThreads, 1, 1};
+  void* pargs[] = {&kargs};
 
-static ncclResult_t pcclCeOkiAllReduceFinalize(
-  ncclComm_t comm,
-  struct ncclCeCollArgs* args,
-  struct pcclCeOkiAllReduceState* state,
-  hggcStream_t stream
-) {
-  NCCLCHECK(ncclMemOpSync(comm, args, stream));
-  comm->ceOkiStep += (state->rank0LoopCnt + 1);
-  comm->ceReduceStep += state->rank0LoopCnt;
+  LAUNCH_KERNEL(pcclCeOkiArFuncs[funcIndex], grid, block, pargs, (ssize_t)0, stream, 1, launchConfig);
+
   return ncclSuccess;
 }
 

@@ -48,9 +48,6 @@
 #define MAX_HGTX_MSG_LENGTH 16384
 #define ONE_HGTX_MSG_LENGTH 128
 
-// Upper bound on the OKI AllReduce cmd-kernel sliding window (see okiPipeEvents).
-#define PCCL_CE_OKI_MAX_PIPE_DEPTH 16
-
 struct ncclSendMem {
   union {
     struct {
@@ -546,13 +543,7 @@ struct pcclComm {
   hggcStream_t* ceStreams;
   hggcEvent_t* ceEvents;
   hggcEvent_t ceSyncEvent;
-  hggcStream_t waitReduceStream;
-  hggcStream_t notifyReduceStream;
-  hggcStream_t ceReduceStream;
   int64_t ceReduceStep;
-#ifdef SYNC_WITH_KERNEL
-  hggcEvent_t dmaWaitEvent;
-#endif
   struct ncclCeCollConfig ceCollConfigs;
   struct ncclCeColl ceColl;
 
@@ -576,12 +567,6 @@ struct pcclComm {
   int           okiQpCount;
   uint64_t*     okiDependencyAddr;  // PCCL-allocated dependency fence address
                                          // used to create dependency between normal kernel and okiQP
-  // Sliding-window flow control for the AllReduce cmd kernel (okiMemcpyBatchAsyncForAR).
-  // okiPipeEvents[i] records the drain point (local reduce done) of collective i; the cmd
-  // kernel of collective N waits on slot (N % depth), i.e. on collective N-depth, so queued
-  // cmd work cannot pile up and block other cmd tasks from being submitted.
-  hggcEvent_t   okiPipeEvents[PCCL_CE_OKI_MAX_PIPE_DEPTH];
-  uint64_t      okiCollCount;
 #endif
 
   // buffer registration cache
