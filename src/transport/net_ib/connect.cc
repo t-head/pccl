@@ -469,6 +469,7 @@ fail:
 }
 
 NCCL_PARAM(IbGdrFlushDisable, "GDR_FLUSH_DISABLE", 0);
+PCCL_PARAM(IbGdrFlushWrite, "GDR_FLUSH_WRITE", 0);
 
 ncclResult_t ncclIbAccept(void* listenComm, void** recvComm) {
   ncclResult_t res = ncclSuccess;
@@ -552,12 +553,23 @@ ib_recv:
 
   // Allocate Flush dummy buffer for GPU Direct RDMA
   rComm->gpuFlush.enabled = (ncclIbGdrSupport() == 0) && (ncclParamIbGdrFlushDisable() == 0) ? 1 : 0;
+  rComm->gpuFlush.useWrite = pcclParamIbGdrFlushWrite();
   if (rComm->gpuFlush.enabled) {
-    NCCLCHECKGOTO(wrap_ibv_reg_mr(&rComm->gpuFlush.hostMr, rComm->dev.base.pd, &rComm->gpuFlush.hostMem, sizeof(int), IBV_ACCESS_LOCAL_WRITE), res, fail);
+    int hostMrFlags = IBV_ACCESS_LOCAL_WRITE;
+    int qpFlags = IBV_ACCESS_LOCAL_WRITE;
+    if (rComm->gpuFlush.useWrite) {
+      // RDMA Write flush: host buffer is the remote write destination.
+      hostMrFlags |= IBV_ACCESS_REMOTE_WRITE;
+      qpFlags |= IBV_ACCESS_REMOTE_WRITE;
+    } else {
+      // RDMA Read flush: GPU memory is the remote read source.
+      qpFlags |= IBV_ACCESS_REMOTE_READ;
+    }
+    NCCLCHECKGOTO(wrap_ibv_reg_mr(&rComm->gpuFlush.hostMr, rComm->dev.base.pd, &rComm->gpuFlush.hostMem, sizeof(int), hostMrFlags), res, fail);
     rComm->gpuFlush.sge.addr = (uint64_t)&rComm->gpuFlush.hostMem;
     rComm->gpuFlush.sge.length = 1;
     rComm->gpuFlush.sge.lkey = rComm->gpuFlush.hostMr->lkey;
-    NCCLCHECKGOTO(ncclIbCreateQp(ib_port, &rComm->dev.base, IBV_ACCESS_LOCAL_WRITE | IBV_ACCESS_REMOTE_READ, &rComm->gpuFlush.qp, &rComm->base.stats), res, fail);
+    NCCLCHECKGOTO(ncclIbCreateQp(ib_port, &rComm->dev.base, qpFlags, &rComm->gpuFlush.qp, &rComm->base.stats), res, fail);
     struct ncclIbQpInfo localQpInfo;
     localQpInfo.lid=portAttr.lid;
     localQpInfo.ib_port=ib_port;
@@ -566,6 +578,9 @@ ib_recv:
     localQpInfo.mtu=portAttr.active_mtu;
     NCCLCHECKGOTO(ncclIbRtrQp(rComm->gpuFlush.qp, rComm->gpuFlush.qp->qp_num, &localQpInfo, gidIndex), res, fail);
     NCCLCHECKGOTO(ncclIbRtsQp(rComm->gpuFlush.qp), res, fail);
+    if (rComm->gpuFlush.useWrite) {
+      INFO(NCCL_INIT, "NET/IB: GDR flush using RDMA Write (dev %d)", lComm->dev);
+    }
   }
 
   // Fill Handle

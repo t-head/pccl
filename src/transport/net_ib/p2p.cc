@@ -351,11 +351,25 @@ ncclResult_t ncclIbIflush(void* recvComm, int n, void** data, int* sizes, void**
   memset(&wr, 0, sizeof(wr));
   wr.wr_id = req - comm->base.reqs;
 
-  wr.wr.rdma.remote_addr = (uint64_t)data[last];
-  wr.wr.rdma.rkey = mr->rkey;
-  wr.sg_list = &comm->gpuFlush.sge;
-  wr.num_sge = 1;
-  wr.opcode = IBV_WR_RDMA_READ;
+  struct ibv_sge sge;
+  if (comm->gpuFlush.useWrite) {
+    // The NIC reads one byte from GPU memory and writes it to the local host
+    // buffer through the loopback QP, ordering prior RDMA Writes to the GPU.
+    sge.addr = (uint64_t)data[last];
+    sge.length = 1;
+    sge.lkey = mr->lkey;
+    wr.wr.rdma.remote_addr = (uint64_t)&comm->gpuFlush.hostMem;
+    wr.wr.rdma.rkey = comm->gpuFlush.hostMr->rkey;
+    wr.sg_list = &sge;
+    wr.num_sge = 1;
+    wr.opcode = IBV_WR_RDMA_WRITE;
+  } else {
+    wr.wr.rdma.remote_addr = (uint64_t)data[last];
+    wr.wr.rdma.rkey = mr->rkey;
+    wr.sg_list = &comm->gpuFlush.sge;
+    wr.num_sge = 1;
+    wr.opcode = IBV_WR_RDMA_READ;
+  }
   wr.send_flags = IBV_SEND_SIGNALED;
 
   struct ibv_send_wr* bad_wr;

@@ -225,6 +225,7 @@ static_assert((offsetof(struct ncclIbSendComm, wrs) % 32) == 0, "wrs must be 32-
 
 struct ncclIbGpuFlush {
     int enabled;
+    int useWrite;  // 1 = use RDMA Write when the NIC does not support RDMA Read
     int hostMem;
     struct ibv_mr* hostMr;
     struct ibv_sge sge;
