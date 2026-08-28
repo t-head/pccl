@@ -766,8 +766,16 @@ class RunWorkColl<ncclFuncAllReduce, NCCL_ALGO_RING, NCCL_PROTO_SIMPLE_BULK_AR, 
   public:
   __device__ void run(struct ncclDevWorkColl* work, struct ncclRing* inputRing=NULL) {
 #if defined(__HGGC_ARCH__) && __HGGC_ARCH__ >= 150
-    using Proto = ProtoSimpleBulkAR<UNROLL, ALLREDUCE_CHUNKSTEPS/ALLREDUCE_SLICESTEPS, ALLREDUCE_SLICESTEPS, CONN_ICN, CONN_ICN>;
-    runRing<FUNC, T, UNROLL, Proto>(work, inputRing);
+    struct ncclKernelComm* comm = getShmemComm(work);
+    const ncclConn_t sendConnType = getShmemPtr(comm)->channel.ring.sendConnType;
+
+    if (sendConnType == CONN_ICN) {
+      using Proto = ProtoSimpleBulkAR<UNROLL, ALLREDUCE_CHUNKSTEPS/ALLREDUCE_SLICESTEPS, ALLREDUCE_SLICESTEPS, CONN_ICN, CONN_ICN>;
+      runRing<FUNC, T, UNROLL, Proto>(work, inputRing);
+    } else {
+      using Proto = ProtoSimpleBulkAR<UNROLL, ALLREDUCE_CHUNKSTEPS/ALLREDUCE_SLICESTEPS, ALLREDUCE_SLICESTEPS, CONN_NORMAL, CONN_ICN>;
+      runRing<FUNC, T, UNROLL, Proto>(work, inputRing);
+    }
 #endif
   }
 };

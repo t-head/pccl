@@ -671,7 +671,8 @@ ncclResult_t ncclTopoGetAlgoTime(ncclComm_t comm, int coll, int algorithm, int p
     bw = bw / nChannels * nChannels;
   }
   if (algorithm == NCCL_ALGO_RING && (protocol == NCCL_PROTO_SIMPLE || protocol == NCCL_PROTO_SIGNAL
-        || protocol == NCCL_PROTO_SIMPLE_BULK || protocol == NCCL_PROTO_SIGNAL_BULK) && comm->nNodes > 1
+        || protocol == NCCL_PROTO_SIMPLE_BULK || protocol == NCCL_PROTO_SIGNAL_BULK
+        || protocol == NCCL_PROTO_SIMPLE_BULK_AR) && comm->nNodes > 1
       && coll == ncclFuncAllReduce && nBytes >= comm->nRanks/16.0*65536) lat *= 1.9; // Plateau effect of ring
   *time = lat + (nBytes) / (1000 * bw);
   if (comm->rank == 0) TRACE(NCCL_TUNING, "Tuning algo %d proto %d nBytes %ld lat %f bw %f time %f\n", algorithm, protocol, nBytes, lat, bw, *time);
