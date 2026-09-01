@@ -20,7 +20,7 @@
 #include "lt_oki.h"
 #include "ce_coll_oki.h"
 extern int ppuDiesNum;
-extern void* pcclCeOkiArFuncs[];
+extern void* pcclCeOkiReduceFuncs[];
 
 // pcclCeLaunchBatchOpsMultiStreamWithOki — OKI batch DMA two-kernel pipeline
 //
@@ -96,7 +96,8 @@ static ncclResult_t pcclCeLaunchBatchOpsMultiStreamWithOki(ncclComm_t comm, cons
   return ncclSuccess;
 }
 
-struct pcclCeOkiAllReduceState {
+struct pcclCeOkiReduceState {
+  ncclFunc_t func;
   ssize_t rankElts[8];
   ssize_t rankOffset[8];
   uint8_t* myRecvBuff;
@@ -106,64 +107,92 @@ struct pcclCeOkiAllReduceState {
   ssize_t currentRankElts;
   uint32_t rank0LoopCnt;
   ssize_t splitElts;
+  // Per-rank slice the cmd block partitions totalElts with, and the total the two collectives
+  // disagree on: AllReduce's args->nElts already spans every rank, ReduceScatter's is per-rank.
+  int64_t chunkElts;
+  uint64_t totalElts;
 };
 
-static ncclResult_t pcclCeOkiAllReduceSetup(
+static ncclResult_t pcclCeOkiReduceSetup(
   ncclComm_t comm,
   struct ncclCeCollArgs* args,
-  struct pcclCeOkiAllReduceState* state
+  struct pcclCeOkiReduceState* state
 );
 
-static ncclResult_t pcclCeOkiAllReduceLaunch(
+static ncclResult_t pcclCeOkiReduceLaunch(
   ncclComm_t comm,
   struct ncclCeCollArgs* args,
-  struct pcclCeOkiAllReduceState* state,
+  struct pcclCeOkiReduceState* state,
   hggcStream_t stream
 );
 
 // One cooperative kernel does the whole collective on the caller's stream: blocks
 // [0, pcclCeReduceMaxBlocks) reduce the chunks as the peers' DMA delivers them, and the last
-// block barriers with the peers, drives the OKI queues for both the reduce-scatter and the
-// allgather, waits for its own completion queues, and barriers again.
+// block barriers with the peers, drives the OKI queues for the reduce-scatter and -- for
+// AllReduce -- the allgather, waits for its own completion queues, and barriers again.
 //
 // The barriers used to be two kernels (gpuBarrierWithTrigger / gpuBarrier) with a device fence
 // carrying the handoff to the cmd kernel on comm->ceStreams[0]. Fused, the handoff is program
 // order, and because the kernel does not retire until the cmd block has drained its queues,
 // stream ordering alone provides the back-pressure that the host-side sliding window used to.
-ncclResult_t pcclCeOkiAllReduce(ncclComm_t comm, struct ncclCeCollArgs* args, hggcStream_t stream) {
-  struct pcclCeOkiAllReduceState state = {};
+static ncclResult_t pcclCeOkiReduce(ncclComm_t comm, struct ncclCeCollArgs* args, hggcStream_t stream, ncclFunc_t func) {
+  struct pcclCeOkiReduceState state = {};
+  state.func = func;
 
-  NCCLCHECK(pcclCeOkiAllReduceSetup(comm, args, &state));
-  NCCLCHECK(pcclCeOkiAllReduceLaunch(comm, args, &state, stream));
+  NCCLCHECK(pcclCeOkiReduceSetup(comm, args, &state));
+  NCCLCHECK(pcclCeOkiReduceLaunch(comm, args, &state, stream));
 
+  // +1 covers the closing CQ fence the cmd block writes for both collectives; the next
+  // collective's first self-wait is on exactly this value.
   comm->ceOkiStep += (state.rank0LoopCnt + 1);
   comm->ceReduceStep += state.rank0LoopCnt;
   return ncclSuccess;
 }
 
-static ncclResult_t pcclCeOkiAllReduceSetup(
+ncclResult_t pcclCeOkiAllReduce(ncclComm_t comm, struct ncclCeCollArgs* args, hggcStream_t stream) {
+  return pcclCeOkiReduce(comm, args, stream, ncclFuncAllReduce);
+}
+
+ncclResult_t pcclCeOkiReduceScatter(ncclComm_t comm, struct ncclCeCollArgs* args, hggcStream_t stream) {
+  return pcclCeOkiReduce(comm, args, stream, ncclFuncReduceScatter);
+}
+
+static ncclResult_t pcclCeOkiReduceSetup(
   ncclComm_t comm,
   struct ncclCeCollArgs* args,
-  struct pcclCeOkiAllReduceState* state
+  struct pcclCeOkiReduceState* state
 ) {
   if (comm->nRanks > 8) {
-    ERROR("pcclCeOkiAllReduce: OKI path only supports nRanks <= 8, got nRanks=%d", comm->nRanks);
+    ERROR("pcclCeOkiReduce: OKI path only supports nRanks <= 8, got nRanks=%d", comm->nRanks);
     return ncclInternalError;
   }
 
-  ssize_t avgElts = DIVUP(args->nElts, comm->nRanks);
-  constexpr int bulkInstSize = 512;
-  avgElts = ROUNDUP(avgElts, bulkInstSize/args->eltSize);
+  bool isReduceScatter = (state->func == ncclFuncReduceScatter);
+  // ReduceScatter: args->nElts is the per-rank recvcount, so the full input is nRanks times that
+  // and each rank owns exactly recvcount elements -- rounding the slice up would overrun
+  // recvBuff. AllReduce: args->nElts is the whole buffer, split and rounded up for the kernel.
+  ssize_t totalElts = isReduceScatter ? (ssize_t)args->nElts * comm->nRanks : (ssize_t)args->nElts;
+  int64_t chunkElts;
+  if (isReduceScatter) {
+    chunkElts = (int64_t)args->nElts;
+  } else {
+    constexpr int bulkInstSize = 512;
+    chunkElts = DIVUP(totalElts, comm->nRanks);
+    chunkElts = ROUNDUP(chunkElts, bulkInstSize/args->eltSize);
+  }
+  state->chunkElts = chunkElts;
+  state->totalElts = (uint64_t)totalElts;
 
-  state->rankElts[0] = args->nElts > avgElts ? avgElts : args->nElts;
+  state->rankElts[0] = totalElts > chunkElts ? chunkElts : totalElts;
   state->rankOffset[0] = 0;
   for (int i = 1; i < comm->nRanks; i++) {
-    int64_t remain = ((int64_t)args->nElts - ((int64_t)i+1) * avgElts);
-    state->rankElts[i] = (remain >= 0) ? avgElts : std::max<ssize_t>(0, args->nElts - i * avgElts);
+    int64_t remain = ((int64_t)totalElts - ((int64_t)i+1) * chunkElts);
+    state->rankElts[i] = (remain >= 0) ? chunkElts : std::max<ssize_t>(0, totalElts - i * chunkElts);
     state->rankOffset[i] = state->rankOffset[i-1] + state->rankElts[i-1] * args->eltSize;
   }
 
-  state->myRecvBuff = (uint8_t*)args->recvBuff + state->rankOffset[comm->rank];
+  // ReduceScatter's recvBuff is this rank's slice; AllReduce's holds every rank's.
+  state->myRecvBuff = (uint8_t*)args->recvBuff + (isReduceScatter ? 0 : state->rankOffset[comm->rank]);
   state->myStaBuff = (uint8_t*)ncclSymDevBase_getStaBuf((struct ncclSymDevBase*)comm->ceColl.ceSyncBase, comm->nRanks);
   state->currentRankElts = state->rankElts[comm->rank];
   state->splitElts = pcclCeReduceChunkSize / args->eltSize;
@@ -175,19 +204,19 @@ static ncclResult_t pcclCeOkiAllReduceSetup(
   return ncclSuccess;
 }
 
-static ncclResult_t pcclCeOkiAllReduceLaunch(
+static ncclResult_t pcclCeOkiReduceLaunch(
   ncclComm_t comm,
   struct ncclCeCollArgs* args,
-  struct pcclCeOkiAllReduceState* state,
+  struct pcclCeOkiReduceState* state,
   hggcStream_t stream
 ) {
-  int funcIndex = localReduceFuncIndex(args->datatype, comm->nRanks);
+  int funcIndex = localReduceFuncIndex(args->datatype, comm->nRanks, args->redOp);
   if (funcIndex == -1) {
-    ERROR("not implemented");
+    ERROR("not implemented: datatype %d, nRanks %d, op %d", args->datatype, comm->nRanks, args->redOp);
     return ncclInternalError;
   }
 
-  struct pcclCeOkiArArgs kargs = {};
+  struct pcclCeOkiReduceArgs kargs = {};
   kargs.comm = args->comm;
   kargs.qps = comm->okiQps;
   kargs.sendBuff = args->sendBuff;
@@ -197,7 +226,8 @@ static ncclResult_t pcclCeOkiAllReduceLaunch(
   kargs.headPtr = state->headBasePtr;
   kargs.gridSyncPtr = ncclSymDevBase_getGridSyncBase((struct ncclSymDevBase*)comm->ceColl.ceSyncBase, comm->nRanks);
   kargs.myElts = state->currentRankElts;
-  kargs.nElts = args->nElts;
+  kargs.nElts = state->totalElts;
+  kargs.chunkElts = state->chunkElts;
   kargs.okiBaseStep = comm->ceOkiStep + 1;
   kargs.reduceStepBase = comm->ceReduceStep;
   kargs.eltSize = args->eltSize;
@@ -205,6 +235,7 @@ static ncclResult_t pcclCeOkiAllReduceLaunch(
   kargs.nDies = ppuDiesNum;
   kargs.stride4G = comm->devrState.bigSize >> 32;
   kargs.myRank = comm->rank;
+  kargs.broadcast = (state->func != ncclFuncReduceScatter) ? 1 : 0;
 
   // The cmd block reaches a peer by adding targetRank * stride4G to rank 0's lsa-flat address;
   // the reduce blocks reach their own slot on a peer the same way.
@@ -232,7 +263,7 @@ static ncclResult_t pcclCeOkiAllReduceLaunch(
   dim3 block = {pcclCeReduceMaxThreads, 1, 1};
   void* pargs[] = {&kargs};
 
-  LAUNCH_KERNEL(pcclCeOkiArFuncs[funcIndex], grid, block, pargs, (ssize_t)0, stream, 1, launchConfig);
+  LAUNCH_KERNEL(pcclCeOkiReduceFuncs[funcIndex], grid, block, pargs, (ssize_t)0, stream, 1, launchConfig);
 
   return ncclSuccess;
 }

@@ -30,7 +30,7 @@ HGGCRT_LDFLAG = -lhggc_wrapper
 LIB_NAME = libpccl-ext-kernel.so
 BUILDDIR ?= $(abspath ../build/lib)
 PLUGIN_SO := $(BUILDDIR)/$(LIB_NAME)
-OBJDIR := $(BUILDDIR)/ext-kernel
+OBJDIR := $(abspath $(BUILDDIR)/../obj)/ext-kernel
 
 CROSS_COMPILE_OPTION =
 OBJCOPY ?= objcopy

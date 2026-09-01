@@ -180,9 +180,9 @@ __global__ void gpuBarrierWithTrigger(ncclSymDevArgs const args, uint64_t* addr,
 __global__ void gpuGEQ(volatile uint64_t* ptr, uint64_t data);
 
 #if PCCL_HGGC_VERSION >= PCCL_HGGC_DRIVER_VERSION(2, 2, 0)
-// Everything the fused OKI AllReduce kernel needs, passed by value: the reduce blocks read the
+// Everything the fused OKI reduce-family kernel needs, passed by value: the reduce blocks read the
 // station buffers and the rank0-flat head/tail slots, the cmd block drives the OKI queues.
-struct alignas(16) pcclCeOkiArArgs {
+struct alignas(16) pcclCeOkiReduceArgs {
   struct ncclSymDevComm comm;      // the in-kernel barrier peers through this
   ltOkiQP_t* qps;
   void* sendBuff;
@@ -197,7 +197,11 @@ struct alignas(16) pcclCeOkiArArgs {
   uint64_t* headOnRank0;           // lsa-flat head slot, polled by the reduce blocks
   void* gridSyncPtr;
   ssize_t myElts;
-  uint64_t nElts;
+  uint64_t nElts;                  // total elements across all ranks' sendBuff
+  // The per-rank slice the cmd block partitions nElts with. Computed on the host because the two
+  // collectives disagree: AllReduce rounds DIVUP(nElts, nRanks) up to 512B, ReduceScatter uses the
+  // exact recvcount -- rounding there would run past the end of recvBuff.
+  int64_t chunkElts;
   uint64_t okiBaseStep;
   int64_t reduceStepBase;
   int eltSize;
@@ -205,13 +209,16 @@ struct alignas(16) pcclCeOkiArArgs {
   uint32_t nDies;
   uint32_t stride4G;
   uint32_t myRank;
+  // 1 = AllReduce: broadcast this rank's reduced slice to every peer's recvBuff. 0 = ReduceScatter:
+  // the slice already lives in its own recvBuff, so the cmd block skips the allgather phase.
+  uint32_t broadcast;
 };
 
 // Blocks [0, pcclCeReduceMaxBlocks) reduce; the last block barriers, drives the OKI queues and
 // barriers again. Must be launched cooperatively: the reduce blocks grid_sync among themselves
 // and the cmd block spins on fences they produce, so every block has to be resident.
-template<typename T, int NRANKS>
-__global__ void pcclCeOkiArFused(struct pcclCeOkiArArgs args);
+template<typename T, int NRANKS, bool AVG>
+__global__ void pcclCeOkiReduceFused(struct pcclCeOkiReduceArgs args);
 #endif
 
 #define PCCL_OKI_MAX_LOCAL_RANKS 64

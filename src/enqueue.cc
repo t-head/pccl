@@ -1851,6 +1851,9 @@ ncclResult_t ncclLaunchPrepare(ncclComm_t comm) {
         plan->ceCollArgs.nElts = task->count;
         plan->ceCollArgs.eltSize = ncclTypeSize(task->datatype);
         plan->ceCollArgs.datatype = task->datatype;
+        // opHost, not opDev: opDev rewrites ncclAvg into PreMulSum/SumPostDiv for the generic
+        // kernels, while the CE reduce path implements avg itself by pre-scaling.
+        plan->ceCollArgs.redOp = task->opHost;
         plan->ceCollArgs.sendBuff = (uint8_t*)task->sendbuff;
         plan->ceCollArgs.recvBuff = (uint8_t*)task->recvbuff;
         plan->ceCollArgs.func = task->func;
@@ -2262,7 +2265,7 @@ static ncclResult_t taskAppend(ncclComm_t comm, struct ncclInfo* info) {
     // Append CE collective task if CE is supported and requested by user
     ncclSymRegType_t winRegType;
     NCCLCHECK(ncclGetSymRegType(sendWin, recvWin, &winRegType));
-    bool ceAvailable = ncclCeAvailable(comm, info->coll, info->op, info->datatype, winRegType, info->recvbuff, info->stream);
+    bool ceAvailable = ncclCeAvailable(comm, info->coll, info->op, info->datatype, info->count, winRegType, info->recvbuff, info->stream);
     bool hasSysmemSegment = ncclDevrWindowHasSysmemSegment(sendWin) || ncclDevrWindowHasSysmemSegment(recvWin);
 
     if ((comm->config.CTAPolicy & PCCL_CTA_POLICY_ZERO) && ceAvailable && !hasSysmemSegment) {

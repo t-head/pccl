@@ -18,6 +18,7 @@
 #define PCCL_OKI_MAX_THREADS 1024
 
 ncclResult_t pcclCeOkiAllReduce(ncclComm_t comm, struct ncclCeCollArgs* args, hggcStream_t stream);
+ncclResult_t pcclCeOkiReduceScatter(ncclComm_t comm, struct ncclCeCollArgs* args, hggcStream_t stream);
 ncclResult_t pcclCeOkiAllGather(ncclComm_t comm, struct ncclCeCollArgs* args, hggcStream_t stream);
 
 #endif // end include guard

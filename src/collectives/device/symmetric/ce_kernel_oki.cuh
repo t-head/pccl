@@ -36,6 +36,29 @@ static __device__ __inline__ int okiOpToQpGroup(int opId, int numQpGroups) {
   return 1 + (opId - 1) % numRemoteGroups;
 }
 
+// The slice of an nElts buffer owned by `rank` when it is cut into chunkElts-sized pieces.
+// Must agree with the host partition in pcclCeOkiReduceSetup, which clamps the last rank to the
+// remainder. The open-coded loops this replaces derived rank i's size from rank i+1's bound, so a
+// trailing partial rank was handed a full slice -- the DMA then read past the end of sendBuff and
+// the broadcast wrote past the end of recvBuff.
+struct okiReduceSlice {
+  int64_t offsetElts;
+  int64_t elts;
+};
+
+static __device__ __inline__ okiReduceSlice okiReduceSliceOf(uint64_t nElts, int64_t chunkElts, int rank) {
+  int64_t total = (int64_t)nElts;
+  int64_t off = (int64_t)rank * chunkElts;
+  if (off > total) off = total;
+  int64_t elts = total - off;
+  if (elts > chunkElts) elts = chunkElts;
+  if (elts < 0) elts = 0;
+  okiReduceSlice s;
+  s.offsetElts = off;
+  s.elts = elts;
+  return s;
+}
+
 // Kernel-side fence wait, used by the AR cmd path instead of a wait-fence WQE: a WQE that
 // polls occupies the DMA ring for as long as it waits, so nothing else queued behind it can
 // run. Every address waited on lives in this rank's own memory -- the peers' reduce blocks
@@ -64,15 +87,18 @@ static __device__ __inline__ uint32_t okiChunkCopyWqeCount(size_t size, int die,
   return calcDmaSegmentCount(bytes) + ((!local && withIcnFence) ? 1u : 0u);
 }
 
-// The AllReduce cmd path: post the reduce-scatter chunks, then the allgather, then wait for this
-// queue to drain. Runs in the last block of the fused AllReduce kernel, which barriers with the
-// peers immediately before and after the call -- the barrier is what used to be the dependency
-// fence handoff from gpuBarrierWithTrigger to a separate cmd kernel.
+// The reduce-family cmd path: post the reduce-scatter chunks, then -- for AllReduce -- the
+// allgather, then wait for this queue to drain. Runs in the last block of the fused kernel, which
+// barriers with the peers immediately before and after the call -- the barrier is what used to be
+// the dependency fence handoff from gpuBarrierWithTrigger to a separate cmd kernel.
+//
+// args.broadcast == 0 is ReduceScatter: each rank's reduced slice already lives in its own
+// recvBuff, so the allgather phase is skipped. The closing CQ fence is posted either way.
 //
 // Contains no __syncthreads(): non-driver threads return right away and wait at the caller's
 // post-barrier instead.
 template<int DIE_NUM>
-static __device__ __inline__ void okiArDmaCmd(const struct pcclCeOkiArArgs& args, int nRanks) {
+static __device__ __inline__ void okiReduceDmaCmd(const struct pcclCeOkiReduceArgs& args, int nRanks) {
   ltOkiQP_t* qps = args.qps;
   void* sendBuff = args.sendBuff;
   uint8_t* myRecvBuff = args.myRecvBuff;
@@ -88,6 +114,7 @@ static __device__ __inline__ void okiArDmaCmd(const struct pcclCeOkiArArgs& args
   uint64_t* headPtr = args.headPtr;
   uint64_t ceReduceStepBase = (uint64_t)args.reduceStepBase;
   int stride4G = (int)args.stride4G;
+  bool broadcast = args.broadcast != 0;
 
   int tid = threadIdx.x;
   int wid = tid / WARP_SIZE;
@@ -111,16 +138,10 @@ static __device__ __inline__ void okiArDmaCmd(const struct pcclCeOkiArArgs& args
   uint32_t rankToQid = (targetRank + nRanks - myRank) % nRanks;
   bool local = (targetRank == myRank);
 
-  int64_t avgElts = DIVUP(nElts, nRanks);
-  avgElts = ROUNDUP(avgElts, 512/eltSize);
-
-  int64_t targetRankElts = nElts > avgElts ? avgElts : nElts;   // the extra elts handle by rank0
-  int64_t rankOffset = 0;
-  for (int i = 0; i < targetRank; i++) {
-    int64_t remain = ((int64_t)nElts - ((int64_t)i+1) * avgElts) ;
-    rankOffset = rankOffset + targetRankElts * eltSize;  // pre rank offset  + pre rank elts
-    targetRankElts = (remain >= 0) ? avgElts : (nElts - (i+1) * avgElts);
-  }
+  int64_t chunkElts = args.chunkElts;
+  okiReduceSlice target = okiReduceSliceOf(nElts, chunkElts, targetRank);
+  int64_t targetRankElts = target.elts;
+  int64_t rankOffset = target.offsetElts * eltSize;
 
   ltOkiQP_t qp = qps[rankToQid * DIE_NUM + die];
   volatile uint64_t* cqAddr = ltOkiQPGetCQ(qp);
@@ -208,22 +229,18 @@ static __device__ __inline__ void okiArDmaCmd(const struct pcclCeOkiArArgs& args
   }
 
   {
-    // wait my self reduce done. then do the allgather
-    // for multi segments, pre launch a segment dma to overlap with the last reduce segment.
+    // AllReduce: wait for my own reduce to finish, then allgather my slice to every peer.
+    // ReduceScatter: the reduced slice already sits in this rank's recvBuff, so only the closing
+    // fence is posted -- the host advances ceOkiStep by loopCnt + 1 for both collectives, so the
+    // extra step has to be consumed either way, and it is also what drains this queue.
     uint64_t expectedTail = ceReduceStepBase + loopCnt;
     uint32_t preCount = 1;
-    int64_t preElts = (loopCnt > 1) ? preCount * pcclCeReduceChunkSize / eltSize : 0;
-
-    int64_t myRankElts;
-    myRankElts = nElts > avgElts ? avgElts : nElts;   // the extra elts handle by rank0
-    for (int i = 0; i < myRank; i++) {
-      int64_t remain = ((int64_t)nElts - ((int64_t)i+1) * avgElts) ;
-      myRankElts = (remain >= 0) ? avgElts : (nElts - (i+1) * avgElts);
-    }
+    int64_t preElts = (broadcast && loopCnt > 1) ? preCount * pcclCeReduceChunkSize / eltSize : 0;
+    int64_t myRankElts = okiReduceSliceOf(nElts, chunkElts, myRank).elts;
     int64_t restElts = myRankElts - preElts;
     int64_t preBytes = preElts * eltSize;
 
-    if (loopCnt > 1) {
+    if (broadcast && loopCnt > 1) {
       // Pre-launch one segment before waiting on the final tail, so it overlaps the last
       // reduce chunk.
       okiWaitFence((volatile uint64_t*)(tailPtr + myRank * PCCL_CE_MAX_DIE_NUM + die), expectedTail - 1);
@@ -247,7 +264,7 @@ static __device__ __inline__ void okiArDmaCmd(const struct pcclCeOkiArArgs& args
       uint8_t* peerDst = (uint8_t*)add4G((uint8_t*)rank0RecvBuff, targetRank * stride4G) + preBytes;
       uint8_t* src = myRecvBuff + preBytes;
 
-      size_t size = (!local && restElts > 0) ? restElts * eltSize : 0;
+      size_t size = (broadcast && !local && restElts > 0) ? restElts * eltSize : 0;
       uint32_t wqeNeeded = okiChunkCopyWqeCount<DIE_NUM>(size, die, local, /*withIcnFence=*/true) + 1;  // + closing CQ fence
       uint32_t skip;
       uint32_t wqeBase = ltOkiReserveWqeSlots(qp, wqeNeeded, skip);

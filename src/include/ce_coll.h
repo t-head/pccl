@@ -50,6 +50,8 @@ struct alignas(16) ncclCeCollArgs {
   size_t nElts;
   size_t eltSize;
   pcclDataType_t datatype;
+  // Reduction op, only meaningful for the reduce family (AllReduce, ReduceScatter).
+  pcclRedOp_t redOp;
   uint8_t* sendBuff;
   uint8_t* recvBuff;
   // Devr windows hosting sendBuff/recvBuff; resolved in enqueue.cc.
@@ -92,17 +94,30 @@ static inline int ceArRanksToIndex(const int nRanks) {
   }
 }
 
-static int localReduceFuncIndex(pcclDataType_t dtype, int nRanks) {
+// Ops the CE reduce kernels are instantiated for. avg is implemented by pre-scaling
+// each source value by 1/nRanks inside the local reduce.
+static inline int ceArRedOpToIndex(int/*ncclRedOp_t*/ red) {
+  switch (red) {
+    case ncclSum: return 0;
+    case ncclAvg: return 1;
+    default:      return -1;
+  }
+}
+
+static int localReduceFuncIndex(pcclDataType_t dtype, int nRanks, int/*ncclRedOp_t*/ red) {
   constexpr int dtypeNum = 3;
+  constexpr int nRanksNum = 3;
   int nRanksIdx = ceArRanksToIndex(nRanks);
   int dtypeIndex = ceArDtypeToIndex(dtype);
-  if (nRanksIdx < 0 || dtypeIndex < 0) return -1;
-  int idx = nRanksIdx * dtypeNum + dtypeIndex;
+  int redIdx = ceArRedOpToIndex(red);
+  if (nRanksIdx < 0 || dtypeIndex < 0 || redIdx < 0) return -1;
+  int idx = redIdx * (nRanksNum * dtypeNum) + nRanksIdx * dtypeNum + dtypeIndex;
   return idx;
 }
 
+bool ncclCeReduceEnabled(ncclFunc_t coll);
 bool ncclCeImplemented(ncclFunc_t coll, int/*ncclRedOp_t*/ red, ncclDataType_t ty);
-bool ncclCeAvailable(ncclComm_t comm, ncclFunc_t coll, int/*ncclRedOp_t*/ red, ncclDataType_t ty, ncclSymRegType_t winRegType, const void* recvbuff, hggcStream_t stream);
+bool ncclCeAvailable(ncclComm_t comm, ncclFunc_t coll, int/*ncclRedOp_t*/ red, ncclDataType_t ty, size_t count, ncclSymRegType_t winRegType, const void* recvbuff, hggcStream_t stream);
 
 ncclResult_t ncclCeInit(ncclComm_t comm);
 ncclResult_t ncclCeFinalize(ncclComm_t comm);

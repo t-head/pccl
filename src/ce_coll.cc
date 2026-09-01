@@ -28,6 +28,7 @@ PCCL_PARAM(CeAg2StageMinSize, "CE_AG_2STAGE_MIN_SIZE", 0);
 PCCL_PARAM(CeCollOneStream, "CE_COLL_ONE_STREAM", 0);
 PCCL_PARAM(CeAg2StageOptMinSize, "CE_AG_2STAGE_OPT_MIN_SIZE", 0);
 PCCL_PARAM(CeEnableAr, "CE_ENABLE_AR", 0);
+PCCL_PARAM(CeEnableRs, "CE_ENABLE_RS", 0);
 PCCL_PARAM(CeDieByRank, "CE_DIE_BY_RANK", 1);
 
 // Machine types that support two-stage topology optimization for CE allgather
@@ -121,16 +122,31 @@ ncclResult_t ncclInitCeAllGatherStrategy(struct ncclCeAllGatherStrategy* strateg
   return ncclSuccess;
 }
 
-// Datatype/op gating for CE AllReduce. Runtime gating that needs comm/buffers
-// (nRanks, dies, recvbuff alignment, OKI availability) lives in ncclCeAvailable;
-// here we only have coll/red/ty.
+// Datatype/op gating for the CE reduce family.
 static inline bool ceReduceTypeSupported(int/*ncclRedOp_t*/ red, ncclDataType_t ty) {
   if (ty != pcclHalf && ty != pcclBfloat16 && ty != pcclFloat) return false;
-  if (red != ncclSum) return false;
+  // Keyed on the dispatch table so gating can never admit an op with no kernel.
+  if (ceArRedOpToIndex(red) < 0) return false;
   return true;
 }
 
-bool ncclCeImplemented(ncclFunc_t coll, int/*ncclRedOp_t*/ red, ncclDataType_t ty) {
+bool ncclCeReduceEnabled(ncclFunc_t coll) {
+#if PCCL_HGGC_VERSION < PCCL_HGGC_DRIVER_VERSION(2, 2, 0)
+  // The CE reduce family is OKI-only, and OKI is not compiled for this driver.
+  return false;
+#else
+  if (coll == ncclFuncAllReduce) {
+    if (pcclParamCeEnableAr() != 1) return false;
+  } else if (coll == ncclFuncReduceScatter) {
+    if (pcclParamCeEnableRs() != 1) return false;
+  } else {
+    return false;
+  }
+  return true;
+#endif
+}
+
+bool ncclCeImplemented(ncclFunc_t coll, int/*ncclRedOp_t*/ red, ncclDataType_t ty, bool okiSupport) {
   switch (coll) {
   case ncclFuncAllGather:
   case ncclFuncAlltoAll:
@@ -138,21 +154,11 @@ bool ncclCeImplemented(ncclFunc_t coll, int/*ncclRedOp_t*/ red, ncclDataType_t t
   case ncclFuncGather:
     return true;
   case ncclFuncAllReduce:
-#if PCCL_HGGC_VERSION < PCCL_HGGC_DRIVER_VERSION(2, 2, 0)
-    // CE AllReduce is OKI-only, and OKI is not compiled for this driver.
-    return false;
-#else
-    if (pcclParamCeEnableAr() != 1) return false;
-    if (ppuDiesNum > PCCL_CE_MAX_DIE_NUM) {
-      WARN("CE: config %d dies, but max %d dies supported for ce AllReduce", ppuDiesNum, PCCL_CE_MAX_DIE_NUM);
-      return false;
-    }
-    return ceReduceTypeSupported(red, ty);
-#endif
+  case ncclFuncReduceScatter:
+    return okiSupport && ncclCeReduceEnabled(coll) && ceReduceTypeSupported(red, ty);
   default:
     return false;
   }
-  return false;
 }
 
 // Same graph state that comm->planner.capturingGraph ends up holding: ncclPlannerSetCapturingGraph
@@ -164,35 +170,48 @@ static inline bool ceStreamCapturing(hggcStream_t stream) {
   return ncclCudaGraphValid(graph);
 }
 
-bool ncclCeAvailable(ncclComm_t comm, ncclFunc_t coll, int/*ncclRedOp_t*/ red, ncclDataType_t ty, ncclSymRegType_t winRegType, const void* recvbuff, hggcStream_t stream) {
-  if (!ncclCeImplemented(coll, red, ty)) {
+bool ncclCeAvailable(ncclComm_t comm, ncclFunc_t coll, int/*ncclRedOp_t*/ red, ncclDataType_t ty, size_t count, ncclSymRegType_t winRegType, const void* recvbuff, hggcStream_t stream) {
+  if (!ncclCeImplemented(coll, red, ty, comm->okiSupport)) {
     TRACE(NCCL_TUNING, "Skipping CE collective: not implemented");
     return false;
   }
-  if (coll == ncclFuncAllReduce) {
+  bool isReduceFamily = (coll == ncclFuncAllReduce || coll == ncclFuncReduceScatter);
+  if (isReduceFamily) {
 #if PCCL_HGGC_VERSION >= PCCL_HGGC_DRIVER_VERSION(2, 2, 0)
-    // The only CE AllReduce left is the OKI one.
+    // The only CE reduce path left is the OKI one.
     if (!comm->okiSupport) {
-      TRACE(NCCL_TUNING, "Skipping CE AllReduce: OKI is not available");
+      TRACE(NCCL_TUNING, "Skipping CE reduce: OKI is not available");
       return false;
     }
 #endif
-    // The AllReduce tail/head handshake is driven by host-side step counters
+    // The tail/head handshake is driven by host-side step counters
     // (comm->ceReduceStep, comm->ceOkiStep) that advance once per launch. A captured graph
     // replays the values baked in at capture time, so the waits would never be satisfied.
     if (ceStreamCapturing(stream)) {
-      TRACE(NCCL_TUNING, "Skipping CE AllReduce: graph capture is not supported");
+      TRACE(NCCL_TUNING, "Skipping CE reduce: graph capture is not supported");
       return false;
     }
     // CE reduce kernels only exist for nRanks 2/4/8 (see localReduceFuncIndex).
     if (comm->nRanks != 2 && comm->nRanks != 4 && comm->nRanks != 8) {
-      TRACE(NCCL_TUNING, "Skipping CE AllReduce: nRanks %d not in {2,4,8}", comm->nRanks);
+      TRACE(NCCL_TUNING, "Skipping CE reduce: nRanks %d not in {2,4,8}", comm->nRanks);
       return false;
     }
     // TODO: the initial version of ce reduce always stores with bulk first,
     // without the pre/aft handling of the symmetric kernel, so recvbuff must be 4B aligned.
     if ((uint64_t)recvbuff % 4 != 0) {
-      TRACE(NCCL_TUNING, "Skipping CE AllReduce: recvbuff %p is not 4-byte aligned", recvbuff);
+      TRACE(NCCL_TUNING, "Skipping CE reduce: recvbuff %p is not 4-byte aligned", recvbuff);
+      return false;
+    }
+    // ReduceScatter's slice is the exact recvcount, so the cmd block's DMA reads each peer's chunk
+    // at sendBuff + targetRank * recvcount * eltSize -- an offset AllReduce never produces, because
+    // it rounds its slice up to 512B. Measured: the OKI DMA needs that source 4-byte aligned, and
+    // an unaligned descriptor stalls its queue rather than faulting, so the trailing fence never
+    // retires and the collective deadlocks. Rounding the per-die split does not help; the slice
+    // base itself carries the misalignment. This admits every fp32 recvcount and every even
+    // half/bf16 one; supporting an odd half/bf16 recvcount needs the reduce blocks to tolerate a
+    // 2-byte-phased source (the same pre/aft handling the recvbuff check above is waiting on).
+    if (coll == ncclFuncReduceScatter && (count * ncclTypeSize(ty)) % 4 != 0) {
+      TRACE(NCCL_TUNING, "Skipping CE ReduceScatter: recvcount %zu is not a multiple of 4 bytes", count);
       return false;
     }
   }
@@ -246,10 +265,10 @@ ncclResult_t ncclCeInit(ncclComm_t comm) {
   cec->symDevComm.rank = comm->localRank;
 
   HGGCCHECKGOTO(hggcMemset(cec->ceSyncBase, 0, ceDevBaseSize), ret, fail);
-  // CE AllReduce's waitValue semantics are waitValue = 1 + iter - pcclCeReduceMaxSect,
+  // The CE reduce family's waitValue semantics are waitValue = 1 + iter - pcclCeReduceMaxSect,
   // with the first iter == comm->ceReduceStep. The tail/head arrays must be pre-seeded
-  // to ceReduceStep so the first GEQ wait passes; otherwise AllReduce deadlocks.
-  if (ncclCeImplemented(ncclFuncAllReduce, ncclSum, pcclFloat32)) {
+  // to ceReduceStep so the first GEQ wait passes; otherwise the collective deadlocks.
+  if (comm->okiSupport && (ncclCeReduceEnabled(ncclFuncAllReduce) || ncclCeReduceEnabled(ncclFuncReduceScatter))) {
     int count = comm->nRanks * PCCL_CE_MAX_DIE_NUM;
     NCCLCHECKGOTO(ncclCalloc(&ceArStepInitMem, count), ret, fail);
     for (int i = 0; i < count; i++) ceArStepInitMem[i] = comm->ceReduceStep;
@@ -867,6 +886,9 @@ ncclResult_t ncclLaunchCeColl(ncclComm_t comm, struct ncclKernelPlan* plan) {
 
   switch (args->func) {
     case ncclFuncAllGather:
+      // only use hggcMemcpy ce allgather for now.
+      NCCLCHECKGOTO(ncclCeAllGather(comm, args, stream), ret, fail);
+      break;
 #if PCCL_HGGC_VERSION >= PCCL_HGGC_DRIVER_VERSION(2, 2, 0)
       if (comm->okiSupport && !plan->persistent) {
         // INFO: oki do not support graph for now.
@@ -874,8 +896,6 @@ ncclResult_t ncclLaunchCeColl(ncclComm_t comm, struct ncclKernelPlan* plan) {
         break;
       }
 #endif
-      NCCLCHECKGOTO(ncclCeAllGather(comm, args, stream), ret, fail);
-      break;
     case ncclFuncAlltoAll:
       NCCLCHECKGOTO(ncclCeAlltoAll(comm, args, stream), ret, fail);
       break;
@@ -894,6 +914,17 @@ ncclResult_t ncclLaunchCeColl(ncclComm_t comm, struct ncclKernelPlan* plan) {
       }
 #endif
       // ncclCeAvailable admits AllReduce only on the OKI path.
+      ret = ncclInvalidUsage;
+      break;
+    case ncclFuncReduceScatter:
+#if PCCL_HGGC_VERSION >= PCCL_HGGC_DRIVER_VERSION(2, 2, 0)
+      if (comm->okiSupport && !plan->persistent) {
+        // INFO: oki do not support graph for now.
+        NCCLCHECKGOTO(pcclCeOkiReduceScatter(comm, args, stream), ret, fail);
+        break;
+      }
+#endif
+      // ncclCeAvailable admits ReduceScatter only on the OKI path.
       ret = ncclInvalidUsage;
       break;
     default:

@@ -1987,6 +1987,10 @@ static ncclResult_t ncclCommInitRankFunc(struct ncclAsyncJob* job_) {
       } else if (comm->nRanks > PCCL_OKI_MAX_LOCAL_RANKS) {
         // The batch op arrays are passed to the kernels by value with this fixed capacity.
         INFO(NCCL_INIT, "disable OKI collective as nRanks %d exceeds max %d.", comm->nRanks, PCCL_OKI_MAX_LOCAL_RANKS);
+      } else if (ppuDiesNum > PCCL_CE_MAX_DIE_NUM) {
+        // The OKI kernels are instantiated per die count (1 or 2) and their fence arrays are
+        // sized by PCCL_CE_MAX_DIE_NUM, so a wider die config has no kernel to launch.
+        INFO(NCCL_INIT, "disable OKI collective as %d dies exceeds max %d.", ppuDiesNum, PCCL_CE_MAX_DIE_NUM);
       } else {
         comm->okiSupport = true;
         INFO(NCCL_INIT, "enable OKI collective");

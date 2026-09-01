@@ -77,6 +77,53 @@ inline __device__ int4 add128b(T& a, T& b) {
   return c.packed;
 }
 
+// pcclAvg support: every source value is scaled by 1/NRANKS before being summed.
+// Pre-scaling rather than dividing the sum keeps a half accumulator from overflowing,
+// and since CE reduce only runs on NRANKS in {2,4,8} the factor is a power of two, so
+// the scaling itself is exact.
+template <typename T, int NRANKS>
+struct AvgPreScale;
+
+template <int NRANKS>
+struct AvgPreScale<float, NRANKS> {
+  static inline __device__ void apply(PackedFloat& a) {
+    constexpr float s = 1.0f / NRANKS;
+    #pragma unroll
+    for (int i = 0; i < 4; ++i) a.unpacked[i] = a.unpacked[i] * s;
+  }
+  static inline __device__ void applyElt(float& v) {
+    v = v * (1.0f / NRANKS);
+  }
+};
+
+template <int NRANKS>
+struct AvgPreScale<half, NRANKS> {
+  static inline __device__ void apply(PackedHalf& a) {
+    half2 s;
+    s.x = __float2half(1.0f / NRANKS);
+    s.y = s.x;
+    #pragma unroll
+    for (int i = 0; i < 4; ++i) a.unpacked[i] = __hmul2(a.unpacked[i], s);
+  }
+  static inline __device__ void applyElt(half& v) {
+    v = __hmul(v, __float2half(1.0f / NRANKS));
+  }
+};
+
+template <int NRANKS>
+struct AvgPreScale<__ppu_bfloat16, NRANKS> {
+  static inline __device__ void apply(PackedBFloat16& a) {
+    __ppu_bfloat162 s;
+    s.x = __float2bfloat16(1.0f / NRANKS);
+    s.y = s.x;
+    #pragma unroll
+    for (int i = 0; i < 4; ++i) a.unpacked[i] = __hmul2(a.unpacked[i], s);
+  }
+  static inline __device__ void applyElt(__ppu_bfloat16& v) {
+    v = __hmul(v, __float2bfloat16(1.0f / NRANKS));
+  }
+};
+
 __forceinline__ __device__ int getLaneId() {
   int lane_id;
   asm("ppu.mov.s32 %0, %laneid;" : "=r"(lane_id));
@@ -119,17 +166,23 @@ __global__ void gpuBarrierWithTrigger(ncclSymDevArgs const args, uint64_t* addr,
 #endif
 
 __device__ void fastDivModOfPow2(int32_t dividend, uint32_t divisor, int32_t* quotient, int32_t* remainder) {
-  assert(((divisor & (divisor -1 )) == 0));
-  int log2 = __ffs(divisor) - 1;
-  *quotient = dividend >> log2;
-  *remainder = dividend & (divisor - 1);
+  if ((divisor & (divisor - 1)) == 0) {
+    int log2 = __ffs(divisor) - 1;
+    *quotient = dividend >> log2;
+    *remainder = dividend & (divisor - 1);
+  } else {
+    *quotient = dividend / (int32_t)divisor;
+    *remainder = dividend % (int32_t)divisor;
+  }
 }
 
 template<typename T>
 __device__ T fastRoundDown(T value, uint32_t multiple) {
-  assert(((multiple & (multiple -1 )) == 0));
-  int log2 = __ffs(multiple) - 1;
-  return ((value >> log2) << log2);
+  if ((multiple & (multiple - 1)) == 0) {
+    int log2 = __ffs(multiple) - 1;
+    return ((value >> log2) << log2);
+  }
+  return (value / (T)multiple) * (T)multiple;
 }
 
 inline __device__ void BulkStore128(uint4& v, uint4* p) {
@@ -175,11 +228,12 @@ __device__ void grid_sync(
 }
 
 // TODO: refact the reduce like symmetric implement.
-template<typename T, int NRANKS, int UNROLL=2>
+template<typename T, int NRANKS, bool AVG, int UNROLL=2>
 __inline__ __device__ void reduceFromMultiSource(volatile T* srcs[NRANKS], volatile T* dst, int32_t Packets512B, int32_t Packets16B, int32_t PacketsElt, int32_t warpGroupSize, int32_t wid, int32_t laneId, int myRank) {
   static constexpr int PACKED_ELTS_PER_THREAD = 16 / sizeof(T);
   static constexpr int PACKED_ELTS_PER_WARP = PACKED_ELTS_PER_THREAD * WARP_SIZE;
   using PackedStruct = typename PackedOn16Bytes<T>::Type;
+  using AvgScale = AvgPreScale<T, NRANKS>;
 
   const int32_t eltsPerGroup = warpGroupSize * PACKED_ELTS_PER_WARP;
   int32_t offset = wid * PACKED_ELTS_PER_WARP;
@@ -200,6 +254,10 @@ __inline__ __device__ void reduceFromMultiSource(volatile T* srcs[NRANKS], volat
     }
     #pragma unroll UNROLL
     for (int u = 0; u < UNROLL; u++) {
+      if (AVG) {
+        #pragma unroll
+        for (int ii = 0; ii < NRANKS; ++ii) AvgScale::apply(vals[u][ii]);
+      }
       // Sum the values from the different ranks.
       #pragma unroll
       for (int ii = 1; ii < NRANKS; ++ii) {
@@ -222,6 +280,10 @@ __inline__ __device__ void reduceFromMultiSource(volatile T* srcs[NRANKS], volat
       // PRINTF("rank:%d <%d %d>, %d %x %x %x %x\n", myRank, blockIdx.x, threadIdx.x, ii, vals[0][ii].upacked.x, vals[0][ii].upacked.y, vals[0][ii].upacked.z, vals[0][ii].upacked.w);
     }
     // Sum the values from the different ranks.
+    if (AVG) {
+      #pragma unroll
+      for (int ii = 0; ii < NRANKS; ++ii) AvgScale::apply(vals[0][ii]);
+    }
     #pragma unroll
     for (int ii = 1; ii < NRANKS; ++ii) {
       vals[0][0].packed = add128b(vals[0][0], vals[0][ii]);
@@ -242,6 +304,10 @@ __inline__ __device__ void reduceFromMultiSource(volatile T* srcs[NRANKS], volat
         Load128(vals[0][ii].upacked, (const uint4*)(srcs[ii] + offset));
       }
       // Sum the values from the different ranks.
+      if (AVG) {
+        #pragma unroll
+        for (int ii = 0; ii < NRANKS; ++ii) AvgScale::apply(vals[0][ii]);
+      }
       #pragma unroll
       for (int ii = 1; ii < NRANKS; ++ii) {
         vals[0][0].packed = add128b(vals[0][0], vals[0][ii]);
@@ -255,6 +321,10 @@ __inline__ __device__ void reduceFromMultiSource(volatile T* srcs[NRANKS], volat
         #pragma unroll
         for (int ii = 0; ii < NRANKS; ++ii) vals[ii] = srcs[ii][offset + elt];
 
+        if (AVG) {
+          #pragma unroll
+          for (int ii = 0; ii < NRANKS; ++ii) AvgScale::applyElt(vals[ii]);
+        }
         #pragma unroll
         for (int ii = 1; ii < NRANKS; ++ii) vals[0] += vals[ii];
 
@@ -265,11 +335,12 @@ __inline__ __device__ void reduceFromMultiSource(volatile T* srcs[NRANKS], volat
 }
 
 #if PCCL_HGGC_VERSION >= PCCL_HGGC_DRIVER_VERSION(2, 2, 0)
-// The reduce half of the fused AllReduce kernel: consume one chunk per iteration out of the
+// The reduce half of the fused reduce-family kernel: consume one chunk per iteration out of the
 // station buffers as the peers' DMA fills them, and publish this rank's consumption through the
-// tail slots that every peer's cmd block spins on.
-template<typename T, int NRANKS>
-__device__ void ceArLocalReduce(const struct pcclCeOkiArArgs& args) {
+// tail slots that every peer's cmd block spins on. Identical for AllReduce and ReduceScatter --
+// both reduce this rank's own slice; only the cmd block's trailing phase differs.
+template<typename T, int NRANKS, bool AVG>
+__device__ void ceLocalReduce(const struct pcclCeOkiReduceArgs& args) {
   T* src = (T*)args.myStaBuff;
   T* dst = (T*)args.myRecvBuff;
   ssize_t eltsTotal = args.myElts;
@@ -322,6 +393,13 @@ __device__ void ceArLocalReduce(const struct pcclCeOkiArArgs& args) {
     // let last block process the extra data.(which means last block's currentBlockElts >= blockOffset)
     int32_t extElts;
     fastDivModOfPow2(chunkElts, blockNum, &blockOffset, &extElts);
+    // blockOffset is the stride every block's source and destination pointers are advanced by, and
+    // the reduce below addresses them with 128-bit bulk loads and stores. A stride that is not a
+    // whole number of packets drops every block past block 0 to the alignment of the element type,
+    // which faults for 2-byte types; 4-byte types never notice because any element offset is
+    // already 4B aligned, which is all this path requires of the buffers.
+    blockOffset = fastRoundDown(blockOffset, PACKED_ELTS_PER_THREAD);
+    extElts = chunkElts - blockOffset * blockNum;
     currentBlockElts = blockOffset;
     if (blockIdx.x == blockNum - 1) currentBlockElts += extElts;
 
@@ -364,7 +442,7 @@ __device__ void ceArLocalReduce(const struct pcclCeOkiArArgs& args) {
     __syncthreads();
 
     if (chunkElts > 0) {
-      reduceFromMultiSource<T, NRANKS>(srcs, currentDst, Packets512B, Packets16B, PacketsElt, nWarps, wid, laneId, myRank);
+      reduceFromMultiSource<T, NRANKS, AVG>(srcs, currentDst, Packets512B, Packets16B, PacketsElt, nWarps, wid, laneId, myRank);
     }
 
     __syncthreads();
@@ -386,53 +464,63 @@ __device__ void ceArLocalReduce(const struct pcclCeOkiArArgs& args) {
   }
 }
 
-template<typename T, int NRANKS>
-__global__ void pcclCeOkiArFused(struct pcclCeOkiArArgs args) {
+template<typename T, int NRANKS, bool AVG>
+__global__ void pcclCeOkiReduceFused(struct pcclCeOkiReduceArgs args) {
   if (blockIdx.x < pcclCeReduceMaxBlocks) {
-    ceArLocalReduce<T, NRANKS>(args);
+    ceLocalReduce<T, NRANKS, AVG>(args);
     return;
   }
 
   // The cmd block. The barriers around the DMA are what used to be gpuBarrierWithTrigger and
   // the trailing gpuBarrier: the first one keeps any rank from writing into a peer's station
   // buffer before that peer is in this collective, the second one -- placed after the cmd path
-  // has polled its own queues -- is what makes every peer's allgather data visible in recvBuff
+  // has polled its own queues -- is what makes every peer's remote writes visible in recvBuff
   // by the time the kernel retires.
   ncclSymPrims prim(args.comm, 1, ncclSymPrims_UseBarrier);
   prim.barrierArrive(ncclCoopCta(), /*release=*/true);
   prim.barrierWait(ncclCoopCta(), /*acquire=*/false);
 
-  if (args.nDies == 1) okiArDmaCmd<1>(args, NRANKS);
-  else okiArDmaCmd<2>(args, NRANKS);
+  if (args.nDies == 1) okiReduceDmaCmd<1>(args, NRANKS);
+  else okiReduceDmaCmd<2>(args, NRANKS);
 
   prim.barrierArrive(ncclCoopCta(), /*release=*/true);
   prim.barrierWait(ncclCoopCta(), /*acquire=*/false);
 }
 
-#define CE_OKI_AR_IMPL(T, nRanks) \
-  template __global__ void pcclCeOkiArFused<T, nRanks>(struct pcclCeOkiArArgs args);
+#define CE_OKI_REDUCE_IMPL(T, nRanks, avg) \
+  template __global__ void pcclCeOkiReduceFused<T, nRanks, avg>(struct pcclCeOkiReduceArgs args);
 
-#define CE_OKI_AR_T_IMPL(nRanks) \
-  CE_OKI_AR_IMPL(half, nRanks) \
-  CE_OKI_AR_IMPL(__ppu_bfloat16, nRanks) \
-  CE_OKI_AR_IMPL(float, nRanks)
+#define CE_OKI_REDUCE_T_IMPL(nRanks, avg) \
+  CE_OKI_REDUCE_IMPL(half, nRanks, avg) \
+  CE_OKI_REDUCE_IMPL(__ppu_bfloat16, nRanks, avg) \
+  CE_OKI_REDUCE_IMPL(float, nRanks, avg)
 
-CE_OKI_AR_T_IMPL(2)
-CE_OKI_AR_T_IMPL(4)
-CE_OKI_AR_T_IMPL(8)
+#define CE_OKI_REDUCE_R_IMPL(avg) \
+  CE_OKI_REDUCE_T_IMPL(2, avg) \
+  CE_OKI_REDUCE_T_IMPL(4, avg) \
+  CE_OKI_REDUCE_T_IMPL(8, avg)
 
-#define CE_OKI_AR_FUNCNAME(T, nRanks) \
-  (void*)pcclCeOkiArFused<T, nRanks>,
+CE_OKI_REDUCE_R_IMPL(false)
+CE_OKI_REDUCE_R_IMPL(true)
 
-#define CE_OKI_AR_T_FUNCNAME(nRanks) \
-  CE_OKI_AR_FUNCNAME(half, nRanks) \
-  CE_OKI_AR_FUNCNAME(__ppu_bfloat16, nRanks) \
-  CE_OKI_AR_FUNCNAME(float, nRanks)
+#define CE_OKI_REDUCE_FUNCNAME(T, nRanks, avg) \
+  (void*)pcclCeOkiReduceFused<T, nRanks, avg>,
 
-// Indexed by localReduceFuncIndex(): nRanks {2,4,8} major, dtype {half, bf16, float} minor.
-void* pcclCeOkiArFuncs[] = {
-  CE_OKI_AR_T_FUNCNAME(2)
-  CE_OKI_AR_T_FUNCNAME(4)
-  CE_OKI_AR_T_FUNCNAME(8)
+#define CE_OKI_REDUCE_T_FUNCNAME(nRanks, avg) \
+  CE_OKI_REDUCE_FUNCNAME(half, nRanks, avg) \
+  CE_OKI_REDUCE_FUNCNAME(__ppu_bfloat16, nRanks, avg) \
+  CE_OKI_REDUCE_FUNCNAME(float, nRanks, avg)
+
+#define CE_OKI_REDUCE_R_FUNCNAME(avg) \
+  CE_OKI_REDUCE_T_FUNCNAME(2, avg) \
+  CE_OKI_REDUCE_T_FUNCNAME(4, avg) \
+  CE_OKI_REDUCE_T_FUNCNAME(8, avg)
+
+// Indexed by localReduceFuncIndex(): redOp {sum, avg} outermost, then nRanks {2,4,8}, then
+// dtype {half, bf16, float}. Shared by AllReduce and ReduceScatter -- they differ only in the
+// args, not the instantiation.
+void* pcclCeOkiReduceFuncs[] = {
+  CE_OKI_REDUCE_R_FUNCNAME(false)
+  CE_OKI_REDUCE_R_FUNCNAME(true)
 };
 #endif
