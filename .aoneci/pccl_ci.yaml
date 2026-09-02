@@ -905,6 +905,266 @@ jobs:
           labels: OAM-810E
           image_url: ${{steps.artifact.outputs.oss_url}}
           timeout: 10800
+  
+  alios7_hggcrt13_build:
+    name: "alios7_hggcrt13_build"
+    image: "reg.docker.alibaba-inc.com/ai-build/ppu:alios7u2.py38.07-officeNetwork"
+    timeout: 12h
+    runs-on:
+      - 32-128Gi
+      - amd64
+    outputs:
+      oss_url: ${{steps.artifact.outputs.oss_url}}
+    steps:
+      - uses: checkout
+        inputs:
+          repository-url: 'git@gitlab.alibaba-inc.com:PPU-comm-open-source/pccl.git'
+          path: '/aoneci/runner/work/source/pccl'
+          ssh-key: ${{secrets.private_ssh_key}}
+      - uses: checkout
+        inputs:
+          repository-url: 'git@gitlab.alibaba-inc.com:PPU-comm/comm-internal-testbox.git'
+          ref: '${{pipeline.inst.triggerMode == "MANUAL" ? params.comm_internal_testbox_ref : "master"}}'
+          path: '/aoneci/runner/work/source/comm-internal-testbox'
+          ssh-key: ${{secrets.private_ssh_key}}
+      - uses: checkout
+        inputs:
+          repository-url: 'git@gitlab.alibaba-inc.com:PPU-comm/comm-toolbox.git'
+          ref: '${{pipeline.inst.triggerMode == "MANUAL" ? params.comm_toolbox_ref : "master"}}'
+          path: '/aoneci/runner/work/source/comm-toolbox'
+          ssh-key: ${{secrets.private_ssh_key}}
+      - uses: checkout
+        inputs:
+          repository-url: 'git@gitlab.alibaba-inc.com:PPU-comm-open-source/pccl-tests.git'
+          ref: '${{pipeline.inst.triggerMode == "MANUAL" ? params.pccl_tests_ref : "master"}}'
+          path: '/aoneci/runner/work/source/pccl-tests'
+          ssh-key: ${{secrets.private_ssh_key}}
+      - id: alios7_hggcrt13_build
+        timeout: 5h
+        run: |
+          echo "---------------------"
+          export source_home=$AONE_CI_SOURCE
+          export build_output=$AONE_CI_SOURCE/output
+          mkdir -p $build_output
+          echo $PWD
+          echo $AONE_CI_SOURCE
+          ls
+          cd /aoneci/runner/work/source/
+          ls
+          ls /aoneci/runner/work/source/pccl/
+          cp /aoneci/runner/work/source/pccl/.aoneci/script/alios7_hggcrt13_build.sh ./
+          source alios7_hggcrt13_build.sh
+          ls ${build_output}
+      - id: package
+        name: pack
+        run: |
+          ls
+          echo "---------------------"
+          tar -zcvf output.tar.gz $AONE_CI_SOURCE/output/*
+          echo "---------------------"
+          ls $AONE_CI_SOURCE/output/*
+      - uses: upload-oss
+        inputs:
+          path: output.tar.gz
+          retention-days: 1
+      - id: artifact
+        run: |
+          echo ${{ #array(steps.upload-oss.outputs.result)[0].remote }} > ${{outputs.oss_url.path}}
+  
+  alios8_hggcrt12_build:
+    name: "alios8_hggcrt12_build"
+    image: "reg.docker.alibaba-inc.com/ai-build/ppu:alios8.py310.10-officeNetwork"
+    timeout: 12h
+    runs-on:
+      - 32-128Gi
+      - amd64
+    outputs:
+      oss_url: ${{steps.artifact.outputs.oss_url}}
+    steps:
+      - uses: checkout
+        inputs:
+          repository-url: 'git@gitlab.alibaba-inc.com:PPU-comm-open-source/pccl.git'
+          path: '/aoneci/runner/work/source/pccl'
+          ssh-key: ${{secrets.private_ssh_key}}
+      - uses: checkout
+        inputs:
+          repository-url: 'git@gitlab.alibaba-inc.com:PPU-comm/comm-internal-testbox.git'
+          ref: '${{pipeline.inst.triggerMode == "MANUAL" ? params.comm_internal_testbox_ref : "master"}}'
+          path: '/aoneci/runner/work/source/comm-internal-testbox'
+          ssh-key: ${{secrets.private_ssh_key}}
+      - uses: checkout
+        inputs:
+          repository-url: 'git@gitlab.alibaba-inc.com:PPU-comm/comm-toolbox.git'
+          ref: '${{pipeline.inst.triggerMode == "MANUAL" ? params.comm_toolbox_ref : "master"}}'
+          path: '/aoneci/runner/work/source/comm-toolbox'
+          ssh-key: ${{secrets.private_ssh_key}}
+      - uses: checkout
+        inputs:
+          repository-url: 'git@gitlab.alibaba-inc.com:PPU-comm-open-source/pccl-tests.git'
+          ref: '${{pipeline.inst.triggerMode == "MANUAL" ? params.pccl_tests_ref : "master"}}'
+          path: '/aoneci/runner/work/source/pccl-tests'
+          ssh-key: ${{secrets.private_ssh_key}}
+      - id: alios8_hggcrt12_build
+        timeout: 5h
+        run: |
+          echo "---------------------"
+          export source_home=$AONE_CI_SOURCE
+          export build_output=$AONE_CI_SOURCE/output
+          mkdir -p $build_output
+          echo $PWD
+          echo $AONE_CI_SOURCE
+          ls
+          cd /aoneci/runner/work/source/
+          ls
+          ls /aoneci/runner/work/source/pccl/
+          cp /aoneci/runner/work/source/pccl/.aoneci/script/alios8_hggcrt12_build.sh ./
+          source alios8_hggcrt12_build.sh
+          ls ${build_output}
+      - id: package
+        name: pack
+        run: |
+          ls
+          echo "---------------------"
+          tar -zcvf output.tar.gz $AONE_CI_SOURCE/output/*
+          echo "---------------------"
+          ls $AONE_CI_SOURCE/output/*
+      - uses: upload-oss
+        inputs:
+          path: output.tar.gz
+          retention-days: 1
+      - id: artifact
+        run: |
+          echo ${{ #array(steps.upload-oss.outputs.result)[0].remote }} > ${{outputs.oss_url.path}}
+
+  afa4_hggcrt13_build:
+    name: "afa4_hggcrt13_build"
+    image: "reg.docker.alibaba-inc.com/ai-build/ppu:alinux4.09-officeNetwork"
+    timeout: 12h
+    runs-on:
+      - 32-128Gi
+      - amd64
+    outputs:
+      oss_url: ${{steps.artifact.outputs.oss_url}}
+    steps:
+      - uses: checkout
+        inputs:
+          repository-url: 'git@gitlab.alibaba-inc.com:PPU-comm-open-source/pccl.git'
+          path: '/aoneci/runner/work/source/pccl'
+          ssh-key: ${{secrets.private_ssh_key}}
+      - uses: checkout
+        inputs:
+          repository-url: 'git@gitlab.alibaba-inc.com:PPU-comm/comm-internal-testbox.git'
+          ref: '${{pipeline.inst.triggerMode == "MANUAL" ? params.comm_internal_testbox_ref : "master"}}'
+          path: '/aoneci/runner/work/source/comm-internal-testbox'
+          ssh-key: ${{secrets.private_ssh_key}}
+      - uses: checkout
+        inputs:
+          repository-url: 'git@gitlab.alibaba-inc.com:PPU-comm/comm-toolbox.git'
+          ref: '${{pipeline.inst.triggerMode == "MANUAL" ? params.comm_toolbox_ref : "master"}}'
+          path: '/aoneci/runner/work/source/comm-toolbox'
+          ssh-key: ${{secrets.private_ssh_key}}
+      - uses: checkout
+        inputs:
+          repository-url: 'git@gitlab.alibaba-inc.com:PPU-comm-open-source/pccl-tests.git'
+          ref: '${{pipeline.inst.triggerMode == "MANUAL" ? params.pccl_tests_ref : "master"}}'
+          path: '/aoneci/runner/work/source/pccl-tests'
+          ssh-key: ${{secrets.private_ssh_key}}
+      - id: afa4_hggcrt13_build
+        timeout: 5h
+        run: |
+          echo "---------------------"
+          export source_home=$AONE_CI_SOURCE
+          export build_output=$AONE_CI_SOURCE/output
+          mkdir -p $build_output
+          echo $PWD
+          echo $AONE_CI_SOURCE
+          ls
+          cd /aoneci/runner/work/source/
+          ls
+          ls /aoneci/runner/work/source/pccl/
+          cp /aoneci/runner/work/source/pccl/.aoneci/script/afa4_hggcrt13_build.sh ./
+          source afa4_hggcrt13_build.sh
+          ls ${build_output}
+      - id: package
+        name: pack
+        run: |
+          ls
+          echo "---------------------"
+          tar -zcvf output.tar.gz $AONE_CI_SOURCE/output/*
+          echo "---------------------"
+          ls $AONE_CI_SOURCE/output/*
+      - uses: upload-oss
+        inputs:
+          path: output.tar.gz
+          retention-days: 1
+      - id: artifact
+        run: |
+          echo ${{ #array(steps.upload-oss.outputs.result)[0].remote }} > ${{outputs.oss_url.path}}
+
+  afa3_hggcrt13_build:
+    name: "afa3_hggcrt13_build"
+    image: "reg.docker.alibaba-inc.com/ai-build/ppu:alinux3.220901.1.18-officeNetwork"
+    timeout: 12h
+    runs-on:
+      - 32-128Gi
+      - amd64
+    outputs:
+      oss_url: ${{steps.artifact.outputs.oss_url}}
+    steps:
+      - uses: checkout
+        inputs:
+          repository-url: 'git@gitlab.alibaba-inc.com:PPU-comm-open-source/pccl.git'
+          path: '/aoneci/runner/work/source/pccl'
+          ssh-key: ${{secrets.private_ssh_key}}
+      - uses: checkout
+        inputs:
+          repository-url: 'git@gitlab.alibaba-inc.com:PPU-comm/comm-internal-testbox.git'
+          ref: '${{pipeline.inst.triggerMode == "MANUAL" ? params.comm_internal_testbox_ref : "master"}}'
+          path: '/aoneci/runner/work/source/comm-internal-testbox'
+          ssh-key: ${{secrets.private_ssh_key}}
+      - uses: checkout
+        inputs:
+          repository-url: 'git@gitlab.alibaba-inc.com:PPU-comm/comm-toolbox.git'
+          ref: '${{pipeline.inst.triggerMode == "MANUAL" ? params.comm_toolbox_ref : "master"}}'
+          path: '/aoneci/runner/work/source/comm-toolbox'
+          ssh-key: ${{secrets.private_ssh_key}}
+      - uses: checkout
+        inputs:
+          repository-url: 'git@gitlab.alibaba-inc.com:PPU-comm-open-source/pccl-tests.git'
+          ref: '${{pipeline.inst.triggerMode == "MANUAL" ? params.pccl_tests_ref : "master"}}'
+          path: '/aoneci/runner/work/source/pccl-tests'
+          ssh-key: ${{secrets.private_ssh_key}}
+      - id: afa3_hggcrt13_build
+        timeout: 5h
+        run: |
+          echo "---------------------"
+          export source_home=$AONE_CI_SOURCE
+          export build_output=$AONE_CI_SOURCE/output
+          mkdir -p $build_output
+          echo $PWD
+          echo $AONE_CI_SOURCE
+          ls
+          cd /aoneci/runner/work/source/
+          ls
+          ls /aoneci/runner/work/source/pccl/
+          cp /aoneci/runner/work/source/pccl/.aoneci/script/afa3_hggcrt13_build.sh ./
+          source afa3_hggcrt13_build.sh
+          ls ${build_output}
+      - id: package
+        name: pack
+        run: |
+          ls
+          echo "---------------------"
+          tar -zcvf output.tar.gz $AONE_CI_SOURCE/output/*
+          echo "---------------------"
+          ls $AONE_CI_SOURCE/output/*
+      - uses: upload-oss
+        inputs:
+          path: output.tar.gz
+          retention-days: 1
+      - id: artifact
+        run: |
+          echo ${{ #array(steps.upload-oss.outputs.result)[0].remote }} > ${{outputs.oss_url.path}}
 
 strategy:
   fast-fail: false

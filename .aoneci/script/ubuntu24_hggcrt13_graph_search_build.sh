@@ -14,7 +14,6 @@ echo "11.162.25.191 art-pub.eng.t-head.cn" >> /etc/hosts
 echo $PWD
 echo "pwd has:"
 ls
-echo "cp ran test shell"
 
 echo "######################### $(date +%Y%m%d%H%M%S) Download Prebuilt PPU_SDK ##########################"
 wget https://art-pub.eng.t-head.cn/artifactory/apackage/daily/ppu/latest/PPU_SDK/ppu_1.0.0_Ubuntu2404_v13.run
@@ -42,8 +41,8 @@ bash build.sh
 
 echo "######################### $(date +%Y%m%d%H%M%S) Build comm-internal-testbox ##########################"
 cd ${source_home}/comm-internal-testbox
-bash build.sh --exclude unit_test,sailbandwidth
-bash build.sh --project_args unit_test:"--use_mpi" --include unit_test
+bash build.sh --common_args "--use_mpi" --exclude sailbandwidth,composite_test
+bash build.sh --include composite_test
 
 echo "######################### $(date +%Y%m%d%H%M%S) Collect final output ##########################"
 mv ${source_home}/comm-internal-testbox ${build_output}

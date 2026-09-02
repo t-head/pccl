@@ -15,7 +15,7 @@ echo "11.162.25.191 art-pub.eng.t-head.cn" >> /etc/hosts
 echo $PWD
 echo "pwd has:"
 ls
-echo "cp ran test shell"
+echo "cp run test shell"
 ls ${source_home}/comm-internal-testbox/.aoneci
 ls ${source_home}/comm-internal-testbox/.aoneci/test
 mv ${source_home}/run_commshrink_test.sh ${build_output}

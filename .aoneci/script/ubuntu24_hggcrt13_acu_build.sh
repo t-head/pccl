@@ -15,7 +15,7 @@ echo "11.162.25.191 art-pub.eng.t-head.cn" >> /etc/hosts
 echo $PWD
 echo "pwd has:"
 ls
-echo "cp ran test shell"
+echo "cp run test shell"
 mv ${source_home}/run_acu_test.sh ${build_output}
 
 echo "######################### $(date +%Y%m%d%H%M%S) Download Prebuilt PPU_SDK ##########################"
@@ -41,8 +41,8 @@ export PCCL_HOME=${source_home}/pccl/build
 
 echo "######################### $(date +%Y%m%d%H%M%S) Build comm-internal-testbox ##########################"
 cd ${source_home}/comm-internal-testbox
-bash build.sh --exclude unit_test,sailbandwidth
-bash build.sh --project_args unit_test:"--use_mpi" --include unit_test
+bash build.sh --common_args "--use_mpi" --exclude sailbandwidth,composite_test
+bash build.sh --include composite_test
 
 echo "######################### $(date +%Y%m%d%H%M%S) Collect final output ##########################"
 mv ${source_home}/comm-internal-testbox ${build_output}
