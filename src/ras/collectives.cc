@@ -212,7 +212,10 @@ static ncclResult_t rasConnSendCollReq(struct rasConnection* conn, const struct 
 ncclResult_t rasMsgHandleCollReq(struct rasMsg* msg, struct rasSocket* sock) {
   bool allDone = false;
   struct rasCollective* coll = nullptr;
-  assert(sock->conn);
+  if (sock->conn == nullptr) {
+    INFO(NCCL_RAS, "RAS socket lacks a connection: status %d -- internal error?", sock->status);
+    return ncclInternalError;
+  }
 
   // First check if we've already handled this request (through another connection).
   for (int i = 0; i < nRasCollHistory; i++) {
@@ -235,13 +238,18 @@ ncclResult_t rasMsgHandleCollReq(struct rasMsg* msg, struct rasSocket* sock) {
     for (coll = rasCollectivesHead; coll; coll = coll->next) {
       if (memcmp(&msg->collReq.rootAddr, &coll->rootAddr, sizeof(msg->collReq.rootAddr)) == 0 &&
           msg->collReq.rootId == coll->rootId) {
-        assert(msg->collReq.type == coll->type);
-
-        // Send an empty response so that the sender can account for it.  The non-empty response will be
-        // sent through the connection that we received the request through first.
-        NCCLCHECK(rasConnSendCollResp(sock->conn, &msg->collReq.rootAddr, msg->collReq.rootId,
-                                      /*peers*/nullptr, /*nPeers*/0, /*data*/nullptr, /*nData*/0, /*nLegTimeouts*/0));
-        goto exit;
+        if (msg->collReq.type == coll->type) {
+          INFO(NCCL_RAS, "RAS found a duplicate ongoing collective");
+          // Send an empty response so that the sender can account for it.  The non-empty response will be
+          // sent through the connection that we received the request through first.
+          NCCLCHECK(rasConnSendCollResp(sock->conn, &msg->collReq.rootAddr, msg->collReq.rootId,
+                                        /*peers*/nullptr, /*nPeers*/0, /*data*/nullptr, /*nData*/0, /*nLegTimeouts*/0));
+          goto exit;
+        } else {
+          // Should never happen.
+          INFO(NCCL_RAS, "RAS collective type mismatch: request %d, ongoing %d -- internal error?", msg->collReq.type,
+               coll->type);
+        }
       } // if match
     } // for (coll)
   } // if (msg->collReq.type >= RAS_COLL_CONNS)
@@ -250,11 +258,15 @@ ncclResult_t rasMsgHandleCollReq(struct rasMsg* msg, struct rasSocket* sock) {
   NCCLCHECK(rasNetSendCollReq(&msg->collReq, &allDone, &coll, sock->conn));
 
   if (msg->collReq.type >= RAS_COLL_CONNS && allDone) {
-    assert(coll);
-    // We are a leaf process -- send the response right away.  This can probably trigger only for the case of a total
-    // of two peers, and hence just one RAS connection, or during communication issues, because normally every peer
-    // has more than one connection so there should always be _some_ other peer to forward the request to.
-    NCCLCHECK(rasCollReadyResp(coll));
+    if (coll) {
+      // We are a leaf process -- send the response right away.  This can probably trigger only for the case of a total
+      // of two peers, and hence just one RAS connection, or during communication issues, because normally every peer
+      // has more than one connection so there should always be _some_ other peer to forward the request to.
+      NCCLCHECK(rasCollReadyResp(coll));
+    } else {
+      // Should never happen.
+      INFO(NCCL_RAS, "RAS collective lacks a list entry -- internal error?");
+    }
   }
 exit:
   return ncclSuccess;
@@ -342,7 +354,10 @@ ncclResult_t rasMsgHandleCollResp(struct rasMsg* msg, struct rasSocket* sock) {
   }
 
   coll->nLegTimeouts += msg->collResp.nLegTimeouts;
-  assert(sock->conn);
+  if (sock->conn == nullptr) {
+    INFO(NCCL_RAS, "RAS socket lacks a connection: status %d -- internal error?", sock->status);
+    return ncclInternalError;
+  }
   // Account for the received response in our collective operations tracking.
   for (int i = 0; i < coll->nFwdSent; i++) {
     if (coll->fwdConns[i] == sock->conn) {
@@ -535,12 +550,17 @@ static ncclResult_t rasCollConnsInit(struct rasCollRequest** pReq, size_t* pReqL
     for (struct rasConnection* conn = rasConnsHead; conn; conn = conn->next) {
       if (conn->travelTimeMin < 0) {
         struct rasCollConns::negativeMin* negativeMin = pConnsData->negativeMins+negMinsIdx;
+        if (negMinsIdx >= connsData.nNegativeMins) {
+          // Should never happen;
+          INFO(NCCL_RAS, "RAS overflow of negativeMins: connsData.nNegativeMins %d, negMinsIdx %d -- internal error?",
+               connsData.nNegativeMins, negMinsIdx);
+          break;
+        }
         memcpy(&negativeMin->source, &rasNetListeningSocket.addr, sizeof(negativeMin->source));
         memcpy(&negativeMin->dest, &conn->addr, sizeof(negativeMin->dest));
         negativeMin->travelTimeMin = conn->travelTimeMin;
         negMinsIdx++;
       }
-      assert(negMinsIdx <= connsData.nNegativeMins);
     }
   }
 
@@ -713,6 +733,13 @@ static ncclResult_t rasCollCommsInit(struct rasCollRequest** pReq, size_t* pReqL
     if (!__atomic_load_n(&ncclComm->peerInfoValid, __ATOMIC_ACQUIRE))
       continue;
 
+    if ((char*)(comm + 1) - (char*)commsData > *pNData) {
+      // Should never happen.
+      INFO(NCCL_RAS, "RAS overflow of commsData: collCommIdx %d, nComms %d, pNData %d, needs %td -- internal error?",
+           collCommIdx, nComms, *pNData, (char*)(comm + 1) - (char*)commsData);
+      break;
+    }
+
     comm->commId.commHash = ncclComm->commHash;
     comm->commId.hostHash = ncclComm->peerInfo->hostHash;
     comm->commId.pidHash = ncclComm->peerInfo->pidHash;
@@ -726,6 +753,14 @@ static ncclResult_t rasCollCommsInit(struct rasCollRequest** pReq, size_t* pReqL
          commIdx++) {
       ncclComm = ncclComms[commIdx].comm;
       struct rasCollComms::comm::rank* rank = comm->ranks+comm->nValidRanks;
+      if ((char*)(rank + 1) - (char*)commsData > *pNData) {
+        // Should never happen.
+        INFO(NCCL_RAS,
+             "RAS overflow of commsData: collCommIdx %d, nComms %d, rank %d, commIdx %d, pNData %d, "
+             "needs %td -- internal error?",
+             collCommIdx, nComms, comm->nValidRanks, commIdx, *pNData, (char*)(rank + 1) - (char*)commsData);
+        break;
+      }
       rank->commRank = ncclComm->rank;
       // rasNetSendCollReq initializes coll->peers[0] to our rasNetListeningSocket.addr, so peerIdx is initially
       // always 0.  It will increase after we send this response back to the peer we got the request from.
@@ -769,6 +804,16 @@ static ncclResult_t rasCollCommsInit(struct rasCollRequest** pReq, size_t* pReqL
           rankIdx++;
 
         missingRank = missingRanks + missingRankIdx;
+        if ((char*)(missingRank + 1) - (char*)commsData > *pNData) {
+          // Should never happen.
+          INFO(NCCL_RAS,
+               "RAS overflow of commsData: collCommIdx %d, nComms %d, nValidRanks %d, missingRankIdx %d, "
+               "nMissingRanks %d, pNData %d, needs %td -- internal error?",
+               collCommIdx, nComms, comm->nValidRanks, missingRankIdx, comm->nMissingRanks, *pNData,
+               (char*)(missingRank + 1) - (char*)commsData);
+          comm->nMissingRanks = missingRankIdx; // Keep the count in sync with the data actually written.
+          break;
+        }
         missingRank->commRank = rankIdx + missingRankIdx;
         info = ncclComm->peerInfo + missingRank->commRank;
         key[0] = info->hostHash - ncclComm->commHash;
@@ -798,6 +843,16 @@ static ncclResult_t rasCollCommsInit(struct rasCollRequest** pReq, size_t* pReqL
       char* diagBase = rasCollCommsDiagBytesMut(comm);
       size_t diagWritten = 0;
       size_t diagBudget = diagBytesPerComm[collCommIdx];
+      // The overflow guards above keep every write inside commsData, but a comm/rank count drift between
+      // the counting and filling passes can leave less room than the budget computed in the counting pass --
+      // clamp it to what actually remains.
+      size_t diagRoom = (diagBase < (char*)commsData + *pNData ?
+                         (size_t)((char*)commsData + *pNData - diagBase) : 0);
+      if (diagRoom < diagBudget) {
+        INFO(NCCL_RAS, "RAS diag data would overflow commsData: collCommIdx %d, budget %zu, room %zu -- internal error?",
+             collCommIdx, diagBudget, diagRoom);
+        diagBudget = diagRoom;
+      }
       for (int rIdx = rankStartIdx; rIdx < commIdx; rIdx++) {
         ncclComm_t rcomm = ncclComms[rIdx].comm;
         if (rcomm == nullptr) continue;
@@ -823,7 +878,6 @@ static ncclResult_t rasCollCommsInit(struct rasCollRequest** pReq, size_t* pReqL
 
     comm = rasCollCommsCommNext(comm);
   } // for (collCommIdx)
-  assert(((char*)comm) - (char*)commsData <= *pNData);
 
   if (req) {
     // Finish updating the request.
@@ -956,7 +1010,21 @@ static ncclResult_t rasCollCommsMerge(struct rasCollective* coll, struct rasMsg*
             }
           }
           newComm->nMissingRanks = newRankIdx;
-          assert(newComm->nValidRanks + newComm->nMissingRanks == newComm->nRanks);
+          // The best-effort handling above (duplicate rank data, failed missingRank lookups,
+          // capped ranks) can leave the counts inconsistent.  This is diagnostics-only data:
+          // warn and clamp instead of aborting the application.  The wire format only promises
+          // nRanks >= nValidRanks + nMissingRanks, and every walker strides on the counts (see
+          // rasCollCommsCommSize), so the merged record stays parseable either way.
+          if (newComm->nValidRanks + newComm->nMissingRanks != newComm->nRanks) {
+            int nMissing = std::min(newComm->nMissingRanks,
+                                    std::max(0, newComm->nRanks - newComm->nValidRanks));
+            WARN("RAS merged communicator (0x%lx, 0x%lx, 0x%lx) rank count inconsistency: "
+                 "%d valid + %d missing != %d ranks -- possible hash collision or duplicate "
+                 "rank data; reporting %d missing", newComm->commId.commHash,
+                 newComm->commId.hostHash, newComm->commId.pidHash, newComm->nValidRanks,
+                 newComm->nMissingRanks, newComm->nRanks, nMissing);
+            newComm->nMissingRanks = nMissing;
+          }
         }
         // Concatenate diag tiers (collComm's first, then msgComm's).  newData was sized
         // pessimistically as collData.nData+msgData.nData, so there is always room.

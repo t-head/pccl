@@ -574,8 +574,12 @@ void rasSockEventLoop(struct rasSocket* sock, int pollIdx) {
         (connectSide ? sock->lastSendTime : sock->lastRecvTime) = clockNano();
         sock->status = RAS_SOCK_HANDSHAKE;
         if (connectSide) {
-          assert(sock->conn);
-          if (sock->conn->sock == sock) {
+          if (sock->conn == nullptr) {
+            // Should never happen.
+            INFO(NCCL_RAS, "RAS connect-side socket with %s lacks a connection -- internal error?",
+                 ncclSocketToString(&sock->sock.addr, rasLine));
+            rasSocketTerminate(sock);
+          } else if (sock->conn->sock == sock) {
             if (rasConnPrepare(sock->conn) != ncclSuccess) {
               INFO(NCCL_RAS, "RAS unexpected error from rasConnPrepare; terminating the socket connection with %s",
                    ncclSocketToString(&sock->sock.addr, rasLine));
@@ -601,9 +605,17 @@ void rasSockEventLoop(struct rasSocket* sock, int pollIdx) {
     if (sock->status != RAS_SOCK_TERMINATING && (rasPfds[pollIdx].revents & POLLOUT)) {
       int closed = 0;
       bool allSent = false;
-      assert(sock->conn);
-      assert(sock->conn->sock == sock);
-      if (rasConnSendMsg(sock->conn, &closed, &allSent) != ncclSuccess) {
+      if (sock->conn == nullptr) {
+        // Should never happen.
+        INFO(NCCL_RAS, "RAS non-terminating socket with %s lacks a connection: status %d -- internal error?",
+             ncclSocketToString(&sock->sock.addr, rasLine), sock->status);
+        rasSocketTerminate(sock);
+      } else if (sock->conn->sock != sock) {
+        // Should never happen.
+        INFO(NCCL_RAS, "RAS non-terminating socket with %s is not current: status %d -- internal error?",
+             ncclSocketToString(&sock->sock.addr, rasLine), sock->status);
+        rasSocketTerminate(sock);
+      } else if (rasConnSendMsg(sock->conn, &closed, &allSent) != ncclSuccess) {
         INFO(NCCL_RAS, "RAS unexpected error from rasConnSendMsg; terminating the socket connection with %s",
              ncclSocketToString(&sock->sock.addr, rasLine));
         rasSocketTerminate(sock);
@@ -794,7 +806,14 @@ ncclResult_t rasMsgHandleKeepAlive(const struct rasMsg* msg, struct rasSocket* s
   int64_t travelTime;
   int peerIdx;
 
-  assert(sock->conn);
+  if (sock->conn == nullptr) {
+    // Should never happen.
+    INFO(NCCL_RAS,
+         "RAS received a keep-alive message on socket with %s that lacks a connection: status %d -- "
+         "internal error?",
+         ncclSocketToString(&sock->sock.addr, rasLine), sock->status);
+    return ncclInternalError;
+  }
   SYSCHECK(clock_gettime(CLOCK_REALTIME, &currentTime), "clock_gettime");
   travelTime = (currentTime.tv_sec-msg->keepAlive.realTime.tv_sec)*1000*1000*1000 +
     (currentTime.tv_nsec-msg->keepAlive.realTime.tv_nsec);
@@ -864,6 +883,7 @@ ncclResult_t rasMsgHandleKeepAlive(const struct rasMsg* msg, struct rasSocket* s
 // timing out external connections.  However, we will use an active external connection if it would be a better
 // option than whatever we can come up with.
 ncclResult_t rasLinkAddFallback(struct rasLink* link, const struct rasConnection* conn) {
+  ncclResult_t ret = ncclSuccess;
   struct rasLinkConn* foundLinkConn = nullptr;
   struct rasLinkConn* firstExtLinkConn = nullptr;
   int firstExtLinkIdx = -1;
@@ -909,9 +929,15 @@ ncclResult_t rasLinkAddFallback(struct rasLink* link, const struct rasConnection
   if (foundLinkConn == nullptr)
     goto exit;
 
+  if (foundLinkConn->peerIdx == -1) {
+    // Should never happen.
+    INFO(NCCL_RAS, "RAS link %d: found connection with %s that has uninitialized peerIdx -- internal error?",
+         link->direction, ncclSocketToString(&conn->addr, rasLine));
+    ret = ncclInternalError;
+    goto exit;
+  }
   // We found an existing element so the connection is part of the link.  No existing non-external connections of this
   // link are active, so a fallback is needed.
-  assert(foundLinkConn->peerIdx != -1);
   newPeerIdx = rasLinkCalculatePeer(link, foundLinkConn->peerIdx, /*isFallback*/(foundLinkConn != link->conns));
   // In principle we want to add (at most) one fallback.  However, if the found fallback connection already exists
   // and is also experiencing delays, we need to keep iterating.
@@ -924,7 +950,13 @@ ncclResult_t rasLinkAddFallback(struct rasLink* link, const struct rasConnection
       linkIdx = -1;
       // Calculate the index that the newly found fallback would have (pretend mode).
       NCCLCHECK(rasLinkConnAdd(link, newConn, newPeerIdx, /*pretend*/true, &linkIdx));
-      assert(linkIdx != -1);
+      if (linkIdx == -1) {
+        // Should never happen.
+        INFO(NCCL_RAS, "RAS link %d: could not add a fallback connection with %s -- internal error?", link->direction,
+             ncclSocketToString(&conn->addr, rasLine));
+        ret = ncclInternalError;
+        goto exit;
+      }
       if (firstExtLinkIdx < linkIdx) {
         // The external connection *is* better -- use it as a fallback instead and be done.
         firstExtLinkConn->external = false;
@@ -962,7 +994,7 @@ ncclResult_t rasLinkAddFallback(struct rasLink* link, const struct rasConnection
     INFO(NCCL_RAS, "RAS link %d: no more fallbacks to add (total %d)", link->direction, nConns);
   }
 exit:
-  return ncclSuccess;
+  return ret;
 }
 
 // Invoked when we receive a message over a connection that was just activated or was experiencing delays.
@@ -1021,11 +1053,19 @@ static void rasLinkSanitizeFallbacks(struct rasLink* link) {
 // logic was extremely difficult to follow then.
 static ncclResult_t rasLinkConnAdd(struct rasLink* link, struct rasConnection* conn, int peerIdx, bool pretend,
                                    int* pLinkIdx, struct rasLinkConn** pLinkConn, bool insert) {
+  ncclResult_t ret = ncclSuccess;
   struct rasLinkConn* oldLinkConn = nullptr;
   struct rasLinkConn* linkConnPrev = nullptr;
   int i, oldLinkIdx = -1;
 
-  assert(peerIdx != -1);
+  if (peerIdx == -1) {
+    // Should never happen.
+    INFO(NCCL_RAS,
+         "RAS link %d: rasLinkConnAdd invoked with invalid peerIdx (pretend %d, insert %d) -- internal error?",
+         link->direction, pretend, insert);
+    ret = ncclInternalError;
+    goto exit;
+  }
   if (conn) {
     // Start by checking if we already have an element with this conn.
     oldLinkConn = rasLinkConnFind(link, conn, &oldLinkIdx);
@@ -1033,7 +1073,16 @@ static ncclResult_t rasLinkConnAdd(struct rasLink* link, struct rasConnection* c
       if (pLinkConn)
         *pLinkConn = oldLinkConn;
       if (oldLinkConn->peerIdx != -1) {
-        assert(oldLinkConn->peerIdx == peerIdx);
+        if (oldLinkConn->peerIdx != peerIdx) {
+          // Should never happen.
+          INFO(NCCL_RAS,
+               "RAS link %d: rasLinkConnAdd peerIdx %d mismatch with connection with %s "
+               "(pretend %d, insert %d, oldLinkConn->peerIdx %d) -- internal error?",
+               link->direction, peerIdx, ncclSocketToString(&oldLinkConn->conn->addr, rasLine), pretend, insert,
+               oldLinkConn->peerIdx);
+          ret = ncclInternalError;
+          goto exit;
+        }
 
         if (!pretend)
           oldLinkConn->external = false; // Ensure that external is cleared.
@@ -1052,8 +1101,18 @@ static ncclResult_t rasLinkConnAdd(struct rasLink* link, struct rasConnection* c
   for (struct rasLinkConn* linkConn = link->conns; linkConn; linkConnPrev = linkConn, linkConn = linkConn->next, i++) {
     if (linkConn->peerIdx == peerIdx) {
       // The exact linkConn element already exists.
-      if (linkConn->conn)
-        assert(linkConn->conn == conn);
+      if (linkConn->conn && linkConn->conn != conn) {
+        // Should never happen.
+        char line[SOCKET_NAME_MAXLEN + 1];
+        INFO(NCCL_RAS,
+             "RAS link %d: rasLinkConnAdd connection mismatch: linkConn %s, conn %s "
+             "(peerIdx %d, pretend %d, insert %d) -- internal error?",
+             link->direction, ncclSocketToString(&linkConn->conn->addr, line),
+             (conn ? ncclSocketToString(&conn->addr, rasLine) : "(null)"), peerIdx, pretend, insert);
+        ret = ncclInternalError;
+        goto exit;
+      }
+
       if (!pretend) {
         if (linkConn->conn == nullptr)
           linkConn->conn = conn;
@@ -1098,7 +1157,15 @@ static ncclResult_t rasLinkConnAdd(struct rasLink* link, struct rasConnection* c
   if (oldLinkConn) {
     if (i != oldLinkIdx) {
       // We already have the entry, but we need to move it to a new spot (which must be earlier in the list).
-      assert(i < oldLinkIdx);
+      if (i >= oldLinkIdx) {
+        // Should never happen.
+        INFO(NCCL_RAS,
+             "RAS link %d: rasLinkConnAdd new link index %d later in the list than the old one "
+             "(insert %d, oldLinkConn %s, oldLinkIdx %d) -- internal error?",
+             link->direction, i, insert, ncclSocketToString(&oldLinkConn->conn->addr, rasLine), oldLinkIdx);
+        ret = ncclInternalError;
+        goto exit;
+      }
       // Remove oldLinkConn from its old spot.
       for (struct rasLinkConn* linkConn = linkConnPrev; linkConn->next; linkConn = linkConn->next) {
         if (linkConn->next == oldLinkConn) {
@@ -1119,7 +1186,16 @@ static ncclResult_t rasLinkConnAdd(struct rasLink* link, struct rasConnection* c
       linkConn->next = linkConnPrev->next;
       linkConnPrev->next = linkConn;
     } else {
-      assert(link->conns == nullptr); // We never add an element that would replace an existing primary.
+      if (link->conns != nullptr) {
+        // Should never happen -- we don't add an element that would replace an existing primary.
+        INFO(NCCL_RAS,
+             "RAS link %d: rasLinkConnAdd attempting to replace an existing primary connection with %s "
+             "-- internal error?",
+             link->direction,
+             (link->conns->conn ? ncclSocketToString(&link->conns->conn->addr, rasLine) : "(null)"));
+        ret = ncclInternalError;
+        goto exit;
+      }
       link->conns = linkConn;
       // linkConn->next is already nullptr.
     }
@@ -1131,7 +1207,7 @@ static ncclResult_t rasLinkConnAdd(struct rasLink* link, struct rasConnection* c
   } // oldLinkConn == nullptr && insert
 
 exit:
-  return ncclSuccess;
+  return ret;
 }
 
 // Adds an external entry in a RAS network link (or updates one, if already exists).
@@ -1141,15 +1217,29 @@ exit:
 // may need to be sync'ed to the other one as well.  They used to be a single function that could do it all but the
 // logic was extremely difficult to follow then.
 static ncclResult_t rasLinkConnAddExternal(struct rasLink* link, struct rasConnection* conn, int peerIdx) {
+  ncclResult_t ret = ncclSuccess;
   struct rasLinkConn* oldLinkConn = nullptr;
   struct rasLinkConn* linkConnPrev = nullptr;
   int i, oldLinkIdx = -1;
 
-  assert(conn);
+  if (conn == nullptr) {
+    // Should never happen.
+    INFO(NCCL_RAS, "RAS link %d: rasLinkConnAddExternal invoked with nullptr conn (peerIdx %d) -- internal error?",
+         link->direction, peerIdx);
+    ret = ncclInternalError;
+    goto exit;
+  }
   oldLinkConn = rasLinkConnFind(link, conn, &oldLinkIdx);
   if (oldLinkConn) {
-    if (oldLinkConn->peerIdx != -1)
-      assert(oldLinkConn->peerIdx == peerIdx);
+    if (oldLinkConn->peerIdx != -1 && oldLinkConn->peerIdx != peerIdx) {
+      // Should never happen.
+      INFO(NCCL_RAS,
+           "RAS link %d: rasLinkConnAddExternal peerIdx %d mismatch with connection with %s "
+           "(oldLinkConn->peerIdx %d) -- internal error?",
+           link->direction, peerIdx, ncclSocketToString(&oldLinkConn->conn->addr, rasLine), oldLinkConn->peerIdx);
+      ret = ncclInternalError;
+      goto exit;
+    }
 
     if (oldLinkConn->peerIdx == peerIdx)
       goto exit; // Nothing more to do if both conn and peerIdx are up to date.  Note that we neither check nor
@@ -1169,8 +1259,17 @@ static ncclResult_t rasLinkConnAddExternal(struct rasLink* link, struct rasConne
     }
     if (linkConn->peerIdx == peerIdx) {
       // The exact linkConn element already exists.
-      if (linkConn->conn)
-        assert(linkConn->conn == conn);
+      if (linkConn->conn && linkConn->conn != conn) {
+        // Should never happen.
+        char line[SOCKET_NAME_MAXLEN + 1];
+        INFO(NCCL_RAS,
+             "RAS link %d: rasLinkConnAddExternal connection mismatch: linkConn %s, conn %s "
+             "(peerIdx %d) -- internal error?",
+             link->direction, ncclSocketToString(&linkConn->conn->addr, line), ncclSocketToString(&conn->addr, rasLine),
+             peerIdx);
+        ret = ncclInternalError;
+        goto exit;
+      }
       if (linkConn->conn == nullptr)
         linkConn->conn = conn;
       if (linkConn == link->conns) {
@@ -1205,7 +1304,15 @@ static ncclResult_t rasLinkConnAddExternal(struct rasLink* link, struct rasConne
   if (oldLinkConn) {
     if (i != oldLinkIdx) {
       // We already have the entry, but we need to move it to a new spot (which must be earlier in the list).
-      assert(i < oldLinkIdx);
+      if (i >= oldLinkIdx) {
+        // Should never happen.
+        INFO(NCCL_RAS,
+             "RAS link %d: rasLinkConnAddExternal new link index %d later in the list than the old one "
+             "(oldLinkConn %s, oldLinkIdx %d) -- internal error?",
+             link->direction, i, ncclSocketToString(&oldLinkConn->conn->addr, rasLine), oldLinkIdx);
+        ret = ncclInternalError;
+        goto exit;
+      }
       INFO(NCCL_RAS, "RAS link %d: moving %sfallback connection with %s from %d to %d", link->direction,
            (oldLinkConn->external ? "external " : ""), ncclSocketToString(&conn->addr, rasLine), oldLinkIdx, i);
       // Remove oldLinkConn from its old spot.
@@ -1242,18 +1349,27 @@ static ncclResult_t rasLinkConnAddExternal(struct rasLink* link, struct rasConne
   } // oldLinkConn == nullptr
 
 exit:
-  return ncclSuccess;
+  return ret;
 }
 
 // Updates an existing entry in a RAS network link, if any.
 // Basically an easy-to-use variant of rasLinkConnAdd.
 // For this function, conn cannot be a nullptr and peerIdx cannot be -1.
 ncclResult_t rasLinkConnUpdate(struct rasLink* link, struct rasConnection* conn, int peerIdx) {
-  assert(conn && peerIdx != -1);
+  ncclResult_t ret = ncclSuccess;
+
+  if (conn == nullptr || peerIdx == -1) {
+    // Should never happen.
+    INFO(NCCL_RAS, "RAS link %d: rasLinkConnUpdate invoked with conn %s, peerIdx %d -- internal error?",
+         link->direction, conn ? ncclSocketToString(&conn->addr, rasLine) : "(null)", peerIdx);
+    ret = ncclInternalError;
+    goto exit;
+  }
 
   NCCLCHECK(rasLinkConnAdd(link, conn, peerIdx, /*pretend*/false, /*pLinkIdx*/nullptr, /*pLinkConn*/nullptr,
                            /*insert*/false));
-  return ncclSuccess;
+exit:
+  return ret;
 }
 
 // Attempts to drop a connection from a link.

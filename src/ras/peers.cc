@@ -144,7 +144,10 @@ static ncclResult_t rasRanksConvertToPeers(struct rasRankInit* ranks, int nranks
     }
 
     // Add a new entry to rankPeers.
-    assert(rankPeerIdx < nranks);
+    if (rankPeerIdx >= nranks) {
+      INFO(NCCL_RAS, "RAS overflow of rankPeer: rankPeerIdx %d, nranks %d -- internal error?", rankPeerIdx, nranks);
+      break;
+    }
     memcpy(&rankPeer->addr, &rank->addr, sizeof(rankPeer->addr));
     rankPeer->pid = rank->pid;
     rankPeer->hggcDevs = (1UL << rank->hggcDev);
@@ -174,10 +177,14 @@ static ncclResult_t rasRanksConvertToPeers(struct rasRankInit* ranks, int nranks
       (*newNRasPeers)++;
     } else {
       // Duplicates (cmp == 0) between the rank array and the peers array will be merged.
-      assert(rank->pid == rasPeer->pid);
+      if (rank->pid != rasPeer->pid) {
+        INFO(NCCL_RAS, "RAS pid mismatch for the same address %s: rank->pid %d, rasPeer->pid %d -- internal error?",
+             ncclSocketToString(&rank->addr, rasLine), rank->pid, rasPeer->pid);
+        // This really should never happen.  Best to skip the new one?
+        rankPeerIdx--;
+      }
     }
   }
-  assert(peerIdx <= nRasPeers);
   *nRankPeers = rankPeerIdx;
 
 exit:
@@ -250,21 +257,48 @@ static ncclResult_t rasPeersUpdate(struct rasPeerInfo* rankPeers, int* nRankPeer
 
         if (cmp < 0) {
           // rankPeer needs to occur before rasPeer -- that's possible only if we are adding new entries.
-          assert(newRasPeers != rasPeers);
-          // Add new entry to newRasPeers.
-          assert(newPeerIdx < newNRasPeers);
-          memcpy(newRasPeer, rankPeer, sizeof(*newRasPeer));
+          if (newRasPeers != rasPeers) {
+            // Add new entry to newRasPeers.
+            if (newPeerIdx < newNRasPeers) {
+              memcpy(newRasPeer, rankPeer, sizeof(*newRasPeer));
+            } else {
+              INFO(NCCL_RAS,
+                   "RAS new peer %s but there's no room for it: newPeerIdx %d, newNRasPeers %d, "
+                   "nRasPeers %d -- internal error?",
+                   ncclSocketToString(&rankPeer->addr, rasLine), newPeerIdx, newNRasPeers, nRasPeers);
+              break;
+            }
+          } else {
+            // Should never happen -- newNRasPeers should include room for it.
+            INFO(NCCL_RAS,
+                 "RAS new peer %s but there's no room for it: newNRasPeers %d, nRasPeers %d -- "
+                 "internal error?",
+                 ncclSocketToString(&rankPeer->addr, rasLine), newNRasPeers, nRasPeers);
+          }
           newPeerIdx++;
           rankPeerIdx++;
         }
         else {
           // cmp >= 0 -- Start by copying peer to newRasPeer, if needed.
           if (newRasPeers != rasPeers) {
-            assert(newPeerIdx < newNRasPeers);
-            memcpy(newRasPeer, rasPeer, sizeof(*newRasPeer));
+            if (newPeerIdx < newNRasPeers) {
+              memcpy(newRasPeer, rasPeer, sizeof(*newRasPeer));
+            } else {
+              INFO(NCCL_RAS,
+                   "RAS old peer %s but there's no room for it: newPeerIdx %d, newNRasPeers %d, "
+                   "nRasPeers %d -- internal error?",
+                   ncclSocketToString(&rasPeer->addr, rasLine), newPeerIdx, newNRasPeers, nRasPeers);
+              break;
+            }
           }
           else { // in-place
-            assert(newRasPeer == rasPeer);
+            if (newPeerIdx != peerIdx) {
+              // Should never happen -- both indexes should advance at the same pace.
+              INFO(NCCL_RAS,
+                   "RAS old peer %s in-place mismatch: newPeerIdx %d, peerIdx %d, newNRasPeers %d, "
+                   "nRasPeers %d -- internal error?",
+                   ncclSocketToString(&rasPeer->addr, rasLine), newPeerIdx, peerIdx, newNRasPeers, nRasPeers);
+            }
           }
 
           if (cmp == 0) {
@@ -288,8 +322,15 @@ static ncclResult_t rasPeersUpdate(struct rasPeerInfo* rankPeers, int* nRankPeer
         }
       } else { // peerIdx == nRasPeers
         // No more rasPeers -- add a new entry based on rank.
-        assert(newPeerIdx < newNRasPeers);
-        memcpy(newRasPeer, rankPeer, sizeof(*newRasPeer));
+        if (newPeerIdx < newNRasPeers) {
+          memcpy(newRasPeer, rankPeer, sizeof(*newRasPeer));
+        } else {
+          INFO(NCCL_RAS,
+               "RAS new peer %s but there's no room for it: newPeerIdx %d, newNRasPeers %d, "
+               "nRasPeers %d -- internal error?",
+               ncclSocketToString(&rankPeer->addr, rasLine), newPeerIdx, newNRasPeers, nRasPeers);
+          break;
+        }
         // If this is the first time this function is run, myPeerIdx will need to be set.  It's more work in that
         // case as we need to compare the addresses of each peer until we find one.
         if (myPeerIdx == -1 && memcmp(&newRasPeer->addr, &rasNetListeningSocket.addr, sizeof(newRasPeer->addr)) == 0)
@@ -300,11 +341,24 @@ static ncclResult_t rasPeersUpdate(struct rasPeerInfo* rankPeers, int* nRankPeer
     } else { // rankPeerIdx == *nRankPeers
       // No more rankPeers -- copy the rasPeer over if needed.
       if (newRasPeers != rasPeers) {
-        assert(newPeerIdx < newNRasPeers);
-        memcpy(newRasPeer, rasPeer, sizeof(*newRasPeer));
+        if (newPeerIdx < newNRasPeers) {
+          memcpy(newRasPeer, rasPeer, sizeof(*newRasPeer));
+        } else {
+          INFO(NCCL_RAS,
+               "RAS old peer %s but there's no room for it: newPeerIdx %d, newNRasPeers %d, "
+               "nRasPeers %d -- internal error?",
+               ncclSocketToString(&rasPeer->addr, rasLine), newPeerIdx, newNRasPeers, nRasPeers);
+          break;
+        }
       }
       else { // in-place at the end.
-        assert(newRasPeer == rasPeer);
+        if (newPeerIdx != peerIdx) {
+          // Should never happen -- both indexes should advance at the same pace.
+          INFO(NCCL_RAS,
+               "RAS old peer %s in-place mismatch: newPeerIdx %d, peerIdx %d, newNRasPeers %d, "
+               "nRasPeers %d -- internal error?",
+               ncclSocketToString(&rasPeer->addr, rasLine), newPeerIdx, peerIdx, newNRasPeers, nRasPeers);
+        }
       }
       if (myPeerIdx == peerIdx)
         myNewPeerIdx = newPeerIdx;
@@ -312,17 +366,34 @@ static ncclResult_t rasPeersUpdate(struct rasPeerInfo* rankPeers, int* nRankPeer
       newPeerIdx++;
     }
   }
-  assert(newPeerIdx == newNRasPeers);
+  if (newPeerIdx != newNRasPeers) {
+    // Should never happen, unless an internal error got triggered above?
+    INFO(NCCL_RAS,
+         "RAS post-merge discrepancy: newPeerIdx %d, newNRasPeers %d, nRasPeers %d, nRankPeers %d -- "
+         "internal error?",
+         newPeerIdx, newNRasPeers, nRasPeers, *nRankPeers);
+  }
 
   if (newRasPeers != rasPeers) {
     if (rasPeers)
       free(rasPeers);
     rasPeers = newRasPeers;
     nRasPeers = newNRasPeers;
-    assert(myNewPeerIdx != -1);
+    if (myNewPeerIdx == -1) {
+      // Should never happen, but if it does, then we are in deep trouble...  Try the regular binary search.
+      myNewPeerIdx = rasPeerFind(&rasNetListeningSocket.addr);
+      INFO(NCCL_RAS, "RAS post-merge discrepancy: myPeerIdx %d, myNewPeerIdx -1, found value %d -- internal error?",
+           myPeerIdx, myNewPeerIdx);
+    }
     myPeerIdx = myNewPeerIdx;
   } else {
-    assert(myNewPeerIdx == myPeerIdx);
+    if (myNewPeerIdx != myPeerIdx) {
+      // Should never happen, but if it does, then we are in deep trouble...  Update via the regular binary search.
+      INFO(NCCL_RAS, "RAS post-merge discrepancy: myPeerIdx %d, myNewPeerIdx %d -- internal error?", myPeerIdx,
+           myNewPeerIdx);
+      myPeerIdx = rasPeerFind(&rasNetListeningSocket.addr);
+      INFO(NCCL_RAS, "RAS post-merge discrepancy: found value %d", myPeerIdx);
+    }
   }
   rasPeersHash = getHash((const char*)rasPeers, nRasPeers*sizeof(*rasPeers));
 
@@ -336,7 +407,6 @@ static ncclResult_t rasPeersUpdate(struct rasPeerInfo* rankPeers, int* nRankPeer
       rankPeerIdxDst++;
     }
   }
-  assert(rankPeerIdxDst <= *nRankPeers);
   *nRankPeers = rankPeerIdxDst;
 
 exit:
@@ -489,7 +559,6 @@ ncclResult_t rasMsgHandlePeersUpdate(struct rasMsg* msg, struct rasSocket* sock)
   ncclResult_t ret = ncclSuccess;
   struct rasMsg* newMsg = nullptr;
   int newMsgLen = 0;
-  assert(sock->conn);
   int nPeers, nDeadPeers;
   int deadPeersOffset = 0;
   bool updatePeers, updateDeadPeers;
@@ -499,6 +568,10 @@ ncclResult_t rasMsgHandlePeersUpdate(struct rasMsg* msg, struct rasSocket* sock)
        msg->peersUpdate.nPeers, msg->peersUpdate.nDeadPeers);
   INFO(NCCL_RAS, "RAS my old rasPeersHash 0x%lx, rasDeadPeersHash 0x%lx, nRasPeers %d, nRasDeadPeers %d",
        rasPeersHash, rasDeadPeersHash, nRasPeers, nRasDeadPeers);
+  if (sock->conn == nullptr) {
+    INFO(NCCL_RAS, "RAS socket lacks a connection: status %d -- internal error?", sock->status);
+    return ncclInternalError;
+  }
   sock->conn->lastRecvPeersHash = msg->peersUpdate.peersHash;
   sock->conn->lastRecvDeadPeersHash = msg->peersUpdate.deadPeersHash;
 
@@ -555,7 +628,10 @@ ncclResult_t rasMsgHandlePeersUpdate(struct rasMsg* msg, struct rasSocket* sock)
       newMsg->peersUpdate.peersHash = rasPeersHash;
       newMsg->peersUpdate.deadPeersHash = rasDeadPeersHash;
       if (updatePeers) {
-        assert(nPeers > 0);
+        if (nPeers == 0) {
+          // Should never happen.
+          INFO(NCCL_RAS, "RAS peersUpdate discrepancy: updatePeers is true but nPeers is 0 -- internal error?");
+        }
         sock->conn->lastSentPeersHash = rasPeersHash;
       } else {
         // If hashes match, make sure that we don't send the rasPeers back.
@@ -566,7 +642,11 @@ ncclResult_t rasMsgHandlePeersUpdate(struct rasMsg* msg, struct rasSocket* sock)
       newMsgLen = rasMsgLength(RAS_MSG_PEERSUPDATE) + newMsg->peersUpdate.nPeers * sizeof(*rasPeers);
 
       if (updateDeadPeers) {
-        assert(nRasDeadPeers > 0);
+        if (nRasDeadPeers == 0) {
+          // Should never happen.
+          INFO(NCCL_RAS, "RAS peersUpdate discrepancy: updateDeadPeers is true but nRasDeadPeers is 0 -- "
+                         "internal error?");
+        }
         sock->conn->lastSentDeadPeersHash = rasDeadPeersHash;
 
         ALIGN_SIZE(newMsgLen, alignof(union ncclSocketAddress));
@@ -847,9 +927,17 @@ static int rasRanksCompare(const void* e1, const void* e2) {
   if (cmp == 0) {
     if (r1->addr.sa.sa_family == 0) // Bail out in case of empty addresses...
       return 0;
-    assert(r1->pid == r2->pid);
+    if (r1->pid != r2->pid) {
+      // Should never happen.
+      INFO(NCCL_RAS, "RAS ranks discrepancy for same address %s: r1->pid %d, r2->pid %d -- internal error?",
+           ncclSocketToString(&r1->addr, rasLine), r1->pid, r2->pid);
+    }
     cmp = (r1->hggcDev < r2->hggcDev ? -1 : (r1->hggcDev > r2->hggcDev ? 1 : 0));
-    assert(cmp != 0); // There should be no complete duplicates within the rank array.
+    if (cmp == 0) {
+      // There should be no complete duplicates within the rank array.
+      INFO(NCCL_RAS, "RAS ranks discrepancy for %s: identical entries with index difference %td -- internal error?",
+           ncclSocketToString(&r1->addr, rasLine), r2 - r1);
+    }
   }
   return cmp;
 }
@@ -881,7 +969,7 @@ int ncclSocketsCompare(const void* p1, const void* p2) {
     }
   } else {
     // The only remaining valid case are empty addresses.
-    assert(family == 0);
+    if (family != 0) INFO(NCCL_RAS, "RAS invalid address family %d -- internal error?", family);
     cmp = 0; // Two empty addresses are equal...
   }
 
