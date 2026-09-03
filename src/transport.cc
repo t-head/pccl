@@ -380,8 +380,9 @@ ncclResult_t GetConnType(ncclComm_t comm, struct ncclTopoGraph* graph, int chann
         }
       } else {
         // TRANSPORT_COLLNET not supported yet.
-        assert(false);
+        ERROR("TRANSPORT_COLLNET is not supported");
         *connType = CONN_NORMAL;
+        return ncclInternalError;
       }
       return ncclSuccess;
     }

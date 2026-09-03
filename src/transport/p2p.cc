@@ -872,7 +872,11 @@ static ncclResult_t ipcRegisterBuffer(ncclComm_t comm, const void* userbuff, siz
         }
         if (rmtRegAddr) {
           NCCLCHECKGOTO(ncclCalloc(&newInfo, 1), ret, fail);
-          assert(regRecord->ipcInfos[peerLocalRank] == NULL);
+          if (regRecord->ipcInfos[peerLocalRank] != NULL) {
+            ERROR("IPC registration already exists for peerRank %d peerLocalRank %d", peerRank, peerLocalRank);
+            ret = ncclInternalError;
+            goto fail;
+          }
           regRecord->state |= IPC_REG_COMPLETE;
           newInfo->peerRank = peerRank;
           newInfo->baseAddr = baseAddr;
@@ -907,7 +911,6 @@ static ncclResult_t ipcRegisterBuffer(ncclComm_t comm, const void* userbuff, siz
       if (type == NCCL_IPC_COLLECTIVE) {
         peerRmtAddrs = regRecord->regIpcAddrs.devPeerRmtAddrs;
       } else {
-        assert(nPeers == 1);
         // p2p always returns remote addr here since remote buffer addr is passed in ncclDevWorkP2p struct
         peerRmtAddrs = (uintptr_t*)regRecord->regIpcAddrs.hostPeerRmtAddrs[peerLocalRank];
       }
@@ -1019,8 +1022,14 @@ static ncclResult_t p2pProxyRegister(struct ncclProxyConnection* connection, str
   bool imported = false;
   HGmemGenericAllocationHandle handle;
 
-  assert(sizeof(struct p2pIpcExpInfo) == reqSize);
-  assert(sizeof(void*) == respSize);
+  if (reqSize != sizeof(struct p2pIpcExpInfo)) {
+    ERROR("Invalid P2P IPC register request size %d, expected %zu", reqSize, sizeof(struct p2pIpcExpInfo));
+    return ncclInternalError;
+  }
+  if (respSize != sizeof(void*)) {
+    ERROR("Invalid P2P IPC register response size %d, expected %zu", respSize, sizeof(void*));
+    return ncclInternalError;
+  }
 
   INFO(NCCL_REG, "Proxy rank %d register reqBuff %p phySize %ld virSize %ld offset %ld legacyIpcCap %d sameProcess %d",
     proxyState->tpRank, reqBuff, ipcExpInfo->phySize, ipcExpInfo->virSize, ipcExpInfo->offset, ipcExpInfo->legacyIpcCap, connection->sameProcess);
@@ -1075,7 +1084,10 @@ fail:
 static ncclResult_t p2pProxyDeregister(struct ncclProxyConnection* connection, struct ncclProxyState* proxyState, void* reqBuff, int reqSize, int* done) {
   ncclResult_t ret = ncclSuccess;
   struct ncclIpcImpInfo* ipcInfo = (struct ncclIpcImpInfo*)reqBuff;
-  assert(sizeof(struct ncclIpcImpInfo) == reqSize);
+  if (reqSize != sizeof(struct ncclIpcImpInfo)) {
+    ERROR("Invalid P2P IPC deregister request size %d, expected %zu", reqSize, sizeof(struct ncclIpcImpInfo));
+    return ncclInternalError;
+  }
 
   if (ipcInfo->legacyIpcCap) {
     HGGCCHECKGOTO(hggcIpcCloseMemHandle((void*)((uintptr_t)ipcInfo->rmtRegAddr - ipcInfo->offset)), ret, fail);

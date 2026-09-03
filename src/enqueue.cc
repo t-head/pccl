@@ -271,7 +271,7 @@ static ncclResult_t dumpChannelWorkBatch(ncclComm_t comm, struct ncclKernelPlan*
 static ncclResult_t dumpNcclPlan(ncclComm_t comm, struct ncclKernelPlan* plan, void* graphFifoBufHost) {
   uint16_t blkIdx = 0;
 
-  assert(MAXCHANNELS <= 64);
+  static_assert(MAXCHANNELS <= 64, "MAXCHANNELS must be <= 64");
   for (uint16_t i = 0; i < MAXCHANNELS; i++) {
     if (plan->channelMask & (1L << i)) {
       // coverity[overrun-buffer-arg]

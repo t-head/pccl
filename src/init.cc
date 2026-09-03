@@ -2702,7 +2702,6 @@ static ncclResult_t commReclaim(ncclComm_t comm) {
     ncclComm_t intracomm0 = comm->intraComm0;
     int *finalizeRankCnt = &intracomm0->finalizeRankCnt;
 
-    assert(intracomm0 != NULL && finalizeRankCnt != NULL);
     curRankCnt = __atomic_add_fetch(finalizeRankCnt, 1, __ATOMIC_ACQ_REL);
     if (curRankCnt == intraRanks) {
       ncclComm_t curIntraComm;
