@@ -40,4 +40,11 @@
     }                                                                          \
   } while (0)
 
+#define PCCLX_LAUNCH_CONFIG(func_symbol, config)                                \
+  ({                                                                            \
+    hggcKernel_t _pcclx_kernel = NULL;                                          \
+    hggcGetKernel(&_pcclx_kernel, (const void*)(func_symbol));                  \
+    pcclxKernelSetDispatchConfig((const void*)_pcclx_kernel, config);           \
+  })
+
 #endif

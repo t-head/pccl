@@ -19,6 +19,7 @@
 #endif
 #include "pccl_device/impl/ptr__funcs.h"
 #include "pccl_device/impl/reduce_copy__funcs.h"
+#include "pccl_device/kernel_dispatch.h"
 #else
 // Include the types and declaration if PCCL_HOSTLIB_ONLY is defined
 #include "pccl_device/coop.h"
@@ -33,4 +34,5 @@
 #include "pccl_device/impl/barrier__types.h"
 #include "pccl_device/impl/ptr__types.h"
 #include "pccl_device/impl/reduce_copy__types.h"
+#include "pccl_device/kernel_dispatch.h"
 #endif

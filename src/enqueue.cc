@@ -156,7 +156,7 @@ static ncclResult_t ncclSetDispatchStrategy(const void* ncclKernFunc, ncclComm_t
   }
   funcIndex = isSymmetric ? funcIndex + TOTAL_FUNCS_NUM : funcIndex;
   dispatchInfo dInfo = {comm->collType, comm->nNodes, nChannels, comm->nBytes};
-  NCCLCHECK(setDispatchStrategy(ncclKernFunc, comm->funcStrategy+funcIndex, comm->defaultStrategy, funcStr, comm->compCap, dInfo));
+  NCCLCHECK(setNativeDispatchStrategy(ncclKernFunc, comm->funcStrategy+funcIndex, comm->defaultStrategy, funcStr, comm->compCap, dInfo));
   launchConfig = comm->funcStrategy[funcIndex].launchConfig;
   HGGCCHECK(hggcSetDevice(savedDev));
   return ncclSuccess;

@@ -35,6 +35,7 @@ inline int get_hggc_device() {
 
 extern int ncclDebugLevel;
 extern uint64_t ncclDebugMask;
+void ncclDebugInit();
 extern pthread_mutex_t ncclDebugOutputLock;
 extern FILE *ncclDebugFile;
 extern ncclResult_t getHostName(char* hostname, int maxlen, const char delim);

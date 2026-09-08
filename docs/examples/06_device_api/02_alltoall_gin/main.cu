@@ -219,6 +219,9 @@ void* pureGinAlltoAll(int my_rank, int total_ranks, int local_device, int device
   // Clear receive buffer
   HGGCCHECK(hggcMemset(d_recvbuff, 0, size_bytes));
 
+  pcclxKernelDispatchConfig_t dispatch_config = PCCLX_KERNEL_DISPATCH_CONFIG_INITIALIZER;
+  PCCLCHECK(PCCLX_LAUNCH_CONFIG(PureGinAlltoAllKernel<float>, &dispatch_config));
+
   // Launch pure GIN AlltoAll kernel
   PureGinAlltoAllKernel<float><<<PCCL_DEVICE_CTA_COUNT, PCCL_DEVICE_THREADS_PER_CTA, 0, stream>>>(
       send_win, 0, recv_win, 0, count, devComm);

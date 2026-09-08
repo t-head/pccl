@@ -19,10 +19,23 @@
 #include <vector>
 #include <string>
 
+// both ppu1.0 and ppu1.5. MAX_CE_NUM_PER_DIE is the CE slot stride of the
+// driver cuMasks[] array and of cu_mask, not the populated CE count of a die.
 #define MAX_PPU_CE_NUM 32
 #define MAX_CE_NUM_PER_DIE 8
-#define CE_NUM_PER_DIE_PPU0015 5
 #define CU_NUM_PER_CE 4
+
+// ppu1.0: 18-bit CE dispatch mask, the two halves are bits 0~7 plus 16 and
+// bits 8~15 plus 17; the 0_7 / 8_15 variants drop the odd high bit.
+#define CE_DISPATCH_MASK_L 0x100FF
+#define CE_DISPATCH_MASK_H 0x2FF00
+#define CE_DISPATCH_MASK_0_7 0xFF
+#define CE_DISPATCH_MASK_8_15 0xFF00
+#define MAX_SELECT_CE_IDX 15
+
+// ppu1.5: 64-bit CU dispatch mask, CE_NUM_PER_DIE_PPU0015 CEs populated per die
+#define DIE_NUM_PPU0015 2
+#define CE_NUM_PER_DIE_PPU0015 5
 
 #define HG_DMA_RING_PER_DIE 8
 
@@ -129,6 +142,13 @@ union ppukernelControl_0015 {
   uint32_t val;
 };
 
+// The kernel to configure: either the host symbol a <<<>>> launch uses, or a
+// driver handle from module loading. Exactly one member is set.
+struct pcclDispatchFunc {
+  const void* symbol;
+  HGfunction handle;
+};
+
 enum ppuFuncAttribute {
   ppuFuncAttributeMaxDynamicSharedMemorySize        = 8, /**< Maximum dynamic shared memory size */
   ppuFuncAttributePreferredSharedMemoryCarveout     = 9, /**< Preferred shared memory-L1 cache split */
@@ -168,6 +188,11 @@ public:
 
   bool checkExtTable() {
     if (pFuncTable == NULL) return false;
+    else return true;
+  }
+
+  bool checkDispatchExtTable() {
+    if (pFuncTable == NULL || pFuncTable->hgEitFuncSetAttribute == NULL) return false;
     else return true;
   }
 
@@ -263,29 +288,31 @@ public:
     }
   }
 
-  hggcError_t wrapHggcEitFuncSetAttribute(const void* pSymbol, HGeitFuncAttribute attr, void* pData, uint32_t size) {
+  hggcError_t wrapHggcEitFuncSetAttribute(const struct pcclDispatchFunc* fn, HGeitFuncAttribute attr, void* pData, uint32_t size) {
     if (pFuncTable != NULL && pFuncTable->hgEitFuncSetAttribute != NULL) {
-      hggcError_t res = hggcSuccess;
-      HGfunction pFunc = NULL;
-      if ((res = hggcGetFuncBySymbol(reinterpret_cast<hggcFunction_t*>(&pFunc), pSymbol)) != hggcSuccess) return res;
-      res = (hggcError_t)pFuncTable->hgEitFuncSetAttribute(pFunc, attr, pData, size);
-      return res;
+      HGfunction pFunc = fn->handle;
+      // A driver handle is already what the EIT table wants; a host symbol is not.
+      if (pFunc == NULL) {
+        hggcError_t res = hggcGetFuncBySymbol(reinterpret_cast<hggcFunction_t*>(&pFunc), fn->symbol);
+        if (res != hggcSuccess) return res;
+      }
+      return (hggcError_t)pFuncTable->hgEitFuncSetAttribute(pFunc, attr, pData, size);
     } else {
       WARN("EIT: hgEitFuncSetAttribute not available");
       return hggcSuccess;
     }
   }
 
-  hggcError_t wrapHggcFuncSetDispatchStrategy(const void* pFunc, void* pData, uint32_t size) {
-    return wrapHggcEitFuncSetAttribute(pFunc, (HGeitFuncAttribute)(ppuEitFuncAttributeDispatchStrategy), pData, size);
+  hggcError_t wrapHggcFuncSetDispatchStrategy(const struct pcclDispatchFunc* fn, void* pData, uint32_t size) {
+    return wrapHggcEitFuncSetAttribute(fn, (HGeitFuncAttribute)(ppuEitFuncAttributeDispatchStrategy), pData, size);
   }
 
-  hggcError_t wrapHggcFuncSetKernelControl(const void* pFunc, void* pData, uint32_t size) {
-    return wrapHggcEitFuncSetAttribute(pFunc, (HGeitFuncAttribute)(ppuEitFuncAttributeKernelControl), pData, size);
+  hggcError_t wrapHggcFuncSetKernelControl(const struct pcclDispatchFunc* fn, void* pData, uint32_t size) {
+    return wrapHggcEitFuncSetAttribute(fn, (HGeitFuncAttribute)(ppuEitFuncAttributeKernelControl), pData, size);
   }
 
-  hggcError_t wrapHggcFuncSetDispatchCuMask(const void* pFunc, void* pData, uint32_t size) {
-    return wrapHggcEitFuncSetAttribute(pFunc, (HGeitFuncAttribute)(ppuEitFuncAttributeDispatchCuMask), pData, size);
+  hggcError_t wrapHggcFuncSetDispatchCuMask(const struct pcclDispatchFunc* fn, void* pData, uint32_t size) {
+    return wrapHggcEitFuncSetAttribute(fn, (HGeitFuncAttribute)(ppuEitFuncAttributeDispatchCuMask), pData, size);
   }
 
   hggcError_t wrapHggcStreamHintChannel(hggcStream_t stream, HGstreamChannelType type, uint32_t ringId) {
@@ -450,9 +477,15 @@ typedef struct {
 } dispatchTuner;
 
 /* --- Functions --- */
+bool checkIcnDispatchMask(int icnDispatchMask, PPU_TYPE ppuType);
+bool checkFullCeLeft(int icnDispatchMask, PPU_TYPE ppuType);
+bool checkFullCeRight(int icnDispatchMask, PPU_TYPE ppuType);
 ncclResult_t initDefaultDispatchStrategy(ncclComm_t comm, int nDies);
-ncclResult_t setDispatchStrategy(const void* func, struct ncclFuncDispatchStrategy* oldStrategy, struct ncclDispatchStrategy defaultStrategy, const char* funcName,
+ncclResult_t setNativeDispatchStrategy(const void* func, struct ncclFuncDispatchStrategy* oldStrategy, struct ncclDispatchStrategy defaultStrategy, const char* funcName,
                                 int compCap, dispatchInfo dInfo);
+ncclResult_t setUserDispatchStrategy(const struct pcclDispatchFunc* fn, const char* policyName, int compCap,
+                                     int oneBatchPerCe, int tbPerCu,
+                                     int cuMaskPolicy, uint64_t cuMask, uint32_t ceMask);
 // for dispatch strategy tuning
 ncclResult_t setProfileVal (pcclDispatchType_t dispType, uint32_t& lastVal, std::string bitFieldName, int configVal);
 ncclResult_t initProfileValue(pcclDispatchType_t dispType, uint32_t defaultVal);

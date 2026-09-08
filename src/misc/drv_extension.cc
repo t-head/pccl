@@ -6,6 +6,10 @@
 // See LICENSE.txt for more license information
 //*************************************************************************
 
+#include <map>
+#include <mutex>
+#include <utility>
+
 #include "core.h"
 #include "comm.h"
 #include "drv_extension.h"
@@ -24,11 +28,6 @@ PCCL_PARAM(OneBatchPerCe,         "ONE_BATCH_PER_CE",         -2);
 PCCL_PARAM(TraverseYStep,         "TRAVERSE_Y_STEP",          -2);
 
 // ppu1.0
-#define CE_DISPATCH_MASK_L 0x100FF
-#define CE_DISPATCH_MASK_H 0x2FF00
-#define CE_DISPATCH_MASK_0_7 0xFF
-#define CE_DISPATCH_MASK_8_15 0xFF00
-#define MAX_SELECT_CE_IDX 15
 PCCL_PARAM(CeMask,                "CE_MASK",                  -2);
 
 // ppu1.5
@@ -55,6 +54,83 @@ PCCL_PARAM(BlockAgeEn,            "BLOCK_AGE_EN",             -2);
 
 PCCL_PARAM(CeNumPerDie,           "CE_NUM_PER_DIE",           -2);
 PCCL_PARAM(CuNumPerCe,            "CU_NUM_PER_CE",            -2);
+
+// The dispatch mask the device reports. The layout is fixed for the life of the
+// device, so ask the driver once, but only keep an answer we actually got.
+static ncclResult_t deviceAutoMask(int device, int compCap, uint64_t* outMask) {
+  static std::mutex lock;
+  static uint64_t cached[NCCL_MAX_LOCAL_RANKS] = {0};
+  if (device < 0 || device >= NCCL_MAX_LOCAL_RANKS) return ncclInvalidArgument;
+  std::lock_guard<std::mutex> lk(lock);
+  if (cached[device] == 0) {
+    hggcEitInterface& eit = hggcEitInterface::getInstance();
+    if (compCap == 89) {
+      uint8_t ceCuMasks[MAX_PPU_CE_NUM] = {0};
+      HGGCCHECK(eit.wrapHggcDeviceGetAttributeCuMasks(ceCuMasks, device));
+      uint64_t mask = 0;
+      for (int d = 0; d < DIE_NUM_PPU0015; d++) {
+        for (int i = 0; i < CE_NUM_PER_DIE_PPU0015; i++) {
+          int ce = d * MAX_CE_NUM_PER_DIE + i;
+          mask |= ((uint64_t)ceCuMasks[ce] << (ce * CU_NUM_PER_CE));
+        }
+      }
+      cached[device] = mask;
+    }
+  }
+  if (cached[device] == 0) {
+    WARN("Dispatch: driver reported no dispatch resource on device %d", device);
+    return ncclSystemError;
+  }
+  *outMask = cached[device];
+  return ncclSuccess;
+}
+
+static bool eitDispatchUsable() {
+  if (hggcEitInterface::getInstance().checkDispatchExtTable()) return true;
+  static std::once_flag reported;
+  std::call_once(reported, []() { ERROR("Dispatch: EIT table unavailable, dispatch config ignored"); });
+  return false;
+}
+
+static void applyCommonDispatchEnv0010(ppuDispatchStrategy_0010* schedule,
+                                 ppuDispatchMask_0010* dispMask = nullptr) {
+  CEHCK_ENV_SETTING(schedule->bits.disp_mode, pcclParamDispMode());
+  CEHCK_ENV_SETTING(schedule->bits.tb_per_cu, pcclParamTbPerCu());
+  CEHCK_ENV_SETTING(schedule->bits.onebatch_per_ce, pcclParamOneBatchPerCe());
+  CEHCK_ENV_SETTING(schedule->bits.traverse_y_step, pcclParamTraverseYStep());
+  if (dispMask == nullptr) return;
+  CEHCK_ENV_SETTING(dispMask->bits.cu_mask, pcclParamCuMask());
+  CEHCK_ENV_SETTING(dispMask->bits.ce_mask, pcclParamCeMask());
+}
+
+static void applyCommonDispatchEnv0015(ppuDispatchStrategy_0015* schedule, ppukernelControl_0015* control,
+                                 uint64_t* cuMask = nullptr) {
+  CEHCK_ENV_SETTING(schedule->strategy.bits.dispMode, pcclParamDispMode());
+  CEHCK_ENV_SETTING(schedule->strategy.bits.jumpDim, pcclParamJumpDim());
+  CEHCK_ENV_SETTING(schedule->strategy.bits.oneBatchPerCe, pcclParamOneBatchPerCe());
+  CEHCK_ENV_SETTING(schedule->strategy.bits.skewEn, pcclParamSkewEn());
+  CEHCK_ENV_SETTING(schedule->strategy.bits.tbPerCu, pcclParamTbPerCu());
+  CEHCK_ENV_SETTING(schedule->strategy.bits.waitEn, pcclParamWaitEn());
+  CEHCK_ENV_SETTING(schedule->strategy.bits.d2dDispPingPongEn, pcclParamD2dDispPingPongEn());
+  CEHCK_ENV_SETTING(schedule->strategy.bits.startCeEn, pcclParamStartCeEn());
+  CEHCK_ENV_SETTING(schedule->strategy.bits.startCeId, pcclParamStartCeId());
+
+  CEHCK_ENV_SETTING(schedule->strategy1.bits.traverseYStep, pcclParamTraverseYStep());
+  CEHCK_ENV_SETTING(schedule->strategy1.bits.traverseXStep, pcclParamTraverseXStep());
+  CEHCK_ENV_SETTING(schedule->strategy1.bits.preAllocateEn, pcclParamPreAllocEn());
+  CEHCK_ENV_SETTING(schedule->strategy1.bits.lastRoundEn, pcclParamLastRoundEn());
+  CEHCK_ENV_SETTING(schedule->strategy1.bits.lastRoundOnetbPerCe, pcclParamLastRoundOnetbPerCe());
+  CEHCK_ENV_SETTING(schedule->strategy1.bits.lastRoundTbPerCu, pcclParamLastRoundTbPerCu());
+
+  CEHCK_ENV_SETTING(schedule->strategy2.bits.lastRoundBeginNumber, pcclParamLastRoundBeginNumber());
+
+  CEHCK_ENV_SETTING(control->bits.fbStallStEn, pcclParamFbStallStEn());
+  CEHCK_ENV_SETTING(control->bits.fbStallStType, pcclParamFbStallStType());
+  CEHCK_ENV_SETTING(control->bits.blockAgeEn, pcclParamBlockAgeEn());
+  if (cuMask == nullptr) return;
+  int64_t envCuMask = pcclParamCuMask();
+  if (envCuMask > 0) *cuMask = (uint64_t)envCuMask;
+}
 
 #define NUM_DISPATCH_STRATEGIES 4
 #define MAX_BYTES 96_GB
@@ -281,10 +357,7 @@ ncclResult_t initDefaultDispatchStrategy(ncclComm_t comm, int nDies) {
     dispMask6Ce.bits.cu_mask = dispMask.bits.cu_mask;
 
     // check env setting
-    CEHCK_ENV_SETTING(schedule.bits.disp_mode, pcclParamDispMode());
-    CEHCK_ENV_SETTING(schedule.bits.tb_per_cu, pcclParamTbPerCu());
-    CEHCK_ENV_SETTING(schedule.bits.onebatch_per_ce, pcclParamOneBatchPerCe());
-    CEHCK_ENV_SETTING(schedule.bits.traverse_y_step, pcclParamTraverseYStep());
+    applyCommonDispatchEnv0010(&schedule);
 
     // record init value
     comm->defaultStrategy.dispStrategy = schedule.val;
@@ -311,28 +384,7 @@ ncclResult_t initDefaultDispatchStrategy(ncclComm_t comm, int nDies) {
     ppukernelControl_0015 control = {0};
 
     // check env setting
-    CEHCK_ENV_SETTING(schedule.strategy.bits.dispMode, pcclParamDispMode());
-    CEHCK_ENV_SETTING(schedule.strategy.bits.jumpDim, pcclParamJumpDim());
-    CEHCK_ENV_SETTING(schedule.strategy.bits.oneBatchPerCe, pcclParamOneBatchPerCe());
-    CEHCK_ENV_SETTING(schedule.strategy.bits.skewEn, pcclParamSkewEn());
-    CEHCK_ENV_SETTING(schedule.strategy.bits.tbPerCu, pcclParamTbPerCu());
-    CEHCK_ENV_SETTING(schedule.strategy.bits.waitEn, pcclParamWaitEn());
-    CEHCK_ENV_SETTING(schedule.strategy.bits.d2dDispPingPongEn, pcclParamD2dDispPingPongEn());
-    CEHCK_ENV_SETTING(schedule.strategy.bits.startCeEn, pcclParamStartCeEn());
-    CEHCK_ENV_SETTING(schedule.strategy.bits.startCeId, pcclParamStartCeId());
-
-    CEHCK_ENV_SETTING(schedule.strategy1.bits.traverseYStep, pcclParamTraverseYStep());
-    CEHCK_ENV_SETTING(schedule.strategy1.bits.traverseXStep, pcclParamTraverseXStep());
-    CEHCK_ENV_SETTING(schedule.strategy1.bits.preAllocateEn, pcclParamPreAllocEn());
-    CEHCK_ENV_SETTING(schedule.strategy1.bits.lastRoundEn, pcclParamLastRoundEn());
-    CEHCK_ENV_SETTING(schedule.strategy1.bits.lastRoundOnetbPerCe, pcclParamLastRoundOnetbPerCe());
-    CEHCK_ENV_SETTING(schedule.strategy1.bits.lastRoundTbPerCu, pcclParamLastRoundTbPerCu());
-
-    CEHCK_ENV_SETTING(schedule.strategy2.bits.lastRoundBeginNumber, pcclParamLastRoundBeginNumber());
-
-    CEHCK_ENV_SETTING(control.bits.fbStallStEn, pcclParamFbStallStEn());
-    CEHCK_ENV_SETTING(control.bits.fbStallStType, pcclParamFbStallStType());
-    CEHCK_ENV_SETTING(control.bits.blockAgeEn, pcclParamBlockAgeEn());
+    applyCommonDispatchEnv0015(&schedule, &control);
 
     // record init value
     comm->defaultStrategy.dispStrategy = schedule.strategy.val;
@@ -346,82 +398,264 @@ ncclResult_t initDefaultDispatchStrategy(ncclComm_t comm, int nDies) {
   return ncclSuccess;
 }
 
-ncclResult_t setDispatchStrategy(const void* func, struct ncclFuncDispatchStrategy* oldStrategy, struct ncclDispatchStrategy defaultStrategy, const char* funcName,
-                                int compCap, dispatchInfo dInfo) {
+namespace {
+struct dispatchLogRow {
+  const char* state;
+  const char* reg;
+  const char* fields;
+};
+
+const char kDispDashes[] = "--------------------------------------------------------------------------------";
+
+void boxSep(char* b, int cap, int* off) {
+  *off += snprintf(b + *off, std::max(0, cap - *off), "  +%.*s+%.*s+%.*s+\n",
+                   9, kDispDashes, 10, kDispDashes, 62, kDispDashes);
+}
+
+// Word-wrap the fields into the box so a long field list stays inside the frame.
+void boxRow(char* b, int cap, int* off, const char* state, const char* reg, const char* fields) {
+  const int W = 60;
+  int n = (int)strlen(fields), start = 0, first = 1;
+  do {
+    int end = (n - start <= W) ? n : start + W;
+    if (end < n) { int brk = end; while (brk > start && fields[brk] != ' ') brk--; if (brk > start) end = brk; }
+    *off += snprintf(b + *off, std::max(0, cap - *off), "  | %-7s | %-8s | %-*.*s |\n",
+                     first ? state : "", first ? reg : "", W, end - start, fields + start);
+    first = 0;
+    for (start = end; start < n && fields[start] == ' '; start++) {}
+  } while (start < n);
+}
+
+void logCommonDispatchTable(const char* path, int device, const void* kernel, int compCap, const char* title,
+                           const void* schedule, const char* strategyState,
+                           const void* control, const char* controlState,
+                           const void* mask, const char* maskState) {
+  struct dispatchLogRow rows[3];
+  char f0[256], f1[64], f2[64];
+  int nRows = 0;
   if (compCap == 80) {
-    ppuDispatchStrategy_0010 schedule = {.val = defaultStrategy.dispStrategy};
-    ppuDispatchMask_0010 dispMask = {.val = (unsigned int)defaultStrategy.dispMask[CeNumIdxDefault_t]};
+    const ppuDispatchStrategy_0010* s = (const ppuDispatchStrategy_0010*)schedule;
+    const ppuDispatchMask_0010* m = (const ppuDispatchMask_0010*)mask;
+    snprintf(f0, sizeof(f0), "dispMode=%u oneBatchPerCe=%u tbPerCu=%u traverseYStep=%u",
+             s->bits.disp_mode, s->bits.onebatch_per_ce,
+             s->bits.tb_per_cu, s->bits.traverse_y_step);
+    snprintf(f1, sizeof(f1), "ceMask=0x%05x cuMask=0x%x", m->bits.ce_mask, m->bits.cu_mask);
+    rows[0] = {strategyState, "strategy", f0};
+    rows[1] = {maskState, "dispMask", f1};
+    nRows = 2;
+  } else {
+    const ppuDispatchStrategy_0015* s = (const ppuDispatchStrategy_0015*)schedule;
+    const ppukernelControl_0015* c = (const ppukernelControl_0015*)control;
+    const ppuDispatchMask_0015* m = (const ppuDispatchMask_0015*)mask;
+    snprintf(f0, sizeof(f0),
+             "dispMode=%u jumpDim=%u oneBatchPerCe=%u skewEn=%u tbPerCu=%u waitEn=%u "
+             "d2dDispPingPongEn=%u startCeEn=%u startCeId=%u traverseYStep=%u traverseXStep=%u "
+             "preAllocateEn=%u lastRoundEn=%u lastRoundOnetbPerCe=%u lastRoundTbPerCu=%u lastRoundBeginNumber=%u",
+             s->strategy.bits.dispMode, s->strategy.bits.jumpDim,
+             s->strategy.bits.oneBatchPerCe, s->strategy.bits.skewEn,
+             s->strategy.bits.tbPerCu, s->strategy.bits.waitEn,
+             s->strategy.bits.d2dDispPingPongEn, s->strategy.bits.startCeEn,
+             s->strategy.bits.startCeId, s->strategy1.bits.traverseYStep,
+             s->strategy1.bits.traverseXStep, s->strategy1.bits.preAllocateEn,
+             s->strategy1.bits.lastRoundEn, s->strategy1.bits.lastRoundOnetbPerCe,
+             s->strategy1.bits.lastRoundTbPerCu, s->strategy2.bits.lastRoundBeginNumber);
+    snprintf(f1, sizeof(f1), "fbStallStEn=%u fbStallStType=%u blockAgeEn=%u",
+             c->bits.fbStallStEn, c->bits.fbStallStType, c->bits.blockAgeEn);
+    snprintf(f2, sizeof(f2), "cuMask=0x%013lx", m->cu_mask);
+    rows[0] = {strategyState, "strategy", f0};
+    rows[1] = {controlState, "control", f1};
+    rows[2] = {maskState, "cuMask", f2};
+    nRows = 3;
+  }
+  char tbl[2048];
+  int off = snprintf(tbl, sizeof(tbl), "\n");
+  boxSep(tbl, sizeof(tbl), &off);
+  off += snprintf(tbl + off, std::max(0, (int)sizeof(tbl) - off), "  | %-7s | %-8s | %-60s |\n",
+                  "state", "register", "fields");
+  boxSep(tbl, sizeof(tbl), &off);
+  for (int i = 0; i < nRows; i++) boxRow(tbl, sizeof(tbl), &off, rows[i].state, rows[i].reg, rows[i].fields);
+  boxSep(tbl, sizeof(tbl), &off);
+  VERBOSE(NCCL_TUNING, "Dispatch config: %s dev %d kernel %p sm%d %s%s", path, device, kernel, compCap, title, tbl);
+}
+}  // namespace
 
-    // check profiles
-    matchDispatchInfoPpu0010(dInfo, defaultStrategy.dispMask, &schedule.val, &dispMask.val);
+static ncclResult_t setCommonDispatchStrategy(const char* path, const struct pcclDispatchFunc* fn, const char* title, int compCap,
+                                        const struct ncclFuncDispatchStrategy* newStrategy,
+                                        struct ncclFuncDispatchStrategy* oldStrategy) {
+  const void* key = fn->symbol ? fn->symbol : (const void*)fn->handle;
+  if (ncclDebugLevel == -1) ncclDebugInit();
+  const bool dispLogOn = (ncclDebugLevel >= PCCL_LOG_VERBOSE) && (ncclDebugMask & NCCL_TUNING);
 
-    if (oldStrategy->dispStrategy != schedule.val) {
-      VERBOSE(NCCL_TUNING, "Func %s set dispatch strategy 0x%08x", funcName, schedule.val);
-      HGGCCHECK(hggcFuncSetAttribute(func, static_cast<hggcFuncAttribute>(ppuFuncAttributeDispatchStrategy), schedule.val));
+  if (compCap == 80) {
+    ppuDispatchStrategy_0010 schedule = {.val = newStrategy->dispStrategy};
+    ppuDispatchMask_0010 dispMask = {.val = (unsigned int)newStrategy->dispMask};
+    bool setStrategy = (oldStrategy->dispStrategy != schedule.val);
+    bool setMask = ((oldStrategy->dispMask & 0xffffffff) != dispMask.val);
+
+    auto set80Attr = [&](int attr, unsigned val) -> hggcError_t {
+      if (fn->symbol != NULL)
+        return hggcFuncSetAttribute(fn->symbol, static_cast<hggcFuncAttribute>(attr), val);
+      return (hggcError_t)hgFuncSetAttribute(fn->handle, static_cast<HGfunction_attribute>(attr), (int)val);
+    };
+    if (setStrategy) {
+      HGGCCHECK(set80Attr(ppuFuncAttributeDispatchStrategy, schedule.val));
       oldStrategy->dispStrategy = schedule.val;
-
-      // export config to driver api
       oldStrategy->launchConfig.blocksPerMultiprocessor = schedule.bits.tb_per_cu;
       oldStrategy->launchConfig.gridStepY = schedule.bits.traverse_y_step;
-      oldStrategy->launchConfig.gridStepX = 1; // default value
+      oldStrategy->launchConfig.gridStepX = 1;
     }
-
-    if ((oldStrategy->dispMask & 0xffffffff) != dispMask.val) {
-      VERBOSE(NCCL_TUNING, "Func %s set dispatch mask 0x%08x", funcName, dispMask.val);
-      HGGCCHECK(hggcFuncSetAttribute(func, static_cast<hggcFuncAttribute>(ppuFuncAttributeDispatchMask), dispMask.val));
+    if (setMask) {
+      HGGCCHECK(set80Attr(ppuFuncAttributeDispatchMask, dispMask.val));
       oldStrategy->dispMask = dispMask.val & 0xffffffff;
     }
-  } else if (compCap == 89) {
-    ppuDispatchStrategy_0015 schedule = {
-      .strategy = {.val = defaultStrategy.dispStrategy},
-      .strategy1 = {.val = defaultStrategy.dispStrategy1},
-      .strategy2 = {.val = defaultStrategy.dispStrategy2}
-    };
 
-    // export config to driver api
-    oldStrategy->launchConfig.subDispatch = defaultStrategy.launchConfig.subDispatch;
-
-    if (((oldStrategy->dispStrategy ^ schedule.strategy.val) |
-        (oldStrategy->dispStrategy1 ^ schedule.strategy1.val) |
-        (oldStrategy->dispStrategy2 ^ schedule.strategy2.val)) > 0) {
-      if (pcclParamForceDefaultDisp()) {
-        VERBOSE(NCCL_TUNING, "Func %s update dispatch strategy 0x%08x 0x%08x 0x%08x -> 0x%08x 0x%08x 0x%08x, ignored", funcName,
-                oldStrategy->dispStrategy, oldStrategy->dispStrategy1, oldStrategy->dispStrategy2,
-                schedule.strategy.val, schedule.strategy1.val, schedule.strategy2.val);
-      } else {
-        VERBOSE(NCCL_TUNING, "Func %s set dispatch strategy 0x%08x 0x%08x 0x%08x", funcName,
-                schedule.strategy.val, schedule.strategy1.val, schedule.strategy2.val);
-        HGGCCHECK(hggcEitInterface::getInstance().wrapHggcFuncSetDispatchStrategy(func, (void*)&schedule, sizeof(schedule)));
+    if (dispLogOn && (setStrategy || setMask)) {
+      int device = 0;
+      if (hggcGetDevice(&device) == hggcSuccess && device == 0) {
+        logCommonDispatchTable(path, device, key, compCap, title,
+                               &schedule, setStrategy ? "applied" : "cached",
+                               NULL, NULL,
+                               &dispMask, setMask ? "applied" : "cached");
       }
+    }
+  } else if (compCap == 89) {
+    if (!eitDispatchUsable()) return ncclSuccess;
+    ppuDispatchStrategy_0015 schedule = {
+      .strategy = {.val = newStrategy->dispStrategy},
+      .strategy1 = {.val = newStrategy->dispStrategy1},
+      .strategy2 = {.val = newStrategy->dispStrategy2}
+    };
+    ppukernelControl_0015 control = {.val = newStrategy->kernelControl};
+    ppuDispatchMask_0015 cuMask = {.cu_mask = newStrategy->dispMask};
+    oldStrategy->launchConfig.subDispatch = newStrategy->launchConfig.subDispatch;
+
+    bool setStrategy = ((oldStrategy->dispStrategy ^ schedule.strategy.val) |
+                        (oldStrategy->dispStrategy1 ^ schedule.strategy1.val) |
+                        (oldStrategy->dispStrategy2 ^ schedule.strategy2.val)) > 0;
+    bool setControl = (control.bits.fbStallStEn == 1 && control.val != oldStrategy->kernelControl);
+    bool setMask = (oldStrategy->dispMask != cuMask.cu_mask);
+    bool keepDisp = pcclParamForceDefaultDisp();
+    bool keepMask = pcclParamForceDefaultCeMask();
+
+    hggcEitInterface& eit = hggcEitInterface::getInstance();
+    auto set89Attr = [&](HGeitFuncAttribute attr, void* data, uint32_t size) -> hggcError_t {
+      return eit.wrapHggcEitFuncSetAttribute(fn, attr, data, size);
+    };
+    if (setStrategy) {
+      if (!keepDisp) HGGCCHECK(set89Attr((HGeitFuncAttribute)ppuEitFuncAttributeDispatchStrategy, &schedule, sizeof(schedule)));
       oldStrategy->dispStrategy = schedule.strategy.val;
       oldStrategy->dispStrategy1 = schedule.strategy1.val;
       oldStrategy->dispStrategy2 = schedule.strategy2.val;
-
-      // export config to driver api
       oldStrategy->launchConfig.blocksPerMultiprocessor = schedule.strategy.bits.tbPerCu;
       oldStrategy->launchConfig.gridStepX = schedule.strategy1.bits.traverseXStep;
       oldStrategy->launchConfig.gridStepY = schedule.strategy1.bits.traverseYStep;
     }
-
-    ppukernelControl_0015 control = {.val = defaultStrategy.kernelControl};
-    if (control.bits.fbStallStEn == 1 && control.val != oldStrategy->kernelControl) {
-      VERBOSE(NCCL_TUNING, "Func %s set kernel control 0x%08x", funcName, control.val);
-      HGGCCHECK(hggcEitInterface::getInstance().wrapHggcFuncSetKernelControl(func, (void*)&control, sizeof(control)));
+    if (setControl) {
+      HGGCCHECK(set89Attr((HGeitFuncAttribute)ppuEitFuncAttributeKernelControl, &control, sizeof(control)));
       oldStrategy->kernelControl = control.val;
     }
-
-    ppuDispatchMask_0015 cuMask = {.cu_mask = defaultStrategy.dispMask[CeNumIdxDefault_t]};
-    if (oldStrategy->dispMask != cuMask.cu_mask) {
-      if (pcclParamForceDefaultCeMask()) {
-        VERBOSE(NCCL_TUNING, "Func %s update cumask 0x%010lx -> 0x%010lx, ignored", funcName, oldStrategy->dispMask, cuMask.cu_mask);
-      } else {
-        VERBOSE(NCCL_TUNING, "Func %s set cumask 0x%010lx", funcName, cuMask.cu_mask);
-        HGGCCHECK(hggcEitInterface::getInstance().wrapHggcFuncSetDispatchCuMask(func, (void*)&cuMask, sizeof(cuMask)));
-      }
+    if (setMask) {
+      if (!keepMask) HGGCCHECK(set89Attr((HGeitFuncAttribute)ppuEitFuncAttributeDispatchCuMask, &cuMask, sizeof(cuMask)));
       oldStrategy->dispMask = cuMask.cu_mask;
+    }
+
+    if (dispLogOn && (setStrategy || setControl || setMask)) {
+      int device = 0;
+      if (hggcGetDevice(&device) == hggcSuccess && device == 0) {
+        logCommonDispatchTable(path, device, key, compCap, title,
+                               &schedule, setStrategy ? (keepDisp ? "ignored" : "applied") : "cached",
+                               &control, setControl ? "applied" : "cached",
+                               &cuMask, setMask ? (keepMask ? "ignored" : "applied") : "cached");
+      }
     }
   }
   return ncclSuccess;
+}
+
+ncclResult_t setNativeDispatchStrategy(const void* func, struct ncclFuncDispatchStrategy* oldStrategy, struct ncclDispatchStrategy defaultStrategy, const char* funcName,
+                                int compCap, dispatchInfo dInfo) {
+  struct ncclFuncDispatchStrategy newStrategy = {};
+  newStrategy.launchConfig = defaultStrategy.launchConfig;
+
+  if (compCap == 80) {
+    uint32_t schedule = defaultStrategy.dispStrategy;
+    uint32_t dispMask = (uint32_t)defaultStrategy.dispMask[CeNumIdxDefault_t];
+    // check profiles
+    matchDispatchInfoPpu0010(dInfo, defaultStrategy.dispMask, &schedule, &dispMask);
+    newStrategy.dispStrategy = schedule;
+    newStrategy.dispMask = dispMask;
+  } else if (compCap == 89) {
+    newStrategy.dispStrategy = defaultStrategy.dispStrategy;
+    newStrategy.dispStrategy1 = defaultStrategy.dispStrategy1;
+    newStrategy.dispStrategy2 = defaultStrategy.dispStrategy2;
+    newStrategy.kernelControl = defaultStrategy.kernelControl;
+    newStrategy.dispMask = defaultStrategy.dispMask[CeNumIdxDefault_t];
+  } else {
+    return ncclSuccess;
+  }
+  struct pcclDispatchFunc fn = {func, NULL};
+  return setCommonDispatchStrategy("native", &fn, funcName, compCap, &newStrategy, oldStrategy);
+}
+
+ncclResult_t setUserDispatchStrategy(const struct pcclDispatchFunc* fn, const char* policyName, int compCap,
+                                     int oneBatchPerCe, int tbPerCu,
+                                     int cuMaskPolicy, uint64_t cuMask, uint32_t ceMask) {
+  static std::mutex lock;
+  static std::map<std::pair<int, const void*>, struct ncclFuncDispatchStrategy> oldStrategies;
+
+  int device = 0;
+  HGGCCHECK(hggcGetDevice(&device));
+
+  const void* key = fn->symbol ? fn->symbol : (const void*)fn->handle;
+
+  std::lock_guard<std::mutex> lk(lock);
+  struct ncclFuncDispatchStrategy* oldStrategy = &oldStrategies[std::make_pair(device, key)];
+
+  struct ncclFuncDispatchStrategy newStrategy = {};
+
+  if (compCap == 80) {
+    ppuDispatchStrategy_0010 schedule = {0};
+    schedule.bits.tb_per_cu = (tbPerCu >= 0) ? tbPerCu : 1;
+    schedule.bits.onebatch_per_ce = (oneBatchPerCe >= 0) ? oneBatchPerCe : 1;
+    schedule.bits.traverse_y_step = 1;
+    ppuDispatchMask_0010 dispMask = {0};
+    switch (cuMaskPolicy) {
+      case PCCLX_KERNEL_DISPATCH_AUTO:
+      case PCCLX_KERNEL_DISPATCH_DRV_DEFAULT: break;
+      default:
+        dispMask.bits.cu_mask = (unsigned int)cuMask;
+        dispMask.bits.ce_mask = ceMask;
+        break;
+    }
+    applyCommonDispatchEnv0010(&schedule, &dispMask);
+    newStrategy.dispStrategy = schedule.val;
+    newStrategy.dispMask = dispMask.val;
+  } else if (compCap == 89) {
+    if (!eitDispatchUsable()) return ncclSuccess;
+
+    switch (cuMaskPolicy) {
+      case PCCLX_KERNEL_DISPATCH_AUTO:        NCCLCHECK(deviceAutoMask(device, compCap, &cuMask)); break;
+      case PCCLX_KERNEL_DISPATCH_DRV_DEFAULT: cuMask = 0; break;
+      default: break;
+    }
+    ppuDispatchStrategy_0015 schedule = {0};
+    schedule.strategy.bits.tbPerCu = (tbPerCu >= 0) ? tbPerCu : 1;
+    schedule.strategy.bits.oneBatchPerCe = (oneBatchPerCe >= 0) ? oneBatchPerCe : 1;
+    schedule.strategy.bits.d2dDispPingPongEn = 0;
+    schedule.strategy1.bits.traverseYStep = 1;
+    schedule.strategy1.bits.traverseXStep = 1;
+    ppukernelControl_0015 control = {0};
+    applyCommonDispatchEnv0015(&schedule, &control, &cuMask);
+    newStrategy.dispStrategy = schedule.strategy.val;
+    newStrategy.dispStrategy1 = schedule.strategy1.val;
+    newStrategy.dispStrategy2 = schedule.strategy2.val;
+    newStrategy.kernelControl = control.val;
+    newStrategy.dispMask = cuMask;
+  } else {
+    return ncclSuccess;
+  }
+
+  return setCommonDispatchStrategy("user", fn, policyName, compCap, &newStrategy, oldStrategy);
 }
 
 ncclResult_t initProfileValue(pcclDispatchType_t dispType, uint32_t lastVal) {

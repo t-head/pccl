@@ -210,8 +210,11 @@ void* allReduce(int my_rank, int total_ranks, int local_device, int devices_per_
   }
 
   // ==========================================================================
-  // STEP 6: Launch Device Kernel for AllReduce Operation
+  // STEP 6: Configure Kernel Dispatch and Launch
   // ==========================================================================
+
+  pcclxKernelDispatchConfig_t dispatch_config = PCCLX_KERNEL_DISPATCH_CONFIG_INITIALIZER;
+  PCCLCHECK(PCCLX_LAUNCH_CONFIG(simpleAllReduceKernel, &dispatch_config));
 
   // Launch device kernel to perform AllReduce
   // This kernel will directly access peer memory and perform collective operation
