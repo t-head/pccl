@@ -26,9 +26,15 @@ struct ncclIbQpInfo {
   // FIFO RDMA info
   uint32_t fifoRkey;
   uint64_t fifoAddr;
+
+  // OOO RQ capability used by the peer during data QP setup.
+  // TODO: Remove this compatibility field after porting NCCL's per-device metadata
+  // exchange to PCCL; OOO RQ capability should then come from that metadata.
+  uint32_t oooRqSize;
 };
 
-ncclResult_t ncclIbCreateQp(uint8_t ib_port, struct ncclIbNetCommDevBase* commDevBase, int access_flags, struct ibv_qp** qp, void* qp_context);
+ncclResult_t ncclIbCreateQp(uint8_t ib_port, struct ncclIbNetCommDevBase* commDevBase, int access_flags,
+                            int oooRq, struct ibv_qp** qp, void* qp_context);
 ncclResult_t ncclIbRtrQp(ibv_qp* qp, uint32_t qpn, struct ncclIbQpInfo* info, int gidIndex);
 ncclResult_t ncclIbRtsQp(ibv_qp* qp);
 

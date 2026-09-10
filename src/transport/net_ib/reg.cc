@@ -11,7 +11,8 @@
 #define REG_ALIGN (4096)
 
 // size_t so GIN symmetric windows above 2GiB can be registered. NCCL is size_t throughout.
-ncclResult_t ncclIbRegMrInternal(void* comm, void* data, size_t size, int type, void** mhandle) {
+ncclResult_t ncclIbRegMrInternal(void* comm, void* data, size_t size, int type, uint64_t mrFlags,
+                                 void** mhandle) {
   struct ncclIbNetCommBase* base = (struct ncclIbNetCommBase*)comm;
   struct ncclIbNetCommDevBase* devComm = ncclIbGetNetCommDevBase(base, 0);
   uint64_t addr = (uint64_t)data;
@@ -26,7 +27,8 @@ ncclResult_t ncclIbRegMrInternal(void* comm, void* data, size_t size, int type, 
   regSize = ((regSize + REG_ALIGN - 1) / REG_ALIGN ) * REG_ALIGN;
   struct ibv_mr* mr;
   unsigned int flags = IBV_ACCESS_LOCAL_WRITE|IBV_ACCESS_REMOTE_WRITE|IBV_ACCESS_REMOTE_READ|IBV_ACCESS_REMOTE_ATOMIC;
-  if (ncclIbRelaxedOrderingEnabled) {
+  bool relaxedOrdering = ncclIbRelaxedOrderingEnabled && (mrFlags & NCCL_NET_MR_FLAG_FORCE_SO) == 0;
+  if (relaxedOrdering) {
     flags |= IBV_ACCESS_RELAXED_ORDERING;
     NCCLCHECK(wrap_ibv_reg_mr_iova2(&mr, devComm->pd, (void*)regAddr, regSize, regAddr, flags));
   } else {
@@ -43,7 +45,7 @@ ncclResult_t ncclIbRegMr(void* comm, void* data, int size, int type, void** mhan
     ERROR("Invalid size %d for memory registration.", size);
     return ncclInvalidArgument;
   }
-  return ncclIbRegMrInternal(comm, data, (size_t)size, type, mhandle);
+  return ncclIbRegMrInternal(comm, data, (size_t)size, type, 0, mhandle);
 }
 
 ncclResult_t ncclIbDeregMr(void* comm, void* mhandle) {

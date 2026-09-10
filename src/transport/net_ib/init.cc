@@ -15,6 +15,13 @@ NCCL_PARAM(IbDisable, "IB_DISABLE", 0);
 NCCL_PARAM(DmaBufEnable, "DMABUF_ENABLE", 0);
 NCCL_PARAM(IbDataDirect, "IB_DATA_DIRECT", 0);
 NCCL_PARAM(IbPciRelaxedOrdering, "IB_PCI_RELAXED_ORDERING", 2);
+NCCL_PARAM(IbAdaptiveRouting, "IB_ADAPTIVE_ROUTING", -2);
+// Disabled by default. A non-zero value force-enables OOO RQ and fails
+// communicator setup when any prerequisite is missing.
+NCCL_PARAM(IbOooRq, "IB_OOO_RQ", 0);
+
+extern int64_t ncclParamIbArThreshold();
+extern int64_t ncclIbArThreshold;
 
 PCCL_PARAM(IbDisableAccBondingPort, "IB_DISABLE_ACC_BONDING_PORT", 0);
 PCCL_PARAM(IbNicSpeedScalingFactor, "IB_NIC_SPEED_SCALING_FACTOR", 1);
@@ -188,6 +195,21 @@ static int ncclIbRelaxedOrderingCapable(void) {
   return result == ncclInternalError ? 0 : 1;
 }
 
+static ncclResult_t ncclIbQueryOooRqSize(struct ibv_device* device, struct ibv_context* context,
+                                         uint32_t* oooRqSize) {
+  *oooRqSize = 0;
+  if (ncclParamIbOooRq() == 0 || !wrap_mlx5dv_is_supported(device)) return ncclSuccess;
+
+  struct mlx5dv_context mlx5Attrs;
+  memset(&mlx5Attrs, 0, sizeof(mlx5Attrs));
+  mlx5Attrs.comp_mask = MLX5DV_CONTEXT_MASK_OOO_RECV_WRS;
+  NCCLCHECK(wrap_mlx5dv_query_device(context, &mlx5Attrs));
+  if (mlx5Attrs.comp_mask & MLX5DV_CONTEXT_MASK_OOO_RECV_WRS) {
+    *oooRqSize = mlx5Attrs.ooo_recv_wrs_caps.max_rc;
+  }
+  return ncclSuccess;
+}
+
 static ncclResult_t ncclIbGetSpeed(char* ifName, const struct ibv_port_attr *portAttr, int *ibSpeed) {
   *ibSpeed = ncclIbSpeed(portAttr->active_speed) * ncclIbWidth(portAttr->active_width) * pcclParamIbNicSpeedScalingFactor();
   if (pcclParamIbDisableAccBondingPort() != 0 || strlen(ifName) <= 0 || strncmp("N/A", ifName, 2) == 0) return ncclSuccess;
@@ -211,6 +233,10 @@ static ncclResult_t ncclIbGetSpeed(char* ifName, const struct ibv_port_attr *por
 ncclResult_t ncclIbInit(ncclDebugLogger_t logFunction) {
   static int shownIbHcaEnv = 0;
   if(wrap_ibv_symbols() != ncclSuccess) { return ncclInternalError; }
+  if (ncclParamIbOooRq() && wrap_mlx5dv_symbols() != ncclSuccess) {
+    WARN("NET/IB : NCCL_IB_OOO_RQ is enabled but mlx5 Direct Verbs symbols are unavailable");
+    return ncclInternalError;
+  }
   if (ncclParamIbDisable()) return ncclInternalError;
 
   ncclResult_t res = ncclSuccess;
@@ -277,6 +303,8 @@ ncclResult_t ncclIbInit(ncclDebugLogger_t logFunction) {
           }
           continue;
         }
+        uint32_t oooRqSize = 0;
+        NCCLCHECKGOTO(ncclIbQueryOooRqSize(devices[d], context, &oooRqSize), res, exit);
         for (int port = 1; port <= devAttr.phys_port_cnt; port++) {
           if (ncclNIbDevs >= MAX_IB_DEVS) {
             WARN("NET/IB : More than %d IB devices detected.", MAX_IB_DEVS);
@@ -318,6 +346,11 @@ ncclResult_t ncclIbInit(ncclDebugLogger_t logFunction) {
           NCCLCHECK(ncclIbGetPciPath(ncclIbDevs[ncclNIbDevs].devName, &ncclIbDevs[ncclNIbDevs].pciPath, &ncclIbDevs[ncclNIbDevs].realPort));
           NCCLCHECK(ncclIbGetSpeed(ncclIbDevs[ncclNIbDevs].ifName, &portAttr, &ncclIbDevs[ncclNIbDevs].speed));
           ncclIbDevs[ncclNIbDevs].maxQp = devAttr.max_qp;
+          ncclIbDevs[ncclNIbDevs].ar = portAttr.link_layer == IBV_LINK_LAYER_INFINIBAND ? 1 : 0;
+          if (ncclParamIbAdaptiveRouting() != -2) {
+            ncclIbDevs[ncclNIbDevs].ar = ncclParamIbAdaptiveRouting();
+          }
+          ncclIbDevs[ncclNIbDevs].oooRqSize = oooRqSize;
           ncclIbDevs[ncclNIbDevs].ibProvider = IB_PROVIDER_MLX5;
           ncclIbDevs[ncclNIbDevs].pd = NULL;
           ncclIbDevs[ncclNIbDevs].dmaBufSupported = -1;
@@ -349,11 +382,20 @@ ncclResult_t ncclIbInit(ncclDebugLogger_t logFunction) {
       INFO(NCCL_INIT|NCCL_NET, "NET/IB : No device found.");
     } else {
       ncclIbRelaxedOrderingEnabled = ncclIbRelaxedOrderingCapable();
+      if (ncclParamIbArThreshold() != -2) {
+        if (ncclParamIbOooRq()) {
+          INFO(NCCL_NET, "NET/IB: OOO RQ is enabled, AR threshold will be ignored.");
+        } else {
+          ncclIbArThreshold = ncclParamIbArThreshold();
+        }
+      }
       char line[1024];
       line[0] = '\0';
       for (int d=0; d<ncclNIbDevs; d++) {
-        snprintf(line+strlen(line), 1023-strlen(line), " [%d]%s:%s:%d/%s(%d)", d, ncclIbDevs[d].devName,
-                 ncclIbDevs[d].ifName, ncclIbDevs[d].port, ncclIbDevs[d].link == IBV_LINK_LAYER_INFINIBAND ? "IB" : "RoCE", ncclIbDevs[d].speed);
+        snprintf(line+strlen(line), 1023-strlen(line), " [%d]%s:%s:%d/%s(%d) ar=%d oooRq=%u", d,
+                 ncclIbDevs[d].devName, ncclIbDevs[d].ifName, ncclIbDevs[d].port,
+                 ncclIbDevs[d].link == IBV_LINK_LAYER_INFINIBAND ? "IB" : "RoCE", ncclIbDevs[d].speed,
+                 ncclIbDevs[d].ar, ncclIbDevs[d].oooRqSize);
       }
       line[1023] = '\0';
       char addrline[SOCKET_NAME_MAXLEN+1];

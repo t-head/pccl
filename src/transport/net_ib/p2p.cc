@@ -10,7 +10,8 @@
 #include "common.h"
 #include "connect.h"
 
-NCCL_PARAM(IbArThreshold, "IB_AR_THRESHOLD", 8192);
+NCCL_PARAM(IbArThreshold, "IB_AR_THRESHOLD", -2);
+int64_t ncclIbArThreshold = 8192;
 
 ncclResult_t ncclIbGetRequest(struct ncclIbNetCommBase* base, struct ncclIbRequest** req) {
   for (int i = 0; i < NET_IB_MAX_REQUESTS; i++) {
@@ -93,17 +94,23 @@ ncclResult_t ncclIbMultiSend(struct ncclIbSendComm* comm, int slot) {
   if (nreqs == 1) {
     immData = reqs[0]->send.size;
   } else {
-    if (nreqs > 32) {
-      WARN("Cannot store sizes of %d requests in a 32-bits field", nreqs);
+    // TODO: Remove this 24-bit size bitmap plus 8-bit request-slot encoding
+    // after porting upstream NCCL's shared logical request IDs and request
+    // completion records; multi-recv sizes should then use the records and
+    // BY_ID immediate data should carry the full logical request ID.
+    int maxImmReqs = comm->base.recvMatchingScheme == BY_ID ? 24 : 32;
+    if (nreqs > maxImmReqs) {
+      WARN("Cannot store sizes of %d requests in a %d-bits field", nreqs, maxImmReqs);
       return ncclInternalError;
     }
     for (int r = 0; r < nreqs; r++) {
-      immData |= (reqs[r]->send.size ? 1 : 0) << r;
+      immData |= (reqs[r]->send.size ? 1u : 0u) << r;
     }
   }
 
   struct ibv_send_wr* lastWr = comm->wrs + nreqs - 1;
-  if (nreqs > 1 || (/* comm->ar && */reqs[0]->send.size > ncclParamIbArThreshold())) {
+  if (nreqs > 1 || (!comm->base.oooRq && comm->ar &&
+                     reqs[0]->send.size > ncclIbArThreshold)) {
     // When using ADAPTIVE_ROUTING, send the bulk of the data first as an
     // RDMA_WRITE, then a 0-byte RDMA_WRITE_WITH_IMM to trigger a remote
     // completion.
@@ -112,7 +119,11 @@ ncclResult_t ncclIbMultiSend(struct ncclIbSendComm* comm, int slot) {
   }
   lastWr->wr_id = wr_id;
   lastWr->opcode = IBV_WR_RDMA_WRITE_WITH_IMM;
-  lastWr->imm_data = immData;
+  if (comm->base.recvMatchingScheme == BY_ID) {
+    lastWr->imm_data = (nreqs == 1 ? 0 : immData << 8) | (uint8_t)slots[0].reqIdx;
+  } else {
+    lastWr->imm_data = immData;
+  }
   lastWr->next = NULL;
   lastWr->send_flags = IBV_SEND_SIGNALED;
 
@@ -237,10 +248,15 @@ ncclResult_t ncclIbPostFifo(struct ncclIbRecvComm* comm, int n, void** data, int
     localElem[i].addr = (uint64_t)data[i];
     struct ibv_mr* mr = (struct ibv_mr*)mhandles[i];
     localElem[i].rkey = mr->rkey;
-    localElem[i].nreqs = n;
+    localElem[i].nreqs = (uint8_t)n;
+    localElem[i].reqIdx = 0;
+    localElem[i].reserved = 0;
     localElem[i].size = sizes[i]; // Sanity/Debugging
     localElem[i].tag = tags[i];
     localElem[i].idx = comm->remCtsFifo.fifoTail + 1;
+    if (comm->base.recvMatchingScheme == BY_ID) {
+      localElem[i].reqIdx = (uint8_t)(req - comm->base.reqs);
+    }
   }
   wr.wr.rdma.remote_addr = comm->remCtsFifo.addr + slot * NCCL_NET_IB_MAX_RECVS * sizeof(struct ncclIbSendFifo);
   wr.wr.rdma.rkey = comm->remCtsFifo.rkey;
@@ -309,19 +325,22 @@ ncclResult_t ncclIbIrecv(void* recvComm, int n, void** data, int* sizes, int* ta
 
   for (int i = 0; i < n; i++) req->recv.sizes[i] = 0;
 
-  struct ibv_recv_wr wr;
-  memset(&wr, 0, sizeof(wr));
-  wr.wr_id = req - comm->base.reqs;
-
-  wr.sg_list = NULL;
-  wr.num_sge = 0;
-
+  uint64_t reqIdx = req - comm->base.reqs;
+  comm->recvReqs[reqIdx] = req;
   const int nqps = ncclIbCommBaseGetNqpsPerRequest(&comm->base);
-  for (int q = 0; q < nqps; q++) {
-    struct ibv_qp* qp = comm->base.qps[comm->base.qpIndex];
-    struct ibv_recv_wr* bad_wr;
-    NCCLCHECK(wrap_ibv_post_recv(qp, &wr, &bad_wr));
-    comm->base.qpIndex = (comm->base.qpIndex + 1) % comm->base.nqps;
+  if (comm->base.recvMatchingScheme == BY_INDEX) {
+    struct ibv_recv_wr wr;
+    memset(&wr, 0, sizeof(wr));
+    wr.wr_id = reqIdx;
+    wr.sg_list = NULL;
+    wr.num_sge = 0;
+
+    for (int q = 0; q < nqps; q++) {
+      struct ibv_qp* qp = comm->base.qps[comm->base.qpIndex];
+      struct ibv_recv_wr* bad_wr;
+      NCCLCHECK(wrap_ibv_post_recv(qp, &wr, &bad_wr));
+      comm->base.qpIndex = (comm->base.qpIndex + 1) % comm->base.nqps;
+    }
   }
   req->events = nqps;
 
@@ -436,15 +455,39 @@ ncclResult_t ncclIbTest(void* request, int* done, int* sizes) {
           sendReq->events--;
         }
       } else {
+        struct ncclIbRecvComm* recvComm = container_of(r->base, struct ncclIbRecvComm, base);
+        if (wc->opcode == IBV_WC_RECV_RDMA_WITH_IMM && recvComm->base.recvMatchingScheme == BY_ID) {
+          req = recvComm->recvReqs[wc->imm_data & 0xff];
+          if (req == NULL) return ncclInternalError;
+        }
         if (req && wc->opcode == IBV_WC_RECV_RDMA_WITH_IMM) {
           if (req->type != NCCL_NET_IB_REQ_RECV) return ncclInternalError;
+          uint32_t immData = wc->imm_data;
+          if (recvComm->base.recvMatchingScheme == BY_ID) {
+            immData = wc->imm_data >> 8;
+          }
           if (req->nreqs > 1) {
             // In the case of a multi recv, we only set sizes to 0 or 1.
             for (int i = 0; i < req->nreqs; i++) {
-              req->recv.sizes[i] = (wc->imm_data >> i) & 0x1;
+              req->recv.sizes[i] = (immData >> i) & 0x1;
             }
+          } else if (recvComm->base.recvMatchingScheme == BY_ID) {
+            req->recv.sizes[0] += wc->byte_len;
           } else {
-            req->recv.sizes[0] += wc->imm_data;
+            req->recv.sizes[0] += immData;
+          }
+          if (recvComm->base.recvMatchingScheme == BY_ID) {
+            int qpFound = 0;
+            for (int q = 0; q < recvComm->base.nqps; q++) {
+              if (recvComm->base.qps[q]->qp_num == wc->qp_num) {
+                struct ibv_recv_wr* badWorkRequest;
+                NCCLCHECK(wrap_ibv_post_recv(recvComm->base.qps[q], &recvComm->ibRecvWorkRequest,
+                                              &badWorkRequest));
+                qpFound = 1;
+                break;
+              }
+            }
+            if (!qpFound) return ncclInternalError;
           }
         }
         req->events--;

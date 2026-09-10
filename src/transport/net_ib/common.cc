@@ -47,6 +47,7 @@ ncclResult_t ncclIbBaseCommInit(struct ncclIbNetCommBase* baseComm, bool isSend)
   baseComm->splitDataOnQps = ncclParamIbSplitDataOnQps();
   baseComm->isSend = isSend;
   baseComm->ready = 0;
+  baseComm->recvMatchingScheme = BY_INDEX;
 
   return ncclSuccess;
 }
@@ -143,13 +144,13 @@ ncclResult_t ncclIbGetPhysProperties(int dev, ncclNetProperties_t* props) {
 }
 
 ncclResult_t ncclIbRegMrDmaBufInternal(void* comm, void* data, size_t size, int type, uint64_t /*offset*/,
-                                       int fd, uint64_t /*mrFlags*/, void** mhandle) {
+                                       int fd, uint64_t mrFlags, void** mhandle) {
   if (fd != -1) {
     WARN("NET/IB: DMA-BUF MR registration is not supported");
     return ncclSystemError;
   }
   // GIN symmetric windows can exceed 2GiB, so keep the size in size_t.
-  return ncclIbRegMrInternal(comm, data, size, type, mhandle);
+  return ncclIbRegMrInternal(comm, data, size, type, mrFlags, mhandle);
 }
 
 ncclNet_t ncclNetIb = {

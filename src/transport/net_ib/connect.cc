@@ -22,9 +22,13 @@ struct ncclIbHandle {
   union ncclSocketAddress connectAddr;
   uint64_t magic; // random number to help debugging
   struct ncclIbCommStage stage; // Used by the other side when connecting
+  // TODO: Remove this compatibility field after porting NCCL's per-device metadata
+  // exchange to PCCL; OOO RQ capability should then come from that metadata.
+  uint32_t oooRqSize;
 };
 
 NCCL_PARAM(IbQpsPerConn, "IB_QPS_PER_CONNECTION", 2);
+extern int64_t ncclParamIbOooRq();
 
 ncclResult_t ncclIbInitCommDevBase(int ibDevN, struct ncclIbNetCommDevBase* base, void* cq_context) {
   base->ibDevN = ibDevN;
@@ -262,20 +266,46 @@ ncclResult_t ncclIbGetGidIndex(struct ibv_context *context, uint8_t portNum, int
   return ncclSuccess;
 }
 
-ncclResult_t ncclIbCreateQp(uint8_t ib_port, struct ncclIbNetCommDevBase* commDevBase, int access_flags, struct ibv_qp** qp, void* qp_context) {
-  struct ibv_qp_init_attr qpInitAttr;
-  memset(&qpInitAttr, 0, sizeof(struct ibv_qp_init_attr));
-  qpInitAttr.qp_context = qp_context;
-  qpInitAttr.send_cq = commDevBase->cq;
-  qpInitAttr.recv_cq = commDevBase->cq;
-  qpInitAttr.qp_type = IBV_QPT_RC;
-  // We might send 2 messages per send (RDMA and RDMA_WITH_IMM)
-  qpInitAttr.cap.max_send_wr = 2*NET_IB_MAX_REQUESTS;
-  qpInitAttr.cap.max_recv_wr = NET_IB_MAX_REQUESTS;
-  qpInitAttr.cap.max_send_sge = 1;
-  qpInitAttr.cap.max_recv_sge = 1;
-  qpInitAttr.cap.max_inline_data = ncclParamIbUseInline() ? sizeof(struct ncclIbSendFifo) : 0;
-  NCCLCHECK(wrap_ibv_create_qp(qp, commDevBase->pd, &qpInitAttr));
+ncclResult_t ncclIbCreateQp(uint8_t ib_port, struct ncclIbNetCommDevBase* commDevBase, int access_flags,
+                            int oooRq, struct ibv_qp** qp, void* qp_context) {
+  if (oooRq) {
+    struct ibv_qp_init_attr_ex qpInitAttr;
+    struct mlx5dv_qp_init_attr mlx5QpInitAttr;
+    memset(&qpInitAttr, 0, sizeof(qpInitAttr));
+    memset(&mlx5QpInitAttr, 0, sizeof(mlx5QpInitAttr));
+    qpInitAttr.qp_context = qp_context;
+    qpInitAttr.send_cq = commDevBase->cq;
+    qpInitAttr.recv_cq = commDevBase->cq;
+    qpInitAttr.qp_type = IBV_QPT_RC;
+    qpInitAttr.cap.max_send_wr = 2 * NET_IB_MAX_REQUESTS;
+    qpInitAttr.cap.max_recv_wr = NET_IB_MAX_REQUESTS;
+    qpInitAttr.cap.max_send_sge = 1;
+    qpInitAttr.cap.max_recv_sge = 1;
+    qpInitAttr.cap.max_inline_data = ncclParamIbUseInline() ? sizeof(struct ncclIbSendFifo) : 0;
+    qpInitAttr.comp_mask = IBV_QP_INIT_ATTR_PD;
+    qpInitAttr.pd = commDevBase->pd;
+    mlx5QpInitAttr.comp_mask = MLX5DV_QP_INIT_ATTR_MASK_QP_CREATE_FLAGS;
+    mlx5QpInitAttr.create_flags = MLX5DV_QP_CREATE_OOO_DP;
+    *qp = wrap_mlx5dv_create_qp(commDevBase->pd->context, &qpInitAttr, &mlx5QpInitAttr);
+    if (*qp == NULL) {
+      WARN("NET/IB : mlx5dv_create_qp failed to create an OOO QP: %s", strerror(errno));
+      return ncclSystemError;
+    }
+  } else {
+    struct ibv_qp_init_attr qpInitAttr;
+    memset(&qpInitAttr, 0, sizeof(qpInitAttr));
+    qpInitAttr.qp_context = qp_context;
+    qpInitAttr.send_cq = commDevBase->cq;
+    qpInitAttr.recv_cq = commDevBase->cq;
+    qpInitAttr.qp_type = IBV_QPT_RC;
+    // We might send 2 messages per send (RDMA and RDMA_WITH_IMM)
+    qpInitAttr.cap.max_send_wr = 2 * NET_IB_MAX_REQUESTS;
+    qpInitAttr.cap.max_recv_wr = NET_IB_MAX_REQUESTS;
+    qpInitAttr.cap.max_send_sge = 1;
+    qpInitAttr.cap.max_recv_sge = 1;
+    qpInitAttr.cap.max_inline_data = ncclParamIbUseInline() ? sizeof(struct ncclIbSendFifo) : 0;
+    NCCLCHECK(wrap_ibv_create_qp(qp, commDevBase->pd, &qpInitAttr));
+  }
   struct ibv_qp_attr qpAttr;
   memset(&qpAttr, 0, sizeof(struct ibv_qp_attr));
   qpAttr.qp_state = IBV_QPS_INIT;
@@ -283,6 +313,42 @@ ncclResult_t ncclIbCreateQp(uint8_t ib_port, struct ncclIbNetCommDevBase* commDe
   qpAttr.port_num = ib_port;
   qpAttr.qp_access_flags = access_flags;
   NCCLCHECK(wrap_ibv_modify_qp(*qp, &qpAttr, IBV_QP_STATE | IBV_QP_PKEY_INDEX | IBV_QP_PORT | IBV_QP_ACCESS_FLAGS));
+  return ncclSuccess;
+}
+
+static ncclResult_t ncclIbEnableOooRq(int dev, uint32_t remOooRqSize, int* oooRq) {
+  *oooRq = 0;
+  if (ncclParamIbOooRq() == 0) return ncclSuccess;
+
+  struct ncclIbDev* ibDev = ncclIbDevs + dev;
+  if (ibDev->ar == 0) {
+    WARN("NET/IB : OOO RQ is force enabled but adaptive routing is disabled on device %s", ibDev->devName);
+    return ncclInternalError;
+  }
+  if (ibDev->oooRqSize == 0 || remOooRqSize == 0) {
+    WARN("NET/IB : OOO RQ is force enabled but is not supported on both sides (device %s local=%u remote=%u)",
+         ibDev->devName, ibDev->oooRqSize, remOooRqSize);
+    return ncclInternalError;
+  }
+  if (ibDev->oooRqSize < NET_IB_MAX_REQUESTS) {
+    WARN("NET/IB : OOO RQ size %u is less than required receive queue size %u on device %s",
+         ibDev->oooRqSize, NET_IB_MAX_REQUESTS, ibDev->devName);
+    return ncclInternalError;
+  }
+  *oooRq = 1;
+  return ncclSuccess;
+}
+
+static ncclResult_t ncclIbPrepostRecvWorkRequests(struct ncclIbRecvComm* comm) {
+  if (comm->base.recvMatchingScheme != BY_ID) return ncclSuccess;
+
+  memset(&comm->ibRecvWorkRequest, 0, sizeof(comm->ibRecvWorkRequest));
+  for (int q = 0; q < comm->base.nqps; q++) {
+    for (uint32_t r = 0; r < NET_IB_MAX_REQUESTS; r++) {
+      struct ibv_recv_wr* badWorkRequest;
+      NCCLCHECK(wrap_ibv_post_recv(comm->base.qps[q], &comm->ibRecvWorkRequest, &badWorkRequest));
+    }
+  }
   return ncclSuccess;
 }
 
@@ -339,6 +405,7 @@ ncclResult_t ncclIbListen(int dev, void* opaqueHandle, void** listenComm) {
   NCCLCHECKGOTO(ncclSocketInit(&comm->sock, &ncclIbIfAddr, handle->magic, ncclSocketTypeNetIb, NULL, 1), res, fail);
   NCCLCHECKGOTO(ncclSocketListen(&comm->sock), res, fail);
   NCCLCHECKGOTO(ncclSocketGetAddr(&comm->sock, &handle->connectAddr), res, fail);
+  handle->oooRqSize = ncclIbDevs[dev].oooRqSize;
   *listenComm = comm;
 exit:
   return res;
@@ -392,14 +459,25 @@ ib_connect_check:
   NCCLCHECK(ncclSocketReady(&comm->base.sock, &ready));
   if (!ready) return ncclSuccess;
 
+  NCCLCHECKGOTO(ncclIbMalloc((void**)&stage->buffer, sizeof(struct ncclIbQpInfo)), res, fail);
+  comm->base.remOooRqSize = handle->oooRqSize;
+  NCCLCHECKGOTO(ncclIbEnableOooRq(dev, comm->base.remOooRqSize, &comm->base.oooRq), res, fail);
+  comm->base.recvMatchingScheme = comm->base.oooRq ? BY_ID : BY_INDEX;
+
   // IB Setup
   ctx = ncclIbDevs[dev].context;
   NCCLCHECKGOTO(ncclIbInitCommDevBase(dev, &comm->dev.base, &comm->base.stats), res, fail);
+  comm->ar = ncclIbDevs[dev].ar;
   ib_port = ncclIbDevs[dev].port;
   comm->base.nqps = ncclParamIbQpsPerConn();
   comm->base.qpIndex = 0;
   for (int q = 0; q < comm->base.nqps; q++) {
-    NCCLCHECKGOTO(ncclIbCreateQp(ib_port, &comm->dev.base, IBV_ACCESS_REMOTE_WRITE, comm->base.qps + q, &comm->base.stats), res, fail);
+    NCCLCHECKGOTO(ncclIbCreateQp(ib_port, &comm->dev.base, IBV_ACCESS_REMOTE_WRITE, comm->base.oooRq,
+                                 comm->base.qps + q, &comm->base.stats), res, fail);
+    INFO(NCCL_NET,
+         "NET/IB: %s: QP created: port=%d dev=%d devName=%s qp_num=%u pkey=%u pd=%p oooRq=%d",
+         __func__, ib_port, dev, ncclIbDevs[dev].devName, comm->base.qps[q]->qp_num,
+         (uint16_t)ncclParamIbPkey(), comm->dev.base.pd, comm->base.oooRq);
   }
 
   // Send my QP Info to receiver through the socket. Hope this won't block.
@@ -415,6 +493,7 @@ ib_connect_check:
                                 IBV_ACCESS_LOCAL_WRITE|IBV_ACCESS_REMOTE_WRITE|IBV_ACCESS_REMOTE_READ), res, fail);
   qpInfo.fifoRkey = comm->fifoMr->rkey;
   qpInfo.fifoAddr = (uint64_t)comm->ctsFifo;
+  qpInfo.oooRqSize = ncclIbDevs[dev].oooRqSize;
 
   // Register a small scratchpad MR that the GIN proxy iputSignal path uses as
   // the local SGE of its FETCH_AND_ADD atomic ops. Allocating it here keeps it
@@ -442,7 +521,6 @@ ib_connect_check:
 
   stage->state = ncclIbCommStateSend;
   stage->offset = 0;
-  NCCLCHECK(ncclIbMalloc((void**)&stage->buffer, sizeof(qpInfo)));
   memcpy(stage->buffer, &qpInfo, sizeof(qpInfo));
 
 ib_send:
@@ -503,9 +581,10 @@ ib_accept_check:
   NCCLCHECK(ncclSocketReady(&rComm->base.sock, &ready));
   if (!ready) return ncclSuccess;
 
+  NCCLCHECKGOTO(ncclIbMalloc((void**)&stage->buffer, sizeof(remQpInfo)), res, fail);
   stage->state = ncclIbCommStateRecv;
   stage->offset = 0;
-  NCCLCHECK(ncclIbMalloc((void**)&stage->buffer, sizeof(remQpInfo)));
+
 ib_recv:
   NCCLCHECK(ncclSocketProgress(NCCL_SOCKET_RECV, &rComm->base.sock, stage->buffer, sizeof(remQpInfo), &stage->offset));
   if (stage->offset != sizeof(remQpInfo))
@@ -513,6 +592,9 @@ ib_recv:
 
   /* copy back the received info */
   memcpy(&remQpInfo, stage->buffer, sizeof(struct ncclIbQpInfo));
+  rComm->base.remOooRqSize = remQpInfo.oooRqSize;
+  NCCLCHECKGOTO(ncclIbEnableOooRq(lComm->dev, rComm->base.remOooRqSize, &rComm->base.oooRq), res, fail);
+  rComm->base.recvMatchingScheme = rComm->base.oooRq ? BY_ID : BY_INDEX;
 
   // IB setup
   ctx = ncclIbDevs[lComm->dev].context;
@@ -529,7 +611,13 @@ ib_recv:
   for (int q=0; q<rComm->base.nqps; q++) {
     // Remote Atomic operations are used for GIN IPutSignal (ATOMIC_FETCH_AND_ADD).
     // REMOTE_READ is required for GIN IGet / IFlush (RDMA READ).
-    NCCLCHECKGOTO(ncclIbCreateQp(ib_port, &rComm->dev.base, IBV_ACCESS_REMOTE_WRITE|IBV_ACCESS_REMOTE_READ|IBV_ACCESS_REMOTE_ATOMIC, rComm->base.qps+q, &rComm->base.stats), res, fail);
+    NCCLCHECKGOTO(ncclIbCreateQp(ib_port, &rComm->dev.base,
+                                 IBV_ACCESS_REMOTE_WRITE|IBV_ACCESS_REMOTE_READ|IBV_ACCESS_REMOTE_ATOMIC,
+                                 rComm->base.oooRq, rComm->base.qps+q, &rComm->base.stats), res, fail);
+    INFO(NCCL_NET,
+         "NET/IB: %s: QP created: port=%d dev=%d devName=%s qp_num=%u pkey=%u pd=%p oooRq=%d",
+         __func__, ib_port, lComm->dev, ncclIbDevs[lComm->dev].devName, rComm->base.qps[q]->qp_num,
+         (uint16_t)ncclParamIbPkey(), rComm->dev.base.pd, rComm->base.oooRq);
   }
 
   // Adjust the MTU
@@ -541,6 +629,7 @@ ib_recv:
     NCCLCHECKGOTO(ncclIbRtrQp(qp, remQpInfo.qpn[q], &remQpInfo, gidIndex), res, fail);
     NCCLCHECKGOTO(ncclIbRtsQp(qp), res, fail);
   }
+  NCCLCHECKGOTO(ncclIbPrepostRecvWorkRequests(rComm), res, fail);
 
   // Retain remote fifo info and prepare my RDMA ops
   rComm->remCtsFifo.rkey = remQpInfo.fifoRkey;
@@ -569,7 +658,8 @@ ib_recv:
     rComm->gpuFlush.sge.addr = (uint64_t)&rComm->gpuFlush.hostMem;
     rComm->gpuFlush.sge.length = 1;
     rComm->gpuFlush.sge.lkey = rComm->gpuFlush.hostMr->lkey;
-    NCCLCHECKGOTO(ncclIbCreateQp(ib_port, &rComm->dev.base, qpFlags, &rComm->gpuFlush.qp, &rComm->base.stats), res, fail);
+    NCCLCHECKGOTO(ncclIbCreateQp(ib_port, &rComm->dev.base, qpFlags,
+                                 0, &rComm->gpuFlush.qp, &rComm->base.stats), res, fail);
     struct ncclIbQpInfo localQpInfo;
     localQpInfo.lid=portAttr.lid;
     localQpInfo.ib_port=ib_port;
@@ -591,6 +681,7 @@ ib_recv:
   qpInfo.spn=gid.global.subnet_prefix;
   qpInfo.iid=gid.global.interface_id;
   qpInfo.mtu=remQpInfo.mtu;
+  qpInfo.oooRqSize = ncclIbDevs[lComm->dev].oooRqSize;
 
   stage->state = ncclIbCommStateSend;
   stage->offset = 0;

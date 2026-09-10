@@ -26,6 +26,7 @@
 #include <mutex>
 
 #include "ibvwrap.h"
+#include "mlx5/mlx5dvwrap.h"
 
 #define MAXNAMESIZE 64
 extern char ncclIbIfName[MAX_IF_NAME_SIZE+1];
@@ -54,6 +55,8 @@ struct ncclIbDev {
     int realPort;
     int maxQp;
     int gidIndex;
+    int ar;
+    uint32_t oooRqSize;
     struct ncclIbStats stats;
     enum ncclIbProvider ibProvider;
     struct ibv_pd* pd;
@@ -128,6 +131,11 @@ enum ncclIbCommState {
     ncclIbCommStateConnected = 6,
 };
 
+enum ncclIbRecvMatchingScheme {
+  BY_INDEX = 0,
+  BY_ID = 1,
+};
+
 struct ncclIbCommStage {
     enum ncclIbCommState state;
     int offset;
@@ -145,7 +153,12 @@ struct ncclIbSendFifo {
     uint64_t addr;
     int      size;
     uint32_t rkey;
-    uint32_t nreqs;
+    // TODO: Match the upstream NCCL CTS FIFO layout after porting its shared
+    // logical request-ID generation and request completion records. Those
+    // features remove the need for reqIdx/reserved and these narrowed fields.
+    uint8_t  nreqs;
+    uint8_t  reqIdx;
+    uint16_t reserved;
     uint32_t tag;
     uint64_t idx;
 };
@@ -172,6 +185,9 @@ struct alignas(32) ncclIbNetCommBase {
     int splitDataOnQps;
     struct ncclSocket sock;
     int ready;
+    uint32_t remOooRqSize;
+    int oooRq;
+    int recvMatchingScheme;
     // statistics about the comm
     struct ncclIbStats stats;
 };
@@ -211,6 +227,7 @@ struct ncclIbSendComm {
 
     struct ibv_mr* fifoMr;
     int netDev;
+    int ar; // Use adaptive routing when enabled on the selected device
     // Local scratchpad target for the GIN proxy iputSignal atomic FETCH_AND_ADD.
     uint64_t putSignalScratchpad;
 };
@@ -219,7 +236,9 @@ struct ncclIbSendComm {
 // written out of order when IB Relaxed Ordering is enabled
 static_assert((sizeof(struct ncclIbNetCommBase) % 32) == 0, "ncclIbNetCommBase size must be 32-byte multiple to ensure ctsFifo is at proper offset");
 static_assert((offsetof(struct ncclIbSendComm, ctsFifo) % 32) == 0, "ncclIbSendComm ctsFifo must be 32-byte aligned");
-static_assert((sizeof(struct ncclIbSendFifo) % 32) == 0, "ncclIbSendFifo element size must be 32-byte multiples");
+static_assert(NCCL_NET_IB_MAX_RECVS <= UINT8_MAX, "nreqs must fit in ncclIbSendFifo::nreqs");
+static_assert(NET_IB_MAX_REQUESTS <= UINT8_MAX + 1, "request index must fit in ncclIbSendFifo::reqIdx");
+static_assert(sizeof(struct ncclIbSendFifo) == 32, "ncclIbSendFifo element size must be 32 bytes");
 static_assert((offsetof(struct ncclIbSendComm, sges) % 32) == 0, "sges must be 32-byte aligned");
 static_assert((offsetof(struct ncclIbSendComm, wrs) % 32) == 0, "wrs must be 32-byte aligned");
 
@@ -259,6 +278,8 @@ struct ncclIbRecvComm {
     // Structure to hold all the related structures regarding the CTS FIFO
     // structure.
     struct ncclIbRemCtsFifo remCtsFifo;
+    struct ibv_recv_wr ibRecvWorkRequest;
+    struct ncclIbRequest* recvReqs[NET_IB_MAX_REQUESTS];
     struct ncclIbGpuFlush gpuFlush;
 };
 static_assert((offsetof(struct ncclIbRecvComm, remCtsFifo) % 32) == 0, "ncclIbSendComm fifo must be 32-byte aligned");
@@ -313,7 +334,8 @@ ncclResult_t ncclIbListen(int dev, void* opaqueHandle, void** listenComm);
 ncclResult_t ncclIbConnect(int dev, void* opaqueHandle, void** sendComm);
 ncclResult_t ncclIbAccept(void* listenComm, void** recvComm);
 ncclResult_t ncclIbRegMr(void* comm, void* data, int size, int type, void** mhandle);
-ncclResult_t ncclIbRegMrInternal(void* comm, void* data, size_t size, int type, void** mhandle);
+ncclResult_t ncclIbRegMrInternal(void* comm, void* data, size_t size, int type, uint64_t mrFlags,
+                                 void** mhandle);
 ncclResult_t ncclIbDeregMr(void* comm, void* mhandle);
 ncclResult_t ncclIbIsend(void* sendComm, void* data, int size, int tag, void* mhandle, void** request);
 ncclResult_t ncclIbIrecv(void* recvComm, int n, void** data, int* sizes, int* tags, void** mhandles, void** request);
