@@ -33,7 +33,7 @@ cp -r ${source_home}/comm-toolbox/* ${source_home}/comm-internal-testbox/comm-to
 echo "######################### $(date +%Y%m%d%H%M%S) Build pccl ##########################"
 source ${source_home}/PPU_SDK/envsetup.sh
 cd ${source_home}/pccl
-bash build.sh --use_sdk
+bash .aoneci/script/pccl_build.sh
 
 echo "######################### $(date +%Y%m%d%H%M%S) Collect pccl artifacts ##########################"
 mkdir -p ${build_output}/lib
