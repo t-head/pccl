@@ -29,7 +29,16 @@ PCCL_PARAM(CeCollOneStream, "CE_COLL_ONE_STREAM", 0);
 PCCL_PARAM(CeAg2StageOptMinSize, "CE_AG_2STAGE_OPT_MIN_SIZE", 0);
 PCCL_PARAM(CeEnableAr, "CE_ENABLE_AR", 0);
 PCCL_PARAM(CeEnableRs, "CE_ENABLE_RS", 0);
+PCCL_PARAM(CeOkiEnableAg, "CE_OKI_ENABLE_AG", 0);
 PCCL_PARAM(CeDieByRank, "CE_DIE_BY_RANK", 1);
+
+static constexpr bool ceOkiAllGatherSupported = false;
+
+bool ncclCeOkiRequested() {
+  return pcclParamCeEnableAr() == 1 ||
+         pcclParamCeEnableRs() == 1 ||
+         (ceOkiAllGatherSupported && pcclParamCeOkiEnableAg() == 1);
+}
 
 // Machine types that support two-stage topology optimization for CE allgather
 static const PPU_TYPE ceAllGatherTwoStageTypes[] = {
@@ -886,16 +895,15 @@ ncclResult_t ncclLaunchCeColl(ncclComm_t comm, struct ncclKernelPlan* plan) {
 
   switch (args->func) {
     case ncclFuncAllGather:
-      // only use hggcMemcpy ce allgather for now.
-      NCCLCHECKGOTO(ncclCeAllGather(comm, args, stream), ret, fail);
-      break;
 #if PCCL_HGGC_VERSION >= PCCL_HGGC_DRIVER_VERSION(2, 2, 0)
-      if (comm->okiSupport && !plan->persistent) {
-        // INFO: oki do not support graph for now.
+      if (ceOkiAllGatherSupported && pcclParamCeOkiEnableAg() == 1 && comm->okiSupport && !plan->persistent) {
         NCCLCHECKGOTO(pcclCeOkiAllGather(comm, args, stream), ret, fail);
-        break;
-      }
+      } else
 #endif
+      {
+        NCCLCHECKGOTO(ncclCeAllGather(comm, args, stream), ret, fail);
+      }
+      break;
     case ncclFuncAlltoAll:
       NCCLCHECKGOTO(ncclCeAlltoAll(comm, args, stream), ret, fail);
       break;

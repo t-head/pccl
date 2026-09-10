@@ -115,6 +115,7 @@ static int localReduceFuncIndex(pcclDataType_t dtype, int nRanks, int/*ncclRedOp
   return idx;
 }
 
+bool ncclCeOkiRequested();
 bool ncclCeReduceEnabled(ncclFunc_t coll);
 bool ncclCeImplemented(ncclFunc_t coll, int/*ncclRedOp_t*/ red, ncclDataType_t ty);
 bool ncclCeAvailable(ncclComm_t comm, ncclFunc_t coll, int/*ncclRedOp_t*/ red, ncclDataType_t ty, size_t count, ncclSymRegType_t winRegType, const void* recvbuff, hggcStream_t stream);

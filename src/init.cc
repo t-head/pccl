@@ -17,6 +17,7 @@
 #include "coll_net.h"
 #include "enqueue.h"
 #include "ce_coll.h"
+#include "p2p_dma.h"
 #include "graph.h"
 #include "argcheck.h"
 #include "tuner.h"
@@ -64,7 +65,6 @@ NCCL_PARAM(CtaPolicy, "CTA_POLICY", PCCL_CONFIG_UNDEF_INT);
 NCCL_PARAM(WinEnable, "WIN_ENABLE", 1);
 NCCL_PARAM(SetCpuStackSize, "SET_CPU_STACK_SIZE", 1);
 NCCL_PARAM(AllocP2pNetLLBuffers, "ALLOC_P2P_NET_LL_BUFFERS", 0);
-PCCL_PARAM(OkiEnable, "OKI_ENABLE", 0);
 
 // GDRCOPY support: Off by default
 NCCL_PARAM(GdrCopyEnable, "GDRCOPY_ENABLE", 0);
@@ -1976,24 +1976,24 @@ static ncclResult_t ncclCommInitRankFunc(struct ncclAsyncJob* job_) {
   {
     uint systemDriverVersion = 0;
     NCCLCHECKGOTO(ncclSystemDriverVersion(&systemDriverVersion), res, fail);
-    if (pcclParamOkiEnable() == 1) {
+    if (ncclCeSupported(comm) && (ncclCeOkiRequested() || pcclParamP2pDmaEnable())) {
       // support user compile install kmd version check for 0xffffffff
       if (systemDriverVersion < PCCL_MIN_KMD_VERSION_FOR_OKI) {
-        INFO(NCCL_INIT, "disable OKI collective as system driver version smaller than %x(%x).", PCCL_MIN_KMD_VERSION_FOR_OKI, systemDriverVersion);
+        INFO(NCCL_INIT, "disable OKI as system driver version smaller than %x(%x).", PCCL_MIN_KMD_VERSION_FOR_OKI, systemDriverVersion);
       } else if (comm->nRanks < 2) {
         // A single-rank comm has no remote peer, so no remote QP group exists and the
         // kernels' one-warp-per-QP-group decomposition has nothing to map ops onto.
-        INFO(NCCL_INIT, "disable OKI collective as nRanks %d is below the minimum 2.", comm->nRanks);
+        INFO(NCCL_INIT, "disable OKI as nRanks %d is below the minimum 2.", comm->nRanks);
       } else if (comm->nRanks > PCCL_OKI_MAX_LOCAL_RANKS) {
         // The batch op arrays are passed to the kernels by value with this fixed capacity.
-        INFO(NCCL_INIT, "disable OKI collective as nRanks %d exceeds max %d.", comm->nRanks, PCCL_OKI_MAX_LOCAL_RANKS);
+        INFO(NCCL_INIT, "disable OKI as nRanks %d exceeds max %d.", comm->nRanks, PCCL_OKI_MAX_LOCAL_RANKS);
       } else if (ppuDiesNum > PCCL_CE_MAX_DIE_NUM) {
         // The OKI kernels are instantiated per die count (1 or 2) and their fence arrays are
         // sized by PCCL_CE_MAX_DIE_NUM, so a wider die config has no kernel to launch.
-        INFO(NCCL_INIT, "disable OKI collective as %d dies exceeds max %d.", ppuDiesNum, PCCL_CE_MAX_DIE_NUM);
+        INFO(NCCL_INIT, "disable OKI as %d dies exceeds max %d.", ppuDiesNum, PCCL_CE_MAX_DIE_NUM);
       } else {
         comm->okiSupport = true;
-        INFO(NCCL_INIT, "enable OKI collective");
+        INFO(NCCL_INIT, "enable OKI");
       }
     }
   }

@@ -73,11 +73,8 @@ static inline size_t p2pDmaWorstCaseWorkBytes(int nRanks) {
 bool pcclP2pDmaEnabled(struct pcclComm* comm) {
   if (!pcclParamP2pDmaEnable()) return false;
   // Gate on the same condition as the CE collective path (ncclCeSupported:
-  // symmetric support, single node, CTA policy ZERO). This transport is part of
-  // the copy-engine family, so it follows the same two-layer usage: the CE gate
-  // opens the copy-engine path, and okiSupport (PCCL_OKI_ENABLE) below is what
-  // then carries the payload over OKI. Under any other CTA policy the plain
-  // kernel p2p path is used, uniformly with the collectives.
+  // symmetric support, single node, CTA policy ZERO). Under any other CTA
+  // policy the plain kernel p2p path is used, uniformly with the collectives.
   if (!ncclCeSupported(comm)) return false;
   // The work list is reserved from the comm's work FIFO in one non-wrapping run,
   // so the FIFO must be able to hold a worst-case batch. PCCL_WORK_FIFO_BYTES is

@@ -159,6 +159,8 @@ struct pcclP2pDmaState {
 ////////////////////////////////////////////////////////////////////////////////
 // Host API (defined in p2p_dma.cc)
 
+int64_t pcclParamP2pDmaEnable();
+
 // Rank-invariant: reads only comm-level state, never the task list. Governs
 // whether p2p sendrecv is routed through this transport at all.
 bool pcclP2pDmaEnabled(struct pcclComm* comm);
