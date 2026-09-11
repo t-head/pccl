@@ -92,11 +92,24 @@ static bool eitDispatchUsable() {
   return false;
 }
 
+// A request outside the hardware range would leave the kernel undispatched, so
+// report it and stay on the default instead.
+static unsigned int userDispatchValue(const char* name, int value, int lo, int hi, unsigned int fallback) {
+  if (value < 0) return fallback;
+  if (value < lo || value > hi) {
+    WARN("Dispatch: user %s=%d out of range [%d, %d], keep default %u", name, value, lo, hi, fallback);
+    return fallback;
+  }
+  return (unsigned int)value;
+}
+
 static void applyCommonDispatchEnv0010(ppuDispatchStrategy_0010* schedule,
                                  ppuDispatchMask_0010* dispMask = nullptr) {
   CEHCK_ENV_SETTING(schedule->bits.disp_mode, pcclParamDispMode());
-  CEHCK_ENV_SETTING(schedule->bits.tb_per_cu, pcclParamTbPerCu());
-  CEHCK_ENV_SETTING(schedule->bits.onebatch_per_ce, pcclParamOneBatchPerCe());
+  CEHCK_ENV_SETTING_RANGE(schedule->bits.tb_per_cu, pcclParamTbPerCu(),
+                          MIN_TB_PER_CU, MAX_TB_PER_CU, "TB_PER_CU");
+  CEHCK_ENV_SETTING_RANGE(schedule->bits.onebatch_per_ce, pcclParamOneBatchPerCe(),
+                          0, MAX_ONE_BATCH_PER_CE, "ONE_BATCH_PER_CE");
   CEHCK_ENV_SETTING(schedule->bits.traverse_y_step, pcclParamTraverseYStep());
   if (dispMask == nullptr) return;
   CEHCK_ENV_SETTING(dispMask->bits.cu_mask, pcclParamCuMask());
@@ -107,11 +120,14 @@ static void applyCommonDispatchEnv0015(ppuDispatchStrategy_0015* schedule, ppuke
                                  uint64_t* cuMask = nullptr) {
   CEHCK_ENV_SETTING(schedule->strategy.bits.dispMode, pcclParamDispMode());
   CEHCK_ENV_SETTING(schedule->strategy.bits.jumpDim, pcclParamJumpDim());
-  CEHCK_ENV_SETTING(schedule->strategy.bits.oneBatchPerCe, pcclParamOneBatchPerCe());
+  CEHCK_ENV_SETTING_RANGE(schedule->strategy.bits.oneBatchPerCe, pcclParamOneBatchPerCe(),
+                          0, MAX_ONE_BATCH_PER_CE, "ONE_BATCH_PER_CE");
   CEHCK_ENV_SETTING(schedule->strategy.bits.skewEn, pcclParamSkewEn());
-  CEHCK_ENV_SETTING(schedule->strategy.bits.tbPerCu, pcclParamTbPerCu());
+  CEHCK_ENV_SETTING_RANGE(schedule->strategy.bits.tbPerCu, pcclParamTbPerCu(),
+                          MIN_TB_PER_CU, MAX_TB_PER_CU, "TB_PER_CU");
   CEHCK_ENV_SETTING(schedule->strategy.bits.waitEn, pcclParamWaitEn());
-  CEHCK_ENV_SETTING(schedule->strategy.bits.d2dDispPingPongEn, pcclParamD2dDispPingPongEn());
+  CEHCK_ENV_SETTING_RANGE(schedule->strategy.bits.d2dDispPingPongEn, pcclParamD2dDispPingPongEn(),
+                          0, MAX_D2D_DISP_PING_PONG_EN, "D2D_DISP_PING_PONG_EN");
   CEHCK_ENV_SETTING(schedule->strategy.bits.startCeEn, pcclParamStartCeEn());
   CEHCK_ENV_SETTING(schedule->strategy.bits.startCeId, pcclParamStartCeId());
 
@@ -376,7 +392,7 @@ ncclResult_t initDefaultDispatchStrategy(ncclComm_t comm, int nDies) {
 
     ppuDispatchStrategy_0015 schedule = {0};
     schedule.strategy.bits.oneBatchPerCe = (comm->smResConfig.smResourcePolicy != SM_POLICY_LAYOUT_FIXED) ? 0 : 1;
-    schedule.strategy.bits.tbPerCu = DIVUP(comm->nChannels, totalCuNum);
+    schedule.strategy.bits.tbPerCu = std::max(DIVUP(comm->nChannels, totalCuNum), MIN_TB_PER_CU);
     schedule.strategy.bits.d2dDispPingPongEn = 0;
     schedule.strategy1.bits.traverseYStep = 1;
     schedule.strategy1.bits.traverseXStep = 1;
@@ -598,7 +614,7 @@ ncclResult_t setNativeDispatchStrategy(const void* func, struct ncclFuncDispatch
 }
 
 ncclResult_t setUserDispatchStrategy(const struct pcclDispatchFunc* fn, const char* policyName, int compCap,
-                                     int oneBatchPerCe, int tbPerCu,
+                                     int oneBatchPerCe, int tbPerCu, int d2dDispPingPongEn,
                                      int cuMaskPolicy, uint64_t cuMask, uint32_t ceMask) {
   static std::mutex lock;
   static std::map<std::pair<int, const void*>, struct ncclFuncDispatchStrategy> oldStrategies;
@@ -615,9 +631,12 @@ ncclResult_t setUserDispatchStrategy(const struct pcclDispatchFunc* fn, const ch
 
   if (compCap == 80) {
     ppuDispatchStrategy_0010 schedule = {0};
-    schedule.bits.tb_per_cu = (tbPerCu >= 0) ? tbPerCu : 1;
-    schedule.bits.onebatch_per_ce = (oneBatchPerCe >= 0) ? oneBatchPerCe : 1;
+    schedule.bits.tb_per_cu = userDispatchValue("tbPerCu", tbPerCu, MIN_TB_PER_CU, MAX_TB_PER_CU, 1);
+    schedule.bits.onebatch_per_ce = userDispatchValue("oneBatchPerCe", oneBatchPerCe, 0, MAX_ONE_BATCH_PER_CE, 1);
     schedule.bits.traverse_y_step = 1;
+    if (d2dDispPingPongEn > 0) {
+      WARN("Dispatch: user d2dDispPingPongEn=%d is ppu1.5 only, ignored on sm%d", d2dDispPingPongEn, compCap);
+    }
     ppuDispatchMask_0010 dispMask = {0};
     switch (cuMaskPolicy) {
       case PCCLX_KERNEL_DISPATCH_AUTO:
@@ -639,9 +658,10 @@ ncclResult_t setUserDispatchStrategy(const struct pcclDispatchFunc* fn, const ch
       default: break;
     }
     ppuDispatchStrategy_0015 schedule = {0};
-    schedule.strategy.bits.tbPerCu = (tbPerCu >= 0) ? tbPerCu : 1;
-    schedule.strategy.bits.oneBatchPerCe = (oneBatchPerCe >= 0) ? oneBatchPerCe : 1;
-    schedule.strategy.bits.d2dDispPingPongEn = 0;
+    schedule.strategy.bits.tbPerCu = userDispatchValue("tbPerCu", tbPerCu, MIN_TB_PER_CU, MAX_TB_PER_CU, 1);
+    schedule.strategy.bits.oneBatchPerCe = userDispatchValue("oneBatchPerCe", oneBatchPerCe, 0, MAX_ONE_BATCH_PER_CE, 1);
+    schedule.strategy.bits.d2dDispPingPongEn = userDispatchValue("d2dDispPingPongEn", d2dDispPingPongEn,
+                                                                0, MAX_D2D_DISP_PING_PONG_EN, 0);
     schedule.strategy1.bits.traverseYStep = 1;
     schedule.strategy1.bits.traverseXStep = 1;
     ppukernelControl_0015 control = {0};

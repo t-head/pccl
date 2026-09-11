@@ -41,12 +41,32 @@
 
 #define HG_MEMHOSTALLOC_64K_PAGE 0x80000
 
+// Ranges the dispatch hardware accepts. Programming a value outside them leaves
+// the kernel undispatched, so an out-of-range request keeps the default.
+#define MIN_TB_PER_CU 1
+#define MAX_TB_PER_CU 8
+#define MAX_ONE_BATCH_PER_CE 1
+#define MAX_D2D_DISP_PING_PONG_EN 1
+
 #define CEHCK_ENV_SETTING(RES, ENV)              \
   do {                                           \
       int64_t temp_val = (ENV);                  \
       if (temp_val >= 0) {                       \
           (RES) = temp_val;                      \
       }                                          \
+  } while (0)
+
+#define CEHCK_ENV_SETTING_RANGE(RES, ENV, LO, HI, NAME)                           \
+  do {                                                                            \
+      int64_t temp_val = (ENV);                                                   \
+      if (temp_val >= 0) {                                                        \
+          if (temp_val < (LO) || temp_val > (HI)) {                               \
+              WARN("Dispatch: env %s=%ld out of range [%d, %d], keep default %u", \
+                   (NAME), (long)temp_val, (int)(LO), (int)(HI), (unsigned)(RES));\
+          } else {                                                                \
+              (RES) = temp_val;                                                   \
+          }                                                                       \
+      }                                                                           \
   } while (0)
 
 union ppuIcnCeInfo {
@@ -484,7 +504,7 @@ ncclResult_t initDefaultDispatchStrategy(ncclComm_t comm, int nDies);
 ncclResult_t setNativeDispatchStrategy(const void* func, struct ncclFuncDispatchStrategy* oldStrategy, struct ncclDispatchStrategy defaultStrategy, const char* funcName,
                                 int compCap, dispatchInfo dInfo);
 ncclResult_t setUserDispatchStrategy(const struct pcclDispatchFunc* fn, const char* policyName, int compCap,
-                                     int oneBatchPerCe, int tbPerCu,
+                                     int oneBatchPerCe, int tbPerCu, int d2dDispPingPongEn,
                                      int cuMaskPolicy, uint64_t cuMask, uint32_t ceMask);
 // for dispatch strategy tuning
 ncclResult_t setProfileVal (pcclDispatchType_t dispType, uint32_t& lastVal, std::string bitFieldName, int configVal);

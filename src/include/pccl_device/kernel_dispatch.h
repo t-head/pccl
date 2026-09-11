@@ -21,21 +21,24 @@ typedef enum {
   PCCLX_KERNEL_DISPATCH_POLICY_COUNT
 } pcclxKernelCuMaskPolicy_t;
 
-/* Init with PCCLX_KERNEL_DISPATCH_CONFIG_INITIALIZER. -1 = "use default";
- * cuMask/ceMask are read only under PCCLX_KERNEL_DISPATCH_CUSTOM. */
+/* Init with PCCLX_KERNEL_DISPATCH_CONFIG_INITIALIZER. A field that documents a
+ * valid-value range takes -1 to mean "use default", and falls back to the
+ * default with a warning when the value is outside that range. cuMask/ceMask
+ * are read only under PCCLX_KERNEL_DISPATCH_CUSTOM. */
 typedef struct pcclxKernelDispatchConfig {
   size_t size;
   pcclxKernelCuMaskPolicy_t policy;
   int oneBatchPerCe;                      // valid values: 0, 1
-  int tbPerCu;                            // valid values: 0 ~ 8
+  int tbPerCu;                            // valid values: 1 ~ 8
   uint64_t cuMask;
   uint32_t ceMask;
-  int reserved[23];
+  int d2dDispPingPongEn;                  // valid values: 0, 1; supported on sm89 and later
+  int reserved[22];
 } pcclxKernelDispatchConfig_t;
 
 #define PCCLX_KERNEL_DISPATCH_CONFIG_INITIALIZER \
   {                                              \
-      sizeof(pcclxKernelDispatchConfig_t), PCCLX_KERNEL_DISPATCH_DRV_DEFAULT, 1, 1, 0, 0, {0}}
+      sizeof(pcclxKernelDispatchConfig_t), PCCLX_KERNEL_DISPATCH_DRV_DEFAULT, 1, 1, 0, 0, 0, {0}}
 
 static_assert(sizeof(pcclxKernelDispatchConfig_t) == 128, "config must stay 128 bytes.");
 

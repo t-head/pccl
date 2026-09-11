@@ -41,6 +41,7 @@ static pcclResult_t setUserDispatchConfig(const struct pcclDispatchFunc* fn,
     cfg.policy = config->policy;
     cfg.oneBatchPerCe = config->oneBatchPerCe;
     cfg.tbPerCu = config->tbPerCu;
+    cfg.d2dDispPingPongEn = config->d2dDispPingPongEn;
 
     if (cfg.policy == PCCLX_KERNEL_DISPATCH_CUSTOM) {
       cfg.cuMask = config->cuMask;
@@ -49,7 +50,8 @@ static pcclResult_t setUserDispatchConfig(const struct pcclDispatchFunc* fn,
   }
 
   return setUserDispatchStrategy(fn, policyNameUser(cfg.policy), compCap, cfg.oneBatchPerCe,
-                                 cfg.tbPerCu, (int)cfg.policy, cfg.cuMask, cfg.ceMask);
+                                 cfg.tbPerCu, cfg.d2dDispPingPongEn, (int)cfg.policy,
+                                 cfg.cuMask, cfg.ceMask);
 }
 
 NCCL_API(pcclResult_t, pcclxKernelSetDispatchConfig, const void* func, const pcclxKernelDispatchConfig_t* config);
