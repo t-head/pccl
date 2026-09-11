@@ -44,7 +44,7 @@ export PCCL_HOME=${source_home}/pccl/build
 
 echo "######################### $(date +%Y%m%d%H%M%S) Build comm-internal-testbox ##########################"
 cd ${source_home}/comm-internal-testbox
-bash build.sh --project_args unit_test:"--use_mpi" --include unit_test
+bash .aoneci/script/commshrink_build.sh
 
 echo "######################### $(date +%Y%m%d%H%M%S) Collect final output ##########################"
 mv ${source_home}/comm-internal-testbox ${build_output}

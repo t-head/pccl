@@ -38,8 +38,7 @@ export PCCL_HOME=${source_home}/pccl/build
 
 echo "######################### $(date +%Y%m%d%H%M%S) Build comm-internal-testbox ##########################"
 cd ${source_home}/comm-internal-testbox
-bash build.sh --common_args "--use_mpi" --exclude sailbandwidth,composite_test
-bash build.sh --include composite_test,sailbandwidth,unit_test
+bash .aoneci/script/checkin_build.sh
 
 echo "######################### $(date +%Y%m%d%H%M%S) Collect final output ##########################"
 mv ${source_home}/comm-internal-testbox ${build_output}
