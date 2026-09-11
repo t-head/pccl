@@ -25,7 +25,7 @@ else
   $(shell ln -sf $(PPU_LIB)/libhggc_wrapper.so $(PPU_LIB)/libhggcrt1.so)
 endif
 
-HGGCRT_LDFLAG = -lhggc_wrapper
+HGGCRT_LDFLAG = -lhggc_wrapper -lhg_wrapper
 
 LIB_NAME = libpccl-ext-kernel.so
 BUILDDIR ?= $(abspath ../build/lib)
