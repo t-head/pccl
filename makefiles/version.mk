@@ -9,6 +9,6 @@
 ##### version
 PCCL_MAJOR   := 2
 PCCL_MINOR   := 2
-PCCL_PATCH   := 0
+PCCL_PATCH   := 1
 PCCL_SUFFIX  :=
 PKG_REVISION := 1
