@@ -1,5 +1,7 @@
 #!/bin/bash
 set -e
+sed -i 's/archive.ubuntu.com/mirrors.aliyun.com/g' /etc/apt/sources.list
+sed -i 's/security.ubuntu.com/mirrors.aliyun.com/g' /etc/apt/sources.list
 pip3 install --upgrade meson ninja
 # 检查必要的环境变量
 if [ -z "${source_home}" ]; then
