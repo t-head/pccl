@@ -79,7 +79,7 @@ HGCC_CFLAGS := -dopt 3 -O3 -g -x hg $(HGGCRT_FLAG) --no-simt \
 SRCS := src/plugin.c src/customAllReduceKernels.cu src/customAllGatherKernels.cu \
         src/customReduceScatterKernels.cu src/customKernels.cu src/customDeviceUtils.cu \
         src/ext_kernel_dispatch.cc src/ext_topo.c
-HDRS := $(wildcard pccl/*.h src/*.h)
+HDRS := $(wildcard pccl/*.h src/*.h src/*.cuh)
 OBJS := $(patsubst src/%.c,$(OBJDIR)/%.o,$(filter %.c,$(SRCS))) \
         $(patsubst src/%.cu,$(OBJDIR)/%.o,$(filter %.cu,$(SRCS))) \
         $(patsubst src/%.cc,$(OBJDIR)/%.o,$(filter %.cc,$(SRCS)))

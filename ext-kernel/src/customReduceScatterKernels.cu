@@ -106,10 +106,13 @@ __global__ void pcclKernel_oneShotReduceScatterKernel(struct oneShotDevParams pa
 
     if (myChunkElts > 0) {
       volatile T* srcs[NRANKS];
+      // Keep uniform offsets together so LSR can retain scalar peer bases with a
+      // shared warp offset, rather than carrying per-peer vector addresses.
       #pragma unroll
       for (int ii = 0; ii < NRANKS; ++ii) {
         int rank = (params.myRank + ii) % NRANKS;
-        srcs[ii] = (volatile T*)params.peerBuffers[rank] + params.myRank * chunkStride + blockOffsetInChunk;
+        srcs[ii] = (volatile T*)params.peerBuffers[rank]
+                 + ((int64_t)(params.myRank * chunkStride) + blockOffsetInChunk);
       }
 
       volatile T* recvbuff = (volatile T*)params.recvbuff + blockOffsetInChunk;
