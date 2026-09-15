@@ -2618,7 +2618,7 @@ static ncclResult_t commFinalize(ncclComm_t comm, bool userCalled) {
   job->comm = comm;
 
   if (userCalled) {
-    NCCLCHECKGOTO(ncclAsyncLaunch(&job->base, commDestroySync, NULL, free, comm), ret, fail);
+    NCCLCHECKGOTO(ncclAsyncLaunch(&job->base, commDestroySync, NULL, free, comm), ret, exit);
   } else {
     NCCLCHECKGOTO(commDestroySync(&job->base), ret, fail);
     NCCLCHECK(ncclFree(job));
@@ -2668,7 +2668,9 @@ fail:
   goto exit;
 }
 
-static ncclResult_t commReclaim(ncclComm_t comm) {
+static ncclResult_t commReclaim(struct ncclAsyncJob* job_) {
+  struct ncclCommFinalizeAsyncJob* job = (struct ncclCommFinalizeAsyncJob*) job_;
+  ncclComm_t comm = job->comm;
   ncclResult_t ret = ncclSuccess;
   ncclResult_t state;
   int curRank; /* Debug info */
@@ -2684,12 +2686,12 @@ static ncclResult_t commReclaim(ncclComm_t comm) {
   if (comm->initState != ncclSuccess) {
     /* if init errors happen, no finalize thread should have been launched. Main thread can reclaim
      * everything since no NCCL kernel was issued. */
-    struct ncclCommFinalizeAsyncJob job;
+    struct ncclCommFinalizeAsyncJob finalizeJob;
 
-    job.comm = comm;
+    finalizeJob.comm = comm;
     curRank = comm->rank;
     /* comm aborts, commDestroySync should not be blocked. */
-    if ((ret = commDestroySync((struct ncclAsyncJob*) &job)) != ncclSuccess) {
+    if ((ret = commDestroySync((struct ncclAsyncJob*) &finalizeJob)) != ncclSuccess) {
       ERROR("commReclaim: comm %p (rank = %d) in abort, error %d", comm, curRank, ret);
     }
 
@@ -2712,11 +2714,11 @@ static ncclResult_t commReclaim(ncclComm_t comm) {
         curRank = curIntraComm->rank;
         nextIntraComm = nextIntraComm->intraNext;
 
-        if (comm->finalizeCalled == false) {
-          struct ncclCommFinalizeAsyncJob job;
-          job.comm = curIntraComm;
+        if (curIntraComm->finalizeCalled == false) {
+          struct ncclCommFinalizeAsyncJob finalizeJob;
+          finalizeJob.comm = curIntraComm;
           /* every comm aborts, commDestroySync should not be blocked. */
-          if ((ret = commDestroySync((struct ncclAsyncJob*) &job)) != ncclSuccess)
+          if ((ret = commDestroySync((struct ncclAsyncJob*) &finalizeJob)) != ncclSuccess)
             ERROR("commReclaim: comm %p (rank = %d) in abort, error %d", curIntraComm, curRank, ret);
         }
       }
@@ -2775,6 +2777,9 @@ ncclResult_t pcclCommDestroy(ncclComm_t comm) {
   }
   int rank = comm->rank, nranks = comm->nRanks, hggcDev = comm->hggcDev;
   int64_t busId = comm->busId;
+  struct ncclCommFinalizeAsyncJob* job = NULL;
+  ncclResult_t res = ncclSuccess;
+
   HGTX3_FUNC_WITH_PARAMS(CommDestroy, PcclHgtxParamsCommInitRank,
     HGTX3_PAYLOAD(comm->commHash, nranks, rank, hggcDev));
   // Try and prevent a double free of the comm struct (user error)
@@ -2783,15 +2788,21 @@ ncclResult_t pcclCommDestroy(ncclComm_t comm) {
     return ncclInvalidArgument;
   }
 
+  comm->destroyFlag = 1;
   /* init thread must be joined before we destroy the comm. */
   NCCLCHECK(ncclCommEnsureReady(comm));
 
   ncclPerCommHashDebugClose();
 
-  NCCLCHECK(commReclaim(comm));
-  INFO(NCCL_INIT,"comm %p rank %d nranks %d hggcDev %d busId %lx - Destroy COMPLETE", comm, rank, nranks, hggcDev, busId);
+  NCCLCHECKGOTO(ncclCalloc(&job, 1), res, fail);
+  job->comm = comm;
+  NCCLCHECKGOTO(ncclAsyncLaunch(&job->base, commReclaim, NULL, free, comm), res, fail);
 
-  return ncclSuccess;
+exit:
+  INFO(NCCL_INIT,"comm %p rank %d nranks %d hggcDev %d busId %lx - Destroy COMPLETE", comm, rank, nranks, hggcDev, busId);
+  return res;
+fail:
+  goto exit;
 }
 
 static ncclResult_t setCommAbortFlags(ncclComm_t comm, int value) {
@@ -2814,33 +2825,45 @@ ncclResult_t pcclCommAbort(ncclComm_t comm) {
   if (comm == NULL)
     return ncclSuccess;
 
-  int rank = comm->rank, nranks = comm->nRanks, hggcDev = comm->hggcDev;
-  int64_t busId = comm->busId;
+  struct ncclCommFinalizeAsyncJob* job = NULL;
+  ncclResult_t res = ncclSuccess;
 
   const char* str = pcclGetEnvWithDualPrefix("PCCL_ENABLE_ABORT_DUMP");
   if (str) {
     // do not add NCCLCHECK, otherwise it may corrupt current state.
     pcclCommDumpMaskType dumpMask;
     NCCLVERIFY(getGlobalCommDumpMask(&dumpMask));
-    ncclResult_t res = pcclCommDump(comm, dumpMask);
-    if (res != ncclSuccess) {
+    ncclResult_t dumpRes = pcclCommDump(comm, dumpMask);
+    if (dumpRes != ncclSuccess) {
       WARN("Failed to dump comm:%p!", comm);
     }
   }
 
+  // Ask anything that might still be running on the device to quit
   if (pcclParamDisableAbort() == 0) {
     (void)setCommAbortFlags(comm, 1);
   }
-
+  comm->destroyFlag = 1;
   /* init thread must be joined before we destroy the comm,
    * and we should ignore the init error here. */
-  ncclCommEnsureReady(comm);
+  (void)ncclCommEnsureReady(comm);
+
+  // once the comm is ready, we can access ranks etc
+  int rank = comm->rank, nranks = comm->nRanks, hggcDev = comm->hggcDev;
+  int64_t busId = comm->busId;
   HGTX3_RANGE_ADD_PAYLOAD(CommAbort, PcclHgtxParamsCommInitRankSchema,
     HGTX3_PAYLOAD(comm->commHash, nranks, rank, hggcDev));
-  (void) commReclaim(comm);
-  INFO(NCCL_INIT,"comm %p rank %d nranks %d hggcDev %d busId %lx - Abort COMPLETE", comm, rank, nranks, hggcDev, busId);
 
+  NCCLCHECKGOTO(ncclCalloc(&job, 1), res, fail);
+  job->comm = comm;
+  NCCLCHECKGOTO(ncclAsyncLaunch(&job->base, commReclaim, NULL, free, comm), res, fail);
+
+exit:
+  INFO(NCCL_INIT,"comm %p rank %d nranks %d hggcDev %d busId %lx - Abort COMPLETE", comm, rank, nranks, hggcDev, busId);
+  /* abort should never report an error to the user. */
   return ncclSuccess;
+fail:
+  goto exit;
 }
 
 static void childCommCleanupJob(void* job) {

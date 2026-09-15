@@ -38,6 +38,7 @@ ncclResult_t ncclAsyncLaunch(
   ) {
   ncclResult_t ret = ncclSuccess;
 
+  job->destroyFlag = comm->destroyFlag;
   if (ncclGroupDepth == 0) {
     ret = func(job);
     if (ret != ncclSuccess && undo) undo(job);
@@ -53,14 +54,21 @@ ncclResult_t ncclAsyncLaunch(
     job->state = ncclGroupJobRunning;
     job->comm = comm;
     /* check if there are blocking and nonblocking comms at the same time in group. */
-    if (ncclGroupBlocking == -1) {
+    if (comm->destroyFlag) {
+      ncclGroupBlocking = 1;
+    } else if (ncclGroupBlocking == -1) {
       /* first met communicator */
       ncclGroupBlocking = comm->config.blocking;
     } else if (ncclGroupBlocking != comm->config.blocking) {
       ERROR("Blocking and nonblocking communicators are not allowed in the same group.");
       ret = ncclInvalidArgument;
     }
-    ncclIntruQueueEnqueue(&ncclAsyncJobs, job);
+    if (ret == ncclSuccess) {
+      ncclIntruQueueEnqueue(&ncclAsyncJobs, job);
+    } else {
+      // no need to undo, the job hasn't run
+      if (destructor) destructor(job);
+    }
   }
 
   return ret;
@@ -369,14 +377,17 @@ static void groupCleanup(ncclComm_t* groupCommHeadPtr, struct ncclIntruQueue<str
   /* reset everything */
   while (!ncclIntruQueueEmpty(asyncJobsPtr)) {
     struct ncclAsyncJob* job = ncclIntruQueueDequeue(asyncJobsPtr);
-    __atomic_store_n(job->abortFlag, 1, __ATOMIC_RELEASE);
-    __atomic_store_n(job->abortFlagDev, 1, __ATOMIC_RELEASE);
-    if (job->childAbortFlag) {
-      __atomic_store_n(job->childAbortFlag, 1, __ATOMIC_RELEASE);
-      __atomic_store_n(job->childAbortFlagDev, 1, __ATOMIC_RELEASE);
+
+    if (!job->destroyFlag) {
+      __atomic_store_n(job->abortFlag, 1, __ATOMIC_RELEASE);
+      __atomic_store_n(job->abortFlagDev, 1, __ATOMIC_RELEASE);
+      if (job->childAbortFlag) {
+        __atomic_store_n(job->childAbortFlag, 1, __ATOMIC_RELEASE);
+        __atomic_store_n(job->childAbortFlagDev, 1, __ATOMIC_RELEASE);
+      }
+      if (job->comm && !job->comm->config.blocking)
+        (void) ncclCommSetAsyncError(job->comm, error);
     }
-    if (job->comm && !job->comm->config.blocking)
-      (void) ncclCommSetAsyncError(job->comm, error);
     if (job->undo) job->undo(job);
     if (job->destructor) job->destructor((void*)job);
   }
@@ -433,7 +444,7 @@ static ncclResult_t asyncJobLaunch(struct ncclIntruQueue<struct ncclAsyncJob, &n
           }
         }
 
-        if (__atomic_load_n(groupAbortFlag, __ATOMIC_ACQUIRE) || errorJobAbortFlag == true) {
+        if (!job->destroyFlag && (__atomic_load_n(groupAbortFlag, __ATOMIC_ACQUIRE) || errorJobAbortFlag == true)) {
           __atomic_store_n(job->abortFlag, 1, __ATOMIC_RELEASE);
           __atomic_store_n(job->abortFlagDev, 1, __ATOMIC_RELEASE);
           if (job->childAbortFlag) {
@@ -598,7 +609,8 @@ static ncclResult_t groupLaunch(struct ncclAsyncJob *job_, ncclSimInfo_t* simInf
 
   while (!ncclIntruQueueEmpty(asyncJobsMain)) {
     struct ncclAsyncJob* job = ncclIntruQueueDequeue(asyncJobsMain);
-    if (job->comm && !job->comm->config.blocking)
+    /* destroy jobs may have freed their comm; do not touch it. */
+    if (!job->destroyFlag && job->comm && !job->comm->config.blocking)
       (void) ncclCommSetAsyncError(job->comm, ret);
     if (job->destructor) job->destructor((void*)job);
   }
