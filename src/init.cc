@@ -715,7 +715,7 @@ static ncclResult_t commAlloc(ncclComm_t comm, ncclComm_t parentComm, int ndev, 
   // Mark channels as non initialized.
   for (int c=0; c<MAXCHANNELS; c++) comm->channels[c].id = -1;
 
-  if (parentComm == NULL || !parentComm->config.splitShare) {
+  if (parentComm == NULL || !parentComm->shareResources) {
     NCCLCHECK(ncclCalloc(&comm->sharedRes, 1));
     /* most of attributes are assigned later in initTransportsRank(). */
     comm->sharedRes->owner = comm;
@@ -1660,7 +1660,7 @@ static ncclResult_t initTransportsRank(ncclComm_t comm, ncclComm_t parent, uint6
   // Must be set before ncclProxyCreate snapshots it into proxyState.
   comm->allocP2pNetLLBuffers = ncclParamAllocP2pNetLLBuffers() == 1;
   // Launch proxy service thread, after this, the proxy calls can be used.
-  if (parent && parent->config.splitShare) {
+  if (parent && parent->shareResources) {
     comm->proxyState = parent->sharedRes->proxyState;
     ncclAtomicRefCountIncrement(&parent->sharedRes->proxyState->refCount);
   } else {
@@ -1828,6 +1828,7 @@ struct ncclCommInitRankAsyncJob {
   // for ncclCommSplit
   ncclComm_t parent;
   int color, key;
+  int splitCount;
   // For Shrink
   int* excludeRanksList;
   int excludeRanksCount;
@@ -1949,16 +1950,17 @@ static ncclResult_t ncclCommInitRankFunc(struct ncclAsyncJob* job_) {
       if (job->color == PCCL_SPLIT_NOCOLOR) goto exit;
     }
 
+    // child hash obtained from (parent hash, split count, color)
+    uint64_t hacc[2] = {1, 1};
+    eatHash(hacc, &job->parent->commHash);
+    eatHash(hacc, &job->splitCount);
+    eatHash(hacc, &job->color);
+    comm->commHash = digestHash(hacc);
     NCCLCHECKGOTO(commAlloc(comm, job->parent, job->nranks, job->myrank), res, fail);
-    // obtain a unique hash for the comm, re-using part of the parent's hash, commHash is a 64bit struct (=16 hex), add the color
-    ncclUniqueId tmpId;
-    memset(&tmpId,0,sizeof(ncclUniqueId));// must set 0 here to avoid undefined bits
-    snprintf((char*)&tmpId, NCCL_UNIQUE_ID_BYTES, "%016lx-%d", job->parent->commHash, job->color);
-    comm->commHash = getHash(tmpId.internal, NCCL_UNIQUE_ID_BYTES);
-    INFO(NCCL_INIT, "pcclCommSplit comm %p rank %d nranks %d hggcDev %d busId %lx parent %p color %d key %d- Init START",
-         comm, comm->rank, comm->nRanks, comm->hggcDev, comm->busId, job->parent, job->color, job->key);
+    INFO(NCCL_INIT, "pcclCommSplit comm %p rank %d nranks %d hggcDev %d busId %lx parent %p splitCount %d color %d key %d - Init START",
+         comm, comm->rank, comm->nRanks, comm->hggcDev, comm->busId, job->parent, job->splitCount, job->color, job->key);
     timers[TIMER_INIT_BOOTSTRAP] = clockNano();
-    NCCLCHECKGOTO(bootstrapSplit((ncclUniqueId*)job->commId, comm, job->parent, job->color, job->key, parentRanks), res, fail);
+    NCCLCHECKGOTO(bootstrapSplit(comm->commHash, comm, job->parent, job->color, job->key, parentRanks), res, fail);
     timers[TIMER_INIT_BOOTSTRAP] = clockNano() - timers[TIMER_INIT_BOOTSTRAP];
   } else {
     NCCLCHECKGOTO(commAlloc(comm, NULL, job->nranks, job->myrank), res, fail);
@@ -2126,7 +2128,6 @@ exit:
   NCCLCHECK(ncclFree(parentRanks));
   return res;
 fail:
-  if (comm->bootstrap) bootstrapAbort(comm->bootstrap);
 #if PCCL_HGGC_VERSION >= PCCL_HGGC_DRIVER_VERSION(2, 2, 0)
   if (comm->okiSupport) NCCLCHECK(ncclOkiDestroyResources(comm));
 #endif
@@ -2941,6 +2942,8 @@ static ncclResult_t ncclCommInitChildComm(ncclComm_t comm, ncclComm_t* newcomm, 
     NCCLCHECKGOTO(ncclCalloc(&job->excludeRanksList, excludeRanksCount), res, fail);
     memcpy(job->excludeRanksList, excludeRanksList, excludeRanksCount * sizeof(int));
   } else {
+    // each split has to lead to a unique comm, so increment the split count
+    job->splitCount = ++comm->splitCount;
     job->excludeRanksList = NULL;
   }
   job->hggcDev = comm->hggcDev;

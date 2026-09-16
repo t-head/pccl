@@ -384,6 +384,8 @@ struct pcclComm {
   int* topParentLocalRanks;
   struct ncclChannel channels[MAXCHANNELS];
   uint64_t commHash;
+  // number of splits performed on this comm, used to derive unique child comm hashes
+  int splitCount;
   bool directMode;    // used to disble register for legecyIPC when at least two ranks in one process.
 
   struct ncclPeerInfo* peerInfo;

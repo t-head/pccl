@@ -2087,6 +2087,7 @@ ncclResult_t ncclProxyDestroy(ncclComm_t comm) {
       ncclProxyStates[sharedProxyState->localRank] = NULL;
     }
     NCCLCHECK(ncclFree(sharedProxyState->peerAddresses));
+    NCCLCHECK(ncclFree(sharedProxyState->peerAddressesUDS));
     NCCLCHECK(ncclFree(sharedProxyState->peerSocks));
     NCCLCHECK(ncclFree(sharedProxyState->proxyOps));
     NCCLCHECK(ncclFree(sharedProxyState->sharedDevMems));

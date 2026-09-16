@@ -20,6 +20,26 @@
 #define BOOTSTRAP_TAG_COMMSPLIT           (0x1 << 29)
 #define BOOTSTRAP_TAG_INTRANODE_ALLGATHER (0x1 << 28)
 
+#define BOOTSTRAP_INIT_TIME_CREATE 0
+#define BOOTSTRAP_INIT_TIME_SEND   1
+#define BOOTSTRAP_INIT_TIME_RECV   2
+#define BOOTSTRAP_INIT_TIME_RING   3
+#define BOOTSTRAP_INIT_TIME_TOTAL  4
+#define BOOTSTRAP_INIT_TIME_DELAY  5
+#define BOOTSTRAP_INIT_TIME_N      6
+#define BOOTSTRAP_INIT_ROOT_WAIT   0
+#define BOOTSTRAP_INIT_ROOT_SEND   1
+#define BOOTSTRAP_INIT_ROOT_RECV   2
+#define BOOTSTRAP_INIT_ROOT_N      3
+#define BOOTSTRAP_PROF_OPEN(time) \
+  do {                            \
+    time = clockNano();           \
+  } while (0)
+#define BOOTSTRAP_PROF_CLOSE(time) \
+  do {                             \
+    time = clockNano() - time;     \
+  } while (0)
+
 PCCL_PARAM(BlockingBootStrap, "BLOCKING_BOOTSTRAP", 0);
 PCCL_PARAM(BootStrapDebug, "BOOTSTRAP_DEBUG", 0);
 
@@ -253,6 +273,7 @@ fail:
 }
 
 static void* bootstrapRoot(void* rargs) {
+  uint64_t timers[BOOTSTRAP_INIT_ROOT_N] = {0};
   struct bootstrapRootArgs* args = (struct bootstrapRootArgs*)rargs;
   struct ncclSocket* listenSock = args->listenSock;
   uint64_t magic = args->magic;
@@ -275,6 +296,7 @@ static void* bootstrapRoot(void* rargs) {
   char line[SOCKET_NAME_MAXLEN+1];
   INFO(NCCL_INIT, "%s Listening on socket %s", __func__, ncclSocketToString(&listenSock->addr, line));
   TRACE(NCCL_INIT, "BEGIN");
+  BOOTSTRAP_PROF_OPEN(timers[BOOTSTRAP_INIT_ROOT_WAIT]);
   /* Receive addresses from all ranks */
   do {
     struct ncclSocket sock;
@@ -286,13 +308,15 @@ static void* bootstrapRoot(void* rargs) {
     NCCLCHECKGOTO(ncclSocketClose(&sock), res, out);
 
     if (c == 0) {
+      BOOTSTRAP_PROF_CLOSE(timers[BOOTSTRAP_INIT_ROOT_WAIT]);
+      BOOTSTRAP_PROF_OPEN(timers[BOOTSTRAP_INIT_ROOT_RECV]);
       nranks = info.nranks;
       iroot = info.iroot;
       nroots = info.nroots;
       // if the number of root > 1, we will receive one extra info from the first local_id of the next root
       n2send = nRankFromRoot(iroot, nranks, nroots);
       nrecv = n2send + ((nroots > 1) ? 1 : 0);
-      NCCLCHECKGOTO(ncclCalloc(&rankInfo, nrecv * sizeof(union ringConnectInfo)), res, out);
+      NCCLCHECKGOTO(ncclCalloc(&rankInfo, nrecv), res, out);
       NCCLCHECKGOTO(ncclCalloc(&rankAddressesRoot, nrecv), res, out);
     }
 
@@ -326,11 +350,13 @@ static void* bootstrapRoot(void* rargs) {
       memcpy(rankAddressesRoot + localId, &info.listenRootAddress, sizeof(union ncclSocketAddress));
     }
     ++c;
-    TRACE(NCCL_INIT, "Received connect from rank %d total %d/%d",  info.rank, c, nranks);
-  } while (c < nranks);
-  TRACE(NCCL_INIT, "COLLECTED ALL %d HANDLES", nranks);
+    TRACE(NCCL_INIT, "Received connect from rank %d total %d/%d",  info.rank, c, nrecv);
+  } while (c < nrecv);
+  TRACE(NCCL_INIT, "COLLECTED ALL %d HANDLES", nrecv);
+  BOOTSTRAP_PROF_CLOSE(timers[BOOTSTRAP_INIT_ROOT_RECV]);
 
   // send the remaining info to the ranks who haven't received anything
+  BOOTSTRAP_PROF_OPEN(timers[BOOTSTRAP_INIT_ROOT_SEND]);
   // here we need to send info only to my own local process
   for (int r = 0; r < n2send; ++r) {
     // use nrecv to periodize: if 1 root, we will send the first one to the last one, if >1 roots we will send the additional one we have received
@@ -340,7 +366,11 @@ static void* bootstrapRoot(void* rargs) {
       NCCLCHECKGOTO(rootSend(&rankAddressesRoot[r], magic, &rankInfo[next]), res, out);
     }
   }
-  TRACE(NCCL_INIT, "SENT OUT ALL %d HANDLES", nranks);
+  BOOTSTRAP_PROF_CLOSE(timers[BOOTSTRAP_INIT_ROOT_SEND]);
+  TRACE(NCCL_INIT, "SENT OUT ALL %d HANDLES", n2send);
+  TRACE(NCCL_INIT | NCCL_PROFILE, "Root timings (wait %f, recv %f, send %f)",
+        timers[BOOTSTRAP_INIT_ROOT_WAIT] / 1e9, timers[BOOTSTRAP_INIT_ROOT_RECV] / 1e9,
+        timers[BOOTSTRAP_INIT_ROOT_SEND] / 1e9);
 
 out:
   if (listenSock) {
@@ -612,6 +642,7 @@ ncclResult_t bootstrapInit(int nHandles, struct ncclBootstrapHandle* handles, nc
   union ringConnectInfo nextPeer;
   struct rasRankInit* rasRanks = nullptr;
   bool performRasAddRanks = true;
+  uint64_t timers[BOOTSTRAP_INIT_TIME_N] = {0};
 
   ncclSocketInit(&sock);
   ncclSocketInit(&listenSockRoot);
@@ -627,11 +658,13 @@ ncclResult_t bootstrapInit(int nHandles, struct ncclBootstrapHandle* handles, nc
 
   TRACE(NCCL_INIT, "rank %d nranks %d", rank, nranks);
 
+  BOOTSTRAP_PROF_OPEN(timers[BOOTSTRAP_INIT_TIME_TOTAL]);
   info.nranks = nranks;
   info.nroots = nHandles;
   // get the ring connection info
   memset(&nextPeer, 0, sizeof(union ringConnectInfo));
 
+  BOOTSTRAP_PROF_OPEN(timers[BOOTSTRAP_INIT_TIME_CREATE]);
   if (ncclParamBootstrapNetEnable()) {
     // Create net interface for other ranks to contact me (all gather)
     NCCLCHECK(netGetDevice(rank, comm, &STATE_LISTEN(state, net.dev)));
@@ -645,8 +678,10 @@ ncclResult_t bootstrapInit(int nHandles, struct ncclBootstrapHandle* handles, nc
   // Create socket for root to contact me using the root's magic
   curr_root = rootIdFromRank(rank, nranks, nHandles);
   NCCLCHECKGOTO(createListenSocket(comm, BOOTSTRAP_HANDLE(handles, curr_root)->magic, &listenSockRoot, &info.listenRootAddress, ncclSocketTypeBootstrap), res, fail);
+  BOOTSTRAP_PROF_CLOSE(timers[BOOTSTRAP_INIT_TIME_CREATE]);
 
   // stagger connection times to avoid an overload of the root
+  BOOTSTRAP_PROF_OPEN(timers[BOOTSTRAP_INIT_TIME_DELAY]);
   nRankRoot = nRankFromRoot(curr_root, nranks, nHandles);
   if (nRankRoot > ncclParamStaggerThreshold()) {
     // for socket the message rate in microsec
@@ -659,8 +694,10 @@ ncclResult_t bootstrapInit(int nHandles, struct ncclBootstrapHandle* handles, nc
     TRACE(NCCL_INIT, "rank %d delaying connection to root by %ld microsec", rank, musec);
     (void)nanosleep(&tv, NULL);
   }
+  BOOTSTRAP_PROF_CLOSE(timers[BOOTSTRAP_INIT_TIME_DELAY]);
 
   // send contact info to my own root
+  BOOTSTRAP_PROF_OPEN(timers[BOOTSTRAP_INIT_TIME_SEND]);
   info.rank = rank;
   info.iroot = curr_root;
   NCCLCHECKGOTO(sendToRoot(BOOTSTRAP_HANDLE(handles, curr_root), comm, &info), res, fail);
@@ -672,13 +709,16 @@ ncclResult_t bootstrapInit(int nHandles, struct ncclBootstrapHandle* handles, nc
     info.iroot = prev_root;
     NCCLCHECKGOTO(sendToRoot(BOOTSTRAP_HANDLE(handles, prev_root), comm, &info), res, fail);
   }
+  BOOTSTRAP_PROF_CLOSE(timers[BOOTSTRAP_INIT_TIME_SEND]);
 
   // get info on my "next" rank in the bootstrap ring from root
+  BOOTSTRAP_PROF_OPEN(timers[BOOTSTRAP_INIT_TIME_RECV]);
   NCCLCHECKGOTO(ncclSocketInit(&sock), res, fail);
   NCCLCHECKGOTO(ncclSocketAccept(&sock, &listenSockRoot), res, fail);
   NCCLCHECKGOTO(socketRecv(&sock, &nextPeer, sizeof(nextPeer)), res, fail);
   NCCLCHECKGOTO(ncclSocketClose(&sock), res, fail);
   NCCLCHECKGOTO(ncclSocketClose(&listenSockRoot), res, fail);
+  BOOTSTRAP_PROF_CLOSE(timers[BOOTSTRAP_INIT_TIME_RECV]);
 
   // accept and connect the ring network
   if (ncclParamBootstrapNetEnable()) {
@@ -702,12 +742,12 @@ ncclResult_t bootstrapInit(int nHandles, struct ncclBootstrapHandle* handles, nc
   // create a socket for others to reach out (P2P)
   union ncclSocketAddress peerSocketAddress;
   NCCLCHECKGOTO(createListenSocket(comm, comm->magic, &STATE_LISTEN(state, peerSocket), &peerSocketAddress, ncclSocketTypeBootstrap), res, fail);
-  NCCLCHECKGOTO(ncclCalloc(&state->peerP2pAddresses, nranks * sizeof(union ncclSocketAddress)), res, fail);
+  NCCLCHECKGOTO(ncclCalloc(&state->peerP2pAddresses, nranks), res, fail);
   memcpy(state->peerP2pAddresses + rank, &peerSocketAddress, sizeof(union ncclSocketAddress));
 
   // Initialize RAS
-  NCCLCHECKGOTO(ncclCalloc(&rasRanks, nranks), res, fail);
   if (ncclParamRasEnable() == 1) {
+    NCCLCHECKGOTO(ncclCalloc(&rasRanks, nranks), res, fail);
     memcpy(&rasRanks[rank].addr, &bootstrapNetIfAddr, sizeof(rasRanks[rank].addr));
     rasRanks[rank].pid = getpid();
     rasRanks[rank].hggcDev = comm->hggcDev;
@@ -721,7 +761,9 @@ ncclResult_t bootstrapInit(int nHandles, struct ncclBootstrapHandle* handles, nc
     }
   }
 
+  BOOTSTRAP_PROF_OPEN(timers[BOOTSTRAP_INIT_TIME_RING]);
   NCCLCHECKGOTO(ringAllInfo(comm, state, state->peerP2pAddresses, state->peerProxyAddresses, state->peerProxyAddressesUDS, rasRanks), res, fail);
+  BOOTSTRAP_PROF_CLOSE(timers[BOOTSTRAP_INIT_TIME_RING]);
 
   // Create the service proxy and get the UDS
   NCCLCHECKGOTO(ncclProxyInit(comm, proxySocket, state->peerProxyAddresses, state->peerProxyAddressesUDS), res, fail);
@@ -729,12 +771,14 @@ ncclResult_t bootstrapInit(int nHandles, struct ncclBootstrapHandle* handles, nc
   if (ncclParamRasEnable() == 1 && performRasAddRanks) {
     if (ncclRasAddRanks(rasRanks, nranks) != ncclSuccess)
       INFO(NCCL_INIT|NCCL_RAS, "Continuing in spite of a RAS initialization error");
-  } else if (ncclParamRasEnable() == 0) {
-    // The RAS thread will take care of freeing the memory 'rasRanks', so only need to free when ras if disabled
-    NCCLCHECK(ncclFree(rasRanks));
   }
 
+  BOOTSTRAP_PROF_CLOSE(timers[BOOTSTRAP_INIT_TIME_TOTAL]);
   TRACE(NCCL_INIT, "rank %d nranks %d - DONE", rank, nranks);
+  INFO(NCCL_INIT | NCCL_PROFILE, "Bootstrap timings total %f (create %f, send %f, recv %f, ring %f, delay %f)",
+       timers[BOOTSTRAP_INIT_TIME_TOTAL] / 1e9, timers[BOOTSTRAP_INIT_TIME_CREATE] / 1e9,
+       timers[BOOTSTRAP_INIT_TIME_SEND] / 1e9, timers[BOOTSTRAP_INIT_TIME_RECV] / 1e9,
+       timers[BOOTSTRAP_INIT_TIME_RING] / 1e9, timers[BOOTSTRAP_INIT_TIME_DELAY] / 1e9);
 
 end:
   NCCLCHECK(ncclSocketClose(&sock));
@@ -743,16 +787,25 @@ end:
   return res;
 
 fail:
-  if (state) ncclFree(state->peerProxyAddresses);
-  if (state) ncclFree(state->peerProxyAddressesUDS);
-  ncclFree(proxySocket);
+  if (state) {
+    if (comm->proxyState == NULL || comm->proxyState->peerAddresses != state->peerProxyAddresses) {
+      ncclFree(state->peerProxyAddresses);
+    }
+    if (comm->proxyState == NULL || comm->proxyState->peerAddressesUDS != state->peerProxyAddressesUDS) {
+      ncclFree(state->peerProxyAddressesUDS);
+    }
+    ncclFree(state->peerP2pAddresses);
+  }
+
+  if (proxySocket && (comm->proxyState == NULL || comm->proxyState->listenSock != proxySocket)) {
+    ncclSocketClose(proxySocket);
+    ncclFree(proxySocket);
+  }
   ncclFree(rasRanks);
-  ncclFree(state);
-  comm->bootstrap = NULL;
   goto end;
 }
 
-ncclResult_t bootstrapSplit(ncclUniqueId * id, ncclComm_t comm, ncclComm_t parent, int color, int key, int* parentRanks) {
+ncclResult_t bootstrapSplit(uint64_t magic, ncclComm_t comm, ncclComm_t parent, int color, int key, int* parentRanks) {
   ncclResult_t res = ncclSuccess;
   int rank = comm->rank;
   int nranks = comm->nRanks;
@@ -765,7 +818,8 @@ ncclResult_t bootstrapSplit(ncclUniqueId * id, ncclComm_t comm, ncclComm_t paren
   state->nranks = nranks;
   state->hggcDev = comm->hggcDev;
   state->abortFlag = comm->abortFlag;
-  state->magic = comm->magic;
+  state->net = ncclNet;
+  comm->magic = state->magic = magic;
   comm->bootstrap = state;
 
   int prev, next;
@@ -805,7 +859,7 @@ ncclResult_t bootstrapSplit(ncclUniqueId * id, ncclComm_t comm, ncclComm_t paren
 
   NCCLCHECKGOTO(ncclCalloc(&state->peerP2pAddresses, nranks), res, fail);
   memcpy(state->peerP2pAddresses+rank, &peerSocketAddress, sizeof(union ncclSocketAddress));
-  if (parent->config.splitShare) {
+  if (parent->shareResources) {
     /* map local rank to top parent local rank. */
     for (int i = 0; i < nranks; ++i) {
       comm->topParentRanks[i] = parent->topParentRanks[parentRanks[i]];
@@ -830,13 +884,20 @@ end:
 
   return res;
 fail:
-  ncclFree(proxySocket);
-  if(state) {
-    ncclFree(state->peerProxyAddresses);
-    ncclFree(state->peerProxyAddressesUDS);
+  if (state) {
+    if (comm->proxyState == NULL || comm->proxyState->peerAddresses != state->peerProxyAddresses) {
+      ncclFree(state->peerProxyAddresses);
+    }
+    if (comm->proxyState == NULL || comm->proxyState->peerAddressesUDS != state->peerProxyAddressesUDS) {
+      ncclFree(state->peerProxyAddressesUDS);
+    }
     ncclFree(state->peerP2pAddresses);
   }
-  ncclFree(state);
+
+  if (proxySocket && (comm->proxyState == NULL || comm->proxyState->listenSock != proxySocket)) {
+    ncclSocketClose(proxySocket);
+    ncclFree(proxySocket);
+  }
   goto end;
 }
 
