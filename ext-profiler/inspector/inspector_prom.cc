@@ -1,5 +1,6 @@
 /*************************************************************************
  * SPDX-FileCopyrightText: Copyright (c) 2025-2026 NVIDIA CORPORATION & AFFILIATES. All rights reserved.
+ * SPDX-FileCopyrightText: Modifications Copyright (c) 2026-2026 T-Head (Shanghai) Semiconductor Co., Ltd. All rights reserved.
  * SPDX-License-Identifier: Apache-2.0
  *
  * See LICENSE.txt for more license information
@@ -190,7 +191,7 @@ static inspectorResult_t inspectorPromGetFilename(const char* baseFilename,
                                                   char* output,
                                                   size_t outputSize) {
   snprintf(output, outputSize,
-           "%s/nccl_inspector_metrics_%s.prom",
+           "%s/pccl_inspector_metrics_%s.prom",
            baseFilename, deviceUuidStr);
 
   return inspectorSuccess;
@@ -235,9 +236,9 @@ static inspectorResult_t inspectorPromWriteCollInfo(FILE* file,
 
   char buffer[2048];
   int written = snprintf(buffer, sizeof(buffer),
-                         "nccl_algorithm_bandwidth_gbs{%s} %.6g\n"
-                         "nccl_bus_bandwidth_gbs{%s} %.6g\n"
-                         "nccl_collective_exec_time_microseconds{%s} %.6g\n",
+                         "pccl_algorithm_bandwidth_gbs{%s} %.6g\n"
+                         "pccl_bus_bandwidth_gbs{%s} %.6g\n"
+                         "pccl_collective_exec_time_microseconds{%s} %.6g\n",
                          labels, collInfo->algoBwGbs,
                          labels, collInfo->busBwGbs,
                          labels, (double)collInfo->execTimeUsecs);
@@ -295,7 +296,7 @@ static inspectorResult_t inspectorPromCommInfoDump(struct inspectorCommInfo* com
   inspectorUnlockRWLock(&commInfo->guard);
 
   if (*needs_writing) {
-    TRACE_INSPECTOR("NCCL Inspector: Writing metrics for comm %s directly",
+    TRACE_INSPECTOR("PCCL Inspector: Writing metrics for comm %s directly",
                     commInfo->commHashStr);
     INS_CHK(inspectorPromWriteCollInfo(file,
                                        commInfo,
@@ -352,7 +353,7 @@ inspectorResult_t inspectorPromCommInfoListDump(struct inspectorCommInfoList* co
                                                                   filename,
                                                                   currentTime) : NULL;
       if (!file) {
-        INFO_INSPECTOR("NCCL Inspector: Failed to get file handle for device UUID %s, file %s",
+        INFO_INSPECTOR("PCCL Inspector: Failed to get file handle for device UUID %s, file %s",
                       itr->deviceUuidStr, filename);
         continue;
       }
@@ -363,12 +364,12 @@ inspectorResult_t inspectorPromCommInfoListDump(struct inspectorCommInfoList* co
       if (needs_writing) {
         processed++;
         TRACE_INSPECTOR(
-          "NCCL Inspector: Processed comm %u for HGGC device (rank %d)",
+          "PCCL Inspector: Processed comm %u for HGGC device (rank %d)",
           processed, itr->rank);
       }
     }
     TRACE_INSPECTOR(
-      "NCCL Inspector: Completed dump across devices, flushed %u/%u communicators",
+      "PCCL Inspector: Completed dump across devices, flushed %u/%u communicators",
       processed, commList->ncomms);
   }
 
@@ -400,13 +401,13 @@ uint64_t inspectorPromValidateInterval(uint64_t interval) {
 
   if (interval > 0 && interval < MIN_PROM_INTERVAL) {
     INFO_INSPECTOR(
-      "NCCL Inspector: Prometheus dump requires minimum interval of %lu microseconds "
+      "PCCL Inspector: Prometheus dump requires minimum interval of %lu microseconds "
       "to match node exporter poll interval, but got %lu. Setting to minimum.",
       MIN_PROM_INTERVAL, interval);
     return MIN_PROM_INTERVAL;
   } else if (interval == 0) {
     INFO_INSPECTOR(
-      "NCCL Inspector: Using default interval of %lu microseconds for Prometheus dump",
+      "PCCL Inspector: Using default interval of %lu microseconds for Prometheus dump",
       MIN_PROM_INTERVAL);
     return MIN_PROM_INTERVAL;
   }

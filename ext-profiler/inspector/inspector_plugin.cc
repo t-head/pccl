@@ -1,5 +1,6 @@
 /*************************************************************************
  * SPDX-FileCopyrightText: Copyright (c) 2025-2026 NVIDIA CORPORATION & AFFILIATES. All rights reserved.
+ * SPDX-FileCopyrightText: Modifications Copyright (c) 2026-2026 T-Head (Shanghai) Semiconductor Co., Ltd. All rights reserved.
  * SPDX-License-Identifier: Apache-2.0
  *
  * See LICENSE.txt for more license information
@@ -61,7 +62,7 @@ static uint64_t inspectorRecordEventTrace(struct inspectorEventTraceInfo* evtTra
 /*
  * Description:
  *
- *   Initializes the NCCL Inspector plugin and global state for a
+ *   Initializes the PCCL Inspector plugin and global state for a
  *   communicator.
  *
  * Thread Safety:
@@ -123,7 +124,7 @@ __hidden ncclResult_t inspectorPluginInit(void** context, uint64_t commHash,
 /*
  * Description:
  *
- *   Finalizes the NCCL Inspector plugin and global state for a
+ *   Finalizes the PCCL Inspector plugin and global state for a
  *   communicator.
  *
  * Thread Safety:
@@ -294,7 +295,7 @@ static void inspectorPluginKernelChInfoInit(struct inspectorKernelChInfo **kerne
 /*
  * Description:
  *
- *   Starts a profiling event for the NCCL Inspector plugin.
+ *   Starts a profiling event for the PCCL Inspector plugin.
  *
  * Thread Safety:
  *   Thread-safe (allocates and initializes event structures).
@@ -337,7 +338,7 @@ __hidden ncclResult_t inspectorPluginStartEvent(void* context,
 /*
  * Description:
  *
- *   Stops a profiling event for the NCCL Inspector plugin.
+ *   Stops a profiling event for the PCCL Inspector plugin.
  *
  * Thread Safety:
  *
@@ -374,7 +375,7 @@ __hidden ncclResult_t inspectorPluginStopEvent(void *eHandle) {
                               collInfo);
     res = inspectorPluginCollInfoDeRef(collInfo);
     if (res == inspectorReturn) {
-      // WARN("NCCL Inspector unnatural return: inspectorPluginStopEvent:ncclProfileColl");
+      // WARN("PCCL Inspector unnatural return: inspectorPluginStopEvent:ncclProfileColl");
       return ncclSuccess;
     }
     inspectorUnlockRWLock(&collInfo->guard);
@@ -395,7 +396,7 @@ __hidden ncclResult_t inspectorPluginStopEvent(void *eHandle) {
 
       res = inspectorPluginCollInfoDeRef(collInfo);
       if (res == inspectorReturn) {
-        INFO_INSPECTOR("NCCL Inspector unnatural return: inspectorPluginStopEvent:ncclProfileKernelCh");
+        INFO_INSPECTOR("PCCL Inspector unnatural return: inspectorPluginStopEvent:ncclProfileKernelCh");
         return ncclSuccess;
       }
       if ((collInfo->nKernelChCompleted == collInfo->nKernelChStarted)
@@ -432,7 +433,7 @@ __hidden ncclResult_t inspectorPluginStopEvent(void *eHandle) {
 /*
  * Description:
  *
- *   Records the state of a profiling event for the NCCL Inspector
+ *   Records the state of a profiling event for the PCCL Inspector
  *   plugin.
  *
  * Thread Safety:
@@ -474,7 +475,7 @@ __hidden ncclResult_t inspectorPluginRecordEventState(void* eHandle,
       if (kernelChInfo->startGpuClk != 0) {
         res = inspectorPluginCollInfoDeRef(collInfo);
         if (res == inspectorReturn) {
-          INFO_INSPECTOR("NCCL Inspector unnatural return: inspectorPluginRecordEventState");
+          INFO_INSPECTOR("PCCL Inspector unnatural return: inspectorPluginRecordEventState");
           return ncclSuccess;
         }
       }

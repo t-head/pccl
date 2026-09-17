@@ -1,5 +1,6 @@
 /*************************************************************************
  * SPDX-FileCopyrightText: Copyright (c) 2025-2026 NVIDIA CORPORATION & AFFILIATES. All rights reserved.
+ * SPDX-FileCopyrightText: Modifications Copyright (c) 2026-2026 T-Head (Shanghai) Semiconductor Co., Ltd. All rights reserved.
  * SPDX-License-Identifier: Apache-2.0
  *
  * See LICENSE.txt for more license information
@@ -72,6 +73,51 @@ static bool ncclInspectorInit = false;
 
 // Define the global logFn variable
 ncclDebugLogger_t logFn = nullptr;
+
+/*
+ * Description:
+ *
+ *   Looks up an environment variable accepting both the PCCL_ and the
+ *   legacy NCCL_ prefix. The PCCL_ variant takes precedence when both
+ *   are set.
+ *
+ * Thread Safety:
+ *   Thread-safe (read-only environment variable access).
+ *
+ * Input:
+ *   const char* name - variable name, expected to start with PCCL_ or
+ *   NCCL_.
+ *
+ * Output:
+ *   None.
+ *
+ * Return:
+ *   const char* - variable value, or NULL if no variant is set.
+ */
+const char* pcclGetEnvWithDualPrefix(const char* name) {
+  if (name == NULL) {
+    return NULL;
+  }
+
+  const char *value = NULL;
+  const char *ncclValue = NULL;
+  const char *pcclValue = NULL;
+  const int envNameLength = 64;
+  const int envPrefixLength = strlen("PCCL");
+  char ncclEnvName[envNameLength];
+  char pcclEnvName[envNameLength];
+  ncclEnvName[0] = '\0';
+  pcclEnvName[0] = '\0';
+  if ((name[0] == 'N' || name[0] == 'P') && (strncmp(name+1, "CCL_", 4) == 0)) {
+    if (snprintf(pcclEnvName, envNameLength, "PCCL%s", name+envPrefixLength) >= envNameLength) pcclEnvName[0] = '\0';
+    if (snprintf(ncclEnvName, envNameLength, "PCCL%s", name+envPrefixLength) >= envNameLength) ncclEnvName[0] = '\0';
+    else ncclEnvName[0] = 'N';
+  }
+  if (strlen(ncclEnvName) > 0) ncclValue = getenv(ncclEnvName);
+  if (strlen(pcclEnvName) > 0) pcclValue = getenv(pcclEnvName);
+  value = pcclValue ? pcclValue : (ncclValue ? ncclValue : getenv(name));
+  return value;
+}
 
 /*
  * Description:
@@ -382,7 +428,7 @@ static inspectorResult_t inspectorCommInfoMetaHeader(jsonFileOutput* jfo) {
   {
     JSON_CHK(jsonKey(jfo, "inspector_output_format_version")); JSON_CHK(jsonStr(jfo, "v4.0"));
     JSON_CHK(jsonKey(jfo, "git_rev")); JSON_CHK(jsonStr(jfo, get_git_version_info()));
-    JSON_CHK(jsonKey(jfo, "rec_mechanism")); JSON_CHK(jsonStr(jfo, "nccl_profiler_interface"));
+    JSON_CHK(jsonKey(jfo, "rec_mechanism")); JSON_CHK(jsonStr(jfo, "pccl_profiler_interface"));
     JSON_CHK(jsonKey(jfo, "dump_timestamp_us")); JSON_CHK(jsonUint64(jfo, inspectorGetTime()));
     char hostname[256];
     gethostname(hostname, 255);
@@ -644,7 +690,7 @@ inspectorResult_t inspectorCommInfoListFinalize(struct inspectorCommInfoList* co
   struct inspectorCommInfo* nextComm = nullptr;
   INS_CHK(inspectorLockWr(&commList->guard));
   while (commList->comms != nullptr && commList->ncomms != 0) {
-    TRACE_INSPECTOR("NCCL Inspector: comm %lu still in tracker",
+    TRACE_INSPECTOR("PCCL Inspector: comm %lu still in tracker",
                     commList->comms->commHash);
     nextComm = commList->comms->next;
     INS_CHK(inspectorLockDestroy(&commList->comms->guard));
@@ -687,14 +733,14 @@ static bool ensureDir(char* workdir) {
         return true; // Directory exists and is writable
     } else {
       INFO_INSPECTOR(
-        "NCCL Inspectoer: dump directory %s exists, but is not "
+        "PCCL Inspector: dump directory %s exists, but is not "
         "writable",
         workdir);
       return false;
     }
     } else {
       INFO_INSPECTOR(
-        "NCCL Inspector: dump location %s exists, but is not a "
+        "PCCL Inspector: dump location %s exists, but is not a "
         "directory",
         workdir);
       return false;
@@ -706,7 +752,7 @@ static bool ensureDir(char* workdir) {
       return true; // Directory created successfully
     } else {
       INFO_INSPECTOR(
-        "NCCL Inspector: failed to create dump directory %s: %s", workdir,
+        "PCCL Inspector: failed to create dump directory %s: %s", workdir,
         strerror(errno));
       return false;
     }
@@ -732,7 +778,7 @@ static bool ensureDir(char* workdir) {
  *   None.
  */
 static void genDumpDir(char** workdir) {
-  const char* dumpdir = getenv("NCCL_INSPECTOR_DUMP_DIR");
+  const char* dumpdir = pcclGetEnvWithDualPrefix("PCCL_INSPECTOR_DUMP_DIR");
   if (dumpdir != NULL) {
     *workdir = strdup(dumpdir);
     // TODO check errors here
@@ -746,14 +792,14 @@ static void genDumpDir(char** workdir) {
     const int intid = strtol(jobid, NULL, 10);
     if (errno == 0) {
       char tmp[2048];
-      snprintf(tmp, 2048, "nccl-inspector-%d", intid);
+      snprintf(tmp, 2048, "pccl-inspector-%d", intid);
       *workdir = strdup(tmp);
       badJobId = false;
     }
   }
 
   if (badJobId) {
-    *workdir = strdup("nccl-inspector-unknown-jobid");
+    *workdir = strdup("pccl-inspector-unknown-jobid");
   }
 }
 
@@ -761,7 +807,7 @@ static void genDumpDir(char** workdir) {
 inspectorDumpThread::inspectorDumpThread(const char* _outputRoot, uint64_t _sampleIntervalUsecs)
   : jfo(nullptr), outputRoot(strdup(_outputRoot)), sampleIntervalUsecs(_sampleIntervalUsecs) {
   if (inspectorLockInit(&guard) != inspectorSuccess) {
-    INFO_INSPECTOR("NCCL Inspector inspectorDumpThread: couldn't init lock");
+    INFO_INSPECTOR("PCCL Inspector inspectorDumpThread: couldn't init lock");
   }
 }
 
@@ -780,10 +826,10 @@ inspectorDumpThread::~inspectorDumpThread() {
     for (size_t i = 0; i < deviceFlushEntries.size(); i++) {
       if (deviceFlushEntries[i].filename[0] != '\0') {
         if (unlink(deviceFlushEntries[i].filename) == 0) {
-          TRACE_INSPECTOR("NCCL Inspector: Cleaned up Prometheus file %s",
+          TRACE_INSPECTOR("PCCL Inspector: Cleaned up Prometheus file %s",
                           deviceFlushEntries[i].filename);
         } else {
-          INFO_INSPECTOR("NCCL Inspector: Failed to cleanup Prometheus file %s: %s",
+          INFO_INSPECTOR("PCCL Inspector: Failed to cleanup Prometheus file %s: %s",
                          deviceFlushEntries[i].filename, strerror(errno));
         }
       }
@@ -799,7 +845,7 @@ inspectorDumpThread::~inspectorDumpThread() {
     outputRoot = nullptr;
   }
   if (inspectorLockDestroy(&guard) != inspectorSuccess) {
-    INFO_INSPECTOR("NCCL Inspector inspectorDumpThread: couldn't destroy lock");
+    INFO_INSPECTOR("PCCL Inspector inspectorDumpThread: couldn't destroy lock");
   }
 }
 
@@ -856,7 +902,7 @@ FILE* inspectorDumpThread::getOrCreateFileHandle(const char* deviceUuidStr,
     FILE* file = fopen(filename, mode);
 
     if (!file) {
-      INFO_INSPECTOR("NCCL Inspector: Failed to open Prometheus file %s", filename);
+      INFO_INSPECTOR("PCCL Inspector: Failed to open Prometheus file %s", filename);
       return NULL;
     }
 
@@ -865,7 +911,7 @@ FILE* inspectorDumpThread::getOrCreateFileHandle(const char* deviceUuidStr,
     deviceFlushEntries[flushIndex].fileHandle = file;
 
     if (needsFlush) {
-      TRACE_INSPECTOR("NCCL Inspector: Created/flushed Prometheus file %s", filename);
+      TRACE_INSPECTOR("PCCL Inspector: Created/flushed Prometheus file %s", filename);
       deviceFlushEntries[flushIndex].lastFlushTime = currentTime;
     }
   }
@@ -879,19 +925,19 @@ void inspectorDumpThread::startThread() {
   inspectorUnlockRWLock(&guard);
   if (pthread_create(&pthread, NULL, dumpMain, this) != 0) {
     INFO_INSPECTOR(
-      "NCCL Inspector inspectorDumpThread: couldn't create dump thread!");
+      "PCCL Inspector inspectorDumpThread: couldn't create dump thread!");
     return;
   }
-  TRACE_INSPECTOR("NCCL Inspector inspectorDumpThread: created");
+  TRACE_INSPECTOR("PCCL Inspector inspectorDumpThread: created");
 }
 
 void inspectorDumpThread::stopThread() {
-  INFO(NCCL_ENV, "NCCL Inspector Stopping Dump thread");
+  INFO(NCCL_ENV, "PCCL Inspector Stopping Dump thread");
   inspectorLockWr(&guard);
   run = false;
   inspectorUnlockRWLock(&guard);
   std::this_thread::sleep_for(std::chrono::milliseconds(1));
-  INFO_INSPECTOR( "NCCL Inspector inspectorDumpThread: stopped");
+  INFO_INSPECTOR( "PCCL Inspector inspectorDumpThread: stopped");
 }
 
 inspectorResult_t inspectorDumpThread::inspectorStateDump(const char* output_root) {
@@ -899,7 +945,7 @@ inspectorResult_t inspectorDumpThread::inspectorStateDump(const char* output_roo
     return inspectorUninitializedError;
   }
   if (!enableNcclInspector) {
-    INFO_INSPECTOR( "NCCL Inspector is not enabled, will not do ncclAllCommTallyDump");
+    INFO_INSPECTOR( "PCCL Inspector is not enabled, will not do pcclAllCommTallyDump");
     return inspectorDisabledError;
   }
 
@@ -942,7 +988,7 @@ inspectorResult_t inspectorDumpThread::inspectorStateDumpProm(const char* output
                                     output_root,
                                     this);
   if (dumpResult != inspectorSuccess) {
-    INFO_INSPECTOR("NCCL Inspector: Direct Prometheus dump failed: %s",
+    INFO_INSPECTOR("PCCL Inspector: Direct Prometheus dump failed: %s",
                    inspectorErrorString(dumpResult));
     return dumpResult;
   }
@@ -997,7 +1043,7 @@ void* inspectorDumpThread::dumpMain(void* arg) {
  */
 static inspectorResult_t inspectorStartDumpThread(uint64_t intervalUsecs) {
   if (intervalUsecs == 0) {
-    INFO_INSPECTOR( "NCCL Inspector: dump thread enabled but "
+    INFO_INSPECTOR( "PCCL Inspector: dump thread enabled but "
                     "dump interval is 0; not starting internal dump thread.");
     return inspectorSuccess;
   }
@@ -1008,14 +1054,14 @@ static inspectorResult_t inspectorStartDumpThread(uint64_t intervalUsecs) {
   if (dumpdir != nullptr) {
     if (!ensureDir(dumpdir)) {
       free(dumpdir);
-      INFO_INSPECTOR( "NCCL Inspector: failed to generate a dump dir; not "
+      INFO_INSPECTOR( "PCCL Inspector: failed to generate a dump dir; not "
                       "starting internal dump thread.");
       return inspectorSuccess;
     }
 
     dumper = new inspectorDumpThread(dumpdir, intervalUsecs);
     INFO_INSPECTOR(
-      "NCCL Inspector enabled with polling interval %lu us, "
+      "PCCL Inspector enabled with polling interval %lu us, "
       "output directory %s, format %s",
       intervalUsecs, dumpdir,
       enableNcclInspectorPromDump ? "Prometheus" : "JSON");
@@ -1023,7 +1069,7 @@ static inspectorResult_t inspectorStartDumpThread(uint64_t intervalUsecs) {
 
     free(dumpdir);
   } else {
-    INFO_INSPECTOR( "NCCL Inspector: failed to generate a dump "
+    INFO_INSPECTOR( "PCCL Inspector: failed to generate a dump "
                     "dir; not starting internal dump thread.");
   }
 
@@ -1033,8 +1079,8 @@ static inspectorResult_t inspectorStartDumpThread(uint64_t intervalUsecs) {
 /*
  * Description:
  *
- *   Shows the NCCL Inspector plugin version and configuration
- *   environment variables in a structured format similar to NCCL's
+ *   Shows the PCCL Inspector plugin version and configuration
+ *   environment variables in a structured format similar to PCCL's
  *   showVersion function.
  *
  * Thread Safety:
@@ -1050,13 +1096,13 @@ static inspectorResult_t inspectorStartDumpThread(uint64_t intervalUsecs) {
  *   None.
  */
 static void showInspectorVersion() {
-  VERSION("NCCL Inspector Plugin - Version: %s", get_git_version_info());
+  VERSION("PCCL Inspector Plugin - Version: %s", get_git_version_info());
 }
 
 /*
  * Description:
  *
- *   Shows all NCCL Inspector environment variables and their values
+ *   Shows all PCCL Inspector environment variables and their values
  *   in a structured format.
  *
  * Thread Safety:
@@ -1078,17 +1124,17 @@ static void showInspectorEnvVars() {
     const char* defaultVal;
     const char* description;
   } envVars[] = {
-    {"NCCL_INSPECTOR_ENABLE", getenv("NCCL_INSPECTOR_ENABLE"), "0", "Enable/disable inspector plugin"},
-    {"NCCL_INSPECTOR_DUMP_THREAD_ENABLE", getenv("NCCL_INSPECTOR_DUMP_THREAD_ENABLE"), "1", "Enable/disable dump thread"},
-    {"NCCL_INSPECTOR_DUMP_THREAD_INTERVAL_MICROSECONDS", getenv("NCCL_INSPECTOR_DUMP_THREAD_INTERVAL_MICROSECONDS"), "0", "Dump thread interval in microseconds"},
-    {"NCCL_INSPECTOR_DUMP_DIR", getenv("NCCL_INSPECTOR_DUMP_DIR"), "(auto-generated)", "Output directory for inspector logs"},
-    {"NCCL_INSPECTOR_DUMP_VERBOSE", getenv("NCCL_INSPECTOR_DUMP_VERBOSE"), "0", "Enable/disable verbose dumping (event_trace)"},
-    {"NCCL_INSPECTOR_PROM_DUMP", getenv("NCCL_INSPECTOR_PROM_DUMP"), "0", "Enable/disable Prometheus format output dump"}
+    {"PCCL_INSPECTOR_ENABLE", pcclGetEnvWithDualPrefix("PCCL_INSPECTOR_ENABLE"), "0", "Enable/disable inspector plugin"},
+    {"PCCL_INSPECTOR_DUMP_THREAD_ENABLE", pcclGetEnvWithDualPrefix("PCCL_INSPECTOR_DUMP_THREAD_ENABLE"), "1", "Enable/disable dump thread"},
+    {"PCCL_INSPECTOR_DUMP_THREAD_INTERVAL_MICROSECONDS", pcclGetEnvWithDualPrefix("PCCL_INSPECTOR_DUMP_THREAD_INTERVAL_MICROSECONDS"), "0", "Dump thread interval in microseconds"},
+    {"PCCL_INSPECTOR_DUMP_DIR", pcclGetEnvWithDualPrefix("PCCL_INSPECTOR_DUMP_DIR"), "(auto-generated)", "Output directory for inspector logs"},
+    {"PCCL_INSPECTOR_DUMP_VERBOSE", pcclGetEnvWithDualPrefix("PCCL_INSPECTOR_DUMP_VERBOSE"), "0", "Enable/disable verbose dumping (event_trace)"},
+    {"PCCL_INSPECTOR_PROM_DUMP", pcclGetEnvWithDualPrefix("PCCL_INSPECTOR_PROM_DUMP"), "0", "Enable/disable Prometheus format output dump"}
   };
 
   const int numEnvVars = sizeof(envVars) / sizeof(envVars[0]);
 
-  VERSION("NCCL Inspector Environment Variables:");
+  VERSION("PCCL Inspector Environment Variables:");
   for (int i = 0; i < numEnvVars; i++) {
     VERSION("  %s = %s%s%s",
             envVars[i].name,
@@ -1118,20 +1164,20 @@ static void showInspectorEnvVars() {
  *   inspectorResult_t - success or error code.
  */
 inspectorResult_t inspectorGlobalInit(int rank) {
-  TRACE_INSPECTOR("NCCL Inspector: inspectorGlobalInit");
-  const char* str = getenv("NCCL_INSPECTOR_ENABLE");
+  TRACE_INSPECTOR("PCCL Inspector: inspectorGlobalInit");
+  const char* str = pcclGetEnvWithDualPrefix("PCCL_INSPECTOR_ENABLE");
   int enable = str ? atoi(str) : 0; // default disable
   enableNcclInspector = enable == 0 ? false : true;
   ncclInspectorInit = true;
 
-  // Show version and environment configuration (similar to NCCL's showVersion)
+  // Show version and environment configuration (similar to PCCL's showVersion)
   if (rank == 0) {
     showInspectorVersion();
     showInspectorEnvVars();
   }
 
   if (enableNcclInspector == false) {
-    VERSION("NCCL Inspector Plugin DISABLED (NCCL_INSPECTOR_ENABLE=%s)",
+    VERSION("PCCL Inspector Plugin DISABLED (PCCL_INSPECTOR_ENABLE=%s)",
             str ? str : "0");
     return inspectorDisabledError;
   }
@@ -1139,27 +1185,27 @@ inspectorResult_t inspectorGlobalInit(int rank) {
   // Initialize HGGC wrapper for inspector
   inspectorResult_t hggcInitResult = inspectorHggcWrapInit();
   if (hggcInitResult != inspectorSuccess) {
-    INFO_INSPECTOR("NCCL Inspector: Failed to initialize HGGC wrapper");
+    INFO_INSPECTOR("PCCL Inspector: Failed to initialize HGGC wrapper");
     return hggcInitResult;
   }
 
   INS_CHK(inspectorGlobalStateInit());
 
-  str = getenv("NCCL_INSPECTOR_DUMP_THREAD_ENABLE");
+  str = pcclGetEnvWithDualPrefix("PCCL_INSPECTOR_DUMP_THREAD_ENABLE");
   enable = str ? atoi(str) : 1; // default enable
   enableNcclInspectorDumpThread = enable == 0 ? false : true;
 
-  str = getenv("NCCL_INSPECTOR_DUMP_VERBOSE");
+  str = pcclGetEnvWithDualPrefix("PCCL_INSPECTOR_DUMP_VERBOSE");
   enable = str ? atoi(str) : 0; // default disable
   enableNcclInspectorDumpVerbose = enable == 0 ? false : true;
 
   // Check for Prometheus dump format
-  str = getenv("NCCL_INSPECTOR_PROM_DUMP");
+  str = pcclGetEnvWithDualPrefix("PCCL_INSPECTOR_PROM_DUMP");
   enable = str ? atoi(str) : 0; // default disable
   enableNcclInspectorPromDump = enable == 0 ? false : true;
 
   // Read and validate dump interval once
-  str = getenv("NCCL_INSPECTOR_DUMP_THREAD_INTERVAL_MICROSECONDS");
+  str = pcclGetEnvWithDualPrefix("PCCL_INSPECTOR_DUMP_THREAD_INTERVAL_MICROSECONDS");
   ncclInspectorDumpIntervalUsecs = str ? strtoull(str, 0, 0) : 0;
 
   // Apply Prometheus-specific interval validation if enabled
@@ -1172,7 +1218,7 @@ inspectorResult_t inspectorGlobalInit(int rank) {
     INS_CHK(inspectorStartDumpThread(ncclInspectorDumpIntervalUsecs));
   } else {
     INFO_INSPECTOR(
-      "NCCL Inspector: NCCL_INSPECTOR_DUMP_THREAD_ENABLE set to 0; not "
+      "PCCL Inspector: PCCL_INSPECTOR_DUMP_THREAD_ENABLE set to 0; not "
       "starting internal dump "
       "thread.");
   }
@@ -1414,7 +1460,7 @@ inspectorResult_t inspectorAddComm(struct inspectorCommInfo **commInfo,
        itr != nullptr;
        itr = itr->next) {
     if (comm_eq(commHash, itr->commHash, rank, itr->rank)) {
-      INFO_INSPECTOR("NCCL Inspector: comm 0x%lx already in tracker",
+      INFO_INSPECTOR("PCCL Inspector: comm 0x%lx already in tracker",
                      commHash);
       res = inspectorAddDuplicateCommError;
       goto exit;
@@ -1479,7 +1525,7 @@ inspectorResult_t inspectorDelComm(struct inspectorCommInfo *commInfo) {
   struct inspectorCommInfo* commInfoPtr = nullptr;
   bool locked = false;
 
-  TRACE_INSPECTOR("NCCL Inspector: DelComm removing 0x%lx",
+  TRACE_INSPECTOR("PCCL Inspector: DelComm removing 0x%lx",
                   commInfo->commHash);
 
   INSPECTOR_LOCK_WR_FLAG(&liveCommInfoList->guard, locked,
@@ -1501,7 +1547,7 @@ inspectorResult_t inspectorDelComm(struct inspectorCommInfo *commInfo) {
                                 "inspectorDelComm: liveCommInfoList::guard -unlock");
 
   if (!commInfoPtr) {
-    INFO_INSPECTOR("NCCL Inspector: DelComm can't remove 0x%lx, not present",
+    INFO_INSPECTOR("PCCL Inspector: DelComm can't remove 0x%lx, not present",
                    commInfo->commHash);
     return inspectorDeleteUnknownCommError;
   }

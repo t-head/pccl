@@ -1,5 +1,6 @@
 /*************************************************************************
  * SPDX-FileCopyrightText: Copyright (c) 2025-2026 NVIDIA CORPORATION & AFFILIATES. All rights reserved.
+ * SPDX-FileCopyrightText: Modifications Copyright (c) 2026-2026 T-Head (Shanghai) Semiconductor Co., Ltd. All rights reserved.
  * SPDX-License-Identifier: Apache-2.0
  *
  * See LICENSE.txt for more license information
@@ -235,7 +236,7 @@ extern ncclDebugLogger_t logFn;
 #define VERSION(fmt, ...) logFn(NCCL_LOG_VERSION, NCCL_ALL, __FILE__, __LINE__, "[%s] " fmt, __func__, ##__VA_ARGS__)
 #define INFO(FLAGS, fmt, ...) logFn(NCCL_LOG_INFO, (FLAGS), __FILE__, __LINE__, "[%s] " fmt, __func__, ##__VA_ARGS__)
 
-// Use NCCL_PROFILE for inspector messages so they can be filtered with NCCL_DEBUG_SUBSYS=PROFILE
+// Use NCCL_PROFILE for inspector messages so they can be filtered with PCCL_DEBUG_SUBSYS=PROFILE
 #define INFO_INSPECTOR(fmt, ...) logFn(NCCL_LOG_INFO, NCCL_PROFILE, __FILE__, __LINE__, "[%s] " fmt, __func__, ##__VA_ARGS__)
 #define TRACE_INSPECTOR(fmt, ...) logFn(NCCL_LOG_TRACE, NCCL_PROFILE, __FILE__, __LINE__, "[%s] " fmt, __func__, ##__VA_ARGS__)
 
@@ -261,6 +262,10 @@ inline int ncclTypeSize(ncclDataType_t type) {
     return -1;
   }
 }
+
+// Looks up an environment variable accepting both the PCCL_ and the legacy
+// NCCL_ prefix; PCCL_ wins when both are set.
+const char* pcclGetEnvWithDualPrefix(const char* name);
 
 const char* inspectorErrorString(inspectorResult_t result);
 
