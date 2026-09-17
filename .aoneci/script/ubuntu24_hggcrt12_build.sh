@@ -26,6 +26,7 @@ mv ${source_home}/run_customAllreduce_test.sh ${build_output}
 mv ${source_home}/run_memcpy_test.sh ${build_output}
 mv ${source_home}/run_nonblocking_test.sh ${build_output}
 mv ${source_home}/run_commabort_test.sh ${build_output}
+mv ${source_home}/run_lsa_test.sh ${build_output}
 
 
 echo "######################### $(date +%Y%m%d%H%M%S) Download Prebuilt PPU_SDK ##########################"
