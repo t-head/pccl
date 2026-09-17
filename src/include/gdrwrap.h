@@ -189,7 +189,7 @@ error:
 }
 
 template <typename T>
-static ncclResult_t ncclGdrCudaCalloc(T** ptr, T** devPtr, size_t nelem, void** gdrHandle, uint64_t* pDevMemUsed) {
+static ncclResult_t ncclGdrCudaCalloc(T** ptr, T** devPtr, size_t nelem, void** gdrHandle, uint64_t* pDevMemUsed, ncclMemManager* manager = nullptr) {
   gdr_info_t info;
   size_t mapSize;
   gdr_mh_t mh;
@@ -201,7 +201,7 @@ static ncclResult_t ncclGdrCudaCalloc(T** ptr, T** devPtr, size_t nelem, void** 
   // GDRCOPY Pinned buffer has to be a minimum of a GPU_PAGE_SIZE
   ALIGN_SIZE(mapSize, GPU_PAGE_SIZE);
   // GDRCOPY Pinned buffer has to be GPU_PAGE_SIZE aligned too
-  NCCLCHECK(ncclHggcCalloc(&devMem, mapSize+GPU_PAGE_SIZE-1, pDevMemUsed));
+  NCCLCHECK(ncclHggcCalloc(&devMem, mapSize+GPU_PAGE_SIZE-1, pDevMemUsed, manager));
   uint64_t alignedAddr = (((uint64_t) devMem) + GPU_PAGE_OFFSET) & GPU_PAGE_MASK;
   size_t align = alignedAddr - (uint64_t)devMem;
 
@@ -241,11 +241,11 @@ static ncclResult_t ncclGdrCudaCopy(void *gdrHandle, T* dst, T* src, size_t nele
   return ncclSuccess;
 }
 
-static ncclResult_t ncclGdrCudaFree(void* gdrHandle) {
+static ncclResult_t ncclGdrCudaFree(void* gdrHandle, ncclMemManager* manager = nullptr) {
   gdr_mem_desc_t *md = (gdr_mem_desc_t*)gdrHandle;
   NCCLCHECK(wrap_gdr_unmap(ncclGdrCopy, md->gdrMh, md->gdrMap, md->gdrMapSize));
   NCCLCHECK(wrap_gdr_unpin_buffer(ncclGdrCopy, md->gdrMh));
-  NCCLCHECK(ncclHggcFree(md->gdrDevMem));
+  NCCLCHECK(ncclHggcFree(md->gdrDevMem, MEM_NORMAL, manager));
   free(md);
 
   return ncclSuccess;
@@ -258,9 +258,9 @@ static ncclResult_t ncclGdrCudaFree(void* gdrHandle) {
 // hggcHostAlloc flag set (e.g. hggcHostAllocWriteCombined).
 template <typename T>
 static ncclResult_t allocMemCPUAccessible(T **ptr, T **devPtr, size_t nelem, int host_flags,
-                                          void **gdrHandle, bool forceHost = false) {
+                                          void **gdrHandle, ncclMemManager* manager = nullptr, bool forceHost = false) {
   if (ncclGdrCopy && !forceHost) {
-    NCCLCHECK(ncclGdrCudaCalloc(ptr, devPtr, nelem, gdrHandle, nullptr));
+    NCCLCHECK(ncclGdrCudaCalloc(ptr, devPtr, nelem, gdrHandle, nullptr, manager));
   } else {
     HGGCCHECK(hggcHostAlloc((void **)ptr, nelem * sizeof(T),
                             host_flags ? host_flags : hggcHostAllocMapped));
@@ -272,9 +272,9 @@ static ncclResult_t allocMemCPUAccessible(T **ptr, T **devPtr, size_t nelem, int
 }
 
 static inline ncclResult_t freeMemCPUAccessible(void *ptr, void *gdrHandle,
-                                                void * /*manager*/ = nullptr) {
+                                                ncclMemManager* manager = nullptr) {
   if (gdrHandle) {
-    return ncclGdrCudaFree(gdrHandle);
+    return ncclGdrCudaFree(gdrHandle, manager);
   }
   if (ptr) HGGCCHECK(hggcFreeHost(ptr));
   return ncclSuccess;

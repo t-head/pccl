@@ -73,7 +73,7 @@ static ncclResult_t regCleanup(ncclComm_t comm, struct ncclReg* reg) {
         NCCLCHECK(ncclFree(reg->ipcInfos[i]));
       }
     NCCLCHECK(ncclFree(reg->regIpcAddrs.hostPeerRmtAddrs));
-    if (reg->regIpcAddrs.devPeerRmtAddrs) NCCLCHECK(ncclHggcFree(reg->regIpcAddrs.devPeerRmtAddrs));
+    if (reg->regIpcAddrs.devPeerRmtAddrs) NCCLCHECK(ncclHggcFree(reg->regIpcAddrs.devPeerRmtAddrs, MEM_NORMAL, comm->memManager));
   }
   return ncclSuccess;
 }

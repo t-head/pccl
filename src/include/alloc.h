@@ -17,6 +17,7 @@
 #include "drv_extension.h"
 #include <hggc.h>
 #include "cudawrap.h"
+#include "mem_manager.h"
 
 #include "assert.h"
 #include <unistd.h>
@@ -110,7 +111,7 @@ static ncclResult_t ncclHggcHostCallocDebug(T** ptr, size_t nelem, uint64_t* pPi
 #define ncclHggcHostCalloc(...) ncclHggcHostCallocDebug(__VA_ARGS__, __FILENAME__, __LINE__)
 
 // ncclHgMemAllocAddr takes memory handle and size and returns the mapped address pointer
-static inline ncclResult_t ncclHgMemAllocAddr(void **ptr, HGmemGenericAllocationHandle *handleIn, size_t size, int* rootDev) {
+static inline ncclResult_t ncclHgMemAllocAddr(void **ptr, HGmemGenericAllocationHandle *handleIn, size_t size, int* rootDev, size_t* reservationSize = nullptr) {
   ncclResult_t result = ncclSuccess;
   size_t granularityVir = 0;
   size_t granularityPhy = 0;
@@ -136,35 +137,72 @@ static inline ncclResult_t ncclHgMemAllocAddr(void **ptr, HGmemGenericAllocation
   accessDesc.flags = HG_MEM_ACCESS_FLAGS_PROT_READWRITE;
   HGCHECK(hgMemSetAccess((HGdeviceptr)*ptr, sizeAlignedPhy, &accessDesc, 1));
 
+  if (reservationSize) *reservationSize = sizeAlignedVir;
   VERBOSE(NCCL_ALLOC, "HgMem Map Size %zu pointer %p handle %llx", size, *ptr, *handleIn);
   return result;
 }
 
-static inline ncclResult_t ncclHgMemFreeAddr(void *ptr) {
+// Remap an already reserved virtual address range onto a new physical allocation and
+// grant RW access to the given device. Used to restore suspended memory in place, so
+// the virtual address stays valid for callers holding the pointer.
+static inline ncclResult_t ncclHgMemMapAndSetAccess(void *ptr, size_t size, HGmemGenericAllocationHandle handle, int hggcDev, bool* mapped) {
+  *mapped = false;
+  ncclResult_t result = ncclSuccess;
+  size_t granularityPhy = 0;
+  size_t sizeAlignedPhy = 0;
+  HGdevice currentDev;
+  HGmemAllocationProp prop = {};
+  HGmemAccessDesc accessDesc = {};
+
+  if (ptr == NULL) return ncclInvalidArgument;
+  VERBOSE(NCCL_ALLOC, "pcclHgMemMapAndSetAccess(ptr=%p, size=%zu, handle=%llx, dev=%d)", ptr, size, handle, hggcDev);
+  HGCHECK(hgDeviceGet(&currentDev, hggcDev));
+  HGCHECK(hgMemGetAllocationPropertiesFromHandle(&prop, handle));
+  HGCHECK(hggcEitInterface::getInstance().wrapHgMemGetAllocationGranularityEx(&granularityPhy, &prop, HG_MEM_ALLOC_GRANULARITY_MINIMUM));
+  ALIGN_SIZE_WITH_RTN(size, granularityPhy, sizeAlignedPhy);
+  /* Map the existing virtual address range to the physical allocation */
+  HGCHECK(hgMemMap((HGdeviceptr)ptr, sizeAlignedPhy, 0, handle, 0));
+  *mapped = true;
+  /* Now allow RW access to the newly mapped memory */
+  accessDesc.location.type = HG_MEM_LOCATION_TYPE_DEVICE;
+  accessDesc.location.id = currentDev;
+  accessDesc.flags = HG_MEM_ACCESS_FLAGS_PROT_READWRITE;
+  HGCHECK(hgMemSetAccess((HGdeviceptr)ptr, sizeAlignedPhy, &accessDesc, 1));
+
+  VERBOSE(NCCL_ALLOC, "HgMem Remap Size %zu sizeAlignedPhy %zu pointer %p handle %llx dev %d", size, sizeAlignedPhy, ptr, handle, hggcDev);
+  return result;
+}
+
+static inline ncclResult_t ncclHgMemFreeAddr(void *ptr, struct ncclMemManager* manager = nullptr) {
   if (ptr == NULL) return ncclSuccess;
   ncclResult_t result = ncclSuccess;
-  HGmemGenericAllocationHandle handle;
   size_t sizeAlignedVir = 0;
-  size_t sizeAlignedPhy = 0;
-  size_t granularityVir = 0;
-  HGmemAllocationProp prop = {};
+  ncclMemUntrackInfo info = {};
+  if (manager) NCCLCHECKGOTO(ncclMemUntrack(manager, ptr, 0, &info), result, fail);
 
-  VERBOSE(NCCL_ALLOC, "pcclHgMemFreeAddr(ptr=%p)", ptr);
-  HGCHECK(hgMemRetainAllocationHandle(&handle, ptr));
-  HGCHECK(hgMemRelease(handle));
-  HGCHECK(hgMemGetAllocationPropertiesFromHandle(&prop, handle));
-  HGCHECK(hgMemGetAllocationGranularity(&granularityVir, &prop, HG_MEM_ALLOC_GRANULARITY_MINIMUM));
-
-  HGCHECK(hgMemGetAddressRange(NULL, &sizeAlignedPhy, (HGdeviceptr)ptr));
-  ALIGN_SIZE_WITH_RTN(sizeAlignedPhy, granularityVir, sizeAlignedVir);
-
-  HGCHECK(hgMemUnmap((HGdeviceptr)ptr, sizeAlignedPhy));
+  if (info.memType != ncclMemPersist && info.dynMemState == ncclDynMemStateReleased) {
+    sizeAlignedVir = info.reservationSize;
+  } else {
+    HGmemGenericAllocationHandle handle;
+    size_t sizeAlignedPhy = 0;
+    size_t granularityVir = 0;
+    HGmemAllocationProp prop = {};
+    HGCHECKGOTO(hgMemRetainAllocationHandle(&handle, ptr), result, fail);
+    HGCHECKGOTO(hgMemRelease(handle), result, fail);
+    HGCHECKGOTO(hgMemGetAllocationPropertiesFromHandle(&prop, handle), result, fail);
+    HGCHECKGOTO(hgMemGetAllocationGranularity(&granularityVir, &prop, HG_MEM_ALLOC_GRANULARITY_MINIMUM), result, fail);
+    HGCHECKGOTO(hgMemGetAddressRange(NULL, &sizeAlignedPhy, (HGdeviceptr)ptr), result, fail);
+    ALIGN_SIZE_WITH_RTN(sizeAlignedPhy, granularityVir, sizeAlignedVir);
+    HGCHECKGOTO(hgMemUnmap((HGdeviceptr)ptr, sizeAlignedPhy), result, fail);
+  }
+fail:
   HGCHECK(hgMemAddressFree((HGdeviceptr)ptr, sizeAlignedVir));
   return result;
 }
 
 static inline ncclResult_t ncclHgMemAlloc(void **ptr, HGmemGenericAllocationHandle *handlep, HGmemAllocationHandleType type, size_t size,
-  uint64_t *pDevMemUsed, size_t *pSizeAlignedPhy, int memMode = MEM_NORMAL) {
+  uint64_t *pDevMemUsed, size_t *pSizeAlignedPhy, int memMode = MEM_NORMAL,
+  struct ncclMemManager* manager = nullptr, ncclMemType_t memType = ncclMemPersist) {
   ncclResult_t result = ncclSuccess;
   size_t granularityVir = 0;
   size_t granularityPhy = 0;
@@ -204,41 +242,44 @@ static inline ncclResult_t ncclHgMemAlloc(void **ptr, HGmemGenericAllocationHand
   if (handlep) *handlep = handle;
   if (result == ncclSuccess && pDevMemUsed) *pDevMemUsed += sizeAlignedPhy;
   if (pSizeAlignedPhy) *pSizeAlignedPhy = sizeAlignedPhy;
+  /* Track allocation in memory manager */
+  if (manager != nullptr) {
+    NCCLCHECK(ncclMemTrack(manager, *ptr, sizeAlignedPhy, handle, type, memType, sizeAlignedVir));
+  }
   VERBOSE(NCCL_ALLOC, "HgMem Alloc Size %zi sizeAlignedPhy %zi sizeAlignedVir %zi pointer %p handle %llx", size, sizeAlignedPhy, sizeAlignedVir, *ptr, handle);
   return result;
 }
 
-static inline ncclResult_t ncclHgMemFree(void *ptr) {
-  if (ptr == NULL) {
-    return ncclSuccess;
-  }
+static inline ncclResult_t ncclHgMemFree(void *ptr, struct ncclMemManager* manager = nullptr) {
+  if (ptr == NULL) return ncclSuccess;
   ncclResult_t result = ncclSuccess;
-  HGmemGenericAllocationHandle handle;
   size_t sizeAlignedVir = 0;
-  size_t sizeAlignedPhy = 0;
-  size_t granularityVir = 0;
-  HGmemAllocationProp prop = {};
+  ncclMemUntrackInfo info = {};
+  if (manager) NCCLCHECKGOTO(ncclMemUntrack(manager, ptr, 0, &info), result, fail);
 
-  VERBOSE(NCCL_ALLOC, "pcclHgMemFree(ptr=%p)", ptr);
-  HGCHECK(hgMemRetainAllocationHandle(&handle, ptr));
-  HGCHECK(hgMemRelease(handle));
-  HGCHECK(hgMemGetAllocationPropertiesFromHandle(&prop, handle));
-  HGCHECK(hgMemGetAllocationGranularity(&granularityVir, &prop, HG_MEM_ALLOC_GRANULARITY_MINIMUM));
-
-  HGCHECK(hgMemGetAddressRange(NULL, &sizeAlignedPhy, (HGdeviceptr)ptr));
-  ALIGN_SIZE_WITH_RTN(sizeAlignedPhy, granularityVir, sizeAlignedVir);
-
-  VERBOSE(NCCL_ALLOC, "HgMem Free sizeAlignedPhy %zi sizeAlignedVir %zi pointer %p handle 0x%llx", sizeAlignedPhy, sizeAlignedVir, ptr, handle);
-
-  HGCHECK(hgMemUnmap((HGdeviceptr)ptr, sizeAlignedPhy));
-  HGCHECK(hgMemRelease(handle));
-
+  if (info.memType != ncclMemPersist && info.dynMemState == ncclDynMemStateReleased) {
+    sizeAlignedVir = info.reservationSize;
+  } else {
+    HGmemGenericAllocationHandle handle;
+    size_t sizeAlignedPhy = 0;
+    size_t granularityVir = 0;
+    HGmemAllocationProp prop = {};
+    HGCHECKGOTO(hgMemRetainAllocationHandle(&handle, ptr), result, fail);
+    HGCHECKGOTO(hgMemRelease(handle), result, fail);
+    HGCHECKGOTO(hgMemGetAllocationPropertiesFromHandle(&prop, handle), result, fail);
+    HGCHECKGOTO(hgMemGetAllocationGranularity(&granularityVir, &prop, HG_MEM_ALLOC_GRANULARITY_MINIMUM), result, fail);
+    HGCHECKGOTO(hgMemGetAddressRange(NULL, &sizeAlignedPhy, (HGdeviceptr)ptr), result, fail);
+    ALIGN_SIZE_WITH_RTN(sizeAlignedPhy, granularityVir, sizeAlignedVir);
+    HGCHECKGOTO(hgMemUnmap((HGdeviceptr)ptr, sizeAlignedPhy), result, fail);
+    HGCHECKGOTO(hgMemRelease(handle), result, fail);
+  }
+fail:
   HGCHECK(hgMemAddressFree((HGdeviceptr)ptr, sizeAlignedVir));
   return result;
 }
 
 template <typename T>
-ncclResult_t ncclHggcCallocAsyncDebug(T** ptr, size_t nelem, uint64_t* pDevMemUsed, hggcStream_t stream, const char *filefunc, int line) {
+ncclResult_t ncclHggcCallocAsyncDebug(const char *filefunc, int line, T** ptr, size_t nelem, uint64_t* pDevMemUsed, hggcStream_t stream, struct ncclMemManager* manager = nullptr, ncclMemType_t memType = ncclMemPersist) {
   ncclResult_t result = ncclSuccess;
   size_t sizeAligned = nelem * sizeof(T);
   hggcStreamCaptureMode mode = hggcStreamCaptureModeRelaxed;
@@ -246,7 +287,7 @@ ncclResult_t ncclHggcCallocAsyncDebug(T** ptr, size_t nelem, uint64_t* pDevMemUs
   VERBOSE(NCCL_ALLOC, "pcclHggcCallocAsync(ptr=%p, nelem=%zu, stream=%p)", ptr, nelem, stream);
   HGGCCHECK(hggcThreadExchangeStreamCaptureMode(&mode));
   if (ncclCuMemEnable()) {
-    NCCLCHECKGOTO(ncclHgMemAlloc((void **)ptr, NULL, ncclHgMemHandleType, nelem*sizeof(T), pDevMemUsed, &sizeAligned), result, finish);
+    NCCLCHECKGOTO(ncclHgMemAlloc((void **)ptr, NULL, ncclHgMemHandleType, nelem*sizeof(T), nullptr, &sizeAligned, MEM_NORMAL, manager, memType), result, finish);
   } else {
     HGGCCHECKGOTO(hggcMalloc(ptr, nelem*sizeof(T)), result, finish);
   }
@@ -258,7 +299,7 @@ finish:
   VERBOSE(NCCL_ALLOC, "%s:%d Hggc Alloc Size %zi sizeAligned %zi pointer %p", filefunc, line, nelem*sizeof(T), sizeAligned, *ptr);
   return result;
 }
-#define ncclHggcCallocAsync(...) ncclHggcCallocAsyncDebug(__VA_ARGS__, __FILENAME__, __LINE__)
+#define ncclHggcCallocAsync(...) ncclHggcCallocAsyncDebug(__FILENAME__, __LINE__, __VA_ARGS__)
 
 
 static ncclResult_t ncclHggcHostFree(void* ptr, int memMode=MEM_NORMAL) {
@@ -336,19 +377,21 @@ static ncclResult_t ncclFree(T*& ptr) {
 extern int ncclParamNoMemsetFlag;
 
 template <typename T>
-static ncclResult_t ncclHggcCallocOrigin(T** ptr, size_t nelem, size_t *sizeAligned, int memMode) {
+static ncclResult_t ncclHggcCallocOrigin(T** ptr, size_t nelem, size_t *sizeAligned, int memMode, struct ncclMemManager* manager = nullptr, ncclMemType_t memType = ncclMemPersist) {
   if (nelem == 0) {
     return ncclSuccess;
   }
   if (memMode == MEM_U2MM || memMode == MEM_U2MM_DIRECT) {
-    return nccl_u2mm_gpu_calloc(ptr, nelem, memMode == MEM_U2MM_DIRECT);
+    NCCLCHECK(nccl_u2mm_gpu_calloc(ptr, nelem, memMode == MEM_U2MM_DIRECT));
+    if (manager && *ptr) NCCLCHECK(ncclMemTrack(manager, *ptr, nelem*sizeof(T), 0, ncclHgMemHandleType, ncclMemPersist));
+    return ncclSuccess;
   }
 
   hggcStream_t stream;
   VERBOSE(NCCL_ALLOC, "pcclHggcCallocOrigin(ptr=%p, nelem=%zu)", ptr, nelem);
   HGGCCHECK(hggcEitInterface::getInstance().wrapHggcStreamCreateForCopyEngine(&stream));
   if (ncclCuMemEnable()) {
-    NCCLCHECK(ncclHgMemAlloc((void **)ptr, NULL, ncclHgMemHandleType, nelem*sizeof(T), nullptr, sizeAligned, memMode));
+    NCCLCHECK(ncclHgMemAlloc((void **)ptr, NULL, ncclHgMemHandleType, nelem*sizeof(T), nullptr, sizeAligned, memMode, manager, memType));
   } else {
     HGGCCHECK(hggcMalloc(ptr, nelem*sizeof(T)));
   }
@@ -411,7 +454,7 @@ static ncclResult_t ncclHggcCallocPerfmodelSpeedup(T** ptr, size_t nelem, size_t
 }
 
 template <typename T>
-static ncclResult_t ncclHggcCallocU2mmDebug(T** ptr, size_t nelem, uint64_t* pDevMemUsed, int memMode, const char *filefunc, int line) {
+static ncclResult_t ncclHggcCallocU2mmDebug(const char *filefunc, int line, T** ptr, size_t nelem, uint64_t* pDevMemUsed, int memMode, struct ncclMemManager* manager = nullptr, ncclMemType_t memType = ncclMemPersist) {
   ncclResult_t result = ncclSuccess;
   size_t sizeAligned = nelem * sizeof(T);
   hggcStreamCaptureMode mode = hggcStreamCaptureModeRelaxed;
@@ -422,7 +465,7 @@ static ncclResult_t ncclHggcCallocU2mmDebug(T** ptr, size_t nelem, uint64_t* pDe
     NCCLCHECKGOTO(ncclHggcCallocPerfmodelSpeedup(ptr, nelem, &sizeAligned), result, finish);
   } else {
     // use memMode to specify other kinds of memory alloc
-    NCCLCHECKGOTO(ncclHggcCallocOrigin(ptr, nelem, &sizeAligned, memMode), result, finish);
+    NCCLCHECKGOTO(ncclHggcCallocOrigin(ptr, nelem, &sizeAligned, memMode, manager, memType), result, finish);
   }
 
 finish:
@@ -432,14 +475,14 @@ finish:
   return result;
 }
 
-#define ncclHggcCallocU2mm(...) ncclHggcCallocU2mmDebug(__VA_ARGS__, __FILENAME__, __LINE__)
+#define ncclHggcCallocU2mm(...) ncclHggcCallocU2mmDebug(__FILENAME__, __LINE__, __VA_ARGS__)
 
 template <typename T>
-static ncclResult_t ncclHggcCallocDebug(T** ptr, size_t nelem, uint64_t* pDevMemUsed, const char *filefunc, int line) {
-  return ncclHggcCallocU2mmDebug(ptr, nelem, pDevMemUsed, MEM_NORMAL, filefunc, line);
+static ncclResult_t ncclHggcCallocDebug(const char *filefunc, int line, T** ptr, size_t nelem, uint64_t* pDevMemUsed, struct ncclMemManager* manager = nullptr, ncclMemType_t memType = ncclMemPersist) {
+  return ncclHggcCallocU2mmDebug(filefunc, line, ptr, nelem, pDevMemUsed, MEM_NORMAL, manager, memType);
 }
 
-#define ncclHggcCalloc(...) ncclHggcCallocDebug(__VA_ARGS__, __FILENAME__, __LINE__)
+#define ncclHggcCalloc(...) ncclHggcCallocDebug(__FILENAME__, __LINE__, __VA_ARGS__)
 
 template <typename T>
 static ncclResult_t ncclHggcMemcpy(T* dst, T* src, size_t nelem) {
@@ -509,8 +552,10 @@ finish:
 }
 
 template <typename T>
-static ncclResult_t ncclHggcFreeDebug(const char *filefunc, int line, T* ptr, int memMode=MEM_NORMAL) {
+static ncclResult_t ncclHggcFreeDebug(const char *filefunc, int line, T* ptr, int memMode=MEM_NORMAL, struct ncclMemManager* manager = nullptr) {
+  if (!ptr) return ncclSuccess;
   ncclResult_t result = ncclSuccess;
+  bool untracked = false;
   hggcStreamCaptureMode mode = hggcStreamCaptureModeRelaxed;
   VERBOSE(NCCL_ALLOC, "%s:%d Hggc Free pointer %p", filefunc, line, ptr);
   HGGCCHECK(hggcThreadExchangeStreamCaptureMode(&mode));
@@ -522,7 +567,8 @@ static ncclResult_t ncclHggcFreeDebug(const char *filefunc, int line, T* ptr, in
     if (off < 0 || off >= ncclPerfmodelTotalDeviceMemSize) {
       INFO(NCCL_INIT, "perf acc mode, ptr:%p out of the pcclPerfmodelDevicePtr(%p):+0x%lx range", ptr, ncclPerfmodelDevicePtr[dev], ncclPerfmodelTotalDeviceMemSize);
       if (ncclCuMemEnable()) {
-        NCCLCHECKGOTO(ncclHgMemFree((void *)ptr), result, finish);
+        NCCLCHECKGOTO(ncclHgMemFree((void *)ptr, manager), result, finish);
+        untracked = true;
       } else {
         HGGCCHECKGOTO(hggcFree(ptr), result, finish);
       }
@@ -532,12 +578,14 @@ static ncclResult_t ncclHggcFreeDebug(const char *filefunc, int line, T* ptr, in
       NCCLCHECKGOTO(nccl_u2mm_gpu_free(ptr), result, finish);
     } else {
       if (ncclCuMemEnable()) {
-        NCCLCHECKGOTO(ncclHgMemFree((void *)ptr), result, finish);
+        NCCLCHECKGOTO(ncclHgMemFree((void *)ptr, manager), result, finish);
+        untracked = true;
       } else {
         HGGCCHECKGOTO(hggcFree(ptr), result, finish);
       }
     }
   }
+  if (manager && !untracked) NCCLCHECKGOTO(ncclMemUntrack(manager, (void*)ptr, 0), result, finish);
   ptr = NULL;
 
 finish:
@@ -586,12 +634,14 @@ static ncclResult_t ncclHggcCallocOriginLegacy(T** ptr, size_t nelem) {
 }
 
 template <typename T>
-static ncclResult_t ncclHggcCallocDebugLegacy(T** ptr, size_t nelem, uint64_t* pDevMemUsed, const char *filefunc, int line) {
+static ncclResult_t ncclHggcCallocDebugLegacy(T** ptr, size_t nelem, uint64_t* pDevMemUsed, struct ncclMemManager* manager, const char *filefunc, int line) {
   ncclResult_t result = ncclSuccess;
   hggcStreamCaptureMode mode = hggcStreamCaptureModeRelaxed;
   HGGCCHECK(hggcThreadExchangeStreamCaptureMode(&mode));
 
   NCCLCHECKGOTO(ncclHggcCallocOriginLegacy(ptr, nelem), result, finish);
+
+  if (manager && *ptr) NCCLCHECK(ncclMemTrack(manager, *ptr, nelem*sizeof(T), 0, ncclHgMemHandleType, ncclMemPersist, nelem*sizeof(T)));
 
 finish:
   HGGCCHECK(hggcThreadExchangeStreamCaptureMode(&mode));
@@ -603,7 +653,7 @@ finish:
 #define ncclHggcCallocLegacy(...) ncclHggcCallocDebugLegacy(__VA_ARGS__, __FILENAME__, __LINE__)
 
 template <typename T>
-ncclResult_t ncclHggcCallocAsyncDebugLegacy(T** ptr, size_t nelem, uint64_t* pDevMemUsed, hggcStream_t stream, const char *filefunc, int line) {
+ncclResult_t ncclHggcCallocAsyncDebugLegacy(T** ptr, size_t nelem, uint64_t* pDevMemUsed, hggcStream_t stream, struct ncclMemManager* manager, const char *filefunc, int line) {
   ncclResult_t result = ncclSuccess;
   hggcStreamCaptureMode mode = hggcStreamCaptureModeRelaxed;
   *ptr = nullptr;
@@ -611,6 +661,7 @@ ncclResult_t ncclHggcCallocAsyncDebugLegacy(T** ptr, size_t nelem, uint64_t* pDe
   HGGCCHECK(hggcThreadExchangeStreamCaptureMode(&mode));
   HGGCCHECKGOTO(hggcMalloc(ptr, nelem*sizeof(T)), result, finish);
   HGGCCHECKGOTO(hggcMemsetAsync(*ptr, 0, nelem*sizeof(T), stream), result, finish);
+  if (manager && *ptr) NCCLCHECKGOTO(ncclMemTrack(manager, *ptr, nelem*sizeof(T), 0, ncclHgMemHandleType, ncclMemPersist, nelem*sizeof(T)), result, finish);
 finish:
   HGGCCHECK(hggcThreadExchangeStreamCaptureMode(&mode));
   if (*ptr == nullptr) ERROR("Failed to HGGC calloc async %ld bytes", nelem*sizeof(T));
@@ -621,12 +672,13 @@ finish:
 #define ncclHggcCallocAsyncLegacy(...) ncclHggcCallocAsyncDebugLegacy(__VA_ARGS__, __FILENAME__, __LINE__)
 
 template <typename T>
-static ncclResult_t ncclHggcFreeDebugLegacy(const char *filefunc, int line, T* ptr, int memMode=MEM_NORMAL) {
+static ncclResult_t ncclHggcFreeDebugLegacy(const char *filefunc, int line, T* ptr, int memMode = MEM_NORMAL, struct ncclMemManager* manager = nullptr) {
   ncclResult_t result = ncclSuccess;
   hggcStreamCaptureMode mode = hggcStreamCaptureModeRelaxed;
   VERBOSE(NCCL_ALLOC, "%s:%d Hggc Free pointer %p", filefunc, line, ptr);
   HGGCCHECK(hggcThreadExchangeStreamCaptureMode(&mode));
 
+  if (manager && ptr) NCCLCHECKGOTO(ncclMemUntrack(manager, (void*)ptr, 0, nullptr), result, finish);
   HGGCCHECKGOTO(hggcFree(ptr), result, finish);
   ptr = NULL;
 

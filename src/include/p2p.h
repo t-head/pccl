@@ -13,6 +13,7 @@
 
 #include <hggc.h>
 #include "core.h"
+#include "mem_manager.h"
 
 extern int useMemcpy;
 static int usingMemcpy() {
@@ -53,10 +54,12 @@ typedef union {
 } ncclIpcDesc;
 
 ncclResult_t ncclP2pAllocateShareableBuffer(size_t size, int refcount, ncclIpcDesc *ipcDesc, void **ptr,
-  uint64_t* pDevMemUsed, int memMode=MEM_NORMAL);
+  uint64_t* pDevMemUsed, int memMode=MEM_NORMAL, int peerRank=-1,
+  struct ncclMemManager* manager=nullptr, ncclMemType_t memType=ncclMemPersist);
 ncclResult_t ncclP2pFreeShareableBuffer(ncclIpcDesc *ipcDesc);
 ncclResult_t ncclP2pImportShareableBuffer(ncclComm_t comm, int tpPeer, size_t size, ncclIpcDesc *ipcDesc,
-  void **devMemPtr, int memMode=MEM_NORMAL);
+  void **devMemPtr, int memMode=MEM_NORMAL,
+  void* ownerPtr=nullptr, ncclMemType_t memType=ncclMemPersist);
 
 ncclResult_t ncclIpcLocalRegisterBuffer(ncclComm_t comm, const void* userbuff, size_t buffSize, int* peerRanks, int nPeers, ncclIpcRegType type, int* regBufFlag, uintptr_t* offsetOut, uintptr_t** peerRmtAddrsOut);
 ncclResult_t ncclIpcGraphRegisterBuffer(ncclComm_t comm, const void* userbuff, size_t buffSize, int* peerRanks, int nPeers, ncclIpcRegType type, int* regBufFlag, uintptr_t* offsetOut, uintptr_t** peerRmtAddrsOut, void* cleanupQueuePtr, int* nCleanupQueueElts);

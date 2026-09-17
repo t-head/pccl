@@ -280,6 +280,7 @@ struct ncclIpcHdr {
 };
 
 struct ncclProxyState {
+  struct ncclMemManager* memManager;
   int refCount;
   int tpRank;
   int tpnRanks;

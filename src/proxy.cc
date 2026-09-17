@@ -2013,6 +2013,7 @@ ncclResult_t ncclProxyCreate(ncclComm_t comm) {
     proxyState->pDevMemUsed = &comm->sharedRes->devMemUsed;
     proxyState->pPinnedMemUsed = &comm->sharedRes->pinnedMemUsed;
     proxyState->ownerComm = comm;
+    proxyState->memManager = comm->memManager;
 
     PTHREADCHECK(pthread_create(&comm->proxyState->thread, NULL, ncclProxyService, comm->proxyState), "pthread_create");
     ncclSetThreadName(comm->proxyState->thread, "PCCL Service %2d", comm->hggcDev);
@@ -2055,7 +2056,7 @@ ncclResult_t ncclProxyStop(ncclComm_t comm) {
               if (!ncclCuMemEnable() || sharedProxyState->sharedDevMemModes[i] != MEM_NORMAL) {
                 HGGCCHECK(hggcIpcCloseMemHandle(sharedProxyState->sharedDevMems[i]));
               } else {
-                NCCLCHECK(ncclHgMemFree(sharedProxyState->sharedDevMems[i]));
+                NCCLCHECK(ncclHgMemFree(sharedProxyState->sharedDevMems[i], sharedProxyState->memManager));
               }
             }
             int type = ncclProxyMsgClose;

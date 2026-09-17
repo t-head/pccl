@@ -25,6 +25,7 @@ struct ncclP2pBuff {
 struct ncclP2pRequest {
   size_t size;
   int refcount;
+  int peerRank;
 };
 
 struct p2pConnectInfo {
@@ -83,6 +84,8 @@ struct p2pResources {
   int sendMemSameProc;
   void* recvMemIpc;
   int recvMemSameProc;
+
+  struct ncclMemManager* ipcMemManager;
   // CE memcpy support
   struct p2pShmProxyInfo proxyInfo;
   struct p2pShm* shm;
@@ -186,13 +189,15 @@ ncclResult_t p2pCanConnect(int* ret, ncclComm_t comm, struct ncclTopoSystem* top
   } while (0)
 
 // hgMem API support
-ncclResult_t ncclP2pAllocateShareableBuffer(size_t size, int refcount, ncclIpcDesc *ipcDesc, void **ptr, uint64_t* pDevMemUsed, int memMode) {
+ncclResult_t ncclP2pAllocateShareableBuffer(size_t size, int refcount, ncclIpcDesc *ipcDesc, void **ptr, uint64_t* pDevMemUsed, int memMode, int peerRank, struct ncclMemManager* manager, ncclMemType_t memType) {
   if (ncclCuMemEnable() && (memMode == MEM_NORMAL)) {
     // hgMem API support
     HGmemAllocationHandleType type = ncclHgMemHandleType;
     HGmemGenericAllocationHandle handle;
 
-    NCCLCHECK(ncclHgMemAlloc(ptr, &handle, type, size, pDevMemUsed, nullptr, memMode));
+    struct ncclMemManager* trackManager = manager;
+    NCCLCHECK(ncclHgMemAlloc(ptr, &handle, type, size, pDevMemUsed, nullptr, memMode, trackManager, memType));
+    NCCLCHECK(ncclHggcMemset(*ptr, 0, size));
     if (type == HG_MEM_HANDLE_TYPE_POSIX_FILE_DESCRIPTOR) {
       // Return the native hgMem handle for later Export/Import via UDS
       memcpy(&ipcDesc->hgDesc.data, &handle, sizeof(handle));
@@ -203,14 +208,16 @@ ncclResult_t ncclP2pAllocateShareableBuffer(size_t size, int refcount, ncclIpcDe
       memcpy(&ipcDesc->memHandle, &handle, sizeof(handle));
       for (int r = 0; r < refcount; ++r) HGCHECK(hgMemRetainAllocationHandle(&handle, *ptr));
     }
-    NCCLCHECK(ncclHggcMemset(*ptr, 0, size));
+    if (trackManager != nullptr && peerRank >= 0 && memType != ncclMemPersist) {
+      NCCLCHECK(ncclDynMemMarkExportToPeer(trackManager, *ptr, peerRank));
+    }
   } else {
     // Allocate a HGGC buffer and generate an IPC handle for it
-    NCCLCHECK(ncclHggcCallocU2mm((char **)ptr, size, pDevMemUsed, memMode));
+    NCCLCHECK(ncclHggcCallocU2mm((char **)ptr, size, pDevMemUsed, memMode, manager));
     hggcError_t res = hggcIpcGetMemHandle(&ipcDesc->devIpc, *ptr);
     if (res != hggcSuccess) {
       WARN("hggcIpcGetMemHandle failed : %s", hggcGetErrorString(res));
-      ncclHggcFree(*ptr);
+      ncclHggcFree(*ptr, memMode, manager);
       HGGCCHECK(res);
     }
   }
@@ -223,7 +230,7 @@ ncclResult_t ncclP2pFreeShareableBuffer(ncclIpcDesc *ipcDesc) {
   return ncclSuccess;
 }
 
-ncclResult_t ncclP2pImportShareableBuffer(ncclComm_t comm, int peer, size_t size, ncclIpcDesc *ipcDesc, void **devMemPtr, int memMode) {
+ncclResult_t ncclP2pImportShareableBuffer(ncclComm_t comm, int peer, size_t size, ncclIpcDesc *ipcDesc, void **devMemPtr, int memMode, void* ownerPtr, ncclMemType_t memType) {
   if (ncclCuMemEnable() && (memMode == MEM_NORMAL)) {
     // hgMem API support
     HGdeviceptr dptr = 0;
@@ -270,6 +277,20 @@ ncclResult_t ncclP2pImportShareableBuffer(ncclComm_t comm, int peer, size_t size
     VERBOSE(NCCL_P2P, "Set Access for %p size %zi sizeAlignedPhy %zi sizeAlignedVir %zi on dev %d", (void*)dptr, size, sizeAlignedPhy, sizeAlignedVir, accessDesc.location.id);
 
     *devMemPtr = (void *)dptr;
+
+    // Track imported buffer
+    if (comm->memManager != nullptr && (memType == ncclMemPersist || ownerPtr != nullptr)) {
+      int ownerDev = (comm->peerInfo && comm->peerInfoValid && peer >= 0 && peer < comm->nRanks) ? comm->peerInfo[peer].hggcDev : -1;
+      // import sizeAlignedPhy
+      ncclResult_t tracked = ncclMemTrackImportFromPeer(comm->memManager, *devMemPtr, sizeAlignedPhy, handle, type, memType, peer, ownerDev, ownerPtr, sizeAlignedVir);
+      if (tracked != ncclSuccess) {
+        HGCHECKIGNORE(hgMemUnmap(dptr, sizeAlignedPhy));
+        HGCHECKIGNORE(hgMemRelease(handle));
+        HGCHECKIGNORE(hgMemAddressFree(dptr, sizeAlignedVir));
+        *devMemPtr = nullptr;
+        return tracked;
+      }
+    }
 
     INFO(NCCL_P2P, "Imported shareable buffer device %d size %zi sizeAlignedPhy %zi sizeAlignedVir %zi ptr %p via HGMEM", comm->hggcDev, size, sizeAlignedPhy, sizeAlignedVir, *devMemPtr);
   } else {
@@ -318,8 +339,24 @@ static ncclResult_t p2pMap(ncclComm_t comm, struct ncclPeerInfo* myInfo, struct 
       if (ncclCuMemEnable()) {
         // for intra-process ranks, we should map memHandle of the peers to increase refcount.
         // Otherwise, if peers abort and free the buffer, the rank can suffer invalid access.
-        NCCLCHECK(ncclHgMemAllocAddr(devMem, &p2pBuff->ipcDesc.memHandle, p2pBuff->size, usingMemcpy() ? &peerInfo->hggcDev : NULL));
-        HGCHECK(hgMemRelease(p2pBuff->ipcDesc.memHandle));
+        size_t reservationSize = 0;
+        NCCLCHECK(ncclHgMemAllocAddr(devMem, &p2pBuff->ipcDesc.memHandle, p2pBuff->size, usingMemcpy() ? &peerInfo->hggcDev : NULL, &reservationSize));
+        if (comm->memManager) {
+          // Transfer the exporter-retained reference to the tracked import.
+          size_t mappedSize = 0;
+          HGCHECK(hgMemGetAddressRange(NULL, &mappedSize, (HGdeviceptr)*devMem));
+          ncclResult_t tracked = ncclMemTrackImportFromPeer(comm->memManager, *devMem,
+            mappedSize, p2pBuff->ipcDesc.memHandle, ncclHgMemHandleType, ncclMemOffload,
+            peerInfo->rank, peerInfo->hggcDev, p2pBuff->directPtr, reservationSize);
+          if (tracked != ncclSuccess) {
+            NCCLCHECK(ncclHgMemFreeAddr(*devMem));
+            HGCHECK(hgMemRelease(p2pBuff->ipcDesc.memHandle));
+            *devMem = nullptr;
+            return tracked;
+          }
+        } else {
+          HGCHECK(hgMemRelease(p2pBuff->ipcDesc.memHandle));
+        }
         *ipcPtr = *devMem;
       } else {
         *devMem = p2pBuff->directPtr;
@@ -331,7 +368,7 @@ static ncclResult_t p2pMap(ncclComm_t comm, struct ncclPeerInfo* myInfo, struct 
     }
   } else {
     // Different PID
-    NCCLCHECK(ncclP2pImportShareableBuffer(comm, peerInfo->rank, p2pBuff->size, &p2pBuff->ipcDesc, devMem));
+    NCCLCHECK(ncclP2pImportShareableBuffer(comm, peerInfo->rank, p2pBuff->size, &p2pBuff->ipcDesc, devMem, MEM_NORMAL, p2pBuff->directPtr, ncclMemOffload));
     *ipcPtr = *devMem;
   }
   p2pInfo->minPathNum = 0;
@@ -384,6 +421,8 @@ ncclResult_t p2pSendSetup(ncclComm_t comm, struct ncclTopoGraph* graph, struct n
   memset(&req, '\0', sizeof(req));
   req.size = sendSize;
   req.refcount = 0;
+  // peerInfo->rank is the rank that will import this buffer in p2pRecvConnect.
+  req.peerRank = peerInfo->rank;
   if (PCCL_SAME_PID((comm->peerInfo + info->rank), peerInfo) && (comm->peerInfo[info->rank].hggcDev != peerInfo->hggcDev)) req.refcount++;
   if (PCCL_SAME_PID((comm->peerInfo + info->rank), myInfo) && (comm->peerInfo[info->rank].hggcDev != myInfo->hggcDev)) req.refcount++;
   NCCLCHECK(ncclProxyConnect(comm, TRANSPORT_P2P, 1, info->rank, &send->proxyConn));
@@ -396,6 +435,7 @@ ncclResult_t p2pSendSetup(ncclComm_t comm, struct ncclTopoGraph* graph, struct n
     NCCLCHECK(p2pMap(comm, myInfo, comm->peerInfo+info->rank, info, (void**)&resources->sendDevMem, &resources->sendMemIpc));
     resources->sendMemSameProc = PCCL_SAME_PID(myInfo, (comm->peerInfo + info->rank));
   }
+  if (ncclCuMemEnable()) resources->ipcMemManager = comm->memManager;
 
   return ncclSuccess;
 }
@@ -439,12 +479,14 @@ ncclResult_t p2pRecvSetup(ncclComm_t comm, struct ncclTopoGraph* graph, struct n
   memset(&req, '\0', sizeof(req));
   req.size = recvSize;
   req.refcount = 0;
+  req.peerRank = peerInfo->rank;
   if (PCCL_SAME_PID((comm->peerInfo + info->rank), peerInfo) && (comm->peerInfo[info->rank].hggcDev != peerInfo->hggcDev)) req.refcount++;
   if (PCCL_SAME_PID((comm->peerInfo + info->rank), myInfo) && (comm->peerInfo[info->rank].hggcDev != myInfo->hggcDev)) req.refcount++;
   NCCLCHECK(ncclProxyConnect(comm, TRANSPORT_P2P, 0, info->rank, &recv->proxyConn));
   NCCLCHECK(ncclProxyCallBlocking(comm, &recv->proxyConn, ncclProxyMsgSetup, &req, sizeof(struct ncclP2pRequest), &info->p2pBuff, sizeof(struct ncclP2pBuff)));
   NCCLCHECK(p2pMap(comm, myInfo, comm->peerInfo+info->rank, info, (void**)&resources->recvDevMem, &resources->recvMemIpc));
   resources->recvMemSameProc = PCCL_SAME_PID(myInfo, (comm->peerInfo + info->rank));
+  if (ncclCuMemEnable()) resources->ipcMemManager = comm->memManager;
 
   return ncclSuccess;
 }
@@ -531,18 +573,18 @@ ncclResult_t p2pSendFree(struct ncclConnector* send) {
     if (ncclCuMemEnable()) {
       // hgMem API support
       if (resources->sendMemIpc) {
-        if (resources->sendMemSameProc) {
+        if (resources->sendMemSameProc && !resources->ipcMemManager) {
           NCCLCHECK(ncclHgMemFreeAddr(resources->sendMemIpc));
         } else {
-          NCCLCHECK(ncclHggcFree(resources->sendMemIpc));
+          NCCLCHECK(ncclHggcFree(resources->sendMemIpc, MEM_NORMAL, resources->ipcMemManager));
         }
       }
 
       if (resources->recvMemIpc) {
-        if (resources->recvMemSameProc) {
+        if (resources->recvMemSameProc && !resources->ipcMemManager) {
           NCCLCHECK(ncclHgMemFreeAddr(resources->recvMemIpc));
         } else {
-          NCCLCHECK(ncclHggcFree(resources->recvMemIpc));
+          NCCLCHECK(ncclHggcFree(resources->recvMemIpc, MEM_NORMAL, resources->ipcMemManager));
         }
       }
     }
@@ -561,18 +603,18 @@ ncclResult_t p2pRecvFree(struct ncclConnector* recv) {
     if (ncclCuMemEnable()) {
       // hgMem API support
       if (resources->sendMemIpc) {
-        if (resources->sendMemSameProc) {
+        if (resources->sendMemSameProc && !resources->ipcMemManager) {
           NCCLCHECK(ncclHgMemFreeAddr(resources->sendMemIpc));
         } else {
-          NCCLCHECK(ncclHggcFree(resources->sendMemIpc));
+          NCCLCHECK(ncclHggcFree(resources->sendMemIpc, MEM_NORMAL, resources->ipcMemManager));
         }
       }
 
       if (resources->recvMemIpc) {
-        if (resources->recvMemSameProc) {
+        if (resources->recvMemSameProc && !resources->ipcMemManager) {
           NCCLCHECK(ncclHgMemFreeAddr(resources->recvMemIpc));
         } else {
-          NCCLCHECK(ncclHggcFree(resources->recvMemIpc));
+          NCCLCHECK(ncclHggcFree(resources->recvMemIpc, MEM_NORMAL, resources->ipcMemManager));
         }
       }
     }
@@ -594,7 +636,7 @@ static ncclResult_t p2pSendProxySetup(struct ncclProxyConnection* connection, st
     NCCLCHECK(ncclCalloc(&proxyInfo, 1));
     connection->transportResources = proxyInfo;
 
-    NCCLCHECK(ncclHggcCalloc(&proxyInfo->ceDevBuff, proxyState->buffSizes[NCCL_PROTO_SIMPLE], proxyState->pDevMemUsed));
+    NCCLCHECK(ncclHggcCalloc(&proxyInfo->ceDevBuff, proxyState->buffSizes[NCCL_PROTO_SIMPLE], proxyState->pDevMemUsed, proxyState->memManager));
 
     char shmPath[PATH_MAX];
     shmPath[0] = '\0';
@@ -613,7 +655,8 @@ static ncclResult_t p2pSendProxySetup(struct ncclProxyConnection* connection, st
     int size = req->size;
     if (respSize != sizeof(struct ncclP2pBuff)) return ncclInternalError;
     struct ncclP2pBuff* p2pBuff = (struct ncclP2pBuff*)respBuff;
-    NCCLCHECK(ncclP2pAllocateShareableBuffer(size, req->refcount, &p2pBuff->ipcDesc, &p2pBuff->directPtr, proxyState->pDevMemUsed, MEM_NORMAL));
+    struct ncclMemManager* manager = proxyState->memManager;
+    NCCLCHECK(ncclP2pAllocateShareableBuffer(size, req->refcount, &p2pBuff->ipcDesc, &p2pBuff->directPtr, proxyState->pDevMemUsed, MEM_NORMAL, req->peerRank, manager, ncclMemOffload));
     p2pBuff->size = size;
     if (ncclCuMemEnable()) {
       // hgMem API support
@@ -635,7 +678,8 @@ static ncclResult_t p2pRecvProxySetup(struct ncclProxyConnection* connection, st
   int size = req->size;
   if (respSize != sizeof(struct ncclP2pBuff)) return ncclInternalError;
   struct ncclP2pBuff* p2pBuff = (struct ncclP2pBuff*)respBuff;
-  NCCLCHECK(ncclP2pAllocateShareableBuffer(size, req->refcount, &p2pBuff->ipcDesc, &p2pBuff->directPtr, proxyState->pDevMemUsed, MEM_NORMAL));
+  struct ncclMemManager* manager = proxyState->memManager;
+  NCCLCHECK(ncclP2pAllocateShareableBuffer(size, req->refcount, &p2pBuff->ipcDesc, &p2pBuff->directPtr, proxyState->pDevMemUsed, MEM_NORMAL, req->peerRank, manager, ncclMemOffload));
   p2pBuff->size = size;
   if (ncclCuMemEnable()) {
     // hgMem API support
@@ -670,7 +714,7 @@ static ncclResult_t p2pSendProxyFree(struct ncclProxyConnection* connection, str
     if (proxyInfo) {
       NCCLCHECK(ncclShmClose(proxyInfo->shm, proxyInfo->devShm, proxyInfo->shmSize));
       NCCLCHECK(ncclHggcHostFree(proxyInfo->ceRecvMem));
-      NCCLCHECK(ncclHggcFree(proxyInfo->ceDevBuff));
+      NCCLCHECK(ncclHggcFree(proxyInfo->ceDevBuff, MEM_NORMAL, proxyState->memManager));
       HGGCCHECK(hggcStreamDestroy(proxyInfo->stream));
       for (int i=0; i<NCCL_STEPS; i++) {
         HGGCCHECK(hggcEventDestroy(proxyInfo->events[i]));
@@ -684,12 +728,12 @@ static ncclResult_t p2pSendProxyFree(struct ncclProxyConnection* connection, str
       if (proxyInfo) {
         struct ncclP2pBuff *p2pBuff = &proxyInfo->p2pBuff;
         NCCLCHECK(ncclP2pFreeShareableBuffer(&p2pBuff->ipcDesc));
-        NCCLCHECK(ncclHggcFree(p2pBuff->directPtr));
+        NCCLCHECK(ncclHggcFree(p2pBuff->directPtr, MEM_NORMAL, proxyState->memManager));
         NCCLCHECK(ncclFree(proxyInfo));
       }
     } else {
       // Do not check return code as CUDA may have already shut down
-      NCCLCHECK(ncclHggcFree(connection->transportResources));
+      NCCLCHECK(ncclHggcFree(connection->transportResources, MEM_NORMAL, proxyState->memManager));
     }
   }
   return ncclSuccess;
@@ -701,12 +745,12 @@ static ncclResult_t p2pRecvProxyFree(struct ncclProxyConnection* connection, str
     if (proxyInfo) {
       struct ncclP2pBuff *p2pBuff = &proxyInfo->p2pBuff;
       NCCLCHECK(ncclP2pFreeShareableBuffer(&p2pBuff->ipcDesc));
-      NCCLCHECK(ncclHggcFree(p2pBuff->directPtr));
+      NCCLCHECK(ncclHggcFree(p2pBuff->directPtr, MEM_NORMAL, proxyState->memManager));
       NCCLCHECK(ncclFree(proxyInfo));
     }
   } else {
     // Do not check return code as CUDA may have already shut down
-    NCCLCHECK(ncclHggcFree(connection->transportResources));
+    NCCLCHECK(ncclHggcFree(connection->transportResources, MEM_NORMAL, proxyState->memManager));
   }
   return ncclSuccess;
 }
@@ -902,7 +946,7 @@ static ncclResult_t ipcRegisterBuffer(ncclComm_t comm, const void* userbuff, siz
         /*hggcStream_t hostStream, deviceStream;*/
         NCCLCHECKGOTO(ncclStrongStreamAcquireUncaptured(&comm->sharedRes->hostStream), ret, fail);
         if (regRecord->regIpcAddrs.devPeerRmtAddrs == NULL) {
-          NCCLCHECKGOTO(ncclHggcCallocAsync(&regRecord->regIpcAddrs.devPeerRmtAddrs, comm->localRanks, NULL, comm->sharedRes->hostStream.hggcStream), ret, fail);
+          NCCLCHECKGOTO(ncclHggcCallocAsync(&regRecord->regIpcAddrs.devPeerRmtAddrs, comm->localRanks, NULL, comm->sharedRes->hostStream.hggcStream, comm->memManager), ret, fail);
         }
         NCCLCHECKGOTO(ncclHggcMemcpyAsync(regRecord->regIpcAddrs.devPeerRmtAddrs, regRecord->regIpcAddrs.hostPeerRmtAddrs, comm->localRanks, comm->sharedRes->hostStream.hggcStream), ret, fail);
         NCCLCHECKGOTO(ncclStrongStreamWaitStream(ncclCudaGraphNone(), &comm->sharedRes->deviceStream, &comm->sharedRes->hostStream), ret, fail);

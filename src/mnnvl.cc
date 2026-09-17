@@ -83,7 +83,7 @@ ncclResult_t ncclMnnvlCheck(ncclComm_t comm) {
     HGresult err;
 
     // Allocate FABRIC handle compatible memory
-    ncclResult_t ret = ncclHgMemAlloc(&ptr, &handle, HG_MEM_HANDLE_TYPE_FABRIC, HGGC_IPC_MIN, NULL, NULL);
+    ncclResult_t ret = ncclHgMemAlloc(&ptr, &handle, HG_MEM_HANDLE_TYPE_FABRIC, HGGC_IPC_MIN, NULL, NULL, MEM_NORMAL, comm->memManager, ncclMemOffload);
     if (ret != ncclSuccess) {
       // Return an error if this is a MNNVL capable system but FABRIC handles are not supported
       ERROR("MNNVL (cliqueSize %d) is available but not working on this system. Check the IMEX channel configuration (/dev/alixpu-caps-imex-channels). Set PCCL_MNNVL_ENABLE=0 to ignore this issue.",
@@ -95,13 +95,13 @@ ncclResult_t ncclMnnvlCheck(ncclComm_t comm) {
         (err = hgMemImportFromShareableHandle(&handle, (void*)&hgDesc, HG_MEM_HANDLE_TYPE_FABRIC)) != HGGC_SUCCESS) {
       const char *errStr;
       hgGetErrorString(err, &errStr);
-      NCCLCHECK(ncclHgMemFree(ptr));
+      NCCLCHECK(ncclHgMemFree(ptr, comm->memManager));
       // Return an error if this is a MNNVL capable system but it's not working
       ERROR("MNNVL (cliqueSize %d) is available but not working on this system. Check the IMEX configuration (ptg-imex-ctl -N). Set PCCL_MNNVL_ENABLE=0 to ignore this issue.",
             comm->clique.size);
       return ncclSystemError;
     }
-    NCCLCHECK(ncclHgMemFree(ptr));
+    NCCLCHECK(ncclHgMemFree(ptr, comm->memManager));
 
     // Force the CUMEM handle type to be FABRIC for MNNVL
     ncclHgMemHandleType = HG_MEM_HANDLE_TYPE_FABRIC;

@@ -26,6 +26,7 @@
 #include "u2mm.h"
 #include "utils.h"
 #include "gin.h"
+#include "mem_manager.h"
 #include <fcntl.h>
 #include <string.h>
 #include <errno.h>
@@ -202,7 +203,7 @@ static ncclResult_t pcclOkiDestroyResources(ncclComm_t comm) {
     comm->okiQps[i] = nullptr;
   }
   HGGCCHECK(hggcFreeHost(comm->okiQps));
-  NCCLCHECK(ncclHggcFree(comm->okiDependencyAddr));
+  NCCLCHECK(ncclHggcFree(comm->okiDependencyAddr, MEM_NORMAL, comm->memManager));
   LT_OKI_CHECK(ltOkiCloseDevice(comm->okiDevice));
   comm->okiQps = NULL;
   comm->okiDevice = NULL;
@@ -245,7 +246,7 @@ ncclResult_t initExtKernelPlugin(ncclComm_t comm) {
           }
         }
       }
-      NCCLCHECK(ncclP2pAllocateShareableBuffer(extKernelDevWorkspaceSize, refCount, &(comm->extKernelPluginWorkspace.ipcDesc), &comm->extKernelPluginWorkspace.devPtr, &(comm->devMemUsed), MEM_NORMAL));
+      NCCLCHECK(ncclP2pAllocateShareableBuffer(extKernelDevWorkspaceSize, refCount, &(comm->extKernelPluginWorkspace.ipcDesc), &comm->extKernelPluginWorkspace.devPtr, &(comm->devMemUsed), MEM_NORMAL, -1, comm->memManager, ncclMemPersist));
     } else {
       NCCLCHECK(pcclExtKernelPluginUnload(comm));
     }
@@ -260,7 +261,7 @@ ncclResult_t destroyExtKernelPlugin(ncclComm_t comm) {
       if (comm->extKernelPluginWorkspace.sameProc[i]) {
         NCCLCHECK(ncclHgMemFreeAddr(comm->extKernelPluginWorkspace.peerIpcPtrs[i]));
       } else {
-        NCCLCHECK(ncclHggcFree(comm->extKernelPluginWorkspace.peerIpcPtrs[i]));
+        NCCLCHECK(ncclHggcFree(comm->extKernelPluginWorkspace.peerIpcPtrs[i], MEM_NORMAL, comm->memManager));
       }
     } else {
       HGGCCHECK(hggcIpcCloseMemHandle(comm->extKernelPluginWorkspace.peerIpcPtrs[i]));
@@ -268,7 +269,7 @@ ncclResult_t destroyExtKernelPlugin(ncclComm_t comm) {
     comm->extKernelPluginWorkspace.peerIpcPtrs[i] = NULL;
   }
   comm->extKernelPluginWorkspace.peerIpcPtrNum = 0;
-  NCCLCHECK(ncclHggcFree(comm->extKernelPluginWorkspace.devPtr));
+  NCCLCHECK(ncclHggcFree(comm->extKernelPluginWorkspace.devPtr, MEM_NORMAL, comm->memManager));
   comm->extKernel->kernelPluginDestroy(comm->extKernelPluginWorkspace.extKernelPluginParams);
   NCCLCHECK(pcclExtKernelPluginUnload(comm));
 
@@ -323,7 +324,7 @@ ncclResult_t buildConnectionForExtKernelPlugin(ncclComm_t comm) {
       }
     } else {
       void *ptr;
-      NCCLCHECKGOTO(ncclP2pImportShareableBuffer(comm, peer, peerMemInfo[peer].size, &peerMemInfo[peer].ipcDesc, &ptr), res, fail);
+      NCCLCHECKGOTO(ncclP2pImportShareableBuffer(comm, peer, peerMemInfo[peer].size, &peerMemInfo[peer].ipcDesc, &ptr, MEM_NORMAL, peerMemInfo[peer].directPtr, ncclMemPersist), res, fail);
       buffers[peer] = ptr;
       comm->extKernelPluginWorkspace.sameProc[comm->extKernelPluginWorkspace.peerIpcPtrNum] = false;
       comm->extKernelPluginWorkspace.peerIpcPtrs[comm->extKernelPluginWorkspace.peerIpcPtrNum++] = ptr;
@@ -498,12 +499,12 @@ static ncclResult_t commFree(ncclComm_t comm) {
   if (comm->bootstrap)
     NCCLCHECK(bootstrapClose(comm->bootstrap));
 
-  NCCLCHECK(ncclHggcFreeLegacy(comm->hostDevComm.comm.channels));
-  NCCLCHECK(ncclHggcFreeLegacy(comm->hostDevComm.comm.rankToLocalRank));
-  NCCLCHECK(ncclHggcFreeLegacy(comm->devComm));
+  NCCLCHECK(ncclHggcFreeLegacy(comm->hostDevComm.comm.channels, MEM_NORMAL, comm->memManager));
+  NCCLCHECK(ncclHggcFreeLegacy(comm->hostDevComm.comm.rankToLocalRank, MEM_NORMAL, comm->memManager));
+  NCCLCHECK(ncclHggcFreeLegacy(comm->devComm, MEM_NORMAL, comm->memManager));
 
   for (int channel=0; channel<MAXCHANNELS; channel++)
-    NCCLCHECK(freeChannel(comm->channels+channel, comm->nRanks));
+    NCCLCHECK(freeChannel(comm->channels+channel, comm->nRanks, comm));
 
   NCCLCHECK(ncclGinHostFinalize(comm));
 
@@ -513,7 +514,7 @@ static ncclResult_t commFree(ncclComm_t comm) {
     if (sharedResRefCount == 0) {
       for (int c=0; c<MAXCHANNELS; c++) {
         if (comm->sharedRes->peers[c]) NCCLCHECK(ncclFree(comm->sharedRes->peers[c]));
-        if (comm->sharedRes->devPeers[c]) NCCLCHECK(ncclHggcFreeLegacy(comm->sharedRes->devPeers[c]));
+        if (comm->sharedRes->devPeers[c]) NCCLCHECK(ncclHggcFree(comm->sharedRes->devPeers[c], MEM_NORMAL, comm->memManager));
       }
       NCCLCHECK(ncclFree(comm->sharedRes->tpRankToLocalRank));
       NCCLCHECK(ncclStrongStreamDestruct(&comm->sharedRes->hostStream));
@@ -526,7 +527,7 @@ static ncclResult_t commFree(ncclComm_t comm) {
 
   if (comm->workFifoBufGdrHandle) {
     // GDRCOPY support
-    NCCLCHECK(ncclGdrCudaFree(comm->workFifoBufGdrHandle));
+    NCCLCHECK(ncclGdrCudaFree(comm->workFifoBufGdrHandle, comm->memManager));
   } else {
     if(comm->workFifoBufDev != comm->workFifoBuf) {
       ERROR("comm->workFifoBufDev(%p) is not equal to comm->workFifoBuf(%p)", comm->workFifoBufDev, comm->workFifoBuf);
@@ -598,6 +599,19 @@ static ncclResult_t commFree(ncclComm_t comm) {
   if (sharedResRefCount == 0) {
     NCCLCHECK(ncclGinFinalize(comm));
   }
+
+  // Free any pending suspend/resume tasks
+  while (!ncclIntruQueueEmpty(&comm->suspendTaskQueue)) {
+    struct ncclMemManagerTask* task = ncclIntruQueueDequeue(&comm->suspendTaskQueue);
+    ncclFree(task);
+  }
+  while (!ncclIntruQueueEmpty(&comm->resumeTaskQueue)) {
+    struct ncclMemManagerTask* task = ncclIntruQueueDequeue(&comm->resumeTaskQueue);
+    ncclFree(task);
+  }
+
+  NCCLCHECK(ncclMemManagerDestroy(comm));
+
   NCCLCHECK(ncclFree(comm));
 
   if (ncclPerfmodelSpeedup) {
@@ -666,6 +680,16 @@ static ncclResult_t commAlloc(ncclComm_t comm, ncclComm_t parentComm, int ndev, 
   comm->nRanks = comm->hostDevComm.comm.nRanks = ndev;
   comm->hostDevComm.comm.stateMonitorLevel = ncclParamStateMonitorLevelFlag;
   hggcGetDevice(&comm->hggcDev);
+  // Initialize memory manager
+  if (parentComm && parentComm->shareResources && parentComm->memManager) {
+    // Share parent's memory manager
+    comm->memManager = parentComm->memManager;
+    ncclAtomicRefCountIncrement(&comm->memManager->refCount);
+    INFO(NCCL_INIT, "MemManager: Shared from parent, refCount=%d", comm->memManager->refCount);
+  } else {
+    // Create new memory manager
+    NCCLCHECK(ncclMemManagerInit(comm));
+  }
   NCCLCHECK(getBusId(comm->hggcDev, &comm->busId));
   bool obtainHgmlInfo = false;
   if (pcclHgmlEnsureInitialized() == ncclSuccess) {
@@ -716,6 +740,8 @@ static ncclResult_t commAlloc(ncclComm_t comm, ncclComm_t parentComm, int ndev, 
 
   // Mark channels as non initialized.
   for (int c=0; c<MAXCHANNELS; c++) comm->channels[c].id = -1;
+  ncclIntruQueueConstruct(&comm->suspendTaskQueue);
+  ncclIntruQueueConstruct(&comm->resumeTaskQueue);
 
   if (parentComm == NULL || !parentComm->shareResources) {
     NCCLCHECK(ncclCalloc(&comm->sharedRes, 1));
@@ -790,7 +816,7 @@ static ncclResult_t devCommSetup(ncclComm_t comm) {
   NCCLCHECK(ncclStrongStreamAcquireUncaptured(&comm->sharedRes->deviceStream));
   // Duplicate the channels on the device
   int nChannels = std::max(comm->nChannels, comm->p2pnChannels);
-  NCCLCHECK(ncclHggcCallocAsyncLegacy(&comm->hostDevComm.comm.channels, nChannels, &(comm->devMemUsed), comm->sharedRes->deviceStream.hggcStream));
+  NCCLCHECK(ncclHggcCallocAsyncLegacy(&comm->hostDevComm.comm.channels, nChannels, &(comm->devMemUsed), comm->sharedRes->deviceStream.hggcStream, comm->memManager));
   NCCLCHECK(ncclHggcMemcpyAsync(comm->hostDevComm.comm.channels, comm->channels, nChannels, comm->sharedRes->deviceStream.hggcStream));
 
   // Alloc profiler counters for the kernel
@@ -806,7 +832,7 @@ static ncclResult_t devCommSetup(ncclComm_t comm) {
   }
 
   int* rankToLocalRank;
-  NCCLCHECK(ncclHggcCallocAsyncLegacy(&rankToLocalRank, comm->nRanks, &(comm->devMemUsed), comm->sharedRes->deviceStream.hggcStream));
+  NCCLCHECK(ncclHggcCallocAsyncLegacy(&rankToLocalRank, comm->nRanks, &(comm->devMemUsed), comm->sharedRes->deviceStream.hggcStream, comm->memManager));
   NCCLCHECK(ncclHggcMemcpyAsync(rankToLocalRank, comm->rankToLocalRank, comm->nRanks, comm->sharedRes->deviceStream.hggcStream));
   comm->hostDevComm.comm.rankToLocalRank = rankToLocalRank;
 
@@ -825,7 +851,7 @@ static ncclResult_t devCommSetup(ncclComm_t comm) {
 
   if (ncclGdrCopy != NULL && ncclParamGdrCopyFifoEnable() == 1) {
     // The workFifoBuf lives in GDR mapped CUDA memory.
-    NCCLCHECK(ncclGdrCudaCalloc((char**)(&comm->workFifoBuf), (char**)(&comm->workFifoBufDev), comm->workFifoBytes, &comm->workFifoBufGdrHandle, &(comm->devMemUsed)));
+    NCCLCHECK(ncclGdrCudaCalloc((char**)(&comm->workFifoBuf), (char**)(&comm->workFifoBufDev), comm->workFifoBytes, &comm->workFifoBufGdrHandle, &(comm->devMemUsed), comm->memManager));
   } else {
     // The workFifoBuf lives in hggcHost memory.
     comm->workFifoBufGdrHandle = nullptr;
@@ -850,7 +876,7 @@ static ncclResult_t devCommSetup(ncclComm_t comm) {
   }
 
   // Duplicate the dev comm on the device
-  NCCLCHECK(ncclHggcCallocAsyncLegacy(reinterpret_cast<ncclKernelCommAndChannels**>(&comm->devComm), 1, &(comm->devMemUsed), comm->sharedRes->deviceStream.hggcStream));
+  NCCLCHECK(ncclHggcCallocAsyncLegacy(reinterpret_cast<ncclKernelCommAndChannels**>(&comm->devComm), 1, &(comm->devMemUsed), comm->sharedRes->deviceStream.hggcStream, comm->memManager));
   NCCLCHECK(ncclHggcMemcpyAsync(reinterpret_cast<ncclKernelCommAndChannels*>(comm->devComm), &comm->hostDevComm, 1, comm->sharedRes->deviceStream.hggcStream));
 
   NCCLCHECK(ncclStrongStreamSynchronize(&comm->sharedRes->deviceStream));
@@ -1789,7 +1815,7 @@ exit:
   // restore the affinity.
   if (CPU_COUNT(&comm->cpuAffinity)) sched_setaffinity(0, sizeof(cpu_set_t), &affinitySave);
   // Unlink proxy shm to make sure it will be properly cleaned up.
-  if (comm->sharedRes->owner == comm && !comm->config.splitShare && res == ncclSuccess && !ncclCuMemEnable()) NCCLCHECK(ncclProxyShmUnlink(comm));
+  if (comm->sharedRes->owner == comm && !comm->shareResources && res == ncclSuccess && !ncclCuMemEnable()) NCCLCHECK(ncclProxyShmUnlink(comm));
   NCCLCHECK(ncclFree(allGather3Data));
   NCCLCHECK(ncclFree(nodesFirstRank));
   NCCLCHECK(ncclFree(nodesTreePatterns));
@@ -2027,7 +2053,7 @@ static ncclResult_t ncclCommInitRankFunc(struct ncclAsyncJob* job_) {
          maxQPNum, remotePairs, ppuDiesNum);
     // Allocate PCCL-managed dependency fence address, used as the cross-collective
     // trigger point (written by gpuBarrierWithTrigger, read by okiMemcpyBatchAsync).
-    NCCLCHECKGOTO(ncclHggcCalloc(&comm->okiDependencyAddr, 1, &comm->devMemUsed), res, fail);
+    NCCLCHECKGOTO(ncclHggcCalloc(&comm->okiDependencyAddr, 1, &comm->devMemUsed, comm->memManager), res, fail);
   }
 #endif
 

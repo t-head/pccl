@@ -41,10 +41,10 @@ ncclResult_t initChannel(ncclComm_t comm, int channelId) {
 
   if (channel->devPeers == NULL) {
     if (sharedRes->devPeers[channelId] == NULL) {
-      NCCLCHECK(ncclHggcCallocLegacy(sharedRes->devPeers + channelId, sharedRes->tpNRanks, &(sharedRes->devMemUsed)));
+      NCCLCHECK(ncclHggcCalloc(sharedRes->devPeers + channelId, sharedRes->tpNRanks, &(sharedRes->devMemUsed), comm->memManager, ncclMemOffload));
     }
     /* channel->devPeers is not shared, so just free it when calling commFree() */
-    NCCLCHECK(ncclHggcCallocLegacy(&channel->devPeers, nPeers, &(comm->devMemUsed)));
+    NCCLCHECK(ncclHggcCalloc(&channel->devPeers, nPeers, &(comm->devMemUsed), comm->memManager, ncclMemOffload));
     NCCLCHECK(ncclCalloc(&channel->devPeersHostPtr, nPeers));
     for (int r = 0; r < nRanks; r++) {
       uintptr_t addr = (uintptr_t)(comm->sharedRes->devPeers[channelId] + comm->topParentRanks[r]);
@@ -56,19 +56,19 @@ ncclResult_t initChannel(ncclComm_t comm, int channelId) {
   NCCLCHECK(ncclStrongStreamAcquireUncaptured(&comm->sharedRes->deviceStream));
 
   // Ring index to user rank table.
-  NCCLCHECK(ncclHggcCallocAsyncLegacy(&channel->ring.devUserRanks, comm->nRanks, &(comm->devMemUsed), comm->sharedRes->deviceStream.hggcStream));
+  NCCLCHECK(ncclHggcCallocAsync(&channel->ring.devUserRanks, comm->nRanks, &(comm->devMemUsed), comm->sharedRes->deviceStream.hggcStream, comm->memManager, ncclMemOffload));
   NCCLCHECK(ncclCalloc(&channel->ring.userRanks, comm->nRanks));
 
   channel->nSpinsBeforeReportHang = DIVUP(ncclParamStateMonitorTimeoutMs, 1e3) * SPINS_BEFORE_REPORT_HANG_PER_SEC;
   NCCLCHECK(ncclHggcHostCalloc(&channel->hostDevIndexLevel1, 1, &(comm->pinnedMemUsed)));
   NCCLCHECK(ncclHggcHostCalloc(&channel->hostDevIndexLevel2, 1, &(comm->pinnedMemUsed)));
-  NCCLCHECK(ncclHggcCallocAsyncLegacy(&channel->devIndexLevel1, 1, &(comm->devMemUsed), comm->sharedRes->deviceStream.hggcStream));
-  NCCLCHECK(ncclHggcCallocAsyncLegacy(&channel->devPerKernelBatchCounter, 1, &(comm->devMemUsed), comm->sharedRes->deviceStream.hggcStream));
+  NCCLCHECK(ncclHggcCallocAsyncLegacy(&channel->devIndexLevel1, 1, &(comm->devMemUsed), comm->sharedRes->deviceStream.hggcStream, comm->memManager));
+  NCCLCHECK(ncclHggcCallocAsyncLegacy(&channel->devPerKernelBatchCounter, 1, &(comm->devMemUsed), comm->sharedRes->deviceStream.hggcStream, comm->memManager));
 
 #ifdef NO_TSM
-  NCCLCHECK(ncclHggcCallocAsyncLegacy(&channel->shmem, 1, &(comm->devMemUsed), comm->sharedRes->deviceStream.hggcStream));
+  NCCLCHECK(ncclHggcCallocAsyncLegacy(&channel->shmem, 1, &(comm->devMemUsed), comm->sharedRes->deviceStream.hggcStream, comm->memManager));
   if (pcclPatEnable(comm)) {
-    NCCLCHECK(ncclHggcCallocAsyncLegacy((char**)&channel->patShmem, NCCL_PAT_SHMEM_SIZE, &(comm->devMemUsed), comm->sharedRes->deviceStream.hggcStream));
+    NCCLCHECK(ncclHggcCallocAsyncLegacy((char**)&channel->patShmem, NCCL_PAT_SHMEM_SIZE, &(comm->devMemUsed), comm->sharedRes->deviceStream.hggcStream, comm->memManager));
   } else {
     channel->patShmem = nullptr;
   }
@@ -80,8 +80,9 @@ ncclResult_t initChannel(ncclComm_t comm, int channelId) {
   return ncclSuccess;
 }
 
-ncclResult_t freeChannel(struct ncclChannel* channel, int nRanks) {
+ncclResult_t freeChannel(struct ncclChannel* channel, int nRanks, ncclComm_t comm) {
   int nPeers = nRanks + 1;
+  struct ncclMemManager* manager = comm->memManager;
   if (channel->id == -1) return ncclSuccess;
 
   NCCLCHECK(ncclHggcHostFree(channel->hostDevIndexLevel1));
@@ -90,16 +91,16 @@ ncclResult_t freeChannel(struct ncclChannel* channel, int nRanks) {
   // Free per-channel device counters allocated unconditionally in initChannel.
   // These are not tied to channel->peers, so they must be freed before the
   // early return below to avoid an 8-byte device leak per counter per channel.
-  NCCLCHECK(ncclHggcFreeLegacy(channel->devIndexLevel1));
-  NCCLCHECK(ncclHggcFreeLegacy(channel->devPerKernelBatchCounter));
+  NCCLCHECK(ncclHggcFreeLegacy(channel->devIndexLevel1, MEM_NORMAL, manager));
+  NCCLCHECK(ncclHggcFreeLegacy(channel->devPerKernelBatchCounter, MEM_NORMAL, manager));
 #ifdef NO_TSM
-  NCCLCHECK(ncclHggcFreeLegacy(channel->shmem));
-  if (channel->patShmem) NCCLCHECK(ncclHggcFreeLegacy(channel->patShmem));
+  NCCLCHECK(ncclHggcFreeLegacy(channel->shmem, MEM_NORMAL, manager));
+  if (channel->patShmem) NCCLCHECK(ncclHggcFreeLegacy(channel->patShmem, MEM_NORMAL, manager));
 #endif
 
   // Free Ring index to rank tables
   NCCLCHECK(ncclFree(channel->ring.userRanks));
-  NCCLCHECK(ncclHggcFreeLegacy(channel->ring.devUserRanks));
+  NCCLCHECK(ncclHggcFree(channel->ring.devUserRanks, MEM_NORMAL, manager));
 
   /* channel peers are only valid when async init thread completes commAlloc() and
    * the channel is intialized with initChannel(); if either is not done, this channel
@@ -121,7 +122,7 @@ ncclResult_t freeChannel(struct ncclChannel* channel, int nRanks) {
   }
 
   // Free the peer structures.
-  NCCLCHECK(ncclHggcFreeLegacy(channel->devPeers));
+  NCCLCHECK(ncclHggcFree(channel->devPeers, MEM_NORMAL, manager));
   NCCLCHECK(ncclFree(channel->peers));
   NCCLCHECK(ncclFree(channel->devPeersHostPtr));
 

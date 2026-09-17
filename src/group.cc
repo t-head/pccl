@@ -218,15 +218,15 @@ ncclResult_t ncclCommGroupRegisterSymmetric(struct ncclAsyncJob* job_) {
   ncclResult_t ret = ncclSuccess;
 
   int savedDev;
+  bool hasSymmetricTasks = !ncclIntruQueueEmpty(&comm->devrState.regTaskQueue) ||
+                           !ncclIntruQueueEmpty(&comm->devrState.commCreateTaskQueue);
   HGGCCHECK(hggcGetDevice(&savedDev));
   HGGCCHECKGOTO(hggcSetDevice(comm->hggcDev), ret, fail);
 
   while (!ncclIntruQueueEmpty(&comm->devrState.regTaskQueue)) {
     struct ncclDevrRegTask* task = ncclIntruQueueDequeue(&comm->devrState.regTaskQueue);
-    NCCLCHECKGOTO(ncclDevrWindowRegisterInGroup(
-      comm, task->userPtr, task->userSize, task->winFlags, task->outWinDev),
-      ret, fail);
-    free(task);
+    NCCLCHECKGOTO(ncclDevrWindowRegisterInGroup(comm, task->userPtr, task->userSize, task->winFlags, task->outWinDev), ret, fail);
+    ncclFree(task);
   }
 
   // Lazily allocate the p2p-DMA mailbox window the first time this comm
@@ -234,22 +234,32 @@ ncclResult_t ncclCommGroupRegisterSymmetric(struct ncclAsyncJob* job_) {
   // (asyncJobLaunch), so the bootstrap exchange inside pcclP2pDmaInitOnce is
   // safe here -- it would deadlock if done later at launch time, where
   // doLaunches walks comms sequentially on a single thread.
-  if (pcclP2pDmaEnabled(comm)) {
+  if (hasSymmetricTasks && pcclP2pDmaEnabled(comm)) {
     NCCLCHECKGOTO(pcclP2pDmaInitOnce(comm), ret, fail);
   }
 
   while (!ncclIntruQueueEmpty(&comm->devrState.commCreateTaskQueue)) {
     struct ncclDevrCommCreateTask* task = ncclIntruQueueDequeue(&comm->devrState.commCreateTaskQueue);
-    NCCLCHECKGOTO(ncclDevrCommCreateInternal(
-      comm, task->reqs, task->outDevComm, /*isInternal=*/false),
-      ret, fail);
+    NCCLCHECKGOTO(ncclDevrCommCreateInternal(comm, task->reqs, task->outDevComm, /*isInternal=*/false), ret, fail);
     freeDevCommRequirements(task->reqs);
-    free(task);
+    ncclFree(task);
   }
 
-  HGGCCHECK(hggcSetDevice(savedDev));
+  while (!ncclIntruQueueEmpty(&comm->suspendTaskQueue)) {
+    struct ncclMemManagerTask* task = ncclIntruQueueDequeue(&comm->suspendTaskQueue);
+    ncclComm_t taskComm = task->comm;
+    ncclFree(task);
+    NCCLCHECKGOTO(ncclCommMemSuspend(taskComm), ret, fail);
+  }
+  while (!ncclIntruQueueEmpty(&comm->resumeTaskQueue)) {
+    struct ncclMemManagerTask* task = ncclIntruQueueDequeue(&comm->resumeTaskQueue);
+    ncclComm_t taskComm = task->comm;
+    ncclFree(task);
+    NCCLCHECKGOTO(ncclCommMemResume(taskComm), ret, fail);
+  }
 
 exit:
+  HGGCCHECK(hggcSetDevice(savedDev));
   return ret;
 fail:
   goto exit;
@@ -368,6 +378,16 @@ static void groupCleanup(ncclComm_t* groupCommHeadPtr, struct ncclIntruQueue<str
         }
       }
 
+      if (type == ncclGroupTaskTypeSymRegister) {
+        while (!ncclIntruQueueEmpty(&comm->suspendTaskQueue)) {
+          struct ncclMemManagerTask* task = ncclIntruQueueDequeue(&comm->suspendTaskQueue);
+          ncclFree(task);
+        }
+        while (!ncclIntruQueueEmpty(&comm->resumeTaskQueue)) {
+          struct ncclMemManagerTask* task = ncclIntruQueueDequeue(&comm->resumeTaskQueue);
+          ncclFree(task);
+        }
+      }
       if (!comm->config.blocking)
         (void) ncclCommSetAsyncError(comm, error);
       comm = next;

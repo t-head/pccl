@@ -523,7 +523,7 @@ static ncclResult_t ncclGinProxyCreateContext(void* collComm, ncclGinConfig_t* c
     // Allocate the GFD queues, CIs, counters, signals and test/wait variables on the either the CPU
     // or GPU.
     NCCLCHECKGOTO(allocMemCPUAccessible(&hostGpuCtx->queues, &devGpuCtx_h->queues, queuesLength, 0,
-                                        NULL, true /*forceHost*/), ret, fail);
+                                        NULL, nullptr, true /*forceHost*/), ret, fail);
     NCCLCHECKGOTO(allocMemCPUAccessible(&hostGpuCtx->cis, &devGpuCtx_h->cis, cComm->nRanks,
                                         hggcHostAllocWriteCombined, &hostGpuCtx->cisGdrHandle),
                   ret, fail);

@@ -41,6 +41,7 @@ struct collNetSendResources {
   uint64_t llLastCleaning;
   struct reqSlot* reqFifo;
   int collNetRank;
+  ncclMemManager* memManager;
 };
 
 struct collNetRecvResources {
@@ -57,6 +58,7 @@ struct collNetRecvResources {
   uint64_t llLastCleaning;
   struct reqSlot* reqFifo;
   int collNetRank;
+  ncclMemManager* memManager;
 };
 
 /* Determine if we can communicate with the peer */
@@ -82,7 +84,8 @@ ncclResult_t collNetSendSetup(ncclComm_t comm, struct ncclTopoGraph* graph, stru
   for (int p=0; p<NCCL_NUM_PROTOCOLS; p++) recvSize += comm->buffSizes[p];
 
   if (resources->useGdr) {
-    NCCLCHECK(ncclHggcCalloc((char**)(&resources->devRecvMem), recvSize, &(comm->devMemUsed)));
+    resources->memManager = comm->memManager;
+    NCCLCHECK(ncclHggcCalloc((char**)(&resources->devRecvMem), recvSize, &(comm->devMemUsed), comm->memManager));
   }
   NCCLCHECK(ncclHggcHostCalloc((char**)&resources->recvMem, recvSize, &(comm->pinnedMemUsed)));
   NCCLCHECK(ncclIbMalloc((void**)&(resources->llData), comm->buffSizes[NCCL_PROTO_LL]/2));
@@ -109,7 +112,8 @@ ncclResult_t collNetRecvSetup(ncclComm_t comm, struct ncclTopoGraph* graph, stru
   for (int p=0; p<NCCL_NUM_PROTOCOLS; p++) recvSize += comm->buffSizes[p];
 
   if (resources->useGdr) {
-    NCCLCHECK(ncclHggcCalloc((char**)(&resources->devRecvMem), recvSize, &(comm->devMemUsed)));
+    resources->memManager = comm->memManager;
+    NCCLCHECK(ncclHggcCalloc((char**)(&resources->devRecvMem), recvSize, &(comm->devMemUsed), comm->memManager));
   }
   NCCLCHECK(ncclHggcHostCalloc((char**)&resources->recvMem, recvSize, &(comm->pinnedMemUsed)));
 
@@ -219,7 +223,7 @@ ncclResult_t collNetSendFree(struct ncclConnector* send) {
     NCCLCHECK(collNetDeregMr(resources->collNetSendComm, resources->sendMhandles[NCCL_PROTO_SIMPLE]));
   }
   if (resources->useGdr)
-    NCCLCHECK(ncclHggcFree(resources->devRecvMem));
+    NCCLCHECK(ncclHggcFree(resources->devRecvMem, MEM_NORMAL, resources->memManager));
   NCCLCHECK(ncclFree(resources->llData));
   NCCLCHECK(ncclFree(resources));
   return ncclSuccess;
@@ -234,7 +238,7 @@ ncclResult_t collNetRecvFree(struct ncclConnector* recv) {
   }
   NCCLCHECK(ncclHggcHostFree(resources->recvMem));
   if (resources->useGdr)
-    NCCLCHECK(ncclHggcFree(resources->devRecvMem));
+    NCCLCHECK(ncclHggcFree(resources->devRecvMem, MEM_NORMAL, resources->memManager));
   NCCLCHECK(ncclFree(resources->llData));
   NCCLCHECK(ncclFree(resources->reqFifo));
 

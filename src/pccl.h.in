@@ -21,6 +21,8 @@
 #include <hggc_bf16.h>
 #include <hggc_fp8.h>
 
+#include <stdint.h>
+
 #define PCCL_MAJOR ${pccl:Major}
 #define PCCL_MINOR ${pccl:Minor}
 #define PCCL_PATCH ${pccl:Patch}
@@ -49,6 +51,9 @@
 
 #define PCCL_SHRINK_DEFAULT 0x00
 #define PCCL_SHRINK_ABORT 0x01
+
+/* Communicator suspend flags */
+#define PCCL_SUSPEND_MEM 0x01   // Suspend memory (release dynamic allocations)
 
 #ifndef HGGCRT_CB
   #define HGGCRT_CB
@@ -80,6 +85,14 @@ typedef enum { pcclSuccess                 =  0,
                pcclInProgress              =  7,
                pcclTimeout                 =  8,
                pcclNumResults              =  9 } pcclResult_t;
+
+/* Communicator memory statistics */
+typedef enum {
+  pcclStatGpuMemSuspend      = 0,   // Allocated GPU memory that can be suspended (bytes)
+  pcclStatGpuMemSuspended    = 1,   // GPU memory suspended? (0=active, 1=suspended)
+  pcclStatGpuMemPersist      = 2,   // Allocated GPU memory that cannot be suspended (bytes)
+  pcclStatGpuMemTotal        = 3    // Total allocated GPU memory tracked by PCCL (bytes)
+} pcclCommMemStat_t;
 
 typedef struct pcclConfig_v22700 {
   size_t size;
@@ -204,6 +217,11 @@ pcclResult_t  pcclCommWindowDeregister(pcclComm_t comm, pcclWindow_t win);
 pcclResult_t  pcclWinGetUserPtr(pcclComm_t comm, pcclWindow_t win, void** outUserPtr);
 pcclResult_t  pcclMemAlloc(void** ptr, size_t size);
 pcclResult_t  pcclMemFree(void *ptr);
+
+// memory management operation
+pcclResult_t  pcclCommSuspend(pcclComm_t comm, int flags);
+pcclResult_t  pcclCommResume(pcclComm_t comm);
+pcclResult_t  pcclCommMemStats(pcclComm_t comm, pcclCommMemStat_t stat, uint64_t* value);
 
 // simulate
 pcclResult_t  pcclGroupSimulateEnd(pcclSimInfo_t* simInfo);

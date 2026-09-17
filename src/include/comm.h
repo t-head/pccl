@@ -33,6 +33,8 @@
 
 #define MAX_GPUS_PER_NODE 16
 
+#include "mem_manager.h"
+
 // Channels / LL tuning
 #define NCCL_LL_THREAD_THRESHOLD 8
 #define NCCL_LL128_THREAD_THRESHOLD 8
@@ -633,6 +635,10 @@ struct pcclComm {
   uint64_t kernelNum = 0;
   uint64_t channelKernelIdx[MAXCHANNELS]; // begin from 1
   uint64_t channelWorks[MAXCHANNELS];
+
+  struct ncclMemManager* memManager; // tracks device memory for suspend/resume
+  struct ncclIntruQueue<struct ncclMemManagerTask, &ncclMemManagerTask::next> suspendTaskQueue;
+  struct ncclIntruQueue<struct ncclMemManagerTask, &ncclMemManagerTask::next> resumeTaskQueue;
 };
 
 enum ncclLaunchMode {

@@ -11,7 +11,7 @@
 #include "comm.h"
 
 ncclResult_t initChannel(ncclComm_t comm, int channelid);
-ncclResult_t freeChannel(struct ncclChannel* channel, int nRanks);
+ncclResult_t freeChannel(struct ncclChannel* channel, int nRanks, ncclComm_t comm);
 // For PAT algorithm.
 int pcclPatEnable(ncclComm_t comm);
 
