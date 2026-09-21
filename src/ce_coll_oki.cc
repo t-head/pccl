@@ -71,8 +71,7 @@ static ncclResult_t pcclCeLaunchBatchOpsMultiStreamWithOki(ncclComm_t comm, cons
 
   uint32_t stride4G = comm->devrState.bigSize >> 32;
   ltOkiQP_t* qps = comm->okiQps;
-  // One warp per QP group (a group is one queue per die), one lane per die. Sizing the block
-  // by group count keeps it independent of nRanks; the count is validated at init.
+  // One warp per QP group, one lane per die.
   int numQpGroups = comm->okiQpCount / ppuDiesNum;
   void* pargs[] = {&args, &qps, &dependencyFenceAddr, &baseStep, &comm->rank, &stride4G, &numQpGroups};
   struct dispatchStrategyExAD launchConfig = {1, 1, 1, -2, /*cooperative=*/0};
@@ -107,8 +106,6 @@ struct pcclCeOkiReduceState {
   ssize_t currentRankElts;
   uint32_t rank0LoopCnt;
   ssize_t splitElts;
-  // Per-rank slice the cmd block partitions totalElts with, and the total the two collectives
-  // disagree on: AllReduce's args->nElts already spans every rank, ReduceScatter's is per-rank.
   int64_t chunkElts;
   uint64_t totalElts;
 };
@@ -168,9 +165,7 @@ static ncclResult_t pcclCeOkiReduceSetup(
   }
 
   bool isReduceScatter = (state->func == ncclFuncReduceScatter);
-  // ReduceScatter: args->nElts is the per-rank recvcount, so the full input is nRanks times that
-  // and each rank owns exactly recvcount elements -- rounding the slice up would overrun
-  // recvBuff. AllReduce: args->nElts is the whole buffer, split and rounded up for the kernel.
+  // Keep ReduceScatter slices exact; only AllReduce slices are rounded up.
   ssize_t totalElts = isReduceScatter ? (ssize_t)args->nElts * comm->nRanks : (ssize_t)args->nElts;
   int64_t chunkElts;
   if (isReduceScatter) {
@@ -237,8 +232,7 @@ static ncclResult_t pcclCeOkiReduceLaunch(
   kargs.myRank = comm->rank;
   kargs.broadcast = (state->func != ncclFuncReduceScatter) ? 1 : 0;
 
-  // The cmd block reaches a peer by adding targetRank * stride4G to rank 0's lsa-flat address;
-  // the reduce blocks reach their own slot on a peer the same way.
+  // Peer addresses are rank-0 LSA bases plus targetRank * stride4G.
   char* rankRemoteFenceAddrs = (char*)ncclSymDevBase_getKuiRemoteFenceAddr((struct ncclSymDevBase*)comm->ceColl.ceSyncBase, comm->nRanks);
   uint64_t offset = (uint8_t*)rankRemoteFenceAddrs - (uint8_t*)comm->ceColl.ceSyncBase;
   NCCLCHECK(ncclDevrGetLsaRankPtr(comm, comm->ceColl.ceSyncWin, offset, 0, (void**)&kargs.rank0RemoteFenceAddrs));
@@ -272,7 +266,6 @@ static ncclResult_t pcclCeOkiReduceLaunch(
 ncclResult_t pcclCeOkiAllGather(ncclComm_t comm, struct ncclCeCollArgs* args, hggcStream_t stream) {
   ncclResult_t res = ncclSuccess;
 
-  // Calculate the size of each rank's data chunk
   const size_t chunkBytes = args->nElts * args->eltSize;
   uint8_t* mySendBuff = (uint8_t*)args->sendBuff;
   uint8_t* myRecvBuff = (uint8_t*)args->recvBuff + comm->rank * chunkBytes;
@@ -280,7 +273,6 @@ ncclResult_t pcclCeOkiAllGather(ncclComm_t comm, struct ncclCeCollArgs* args, hg
   size_t offset;
   struct ncclCeAllGatherStrategy* strategy;
 
-  // oki only support one stage all gather for now.
   strategy = comm->ceCollConfigs.agOneStageStrategy;
   int *icnConnectedPeers = strategy->icnConnectedPeers;
   int peerNumStage1 = strategy->peerNumStage1;
@@ -323,13 +315,7 @@ ncclResult_t pcclCeOkiAllGather(ncclComm_t comm, struct ncclCeCollArgs* args, hg
     batchOpsParams.sizes[batchOpsParams.numOps] = chunkBytes;
     batchOpsParams.numOps++;
   } else {
-    // Inplace case (sendBuff == recvBuff): we still need to submit a dummy op
-    // for every rank so that the hardware queue sees a matched pair of
-    // submit (okiMemcpyBatchAsync) and poll (okiBatchSynchronize) on all QPs.
-    // The zero-size dummy op is used as a no-op placeholder — okiMemcpyBatchAsync skips
-    // any op where size == 0(without actual DMA, with writeFence).
-    // This relies on the kernel not treating size==0 as an error or performing
-    // a zero-length DMA that could corrupt state.
+    // Keep op 0 reserved for the local QP group even when no self copy is needed.
     batchOpsParams.sizes[batchOpsParams.numOps] = 0;
     batchOpsParams.numOps++;
   }

@@ -335,10 +335,7 @@ __inline__ __device__ void reduceFromMultiSource(volatile T* srcs[NRANKS], volat
 }
 
 #if PCCL_HGGC_VERSION >= PCCL_HGGC_DRIVER_VERSION(2, 2, 0)
-// The reduce half of the fused reduce-family kernel: consume one chunk per iteration out of the
-// station buffers as the peers' DMA fills them, and publish this rank's consumption through the
-// tail slots that every peer's cmd block spins on. Identical for AllReduce and ReduceScatter --
-// both reduce this rank's own slice; only the cmd block's trailing phase differs.
+// Consume station chunks and publish tails for the cmd blocks.
 template<typename T, int NRANKS, bool AVG>
 __device__ void ceLocalReduce(const struct pcclCeOkiReduceArgs& args) {
   T* src = (T*)args.myStaBuff;
@@ -389,15 +386,9 @@ __device__ void ceLocalReduce(const struct pcclCeOkiReduceArgs& args) {
 
     int32_t blockOffset;
     int32_t currentBlockElts;
-    // to calculate block start position by blockIdx.x * blockOffset
-    // let last block process the extra data.(which means last block's currentBlockElts >= blockOffset)
     int32_t extElts;
     fastDivModOfPow2(chunkElts, blockNum, &blockOffset, &extElts);
-    // blockOffset is the stride every block's source and destination pointers are advanced by, and
-    // the reduce below addresses them with 128-bit bulk loads and stores. A stride that is not a
-    // whole number of packets drops every block past block 0 to the alignment of the element type,
-    // which faults for 2-byte types; 4-byte types never notice because any element offset is
-    // already 4B aligned, which is all this path requires of the buffers.
+    // Keep block strides 16-byte aligned for packed loads and stores, including 2-byte types.
     blockOffset = fastRoundDown(blockOffset, PACKED_ELTS_PER_THREAD);
     extElts = chunkElts - blockOffset * blockNum;
     currentBlockElts = blockOffset;
@@ -516,9 +507,7 @@ CE_OKI_REDUCE_R_IMPL(true)
   CE_OKI_REDUCE_T_FUNCNAME(4, avg) \
   CE_OKI_REDUCE_T_FUNCNAME(8, avg)
 
-// Indexed by localReduceFuncIndex(): redOp {sum, avg} outermost, then nRanks {2,4,8}, then
-// dtype {half, bf16, float}. Shared by AllReduce and ReduceScatter -- they differ only in the
-// args, not the instantiation.
+// Match localReduceFuncIndex: op, rank count, then dtype; shared by AllReduce and ReduceScatter.
 void* pcclCeOkiReduceFuncs[] = {
   CE_OKI_REDUCE_R_FUNCNAME(false)
   CE_OKI_REDUCE_R_FUNCNAME(true)

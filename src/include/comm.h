@@ -563,7 +563,6 @@ struct pcclComm {
   bool okiSupport;
   int64_t ceOkiStep;
 
-  // OKI direct QP management
   ltOkiDevice_t okiDevice;
   ltOkiQP_t*    okiQps;          // Host-allocated QPs, accessible from both CPU and GPU
   int           okiQpCount;

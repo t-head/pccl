@@ -1971,15 +1971,13 @@ static ncclResult_t ncclCommInitRankFunc(struct ncclAsyncJob* job_) {
       if (systemDriverVersion < PCCL_MIN_KMD_VERSION_FOR_OKI) {
         INFO(NCCL_INIT, "disable OKI as system driver version smaller than %x(%x).", PCCL_MIN_KMD_VERSION_FOR_OKI, systemDriverVersion);
       } else if (comm->nRanks < 2) {
-        // A single-rank comm has no remote peer, so no remote QP group exists and the
-        // kernels' one-warp-per-QP-group decomposition has nothing to map ops onto.
+        // OKI needs at least one remote QP group.
         INFO(NCCL_INIT, "disable OKI as nRanks %d is below the minimum 2.", comm->nRanks);
       } else if (comm->nRanks > PCCL_OKI_MAX_LOCAL_RANKS) {
         // The batch op arrays are passed to the kernels by value with this fixed capacity.
         INFO(NCCL_INIT, "disable OKI as nRanks %d exceeds max %d.", comm->nRanks, PCCL_OKI_MAX_LOCAL_RANKS);
       } else if (ppuDiesNum > PCCL_CE_MAX_DIE_NUM) {
-        // The OKI kernels are instantiated per die count (1 or 2) and their fence arrays are
-        // sized by PCCL_CE_MAX_DIE_NUM, so a wider die config has no kernel to launch.
+        // Kernels and fence arrays support only one or two dies.
         INFO(NCCL_INIT, "disable OKI as %d dies exceeds max %d.", ppuDiesNum, PCCL_CE_MAX_DIE_NUM);
       } else {
         comm->okiSupport = true;
@@ -1989,39 +1987,14 @@ static ncclResult_t ncclCommInitRankFunc(struct ncclAsyncJob* job_) {
   }
 
   if (comm->okiSupport) {
-    // Open OKI device directly
     LT_OKI_CHECK(ltOkiOpenDevice(&comm->okiDevice, comm->hggcDev));
 
-    // Allocate QP pointers array — PCCL allocates pointer-size storage, not struct size
-    // LT_OKI_MAX_QUEUE_NUM bounds the remote ICN queues; local D2D queues come from a
-    // separate pool, so one per die is allocated on top of that budget. Capping the remote
-    // pairs at LT_OKI_DMA_RING_PER_DIE keeps every pair on its own ring.
+    // Local D2D queues use a separate pool from the capped remote ICN rings.
     int remotePairs = std::min(comm->nRanks - 1, LT_OKI_DMA_RING_PER_DIE);
     int maxQPNum = ppuDiesNum + remotePairs * ppuDiesNum;
     NCCLCHECKGOTO(ncclHggcHostCalloc(&comm->okiQps, maxQPNum, &(comm->pinnedMemUsed)), res, fail);
 
-    // QP allocation strategy:
-    //
-    // Slot 0 (array entries 0 .. ppuDiesNum-1): local D2D DMA, isRemote=false.
-    //   Used for DMA between memories on the same PPU — intra-PPU copy via the
-    //   local DMA engine. No icn link traffic; writes directly to local memory.
-    //   queueId is just the die index, in the local queue space.
-    //
-    // Slots 1..remoteSlots: P2P DMA via ICN, isRemote=true.
-    //   Used for direct peer-to-peer ICN DMA between different ranks over the
-    //   Inter-Chip Network (ICN).
-    //
-    //   Queue ID mapping for remote QPs:
-    //     slot    = i / ppuDiesNum   → which remote slot (peers fold onto these)
-    //     dieId   = i % ppuDiesNum   → which die carries this slot's traffic
-    //     queueId = dieId * LT_OKI_DMA_RING_PER_DIE + (slot - 1)
-    //   This distributes each peer's traffic across all available ICN DMA rings
-    //   per die, enabling concurrent P2P transfers without head-of-line blocking.
-    //   A clique with more remote peers than slots folds several peers onto one
-    //   ring rather than running off the end of the array.
-    //
-    // All ranks use the same assignment scheme, so they agree on which QP
-    // carries traffic to each (peer rank, die) pair.
+    // qps[slot * ppuDiesNum + die]: slot 0 uses local queueId=die; remote queueId=die*LT_OKI_DMA_RING_PER_DIE+slot-1.
     for (int i = 0; i < maxQPNum; i++) {
       int slot = i / ppuDiesNum;
       int dieId = i % ppuDiesNum;
@@ -2030,8 +2003,7 @@ static ncclResult_t ncclCommInitRankFunc(struct ncclAsyncJob* job_) {
       LT_OKI_CHECKGOTO(ltOkiCreateQP(&comm->okiQps[i], comm->okiDevice, isRemote, queueId, PCCL_LT_OKI_QP_DEPTH), res, fail);
       comm->okiQpCount += 1;
     }
-    // The oki collectives launch one warp per QP group (a group is one queue per die), so
-    // validate the group count once here instead of on every collective.
+    // Validate one-warp-per-group launch limits once at init.
     {
       int numQpGroups = comm->okiQpCount / ppuDiesNum;
       if (numQpGroups < 2) {

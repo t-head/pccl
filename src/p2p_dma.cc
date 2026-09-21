@@ -4,10 +4,6 @@
  *
  * See LICENSE.txt for more license information
  *************************************************************************/
-// p2p_dma.cc: host side of the symmetric point-to-point OKI DMA transport.
-// See src/include/p2p_dma.h for the protocol and docs/symmetric_p2p_dma_design.md
-// for the full write-up. Independent of, and does not reuse, the kernel-mailbox
-// symmetric p2p implementation.
 
 #include "p2p_dma.h"
 #include "comm.h"
@@ -24,27 +20,11 @@
 
 extern int ppuDiesNum;
 
-// Master switch. Off by default: this transport is new and must not change
-// behavior for anyone who has not explicitly opted in. The p2p DMA transport
-// is OKI-only; the host-CE backend is intentionally disabled.
 PCCL_PARAM(P2pDmaEnable, "P2P_DMA_ENABLE", 0);
-// Smallest op this transport will carry. Ops below it stay on the kernel p2p
-// path, so a run can keep OKI for the sizes where it wins and avoid it where the
-// per-queue host-link cost dominates. -1 (default) routes every size here.
-//
-// The test is per op, which is what makes it safe: for a matched send/recv pair
-// both endpoints see the same byte count, so they always reach the same verdict
-// and the ops they each pick out of a peer's queue line up one for one. A test
-// over the batch as a whole would not be safe -- a rank's local task set differs
-// from its peers', so the two ends could choose different transports and the DMA
-// side would wait on a declaration that never arrives.
-//
-// Must be set identically on every rank, like PCCL_P2P_DMA_ENABLE itself.
+// Filter per op so matched endpoints agree; configure the same threshold on all ranks.
 PCCL_PARAM(P2pDmaMinBytes, "P2P_DMA_MIN_BYTES", -1);
 #if PCCL_HGGC_VERSION >= PCCL_HGGC_DRIVER_VERSION(2, 2, 0)
-// OKI sends smaller than this use only die 0: each QP operation costs a
-// host-link round trip through the OKI device library, so at small sizes the
-// second die's submission overhead outweighs its bandwidth share.
+// Use one die below this threshold to reduce QP submission overhead.
 PCCL_PARAM(P2pDmaOki1DieMax, "P2P_DMA_OKI_1DIE_MAX", 4 * 1024 * 1024);
 #endif
 
@@ -54,17 +34,12 @@ static inline int p2pDmaDies() {
   return d;
 }
 
-// An op is carried by this transport only if it is at least this large. 0 means
-// no threshold.
 static inline uint64_t p2pDmaMinBytes() {
   int64_t v = pcclParamP2pDmaMinBytes();
   return v < 0 ? 0 : (uint64_t)v;
 }
 
-// Bytes of work list one batch can need at worst: every peer contributing a full
-// quota in both directions. p2pDmaReserveWorks is deliberately non-wrapping, so a
-// run larger than the whole FIFO could never be satisfied and would spin forever
-// -- hence this is a precondition, not something to discover at reserve time.
+// The non-wrapping work FIFO must fit a complete batch.
 static inline size_t p2pDmaWorstCaseWorkBytes(int nRanks) {
   return alignUp((size_t)2 * nRanks * pcclP2pDmaOpsPerPeer * sizeof(struct pcclP2pDmaWork),
                  (size_t)16);
@@ -72,32 +47,18 @@ static inline size_t p2pDmaWorstCaseWorkBytes(int nRanks) {
 
 bool pcclP2pDmaEnabled(struct pcclComm* comm) {
   if (!pcclParamP2pDmaEnable()) return false;
-  // Gate on the same condition as the CE collective path (ncclCeSupported:
-  // symmetric support, single node, CTA policy ZERO). Under any other CTA
-  // policy the plain kernel p2p path is used, uniformly with the collectives.
+  // Use the same admission conditions as CE collectives.
   if (!ncclCeSupported(comm)) return false;
-  // The work list is reserved from the comm's work FIFO in one non-wrapping run,
-  // so the FIFO must be able to hold a worst-case batch. PCCL_WORK_FIFO_BYTES is
-  // user-tunable and could be set below that, which would leave
-  // p2pDmaWaitWorkFifoAvailable spinning on a condition that can never become
-  // true. Both terms are comm-level, so the verdict stays rank-invariant.
+  // Reject impossible reservations before waiting for FIFO space.
   if (p2pDmaWorstCaseWorkBytes(comm->nRanks) > (size_t)comm->workFifoBytes) {
     WARN_ONCE("P2P DMA disabled: PCCL_WORK_FIFO_BYTES=%u is smaller than the %zu bytes a %d-rank batch can need",
               comm->workFifoBytes, p2pDmaWorstCaseWorkBytes(comm->nRanks), comm->nRanks);
     return false;
   }
 #if PCCL_HGGC_VERSION >= PCCL_HGGC_DRIVER_VERSION(2, 2, 0)
-  // OKI carries the payload, so there is no transport at all without it.
   if (!comm->okiSupport) return false;
   if (comm->okiQps == nullptr || comm->okiQpCount <= 0) return false;
-  // p2pDmaSlotOf folds peers onto the remote slots of the QP array, so a
-  // clique wider than the array shares queues instead of running off its end;
-  // all that is required is one usable remote slot. okiSupport above already
-  // rules out a 1-rank comm, so a remote slot is always the right thing to
-  // require here. This stays a comm-level test so the answer is rank-invariant:
-  // a per-batch test would let the two ranks of one send/recv pair disagree
-  // (their slots come from their own (peer - rank) distance) and the DMA side
-  // would wait on a declaration that never arrives.
+  // Require a remote slot uniformly across ranks; peers may share it.
   if (pcclP2pDmaQpSlots(comm->okiQpCount, p2pDmaDies()) < 1) return false;
   return true;
 #else
@@ -479,9 +440,7 @@ static ncclResult_t p2pDmaLaunchOki(struct pcclComm* comm, struct pcclP2pDmaPlan
   dim3 grid = {1, 1, 1};
   dim3 block = {(uint32_t)pa->nThreads, 1, 1};
   void* roundFn = pa->nDies > 1 ? (void*)pcclP2pDmaOkiRound<2> : (void*)pcclP2pDmaOkiRound<1>;
-  // Ordered on the caller stream: no AllGather-style dependency trigger is
-  // needed because the kernel itself publishes first and waits on the device
-  // mailbox before it writes any WQE.
+  // The kernel publishes receive offsets before waiting on peers.
   LAUNCH_KERNEL(roundFn, grid, block, pargs, (ssize_t)0, stream, 1, launchConfig);
   // Shared with the OKI collectives: this comm has one physical CQ per QP,
   // and the fence value stored there is a plain software counter, not a
@@ -497,11 +456,6 @@ ncclResult_t pcclP2pDmaLaunch(struct pcclComm* comm, struct ncclKernelPlan* plan
   if (pa->devArgs.nSend == 0 && pa->devArgs.nRecv == 0) return ncclSuccess;
 
 #if PCCL_HGGC_VERSION >= PCCL_HGGC_DRIVER_VERSION(2, 2, 0)
-  // Fully device-driven, self copies included: a single kernel per batch covers
-  // remote-write offset publish, local offset polling, submit, CQ sync and done
-  // handshake. A self copy is just a work on the local D2D queues, so it runs
-  // concurrently with the peer traffic instead of being serialized in front of
-  // it by a host-side memcpy on the same stream.
   return p2pDmaLaunchOki(comm, pa, comm->planner.streams->stream);
 #else
   return ncclInternalError;

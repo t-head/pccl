@@ -18,29 +18,14 @@
 #include "ce_coll_oki.h"
 #include "symmetric/oki_utils.cuh"
 
-// QP multiplexing map. There are only LT_OKI_MAX_QUEUE_NUM hardware DMA rings, so once
-// nRanks exceeds LT_OKI_MAX_QUEUE_NUM/DIE_NUM the ops must share queues instead of owning
-// one each. A QP group is DIE_NUM queues (one per die); group 0 is the local D2D pair
-// created with isRemote=false, groups 1.. are the remote ICN queues. okiQpGroupToQid
-// (oki_utils.cuh) maps a group to its qid; this file owns only the op->group folding,
-// which is specific to the collectives' by-value op array. Both the submit and the
-// synchronize kernel must agree on it.
-//
-// ICN DMA is not bound to a peer -- ltOkiQPWriteIcnDmaCopyWqe takes no target rank, the
-// destination is encoded entirely in the LSA flat address -- so any remote queue can carry
-// traffic to any peer.
+// Group 0 is local D2D; remote ops share ICN groups, with peers encoded in destination addresses.
 static __device__ __inline__ int okiOpToQpGroup(int opId, int numQpGroups) {
-  // op 0 is always this rank's own copy (or the zero-size in-place placeholder).
   if (opId == 0) return 0;
   int numRemoteGroups = numQpGroups - 1;
   return 1 + (opId - 1) % numRemoteGroups;
 }
 
-// The slice of an nElts buffer owned by `rank` when it is cut into chunkElts-sized pieces.
-// Must agree with the host partition in pcclCeOkiReduceSetup, which clamps the last rank to the
-// remainder. The open-coded loops this replaces derived rank i's size from rank i+1's bound, so a
-// trailing partial rank was handed a full slice -- the DMA then read past the end of sendBuff and
-// the broadcast wrote past the end of recvBuff.
+// Clamp slices to nElts, matching the host partition without overrunning partial ranks.
 struct okiReduceSlice {
   int64_t offsetElts;
   int64_t elts;
@@ -65,20 +50,13 @@ static __device__ __inline__ okiReduceSlice okiReduceSliceOf(uint64_t nElts, int
 // remote-write the tail slots -- so this is a local load loop.
 static __device__ __inline__ void okiWaitFence(volatile uint64_t* addr, uint64_t value) {
   const uint32_t pauseClocks = 100;  // ~125ns, keeps the poll off the memory pipe
-  // Signed difference, not a direct compare: the first chunk of a fresh communicator waits on
-  // (ceReduceStepBase + 1 - pcclCeReduceMaxSect), which is negative and wraps as a uint64_t.
+  // Use a signed delta for wraparound-safe fence comparison.
   while ((int64_t)(volatileLoadU64(addr) - value) < 0) {
     asm volatile("ppu.nanosleep.u32 %0;" :: "r"(pauseClocks));
   }
 }
 
-// WQEs okiWriteCopyWqe will write for one die's share of `size`: one per DMA segment, plus
-// the ICN fence that closes a remote transfer when the caller asks for one. Zero when this
-// die has no bytes to move.
-//
-// `withIcnFence` must match what the caller passes to okiWriteCopyWqe. ltOkiPostSend only
-// accepts the slot count ltOkiReserveWqeSlots handed back, so an over-count publishes a slot
-// nobody wrote and the engine executes whatever stale bytes it holds.
+// Match the copy writer's per-die payload and optional ICN fence count.
 template<int DIE_NUM>
 static __device__ __inline__ uint32_t okiChunkCopyWqeCount(size_t size, int die, bool local, bool withIcnFence) {
   if (size == 0) return 0;
@@ -87,16 +65,7 @@ static __device__ __inline__ uint32_t okiChunkCopyWqeCount(size_t size, int die,
   return calcDmaSegmentCount(bytes) + ((!local && withIcnFence) ? 1u : 0u);
 }
 
-// The reduce-family cmd path: post the reduce-scatter chunks, then -- for AllReduce -- the
-// allgather, then wait for this queue to drain. Runs in the last block of the fused kernel, which
-// barriers with the peers immediately before and after the call -- the barrier is what used to be
-// the dependency fence handoff from gpuBarrierWithTrigger to a separate cmd kernel.
-//
-// args.broadcast == 0 is ReduceScatter: each rank's reduced slice already lives in its own
-// recvBuff, so the allgather phase is skipped. The closing CQ fence is posted either way.
-//
-// Contains no __syncthreads(): non-driver threads return right away and wait at the caller's
-// post-barrier instead.
+// Only driver threads enter this path; CTA barriers belong to the caller.
 template<int DIE_NUM>
 static __device__ __inline__ void okiReduceDmaCmd(const struct pcclCeOkiReduceArgs& args, int nRanks) {
   ltOkiQP_t* qps = args.qps;
@@ -120,16 +89,7 @@ static __device__ __inline__ void okiReduceDmaCmd(const struct pcclCeOkiReduceAr
   int wid = tid / WARP_SIZE;
   int laneId = tid % WARP_SIZE;
 
-  // One driver thread per (target rank, die), so each warp owns exactly one queue.
-  //
-  // All flow control is a kernel spin now (okiWaitFence), so a chunk's WQEs can only be
-  // written once that chunk is allowed to run: the kernel walks the chunks one at a time,
-  // reserving, writing, posting and ringing the doorbell for each. Driving both dies from one
-  // thread serialized those spins -- die 1 could not reserve until die 0's tail fence passed --
-  // so the dies get a warp each and advance independently.
-  //
-  // The driver is still lane 0: ltOkiRingDB hangs the engine when called from any other lane,
-  // which is why the dies are spread over warps rather than over lanes of one warp.
+  // One warp per (rank, die); only lane 0 may ring its doorbell.
   if (wid >= nRanks * DIE_NUM || laneId != 0) return;
 
   uint32_t targetRank = wid / DIE_NUM;
@@ -151,33 +111,7 @@ static __device__ __inline__ void okiReduceDmaCmd(const struct pcclCeOkiReduceAr
   int64_t splitElts = pcclCeReduceChunkSize / eltSize;
   bool waitAllTails = loopCnt > pcclCeOkiWaitAllTailsInterval;
 
-  // Fence step synchronization — three counters that must stay in lockstep:
-  //
-  // okiBaseStep: the OKI fabric DMA-completion epoch, published to remote ranks
-  //   via IcnFenceWqe to signal "my DMA for step N is complete and visible in
-  //   your station buffer." Also waited on locally before each chunk via the
-  //   queue's CQ at (okiBaseStep - 1), ensuring this queue's previous step --
-  //   the previous collective's closing fence on the first iteration -- has
-  //   completed and is visible before the next chunk is issued.
-  //   All ranks agree on this value — it is the "global fabric epoch" for
-  //   cross-rank DMA ordering, distinct from buffer-slot synchronization.
-  //
-  // waitValue: the peer tail-pointer value this rank waits on before sending
-  //   each chunk. Initialized to (ceReduceStepBase + 1 - pcclCeReduceMaxSect),
-  //   then incremented each iteration. Represents "peer has consumed up to
-  //   this many reduce chunks, so a slot is free for me to send."
-  //
-  // postValue: the head-pointer value this rank publishes after each chunk,
-  //   signaling to peers that their data is ready. Incremented each iteration.
-  //   Represents "I have produced this many chunks, peer can now read."
-  //
-  // All three advance by exactly +1 per loop iteration. They differ only in
-  // their synchronization object and starting offset:
-  //   okiBaseStep → fabric ICN fence (OKI global ordering)
-  //   waitValue   → peer tail pointer (buffer slot availability)
-  //   postValue   → peer head pointer (data availability)
-  // A mismatch between them would cause a rank to wait on a stale or
-  // prematurely updated fence, resulting in deadlock or data read-before-written.
+  // Advance DMA completion, slot consumption and slot publication epochs together.
 
   for (int iter=0; iter < loopCnt; iter++) {
     uint32_t sect = iter % 2;
@@ -193,23 +127,17 @@ static __device__ __inline__ void okiReduceDmaCmd(const struct pcclCeOkiReduceAr
 
     size_t size = perChunkSize > 0 ? perChunkSize : 0;
 
-    // Nothing touches the queue until the fences pass: reserve, build, post and ring all
-    // happen after the spin. The head fence is written even when this die has no bytes,
-    // otherwise the peer would wait forever.
+    // Publish the head fence even when this die has no payload.
     uint64_t* headSlot = headPtr + targetRank * PCCL_CE_MAX_DIE_NUM + die;
     uint64_t* remoteFenceAddr = (uint64_t*)add4G((uint8_t*)rank0RemoteFenceAddrs, targetRank * stride4G) + myRank * PCCL_CE_MAX_DIE_NUM + die;
 
-    // okiChunkCopyWqeCount must predict okiWriteCopyWqe exactly: ltOkiReserveWqeSlots
-    // adjusts wqeNeeded in place and ltOkiPostSend only accepts that adjusted count, so
-    // a reservation that does not match what is written publishes stale ring slots.
     uint32_t wqeNeeded = okiChunkCopyWqeCount<DIE_NUM>(size, die, local, /*withIcnFence=*/true) + 1;
     uint32_t skip;
     uint32_t wqeBase = ltOkiReserveWqeSlots(qp, wqeNeeded, skip);
     okiWriteCopyWqe<DIE_NUM>(die, qp, size, mySendBuff, peerStaDst, local, /*withIcnFence=*/true, remoteFenceAddr, okiBaseStep);
     ltOkiQPWriteFenceWqe(qp, (uint64_t)headSlot, postValue, die, true);
 
-    // Periodic full sync: gate this chunk on every peer's consumption, not just the
-    // target's, so the ranks re-align instead of drifting apart. Tail slots are local.
+    // Periodically wait for every peer to limit pipeline drift.
     bool fullSync = waitAllTails && (iter % pcclCeOkiWaitAllTailsInterval) == 0;
 
     if (fullSync) {
@@ -229,10 +157,7 @@ static __device__ __inline__ void okiReduceDmaCmd(const struct pcclCeOkiReduceAr
   }
 
   {
-    // AllReduce: wait for my own reduce to finish, then allgather my slice to every peer.
-    // ReduceScatter: the reduced slice already sits in this rank's recvBuff, so only the closing
-    // fence is posted -- the host advances ceOkiStep by loopCnt + 1 for both collectives, so the
-    // extra step has to be consumed either way, and it is also what drains this queue.
+    // AllReduce broadcasts the reduced slice; both collectives close the CQ at base + loopCnt + 1.
     uint64_t expectedTail = ceReduceStepBase + loopCnt;
     uint32_t preCount = 1;
     int64_t preElts = (broadcast && loopCnt > 1) ? preCount * pcclCeReduceChunkSize / eltSize : 0;
@@ -275,8 +200,7 @@ static __device__ __inline__ void okiReduceDmaCmd(const struct pcclCeOkiReduceAr
       ltOkiRingDB(qp);
     }
 
-    // Wait for this queue to retire everything posted above. WQEs retire in order, so the
-    // closing fence reaching the CQ means every chunk of this collective has landed.
+    // The closing CQ fence covers every earlier WQE.
     ltOkiPollCQ((uint64_t*)cqAddr, okiBaseStep);
   }
 }
@@ -316,9 +240,6 @@ __global__ void okiMemcpyBatchAsync(
     volatile uint64_t* cqAddr = ltOkiQPGetCQ(qp);  // completion queue address
     uint64_t finalStep = step + 1;
 
-    // Total WQE budget for this queue: the head wait fence, then every op's DMA
-    // (segmented by PCCL_LT_OKI_MAX_DMA_BYTE_CNT) plus its ICN fence, then the tail CQ
-    // fence. Under-counting here silently drops DMA, so it must cover all ops.
     uint32_t wqeNeeded = 0;
     int myOpCount = 0;
     for (int opId = 0; opId < args.nOps; opId++) {
@@ -342,13 +263,11 @@ __global__ void okiMemcpyBatchAsync(
         size_t size = args.sizes[opId];
         if (size == 0) continue;
         int targetRank = args.targets[opId];
-        // Remote fence slot is per (target rank, source rank, die), so ops sharing this
-        // queue never collide on it.
+        // Fence slots are per (target rank, source rank, die), independent of QP folding.
         uint64_t* remoteFenceAddr = (uint64_t*)add4G((uint8_t*)args.rank0RemoteFenceAddrs, targetRank * stride4G) + myRank * PCCL_CE_MAX_DIE_NUM + laneId;
         okiWriteCopyWqe<DIE_NUM>(laneId, qp, size, (uint8_t*)args.srcs[opId], (uint8_t*)args.dsts[opId], /*local=*/targetRank == myRank, /*withIcnFence=*/true, remoteFenceAddr, finalStep);
       }
 
-      // Step 3: single completion fence covering every op on this queue.
       ltOkiQPWriteFenceWqe(qp, (uint64_t)cqAddr, finalStep, laneId, true);
 
       ltOkiPostSend(qp, wqeBase, wqeNeeded);
@@ -370,6 +289,7 @@ __global__ void okiMemcpyBatchAsync(
       }
     }
   }
+  // Ring all doorbells before any CQ wait; idle threads must participate.
   __syncthreads();
 }
 

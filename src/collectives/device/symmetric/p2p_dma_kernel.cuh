@@ -4,13 +4,7 @@
  *
  * See LICENSE.txt for more license information
  *************************************************************************/
-// p2p_dma_kernel.cuh: device side of the symmetric point-to-point DMA
-// transports. See src/include/p2p_dma.h for the protocol and
-// docs/symmetric_p2p_dma_design.md for the full write-up.
-//
-// Every spin loop here polls comm->abortFlagDev periodically instead of
-// looping unconditionally, so a user abort always has a way out even if a
-// caller mismatched their send/recv pattern.
+// Mailbox ownership, batch alignment and reuse invariants are documented in p2p_dma.h.
 
 #ifndef PCCL_P2P_DMA_KERNEL_CUH_
 #define PCCL_P2P_DMA_KERNEL_CUH_
@@ -20,25 +14,20 @@
 #include "symmetric/p2p_dma_oki.cuh"
 #if PCCL_HGGC_VERSION >= PCCL_HGGC_DRIVER_VERSION(2, 2, 0)
 
-// Spins before the first abort check; chosen so the functional (non-hang)
-// case never pays for the check, while a real mismatch is caught quickly.
+// Amortize abort checks in mailbox and done waits.
 constexpr int pcclP2pDmaSpinsBeforeAbortCheck = 1 << 16;
 
 static __device__ __forceinline__ bool p2pDmaAborted(uint32_t* abortFlag) {
   return abortFlag != nullptr && *abortFlag != 0;
 }
 
-// Receiver declares where it wants op (peer=senderRank, k). The release store on
-// `seq` orders the `off` write ahead of it, which is what p2pDmaMboxWaitOffset's
-// acquire load pairs with; no separate system fence is needed.
+// Publish off before seq; the sender acquires seq before reading off.
 static __device__ __forceinline__ void p2pDmaMboxPublish(struct pcclP2pDmaMboxCell* cell,
                                                           uint64_t off, uint32_t seq) {
   cell->off = off;
   asm volatile("ppu.st.release.sys.u32 [%0],%1;" :: "l"(&cell->seq), "r"(seq));
 }
 
-// Sender resolves that declaration. Spins until `seq` matches (never 0, so a
-// zero-initialized or stale cell never satisfies the wait), then reads `off`.
 static __device__ __forceinline__ uint64_t p2pDmaMboxWaitOffset(struct pcclP2pDmaMboxCell* cell,
                                                                 uint32_t seq, uint32_t* abortFlag) {
   uint32_t spins = 0;
@@ -54,11 +43,7 @@ static __device__ __forceinline__ uint64_t p2pDmaMboxWaitOffset(struct pcclP2pDm
   return cell->off;
 }
 
-// Done slots use an 8-byte stride even though only the low u32 carries the
-// sequence: the OKI ICN fence WQE always writes a full u64 (little-endian, so
-// the low word lands at the slot address), and a packed u32 array would let an
-// ICN fence clobber the neighbouring slot. The CE exit kernel and the OKI sync
-// kernel signal/poll through the low word only.
+// Reserve 8 bytes per done slot because ICN fences write a full u64.
 static __device__ __forceinline__ uint32_t* p2pDmaDoneSlot(uint32_t* doneBase, int senderRank,
                                                            int k, int signaller) {
   return &doneBase[((size_t)senderRank * pcclP2pDmaOpsPerPeer + k) * pcclP2pDmaMaxSignallers * 2
@@ -82,10 +67,7 @@ static __device__ __forceinline__ void p2pDmaWaitDone(uint32_t* slot, uint32_t s
   }
 }
 
-// A self op's receiver is this rank, so its declaration is already in this
-// batch's own recv list: the k-th self send pairs with the k-th self recv, the
-// same rule the mailbox enforces across ranks. The host emits self sends and
-// recvs in matched pairs, so this always finds its mate.
+// Pair the k-th self send with the k-th self recv.
 static __device__ __forceinline__ uint64_t p2pDmaSelfDstOff(struct pcclP2pDmaWork* recvs, int nRecv,
                                                             int rank, int k) {
   for (int i = 0; i < nRecv; i++) {
@@ -94,21 +76,7 @@ static __device__ __forceinline__ uint64_t p2pDmaSelfDstOff(struct pcclP2pDmaWor
   return 0;
 }
 
-////////////////////////////////////////////////////////////////////////////////
-// OKI transport: one kernel carries the whole protocol round -- remote-write
-// recv declarations, locally poll offsets, submit WQEs, poll CQs, then run the
-// done handshake -- so a batch costs a single kernel launch. The phases are
-// separated by __syncthreads(); every cross-rank ordering is enforced by the
-// mailbox/done spins, never by kernel boundaries, so merging cannot deadlock:
-// every receiver publishes before any sender waits, senders signal done only
-// after their own CQs drain, and no phase waits on a peer's later phase.
-//
-// Self ops (peer == rank) ride the same work list and the same phases, just on
-// the local D2D queues (slot 0) instead of the ICN: their destination is known
-// without a mailbox round trip and their completion is covered by this kernel's
-// own CQ poll, so they skip the publish and the done handshake entirely. Keeping
-// them here rather than on a host-side memcpy is what lets a rank's local copy
-// run concurrently with its peer traffic instead of serializing ahead of it.
+// Publish all declarations before waiting; drain CQs before signaling done.
 
 template<int DIE_NUM>
 __global__ void pcclP2pDmaOkiRound(struct pcclP2pDmaArgs args, ltOkiQP_t* qps, uint64_t step) {
@@ -126,10 +94,7 @@ __global__ void pcclP2pDmaOkiRound(struct pcclP2pDmaArgs args, ltOkiQP_t* qps, u
   struct pcclP2pDmaWork* sends = args.sends();
   struct pcclP2pDmaWork* recvs = args.recvs();
 
-  // Phase 0: publish every remote recv declaration into the sender's mailbox
-  // window. The receiver performs remote writes; the sender only polls its local
-  // mailbox in phase 1, avoiding remote polling on the hot path. Self recvs need
-  // no cell: phase 1 reads their offset straight out of this work list.
+  // Publish remote recv offsets into the senders' mailboxes; self offsets come from the work list.
   {
     for (int i = tid; i < args.nRecv; i += blockDim.x) {
       int q = recvs[i].peer;
@@ -141,22 +106,7 @@ __global__ void pcclP2pDmaOkiRound(struct pcclP2pDmaArgs args, ltOkiQP_t* qps, u
   }
   __syncthreads();
 
-  // Phase 1: one *thread* owns one (slot, die) queue and drives it end to end --
-  // resolve, reserve, write every WQE, post. Slot 0 is the local D2D queue set
-  // that carries the self ops; several remote peers can fold onto one remote slot
-  // (p2pDmaSlotOf), and the owning thread walks the folded peers serially.
-  //
-  // The queue count is small (p2pDmaSlotCount * DIE_NUM, at most 18 here) while a
-  // block has at least a full warp, so this hands every queue its own thread in
-  // one pass. The previous mapping gave a whole warp to one slot and used only
-  // DIE_NUM of its 32 lanes, which meant a batch with few ops -- exactly the
-  // 16-rank, one-op-per-peer case -- got a single warp that walked all the slots
-  // serially, paying each queue's submission cost end to end on the critical path.
-  // Lanes driving distinct QPs is not new: the old mapping already had lane 0 and
-  // lane 1 reserve/post on different queues concurrently.
-  //
-  // Doorbells still ring from lane 0 only (below): ltOkiRingDB from any other lane
-  // hangs the engine. That is cheap relative to reserve/post, so it stays serial.
+  // One thread owns each (slot, die) queue, including all peers folded onto it.
   struct pcclP2pDmaMboxCell* myMbox =
       (struct pcclP2pDmaMboxCell*)::add4G((void*)mbox, (int)(rank * stride4G));
   int nSlots = p2pDmaSlotCount(qpSlots);
@@ -166,10 +116,7 @@ __global__ void pcclP2pDmaOkiRound(struct pcclP2pDmaArgs args, ltOkiQP_t* qps, u
     int lane = qIdx % DIE_NUM; // lane is the die index, as the payload split expects
     ltOkiQP_t qp = qps[okiQpGroupToQid(slot, lane, DIE_NUM)];
 
-    // Size the run, and resolve every declaration this queue needs, before
-    // reserving: the reservation window must not contain a spin on a peer.
-    // These are local reads -- the receiver remote-wrote into my mailbox, and a
-    // self op never had to leave this rank at all.
+    // Resolve remote offsets before reserving WQEs.
     uint32_t wqeWanted = 0;
     for (int i = 0; i < args.nSend; i++) {
       size_t size = (size_t)sends[i].bytes;
@@ -199,24 +146,18 @@ __global__ void pcclP2pDmaOkiRound(struct pcclP2pDmaArgs args, ltOkiQP_t* qps, u
       uint64_t dstOff = self ? p2pDmaSelfDstOff(recvs, args.nRecv, rank, sends[i].k)
                              : p2pDmaMboxWaitOffset(&myMbox[peer * opsPerPeer + sends[i].k], sends[i].seq, args.abortFlag);
       uint8_t* src = (uint8_t*)args.sendFlatBase + sends[i].off;
-      // add4G by (peer - rank) is the identity for a self op, so one expression
-      // covers both: the recv window slot of whoever owns the destination.
       uint8_t* dst = (uint8_t*)::add4G((void*)args.recvFlatBase, (int)((peer - rank) * stride4G)) + dstOff;
       wqeWritten += p2pDmaWriteCopy<DIE_NUM>(activeDies, lane, qp, size, src, dst, /*local=*/self);
     }
-    // One fence at the queue tail. The queue is in-order, so polling it implies
-    // every copy above landed -- for every peer folded onto this queue, which is
-    // why the fence is per queue and not per peer.
+    // A tail CQ fence covers all peers sharing this queue.
     ltOkiQPWriteFenceWqe(qp, (uint64_t)ltOkiQPGetCQ(qp), step, lane, true);
     wqeWritten++;
-    // Post exactly the number of WQEs written; wqeReserved may have been
-    // rounded up by ltOkiReserveWqeSlots and is not what we wrote.
+    // Post emitted WQEs; the reservation may include padding.
     ltOkiPostSend(qp, wqeBase, wqeWritten);
   }
   __syncthreads();
 
-  // Ring doorbells from lane 0 only, after every queue has been posted, same as
-  // the OKI collectives. Recompute which (slot, die) queues this batch used.
+  // Only lane 0 may ring doorbells, after all WQEs are posted.
   if (laneId == 0) {
     for (int slot = wid; slot < nSlots; slot += nWarps) {
       #pragma unroll
@@ -228,12 +169,7 @@ __global__ void pcclP2pDmaOkiRound(struct pcclP2pDmaArgs args, ltOkiQP_t* qps, u
   }
   __syncthreads();
 
-  // Phase 2: sender-side completion -- one thread per queue polls the fence it
-  // posted, so the waits for every queue overlap instead of being walked by one
-  // warp. This is what keeps the stream from reporting the group done while a
-  // source buffer is still being read. Only queues that were actually posted may
-  // be polled, which is why the predicate must match phase 1's sizing filter --
-  // a fence that was never written would never reach `step`.
+  // Poll only queues with posted fences, before reporting sender completion.
   for (int qIdx = tid; qIdx < nQueues; qIdx += blockDim.x) {
     int slot = qIdx / DIE_NUM;
     int lane = qIdx % DIE_NUM;
@@ -242,10 +178,7 @@ __global__ void pcclP2pDmaOkiRound(struct pcclP2pDmaArgs args, ltOkiQP_t* qps, u
   }
   __syncthreads();
 
-  // Phase 3: with all local DMA drained, report every remote send's completion
-  // to its receiver (per-die slot). Zero-byte sends never touched a QP; their
-  // signal is produced here as well. A self send needs no signal: its receiver
-  // is this rank and phase 2 already drained the queue that carried it.
+  // Signal every remote send after CQ completion, including zero-byte sends and inactive dies.
   for (int workId = wid; workId < args.nSend; workId += nWarps) {
     if (laneId >= DIE_NUM) continue;
     int p = sends[workId].peer;
@@ -255,9 +188,7 @@ __global__ void pcclP2pDmaOkiRound(struct pcclP2pDmaArgs args, ltOkiQP_t* qps, u
   }
   __syncthreads();
 
-  // Phase 4: receiver-side completion -- every remote recv waits for all per-die
-  // done signals. Self recvs are already complete: phase 2 polled the local D2D
-  // queue's fence, and that poll precedes this point in program order.
+  // Wait for all remote per-die done signals; self copies already completed at the CQ wait.
   uint32_t* myDoneBox = (uint32_t*)::add4G((void*)doneBox, (int)(rank * stride4G));
   for (int i = tid; i < args.nRecv; i += blockDim.x) {
     int q = recvs[i].peer;

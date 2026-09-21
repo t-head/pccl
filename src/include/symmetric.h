@@ -33,10 +33,7 @@ constexpr int pcclCeReduceChunkSize = 4_MB;
 constexpr int pcclCeReduceMaxSect = 2;
 constexpr int pcclSymMidBufferPerRank = (pcclCeReduceChunkSize * pcclCeReduceMaxSect);
 
-// The per-rank DMA pipelines drift apart on long transfers, which costs bandwidth. Every this
-// many reduce chunks the OKI AR cmd kernel inserts one full sync: that chunk waits on every
-// peer's tail instead of only the target rank's. Pipelines no longer than one interval
-// (4MB chunk on 8 ranks, i.e. up to 128MB total) keep the original single-tail wait.
+// Periodically wait for all peer tails to limit long-transfer pipeline drift.
 constexpr int pcclCeOkiWaitAllTailsInterval = 4;
 
 constexpr int pcclCeReduceMaxBlocks = 4;
@@ -180,8 +177,6 @@ __global__ void gpuBarrierWithTrigger(ncclSymDevArgs const args, uint64_t* addr,
 __global__ void gpuGEQ(volatile uint64_t* ptr, uint64_t data);
 
 #if PCCL_HGGC_VERSION >= PCCL_HGGC_DRIVER_VERSION(2, 2, 0)
-// Everything the fused OKI reduce-family kernel needs, passed by value: the reduce blocks read the
-// station buffers and the rank0-flat head/tail slots, the cmd block drives the OKI queues.
 struct alignas(16) pcclCeOkiReduceArgs {
   struct ncclSymDevComm comm;      // the in-kernel barrier peers through this
   ltOkiQP_t* qps;
@@ -198,9 +193,7 @@ struct alignas(16) pcclCeOkiReduceArgs {
   void* gridSyncPtr;
   ssize_t myElts;
   uint64_t nElts;                  // total elements across all ranks' sendBuff
-  // The per-rank slice the cmd block partitions nElts with. Computed on the host because the two
-  // collectives disagree: AllReduce rounds DIVUP(nElts, nRanks) up to 512B, ReduceScatter uses the
-  // exact recvcount -- rounding there would run past the end of recvBuff.
+  // AllReduce slices are rounded to 512B; ReduceScatter uses the exact recvcount.
   int64_t chunkElts;
   uint64_t okiBaseStep;
   int64_t reduceStepBase;
@@ -209,14 +202,11 @@ struct alignas(16) pcclCeOkiReduceArgs {
   uint32_t nDies;
   uint32_t stride4G;
   uint32_t myRank;
-  // 1 = AllReduce: broadcast this rank's reduced slice to every peer's recvBuff. 0 = ReduceScatter:
-  // the slice already lives in its own recvBuff, so the cmd block skips the allgather phase.
+  // AllReduce broadcasts the reduced slice; ReduceScatter leaves it local.
   uint32_t broadcast;
 };
 
-// Blocks [0, pcclCeReduceMaxBlocks) reduce; the last block barriers, drives the OKI queues and
-// barriers again. Must be launched cooperatively: the reduce blocks grid_sync among themselves
-// and the cmd block spins on fences they produce, so every block has to be resident.
+// Reduce blocks precede one cmd block; cooperative residency is required.
 template<typename T, int NRANKS, bool AVG>
 __global__ void pcclCeOkiReduceFused(struct pcclCeOkiReduceArgs args);
 #endif
