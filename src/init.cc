@@ -548,6 +548,8 @@ static ncclResult_t commFree(ncclComm_t comm) {
   NCCLCHECK(ncclFree(comm->topParentLocalRanks));
   NCCLCHECK(ncclFree(comm->gproxyConn));
 
+  NCCLCHECK(ncclRegCleanup(comm));
+
   // Poison comm to try and catch a double free
   int dev = 0;
   if (ncclPerfmodelSpeedup == 1) {
@@ -1112,7 +1114,8 @@ NCCL_PARAM(MNNVLEnable, "MNNVL_ENABLE", 2);
 #define TIMER_INIT_TOPO 4
 #define TIMER_INIT_GRAPHS 5
 #define TIMER_INIT_CONNECT 6
-#define TIMERS_INIT_COUNT 7
+#define TIMER_INIT_ALLOC 7
+#define TIMERS_INIT_COUNT 8
 
 NCCL_PARAM(GroupSize, "P2P_SCHEDULE_GROUP_SIZE", -1);
 
@@ -1235,9 +1238,7 @@ static ncclResult_t initTransportsRank(ncclComm_t comm, ncclComm_t parent, uint6
     int nChannels;
     int nGraphChannels;
     int p2pnChannelsPerPeer;
-    struct graphInfo tree;
-    struct graphInfo ring;
-    struct graphInfo collNet;
+    struct graphInfo graphInfo[NCCL_ALGO_COLLNET + 1];
     struct ncclTopoRanks topoRanks;
   } ;
 
@@ -1248,6 +1249,7 @@ static ncclResult_t initTransportsRank(ncclComm_t comm, ncclComm_t parent, uint6
   struct ncclTopoGraph *treeGraph = &comm->graphs[NCCL_ALGO_TREE];
   struct ncclTopoGraph *collNetGraph = &comm->graphs[NCCL_ALGO_COLLNET];
   struct ncclTopoGraph *fcGraph = &comm->graphs[NCCL_ALGO_FC];
+  struct ncclTopoGraph *graphs[NCCL_ALGO_COLLNET + 1] = { treeGraph, ringGraph, collNetGraph };
 
   ncclComm_t intraRank0Comm = NULL;
   struct allGatherInfo *allGather3Data = NULL;
@@ -1444,24 +1446,14 @@ static ncclResult_t initTransportsRank(ncclComm_t comm, ncclComm_t parent, uint6
   if (fcGraph->nChannels>0) {
     comm->fcnChannels = fcGraph->nChannels;
   }
-  allGather3Data[rank].tree.pattern = treeGraph->pattern;
-  allGather3Data[rank].tree.sameChannels = treeGraph->sameChannels;
-  allGather3Data[rank].tree.speedIntra = treeGraph->speedIntra;
-  allGather3Data[rank].tree.speedInter = treeGraph->speedInter;
-  allGather3Data[rank].tree.typeIntra = treeGraph->typeIntra;
-  allGather3Data[rank].tree.typeInter = treeGraph->typeInter;
-  allGather3Data[rank].ring.pattern = ringGraph->pattern;
-  allGather3Data[rank].ring.sameChannels = ringGraph->sameChannels;
-  allGather3Data[rank].ring.speedIntra = ringGraph->speedIntra;
-  allGather3Data[rank].ring.speedInter = ringGraph->speedInter;
-  allGather3Data[rank].ring.typeIntra = ringGraph->typeIntra;
-  allGather3Data[rank].ring.typeInter = ringGraph->typeInter;
-  allGather3Data[rank].collNet.pattern = collNetGraph->pattern;
-  allGather3Data[rank].collNet.sameChannels = collNetGraph->sameChannels;
-  allGather3Data[rank].collNet.speedIntra = collNetGraph->speedIntra;
-  allGather3Data[rank].collNet.speedInter = collNetGraph->speedInter;
-  allGather3Data[rank].collNet.typeIntra = collNetGraph->typeIntra;
-  allGather3Data[rank].collNet.typeInter = collNetGraph->typeInter;
+  for (int a = 0; a <= NCCL_ALGO_COLLNET; a++) {
+    allGather3Data[rank].graphInfo[a].pattern = graphs[a]->pattern;
+    allGather3Data[rank].graphInfo[a].sameChannels = graphs[a]->sameChannels;
+    allGather3Data[rank].graphInfo[a].speedIntra = graphs[a]->speedIntra;
+    allGather3Data[rank].graphInfo[a].speedInter = graphs[a]->speedInter;
+    allGather3Data[rank].graphInfo[a].typeIntra = graphs[a]->typeIntra;
+    allGather3Data[rank].graphInfo[a].typeInter = graphs[a]->typeInter;
+  }
   allGather3Data[rank].p2pnChannelsPerPeer = comm->p2pnChannelsPerPeer;
 
   NCCLCHECKGOTO(ncclTopoPreset(comm, treeGraph, ringGraph, collNetGraph, fcGraph, &allGather3Data[rank].topoRanks), res, fail);
@@ -1486,7 +1478,7 @@ static ncclResult_t initTransportsRank(ncclComm_t comm, ncclComm_t parent, uint6
       node = comm->nNodes++;
       nodesFirstRank[node] = firstRank;
       // Record tree pattern of each node as they can be different depending on sm arch
-      nodesTreePatterns[node] = allGather3Data[i].tree.pattern;
+      nodesTreePatterns[node] = allGather3Data[i].graphInfo[NCCL_ALGO_TREE].pattern;
     }
     comm->rankToNode[i] = node;
   }
@@ -1542,21 +1534,13 @@ static ncclResult_t initTransportsRank(ncclComm_t comm, ncclComm_t parent, uint6
     // Make sure we align all ranks so that the tuning is consistent across ranks
     treeGraph->nChannels = ringGraph->nChannels = comm->nChannels = std::min(allGather3Data[i].nChannels, comm->nChannels);
     treeGraph->nGraphChannels = ringGraph->nGraphChannels = comm->nGraphChannels = std::min(allGather3Data[i].nGraphChannels, comm->nGraphChannels);
-    treeGraph->sameChannels = std::min(allGather3Data[i].tree.sameChannels, treeGraph->sameChannels);
-    treeGraph->speedIntra = std::min(allGather3Data[i].tree.speedIntra, treeGraph->speedIntra);
-    treeGraph->speedInter = std::min(allGather3Data[i].tree.speedInter, treeGraph->speedInter);
-    treeGraph->typeIntra = std::max(allGather3Data[i].tree.typeIntra, treeGraph->typeIntra);
-    treeGraph->typeInter = std::max(allGather3Data[i].tree.typeInter, treeGraph->typeInter);
-    ringGraph->sameChannels = std::min(allGather3Data[i].ring.sameChannels, ringGraph->sameChannels);
-    ringGraph->speedIntra = std::min(allGather3Data[i].ring.speedIntra, ringGraph->speedIntra);
-    ringGraph->speedInter = std::min(allGather3Data[i].ring.speedInter, ringGraph->speedInter);
-    ringGraph->typeIntra = std::max(allGather3Data[i].ring.typeIntra, ringGraph->typeIntra);
-    ringGraph->typeInter = std::max(allGather3Data[i].ring.typeInter, ringGraph->typeInter);
-    collNetGraph->sameChannels = std::min(allGather3Data[i].collNet.sameChannels, collNetGraph->sameChannels);
-    collNetGraph->speedIntra = std::min(allGather3Data[i].collNet.speedIntra, collNetGraph->speedIntra);
-    collNetGraph->speedInter = std::min(allGather3Data[i].collNet.speedInter, collNetGraph->speedInter);
-    collNetGraph->typeIntra = std::max(allGather3Data[i].collNet.typeIntra, collNetGraph->typeIntra);
-    collNetGraph->typeInter = std::max(allGather3Data[i].collNet.typeInter, collNetGraph->typeInter);
+    for (int a = 0; a <= NCCL_ALGO_COLLNET; a++) {
+      graphs[a]->sameChannels = std::min(allGather3Data[i].graphInfo[a].sameChannels, graphs[a]->sameChannels);
+      graphs[a]->speedIntra = std::min(allGather3Data[i].graphInfo[a].speedIntra, graphs[a]->speedIntra);
+      graphs[a]->speedInter = std::min(allGather3Data[i].graphInfo[a].speedInter, graphs[a]->speedInter);
+      graphs[a]->typeIntra = std::max(allGather3Data[i].graphInfo[a].typeIntra, graphs[a]->typeIntra);
+      graphs[a]->typeInter = std::max(allGather3Data[i].graphInfo[a].typeInter, graphs[a]->typeInter);
+    }
     comm->p2pnChannelsPerPeer = std::min(comm->p2pnChannelsPerPeer, allGather3Data[i].p2pnChannelsPerPeer);
   }
 
@@ -1956,14 +1940,18 @@ static ncclResult_t ncclCommInitRankFunc(struct ncclAsyncJob* job_) {
     eatHash(hacc, &job->splitCount);
     eatHash(hacc, &job->color);
     comm->commHash = digestHash(hacc);
+    timers[TIMER_INIT_ALLOC] = clockNano();
     NCCLCHECKGOTO(commAlloc(comm, job->parent, job->nranks, job->myrank), res, fail);
+    timers[TIMER_INIT_ALLOC] = clockNano() - timers[TIMER_INIT_ALLOC];
     INFO(NCCL_INIT, "pcclCommSplit comm %p rank %d nranks %d hggcDev %d busId %lx parent %p splitCount %d color %d key %d - Init START",
          comm, comm->rank, comm->nRanks, comm->hggcDev, comm->busId, job->parent, job->splitCount, job->color, job->key);
     timers[TIMER_INIT_BOOTSTRAP] = clockNano();
     NCCLCHECKGOTO(bootstrapSplit(comm->commHash, comm, job->parent, job->color, job->key, parentRanks), res, fail);
     timers[TIMER_INIT_BOOTSTRAP] = clockNano() - timers[TIMER_INIT_BOOTSTRAP];
   } else {
+    timers[TIMER_INIT_ALLOC] = clockNano();
     NCCLCHECKGOTO(commAlloc(comm, NULL, job->nranks, job->myrank), res, fail);
+    timers[TIMER_INIT_ALLOC] = clockNano() - timers[TIMER_INIT_ALLOC];
     comm->commHash = getHash(job->commId->internal, NCCL_UNIQUE_ID_BYTES);
     INFO(NCCL_INIT,"pcclCommInitRank comm %p rank %d nranks %d hggcDev %d busId %lx commHash %lx - Init START",
     comm, comm->rank, comm->nRanks, comm->hggcDev, comm->busId, comm->commHash);
@@ -2103,15 +2091,16 @@ static ncclResult_t ncclCommInitRankFunc(struct ncclAsyncJob* job_) {
     comm, comm->rank, comm->nRanks, comm->hggcDev, comm->busId, comm->commHash, comm->maxConnType);
   }
 
-  VERBOSE(NCCL_INIT|NCCL_PROFILE,"Init timings: rank %d nranks %d total %.2f (kernels %.2f, bootstrap %.2f, allgathers %.2f, topo %.2f, graphs %.2f, connections %.2f, rest %.2f)", comm->rank, comm->nRanks,
+  VERBOSE(NCCL_INIT|NCCL_PROFILE,"Init timings: rank %d nranks %d total %.2f (kernels %.2f, alloc %.2f, bootstrap %.2f, allgathers %.2f, topo %.2f, graphs %.2f, connections %.2f, rest %.2f)", comm->rank, comm->nRanks,
     timers[TIMER_INIT_TOTAL]/1e9,
     timers[TIMER_INIT_KERNELS]/1e9,
+    timers[TIMER_INIT_ALLOC]/1e9,
     timers[TIMER_INIT_BOOTSTRAP]/1e9,
     timers[TIMER_INIT_ALLGATHER]/1e9,
     timers[TIMER_INIT_TOPO]/1e9,
     timers[TIMER_INIT_GRAPHS]/1e9,
     timers[TIMER_INIT_CONNECT]/1e9,
-    (timers[TIMER_INIT_TOTAL]-timers[TIMER_INIT_KERNELS]-timers[TIMER_INIT_BOOTSTRAP]-timers[TIMER_INIT_ALLGATHER]-timers[TIMER_INIT_TOPO]-timers[TIMER_INIT_GRAPHS]-timers[TIMER_INIT_CONNECT])/1e9);
+    (timers[TIMER_INIT_TOTAL]-timers[TIMER_INIT_KERNELS]-timers[TIMER_INIT_ALLOC]-timers[TIMER_INIT_BOOTSTRAP]-timers[TIMER_INIT_ALLGATHER]-timers[TIMER_INIT_TOPO]-timers[TIMER_INIT_GRAPHS]-timers[TIMER_INIT_CONNECT])/1e9);
 
   INFO(NCCL_PROFILE,"Init timings: rank %d nranks %d total %.2f", comm->rank, comm->nRanks, timers[TIMER_INIT_TOTAL]/1e9);
   INFO(NCCL_ALLOC, "comm %p totally used %ldB %ldB(sharedRes) device memory splitShare %d nranks %d rank %d", comm, comm->devMemUsed, comm->sharedRes->devMemUsed, comm->config.splitShare, comm->nRanks, comm->rank);
@@ -2348,8 +2337,8 @@ static ncclResult_t ncclCommInitRankDev(ncclComm_t* newcomm, int nranks, int nId
   NCCLCHECKGOTO(ncclCalloc(&comm->abortFlagRefCount, 1), res, fail);
   *comm->abortFlagRefCount = 1;
   NCCLCHECKGOTO(parseCommConfig(comm, config), res, fail);
-  /* start with ncclInternalError and will be changed to ncclSuccess if init succeeds. */
-  comm->initState = ncclInternalError;
+  /* start with ncclInProgress and will be changed to ncclSuccess if init succeeds. */
+  comm->initState = ncclInProgress;
   *newcomm = comm;
 
   NCCLCHECKGOTO(ncclCalloc(&job, 1), res, fail);
