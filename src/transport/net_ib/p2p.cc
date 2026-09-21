@@ -42,9 +42,12 @@ ncclResult_t ncclSendCheck(struct ncclIbSendComm* comm) {
   if (bytes == 0) return ncclSuccess; // Try again later
   NCCLCHECK(ncclSocketWait(NCCL_SOCKET_RECV, &comm->base.sock, &remQpInfo, sizeof(remQpInfo), &bytes));
 
+  struct ncclIbDev* ibDev = ncclIbDevs + comm->netDev;
+  NCCLCHECK(ncclIbCheckGidFamily(ibDev->context, ibDev->port, comm->gidIndex, &remQpInfo));
+
   for (int q=0; q<comm->base.nqps; q++) {
     struct ibv_qp* qp = comm->base.qps[q];
-    NCCLCHECK(ncclIbRtrQp(qp, remQpInfo.qpn[q], &remQpInfo, ncclIbGidIndexFromDevice(comm->netDev)));
+    NCCLCHECK(ncclIbRtrQp(qp, remQpInfo.qpn[q], &remQpInfo, comm->gidIndex));
     NCCLCHECK(ncclIbRtsQp(qp));
   }
   comm->base.ready = 1;

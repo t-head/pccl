@@ -55,6 +55,8 @@ struct ncclIbDev {
     int realPort;
     int maxQp;
     int gidIndex;
+    // Slot 0 is AF_INET and slot 1 is AF_INET6; -1 means unavailable.
+    int gidIndexByFamily[2];
     int ar;
     uint32_t oooRqSize;
     struct ncclIbStats stats;
@@ -227,6 +229,7 @@ struct ncclIbSendComm {
 
     struct ibv_mr* fifoMr;
     int netDev;
+    int gidIndex;
     int ar; // Use adaptive routing when enabled on the selected device
     // Local scratchpad target for the GIN proxy iputSignal atomic FETCH_AND_ADD.
     uint64_t putSignalScratchpad;
@@ -321,6 +324,8 @@ ncclResult_t ncclIbGetPhysProperties(int dev, ncclNetProperties_t* props);
 ncclResult_t ncclIbRegMrDmaBufInternal(void* comm, void* data, size_t size, int type, uint64_t offset, int fd, uint64_t mrFlags, void** mhandle);
 
 ncclResult_t ncclIbGetGidIndex(struct ibv_context *context, uint8_t portNum, int gidTblLen, int *gidIndex);
+ncclResult_t ncclIbGetGidIndexCandidates(struct ibv_context *context, uint8_t portNum, int gidTblLen,
+                                         int *gidIndex, int gidIndexByFamily[2]);
 int ncclIbGidIndexFromDevice(int netDev);
 ncclResult_t ncclIbGetRequest(struct ncclIbNetCommBase* base, struct ncclIbRequest** req);
 ncclResult_t ncclIbFreeRequest(struct ncclIbRequest* r);

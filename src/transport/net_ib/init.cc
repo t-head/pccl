@@ -342,7 +342,14 @@ ncclResult_t ncclIbInit(ncclDebugLogger_t logFunction) {
           ncclIbDevs[ncclNIbDevs].context = context;
           strncpy(ncclIbDevs[ncclNIbDevs].devName, devices[d]->name, MAXNAMESIZE);
           if (ncclIbBondIfName != NULL) strcpy(ncclIbDevs[ncclNIbDevs].ifName, ncclIbBondIfName+d*(MAX_IF_NAME_SIZE+1));
-          NCCLCHECK(ncclIbGetGidIndex(context, port, portAttr.gid_tbl_len, &ncclIbDevs[ncclNIbDevs].gidIndex));
+          if (portAttr.link_layer == IBV_LINK_LAYER_ETHERNET) {
+            NCCLCHECK(ncclIbGetGidIndexCandidates(context, port, portAttr.gid_tbl_len,
+                &ncclIbDevs[ncclNIbDevs].gidIndex, ncclIbDevs[ncclNIbDevs].gidIndexByFamily));
+          } else {
+            ncclIbDevs[ncclNIbDevs].gidIndexByFamily[0] = -1;
+            ncclIbDevs[ncclNIbDevs].gidIndexByFamily[1] = -1;
+            NCCLCHECK(ncclIbGetGidIndex(context, port, portAttr.gid_tbl_len, &ncclIbDevs[ncclNIbDevs].gidIndex));
+          }
           NCCLCHECK(ncclIbGetPciPath(ncclIbDevs[ncclNIbDevs].devName, &ncclIbDevs[ncclNIbDevs].pciPath, &ncclIbDevs[ncclNIbDevs].realPort));
           NCCLCHECK(ncclIbGetSpeed(ncclIbDevs[ncclNIbDevs].ifName, &portAttr, &ncclIbDevs[ncclNIbDevs].speed));
           ncclIbDevs[ncclNIbDevs].maxQp = devAttr.max_qp;
