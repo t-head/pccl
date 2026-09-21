@@ -232,6 +232,7 @@ static ncclResult_t ncclIbGetSpeed(char* ifName, const struct ibv_port_attr *por
 
 ncclResult_t ncclIbInit(ncclDebugLogger_t logFunction) {
   static int shownIbHcaEnv = 0;
+  static ncclResult_t initResult = ncclSuccess;
   if(wrap_ibv_symbols() != ncclSuccess) { return ncclInternalError; }
   if (ncclParamIbOooRq() && wrap_mlx5dv_symbols() != ncclSuccess) {
     WARN("NET/IB : NCCL_IB_OOO_RQ is enabled but mlx5 Direct Verbs symbols are unavailable");
@@ -239,11 +240,16 @@ ncclResult_t ncclIbInit(ncclDebugLogger_t logFunction) {
   }
   if (ncclParamIbDisable()) return ncclInternalError;
 
-  ncclResult_t res = ncclSuccess;
+  // Cache failures as well as successful device discovery. A failed discovery
+  // may have populated only part of ncclIbDevs, which must not be used on retry.
+  pthread_mutex_lock(&ncclIbLock);
+  ncclResult_t res = initResult;
   if (ncclNIbDevs == -1) {
-    pthread_mutex_lock(&ncclIbLock);
     wrap_ibv_fork_init();
     char* ncclIbBondIfName = NULL;
+    struct ibv_device** devices = NULL;
+    struct ibv_context* context = NULL;
+    int nPorts = 0;
     if (ncclNIbDevs == -1) {
       ncclNIbDevs = 0;
       if (ncclFindInterfaces(ncclIbIfName, &ncclIbIfAddr, MAX_IF_NAME_SIZE, 1) != 1) {
@@ -254,7 +260,6 @@ ncclResult_t ncclIbInit(ncclDebugLogger_t logFunction) {
 
       // Detect IB cards
       int nIbDevs;
-      struct ibv_device** devices;
 
       // Check if user defined which IB device:port to use
       const char* userIbEnv = pcclGetEnvWithDualPrefix("PCCL_IB_HCA");
@@ -286,12 +291,12 @@ ncclResult_t ncclIbInit(ncclDebugLogger_t logFunction) {
           INFO(NCCL_INIT|NCCL_NET, "NET/IB : Skipping tsoe device %s (PCCL_IB_IGNORE_TSOE=1)", devices[d]->name);
           continue;
         }
-        struct ibv_context * context;
+        context = NULL;
+        nPorts = 0;
         if (ncclSuccess != wrap_ibv_open_device(&context, devices[d]) || context == NULL) {
           WARN("NET/IB : Unable to open device %s", devices[d]->name);
           continue;
         }
-        int nPorts = 0;
         struct ibv_device_attr devAttr;
         memset(&devAttr, 0, sizeof(devAttr));
         if (ncclSuccess != wrap_ibv_query_device(context, &devAttr)) {
@@ -299,8 +304,10 @@ ncclResult_t ncclIbInit(ncclDebugLogger_t logFunction) {
           if (ncclSuccess != wrap_ibv_close_device(context)) {
             ERROR("NET/IB : Unable to close device %s after querying failed", devices[d]->name);
             res = ncclInternalError;
+            context = NULL;
             goto exit;
           }
+          context = NULL;
           continue;
         }
         uint32_t oooRqSize = 0;
@@ -342,9 +349,16 @@ ncclResult_t ncclIbInit(ncclDebugLogger_t logFunction) {
           ncclIbDevs[ncclNIbDevs].context = context;
           strncpy(ncclIbDevs[ncclNIbDevs].devName, devices[d]->name, MAXNAMESIZE);
           if (ncclIbBondIfName != NULL) strcpy(ncclIbDevs[ncclNIbDevs].ifName, ncclIbBondIfName+d*(MAX_IF_NAME_SIZE+1));
-          NCCLCHECK(ncclIbGetGidIndex(context, port, portAttr.gid_tbl_len, &ncclIbDevs[ncclNIbDevs].gidIndex));
-          NCCLCHECK(ncclIbGetPciPath(ncclIbDevs[ncclNIbDevs].devName, &ncclIbDevs[ncclNIbDevs].pciPath, &ncclIbDevs[ncclNIbDevs].realPort));
-          NCCLCHECK(ncclIbGetSpeed(ncclIbDevs[ncclNIbDevs].ifName, &portAttr, &ncclIbDevs[ncclNIbDevs].speed));
+          if (portAttr.link_layer == IBV_LINK_LAYER_ETHERNET) {
+            NCCLCHECKGOTO(ncclIbGetGidIndexCandidates(context, port, portAttr.gid_tbl_len,
+                &ncclIbDevs[ncclNIbDevs].gidIndex, ncclIbDevs[ncclNIbDevs].gidIndexByFamily), res, exit);
+          } else {
+            ncclIbDevs[ncclNIbDevs].gidIndexByFamily[0] = -1;
+            ncclIbDevs[ncclNIbDevs].gidIndexByFamily[1] = -1;
+            NCCLCHECKGOTO(ncclIbGetGidIndex(context, port, portAttr.gid_tbl_len, &ncclIbDevs[ncclNIbDevs].gidIndex), res, exit);
+          }
+          NCCLCHECKGOTO(ncclIbGetPciPath(ncclIbDevs[ncclNIbDevs].devName, &ncclIbDevs[ncclNIbDevs].pciPath, &ncclIbDevs[ncclNIbDevs].realPort), res, exit);
+          NCCLCHECKGOTO(ncclIbGetSpeed(ncclIbDevs[ncclNIbDevs].ifName, &portAttr, &ncclIbDevs[ncclNIbDevs].speed), res, exit);
           ncclIbDevs[ncclNIbDevs].maxQp = devAttr.max_qp;
           ncclIbDevs[ncclNIbDevs].ar = portAttr.link_layer == IBV_LINK_LAYER_INFINIBAND ? 1 : 0;
           if (ncclParamIbAdaptiveRouting() != -2) {
@@ -354,7 +368,7 @@ ncclResult_t ncclIbInit(ncclDebugLogger_t logFunction) {
           ncclIbDevs[ncclNIbDevs].ibProvider = IB_PROVIDER_MLX5;
           ncclIbDevs[ncclNIbDevs].pd = NULL;
           ncclIbDevs[ncclNIbDevs].dmaBufSupported = -1;
-          NCCLCHECK(ncclIbStatsInit(&ncclIbDevs[ncclNIbDevs].stats));
+          NCCLCHECKGOTO(ncclIbStatsInit(&ncclIbDevs[ncclNIbDevs].stats), res, exit);
 
           pthread_create(&ncclIbAsyncThread, NULL, ncclIbAsyncThreadMain, ncclIbDevs + ncclNIbDevs);
           ncclSetThreadName(ncclIbAsyncThread, "PCCL IbAsync %2d", ncclNIbDevs);
@@ -363,20 +377,18 @@ ncclResult_t ncclIbInit(ncclDebugLogger_t logFunction) {
           ncclNIbDevs++;
           nPorts++;
         }
-        if (nPorts == 0 && ncclSuccess != wrap_ibv_close_device(context)) {
-          ERROR("NET/IB : Unable to close device %s", devices[d]->name);
-          res = ncclInternalError;
-          goto exit;
+        if (nPorts == 0) {
+          res = wrap_ibv_close_device(context);
+          context = NULL;
+          if (res != ncclSuccess) {
+            ERROR("NET/IB : Unable to close device %s", devices[d]->name);
+            goto exit;
+          }
         }
       }
       if (nUserIfs > 0 && nMatchUserIfs == 0) {
         WARN("NET/IB : Mismatched user defined interface %s", userIbEnv);
       }
-      if (nIbDevs && (ncclSuccess != wrap_ibv_free_device_list(devices))) {
-        ERROR("NET/IB : Unable to free ibv device list");
-        res = ncclInternalError;
-        goto exit;
-      };
     }
     if (ncclNIbDevs == 0) {
       INFO(NCCL_INIT|NCCL_NET, "NET/IB : No device found.");
@@ -404,9 +416,14 @@ ncclResult_t ncclIbInit(ncclDebugLogger_t logFunction) {
            ncclSocketToString(&ncclIbIfAddr, addrline));
     }
 exit:
-    NCCLCHECK(ncclFree(ncclIbBondIfName));
-    pthread_mutex_unlock(&ncclIbLock);
+    // Published ports share their context with async event threads. Only close
+    // the current context if discovery has not published any of its ports.
+    if (context != NULL && nPorts == 0) NCCLCHECKIGNORE(wrap_ibv_close_device(context), res);
+    if (devices != NULL) NCCLCHECKIGNORE(wrap_ibv_free_device_list(devices), res);
+    NCCLCHECKIGNORE(ncclFree(ncclIbBondIfName), res);
+    initResult = res;
   }
+  pthread_mutex_unlock(&ncclIbLock);
   return res;
 }
 
