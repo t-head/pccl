@@ -40,7 +40,7 @@ union ncclSocketAddress {
 
 // Wire-format version of the diag block embedded in rasCollComms.  Mismatched versions are
 // dropped at the analyzer (with a WARN) so a rolling upgrade across the RAS network is safe.
-#define RAS_COMMS_DIAG_WIRE_VERSION 0x00010003u
+#define RAS_COMMS_DIAG_WIRE_VERSION 0x00010005u
 #define RAS_DIAG_WIRE_VERSION RAS_COMMS_DIAG_WIRE_VERSION
 #define RAS_DIAG_CONN_NONE   ((uint8_t)0xFF)
 
@@ -149,6 +149,32 @@ struct alignas(int64_t) rasDiagRankHeader {
   int nChannels;
 };
 
+// Retained host operation metadata; counters stay in channel/peer records.
+enum rasDiagPeerReadValidity {
+  RAS_DIAG_PEER_HEAD_VALID = (1u << 0),
+  RAS_DIAG_PEER_STEP_VALID = (1u << 1),
+  RAS_DIAG_PEER_TAIL_VALID = (1u << 2)
+};
+
+struct rasDiagRingOperation {
+  uint64_t kernelIndex;
+  uint64_t count;
+  uint64_t lastChunkSize;
+  uint64_t previousKernelIndex;
+  int32_t root;
+  uint32_t funcId;
+  uint16_t nThreads;
+  uint8_t nChannels;
+  uint8_t valid;  // Single native Ring work with supported ICN/IB connectors.
+  uint8_t collective;
+  uint8_t protocol;
+  // PXN uses CONN_ICN device primitives but a NET connector.
+  uint8_t sendIsNet;
+  int32_t sendProxyRank;  // NET send proxy in communicator rank space; -1 for ICN/unknown.
+  int32_t sendProxyTpRank;  // Top-parent rank, also available when the proxy is outside this communicator.
+  uint32_t workOffset;  // Byte offset in this rank's retained kernel arguments; 0 if unavailable.
+};
+
 struct alignas(int64_t) rasDiagChannel {
   int channelId;
   int nPeerEntries;
@@ -166,7 +192,9 @@ struct alignas(int64_t) rasDiagChannel {
   uint8_t fcConnType;
   uint8_t devHangReportedKernelIdxValid;
   uint8_t devCompletedKernelIdxValid;
-  uint8_t _pad0;
+  // Former zero padding: old snapshots remain eligible for conservative Ring checks.
+  uint8_t ringExcluded; // Channel is outside comm->nChannels (P2P/FC-only).
+  struct rasDiagRingOperation ringOperation;
 };
 
 struct alignas(int64_t) rasDiagPeer {
@@ -174,7 +202,7 @@ struct alignas(int64_t) rasDiagPeer {
   uint8_t connector;     // 0 = coll connector, 1 = p2p connector.
   uint8_t direction;     // 0 = send, 1 = recv.
   uint8_t connected;
-  uint8_t _pad;
+  uint8_t readValid;     // rasDiagPeerReadValidity flags; independent of counter values.
   uint64_t head;
   uint64_t tail;
   uint64_t devStep;

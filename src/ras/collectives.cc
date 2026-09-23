@@ -132,6 +132,7 @@ ncclResult_t rasNetSendCollReq(const struct rasCollRequest* req, bool* pAllDone,
     coll->timeout = req->timeout;
     coll->fromConn = fromConn;
     coll->onComplete = onComplete;
+    if (req->type == RAS_COLL_COMMS) coll->diagOnlyCommHash = req->comms.diagOnlyCommHash;
     if (ncclCalloc(&coll->peers, 1) == ncclSuccess) {
       memcpy(coll->peers, &rasNetListeningSocket.addr, sizeof(*coll->peers));
       coll->nPeers = 1;
@@ -785,7 +786,7 @@ static ncclResult_t rasCollCommsInit(struct rasCollRequest** pReq, size_t* pReqL
       // always 0.  It will increase after we send this response back to the peer we got the request from.
       rank->peerIdx = 0;
       rank->collOpCount = ncclComm->collOpCount;
-      rank->status.initState = (uint32_t)ncclComm->initState;
+      rank->status.initState = (uint32_t)__atomic_load_n(&ncclComm->initState, __ATOMIC_ACQUIRE);
       rank->status.asyncError = (uint32_t)__atomic_load_n(&ncclComm->asyncResult, __ATOMIC_ACQUIRE);
       // TODO: check proxyState asyncResult
       // if (rank->status.asyncError == (uint32_t)ncclSuccess && ncclComm->proxyState)

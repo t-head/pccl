@@ -28,6 +28,8 @@ struct offlinePeer {
   int peerRank;
   uint8_t connector; // 0 = coll, 1 = p2p
   uint8_t direction; // 0 = send, 1 = recv
+  uint8_t readValid;
+  bool readValidityKnown;
   uint64_t head;
   uint64_t tail;
   uint64_t devStep;
@@ -35,6 +37,7 @@ struct offlinePeer {
 
 struct offlineChannel {
   int channelId = -1;
+  uint8_t ringExcluded = 0;
   uint64_t workFifoTail = 0;
   uint64_t hangReportedIdx = 0;
   uint8_t hangReportedValid = 0;
@@ -47,6 +50,7 @@ struct offlineChannel {
   uint8_t ringRecvConn = RAS_DIAG_CONN_NONE;
   uint8_t treeUpConn = RAS_DIAG_CONN_NONE;
   uint8_t treeDownConn = RAS_DIAG_CONN_NONE;
+  rasDiagRingOperation ringOperation{};
   std::vector<offlinePeer> peers;
 };
 
@@ -147,6 +151,50 @@ static bool parseStepLine(const char* p, offlinePeer* peer) {
   peer->devStep = (uint64_t)step;
   peer->head = (uint64_t)head;
   peer->tail = (uint64_t)tail;
+  const char* validity = strstr(p, "readValid:");
+  peer->readValidityKnown = validity != nullptr;
+  // Older text writers did not distinguish failed reads from zero. Preserve
+  // their legacy comparisons, but do not enable head attribution from them.
+  unsigned readValid = RAS_DIAG_PEER_HEAD_VALID | RAS_DIAG_PEER_STEP_VALID | RAS_DIAG_PEER_TAIL_VALID;
+  if (validity && (sscanf(validity, "readValid:%u", &readValid) != 1 ||
+                   readValid > (RAS_DIAG_PEER_HEAD_VALID | RAS_DIAG_PEER_STEP_VALID | RAS_DIAG_PEER_TAIL_VALID))) return false;
+  peer->readValid = (uint8_t)readValid;
+  return true;
+}
+
+static bool parseRingOperationLine(const char* p, rasDiagRingOperation* operation) {
+  unsigned valid, collective, protocol, funcId, nChannels, nThreads, sendIsNet;
+  unsigned long long kernel, previous, count, lastChunkSize;
+  int root, sendProxyRank, consumed = 0;
+  if (sscanf(p, "ringHead valid:%u kernel:%llu previous:%llu coll:%u proto:%u funcId:%u root:%d count:%llu "
+                "lastChunkSize:%llu nChannels:%u nThreads:%u sendIsNet:%u sendProxyRank:%d%n",
+             &valid, &kernel, &previous, &collective, &protocol, &funcId, &root, &count,
+             &lastChunkSize, &nChannels, &nThreads, &sendIsNet, &sendProxyRank, &consumed) != 13 || !consumed ||
+      valid > 1 || collective > UINT8_MAX || protocol > UINT8_MAX || nChannels > UINT8_MAX ||
+      nThreads > UINT16_MAX || sendIsNet > 1) return false;
+  // Earlier dumps contain only the communicator proxy rank.
+  int sendProxyTpRank = -1;
+  const char* proxyTpRank = strstr(p + consumed, "sendProxyTpRank:");
+  if (proxyTpRank && sscanf(proxyTpRank, "sendProxyTpRank:%d", &sendProxyTpRank) != 1) return false;
+  // Without a saved work offset, only this channel's own timeout can be used.
+  unsigned workOffset = 0;
+  const char* offset = strstr(p + consumed, "workOffset:");
+  if (offset && sscanf(offset, "workOffset:%u", &workOffset) != 1) return false;
+  operation->valid = valid;
+  operation->kernelIndex = kernel;
+  operation->previousKernelIndex = previous;
+  operation->collective = collective;
+  operation->protocol = protocol;
+  operation->funcId = funcId;
+  operation->root = root;
+  operation->count = count;
+  operation->lastChunkSize = lastChunkSize;
+  operation->nChannels = nChannels;
+  operation->nThreads = nThreads;
+  operation->sendIsNet = sendIsNet;
+  operation->sendProxyRank = sendProxyRank;
+  operation->sendProxyTpRank = sendProxyTpRank;
+  operation->workOffset = workOffset;
   return true;
 }
 
@@ -163,6 +211,9 @@ static bool parseChannelStateLine(const char* p, offlineChannel* ch) {
     return false;
   ch->workFifoTail = v;
   const char* q;
+  // Missing in older dumps: do not infer exclusion from an absent/broken Ring line.
+  if ((q = strstr(p, "ringExcluded:")) != nullptr && sscanf(q, "ringExcluded:%llu", &v) == 1)
+    ch->ringExcluded = (v == 1);
   // lastTimeoutKernelIndex is printed for every successful read (including
   // zero); a failed read prints "unknownTimeoutKernelIndex" instead.  Absence
   // (older writers) means "no hang OR unreadable".
@@ -357,6 +408,13 @@ static bool parseCommDumpFile(FILE* f, offlineRank* out, uint64_t* commHash, int
       else (*anomalies)++;
       continue;
     }
+    if (strncmp(p, "ringHead ", 9) == 0 && inChannel) {
+      if (!parseRingOperationLine(p, &cur.ringOperation)) {
+        cur.ringOperation.valid = 0;
+        (*anomalies)++;
+      }
+      continue;
+    }
   }
   free(line);
   if (*truncatedMidFile || ferror(f) ||
@@ -378,15 +436,20 @@ static bool parseCommDumpFile(FILE* f, offlineRank* out, uint64_t* commHash, int
 static void fillDiagChannel(const offlineChannel& oc, struct rasDiagChannel* dc) {
   memset(dc, 0, sizeof(*dc));
   dc->channelId = oc.channelId;
+  dc->ringExcluded = oc.ringExcluded;
   dc->workFifoTail = oc.workFifoTail;
   dc->devHangReportedKernelIdx = oc.hangReportedIdx;
   dc->devHangReportedKernelIdxValid = oc.hangReportedValid;
   dc->devCompletedKernelIdx = oc.completedIdx;
   dc->devCompletedKernelIdxValid = oc.completedValid;
+  dc->ringOperation = oc.ringOperation;
 
   bool collEstablished = false;
   for (const offlinePeer& pe : oc.peers) {
     if (pe.connector != 0) continue;
+    if (!pe.readValidityKnown &&
+        ((pe.direction == 0 && pe.peerRank == oc.ringNext) ||
+         (pe.direction == 1 && pe.peerRank == oc.ringPrev))) dc->ringOperation.valid = 0;
     if (pe.direction == 0 && pe.peerRank == oc.ringNext) collEstablished = true;
     if (pe.direction == 1 && pe.peerRank == oc.ringPrev) collEstablished = true;
   }
@@ -487,6 +550,7 @@ static struct rasCollComms* buildBlobFromGroup(uint64_t commHash,
         dp->connector = pe.connector;
         dp->direction = pe.direction;
         dp->connected = 1;
+        dp->readValid = pe.readValid;
         dp->head = pe.head;
         dp->tail = pe.tail;
         dp->devStep = pe.devStep;

@@ -79,6 +79,7 @@ static void populateDiagChannel(struct rasDiagChannel* dc, ncclComm_t comm, int 
   memset(dc, 0, sizeof(*dc));
   dc->channelId = channelId;
   dc->workFifoTail = comm->channelKernelIdx[channelId];
+  dc->ringExcluded = (channelId >= comm->nChannels);
 
   bool hasRing = (channelId < comm->nChannels) && (channel->ring.userRanks != nullptr);
   if (hasRing) {
@@ -161,6 +162,7 @@ size_t rasDiagSnapshotInto(char* buf, size_t bufLen, ncclComm_t comm) {
     dc->devHangReportedKernelIdxValid = valid ? 1 : 0;
     dc->devCompletedKernelIdx = readDevCompletedKernelIdx(channel, monitorLevel, &valid);
     dc->devCompletedKernelIdxValid = valid ? 1 : 0;
+    readRingOperation(comm, c, &dc->ringOperation);
     cursor += sizeof(*dc);
 
     int nPeerEntries = 0;
@@ -178,10 +180,13 @@ size_t rasDiagSnapshotInto(char* buf, size_t bufLen, ncclComm_t comm) {
             dp->connector = (uint8_t)c0;
             dp->direction = 0;
             dp->connected = 1;
-            dp->_pad = 0;
-            dp->head = safeReadDevU64(hostPeer->send[c0].conn.head);
-            dp->tail = safeReadDevU64(hostPeer->send[c0].conn.tail);
-            dp->devStep = (devPeer ? safeReadDevU64(&devPeer->send[c0].step) : 0);
+            bool headValid = false, stepValid = false, tailValid = false;
+            dp->head = safeReadDevU64(hostPeer->send[c0].conn.head, &headValid);
+            dp->tail = safeReadDevU64(hostPeer->send[c0].conn.tail, &tailValid);
+            dp->devStep = (devPeer ? safeReadDevU64(&devPeer->send[c0].step, &stepValid) : 0);
+            dp->readValid = (headValid ? RAS_DIAG_PEER_HEAD_VALID : 0) |
+                            (stepValid ? RAS_DIAG_PEER_STEP_VALID : 0) |
+                            (tailValid ? RAS_DIAG_PEER_TAIL_VALID : 0);
             nPeerEntries++;
           }
           if (hostPeer->recv[c0].connected == 1) {
@@ -192,10 +197,13 @@ size_t rasDiagSnapshotInto(char* buf, size_t bufLen, ncclComm_t comm) {
             dp->connector = (uint8_t)c0;
             dp->direction = 1;
             dp->connected = 1;
-            dp->_pad = 0;
-            dp->head = safeReadDevU64(hostPeer->recv[c0].conn.head);
-            dp->tail = safeReadDevU64(hostPeer->recv[c0].conn.tail);
-            dp->devStep = (devPeer ? safeReadDevU64(&devPeer->recv[c0].step) : 0);
+            bool headValid = false, stepValid = false, tailValid = false;
+            dp->head = safeReadDevU64(hostPeer->recv[c0].conn.head, &headValid);
+            dp->tail = safeReadDevU64(hostPeer->recv[c0].conn.tail, &tailValid);
+            dp->devStep = (devPeer ? safeReadDevU64(&devPeer->recv[c0].step, &stepValid) : 0);
+            dp->readValid = (headValid ? RAS_DIAG_PEER_HEAD_VALID : 0) |
+                            (stepValid ? RAS_DIAG_PEER_STEP_VALID : 0) |
+                            (tailValid ? RAS_DIAG_PEER_TAIL_VALID : 0);
             nPeerEntries++;
           }
         }
@@ -253,7 +261,8 @@ static void rasDiagInitRankDiagHeader(void* ctx, ncclComm_t comm) {
 
 static void rasDiagCollectChannelState(void* ctx, ncclComm_t comm, int channelId,
                                    uint64_t devHangReportedKernelIdx, bool devHangReportedKernelIdxValid,
-                                   uint64_t devCompletedKernelIdx,    bool devCompletedKernelIdxValid) {
+                                   uint64_t devCompletedKernelIdx,    bool devCompletedKernelIdxValid,
+                                   const rasDiagRingOperation* operation) {
   if (comm == nullptr) return;
   auto* impl = (rasDiagCollectorImpl*)ctx;
   auto it = impl->entries.find(comm);
@@ -272,13 +281,14 @@ static void rasDiagCollectChannelState(void* ctx, ncclComm_t comm, int channelId
   dc->devHangReportedKernelIdxValid = devHangReportedKernelIdxValid ? 1 : 0;
   dc->devCompletedKernelIdx = devCompletedKernelIdx;
   dc->devCompletedKernelIdxValid = devCompletedKernelIdxValid ? 1 : 0;
+  if (operation != nullptr) dc->ringOperation = *operation;
   e.currentChannel = dc;
   ((struct rasDiagRankHeader*)e.scratch)->nChannels++;
 }
 
 static void rasDiagCollectPeerConn(void* ctx, ncclComm_t comm, int /*channelId*/, int peerRank,
                                 uint8_t connector, uint8_t direction,
-                                uint64_t head, uint64_t tail, uint64_t devStep) {
+                                uint64_t head, uint64_t tail, uint64_t devStep, uint8_t readValid) {
   if (comm == nullptr) return;
   auto* impl = (rasDiagCollectorImpl*)ctx;
   auto it = impl->entries.find(comm);
@@ -296,7 +306,7 @@ static void rasDiagCollectPeerConn(void* ctx, ncclComm_t comm, int /*channelId*/
   dp->connector = connector;
   dp->direction = direction;
   dp->connected = 1;
-  dp->_pad = 0;
+  dp->readValid = readValid;
   dp->head = head;
   dp->tail = tail;
   dp->devStep = devStep;
@@ -475,6 +485,17 @@ void rasDiagOnComplete(struct rasCollective* coll) {
   if (coll == nullptr) return;
   try {
     struct rasCollComms* blob = (struct rasCollComms*)coll->data;
+    // Base records also contain unselected communicators without a diag tier.
+    // Filter before both formatting and saving, so offline replay has the same scope.
+    if (coll->diagOnlyCommHash != 0) {
+      int selectedBytes = analyzerSelectComm(blob, coll->nData, coll->diagOnlyCommHash);
+      if (selectedBytes < 0) {
+        WARN("RAS diag: invalid comm data for selected communicator 0x%lx", coll->diagOnlyCommHash);
+        rasCollFree(coll);
+        return;
+      }
+      coll->nData = selectedBytes;
+    }
     warnSummaryLines(blob);
     (void)rasDiagWriteFullReport(blob, coll->nData, coll->nLegTimeouts, /*pathOut*/nullptr, /*pathLen*/0);
   } catch (...) {
