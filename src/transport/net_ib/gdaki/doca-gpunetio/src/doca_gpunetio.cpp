@@ -792,6 +792,8 @@ doca_error_t doca_gpu_verbs_export_qp(struct doca_gpu *gpu_dev, struct doca_verb
 
     qp_gverbs->gpu_dev = gpu_dev;
 
+    doca_verbs_qp_attr_destroy(verbs_qp_attr_out);
+    doca_verbs_qp_init_attr_destroy(verbs_qp_init_attr_out);
     *qp_out = qp_gverbs;
 
 out:

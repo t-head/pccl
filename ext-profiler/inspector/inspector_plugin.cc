@@ -165,6 +165,7 @@ inspectorResult_t inspectorPluginCollInfoRefSafe(struct inspectorCollInfo *collI
 inspectorResult_t inspectorPluginCollInfoDeRef(struct inspectorCollInfo *collInfo) {
   collInfo->refCount -= 1;
   if (collInfo->refCount == 0) {
+    inspectorUnlockRWLock(&collInfo->guard);
     inspectorLockDestroy(&collInfo->guard);
     memset(collInfo, 0, sizeof(struct inspectorCollInfo));
     free(collInfo);
@@ -176,6 +177,7 @@ inspectorResult_t inspectorPluginCollInfoDeRef(struct inspectorCollInfo *collInf
 inspectorResult_t inspectorPluginCollInfoDeRefSafe(struct inspectorCollInfo *collInfo) {
   inspectorLockWr(&collInfo->guard);
   inspectorResult_t res = inspectorPluginCollInfoDeRef(collInfo);
+  if (res == inspectorReturn) return res;
   inspectorUnlockRWLock(&collInfo->guard);
   return res;
 }

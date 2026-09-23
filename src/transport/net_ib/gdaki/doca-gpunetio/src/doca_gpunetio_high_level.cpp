@@ -337,11 +337,13 @@ destroy_resources:
     if (*gpu_umem != NULL) {
         tmp_status = doca_verbs_umem_destroy(*gpu_umem);
         if (tmp_status != DOCA_SUCCESS) DOCA_LOG(LOG_ERR, "Failed to destroy gpu ring buffer umem");
+        *gpu_umem = nullptr;
     }
 
     if (*gpu_umem_dbr != NULL) {
         tmp_status = doca_verbs_umem_destroy(*gpu_umem_dbr);
         if (tmp_status != DOCA_SUCCESS) DOCA_LOG(LOG_ERR, "Failed to destroy gpu ring buffer umem");
+        *gpu_umem_dbr = nullptr;
     }
 
     if (cq_ring_haddr) {
@@ -352,12 +354,14 @@ destroy_resources:
         tmp_status = doca_gpu_mem_free(gpu_dev, (*gpu_umem_dev_ptr));
         if (tmp_status != DOCA_SUCCESS)
             DOCA_LOG(LOG_ERR, "Failed to destroy gpu memory of cq umem buffer");
+        *gpu_umem_dev_ptr = nullptr;
     }
 
     if ((*gpu_umem_dbr_dev_ptr) != 0) {
         tmp_status = doca_gpu_mem_free(gpu_dev, (*gpu_umem_dbr_dev_ptr));
         if (tmp_status != DOCA_SUCCESS)
             DOCA_LOG(LOG_ERR, "Failed to destroy gpu memory of cq umem dbr buffer");
+        *gpu_umem_dbr_dev_ptr = nullptr;
     }
 
     return status;
@@ -765,7 +769,7 @@ doca_error_t doca_gpu_verbs_create_qp_hl(struct doca_gpu_verbs_qp_init_attr_hl *
                                       qp_->cq_sq, qp_->send_dbr_mode_ext, &qp_->qp_gverbs);
     if (status != DOCA_SUCCESS) {
         DOCA_LOG(LOG_ERR, "Failed to create GPU verbs QP");
-        return status;
+        goto exit_error;
     }
 
     *qp = qp_;
@@ -877,7 +881,7 @@ doca_error_t doca_gpu_verbs_create_qp_group_hl(struct doca_gpu_verbs_qp_init_att
                                  qpg_->qp_main.send_dbr_mode_ext, &qpg_->qp_main.qp_gverbs);
     if (status != DOCA_SUCCESS) {
         DOCA_LOG(LOG_ERR, "Failed to create GPU verbs QP");
-        return status;
+        goto exit_error;
     }
 
     /********** Create companion QP **********/
@@ -920,7 +924,7 @@ doca_error_t doca_gpu_verbs_create_qp_group_hl(struct doca_gpu_verbs_qp_init_att
         qpg_->qp_companion.send_dbr_mode_ext, &qpg_->qp_companion.qp_gverbs);
     if (status != DOCA_SUCCESS) {
         DOCA_LOG(LOG_ERR, "Failed to create GPU verbs QP");
-        return status;
+        goto exit_error;
     }
 
     *qpg = qpg_;

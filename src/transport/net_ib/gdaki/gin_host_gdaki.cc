@@ -568,7 +568,7 @@ ncclResult_t ncclGinGdakiCreateContext(void *collComm, int nSignals, int nCounte
   const int ib_tc = (ncclParamIbTc() != -1) ? ncclParamIbTc() : (trafficClass != NCCL_NET_TRAFFIC_CLASS_UNDEF) ? trafficClass : 0;
   int ib_gid_index = 0;
 
-  NCCLCHECK(cComm->getProperties(cComm->dev, &props));
+  NCCLCHECKGOTO(cComm->getProperties(cComm->dev, &props), status, out);
 
   NCCLCHECKGOTO(gin_gdaki_gpu_ctx_hd_mhandle->allocate(ncontexts), status, out);
   NCCLCHECKGOTO(counters_table->allocate(num_counters * ncontexts, nranks), status, out);
@@ -599,8 +599,8 @@ ncclResult_t ncclGinGdakiCreateContext(void *collComm, int nSignals, int nCounte
   remote_exch_info = (struct gdaki_exch_info *)calloc(nranks, sizeof(*remote_exch_info));
   EQCHECKGOTO(remote_exch_info, nullptr, status, out);
 
-  HGGCCHECK(hggcGetDevice(&gdaki_ctx->hggc_id));
-  HGGCCHECK(hggcDeviceGetPCIBusId(pciBusId, MAX_PCI_ADDRESS_LEN, gdaki_ctx->hggc_id));
+  HGGCCHECKGOTO(hggcGetDevice(&gdaki_ctx->hggc_id), status, out);
+  HGGCCHECKGOTO(hggcDeviceGetPCIBusId(pciBusId, MAX_PCI_ADDRESS_LEN, gdaki_ctx->hggc_id), status, out);
 
   DOCACHECKGOTO(doca_gpu_create(pciBusId, &gdaki_ctx->gdev), status, out);
 
@@ -924,6 +924,7 @@ out:
 ncclResult_t ncclGinGdakiDestroyContext(void *ginCtx) {
   if (!ginCtx) return ncclInvalidArgument;
 
+  ncclResult_t status = ncclSuccess;
   struct gdaki_context *gdaki_ctx = (struct gdaki_context *)ginCtx;
   struct ncclGinIbCollComm *cComm = gdaki_ctx->collComm;
   const int nranks = cComm->nranks;
@@ -946,20 +947,33 @@ ncclResult_t ncclGinGdakiDestroyContext(void *ginCtx) {
           for (int qp_idx = 0; qp_idx < nranks; qp_idx++) {
             gverbs_qps[qp_idx] = gdaki_ctx->gqps[(ctx_idx * nranks) + qp_idx]->qp_gverbs;
           }
-          DOCACHECK(doca_gpu_verbs_unexport_multi_qps_dev(gdaki_ctx->gdev, gverbs_qps, nranks, gin_gdaki_gpu_ctx->gdqp));
-          gin_gdaki_gpu_ctx->gdqp = nullptr;
+          doca_error_t docaStatus = doca_gpu_verbs_unexport_multi_qps_dev(
+            gdaki_ctx->gdev, gverbs_qps, nranks, gin_gdaki_gpu_ctx->gdqp);
+          if (docaStatus != DOCA_SUCCESS) {
+            WARN("DOCA failure %d", docaStatus);
+            if (status == ncclSuccess) status = ncclSystemError;
+          } else {
+            gin_gdaki_gpu_ctx->gdqp = nullptr;
+          }
         }
         if (gin_gdaki_gpu_ctx->companion_gdqp) {
           for (int qp_idx = 0; qp_idx < nranks; qp_idx++) {
             gverbs_qps[qp_idx] = gdaki_ctx->companion_gqps[(ctx_idx * nranks) + qp_idx]->qp_gverbs;
           }
-          DOCACHECK(doca_gpu_verbs_unexport_multi_qps_dev(gdaki_ctx->gdev, gverbs_qps, nranks, gin_gdaki_gpu_ctx->companion_gdqp));
-          gin_gdaki_gpu_ctx->companion_gdqp = nullptr;
+          doca_error_t docaStatus = doca_gpu_verbs_unexport_multi_qps_dev(
+            gdaki_ctx->gdev, gverbs_qps, nranks, gin_gdaki_gpu_ctx->companion_gdqp);
+          if (docaStatus != DOCA_SUCCESS) {
+            WARN("DOCA failure %d", docaStatus);
+            if (status == ncclSuccess) status = ncclSystemError;
+          } else {
+            gin_gdaki_gpu_ctx->companion_gdqp = nullptr;
+          }
         }
       }
       free(gverbs_qps);
     } else {
       WARN("Failed to allocate gverbs_qps array during DestroyContext; skipping per-context QP unexport");
+      status = ncclSystemError;
     }
     NCCLCHECK(gdaki_ctx->gin_gdaki_gpu_ctx_hd_mhandle->deallocate());
     delete gdaki_ctx->gin_gdaki_gpu_ctx_hd_mhandle;
@@ -1008,7 +1022,7 @@ ncclResult_t ncclGinGdakiDestroyContext(void *ginCtx) {
   memset(gdaki_ctx, 0, sizeof(*gdaki_ctx));
   free(gdaki_ctx);
 
-  return ncclSuccess;
+  return status;
 }
 
 ncclResult_t ncclGinGdakiRegMrSym(void *collComm, void *data, size_t size, int type, uint64_t mr_flags, void **mhandle,

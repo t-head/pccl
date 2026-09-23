@@ -890,6 +890,8 @@ ret:
   free(peersReSorted);
   free(diagBytesPerComm);
   if (diagCollector != nullptr) rasDiagCollectorDestroy(diagCollector);
+  // rasDiagCollectorDestroy frees the underlying impl (recovered via ctx); diagCollector is not leaked.
+  // coverity[leaked_storage]
   return ret;
 fail:
   if (req) {

@@ -302,6 +302,8 @@ struct pcclCommDiagCollector* rasDiagCollectorCreate() {
   impl->iface.collectChannelState = rasDiagCollectChannelState;
   impl->iface.collectPeerConn = rasDiagCollectPeerConn;
   impl->iface.finalizeRankDiagHeader = rasDiagFinalizeRankDiagHeader;
+  // impl escapes via the returned iface (iface.ctx == impl) and is freed by rasDiagCollectorDestroy; not leaked.
+  // coverity[leaked_storage]
   return &impl->iface;
 }
 

@@ -1154,9 +1154,13 @@ static ncclResult_t ncclP2pSchedule(ncclComm_t comm) {
   int nGroups = comm->nRanks / groupSize;
   int nGroupsPow2 = pow2Up(nGroups);
 
-  int *groupToNode, *groupToLocal;
+  int *groupToNode = nullptr, *groupToLocal = nullptr;
   NCCLCHECK(ncclCalloc(&groupToNode, nGroups));  // node hosting the group
-  NCCLCHECK(ncclCalloc(&groupToLocal, nGroups)); // local offset of the group
+  ncclResult_t groupToLocalRet = ncclCalloc(&groupToLocal, nGroups); // local offset of the group
+  if (groupToLocalRet != ncclSuccess) { // avoid leaking groupToNode if the second alloc fails
+    NCCLCHECK(ncclFree(groupToNode));
+    return groupToLocalRet;
+  }
   int groupCount = 0;
   for (int n = 0; n < comm->nNodes; ++n) {
     if (0 != comm->nodeRanks[n].localRanks % groupSize) {
@@ -1665,7 +1669,7 @@ static ncclResult_t initTransportsRank(ncclComm_t comm, ncclComm_t parent, uint6
 
   // Build p2p schedule
   comm->p2pSchedule = ncclMemoryStackAlloc<ncclComm::P2pSchedulePair>(&comm->memPermanent, comm->nRanks);
-  NCCLCHECK(ncclP2pSchedule(comm));
+  NCCLCHECKGOTO(ncclP2pSchedule(comm), res, fail);
 
   // Connect with prev/next for each ring
   for (int c=0; c<comm->nChannels; c++) {
@@ -2658,6 +2662,8 @@ static ncclResult_t commReclaim(struct ncclAsyncJob* job_) {
     }
 
     if ((ret = commCleanup(comm)) != ncclSuccess) {
+      // We pass a freed pointer, but we don't dereference; we merely print its value, so it's OK.
+      // coverity[pass_freed_arg]
       ERROR("commReclaim: cleanup comm %p rank %d failed in destroy/abort, error %d", comm, curRank, ret);
     }
   } else {
@@ -2739,6 +2745,7 @@ ncclResult_t pcclCommDestroy(ncclComm_t comm) {
   }
   int rank = comm->rank, nranks = comm->nRanks, hggcDev = comm->hggcDev;
   int64_t busId = comm->busId;
+  uintptr_t commAddress = reinterpret_cast<uintptr_t>(comm);
   struct ncclCommFinalizeAsyncJob* job = NULL;
   ncclResult_t res = ncclSuccess;
 
@@ -2761,7 +2768,8 @@ ncclResult_t pcclCommDestroy(ncclComm_t comm) {
   NCCLCHECKGOTO(ncclAsyncLaunch(&job->base, commReclaim, NULL, free, comm), res, fail);
 
 exit:
-  INFO(NCCL_INIT,"comm %p rank %d nranks %d hggcDev %d busId %lx - Destroy COMPLETE", comm, rank, nranks, hggcDev, busId);
+  INFO(NCCL_INIT,"comm 0x%lx rank %d nranks %d hggcDev %d busId %lx - Destroy COMPLETE", (unsigned long)commAddress, rank, nranks, hggcDev, busId);
+  // coverity[leaked_storage]
   return res;
 fail:
   goto exit;
@@ -2813,6 +2821,7 @@ ncclResult_t pcclCommAbort(ncclComm_t comm) {
   // once the comm is ready, we can access ranks etc
   int rank = comm->rank, nranks = comm->nRanks, hggcDev = comm->hggcDev;
   int64_t busId = comm->busId;
+  uintptr_t commAddress = reinterpret_cast<uintptr_t>(comm);
   HGTX3_RANGE_ADD_PAYLOAD(CommAbort, PcclHgtxParamsCommInitRankSchema,
     HGTX3_PAYLOAD(comm->commHash, nranks, rank, hggcDev));
 
@@ -2821,8 +2830,9 @@ ncclResult_t pcclCommAbort(ncclComm_t comm) {
   NCCLCHECKGOTO(ncclAsyncLaunch(&job->base, commReclaim, NULL, free, comm), res, fail);
 
 exit:
-  INFO(NCCL_INIT,"comm %p rank %d nranks %d hggcDev %d busId %lx - Abort COMPLETE", comm, rank, nranks, hggcDev, busId);
+  INFO(NCCL_INIT,"comm 0x%lx rank %d nranks %d hggcDev %d busId %lx - Abort COMPLETE", (unsigned long)commAddress, rank, nranks, hggcDev, busId);
   /* abort should never report an error to the user. */
+  // coverity[leaked_storage]
   return ncclSuccess;
 fail:
   goto exit;

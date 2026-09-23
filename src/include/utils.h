@@ -705,10 +705,12 @@ template<typename Obj, typename Key, Key Obj::*keyField, Obj* Obj::*nextField>
 static inline ncclResult_t ncclIntruAddressMapInsert(
     struct ncclIntruAddressMap<Obj, Key, keyField, nextField>* map,
     Key key, Obj* object) {
-  Obj dummy;
+  Obj dummy{};
   int keyFieldOffset = (char*)&(dummy.*keyField) - (char*)&dummy;
   int nextFieldOffset = (char*)&(dummy.*nextField) - (char*)&dummy;
   return ncclIntruAddressMapInsert_untyped(
+    // keySize == sizeof(Key) is exactly the key width to read (bounded by the static_assert above); not a mismatch.
+    // coverity[sizeof_mismatch]
     &map->base, (int)sizeof(Key), keyFieldOffset, nextFieldOffset,
     reinterpret_cast<uintptr_t>(key), object);
 }
@@ -717,11 +719,13 @@ template<typename Obj, typename Key, Key Obj::*keyField, Obj* Obj::*nextField>
 static inline ncclResult_t ncclIntruAddressMapFind(
     struct ncclIntruAddressMap<Obj, Key, keyField, nextField>* map,
     Key key, Obj** object) {
-  Obj dummy;
+  Obj dummy{};
   int keyFieldOffset = (char*)&(dummy.*keyField) - (char*)&dummy;
   int nextFieldOffset = (char*)&(dummy.*nextField) - (char*)&dummy;
   void* tmp;
   ncclResult_t ret = ncclIntruAddressMapFind_untyped(
+    // keySize == sizeof(Key) is exactly the key width to read (bounded by the static_assert above); not a mismatch.
+    // coverity[sizeof_mismatch]
     &map->base, (int)sizeof(Key), keyFieldOffset, nextFieldOffset,
     reinterpret_cast<uintptr_t>(key), &tmp);
   *object = (Obj*)tmp;
@@ -732,10 +736,12 @@ template<typename Obj, typename Key, Key Obj::*keyField, Obj* Obj::*nextField>
 static inline ncclResult_t ncclIntruAddressMapRemove(
     struct ncclIntruAddressMap<Obj, Key, keyField, nextField>* map,
     Key key) {
-  Obj dummy;
+  Obj dummy{};
   int keyFieldOffset = (char*)&(dummy.*keyField) - (char*)&dummy;
   int nextFieldOffset = (char*)&(dummy.*nextField) - (char*)&dummy;
   return ncclIntruAddressMapRemove_untyped(
+    // keySize == sizeof(Key) is exactly the key width to read (bounded by the static_assert above); not a mismatch.
+    // coverity[sizeof_mismatch]
     &map->base, (int)sizeof(Key), keyFieldOffset, nextFieldOffset,
     reinterpret_cast<uintptr_t>(key));
 }

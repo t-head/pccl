@@ -95,6 +95,8 @@ inspectorResult_t inspectorPromCacheStaticLabels(struct inspectorCommInfo* commI
   char gpuDeviceStr[16];
   snprintf(gpuDeviceStr, sizeof(gpuDeviceStr), "GPU%d", commInfo->hggcDeviceId);
 
+  // cachedStaticLabels and commHashStr are distinct fixed-size arrays in inspectorCollInfo and never overlap.
+  // coverity[overlapping_copy]
   int ret = snprintf(commInfo->cachedStaticLabels, sizeof(commInfo->cachedStaticLabels),
                      "comm_id=\"%s\",hostname=\"%s\",rank=\"%d\","
                      "slurm_job=\"%s\",slurm_job_id=\"%s\",nranks=\"%d\","

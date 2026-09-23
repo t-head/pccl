@@ -528,6 +528,8 @@ static ncclResult_t groupLaunch(struct ncclAsyncJob *job_, ncclSimInfo_t* simInf
       ncclComm_t next = comm->preconnectNext;
       comm->preconnectNext = reinterpret_cast<ncclComm_t>(0x1);
       comm = next;
+      // job ownership is transferred to asyncJobsMain; it is drained and freed via its destructor.
+      // coverity[leaked_storage]
     } while (comm != nullptr);
   }
 
@@ -745,6 +747,8 @@ ncclResult_t ncclGroupEndInternal(ncclSimInfo_t* simInfo) {
       if (simInfo) memcpy((void*)simInfo, (void*)internalSimInfoPtr, realSize);
       ncclFree(groupJob);
     }
+  } else {
+    ncclFree(groupJob);
   }
 
   /* Reset the job state for the next group call. */

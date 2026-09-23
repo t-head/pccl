@@ -700,15 +700,22 @@ static ncclResult_t symWindowCreate(
   uintptr_t userAddr = reinterpret_cast<uintptr_t>(userPtr);
   struct ncclDevrState* devr = &comm->devrState;
   struct ncclDevrWindow* win;
+  struct ncclWindow_vidmem* winDev;
+  struct ncclWindow_vidmem* winDevHost;
 
-  win = (struct ncclDevrWindow*)malloc(sizeof(struct ncclDevrWindow));
-  memset(win, 0, sizeof(*win));
+  NCCLCHECK(ncclCalloc(&win, 1));
+  ncclResult_t ret = ncclShadowPoolAlloc(&devr->shadows, &winDev, &winDevHost, stream);
+  if (ret != ncclSuccess) {
+    free(win);
+    return ret;
+  }
   win->memory = mem;
   win->size = userSize;
   win->bigOffset = mem->bigOffset + memOffset;
   win->winFlags = winFlags;
   win->localRegHandle = localReg;
   win->globalSameMemOffset = globalSameMemOffset;
+  win->vidmem = winDev;
   if (userPtr == nullptr) {
     // Null means caller has no VA and will use the lsa team flat VA address.
     win->userPtr = userPtr = (char*)devr->lsaFlatBase + (devr->lsaSelf*devr->bigSize) + mem->bigOffset;
@@ -716,11 +723,6 @@ static ncclResult_t symWindowCreate(
   } else {
     win->userPtr = userPtr;
   }
-
-  struct ncclWindow_vidmem* winDev;
-  struct ncclWindow_vidmem* winDevHost;
-  NCCLCHECK(ncclShadowPoolAlloc(&devr->shadows, &winDev, &winDevHost, stream));
-  win->vidmem = winDev;
   winDevHost->lsaFlatBase = (char*)devr->lsaFlatBase + win->bigOffset;
   winDevHost->stride4G = devr->bigSize>>32;
   winDevHost->lsaRank = devr->lsaSelf;
@@ -856,14 +858,14 @@ ncclResult_t ncclDevrWindowRegisterInGroup(
     if (!ncclParamElasticBufferRegister()) {
       WARN("VA represented by {userPtr = %p, size = %zu} contains CPU-backed physical segments, but PCCL_ELASTIC_BUFFER_REGISTER is set to 0. Please set PCCL_ELASTIC_BUFFER_REGISTER=1 and retry window registration", userPtr, userSize);
       ret = ncclInvalidArgument;
-      goto fail_locReg;
+      goto fail_locReg_memHandle;
     } else if (comm->MNNVL) {
         int multiNodeLsaSupported = 0;
-        HGCHECKGOTO(hgDeviceGetAttribute(&multiNodeLsaSupported, HG_DEVICE_ATTRIBUTE_HOST_NUMA_MULTINODE_IPC_SUPPORTED, comm->hggcDev), ret, fail_locReg);
+        HGCHECKGOTO(hgDeviceGetAttribute(&multiNodeLsaSupported, HG_DEVICE_ATTRIBUTE_HOST_NUMA_MULTINODE_IPC_SUPPORTED, comm->hggcDev), ret, fail_locReg_memHandle);
         if (!multiNodeLsaSupported) {
           WARN("VA represented by {userPtr = %p, size = %zu} contains CPU-backed physical segments, but the LSA team does not support multi-node IPC on CPU-backed buffers. Please retry by setting PCCL_MNNVL_ENABLE=0", userPtr, userSize);
           ret = ncclInvalidArgument;
-          goto fail_locReg;
+          goto fail_locReg_memHandle;
         }
     }
   }
@@ -872,20 +874,20 @@ ncclResult_t ncclDevrWindowRegisterInGroup(
   if (memOffset%NCCL_WIN_REQUIRED_ALIGNMENT != 0) {
     WARN("Window address must be suitably aligned.");
     ret = ncclInvalidArgument;
-    goto fail_locReg;
+    goto fail_locReg_memHandle;
   }
 
   // Retain all handles and validate segment location types
   for (int segment = 0; segment < numSegments; segment++) {
     size_t baseSendSize;
-    HGCHECKGOTO(hgMemGetAddressRange(nullptr, &baseSendSize, memAddr + offset), ret, fail_locReg);
-    HGCHECKGOTO(hgMemRetainAllocationHandle(&memHandles[segment], (void *) (reinterpret_cast<char*>(memAddr) + offset)), ret, fail_locReg);
+    HGCHECKGOTO(hgMemGetAddressRange(nullptr, &baseSendSize, memAddr + offset), ret, fail_locReg_memHandle);
+    HGCHECKGOTO(hgMemRetainAllocationHandle(&memHandles[segment], (void *) (reinterpret_cast<char*>(memAddr) + offset)), ret, fail_locReg_memHandle);
     HGmemAllocationProp prop;
-    HGCHECKGOTO(hgMemGetAllocationPropertiesFromHandle(&prop, memHandles[segment]), ret, fail_locReg);
+    HGCHECKGOTO(hgMemGetAllocationPropertiesFromHandle(&prop, memHandles[segment]), ret, fail_locReg_memHandle);
     if (prop.location.type != HG_MEM_LOCATION_TYPE_HOST_NUMA && prop.location.type != HG_MEM_LOCATION_TYPE_DEVICE) {
       WARN("Segment %d has unsupported location type %d. Symmetric memory currently only supports HG_MEM_LOCATION_TYPE_HOST_NUMA and HG_MEM_LOCATION_TYPE_DEVICE.", segment, (int)prop.location.type);
       ret = ncclInvalidArgument;
-      goto fail_locReg;
+      goto fail_locReg_memHandle;
     }
     offset += baseSendSize;
   }

@@ -263,6 +263,7 @@ ncclResult_t ncclGinIbConnect(void* ctx, void* handles[], int nranks, int rank,
                               void* listenComm, void** collComm) {
   struct ncclIbListenComm* lComm = (struct ncclIbListenComm*)listenComm;
   struct ncclGinIbCollComm* cCommArray = nullptr;
+  ncclResult_t ret = ncclSuccess;
   int next;
 
   *collComm = NULL;
@@ -276,10 +277,10 @@ ncclResult_t ncclGinIbConnect(void* ctx, void* handles[], int nranks, int rank,
   next = (cComm->rank + 1) % nranks;
   do {
     if (cComm->sendComm == NULL) {
-      NCCLCHECK(ncclNetIb.connect(lComm->dev, handles[next], &cComm->sendComm));
+      NCCLCHECKGOTO(ncclNetIb.connect(lComm->dev, handles[next], &cComm->sendComm), ret, fail);
     }
     if (cComm->recvComm == NULL) {
-      NCCLCHECK(ncclNetIb.accept(lComm, &cComm->recvComm));
+      NCCLCHECKGOTO(ncclNetIb.accept(lComm, &cComm->recvComm), ret, fail);
     }
   } while (cComm->sendComm == NULL || cComm->recvComm == NULL);
 
@@ -294,6 +295,13 @@ ncclResult_t ncclGinIbConnect(void* ctx, void* handles[], int nranks, int rank,
 
   *collComm = cCommArray;
   return ncclSuccess;
+fail:
+  if (cCommArray) {
+    if (cCommArray->recvComm) ncclNetIb.closeRecv(cCommArray->recvComm);
+    if (cCommArray->sendComm) ncclNetIb.closeSend(cCommArray->sendComm);
+    free(cCommArray);
+  }
+  return ret;
 }
 
 ncclResult_t ncclGinIbCloseColl(void* collComm) {
@@ -337,7 +345,7 @@ ncclResult_t ncclGinIbGdakiGetProperties(int dev, ncclNetProperties_v12_t* props
          dev, ncclGinIbGdakiNDevs);
     return ncclInvalidUsage;
   }
-  ncclNetProperties_v6_t physProps;
+  ncclNetProperties_v6_t physProps = {};
   NCCLCHECK(ncclIbGetPhysProperties(ncclGinIbGdakiDevIndexes[dev], &physProps));
   ncclGinIbFillV12Properties(physProps, props);
   props->netDeviceType = NCCL_NET_DEVICE_GIN_GDAKI;
@@ -571,25 +579,36 @@ ncclResult_t ncclGinIbProxyRegMrSymDmaBuf(void* collComm, void* data, size_t siz
                                           uint64_t offset, int fd, uint64_t mr_flags,
                                           void** mhandle, void** ginHandle) {
   struct ncclGinIbCollComm* cComm = (struct ncclGinIbCollComm*)collComm;
-  struct ncclIbGinProxyMrHandle* ginMrHandle;
+  struct ncclIbGinProxyMrHandle* ginMrHandle = nullptr;
+  struct ibv_mr* mr = nullptr;
+  uint32_t rkey = 0;
+  ncclResult_t ret = ncclSuccess;
   NCCLCHECK(ncclCalloc(&ginMrHandle, 1));
 
-  NCCLCHECK(ncclIbRegMrDmaBufInternal(cComm->recvComm, data, size, type, offset, fd, mr_flags,
-                                      &ginMrHandle->mrHandle));
+  NCCLCHECKGOTO(ncclIbRegMrDmaBufInternal(cComm->recvComm, data, size, type, offset, fd, mr_flags,
+                                      &ginMrHandle->mrHandle), ret, fail);
 
-  struct ibv_mr* mr = (struct ibv_mr*)ginMrHandle->mrHandle;
+  mr = (struct ibv_mr*)ginMrHandle->mrHandle;
   ginMrHandle->lkey = mr->lkey;
-  uint32_t rkey = mr->rkey;
+  rkey = mr->rkey;
 
-  NCCLCHECK(ncclCalloc(&ginMrHandle->base_vas, cComm->nranks));
-  NCCLCHECK(ncclCalloc(&ginMrHandle->rkeys, cComm->nranks));
+  NCCLCHECKGOTO(ncclCalloc(&ginMrHandle->base_vas, cComm->nranks), ret, fail);
+  NCCLCHECKGOTO(ncclCalloc(&ginMrHandle->rkeys, cComm->nranks), ret, fail);
 
-  NCCLCHECK(cComm->allGather(cComm, &data, ginMrHandle->base_vas, sizeof(uintptr_t)));
-  NCCLCHECK(cComm->allGather(cComm, &rkey, ginMrHandle->rkeys, sizeof(uint32_t)));
+  NCCLCHECKGOTO(cComm->allGather(cComm, &data, ginMrHandle->base_vas, sizeof(uintptr_t)), ret, fail);
+  NCCLCHECKGOTO(cComm->allGather(cComm, &rkey, ginMrHandle->rkeys, sizeof(uint32_t)), ret, fail);
 
   *mhandle = ginMrHandle;
   *ginHandle = ginMrHandle;
   return ncclSuccess;
+fail:
+  if (ginMrHandle) {
+    if (ginMrHandle->mrHandle) ncclNetIb.deregMr(cComm->recvComm, ginMrHandle->mrHandle);
+    free(ginMrHandle->base_vas);
+    free(ginMrHandle->rkeys);
+    free(ginMrHandle);
+  }
+  return ret;
 }
 
 ncclResult_t ncclGinIbProxyRegMrSym(void* collComm, void* data, size_t size, int type,
