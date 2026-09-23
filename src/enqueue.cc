@@ -19,6 +19,7 @@
 #include "dev_runtime.h"
 #include "sym_kernels.h"
 #include "ce_coll.h"
+#include "comm_dumper.h"
 
 // Only generate inline kernels for LL
 #define NCCL_FUNC5(func, algo, devredop, dtype) \
@@ -192,28 +193,29 @@ ncclResult_t dumpCollRegWork(char* lineBuff, struct ncclDevWorkCollReg* work, ui
   return ncclSuccess;
 }
 
-ncclResult_t dumpWork(char* lineBuff, uint32_t workType, uint64_t offsetBitset, char* workPtr, int nRanks, int rank) {
+ncclResult_t dumpWork(char* lineBuff, uint32_t workType, uint64_t offsetBitset, const struct DevWorkStorageRef& storage, int nRanks, int rank) {
   int workIdx = 0;;
-  for (uint16_t i = 0; i < 64; i++) {
+  alignas(16) char localWork[sizeof(struct ncclDevWorkCollReg)];
+  const size_t workSize = ncclDevWorkSize((enum ncclDevWorkType)workType);
+  for (uint16_t i = 0; i < (NCCL_MAX_BIT_IDX_IN_OFFSET_BITSET + 1); i++) {
     if (offsetBitset & (1L << i)) {
-      int workSize;
+      uint32_t workOffset = storage.offsetBase + i * workSize;
+      char* workPtr = copyDevWorkFromStorage(localWork, storage, workOffset, workSize);
+      if (workPtr == nullptr) continue;
       switch (workType) {
         case ncclDevWorkTypeP2p: {
-          workSize = sizeof(struct ncclDevWorkP2p);
-          ncclDevWorkP2p* p2pWork = (ncclDevWorkP2p*)(workPtr + i * workSize);
+          ncclDevWorkP2p* p2pWork = (ncclDevWorkP2p*)workPtr;
           NCCLCHECK(dumpP2pWork(lineBuff, p2pWork, workIdx, nRanks, rank));
           break;
         }
         case ncclDevWorkTypeColl: {
-          workSize = sizeof(struct ncclDevWorkColl);
-          ncclDevWorkColl* collWork = (ncclDevWorkColl*)(workPtr + i * workSize);
+          ncclDevWorkColl* collWork = (ncclDevWorkColl*)workPtr;
           NCCLCHECK(dumpCollWork(lineBuff, collWork, workIdx));
           break;
         }
         case ncclDevWorkTypeCollReg:
         default: {
-          workSize = sizeof(struct ncclDevWorkCollReg);
-          ncclDevWorkCollReg* collRegWork = (ncclDevWorkCollReg*)(workPtr + i * workSize);
+          ncclDevWorkCollReg* collRegWork = (ncclDevWorkCollReg*)workPtr;
           NCCLCHECK(dumpCollRegWork(lineBuff, collRegWork, workIdx));
           break;
         }
@@ -243,16 +245,19 @@ static ncclResult_t dumpChannelWorkBatch(ncclComm_t comm, struct ncclKernelPlan*
     offset += sprintf(lineBuff + offset, "offsetBase:%x, offsetBitset:%lx ", batch.offsetBase, batch.offsetBitset);
     offset += sprintf(lineBuff + offset, "\n");
 
-    // kerenlArgs->workBuf is device addr if comm->workFifoBuf/comm->workFifoBufDev is allocated by ncclGdrCudaCalloc
-    // kerenlArgs->workBuf is equal to comm->workFifoBufDev if workStorageType is ncclDevWorkStorageTypeFifo
-    char* workPtr = (char*)comm->workFifoBuf + batch.offsetBase;
+    // kernelArgs->workBuf is device addr if comm->workFifoBuf/comm->workFifoBufDev is allocated by ncclGdrCudaCalloc
+    // kernelArgs->workBuf is equal to comm->workFifoBufDev if workStorageType is ncclDevWorkStorageTypeFifo.
+    // The device masks offsets with workMask for Fifo storage, so the dumper must do the same
+    // (offsetBase can exceed workFifoBytes once the circular Fifo wraps).
+    char* workPtrBase = (char*)comm->workFifoBuf;
     if (plan->kernelArgs->workStorageType == ncclDevWorkStorageTypeArgs) {
-      workPtr = (char*)plan->kernelArgs + batch.offsetBase;
+      workPtrBase = (char*)plan->kernelArgs;
     } else if (plan->kernelArgs->workStorageType == ncclDevWorkStorageTypePersistent) {
-      workPtr = (char*)graphFifoBufHost;
+      workPtrBase = (char*)graphFifoBufHost;
     }
 
-    NCCLCHECK(dumpWork(lineBuff, batch.workType, batch.offsetBitset, workPtr, comm->nRanks, comm->rank));
+    struct DevWorkStorageRef storage = { workPtrBase, batch.offsetBase, plan->kernelArgs->workMask, plan->kernelArgs->workStorageType };
+    NCCLCHECK(dumpWork(lineBuff, batch.workType, batch.offsetBitset, storage, comm->nRanks, comm->rank));
 
     if (batch.nextExtends) {
       batchIx += batch.nextJump;

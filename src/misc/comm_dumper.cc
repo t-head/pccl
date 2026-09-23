@@ -108,28 +108,29 @@ ncclResult_t dumpCollRegWorkToFile(FILE* file, struct ncclDevWorkCollReg* work, 
   return ncclSuccess;
 }
 
-ncclResult_t dumpWorkToFile(FILE* file, uint32_t workType, uint64_t offsetBitset, char* workPtr, int indentLevel) {
+ncclResult_t dumpWorkToFile(FILE* file, uint32_t workType, uint64_t offsetBitset, const struct DevWorkStorageRef& storage, int indentLevel) {
   int workIdx = 0;;
+  alignas(16) char localWork[sizeof(struct ncclDevWorkCollReg)];
+  const size_t workSize = ncclDevWorkSize((enum ncclDevWorkType)workType);
   for (uint16_t i = 0; i < (NCCL_MAX_BIT_IDX_IN_OFFSET_BITSET + 1); i++) {
     if (offsetBitset & (1L << i)) {
-      int workSize;
+      uint32_t workOffset = storage.offsetBase + i * workSize;
+      char* workPtr = copyDevWorkFromStorage(localWork, storage, workOffset, workSize);
+      if (workPtr == nullptr) continue;
       switch (workType) {
         case ncclDevWorkTypeP2p: {
-          workSize = sizeof(struct ncclDevWorkP2p);
-          ncclDevWorkP2p* p2pWork = (ncclDevWorkP2p*)(workPtr + i * workSize);
+          ncclDevWorkP2p* p2pWork = (ncclDevWorkP2p*)workPtr;
           NCCLCHECK(dumpP2pWorkToFile(file, p2pWork, workIdx, indentLevel));
           break;
         }
         case ncclDevWorkTypeColl: {
-          workSize = sizeof(struct ncclDevWorkColl);
-          ncclDevWorkColl* collWork = (ncclDevWorkColl*)(workPtr + i * workSize);
+          ncclDevWorkColl* collWork = (ncclDevWorkColl*)workPtr;
           NCCLCHECK(dumpCollWorkToFile(file, collWork, workIdx, indentLevel));
           break;
         }
         case ncclDevWorkTypeCollReg:
         default: {
-          workSize = sizeof(struct ncclDevWorkCollReg);
-          ncclDevWorkCollReg* collRegWork = (ncclDevWorkCollReg*)(workPtr + i * workSize);
+          ncclDevWorkCollReg* collRegWork = (ncclDevWorkCollReg*)workPtr;
           NCCLCHECK(dumpCollRegWorkToFile(file, collRegWork, workIdx, indentLevel));
           break;
         }
@@ -153,14 +154,17 @@ ncclResult_t dumpChannelWorkBatchToFile(FILE* file, ncclComm_t comm, ncclDevKern
     fprintf(file, "\n");
 
     // kernelArgs->workBuf is device addr if comm->workFifoBuf/comm->workFifoBufDev is allocated by ncclGdrCudaCalloc
-    // kernelArgs->workBuf is equal to comm->workFifoBufDev if workStorageType is ncclDevWorkStorageTypeFifo
-    char* workPtr = (char*)comm->workFifoBuf + batch.offsetBase;
+    // kernelArgs->workBuf is equal to comm->workFifoBufDev if workStorageType is ncclDevWorkStorageTypeFifo.
+    // The device masks per-work offsets with workMask for Fifo/Persistent storage
+    // (offsetBase can exceed workFifoBytes once the circular Fifo wraps).
+    char* workPtrBase = (char*)comm->workFifoBuf;
     if (kernelArgs->workStorageType == ncclDevWorkStorageTypeArgs) {
-      workPtr = (char*)kernelArgs + batch.offsetBase;
+      workPtrBase = (char*)kernelArgs;
     }
 
     if (kernelArgs->workStorageType != ncclDevWorkStorageTypePersistent) {
-      NCCLCHECK(dumpWorkToFile(file, batch.workType, batch.offsetBitset, workPtr, indentLevel + 1));
+      struct DevWorkStorageRef storage = { workPtrBase, batch.offsetBase, kernelArgs->workMask, kernelArgs->workStorageType };
+      NCCLCHECK(dumpWorkToFile(file, batch.workType, batch.offsetBitset, storage, indentLevel + 1));
     }
 
     if (batch.nextExtends) {

@@ -8,7 +8,9 @@
 
 #ifndef PCCL_COMM_DUMPER_H_
 #define PCCL_COMM_DUMPER_H_
+#include <string.h>
 #include "pccl_internal.h"
+#include "devcomm.h"
 #include "drv_extension.h"
 #include "hggc_runtime.h"
 
@@ -102,6 +104,47 @@ static inline uint64_t readDevU64(uint64_t* devPtr, bool* outValid) {
   if (hggcEit.wrapHggcMemDump(&idx, (HGdeviceptr)devPtr, sizeof(uint64_t)) != hggcSuccess) return 0;
   *outValid = true;
   return idx;
+}
+
+// The dumpers copy a whole work struct into a stack buffer sized for the
+// largest work type, in 16-byte chunks.  Both assumptions are checked here so a
+// future work-struct change fails at compile time instead of silently reading
+// OOB or overflowing the buffer.
+static_assert(sizeof(struct ncclDevWorkCollReg) >= sizeof(struct ncclDevWorkP2p) &&
+              sizeof(struct ncclDevWorkCollReg) >= sizeof(struct ncclDevWorkColl) &&
+              sizeof(struct ncclDevWorkP2p)  % 16 == 0 &&
+              sizeof(struct ncclDevWorkColl) % 16 == 0 &&
+              sizeof(struct ncclDevWorkCollReg) % 16 == 0,
+              "dump work read assumes work structs are 16-byte multiples and ncclDevWorkCollReg is the largest");
+
+// Bundles the four storage descriptors a dumper needs to locate work structs.
+// Passing them as one struct keeps offsetBase and workMask (adjacent uint32_t)
+// from being swapped at a call site, which would compile but corrupt offsets.
+struct DevWorkStorageRef {
+  char* base;
+  uint32_t offsetBase;
+  uint32_t workMask;
+  enum ncclDevWorkStorageType type;
+};
+
+// Reassemble one device work struct from its storage into a local 16-byte-aligned
+// buffer, replaying uploadWork()'s 16-byte chunk-and-mask layout so a struct that
+// wraps the circular Fifo is read from the correct slots instead of past the end
+// of workFifoBuf.  Args storage is contiguous, so it is returned in place.
+// localBuf must be at least sizeof(ncclDevWorkCollReg) bytes and 16-byte aligned.
+// Returns nullptr when the storage descriptor is unusable (null base or a mask
+// that is not a valid 16-byte-aligned Fifo mask, e.g. an unwritten device-read
+// snapshot) so the caller skips the entry instead of printing garbage.
+static inline char* copyDevWorkFromStorage(
+    char* localBuf, const struct DevWorkStorageRef& storage,
+    uint32_t workOffset, size_t workSize) {
+  if (storage.type == ncclDevWorkStorageTypeArgs) return storage.base + workOffset;
+  if (storage.base == nullptr || (storage.workMask & 0xf) != 0xf) return nullptr;
+  for (size_t chunk = 0; chunk < workSize; chunk += 16) {
+    uint32_t chunkOffset = (workOffset + chunk) & storage.workMask;
+    memcpy(localBuf + chunk, storage.base + chunkOffset, 16);
+  }
+  return localBuf;
 }
 
 #endif  // PCCL_COMM_DUMPER_H_
