@@ -1220,6 +1220,7 @@ static ncclResult_t reclaimPlan(ncclComm_t comm, struct ncclCommCallback* me) {
 
 static void persistentDestructor(void* plans_) {
   struct ncclKernelPlan* plan = (struct ncclKernelPlan*)plans_;
+  if (plan == nullptr) return;
   ncclComm_t comm = plan->comm;
   while (plan != nullptr) {
     struct ncclKernelPlan* next = plan->next;
@@ -1923,6 +1924,8 @@ ncclResult_t ncclLaunchPrepare(ncclComm_t comm) {
   planHead = ncclIntruQueueHead(&planner->planQueue);
   planner->unlaunchedPlansHead = planHead;
 
+  // Nothing enqueued: no kernel to launch and nothing persistent to reclaim.
+  if (nPlans == 0) return ncclSuccess;
 
   // Semantically we want these dependencies for the kernels launched:
   //   1. Launch host task on hostStream.

@@ -72,6 +72,7 @@ jobs:
           cp /aoneci/runner/work/source/pccl/.aoneci/test/run_composite_test.sh ./
           cp /aoneci/runner/work/source/pccl/.aoneci/test/run_cuda_graph_test.sh ./
           cp /aoneci/runner/work/source/pccl/.aoneci/test/run_copyengine_test.sh ./
+          cp /aoneci/runner/work/source/pccl/.aoneci/test/run_symmetric_graph_test.sh ./
           cp /aoneci/runner/work/source/pccl/.aoneci/test/run_register_test.sh ./
           cp /aoneci/runner/work/source/pccl/.aoneci/test/run_customAllreduce_test.sh ./
           cp /aoneci/runner/work/source/pccl/.aoneci/test/run_memcpy_test.sh ./
@@ -149,6 +150,25 @@ jobs:
           ppu: 2
           run_image: reg.docker.alibaba-inc.com/ai-tmp/pytorch:ubuntu24.04-py312.06
           cmd: cd ./aoneci/runner/work/source/output_hggcrt13; ls; find -name "run_copyengine_test.sh"; export TEST_ROOT=`pwd`; bash $TEST_ROOT/pccl/.aoneci/test/run_copyengine_test.sh
+          labels: OAM-810E
+          image_url: ${{jobs.ubuntu24_hggcrt13_test.outputs.oss_url}}
+          timeout: 10800
+
+  symmetric_graph_test_hggcrt13:
+    name: "symmetric_graph_test_hggcrt13"
+    image: "reg.docker.alibaba-inc.com/ai-tmp/pytorch:ubuntu24.04-py312.06"
+    timeout: 12h
+    runs-on:
+      - 32-128Gi
+      - amd64
+    needs:
+      - ubuntu24_hggcrt13_test
+    steps:
+      - uses: ptg-ai-test
+        inputs:
+          ppu: 2
+          run_image: reg.docker.alibaba-inc.com/ai-tmp/pytorch:ubuntu24.04-py312.06
+          cmd: cd ./aoneci/runner/work/source/output_hggcrt13; ls; find -name "run_symmetric_graph_test.sh"; export TEST_ROOT=`pwd`; bash $TEST_ROOT/pccl/.aoneci/test/run_symmetric_graph_test.sh
           labels: OAM-810E
           image_url: ${{jobs.ubuntu24_hggcrt13_test.outputs.oss_url}}
           timeout: 10800
@@ -317,6 +337,7 @@ jobs:
           cp /aoneci/runner/work/source/pccl/.aoneci/test/run_composite_test.sh ./
           cp /aoneci/runner/work/source/pccl/.aoneci/test/run_cuda_graph_test.sh ./
           cp /aoneci/runner/work/source/pccl/.aoneci/test/run_copyengine_test.sh ./
+          cp /aoneci/runner/work/source/pccl/.aoneci/test/run_symmetric_graph_test.sh ./
           cp /aoneci/runner/work/source/pccl/.aoneci/test/run_register_test.sh ./
           cp /aoneci/runner/work/source/pccl/.aoneci/test/run_customAllreduce_test.sh ./
           cp /aoneci/runner/work/source/pccl/.aoneci/test/run_memcpy_test.sh ./
@@ -394,6 +415,25 @@ jobs:
           ppu: 2
           run_image: reg.docker.alibaba-inc.com/ai-tmp/pytorch:ubuntu24.04-py312.06
           cmd: cd ./aoneci/runner/work/source/output_hggcrt12; ls; find -name "run_copyengine_test.sh"; export TEST_ROOT=`pwd`; bash $TEST_ROOT/pccl/.aoneci/test/run_copyengine_test.sh
+          labels: OAM-810E
+          image_url: ${{jobs.ubuntu24_hggcrt12_test.outputs.oss_url}}
+          timeout: 10800
+
+  symmetric_graph_test_hggcrt12:
+    name: "symmetric_graph_test_hggcrt12"
+    image: "reg.docker.alibaba-inc.com/ai-tmp/pytorch:ubuntu24.04-py312.06"
+    timeout: 12h
+    runs-on:
+      - 32-128Gi
+      - amd64
+    needs:
+      - ubuntu24_hggcrt12_test
+    steps:
+      - uses: ptg-ai-test
+        inputs:
+          ppu: 2
+          run_image: reg.docker.alibaba-inc.com/ai-tmp/pytorch:ubuntu24.04-py312.06
+          cmd: cd ./aoneci/runner/work/source/output_hggcrt12; ls; find -name "run_symmetric_graph_test.sh"; export TEST_ROOT=`pwd`; bash $TEST_ROOT/pccl/.aoneci/test/run_symmetric_graph_test.sh
           labels: OAM-810E
           image_url: ${{jobs.ubuntu24_hggcrt12_test.outputs.oss_url}}
           timeout: 10800
