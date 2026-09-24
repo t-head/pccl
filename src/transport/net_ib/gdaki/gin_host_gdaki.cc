@@ -431,8 +431,13 @@ destroy_verbs_ah:
   return status;
 }
 
+// Set consistently on all ranks: QP multi-path mode is not negotiated in
+// gdaki_exch_info. Only remote Ethernet main QPs request this mode below.
+PCCL_PARAM(GinGdakiEnableMultiPath, "GDAKI_ENABLE_MULTI_PATH", 0);
+
 static ncclResult_t gdakiConnectQp(struct gdaki_context *ctx, struct doca_gpu_verbs_qp_hl *gqp,
-                                   struct gdaki_exch_info *exch_info) {
+                                   struct gdaki_exch_info *exch_info,
+                                   bool is_remote_main_qp) {
   ncclResult_t status = ncclSuccess;
   struct doca_verbs_qp_attr *verbs_qp_attr = nullptr;
   int max_dest_rd_atomic = ncclParamGinGdakiMaxDestRdAtomic() > 0 ? ncclParamGinGdakiMaxDestRdAtomic() : ctx->ib_dev_attr.max_qp_rd_atom;
@@ -441,6 +446,10 @@ static ncclResult_t gdakiConnectQp(struct gdaki_context *ctx, struct doca_gpu_ve
   DOCACHECK(doca_verbs_ah_attr_set_gid(ctx->ah, exch_info->vgid));
   DOCACHECK(doca_verbs_ah_attr_set_dlid(ctx->ah, exch_info->lid));
   DOCACHECK(doca_verbs_qp_attr_create(&verbs_qp_attr));
+  if (is_remote_main_qp && ctx->port_attr.link_layer == IBV_LINK_LAYER_ETHERNET &&
+      pcclParamGinGdakiEnableMultiPath())
+    DOCACHECKGOTO(doca_verbs_qp_attr_set_multi_path(verbs_qp_attr, 1), status,
+                  destroy_verbs_qp_attr);
   DOCACHECKGOTO(
     doca_verbs_qp_attr_set_path_mtu(verbs_qp_attr, ctx->path_mtu),
     status, destroy_verbs_qp_attr);
@@ -727,11 +736,15 @@ retry_create_qp_group_hl:
 
     for (int rank_idx = 0; rank_idx < nranks; rank_idx++) {
       int qp_idx = rank_idx + ctx_idx * nranks;
+      // Self-loop traffic never reaches an Ethernet path. Keep both ends of
+      // that QP pair in the default ordered mode; only remote main QPs request
+      // multi-path below.
       if (rank_idx == rank)
         gdakiFillExchInfo(&remote_exch_info[rank_idx], gdaki_ctx,
                           gdaki_ctx->gqps[nqps_for_comm + ctx_idx]);
 
-      NCCLCHECKGOTO(gdakiConnectQp(gdaki_ctx, gdaki_ctx->gqps[qp_idx], &remote_exch_info[rank_idx]),
+      NCCLCHECKGOTO(gdakiConnectQp(gdaki_ctx, gdaki_ctx->gqps[qp_idx],
+                                      &remote_exch_info[rank_idx], rank_idx != rank),
                     status, out);
 
       INFO(NCCL_NET,
@@ -745,7 +758,8 @@ retry_create_qp_group_hl:
     int peer_qp_idx = nqps_for_comm + qp_idx;
     struct gdaki_exch_info exch_info;
     gdakiFillExchInfo(&exch_info, gdaki_ctx, gdaki_ctx->gqps[qp_idx * nranks + rank]);
-    NCCLCHECKGOTO(gdakiConnectQp(gdaki_ctx, gdaki_ctx->gqps[peer_qp_idx], &exch_info), status, out);
+    NCCLCHECKGOTO(gdakiConnectQp(gdaki_ctx, gdaki_ctx->gqps[peer_qp_idx], &exch_info, false),
+                  status, out);
     INFO(NCCL_NET, "[%d] Connected self-loop peer QP: qp_idx=%d, qpn=%#x, main_qpn=%#x", rank,
          peer_qp_idx, doca_verbs_qp_get_qpn(gdaki_ctx->gqps[peer_qp_idx]->qp), exch_info.qpn);
   }
@@ -754,14 +768,15 @@ retry_create_qp_group_hl:
     int peer_qp_idx = nqps_for_comm + qp_idx;
     struct gdaki_exch_info exch_info;
     gdakiFillExchInfo(&exch_info, gdaki_ctx, gdaki_ctx->companion_gqps[peer_qp_idx]);
-    NCCLCHECKGOTO(gdakiConnectQp(gdaki_ctx, gdaki_ctx->companion_gqps[qp_idx], &exch_info), status,
-                  out);
+    NCCLCHECKGOTO(gdakiConnectQp(gdaki_ctx, gdaki_ctx->companion_gqps[qp_idx], &exch_info, false),
+                  status, out);
     INFO(NCCL_NET,
          "[%d] Connected companion QP: qp_idx=%d, companion_qpn=%#x, peer_companion_qpn=%#x", rank,
          qp_idx, doca_verbs_qp_get_qpn(gdaki_ctx->companion_gqps[qp_idx]->qp), exch_info.qpn);
 
     gdakiFillExchInfo(&exch_info, gdaki_ctx, gdaki_ctx->companion_gqps[qp_idx]);
-    NCCLCHECKGOTO(gdakiConnectQp(gdaki_ctx, gdaki_ctx->companion_gqps[peer_qp_idx], &exch_info),
+    NCCLCHECKGOTO(gdakiConnectQp(gdaki_ctx, gdaki_ctx->companion_gqps[peer_qp_idx], &exch_info,
+                                false),
                   status, out);
     INFO(NCCL_NET,
          "[%d] Connected self-loop peer companion QP: qp_idx=%d, peer_companion_qpn=%#x, "

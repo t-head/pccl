@@ -963,6 +963,20 @@ doca_error_t doca_verbs_qp::init2rtr(struct doca_verbs_qp_attr &verbs_qp_attr,
     if (attr_mask & DOCA_VERBS_QP_ATTR_MAX_DEST_RD_ATOMIC)
         DEVX_SET(qpc, qpc, log_rra_max, doca_internal_utils_log2(verbs_qp_attr.max_dest_rd_atomic));
 
+    if (verbs_qp_attr.enable_multi_path) {
+        if (m_verbs_device_attr->m_dp_ordering_ooo_all_rc) {
+            DEVX_SET(qpc, qpc, dp_ordering_1, 1);
+            DEVX_SET(qpc, qpc, dp_ordering_force, 1);
+            DOCA_LOG(LOG_DEBUG,
+                     "Enabled RC QP multi-path with out-of-order data placement: qpn=%u",
+                     m_qp_num);
+        } else {
+            DOCA_LOG(LOG_WARNING,
+                     "RC QP multi-path is unavailable; using single path: qpn=%u",
+                     m_qp_num);
+        }
+    }
+
     int mlx5_opt_param_mask{0};
     convert_doca_verbs_qp_attr_mask_to_legal_mlx5_qp_opt_param_mask(attr_mask, mlx5_opt_param_mask,
                                                                     DOCA_VERBS_QP_INIT2RTR);
@@ -2497,6 +2511,17 @@ doca_error_t doca_verbs_qp_attr_set_max_dest_rd_atomic(struct doca_verbs_qp_attr
 
     verbs_qp_attr->max_dest_rd_atomic = max_dest_rd_atomic;
 
+    return DOCA_SUCCESS;
+}
+
+doca_error_t doca_verbs_qp_attr_set_multi_path(struct doca_verbs_qp_attr *verbs_qp_attr,
+                                               uint8_t enable) {
+    if (verbs_qp_attr == nullptr) {
+        DOCA_LOG(LOG_ERR, "Failed to set multi_path: parameter verbs_qp_attr is NULL");
+        return DOCA_ERROR_INVALID_VALUE;
+    }
+
+    verbs_qp_attr->enable_multi_path = enable != 0;
     return DOCA_SUCCESS;
 }
 

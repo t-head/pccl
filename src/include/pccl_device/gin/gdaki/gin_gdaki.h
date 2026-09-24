@@ -54,6 +54,91 @@ PCCL_DEVICE_INLINE uint32_t docaOptFlagsFromGinOptFlags(uint32_t ginOptFlags) {
     | (!!(ginOptFlags & pcclGinOptFlagsAggregateRequests) * DOCA_GPUNETIO_VERBS_GPU_CODE_OPT_SKIP_DB_RINGING);
 }
 
+// GDAKI-only interface for a thread-issued group of one-WQE puts. `peer` is a
+// GIN-relative peer (the public pcclGin layer must translate a team-relative
+// rank before calling this internal interface).
+struct PutGroupThread {
+  doca_gpu_dev_verbs_put_group_thread_t docaGroup;
+  int peer;
+};
+
+template <enum doca_gpu_dev_verbs_resource_sharing_mode resource_sharing_mode>
+PCCL_DEVICE_INLINE static void putGroupThreadBeginMode(
+    pcclGinCtx ctx, int peer, uint32_t count, PutGroupThread* group) {
+  using pccl::utility::loadConst;
+  pcclGinGdakiGPUContext* gdaki =
+    &((struct pcclGinGdakiGPUContext*)ctx.handle)[ctx.contextId];
+  doca_gpu_dev_verbs_qp* qp = loadConst(&gdaki->gdqp) + peer;
+  doca_gpu_dev_verbs_put_group_thread_begin<resource_sharing_mode>(
+    qp, count, &group->docaGroup);
+  group->peer = peer;
+}
+
+PCCL_DEVICE_INLINE static void putGroupThreadBegin(
+    pcclGinCtx ctx, int peer, uint32_t count, PutGroupThread* group) {
+  switch ((pcclGinResourceSharingMode)ctx.resourceSharingMode) {
+    case PCCL_GIN_RESOURCE_SHARING_CTA:
+      putGroupThreadBeginMode<DOCA_GPUNETIO_VERBS_RESOURCE_SHARING_MODE_CTA>(
+        ctx, peer, count, group);
+      break;
+    default:
+      putGroupThreadBeginMode<DOCA_GPUNETIO_VERBS_RESOURCE_SHARING_MODE_GPU>(
+        ctx, peer, count, group);
+      break;
+  }
+}
+
+PCCL_DEVICE_INLINE static void putGroupThreadPrepare(
+    pcclGinCtx /*ctx*/, PutGroupThread* group, uint32_t ordinal,
+    pcclGinWindow_t dstWin, size_t dstOff,
+    pcclGinWindow_t srcWin, size_t srcOff, size_t bytes) {
+  using pccl::utility::loadConst;
+  pcclGinGdakiMemHandle* dstMh = (pcclGinGdakiMemHandle*)dstWin;
+  pcclGinGdakiMemHandle* srcMh = (pcclGinGdakiMemHandle*)srcWin;
+  doca_gpu_dev_verbs_addr raddr, laddr;
+  raddr.addr = dstOff;
+  raddr.key = loadConst(loadConst(&dstMh->rkeys) + group->peer);
+  laddr.addr = srcOff;
+  laddr.key = loadConst(&srcMh->lkey);
+  doca_gpu_dev_verbs_put_group_thread_prepare(
+    &group->docaGroup, ordinal, raddr, laddr, bytes);
+}
+
+template <enum doca_gpu_dev_verbs_resource_sharing_mode resource_sharing_mode>
+PCCL_DEVICE_INLINE static void putGroupThreadCommitMode(
+    PutGroupThread* group, doca_gpu_dev_verbs_ticket_t* outTicket) {
+  doca_gpu_dev_verbs_put_group_thread_commit<resource_sharing_mode>(
+    &group->docaGroup, outTicket);
+}
+
+PCCL_DEVICE_INLINE static void putGroupThreadCommit(
+    pcclGinCtx ctx, PutGroupThread* group,
+    hggc::thread_scope required, hggc::thread_scope given,
+    doca_gpu_dev_verbs_ticket_t* outTicket) {
+  // The grouped-put submission path releases prepared WQEs at GPU scope.
+  // The caller must finish payload production and synchronize its producer
+  // threads before entering commit; the WQE release cannot do that for them.
+  // Add a system release when the requested scope is stronger than the one
+  // already supplied by the caller.
+  // hggc::thread_scope_system has the lowest value.
+  if ((required == hggc::thread_scope_system) && (given > required))
+    doca_gpu_dev_verbs_fence_release<DOCA_GPUNETIO_VERBS_SYNC_SCOPE_SYS>();
+
+  switch ((pcclGinResourceSharingMode)ctx.resourceSharingMode) {
+    case PCCL_GIN_RESOURCE_SHARING_CTA:
+      putGroupThreadCommitMode<DOCA_GPUNETIO_VERBS_RESOURCE_SHARING_MODE_CTA>(
+        group, outTicket);
+      break;
+    default:
+      putGroupThreadCommitMode<DOCA_GPUNETIO_VERBS_RESOURCE_SHARING_MODE_GPU>(
+        group, outTicket);
+      break;
+  }
+#ifdef PCCL_DEVICE_GIN_GDAKI_ENABLE_DEBUG
+  doca_gpu_dev_verbs_wait(group->docaGroup.qp);
+#endif
+}
+
 template <enum doca_gpu_dev_verbs_resource_sharing_mode resource_sharing_mode, typename Coop>
 PCCL_DEVICE_INLINE static void putImplMode(pcclGinCtx ctx, Coop coop, int peer, bool hasWins,
                                               pcclGinWindow_t dstWin, size_t dstOff, pcclGinWindow_t srcWin,

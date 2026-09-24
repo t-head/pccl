@@ -1380,6 +1380,27 @@ doca_error_t doca_verbs_qp_attr_set_max_rd_atomic(struct doca_verbs_qp_attr *ver
  */
 doca_error_t doca_verbs_qp_attr_set_max_dest_rd_atomic(struct doca_verbs_qp_attr *verbs_qp_attr,
                                                        uint8_t max_dest_rd_atomic);
+
+/**
+ * @brief Set the RC QP multi-path attribute.
+ *
+ * The attribute is applied during the init-to-RTR transition. Multi-path is
+ * enabled through out-of-order data placement when the device reports RC
+ * support; otherwise the QP remains on a single path.
+ *
+ * @param [in] verbs_qp_attr
+ * Pointer to verbs_qp_attr instance.
+ * @param [in] enable
+ * Non-zero to request multi-path, 0 to disable.
+ *
+ * @return
+ * DOCA_SUCCESS - in case of success.
+ * doca_error code - in case of failure:
+ * - DOCA_ERROR_INVALID_VALUE - received invalid input.
+ */
+doca_error_t doca_verbs_qp_attr_set_multi_path(struct doca_verbs_qp_attr *verbs_qp_attr,
+                                               uint8_t enable);
+
 /**
  * @brief Create a DOCA Verbs AH instance.
  *

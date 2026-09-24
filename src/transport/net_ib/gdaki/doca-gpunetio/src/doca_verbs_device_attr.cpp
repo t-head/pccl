@@ -137,6 +137,8 @@ void doca_verbs_device_attr::query_caps(struct ibv_context *ibv_ctx) {
         m_gid_table_size = translate_gid_table_size(
             DEVX_GET(query_hca_cap_out, out, capability.cmd_hca_cap.gid_table_size));
     m_is_qp_rc_supported = DEVX_GET(query_hca_cap_out, out, capability.cmd_hca_cap.rc);
+    m_dp_ordering_ooo_all_rc =
+        DEVX_GET(query_hca_cap_out, out, capability.cmd_hca_cap.dp_ordering_ooo_all_rc);
     m_is_rts2rts_qp_dscp_supported =
         DEVX_GET(query_hca_cap_out, out, capability.cmd_hca_cap.rts2rts_qp_dscp);
     m_max_sq_desc_size = DEVX_GET(query_hca_cap_out, out, capability.cmd_hca_cap.max_wqe_sz_sq);

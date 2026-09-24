@@ -100,6 +100,105 @@ __device__ static __forceinline__ void doca_gpu_dev_verbs_put_thread(
     *out_ticket = wqe_idx;
 }
 
+/**
+ * A contiguous group of thread-issued RDMA-write WQEs.
+ *
+ * The group reserves and checks all SQ credits before any WQE in the group is
+ * written.  This is the safe way to amortize the per-WQE availability check:
+ * checking the last reserved index after writing earlier WQEs would be too late
+ * when the SQ wraps.
+ *
+ * A live group creates a hole in the shared-QP ready sequence.  Callers must
+ * prepare every index exactly once and commit the group.  In particular, they
+ * must not issue another operation on the same QP and wait for that later
+ * operation before committing this group.
+ */
+struct doca_gpu_dev_verbs_put_group_thread_t {
+    struct doca_gpu_dev_verbs_qp *qp;
+    uint64_t base_wqe_idx;
+    uint32_t count;
+    uint32_t prepared_count;
+};
+
+template <enum doca_gpu_dev_verbs_resource_sharing_mode resource_sharing_mode =
+              DOCA_GPUNETIO_VERBS_RESOURCE_SHARING_MODE_GPU>
+__device__ static __forceinline__ void doca_gpu_dev_verbs_put_group_thread_begin(
+    struct doca_gpu_dev_verbs_qp *qp, uint32_t count,
+    struct doca_gpu_dev_verbs_put_group_thread_t *group) {
+    DOCA_GPUNETIO_VERBS_ASSERT(qp != NULL);
+    DOCA_GPUNETIO_VERBS_ASSERT(group != NULL);
+    DOCA_GPUNETIO_VERBS_ASSERT(count > 0);
+    DOCA_GPUNETIO_VERBS_ASSERT(count <= __ldg(&qp->sq_wqe_num));
+
+    // Do not propagate SKIP_AVAILABILITY_CHECK here. reserve_wq_slots checks
+    // base + count - 1 before any caller can overwrite a wrapped SQ slot.
+    group->qp = qp;
+    group->base_wqe_idx = doca_gpu_dev_verbs_reserve_wq_slots<resource_sharing_mode>(
+        qp, count, DOCA_GPUNETIO_VERBS_GPU_CODE_OPT_DEFAULT);
+    group->count = count;
+    group->prepared_count = 0;
+}
+
+__device__ static __forceinline__ void doca_gpu_dev_verbs_put_group_thread_prepare(
+    struct doca_gpu_dev_verbs_put_group_thread_t *group, uint32_t ordinal,
+    struct doca_gpu_dev_verbs_addr raddr, struct doca_gpu_dev_verbs_addr laddr,
+    size_t size) {
+    DOCA_GPUNETIO_VERBS_ASSERT(group != NULL);
+    DOCA_GPUNETIO_VERBS_ASSERT(group->qp != NULL);
+    DOCA_GPUNETIO_VERBS_ASSERT(ordinal < group->count);
+    DOCA_GPUNETIO_VERBS_ASSERT(ordinal == group->prepared_count);
+    DOCA_GPUNETIO_VERBS_ASSERT(size > 0);
+    DOCA_GPUNETIO_VERBS_ASSERT(size <= DOCA_GPUNETIO_VERBS_MAX_TRANSFER_SIZE);
+
+    const uint64_t wqe_idx = group->base_wqe_idx + ordinal;
+    struct doca_gpu_dev_verbs_wqe *wqe_ptr =
+        doca_gpu_dev_verbs_get_wqe_ptr(group->qp, wqe_idx);
+    doca_gpu_dev_verbs_wqe_prepare_write(
+        group->qp, wqe_ptr, wqe_idx, DOCA_GPUNETIO_IB_MLX5_OPCODE_RDMA_WRITE,
+        DOCA_GPUNETIO_IB_MLX5_WQE_CTRL_CQ_UPDATE, 0, raddr.addr, raddr.key,
+        laddr.addr, laddr.key, size);
+    // The thread-level API deliberately requires dense, in-order preparation;
+    // commit can therefore prove that the reserved range contains no holes.
+    ++group->prepared_count;
+}
+
+template <enum doca_gpu_dev_verbs_resource_sharing_mode resource_sharing_mode =
+              DOCA_GPUNETIO_VERBS_RESOURCE_SHARING_MODE_GPU,
+          enum doca_gpu_dev_verbs_nic_handler nic_handler =
+              DOCA_GPUNETIO_VERBS_NIC_HANDLER_AUTO>
+__device__ static __forceinline__ void doca_gpu_dev_verbs_put_group_thread_commit(
+    struct doca_gpu_dev_verbs_put_group_thread_t *group,
+    doca_gpu_dev_verbs_ticket_t *out_ticket) {
+    DOCA_GPUNETIO_VERBS_ASSERT(group != NULL);
+    DOCA_GPUNETIO_VERBS_ASSERT(group->qp != NULL);
+    DOCA_GPUNETIO_VERBS_ASSERT(group->count > 0);
+    DOCA_GPUNETIO_VERBS_ASSERT(group->prepared_count == group->count);
+    DOCA_GPUNETIO_VERBS_ASSERT(out_ticket != NULL);
+
+    const uint64_t last_wqe_idx = group->base_wqe_idx + group->count - 1;
+    doca_gpu_dev_verbs_mark_wqes_ready<resource_sharing_mode>(
+        group->qp, group->base_wqe_idx, last_wqe_idx);
+
+    // Publish the prepared WQEs before notifying the NIC. In GPU sharing mode,
+    // mark_wqes_ready has already performed a GPU-scope release, so submit needs
+    // no additional fence. In CTA sharing mode, its release was only CTA-scoped;
+    // submit must perform a GPU-scope release before notifying the NIC or proxy.
+    // The caller must finish payload production and synchronize its producer
+    // threads before commit. The releases above and below run before NIC/proxy
+    // notification, but do not provide cross-thread producer synchronization.
+    constexpr enum doca_gpu_dev_verbs_sync_scope submit_sync_scope =
+        (resource_sharing_mode == DOCA_GPUNETIO_VERBS_RESOURCE_SHARING_MODE_GPU)
+            ? DOCA_GPUNETIO_VERBS_SYNC_SCOPE_THREAD
+            : DOCA_GPUNETIO_VERBS_SYNC_SCOPE_GPU;
+    doca_gpu_dev_verbs_submit<resource_sharing_mode, submit_sync_scope, nic_handler>(
+        group->qp, last_wqe_idx + 1, DOCA_GPUNETIO_VERBS_GPU_CODE_OPT_DEFAULT);
+
+    *out_ticket = last_wqe_idx;
+    group->qp = NULL;
+    group->count = 0;
+    group->prepared_count = 0;
+}
+
 template <enum doca_gpu_dev_verbs_resource_sharing_mode resource_sharing_mode =
               DOCA_GPUNETIO_VERBS_RESOURCE_SHARING_MODE_GPU,
           enum doca_gpu_dev_verbs_nic_handler nic_handler = DOCA_GPUNETIO_VERBS_NIC_HANDLER_AUTO>

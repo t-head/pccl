@@ -88,6 +88,7 @@ struct doca_verbs_device_attr {
     uint16_t m_max_udp_sport{};
     uint16_t m_gid_table_size{};
     uint8_t m_is_qp_rc_supported{};
+    uint8_t m_dp_ordering_ooo_all_rc{};
     uint8_t m_port_type{};
     uint8_t m_is_rts2rts_qp_dscp_supported{};
     uint8_t m_phys_port_cnt{};
