@@ -1,0 +1,41 @@
+# Copyright (c) 2015-2026, NVIDIA CORPORATION & AFFILIATES. ALL RIGHTS RESERVED.
+# SPDX-FileCopyrightText: Modifications Copyright (c) 2020-2026 T-Head (Shanghai) Semiconductor Co., Ltd. All rights reserved.
+# SPDX-License-Identifier: BSD-3-Clause
+/build
+*.gcov
+*.pyc
+/coverage/
+CPPLINT.cfg
+*.plist
+*.csv
+build/
+*.log
+src/collectives/device/*.o
+src/collectives/device/*.s
+src/collectives/device/*.bc
+src/collectives/device/devlink*
+src/collectives/device/a.out*
+cmake*
+tags
+*.log
+*.hgfb
+*.bc
+*.mcin
+*.s
+*a.out*
+*__pycache__
+compile_commands.json
+ext-profiler/inspector/version.cc
+
+# Example build artifacts
+*.o
+docs/examples/**/multiple_devices_single_process
+docs/examples/**/one_device_per_pthread
+docs/examples/**/one_device_per_process_mpi
+docs/examples/**/ring_pattern
+docs/examples/**/allreduce
+docs/examples/**/allreduce_ub
+docs/examples/**/allreduce_sm
+docs/examples/**/allreduce_lsa
+docs/examples/**/alltoall_gin
+docs/examples/**/alltoall_hybrid

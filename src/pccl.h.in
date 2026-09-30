@@ -1,0 +1,224 @@
+/*************************************************************************
+* SPDX-FileCopyrightText: Copyright (c) 2015-2026 NVIDIA CORPORATION & AFFILIATES. All rights reserved.
+* SPDX-License-Identifier: Apache-2.0
+*
+* See LICENSE.txt for more license information.
+*
+* ----------------------------------------------------------------------
+* This file is based on NVIDIA NCCL and has been modified by
+* T-HEAD (SHANGHAI) SEMICONDUCTOR CO., LTD. to adapt the API for the
+* PPU hardware platform.
+*
+* As permitted by the original upstream license, the combined work is
+* redistributed under the Apache License, Version 2.0.
+*************************************************************************/
+
+#ifndef PCCL_H_
+#define PCCL_H_
+
+#include <hggc_runtime.h>
+#include <hggc_fp16.h>
+#include <hggc_bf16.h>
+#include <hggc_fp8.h>
+
+#define PCCL_MAJOR ${pccl:Major}
+#define PCCL_MINOR ${pccl:Minor}
+#define PCCL_PATCH ${pccl:Patch}
+#define PCCL_SUFFIX "${pccl:Suffix}"
+
+#define PCCL_VERSION_CODE ${pccl:Version}
+#define PCCL_VERSION(X,Y,Z) ((X) * 1000 + (Y) * 100 + (Z))
+
+#define PCCL_COMM_NULL NULL
+#define PCCL_UNIQUE_ID_BYTES 128
+
+#define PCCL_CONFIG_UNDEF_INT INT_MIN
+#define PCCL_CONFIG_UNDEF_PTR NULL
+#define PCCL_SPLIT_NOCOLOR -1
+#define PCCL_UNDEF_FLOAT -1.0f
+
+#define PCCL_API_MAGIC 0xbeefcafe
+
+#define PCCL_WIN_DEFAULT 0x00
+#define PCCL_WIN_COLL_SYMMETRIC 0x01
+#define PCCL_WIN_STRICT_ORDERING 0x02
+
+#define PCCL_CTA_POLICY_DEFAULT 0x00
+#define PCCL_CTA_POLICY_EFFICIENCY 0x01
+#define PCCL_CTA_POLICY_ZERO 0x02
+
+#define PCCL_SHRINK_DEFAULT 0x00
+#define PCCL_SHRINK_ABORT 0x01
+
+#ifndef HGGCRT_CB
+  #define HGGCRT_CB
+#endif
+
+#ifdef __cplusplus
+extern "C" {
+#endif
+
+typedef struct pcclComm* pcclComm_t;
+typedef struct pcclWindow_vidmem* pcclWindow_t;
+
+typedef enum {
+  pcclScalarDevice = 0,
+  pcclScalarHostImmediate = 1
+} pcclScalarResidence_t;
+
+
+typedef struct { char internal[PCCL_UNIQUE_ID_BYTES]; } pcclUniqueId;
+
+typedef enum { pcclSuccess                 =  0,
+               pcclUnhandledHggcError      =  1,
+               pcclSystemError             =  2,
+               pcclInternalError           =  3,
+               pcclUnhandledLtOkiError     =  3,
+               pcclInvalidArgument         =  4,
+               pcclInvalidUsage            =  5,
+               pcclRemoteError             =  6,
+               pcclInProgress              =  7,
+               pcclTimeout                 =  8,
+               pcclNumResults              =  9 } pcclResult_t;
+
+typedef struct pcclConfig_v22700 {
+  size_t size;
+  unsigned int magic;
+  unsigned int version;
+  int blocking;
+  int cgaClusterSize;
+  int minCTAs;
+  int maxCTAs;
+  const char *netName;
+  int splitShare;
+  int trafficClass;
+  const char *commName;
+  int collnetEnable;
+  int CTAPolicy;
+  int shrinkShare;
+  int nvlsCTAs;
+} pcclConfig_t;
+
+typedef struct pcclSimInfo_v22200 {
+  size_t size;
+  unsigned int magic;
+  unsigned int version;
+  float estimatedTime;
+} pcclSimInfo_t;
+
+typedef enum { pcclNumOps_dummy = 5 } pcclRedOp_dummy_t;
+typedef enum { pcclSum        = 0,
+               pcclProd       = 1,
+               pcclMax        = 2,
+               pcclMin        = 3,
+               pcclAvg        = 4,
+               pcclNumOps     = 5,
+               pcclMaxRedOp   = 0x7fffffff>>(32-8*sizeof(pcclRedOp_dummy_t))
+             } pcclRedOp_t;
+
+typedef enum { pcclInt8       = 0, pcclChar       = 0,
+               pcclUint8      = 1,
+               pcclInt32      = 2, pcclInt        = 2,
+               pcclUint32     = 3,
+               pcclInt64      = 4,
+               pcclUint64     = 5,
+               pcclFloat16    = 6, pcclHalf       = 6,
+               pcclFloat32    = 7, pcclFloat      = 7,
+               pcclFloat64    = 8, pcclDouble     = 8,
+               pcclBfloat16   = 9,
+               pcclFloat8e4m3 = 10,
+               pcclFloat8e5m2 = 11,
+               pcclNumTypes   = 12
+} pcclDataType_t;
+
+#define PCCL_CONFIG_INITIALIZER {                                       \
+  sizeof(pcclConfig_t), /* size */                                      \
+  PCCL_API_MAGIC,       /* magic */                                     \
+  PCCL_VERSION(PCCL_MAJOR, PCCL_MINOR, PCCL_PATCH), /* version */       \
+  PCCL_CONFIG_UNDEF_INT,                    /* blocking */              \
+  PCCL_CONFIG_UNDEF_INT,                    /* cgaClusterSize */        \
+  PCCL_CONFIG_UNDEF_INT,                    /* minCTAs */               \
+  PCCL_CONFIG_UNDEF_INT,                    /* maxCTAs */               \
+  PCCL_CONFIG_UNDEF_PTR,                    /* netName */               \
+  PCCL_CONFIG_UNDEF_INT,                    /* splitShare */            \
+  PCCL_CONFIG_UNDEF_INT,                    /* trafficClass */          \
+  PCCL_CONFIG_UNDEF_PTR,                    /* commName */              \
+  PCCL_CONFIG_UNDEF_INT,                    /* collnetEnable */         \
+  PCCL_CONFIG_UNDEF_INT,                    /* CTAPolicy */             \
+  PCCL_CONFIG_UNDEF_INT,                    /* shrinkShare */           \
+  PCCL_CONFIG_UNDEF_INT,                    /* nvlsCTAs */              \
+}
+
+#define PCCL_SIM_INFO_INITIALIZER {                                         \
+  sizeof(pcclSimInfo_t),                            /* size */              \
+  0x74685283,                                       /* magic */             \
+  PCCL_VERSION(PCCL_MAJOR, PCCL_MINOR, PCCL_PATCH), /* version */           \
+  PCCL_UNDEF_FLOAT                                  /* estimated time */    \
+}
+
+// init communicator
+pcclResult_t  pcclCommInitAll(pcclComm_t* comm, int ndev, const int* devlist);
+pcclResult_t  pcclCommInitRankConfig(pcclComm_t* comm, int nranks, pcclUniqueId commId, int rank, pcclConfig_t* config);
+pcclResult_t  pcclCommInitRank(pcclComm_t* comm, int nranks, pcclUniqueId commId, int rank);
+pcclResult_t  pcclCommInitRankScalable(pcclComm_t* newcomm, int nranks, int myrank, int nId, pcclUniqueId* commIds, pcclConfig_t* config);
+
+// finalize communicator
+pcclResult_t  pcclCommFinalize(pcclComm_t comm);
+pcclResult_t  pcclCommDestroy(pcclComm_t comm);
+pcclResult_t  pcclCommAbort(pcclComm_t comm);
+
+// adjust communicator
+pcclResult_t  pcclCommSplit(pcclComm_t comm, int color, int key, pcclComm_t *newcomm, pcclConfig_t* config);
+pcclResult_t  pcclCommShrink(pcclComm_t comm, int* excludeRanksList, int excludeRanksCount, pcclComm_t* newcomm, pcclConfig_t* config, int shrinkFlags);
+
+// get communicator information
+pcclResult_t  pcclCommGetAsyncError(pcclComm_t comm, pcclResult_t *asyncError);
+pcclResult_t  pcclCommCount(const pcclComm_t comm, int* count);
+pcclResult_t  pcclCommCuDevice(const pcclComm_t comm, int* device);
+pcclResult_t  pcclCommUserRank(const pcclComm_t comm, int* rank);
+pcclResult_t  pcclGetVersion(int *version);
+pcclResult_t  pcclGetUniqueId(pcclUniqueId* uniqueId);
+
+// group operation
+pcclResult_t  pcclGroupStart();
+pcclResult_t  pcclGroupEnd();
+
+// collective & p2p operation
+pcclResult_t  pcclAllReduce(const void* sendbuff, void* recvbuff, size_t count, pcclDataType_t datatype, pcclRedOp_t op, pcclComm_t comm, hggcStream_t stream);
+pcclResult_t  pcclAllGather(const void* sendbuff, void* recvbuff, size_t sendcount, pcclDataType_t datatype, pcclComm_t comm, hggcStream_t stream);
+pcclResult_t  pcclReduceScatter(const void* sendbuff, void* recvbuff, size_t recvcount, pcclDataType_t datatype, pcclRedOp_t op, pcclComm_t comm, hggcStream_t stream);
+pcclResult_t  pcclAlltoAll(const void* sendbuff, void* recvbuff, size_t count, pcclDataType_t datatype, pcclComm_t comm, hggcStream_t stream);
+pcclResult_t  pcclGather(const void* sendbuff, void* recvbuff, size_t count, pcclDataType_t datatype, int root, pcclComm_t comm, hggcStream_t stream);
+pcclResult_t  pcclScatter(const void* sendbuff, void* recvbuff, size_t count, pcclDataType_t datatype, int root, pcclComm_t comm, hggcStream_t stream);
+pcclResult_t  pcclReduce(const void* sendbuff, void* recvbuff, size_t count, pcclDataType_t datatype, pcclRedOp_t op, int root, pcclComm_t comm, hggcStream_t stream);
+pcclResult_t  pcclBroadcast(const void* sendbuff, void* recvbuff, size_t count, pcclDataType_t datatype, int root, pcclComm_t comm, hggcStream_t stream);
+pcclResult_t  pcclBcast(void* buff, size_t count, pcclDataType_t datatype, int root, pcclComm_t comm, hggcStream_t stream);
+pcclResult_t  pcclSend(const void* sendbuff, size_t count, pcclDataType_t datatype, int peer, pcclComm_t comm, hggcStream_t stream);
+pcclResult_t  pcclRecv(void* recvbuff, size_t count, pcclDataType_t datatype, int peer, pcclComm_t comm, hggcStream_t stream);
+
+// memory operation
+pcclResult_t  pcclCommRegister(const pcclComm_t comm, void* buff, size_t size, void** handle);
+pcclResult_t  pcclCommDeregister(const pcclComm_t comm, void* handle);
+pcclResult_t  pcclCommWindowRegister(pcclComm_t comm, void* buff, size_t size, pcclWindow_t* win, int winFlags);
+pcclResult_t  pcclCommWindowDeregister(pcclComm_t comm, pcclWindow_t win);
+pcclResult_t  pcclWinGetUserPtr(pcclComm_t comm, pcclWindow_t win, void** outUserPtr);
+pcclResult_t  pcclMemAlloc(void** ptr, size_t size);
+pcclResult_t  pcclMemFree(void *ptr);
+
+// simulate
+pcclResult_t  pcclGroupSimulateEnd(pcclSimInfo_t* simInfo);
+
+// redOp
+pcclResult_t  pcclRedOpDestroy(pcclRedOp_t op, pcclComm_t comm);
+pcclResult_t  pcclRedOpCreatePreMulSum(pcclRedOp_t *op, void *scalar, pcclDataType_t datatype, pcclScalarResidence_t residence, pcclComm_t comm);
+
+// others
+void  pcclResetDebugInit();
+const char*  pcclGetErrorString(pcclResult_t result);
+const char*  pcclGetLastError(pcclComm_t comm);
+
+#ifdef __cplusplus
+} // end extern "C"
+#endif
+
+#endif // end include guard

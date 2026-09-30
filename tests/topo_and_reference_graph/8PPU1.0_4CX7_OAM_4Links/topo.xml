@@ -1,0 +1,106 @@
+<system version="1">
+  <cpu numaid="0" affinity="00000000,0000ffff,ffffffff,00000000,0000ffff,ffffffff" arch="x86_64" vendor="GenuineIntel" familyid="6" modelid="143">
+    <pci busid="0000:06:00.0" class="0x060400" vendor="0x1000" device="0xc030" subsystem_vendor="0x1000" subsystem_device="0x100b" link_speed="32.0 GT/s PCIe" link_width="16">
+      <pci busid="0000:08:00.0" class="0x030200" vendor="0x1ded" device="0x6001" subsystem_vendor="0x1ded" subsystem_device="0x6001" link_speed="32.0 GT/s PCIe" link_width="16">
+        <gpu dev="0" sm="80" rank="0" gdr="1">
+          <nvlink target="0001:aa:00.0" count="1" tclass="0x030200"/>
+          <nvlink target="0000:a2:00.0" count="1" tclass="0x030200"/>
+          <nvlink target="0000:c6:00.0" count="1" tclass="0x030200"/>
+          <nvlink target="0000:7e:00.0" count="1" tclass="0x030200"/>
+        </gpu>
+      </pci>
+    </pci>
+    <pci busid="0000:7c:00.0" class="0x060400" vendor="0x1000" device="0xc030" subsystem_vendor="0x1000" subsystem_device="0x100b" link_speed="32.0 GT/s PCIe" link_width="16">
+      <pci busid="0000:7e:00.0" class="0x030200" vendor="0x1ded" device="0x6001" subsystem_vendor="0x1ded" subsystem_device="0x6001" link_speed="32.0 GT/s PCIe" link_width="16">
+        <gpu dev="1" sm="80" rank="1" gdr="1">
+          <nvlink target="0001:ce:00.0" count="1" tclass="0x030200"/>
+          <nvlink target="0000:08:00.0" count="1" tclass="0x030200"/>
+          <nvlink target="0000:a2:00.0" count="1" tclass="0x030200"/>
+          <nvlink target="0000:c6:00.0" count="1" tclass="0x030200"/>
+        </gpu>
+      </pci>
+      <pci busid="0000:86:00.0" class="0x020000" vendor="0x15b3" device="0xa2dc" subsystem_vendor="0x15b3" subsystem_device="0x0009" link_speed="32.0 GT/s PCIe" link_width="16">
+        <nic>
+          <net name="mlx5_bond_0" dev="0" speed="400000" port="1" guid="0x9a06360003c288a0" maxconn="131072" gdr="1"/>
+        </nic>
+      </pci>
+    </pci>
+    <pci busid="0000:a0:00.0" class="0x060400" vendor="0x1000" device="0xc030" subsystem_vendor="0x1000" subsystem_device="0x100b" link_speed="32.0 GT/s PCIe" link_width="16">
+      <pci busid="0000:a2:00.0" class="0x030200" vendor="0x1ded" device="0x6001" subsystem_vendor="0x1ded" subsystem_device="0x6001" link_speed="32.0 GT/s PCIe" link_width="16">
+        <gpu dev="2" sm="80" rank="2" gdr="1">
+          <nvlink target="0001:10:00.0" count="1" tclass="0x030200"/>
+          <nvlink target="0000:08:00.0" count="1" tclass="0x030200"/>
+          <nvlink target="0000:7e:00.0" count="1" tclass="0x030200"/>
+          <nvlink target="0000:c6:00.0" count="1" tclass="0x030200"/>
+        </gpu>
+      </pci>
+    </pci>
+    <pci busid="0000:c4:00.0" class="0x060400" vendor="0x1000" device="0xc030" subsystem_vendor="0x1000" subsystem_device="0x100b" link_speed="32.0 GT/s PCIe" link_width="16">
+      <pci busid="0000:c6:00.0" class="0x030200" vendor="0x1ded" device="0x6001" subsystem_vendor="0x1ded" subsystem_device="0x6001" link_speed="32.0 GT/s PCIe" link_width="16">
+        <gpu dev="3" sm="80" rank="3" gdr="1">
+          <nvlink target="0001:86:00.0" count="1" tclass="0x030200"/>
+          <nvlink target="0000:a2:00.0" count="1" tclass="0x030200"/>
+          <nvlink target="0000:08:00.0" count="1" tclass="0x030200"/>
+          <nvlink target="0000:7e:00.0" count="1" tclass="0x030200"/>
+        </gpu>
+      </pci>
+      <pci busid="0000:ce:00.0" class="0x020000" vendor="0x15b3" device="0xa2dc" subsystem_vendor="0x15b3" subsystem_device="0x0009" link_speed="32.0 GT/s PCIe" link_width="16">
+        <nic>
+          <net name="mlx5_bond_1" dev="1" speed="400000" port="1" guid="0x44c3360003c288a0" maxconn="131072" gdr="1"/>
+        </nic>
+      </pci>
+    </pci>
+  </cpu>
+  <cpu numaid="1" affinity="ffffffff,ffff0000,00000000,ffffffff,ffff0000,00000000" arch="x86_64" vendor="GenuineIntel" familyid="6" modelid="143">
+    <pci busid="0001:06:00.0" class="0x060400" vendor="0x1000" device="0xc030" subsystem_vendor="0x1000" subsystem_device="0x100b" link_speed="32.0 GT/s PCIe" link_width="16">
+      <pci busid="0001:10:00.0" class="0x030200" vendor="0x1ded" device="0x6001" subsystem_vendor="0x1ded" subsystem_device="0x6001" link_speed="32.0 GT/s PCIe" link_width="16">
+        <gpu dev="4" sm="80" rank="4" gdr="1">
+          <nvlink target="0000:a2:00.0" count="1" tclass="0x030200"/>
+          <nvlink target="0001:aa:00.0" count="1" tclass="0x030200"/>
+          <nvlink target="0001:ce:00.0" count="1" tclass="0x030200"/>
+          <nvlink target="0001:86:00.0" count="1" tclass="0x030200"/>
+        </gpu>
+      </pci>
+    </pci>
+    <pci busid="0001:7c:00.0" class="0x060400" vendor="0x1000" device="0xc030" subsystem_vendor="0x1000" subsystem_device="0x100b" link_speed="32.0 GT/s PCIe" link_width="16">
+      <pci busid="0001:86:00.0" class="0x030200" vendor="0x1ded" device="0x6001" subsystem_vendor="0x1ded" subsystem_device="0x6001" link_speed="32.0 GT/s PCIe" link_width="16">
+        <gpu dev="5" sm="80" rank="5" gdr="1">
+          <nvlink target="0000:c6:00.0" count="1" tclass="0x030200"/>
+          <nvlink target="0001:10:00.0" count="1" tclass="0x030200"/>
+          <nvlink target="0001:aa:00.0" count="1" tclass="0x030200"/>
+          <nvlink target="0001:ce:00.0" count="1" tclass="0x030200"/>
+        </gpu>
+      </pci>
+      <pci busid="0001:7e:00.0" class="0x020000" vendor="0x15b3" device="0xa2dc" subsystem_vendor="0x15b3" subsystem_device="0x0009" link_speed="32.0 GT/s PCIe" link_width="16">
+        <nic>
+          <net name="mlx5_bond_2" dev="2" speed="400000" port="1" guid="0x9aba350003c288a0" maxconn="131072" gdr="1"/>
+        </nic>
+      </pci>
+    </pci>
+    <pci busid="0001:a0:00.0" class="0x060400" vendor="0x1000" device="0xc030" subsystem_vendor="0x1000" subsystem_device="0x100b" link_speed="32.0 GT/s PCIe" link_width="16">
+      <pci busid="0001:aa:00.0" class="0x030200" vendor="0x1ded" device="0x6001" subsystem_vendor="0x1ded" subsystem_device="0x6001" link_speed="32.0 GT/s PCIe" link_width="16">
+        <gpu dev="6" sm="80" rank="6" gdr="1">
+          <nvlink target="0000:08:00.0" count="1" tclass="0x030200"/>
+          <nvlink target="0001:10:00.0" count="1" tclass="0x030200"/>
+          <nvlink target="0001:86:00.0" count="1" tclass="0x030200"/>
+          <nvlink target="0001:ce:00.0" count="1" tclass="0x030200"/>
+        </gpu>
+      </pci>
+    </pci>
+    <pci busid="0001:c4:00.0" class="0x060400" vendor="0x1000" device="0xc030" subsystem_vendor="0x1000" subsystem_device="0x100b" link_speed="32.0 GT/s PCIe" link_width="16">
+      <pci busid="0001:ce:00.0" class="0x030200" vendor="0x1ded" device="0x6001" subsystem_vendor="0x1ded" subsystem_device="0x6001" link_speed="32.0 GT/s PCIe" link_width="16">
+        <gpu dev="7" sm="80" rank="7" gdr="1">
+          <nvlink target="0000:7e:00.0" count="1" tclass="0x030200"/>
+          <nvlink target="0001:aa:00.0" count="1" tclass="0x030200"/>
+          <nvlink target="0001:10:00.0" count="1" tclass="0x030200"/>
+          <nvlink target="0001:86:00.0" count="1" tclass="0x030200"/>
+        </gpu>
+      </pci>
+      <pci busid="0001:c6:00.0" class="0x020000" vendor="0x15b3" device="0xa2dc" subsystem_vendor="0x15b3" subsystem_device="0x0009" link_speed="32.0 GT/s PCIe" link_width="16">
+        <nic>
+          <net name="mlx5_bond_3" dev="3" speed="400000" port="1" guid="0x9af3350003c288a0" maxconn="131072" gdr="1"/>
+        </nic>
+      </pci>
+    </pci>
+  </cpu>
+</system>

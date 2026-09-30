@@ -1,0 +1,10 @@
+prefix=${pccl:Prefix}
+exec_prefix=${prefix}
+libdir=${exec_prefix}/lib
+includedir=${prefix}/include
+
+Name: pccl
+Description: Optimized primitives for collective multi-GPU communication
+Version: ${pccl:Major}.${pccl:Minor}.${pccl:Patch}
+Libs: -L${libdir} -lpccl
+Cflags: -I${includedir}

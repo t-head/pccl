@@ -1,0 +1,308 @@
+/*************************************************************************
+ * SPDX-FileCopyrightText: Copyright (c) 2025-2026 NVIDIA CORPORATION & AFFILIATES. All rights reserved.
+ * SPDX-FileCopyrightText: Modifications Copyright (c) 2026 T-Head (Shanghai) Semiconductor Co., Ltd. All rights reserved.
+ * SPDX-License-Identifier: Apache-2.0
+ *
+ * See LICENSE.txt for more license information
+ *************************************************************************/
+
+#include "hggc_runtime.h"
+#include "pccl.h"
+#include "pccl_device.h"
+#include "utils.h"
+#include <stdio.h>
+#include <stdlib.h>
+#include <string.h>
+#include <sys/time.h>
+#include <unistd.h>
+
+/*
+ * PCCL Device API Hybrid AlltoAll Example
+ *
+ * This example demonstrates PCCL's hybrid communication approach that combines
+ * GPU-Initiated Networking (GIN) for remote peers with Load Store Access (LSA)
+ * for local peers, optimizing AlltoAll collective operations.
+ *
+ * Learning Objectives:
+ * - Understand hybrid communication optimization
+ * - Learn when to use GIN vs LSA for different peer types
+ * - Practice combining network and memory-based communication
+ * - See performance optimization through intelligent peer selection
+ *
+ * Key Hybrid Concepts:
+ * - LSA (Load Store Access): Direct memory access for local peers
+ * - GIN (GPU-Initiated Networking): Network communication for remote peers
+ * - Peer classification: Distinguishing between local and remote peers
+ * - Hybrid synchronization: Combining LSA and GIN completion mechanisms
+ * - Performance optimization: Using the fastest method for each peer type
+ *
+ * When to Use Hybrid:
+ * - Multi-node environments with both local and remote peers
+ * - Performance-critical applications requiring optimal communication
+ * - Mixed communication patterns (intra-node + inter-node)
+ * - Production workloads where efficiency matters
+ *
+ * Performance Benefits:
+ * - LSA provides low-latency local communication
+ * - GIN handles remote communication efficiently
+ * - Reduced network traffic for local operations
+ * - Optimal bandwidth utilization across communication types
+ *
+ * Implementation notes (this example):
+ * - GIN for peers outside the LSA team; LSA stores for peers on the same node.
+ * - ginConnectionType PCCL_GIN_CONNECTION_FULL: full GIN connectivity (each rank to all peers).
+ * - Uses pcclBarrierSession (world team + GIN), not pcclGinBarrierSession, so
+ *   reqs sets barrierCount, not worldGinBarrierCount.
+ *
+ * Kernel flow:
+ * - Acquire barrier before remote puts and local LSA copies.
+ * - waitSignal only on receivingCta; threshold is numRemotePeers (not nRanks).
+ * - Final release barrier after flush so LSA and GIN participants align.
+ * - A single GIN context (index 0) is used for simplicity; production code may
+ *   use multiple contexts for throughput.
+ */
+
+// Grid width (CTAs). Must match reqs.barrierCount and reqs.ginSignalCount.
+#define PCCL_DEVICE_CTA_COUNT 16
+#define PCCL_DEVICE_THREADS_PER_CTA 512
+
+// ==========================================================================
+// Device Kernel Implementation
+// ==========================================================================
+
+// Hybrid alltoall: GIN puts for non-LSA ranks; LSA stores for the LSA team.
+template <typename T>
+__global__ void HybridAlltoAllKernel(pcclWindow_t sendwin, size_t sendoffset,
+                                      pcclWindow_t recvwin, size_t recvoffset,
+                                      size_t count, struct pcclDevComm devComm) {
+  int ginContext = 0; // single context for simplicity
+  unsigned int signalIndex = blockIdx.x;
+  pcclGin gin { devComm, ginContext };
+  uint64_t signalValue = gin.readSignal(signalIndex);
+
+  pcclBarrierSession<pcclCoopCta> bar { pcclCoopCta(), pcclTeamTagWorld(), gin, blockIdx.x };
+  bar.sync(pcclCoopCta(), hggc::memory_order_acquire, pcclGinFenceLevel::Relaxed);
+
+  int tid = threadIdx.x + blockIdx.x * blockDim.x;
+  int nthreads = blockDim.x * gridDim.x;
+
+  pcclTeam world = pcclTeamWorld(devComm);
+  pcclTeam lsa = pcclTeamLsa(devComm);
+  const int startLsa = world.rank - lsa.rank;
+  const int lsaSize = lsa.nRanks;
+
+  const size_t size = count * sizeof(T);
+
+  // Remote ranks: world ranks below and above the LSA range (split loops for clarity).
+  for (int r = tid; r < startLsa; r += nthreads) {
+    gin.put(world, r,
+        recvwin, recvoffset + world.rank * size,
+        sendwin, sendoffset + r * size,
+        size, pcclGin_SignalInc{signalIndex});
+  }
+  for (int r = startLsa + lsaSize + tid; r < world.nRanks; r += nthreads) {
+    gin.put(world, r,
+        recvwin, recvoffset + world.rank * size,
+        sendwin, sendoffset + r * size,
+        size, pcclGin_SignalInc{signalIndex});
+  }
+
+  // Local ranks: LSA ranks (single loop for clarity).
+  T* sendLocal = (T*)pcclGetLocalPointer(sendwin, sendoffset);
+  for (size_t offset = tid; offset < count; offset += nthreads) {
+    for (int lp = 0; lp < lsa.nRanks; lp++) {
+      int wr = startLsa + lp;
+      T* recvPtr = (T*)pcclGetLsaPointer(recvwin, recvoffset, lp);
+      recvPtr[world.rank * count + offset] = sendLocal[wr * count + offset];
+    }
+  }
+
+  int numRemotePeers = world.nRanks - lsa.nRanks;
+  // Wait only on the CTA whose signalIndex sees all GIN puts targeting this rank.
+  int receivingCta = (world.rank % nthreads) / blockDim.x;
+  if (blockIdx.x == receivingCta)
+    gin.waitSignal(pcclCoopCta(), signalIndex, signalValue + numRemotePeers);
+
+  gin.flush(pcclCoopCta());
+
+  bar.sync(pcclCoopCta(), hggc::memory_order_release, pcclGinFenceLevel::Relaxed);
+}
+
+// ==========================================================================
+// Host-Side Setup and Device API Initialization
+// ==========================================================================
+
+void* hybridAlltoAll(int my_rank, int total_ranks, int local_device, int devices_per_rank) {
+  pcclComm_t comm;
+  pcclUniqueId pccl_unique_id;
+
+  if (my_rank == 0) {
+    printf("Starting Hybrid AlltoAll initialization\n");
+  }
+
+  // Standard PCCL communicator initialization
+  if (my_rank == 0) {
+    PCCLCHECK(pcclGetUniqueId(&pccl_unique_id));
+  }
+
+  // Distribute unique ID
+  util_broadcast(0, my_rank, &pccl_unique_id);
+
+  // Set device context for this rank
+  HGGCCHECK(hggcSetDevice(local_device));
+  printf("  Rank %d using GPU device %d\n", my_rank, local_device);
+
+  // ==========================================================================
+  // STEP 2: Initialize PCCL Communicator and Allocate Memory
+  // ==========================================================================
+
+  // Initialize PCCL communicator
+  PCCLCHECK(pcclCommInitRank(&comm, total_ranks, pccl_unique_id, my_rank));
+  printf("  Rank %d initialized PCCL communicator for %d total ranks\n", my_rank, total_ranks);
+
+  // Check for Device API and GIN support
+  pcclCommProperties_t props = PCCL_COMM_PROPERTIES_INITIALIZER;
+  PCCLCHECK(pcclCommQueryProperties(comm, &props));
+  if (!props.deviceApiSupport) {
+    printf("ERROR: rank %d communicator does not support Device API!\n", my_rank);
+    PCCLCHECK(pcclCommFinalize(comm));
+    PCCLCHECK(pcclCommDestroy(comm));
+    return NULL;
+  }
+  if (props.ginType == PCCL_GIN_TYPE_NONE) {
+    printf("ERROR: rank %d communicator does not support GIN!\n", my_rank);
+    PCCLCHECK(pcclCommFinalize(comm));
+    PCCLCHECK(pcclCommDestroy(comm));
+    return NULL;
+  }
+
+  // Allocate memory for AlltoAll operation
+  size_t count = 1024; // Elements per rank
+  size_t total_elements = count * total_ranks;
+  size_t size_bytes = total_elements * sizeof(float);
+
+  float *h_sendbuff = (float*)malloc(size_bytes);
+  float *h_recvbuff = (float*)malloc(size_bytes);
+  void* d_sendbuff;
+  void* d_recvbuff;
+  pcclWindow_t send_win;
+  pcclWindow_t recv_win;
+
+  // Device API requires symmetric memory allocation
+  PCCLCHECK(pcclMemAlloc(&d_sendbuff, size_bytes));
+  PCCLCHECK(pcclMemAlloc(&d_recvbuff, size_bytes));
+
+  // ==========================================================================
+  // STEP 3: Register Memory Windows for Device-Side Access
+  // ==========================================================================
+
+  // Register symmetric windows for both LSA and GIN access
+  PCCLCHECK(pcclCommWindowRegister(comm, d_sendbuff, size_bytes, &send_win, PCCL_WIN_COLL_SYMMETRIC));
+  PCCLCHECK(pcclCommWindowRegister(comm, d_recvbuff, size_bytes, &recv_win, PCCL_WIN_COLL_SYMMETRIC));
+
+  // Initialize data: each rank sends unique values to each destination
+  for (size_t i = 0; i < total_elements; i++) {
+    int dest_rank = i / count;
+    int element_idx = i % count;
+    h_sendbuff[i] = (float)(my_rank * 1000 + dest_rank * 100 + element_idx);
+  }
+  HGGCCHECK(hggcMemcpy(d_sendbuff, h_sendbuff, size_bytes, hggcMemcpyHostToDevice));
+  printf("  Rank %d initialized send data\n", my_rank);
+
+  // ==========================================================================
+  // STEP 4: Create Device Communicator with Hybrid Support
+  // ==========================================================================
+
+  // Create stream for kernel execution
+  hggcStream_t stream;
+  HGGCCHECK(hggcStreamCreate(&stream));
+
+  // Create device communicator with both LSA and GIN support
+  pcclDevComm devComm;
+  pcclDevCommRequirements reqs = PCCL_DEV_COMM_REQUIREMENTS_INITIALIZER;
+  reqs.barrierCount = PCCL_DEVICE_CTA_COUNT;       // pcclBarrierSession (world + GIN)
+  reqs.ginSignalCount = PCCL_DEVICE_CTA_COUNT;       // one signal index per CTA
+  reqs.ginConnectionType = PCCL_GIN_CONNECTION_FULL;  // full GIN connectivity: each rank to all peers
+  PCCLCHECK(pcclDevCommCreate(comm, &reqs, &devComm));
+  printf("  Rank %d created device communicator with hybrid support\n", my_rank);
+
+  if (my_rank == 0) {
+    printf("Starting Hybrid AlltoAll with %zu elements per rank (%zu total elements, %zu MB)\n",
+           count, total_elements, size_bytes / (1024 * 1024));
+    printf("Using LSA for local peers and GIN for remote peers\n");
+  }
+
+  // ==========================================================================
+  // STEP 5: Execute Hybrid AlltoAll Kernel
+  // ==========================================================================
+
+  if (my_rank == 0) {
+    printf("\n=== Executing Hybrid AlltoAll ===\n");
+  }
+
+  // Clear receive buffer
+  HGGCCHECK(hggcMemset(d_recvbuff, 0, size_bytes));
+
+  // Launch hybrid AlltoAll kernel
+  HybridAlltoAllKernel<float><<<PCCL_DEVICE_CTA_COUNT, PCCL_DEVICE_THREADS_PER_CTA, 0, stream>>>(
+      send_win, 0, recv_win, 0, count, devComm);
+
+  // Wait for completion
+  HGGCCHECK(hggcStreamSynchronize(stream));
+  printf("  Rank %d completed hybrid AlltoAll kernel\n", my_rank);
+
+  // ==========================================================================
+  // STEP 6: Verify Results
+  // ==========================================================================
+
+  // Verify hybrid results
+  HGGCCHECK(hggcMemcpy(h_recvbuff, d_recvbuff, size_bytes, hggcMemcpyDeviceToHost));
+  bool hybrid_success = true;
+  for (int src_rank = 0; src_rank < total_ranks; src_rank++) {
+    for (size_t i = 0; i < count; i++) {
+      size_t recv_idx = src_rank * count + i;
+      float expected = (float)(src_rank * 1000 + my_rank * 100 + i);
+      if (h_recvbuff[recv_idx] != expected) {
+        hybrid_success = false;
+        printf("  Rank %d: Hybrid mismatch at [%d][%zu]: got %.0f, expected %.0f\n",
+               my_rank, src_rank, i, h_recvbuff[recv_idx], expected);
+        break;
+      }
+    }
+    if (!hybrid_success) break;
+  }
+
+  if (my_rank == 0) {
+    printf("Hybrid AlltoAll result: %s\n", hybrid_success ? "PASSED" : "FAILED");
+    if (hybrid_success) {
+      printf("All %zu elements correctly exchanged using hybrid communication\n", total_elements);
+    }
+  }
+
+  // ==========================================================================
+  // STEP 7: Cleanup Resources
+  // ==========================================================================
+
+    // Cleanup host memory
+    free(h_sendbuff);
+    free(h_recvbuff);
+
+    // Device API specific cleanup
+    PCCLCHECK(pcclDevCommDestroy(comm, &devComm));
+    PCCLCHECK(pcclCommWindowDeregister(comm, send_win));
+    PCCLCHECK(pcclCommWindowDeregister(comm, recv_win));
+    PCCLCHECK(pcclMemFree(d_sendbuff));
+    PCCLCHECK(pcclMemFree(d_recvbuff));
+
+    // Standard PCCL cleanup
+    PCCLCHECK(pcclCommFinalize(comm));
+    PCCLCHECK(pcclCommDestroy(comm));
+    HGGCCHECK(hggcStreamDestroy(stream));
+
+    return NULL;
+}
+
+int main(int argc, char* argv[]) {
+  // Run example using the provided utility framework
+  return run_example(argc, argv, hybridAlltoAll);
+}

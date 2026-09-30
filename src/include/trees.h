@@ -1,0 +1,15 @@
+/*************************************************************************
+ * SPDX-FileCopyrightText: Copyright (c) 2015-2026 NVIDIA CORPORATION & AFFILIATES. All rights reserved.
+ * SPDX-FileCopyrightText: Modifications Copyright (c) 2020-2026 T-Head (Shanghai) Semiconductor Co., Ltd. All rights reserved.
+ * SPDX-License-Identifier: BSD-3-Clause
+ *
+ * See LICENSE.txt for more license information
+ *************************************************************************/
+
+#ifndef NCCL_TREES_H_
+#define NCCL_TREES_H_
+
+ncclResult_t ncclGetBtree(int nranks, int rank, int* u0, int* d1, int* d0, int* parentChildType);
+ncclResult_t ncclGetDtree(int nranks, int rank, int* u0, int* d0_0, int* d0_1, int* parentChildType0, int* u1, int* d1_0, int* d1_1, int* parentChildType1);
+
+#endif

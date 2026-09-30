@@ -1,0 +1,5 @@
+Regulation:
+Directory Naming Convention: x(PPU-specific-type)_y(Nic-specific-type)_BoardType_LinkNumber
+
+Demo:
+-- 8PPU1.0_4CX7_OAM_4Links     // PPU1.0 8PPUs OAM with 4 NICs

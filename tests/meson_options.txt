@@ -1,0 +1,1 @@
+option('ppu_archs', type: 'string', value: 'ppu001,ppu0015', description: 'set ppu archs')
