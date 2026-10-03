@@ -205,6 +205,11 @@ struct alignas(16) ncclDevWorkP2p {
   struct ncclKernelComm* comm;
   uint8_t sendRegUsed:1, recvRegUsed:1, sendProtoLL:1, recvProtoLL:1, profilerEnabled:1;
 
+  // CPU-finalized per-channel work-batch metadata, in existing header padding.
+  uint8_t sendPollFlags; // bit0: track active send; bit1: diagnostic trace.
+  uint16_t sendPollReference;
+  uint32_t sendPollTicks; // Base interval, zero on small or ineligible work.
+
   const void * sendbuff;
   void * recvbuff;
 
@@ -212,6 +217,10 @@ struct alignas(16) ncclDevWorkP2p {
   int sendRank, recvRank;
   int sendChunkSize, recvChunkSize;
 };
+
+static_assert(sizeof(ncclDevWorkP2p) == 64, "poll metadata must not grow device work");
+static_assert(offsetof(ncclDevWorkP2p, sendbuff) == 16, "preserve device work ABI");
+static_assert(offsetof(ncclDevWorkP2p, sendPollTicks) == 12, "use header padding");
 
 struct alignas(16) ncclDevWorkColl {
   // Header
@@ -328,6 +337,7 @@ struct alignas(16) ncclKernelComm {
   // Flag to ask NCCL kernels to abort
   volatile uint32_t *abortFlag;
   uint8_t stateMonitorLevel;
+  uint32_t a2aPollMaxTicks; // Existing padding; interval cap, read with comm metadata.
 
   // Channels, device side
   struct ncclChannel* channels;
@@ -337,7 +347,12 @@ struct alignas(16) ncclKernelComm {
   struct ncclDevProfiler* workCompleted/*[MAXCHANNELS]*/;
 
   uint8_t profilerGlobalEnabled;
+  uint32_t a2aActiveNetSends; // Device-local counter; updated by one waiter per connection.
 };
+
+static_assert(sizeof(ncclKernelComm) == 96, "poll state must use comm padding");
+static_assert(offsetof(ncclKernelComm, channels) == 64, "preserve channel layout");
+static_assert(offsetof(ncclKernelComm, a2aActiveNetSends) == 92, "counter must use padding");
 
 struct alignas(16) ncclKernelCommAndChannels {
   struct ncclKernelComm comm;

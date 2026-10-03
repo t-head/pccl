@@ -9,6 +9,10 @@
 #ifndef NCCL_PRIMS_SIMPLE_BASE_H_
 #define NCCL_PRIMS_SIMPLE_BASE_H_
 
+#define PCCL_POLL_HD __host__ __device__
+#include "a2a_send_poll.h"
+#undef PCCL_POLL_HD
+
 enum primsMode { primsModeDefault = 0, primsModePatRs = 1, primsModePatAg = 2 };
 
 // Implementation of primitive types
@@ -48,6 +52,10 @@ class PrimitivesSimpleBase {
   int nsend = 0;
   volatile int* connSizesFifoPtr = NULL;
   volatile uint64_t* connHeadPtr = NULL;
+  uint32_t sendPollTicks = 0;
+  uint16_t sendPollReference = 0;
+  uint32_t* activeNetSends = nullptr;
+  bool pollTrace = false;
   uint64_t connHeadCache; // Cache last seen value
   const uint64_t ncclSteps;
 
@@ -87,6 +95,20 @@ class PrimitivesSimpleBase {
     while (connHeadCache + ncclSteps < step + SLICESTEPS) {
       connHeadCache = volatileLoadU64(connHeadPtr);
       if (checkAbort(comm, spins, abort, hangSpins)) break;
+      // Count is device-local and spans all executing channels of this comm.
+      // No extra host-memory reads or peer/QP-count guesses are introduced.
+      if (activeNetSends && sendPollTicks && sendPollReference &&
+          connHeadCache + ncclSteps < step + SLICESTEPS) {
+        const uint32_t active = *(volatile uint32_t*)activeNetSends;
+        const uint32_t waitTicks = pcclSendPollTicks(active, sendPollTicks,
+                                                   sendPollReference, comm->a2aPollMaxTicks);
+        uint64_t begin;
+        asm volatile("ppu.mov.u64 %0, %%globaltimer;" : "=l"(begin));
+        uint64_t now = begin;
+        while (now - begin < waitTicks) {
+          asm volatile("ppu.mov.u64 %0, %%globaltimer;" : "=l"(now));
+        }
+      }
     }
     if (connSizesFifoPtr) {
       connSizesFifoPtr[step%ncclSteps] = nbytes;
@@ -318,6 +340,16 @@ class PrimitivesSimpleBase {
         direct = reinterpret_cast<T*>(reinterpret_cast<uintptr_t>(ptr) ^ ptrExchangeMagicNum);
         storePtr(slot, (T*)NULL);
       }
+      if (P2P && p2pWork && (p2pWork->sendPollFlags & PCCL_A2A_POLL_TRACK_ACTIVE)) {
+        sendPollTicks = p2pWork->sendPollTicks;
+        sendPollReference = p2pWork->sendPollReference;
+        pollTrace = (p2pWork->sendPollFlags & PCCL_A2A_POLL_TRACE_ACTIVE) != 0;
+        // comm is a shared-memory copy; updates MUST target the global original.
+        activeNetSends = &getShmemPtr(comm)->args.comm->a2aActiveNetSends;
+        const uint32_t active = atomicAdd(activeNetSends, 1u) + 1u;
+        if (pollTrace) printf("A2A_ACTIVE rank=%d channel=%d peer=%d event=enter active=%u\n",
+            comm->rank, getShmemPtr(comm)->channelId, int(peer), active);
+      }
       connHeadPtr = conn->head;
       connHeadCache = volatileLoadU64(connHeadPtr);
       connSizesFifoPtr = conn->sizesFifo;
@@ -465,6 +497,11 @@ class PrimitivesSimpleBase {
     if (role & (ROLE_POST_SEND|ROLE_POST_RECV))
       volatileStoreU64(reinterpret_cast<volatile uint64_t*>(&conn->step), step);
     barrier();
+    if (activeNetSends) {
+      const uint32_t active = atomicSub(activeNetSends, 1u) - 1u;
+      if (pollTrace) printf("A2A_ACTIVE rank=%d channel=%d peer=%d event=leave active=%u\n",
+          comm->rank, getShmemPtr(comm)->channelId, int(peer), active);
+    }
   }
 };
 
