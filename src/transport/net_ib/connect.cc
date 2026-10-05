@@ -354,24 +354,43 @@ ncclResult_t ncclIbCreateQp(uint8_t ib_port, struct ncclIbNetCommDevBase* commDe
   return ncclSuccess;
 }
 
+static uint32_t ncclIbGetOooRqSize(int dev) {
+  // Advertise local policy so both endpoints negotiate the same receive format.
+  return ncclParamIbOooRq() != 0 && ncclIbDevs[dev].ar ? ncclIbDevs[dev].oooRqSize : 0;
+}
+
 static ncclResult_t ncclIbEnableOooRq(int dev, uint32_t remOooRqSize, int* oooRq) {
   *oooRq = 0;
   if (ncclParamIbOooRq() == 0) return ncclSuccess;
 
+  // OOO RQ is a performance optimization, not a correctness requirement: it needs
+  // adaptive routing plus both endpoints advertising a large-enough OOO recv
+  // queue. Negotiate by device capability and fall back to the normal in-order
+  // path when unavailable, instead of failing the connection. This lets one
+  // binary + one set of env vars work on mlx5 (e.g. CX8: OOO enabled) and on
+  // troce/SNIC (OOO unsupported: gracefully disabled) -- previously the
+  // on-by-default NCCL_IB_OOO_RQ=1 made every troce connect fail (res=0x3).
+  // When OOO RQ was requested explicitly we log at WARN so a requested-but-
+  // unavailable config stays visible; the on-by-default case logs at INFO.
+  const bool explicitReq = (ncclGetEnv("PCCL_IB_OOO_RQ") != nullptr);
   struct ncclIbDev* ibDev = ncclIbDevs + dev;
+  const char* reason = nullptr;
   if (ibDev->ar == 0) {
-    WARN("NET/IB : OOO RQ is force enabled but adaptive routing is disabled on device %s", ibDev->devName);
-    return ncclInternalError;
+    reason = "adaptive routing disabled";
+  } else if (ibDev->oooRqSize == 0 || remOooRqSize == 0) {
+    reason = "not supported on both sides";
+  } else if (ibDev->oooRqSize < NET_IB_MAX_REQUESTS || remOooRqSize < NET_IB_MAX_REQUESTS) {
+    reason = "OOO RQ size below required receive queue size";
   }
-  if (ibDev->oooRqSize == 0 || remOooRqSize == 0) {
-    WARN("NET/IB : OOO RQ is force enabled but is not supported on both sides (device %s local=%u remote=%u)",
-         ibDev->devName, ibDev->oooRqSize, remOooRqSize);
-    return ncclInternalError;
-  }
-  if (ibDev->oooRqSize < NET_IB_MAX_REQUESTS) {
-    WARN("NET/IB : OOO RQ size %u is less than required receive queue size %u on device %s",
-         ibDev->oooRqSize, NET_IB_MAX_REQUESTS, ibDev->devName);
-    return ncclInternalError;
+  if (reason != nullptr) {
+    if (explicitReq) {
+      WARN("NET/IB : OOO RQ requested but unavailable on device %s (%s; local=%u remote=%u required>=%u); falling back to in-order",
+           ibDev->devName, reason, ibDev->oooRqSize, remOooRqSize, (unsigned)NET_IB_MAX_REQUESTS);
+    } else {
+      INFO(NCCL_NET, "NET/IB : OOO RQ unavailable on device %s (%s; local=%u remote=%u); using in-order",
+           ibDev->devName, reason, ibDev->oooRqSize, remOooRqSize);
+    }
+    return ncclSuccess;  // *oooRq stays 0 -> graceful in-order fallback, connect proceeds
   }
   *oooRq = 1;
   return ncclSuccess;
@@ -443,7 +462,7 @@ ncclResult_t ncclIbListen(int dev, void* opaqueHandle, void** listenComm) {
   NCCLCHECKGOTO(ncclSocketInit(&comm->sock, &ncclIbIfAddr, handle->magic, ncclSocketTypeNetIb, NULL, 1), res, fail);
   NCCLCHECKGOTO(ncclSocketListen(&comm->sock), res, fail);
   NCCLCHECKGOTO(ncclSocketGetAddr(&comm->sock, &handle->connectAddr), res, fail);
-  handle->oooRqSize = ncclIbDevs[dev].oooRqSize;
+  handle->oooRqSize = ncclIbGetOooRqSize(dev);
   *listenComm = comm;
 exit:
   return res;
@@ -531,7 +550,7 @@ ib_connect_check:
                                 IBV_ACCESS_LOCAL_WRITE|IBV_ACCESS_REMOTE_WRITE|IBV_ACCESS_REMOTE_READ), res, fail);
   qpInfo.fifoRkey = comm->fifoMr->rkey;
   qpInfo.fifoAddr = (uint64_t)comm->ctsFifo;
-  qpInfo.oooRqSize = ncclIbDevs[dev].oooRqSize;
+  qpInfo.oooRqSize = ncclIbGetOooRqSize(dev);
 
   // Register a small scratchpad MR that the GIN proxy iputSignal path uses as
   // the local SGE of its FETCH_AND_ADD atomic ops. Allocating it here keeps it
@@ -719,7 +738,7 @@ ib_recv:
   qpInfo.spn=gid.global.subnet_prefix;
   qpInfo.iid=gid.global.interface_id;
   qpInfo.mtu=remQpInfo.mtu;
-  qpInfo.oooRqSize = ncclIbDevs[lComm->dev].oooRqSize;
+  qpInfo.oooRqSize = ncclIbGetOooRqSize(lComm->dev);
 
   stage->state = ncclIbCommStateSend;
   stage->offset = 0;
