@@ -1,0 +1,14 @@
+# pccl PR unit-test commands (ubuntu24_hggcrt13)
+# Each non-empty, non-comment line is executed as a shell command.
+# Test runner scripts are maintained under .github/workflows/scripts.
+# Scripts that depended on comm-internal-testbox-only binaries
+# (composite_test, unit_test, cuda graph, etc.) are excluded because the
+# workflow only keeps pccl and pccl-tests repositories.
+
+bash run_common_test.sh
+bash run_register_test.sh
+bash run_memcpy_test.sh
+bash run_nonblocking_test.sh
+bash run_copyengine_test.sh
+bash run_customAllreduce_test.sh
+bash run_lsa_test.sh
