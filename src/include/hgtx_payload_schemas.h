@@ -40,12 +40,13 @@ PCCL_HGTX_DEFINE_STRUCT_WITH_SCHEMA_ENTRIES(PcclHgtxParamsCommInitRank, static c
     (int, hggcDev, TYPE_INT, pccl_hgtxHggcDevStr)
   )
 )
-// The typedef and payload schema for ncclCommInitRank is also used for,
-// ncclCommInitRankConfig, ncclCommInitRankScalable, ncclCommDestroy, and ncclCommAbort.
+// CommInitRankConfig, CommInitRankScalable, CommDestroy, CommAbort and CommRevoke
+// share the CommInitRank payload layout.
 typedef PcclHgtxParamsCommInitRank PcclHgtxParamsCommInitRankConfig;
 typedef PcclHgtxParamsCommInitRank PcclHgtxParamsCommInitRankScalable;
 typedef PcclHgtxParamsCommInitRank PcclHgtxParamsCommAbort;
 typedef PcclHgtxParamsCommInitRank PcclHgtxParamsCommDestroy;
+typedef PcclHgtxParamsCommInitRank PcclHgtxParamsCommRevoke;
 
 PCCL_HGTX_DEFINE_STRUCT_WITH_SCHEMA_ENTRIES(PcclHgtxParamsCommSplit, static constexpr,
   HGTX_PAYLOAD_ENTRIES(
@@ -67,6 +68,16 @@ PCCL_HGTX_DEFINE_STRUCT_WITH_SCHEMA_ENTRIES(PcclHgtxParamsCommShrink, static con
     (int, myrank, TYPE_INT, pccl_hgtxRankStr),
     (int, hggcDev, TYPE_INT, pccl_hgtxHggcDevStr),
     (int, num_exclude, TYPE_INT, "num_exclude")
+  )
+)
+
+PCCL_HGTX_DEFINE_STRUCT_WITH_SCHEMA_ENTRIES(PcclHgtxParamsCommGrow, static constexpr,
+  HGTX_PAYLOAD_ENTRIES(
+    (uint64_t, newcomm, TYPE_UINT64, pccl_hgtxCommStr),
+    (uint64_t, parentcomm, TYPE_UINT64, "Parent PCCL communicator ID"),
+    (int, nranks, TYPE_INT, pccl_hgtxNranksStr),
+    (int, myrank, TYPE_INT, pccl_hgtxRankStr),
+    (int, hggcDev, TYPE_INT, pccl_hgtxHggcDevStr)
   )
 )
 

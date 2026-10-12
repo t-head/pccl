@@ -386,8 +386,8 @@ struct pcclComm {
   int* topParentLocalRanks;
   struct ncclChannel channels[MAXCHANNELS];
   uint64_t commHash;
-  // number of splits performed on this comm, used to derive unique child comm hashes
-  int splitCount;
+  // sequence number for split and grow, used to derive unique comm hashes
+  int childCount;
   bool directMode;    // used to disble register for legecyIPC when at least two ranks in one process.
 
   struct ncclPeerInfo* peerInfo;
@@ -399,6 +399,7 @@ struct pcclComm {
   bool peerInfoValid;
 
   void* bootstrap;
+  bool isGrow;
   // Bitmasks for ncclTransportP2pSetup
   uint64_t* connectSend;
   uint64_t* connectRecv;
@@ -481,6 +482,7 @@ struct pcclComm {
   uint32_t* childAbortFlag;
   uint32_t* childAbortFlagDev;
   uint32_t destroyFlag;
+  uint32_t revokedFlag;
 
   // Device side of the communicator (for hggcFree's)
   struct ncclKernelComm* devComm; // actually = &ncclKernelCommAndChannels::comm

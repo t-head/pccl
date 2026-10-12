@@ -385,6 +385,13 @@ static __host__ __device__ uint64_t digestHash(uint64_t const acc[2]) {
   return h;
 }
 
+static __host__ __device__ uint64_t hashCombine(uint64_t baseHash, uint64_t value) {
+  uint64_t acc[2] = {1, 1};
+  eatHash(acc, &baseHash);
+  eatHash(acc, &value);
+  return digestHash(acc);
+}
+
 static __host__ __device__ uint64_t getHash(const void* bytes, size_t size) {
   uint64_t acc[2] = {1, 1};
   eatHash(acc, bytes, size);
