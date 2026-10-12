@@ -21,7 +21,7 @@ static uint64_t ncclDebugTimestampMaxSubseconds;  // Max number of subseconds pl
 static int ncclDebugTimestampSubsecondDigits;     // Number of digits to display
 thread_local int ncclDebugNoWarn = 0;
 int pcclDebugDev = -1;
-uint64_t ncclDebugMask = NCCL_INIT; // Default debug sub-system mask is INIT
+uint64_t ncclDebugMask = NCCL_INIT | NCCL_BOOTSTRAP | NCCL_ENV; // Default debug sub-system mask
 FILE *ncclDebugFile = stdout;
 thread_local FILE *ncclPerCommHashDebugFile = nullptr;
 pthread_mutex_t ncclDebugLock = PTHREAD_MUTEX_INITIALIZER;
@@ -162,6 +162,8 @@ void ncclDebugInit() {
         mask = NCCL_CALL;
       } else if (strcasecmp(subsys, "PROXY") == 0) {
         mask = NCCL_PROXY;
+      } else if (strcasecmp(subsys, "BOOTSTRAP") == 0) {
+        mask = NCCL_BOOTSTRAP;
       } else if (strcasecmp(subsys, "DUMP") == 0) {
         mask = NCCL_DUMP;
       } else if (strcasecmp(subsys, "PROFILE") == 0) {
