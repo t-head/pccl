@@ -4,10 +4,10 @@ name: pccl checkin
 on:
   workflow_dispatch:                                       # manual trigger (web/API)
   pull_request:
-    branches: [v2.2.1]                                       # release branch
+    branches: [release/v2.2.1]                              # release branch
     types: [opened, synchronize, reopened, ready_for_review]
   push:
-    branches: [v2.2.1]                                       # run again after merge
+    branches: [release/v2.2.1]                              # run again after merge
 
 permissions:
   contents: read
@@ -91,7 +91,7 @@ jobs:
       - uses: actions/checkout@v4
         with:
           repository: t-head/pccl-tests
-          ref: v2.2.1
+          ref: release/v2.2.1
           path: pccl-tests
           token: ${{ secrets.PAT_FOR_CHECKOUT }}
       - name: Build on PPU
@@ -228,7 +228,7 @@ jobs:
       - uses: actions/checkout@v4
         with:
           repository: t-head/pccl-tests
-          ref: v2.2.1
+          ref: release/v2.2.1
           path: pccl-tests
           token: ${{ secrets.PAT_FOR_CHECKOUT }}
       - name: Build and Test on PPU (notsm)
