@@ -1,1 +1,1 @@
-option('ppu_archs', type: 'string', value: 'ppu001,ppu0015', description: 'set ppu archs')
+option('ppu_archs', type: 'string', value: 'ppu_10,ppu_15', description: 'set ppu archs')

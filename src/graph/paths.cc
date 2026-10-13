@@ -222,6 +222,10 @@ static ncclResult_t getLocalCpu(struct ncclTopoSystem* system, int gpu, int* ret
 static ncclResult_t addInterStep(struct ncclTopoSystem* system, int tx, int ix, int t1, int i1, int t2, int i2) {
   struct ncclTopoNode* cpuNode = system->nodes[tx].nodes+ix;
   struct ncclTopoNode* srcNode = system->nodes[t1].nodes+i1;
+  if (srcNode->paths[tx][ix].count + cpuNode->paths[t2][i2].count > NCCL_TOPO_MAX_HOPS) {
+    WARN("Intermediate path exceeds maximum hop count");
+    return ncclInternalError;
+  }
 
   int l=0;
   // Node 1 -> CPU
@@ -676,21 +680,39 @@ ncclResult_t ncclTopoComputePaths(struct ncclTopoSystem* system, ncclComm_t comm
     for (int g=0; g<system->nodes[GPU].count; g++) {
       // Check whether we can access the NIC through another NVLink-connected GPU (PXN)
       struct ncclTopoNode* gpu = system->nodes[GPU].nodes+g;
-      if (ncclPxnDisable() != 1 && gpu->paths[NET][n].type > PATH_PXB) {
+      // Allow PXB paths to use PIX peers under the same switch.
+      // Rewrite only PPU->NIC paths to preserve receive-side NIC selection.
+      if (ncclPxnDisable() != 1 &&
+        (gpu->paths[NET][n].type > PATH_PXB || (system->enablePxbToPxn && gpu->paths[NET][n].type == PATH_PXB))) {
+        // Prefer PIX exits, retaining direct PXB exits as fallback.
         int pxnGpu = -1;
         int nHops = INT_MAX;
+        int pxnGpuPxb = -1;
+        int nHopsPxb = INT_MAX;
         for (int p=0; p<system->nodes[GPU].count; p++) {
 
           // PXN = PCI + NVLink.
           struct ncclTopoNode* peerNode = system->nodes[GPU].nodes+p;
-          if (p == g || NCCL_TOPO_ID_SYSTEM_ID(peerNode->id) != NCCL_TOPO_ID_SYSTEM_ID(gpu->id)
-              || netNode->paths[GPU][p].type > PATH_PXB || peerNode->paths[GPU][g].type > PATH_NVB) continue;
+          const struct ncclTopoLinkList* peerNetPath = netNode->paths[GPU]+p;
+          if (p == g || NCCL_TOPO_ID_SYSTEM_ID(peerNode->id) != NCCL_TOPO_ID_SYSTEM_ID(gpu->id) ||
+              peerNetPath->type > PATH_PXB ||
+              peerNode->paths[GPU][g].type > PATH_NVB) continue;
+          if (system->enablePxbToPxn && peerNode->gpu.gdrSupport == 0) continue;
 
           // To ensure proper balancing, use only a local GPU which advertised that NIC as its preferred one.
           int64_t netId;
           NCCLCHECK(ncclTopoGetLocalNet(system, peerNode->gpu.rank, &netId, NULL));
           // Make sure we can allocate memory on that GPU.
           if (netId != netNode->id) continue;
+
+          // Keep PXB fallback only for source paths farther than PXB.
+          if (system->enablePxbToPxn && peerNetPath->type == PATH_PXB) {
+            if (gpu->paths[NET][n].type > PATH_PXB && peerNode->paths[GPU][g].count < nHopsPxb) {
+              pxnGpuPxb = p;
+              nHopsPxb = peerNode->paths[GPU][g].count;
+            }
+            continue;
+          }
 
           // found best PXR type with min hops or just PXN
           if (peerNode->paths[GPU][g].count < nHops) {
@@ -699,6 +721,8 @@ ncclResult_t ncclTopoComputePaths(struct ncclTopoSystem* system, ncclComm_t comm
             if (nHops == 1) break; // PXN break
           }
         }
+        // Fall back to PXB if no PIX peer was found.
+        if (pxnGpu == -1) pxnGpu = pxnGpuPxb;
 
         if (pxnGpu != -1) {
           // We can use that GPU as relay to communicate with that NIC.

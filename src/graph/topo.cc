@@ -729,6 +729,8 @@ ncclResult_t ncclTopoGetSystem(ncclComm_t comm, struct ncclTopoSystem** system) 
   ncclResult_t res = ncclSuccess;
   int ppuCount = 0;
   int netDevCount = 0;
+  int ppuFilledCount = 0;
+  bool enablePxbToPxn = false;
 
   struct ncclXml* xml = nullptr;
   char* mem = NULL;
@@ -833,6 +835,17 @@ ncclResult_t ncclTopoGetSystem(ncclComm_t comm, struct ncclTopoSystem** system) 
     NCCLCHECKGOTO(xmlInitAttrInt(netNode, "gdr", props.ptrSupport & NCCL_PTR_HGGC ? 1 : 0), res, fail);
   }
 
+  if (comm->icnRmtType != PCCL_ICNLINK_SWITCH) {
+    for (int r=0; r<comm->nRanks; r++) {
+      if (comm->peerInfo[r].hostHash == comm->peerInfo[comm->rank].hostHash && ppuFilledCount < ppuCount) {
+        ppuFilledCount++;
+      }
+    }
+    if (ppuFilledCount == pcclHgmlDeviceCount) {
+      enablePxbToPxn = true;
+    }
+  }
+
   // hgml based group affinity settings before trim
   if (pcclHgmlEnsureInitialized() == ncclSuccess && pcclParamNetAffinityAuto()) {
     NCCLCHECKGOTO(pcclTopoSetNetAffinityPPUs(xml, ppuCount, netDevCount), res, fail);
@@ -895,6 +908,7 @@ ncclResult_t ncclTopoGetSystem(ncclComm_t comm, struct ncclTopoSystem** system) 
   }
 
   NCCLCHECKGOTO(ncclTopoGetSystemFromXml(xml, system, getHostHash()), res, fail);
+  (*system)->enablePxbToPxn = enablePxbToPxn;
   if (comm->intraRank == 0) {
     NCCLCHECKGOTO(pcclCheckPPUTopo(), res, fail);
   }

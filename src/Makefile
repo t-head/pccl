@@ -159,8 +159,8 @@ release_yaml :
 $(TESTSDIR)/tests_check : ALWAYS_REBUILD $(TESTSDIR)/build/graphSearchTest
 	cd $(TESTSDIR) && ./build/graphSearchTest > tests_check
 
-$(TESTSDIR)/build/graphSearchTest : $(TESTSSRCS)
-	cd $(TESTSDIR) && ./build.sh
+$(TESTSDIR)/build/graphSearchTest : $(TESTSSRCS) $(LIBDIR)/$(LIBTARGET)
+	cd $(TESTSDIR) && bash ./build.sh
 
 $(DEVICELIB): ALWAYS_REBUILD $(INCTARGETS)
 	$(MAKE) -C collectives/device
