@@ -12,6 +12,7 @@
 #include "topo.h"
 #include "xml.h"
 #include "globals.h"
+#include "net.h"
 #include <fcntl.h>
 #include <string.h>
 #include <gtest/gtest.h>
@@ -48,6 +49,7 @@ std::string globalTopoAndRefDir;
 struct graphSearchTestArgs : public argparse::Args {
   std::string &root= kwarg("r", "root dir for topo file and reference graph").set_default("./topo_and_reference_graph/");
   bool &verbose = flag("v,verbose", "A flag to toggle verbose").set_default(false);
+  bool &eic = flag("eic", "Model EIC networking for offline topology search").set_default(false);
   bool &pxn = flag("p,pxn", "A flag to control pxn enable or disable").set_default(false);
 };
 
@@ -149,6 +151,8 @@ ncclResult_t testGraphSearch(std::vector<int> ppuList, const char *topoFile, con
   NCCLCHECK(ncclTopoTrimXml(xml));
 
   NCCLCHECK(ncclTopoGetSystemFromXml(xml, &system, getHostHash()));
+  // These offline fixtures model non-SWITCH ICN; the XML GPU count replaces HGML.
+  system->enablePxbToPxn = ppuList.size() == ppuCount;
   ncclComm_t comm;
   NCCLCHECK(ncclCalloc(&comm, 1));
   comm->rank = 0;
@@ -241,6 +245,7 @@ TEST_TEMP(8PPU8CX62PPUsAnd2NETsPerPCIeSwitchGraphSearchTest, "./8PPU1.0_8CX6_4PI
 TEST_CASE(graphSearchTestWithPXN, PXN8PPUs8CX6, "./8PPU1.0_8CX6_OAM_4Links_PXN/", "graph.xml", TWO_NODES, ALGO_SPECIFIED, 0,1,2,3,4,5,6,7)
 TEST_CASE(graphSearchTestWithPXN, PXN8PPUs4BF3, "./8PPU1.0_4BF3_OAM_4Links_PXN/", "graph.xml", TWO_NODES, ALGO_SPECIFIED, 0,1,2,3,4,5,6,7)
 
+TEST_CASE(graphSearchTestWithPXN, PXN16PPUs4EicRund, "./16PPU1.1_4EIC_RUND_7Links_PXN/", "graph.xml", TWO_NODES, ALGO_AUTO, 0,1,2,3,4,5,6,7,8,9,10,11,12,13,14,15)
 TEST_CASE(graphSearchTestWithPXN, PXN16PPUs4BF3, "./16PPU1.1_4BF3_7Links_PXN/", "graph.xml", TWO_NODES, ALGO_SPECIFIED, 0,1,2,3,4,5,6,7,8,9,10,11,12,13,14,15)
 TEST_TEMP(16PPUs4BF3SameNICPIX, "./16PPU1.1_4BF3_7Links_PIX/", "graph.xml", TWO_NODES, ALGO_SPECIFIED, 0,1,2,3,4,5,6,7,8,9,10,11,12,13,14,15)
 TEST_CASE(graphSearchTestWithPXN, PXN8PPUs2PPUsPerNET, "./8PPU1.0_4CX7_2PIXPPUsPerNET_OAM_4Links_PXN/", "graph.xml", TWO_NODES, ALGO_SPECIFIED, 0,1,2,3,4,5,6,7)
@@ -258,6 +263,23 @@ int main(int argc, char **argv) {
   if (args.verbose) {
     setenv("NCCL_DEBUG", "TRACE", 1);
     setenv("NCCL_DEBUG_SUBSYS", "ALL", 1);
+  }
+
+  if (args.eic) {
+    // Offline graph search only inspects the backend name/version; it does
+    // not call transport callbacks. Model EIC identity without network init
+    // so topology parsing applies the existing dual-PCIe-endpoint correction.
+    static ncclNet_t eicNet = {};
+    eicNet.name = EIC_PLUGIN_NAME;
+    ncclNet = &eicNet;
+    INFO(NCCL_INIT, "Offline topology network: %s", EIC_PLUGIN_NAME);
+  } else {
+    // This reference requires EIC's PCIe width correction. Preserve user filters.
+    std::string& filter = ::testing::GTEST_FLAG(filter);
+    if (!filter.empty()) {
+      filter += filter.find('-') == std::string::npos ? "-" : ":";
+      filter += "graphSearchTestWithPXN.PXN16PPUs4EicRund";
+    }
   }
 
   // overwrite default enable setting

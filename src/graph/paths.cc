@@ -39,6 +39,17 @@ static ncclResult_t getPath(struct ncclTopoSystem* system, struct ncclTopoNode* 
 
 NCCL_PARAM(NvbDisable, "NVB_DISABLE", 0);
 
+static int getLinkPathType(struct ncclTopoNode* node, struct ncclTopoLink* link) {
+  // Start with path type = link type. PATH and LINK types are supposed to match.
+  // Don't consider LINK_NET as we only care about the NIC->GPU path.
+  int type = link->type == LINK_NET ? LINK_LOC : link->type;
+  // Differentiate between one and multiple PCI switches
+  if (node->type == PCI && link->remNode->type == PCI) type = PATH_PXB;
+  // Consider a path going through the CPU as PATH_PHB
+  if (link->type == LINK_PCI && (node->type == CPU || link->remNode->type == CPU)) type = PATH_PHB;
+  return type;
+}
+
 static ncclResult_t ncclTopoSetPaths(struct ncclTopoNode* baseNode, struct ncclTopoSystem* system) {
   if (baseNode->paths[baseNode->type] == NULL) {
     NCCLCHECK(ncclCalloc(baseNode->paths+baseNode->type, system->nodes[baseNode->type].count));
@@ -115,13 +126,7 @@ static ncclResult_t ncclTopoSetPaths(struct ncclTopoNode* baseNode, struct ncclT
           if (path->count == 0) remPath->minPathNum = link->count;
           else remPath->minPathNum = std::min(path->minPathNum, link->count);
 
-          // Start with path type = link type. PATH and LINK types are supposed to match.
-          // Don't consider LINK_NET as we only care about the NIC->GPU path.
-          int type = link->type == LINK_NET ? LINK_LOC : link->type;
-          // Differentiate between one and multiple PCI switches
-          if (node->type == PCI && remNode->type == PCI) type = PATH_PXB;
-          // Consider a path going through the CPU as PATH_PHB
-          if (link->type == LINK_PCI && (node->type == CPU || link->remNode->type == CPU)) type = PATH_PHB;
+          int type = getLinkPathType(node, link);
           // Set multi-hop icnlink or one-hop nvlink as NVB
           if (node->type == GPU && path->type == PATH_NVL && type <= PATH_NVB && remPath->count > 1) type = PATH_NVB;
 
@@ -222,6 +227,10 @@ static ncclResult_t getLocalCpu(struct ncclTopoSystem* system, int gpu, int* ret
 static ncclResult_t addInterStep(struct ncclTopoSystem* system, int tx, int ix, int t1, int i1, int t2, int i2) {
   struct ncclTopoNode* cpuNode = system->nodes[tx].nodes+ix;
   struct ncclTopoNode* srcNode = system->nodes[t1].nodes+i1;
+  if (srcNode->paths[tx][ix].count + cpuNode->paths[t2][i2].count > NCCL_TOPO_MAX_HOPS) {
+    WARN("Intermediate path exceeds maximum hop count");
+    return ncclInternalError;
+  }
 
   int l=0;
   // Node 1 -> CPU
@@ -521,7 +530,26 @@ ncclResult_t ncclTopoCheckGdr(struct ncclTopoSystem* system, int rank, int64_t n
     NCCLCHECK(ncclTopoGetIntermediateRank(system, gpu->gpu.rank, netId, &proxyRank));
     NCCLCHECK(ncclTopoRankToIndex(system, proxyRank, &g));
     struct ncclTopoNode* proxyGpu = system->nodes[GPU].nodes+g;
-    distance = proxyGpu->paths[NET][n].type;
+    if (system->enablePxbToPxn) {
+      // The proxy's own send route may use another proxy. Measure the PCI exit
+      // saved in this connection's path instead of following that mutable route.
+      if (proxyGpu->gpu.gdrSupport == 0) return ncclSuccess;
+      struct ncclTopoLinkList* path = gpu->paths[NET]+n;
+      struct ncclTopoNode* node = gpu;
+      bool foundProxy = false;
+      distance = PATH_LOC;
+      for (int i=0; i<path->count; i++) {
+        if (node == proxyGpu) foundProxy = true;
+        if (foundProxy) distance = std::max(distance, getLinkPathType(node, path->list[i]));
+        node = path->list[i]->remNode;
+      }
+      if (!foundProxy || node != net) {
+        WARN("Could not find proxy PCI exit for rank %d / HCA %lx", rank, netId);
+        return ncclInternalError;
+      }
+    } else {
+      distance = proxyGpu->paths[NET][n].type;
+    }
   }
   if (pcclGetPathTypeAlias(distance) > netGdrLevel) {
     INFO(NCCL_NET,"GPU Direct RDMA Disabled for Rank %d / HCA %lx (distance %d > %d)", rank, netId, distance, netGdrLevel);
@@ -673,24 +701,56 @@ ncclResult_t ncclTopoComputePaths(struct ncclTopoSystem* system, ncclComm_t comm
     struct ncclTopoNode* netNode = system->nodes[NET].nodes+n;
     NCCLCHECK(ncclTopoSetPaths(netNode, system));
 
-    for (int g=0; g<system->nodes[GPU].count; g++) {
+    // Consume each relay's direct exit before rewriting its own send route:
+    // farther-than-PXB sources may use PXB/PIX, while PXB sources only use PIX.
+    // Freeze the order before PXN or GDR fallback changes any path types.
+    int gpuOrder[NCCL_TOPO_MAX_NODES];
+    int gpuCount = 0;
+    for (int pass=0; pass<(system->enablePxbToPxn ? 3 : 1); pass++) {
+      for (int g=0; g<system->nodes[GPU].count; g++) {
+        int type = system->nodes[GPU].nodes[g].paths[NET][n].type;
+        int group = type > PATH_PXB ? 0 : (type == PATH_PXB ? 1 : 2);
+        if (!system->enablePxbToPxn || group == pass) gpuOrder[gpuCount++] = g;
+      }
+    }
+
+    for (int i=0; i<system->nodes[GPU].count; i++) {
+      int g = gpuOrder[i];
       // Check whether we can access the NIC through another NVLink-connected GPU (PXN)
       struct ncclTopoNode* gpu = system->nodes[GPU].nodes+g;
-      if (ncclPxnDisable() != 1 && gpu->paths[NET][n].type > PATH_PXB) {
+      // Allow PXB paths to use PIX peers under the same switch.
+      // Rewrite only PPU->NIC paths to preserve receive-side NIC selection.
+      if (ncclPxnDisable() != 1 &&
+        (gpu->paths[NET][n].type > PATH_PXB || (system->enablePxbToPxn && gpu->paths[NET][n].type == PATH_PXB))) {
+        // Prefer PIX exits, retaining direct PXB exits as fallback.
         int pxnGpu = -1;
         int nHops = INT_MAX;
+        int pxnGpuPxb = -1;
+        int nHopsPxb = INT_MAX;
         for (int p=0; p<system->nodes[GPU].count; p++) {
 
           // PXN = PCI + NVLink.
           struct ncclTopoNode* peerNode = system->nodes[GPU].nodes+p;
-          if (p == g || NCCL_TOPO_ID_SYSTEM_ID(peerNode->id) != NCCL_TOPO_ID_SYSTEM_ID(gpu->id)
-              || netNode->paths[GPU][p].type > PATH_PXB || peerNode->paths[GPU][g].type > PATH_NVB) continue;
+          const struct ncclTopoLinkList* peerNetPath = netNode->paths[GPU]+p;
+          if (p == g || NCCL_TOPO_ID_SYSTEM_ID(peerNode->id) != NCCL_TOPO_ID_SYSTEM_ID(gpu->id) ||
+              peerNetPath->type > PATH_PXB ||
+              peerNode->paths[GPU][g].type > PATH_NVB) continue;
+          if (system->enablePxbToPxn && peerNode->gpu.gdrSupport == 0) continue;
 
           // To ensure proper balancing, use only a local GPU which advertised that NIC as its preferred one.
           int64_t netId;
           NCCLCHECK(ncclTopoGetLocalNet(system, peerNode->gpu.rank, &netId, NULL));
           // Make sure we can allocate memory on that GPU.
           if (netId != netNode->id) continue;
+
+          // Keep PXB fallback only for source paths farther than PXB.
+          if (system->enablePxbToPxn && peerNetPath->type == PATH_PXB) {
+            if (gpu->paths[NET][n].type > PATH_PXB && peerNode->paths[GPU][g].count < nHopsPxb) {
+              pxnGpuPxb = p;
+              nHopsPxb = peerNode->paths[GPU][g].count;
+            }
+            continue;
+          }
 
           // found best PXR type with min hops or just PXN
           if (peerNode->paths[GPU][g].count < nHops) {
@@ -699,6 +759,8 @@ ncclResult_t ncclTopoComputePaths(struct ncclTopoSystem* system, ncclComm_t comm
             if (nHops == 1) break; // PXN break
           }
         }
+        // Fall back to PXB if no PIX peer was found.
+        if (pxnGpu == -1) pxnGpu = pxnGpuPxb;
 
         if (pxnGpu != -1) {
           // We can use that GPU as relay to communicate with that NIC.
