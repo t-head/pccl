@@ -7,6 +7,7 @@
  *************************************************************************/
 
 #include "param.h"
+#include "param/param.h"
 #include "debug.h"
 
 #include <algorithm>
@@ -73,12 +74,19 @@ void initEnv() {
   pthread_once(&once, initEnvFunc);
 }
 
-void ncclLoadParam(char const* env, int64_t deftVal, int64_t uninitialized, int64_t* cache) {
+static void ncclGetCachePolicy(char const* env, int8_t* noCache) {
+  *noCache = pcclParamIsCacheDisabled(env) ? /*noCache*/ 1 : /*cache*/ 0;
+}
+
+int64_t ncclLoadParam(char const* env, int64_t deftVal, int64_t uninitialized, int64_t* cache, int8_t* noCache) {
   static pthread_mutex_t mutex = PTHREAD_MUTEX_INITIALIZER;
   pthread_mutex_lock(&mutex);
-  if (__atomic_load_n(cache, __ATOMIC_RELAXED) == uninitialized) {
+  // noCache is only load/stored within the mutex, no need for atomic
+  if (*noCache == /*uninitialized*/ -1) ncclGetCachePolicy(env, noCache);
+  int64_t value = __atomic_load_n(cache, __ATOMIC_RELAXED);
+  if (value == uninitialized) {
     const char* str = pcclGetEnvWithDualPrefix(env);
-    int64_t value = deftVal;
+    value = deftVal;
     if (str && strlen(str) > 0) {
       errno = 0;
       value = strtoll(str, nullptr, 0);
@@ -89,9 +97,10 @@ void ncclLoadParam(char const* env, int64_t deftVal, int64_t uninitialized, int6
         INFO(NCCL_ENV,"%s set by environment to %lld.", env, (long long)value);
       }
     }
-    __atomic_store_n(cache, value, __ATOMIC_RELAXED);
+    if (*noCache == /*cache*/ 0) __atomic_store_n(cache, value, __ATOMIC_RELAXED);
   }
   pthread_mutex_unlock(&mutex);
+  return value;
 }
 
 const char* pcclGetEnvWithDualPrefix(const char* name) {
