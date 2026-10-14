@@ -2542,8 +2542,12 @@ static ncclResult_t commDestroySync(struct ncclAsyncJob* job_) {
   VERBOSE(NCCL_INIT, "Destroying comm %p rank %d abortFlag %d asyncResult %d", comm, comm->rank, *comm->abortFlag, comm->asyncResult);
 
   if (comm->initState == ncclSuccess) {
-    NCCLCHECKGOTO(ncclStrongStreamSynchronize(&comm->sharedRes->hostStream), ret, fail);
-    NCCLCHECKGOTO(ncclStrongStreamSynchronize(&comm->sharedRes->deviceStream), ret, fail);
+    if ((ret = ncclStrongStreamSynchronize(&comm->sharedRes->hostStream)) != ncclSuccess) {
+      WARN("commDestroySync: comm %p rank %d sync hostStream error %d", comm, comm->rank, ret);
+    }
+    if ((ret = ncclStrongStreamSynchronize(&comm->sharedRes->deviceStream)) != ncclSuccess) {
+      WARN("commDestroySync: comm %p rank %d sync deviceStream error %d", comm, comm->rank, ret);
+    }
   }
 
   NCCLCHECK(ncclCommPollCallbacks(comm, false));
@@ -2561,6 +2565,10 @@ static ncclResult_t commDestroySync(struct ncclAsyncJob* job_) {
 
   if (savedDevice != commDevice) {
     HGGCCHECKGOTO(hggcSetDevice(savedDevice), ret, fail);
+  }
+
+  if ((ret = ncclProxyStop(comm)) != ncclSuccess) {
+    WARN("ncclProxyStop: comm %p (rank = %d) destroys proxy resource error %d", comm, comm->rank, ret);
   }
 
 exit:
@@ -2714,29 +2722,6 @@ static ncclResult_t commReclaim(struct ncclAsyncJob* job_) {
           /* every comm aborts, commDestroySync should not be blocked. */
           if ((ret = commDestroySync((struct ncclAsyncJob*) &finalizeJob)) != ncclSuccess)
             ERROR("commReclaim: comm %p (rank = %d) in abort, error %d", curIntraComm, curRank, ret);
-        }
-      }
-
-      /* ncclProxyDestroy() loop must be put after commDestroySync() loop. Namely, you cannot do:
-       *  while(...) {
-       *     commDestroySync(...);
-       *     ncclProxyDestroy(...);
-       *  }
-       * Considering one process multi-gpu case, we must guarantee all kernels are complete before
-       * we free proxy resources; otherwise, we will face invalid memory issues where proxy connection
-       * and related intermediate memory from one rank are freed but other ranks are still using it.
-       * This is not a problem for multi-process case, since intermediate memory is opened by HGGC IPC
-       * or mmap where memory free is guarded by HGGC driver and operating system, so we will not have
-       * invalid memory access issue. */
-      nextIntraComm = intracomm0;
-      while (nextIntraComm) {
-        curIntraComm = nextIntraComm;
-        curRank = curIntraComm->rank;
-        nextIntraComm = nextIntraComm->intraNext;
-
-        /* free intraprocess proxy resources. */
-        if ((ret = ncclProxyStop(curIntraComm)) != ncclSuccess) {
-          WARN("commReclaim: comm %p (rank = %d) destroys proxy resource error %d", curIntraComm, curRank, ret);
         }
       }
 
