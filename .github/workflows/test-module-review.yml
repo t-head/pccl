@@ -1,0 +1,32 @@
+# Test-only entry point while the production workflow is not on main.
+name: Test Module Review
+on:
+  pull_request:
+    branches: [test/module-review-base]
+    types: [opened, edited, synchronize, reopened, ready_for_review]
+permissions:
+  contents: read
+  pull-requests: write
+  statuses: write
+concurrency:
+  group: test-module-review-${{ github.event.pull_request.number }}
+  cancel-in-progress: false
+jobs:
+  route:
+    if: >-
+      github.event.pull_request.head.repo.full_name == github.repository &&
+      github.event.pull_request.head.ref == 'test/module-review-pr'
+    runs-on: ubuntu-latest
+    timeout-minutes: 5
+    steps:
+      # Run the implementation installed on the trusted test base, not PR code.
+      - uses: actions/checkout@v4
+        with:
+          ref: ${{ github.event.pull_request.base.sha }}
+          persist-credentials: false
+          sparse-checkout: .github/scripts
+      - uses: actions/github-script@ed597411d8f924073f98dfc5c65a23a2325f34cd # v8
+        with:
+          script: |
+            const {route} = require('./.github/scripts/module-review.cjs');
+            await route({github, context, core});

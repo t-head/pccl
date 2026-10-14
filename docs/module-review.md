@@ -36,3 +36,11 @@ revision. It never executes PR-head code. Repository/organization Actions policy
 must allow this event. Installation must make the workflow available on the
 branch GitHub uses for this event; a workflow present only in a proposed PR is
 not automatically active. Test branch runs do not change production protections.
+
+## Pilot acceptance
+
+On a test PR, first leave both modules unchecked and confirm `PR Modules` fails.
+Then select both modules and confirm the status passes and eligible owners are
+requested. Edit the description again and confirm no duplicate requests are sent.
+A test PR authored by `honganlxh` can invite `wensuyang`, but cannot invite its own
+author; use a PR by another contributor to verify a live request to `honganlxh`.
