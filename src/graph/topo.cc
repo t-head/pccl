@@ -1017,7 +1017,7 @@ ncclResult_t ncclTopoGetLocalGinDevs(ncclComm_t comm, int* localGinDevs, int* lo
 }
 
 int pcclGetPathTypeAlias(int type) {
-  if (type == PATH_PHBH)
+  if (type == PATH_PHBH || type == PATH_PXB)
     return PATH_PIX;
   else
     return type;
