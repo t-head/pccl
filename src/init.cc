@@ -2730,6 +2730,7 @@ static ncclResult_t commReclaim(struct ncclAsyncJob* job_) {
     }
   }
 
+  return ncclSuccess;
 exit:
   return ret;
 fail:
