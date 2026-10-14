@@ -1233,7 +1233,7 @@ fail:
 }
 
 // 0: don't use PXN for P2P, 1: use PXN if needed, 2: use PXN as much as possible to maximize aggregation
-NCCL_PARAM(P2pPxnLevel, "P2P_PXN_LEVEL", 3);
+NCCL_PARAM(P2pPxnLevel, "P2P_PXN_LEVEL", 2);
 
 #include "comm.h"
 ncclResult_t ncclTopoGetNetDev(ncclComm_t comm, int rank, struct ncclTopoGraph* graph, int channelId, int peerRank, int64_t* id, int* dev, int* proxyRank) {
@@ -1300,20 +1300,45 @@ ncclResult_t ncclTopoGetNetDev(ncclComm_t comm, int rank, struct ncclTopoGraph* 
         }
       } else if (pxnLevel == 2) {
         // Check whether we can access it through our node-local GPU for that NIC.
+        // Find peers with the fewest PPU hops, then balance by source rank.
+        int nHops = INT_MAX;
+        int n = -1;
+        int g1 = -1;
+        NCCLCHECK(ncclTopoRankToIndex(comm->topo, rank, &g1));
+        NCCLCHECK(ncclTopoIdToIndex(comm->topo, NET, netId, &n));
         for (int r=0; r<comm->localRanks; r++) {
           int peerRank = comm->localRankToRank[r];
-          if (comm->peerInfo[peerRank].netId == netId) {
-            int g1, g2, n;
-            NCCLCHECK(ncclTopoRankToIndex(comm->topo, rank, &g1));
+          if (comm->peerInfo[peerRank].netId != netId) continue;
+          int g2;
+          NCCLCHECK(ncclTopoRankToIndex(comm->topo, peerRank, &g2));
+          struct ncclTopoNode* peerGpu = comm->topo->nodes[GPU].nodes+g2;
+          struct ncclTopoNode* net = comm->topo->nodes[NET].nodes+n;
+          if (peerGpu->paths[GPU][g1].type <= PATH_NVB && net->paths[GPU][g2].type <= PATH_PXB) {
+            if (peerGpu->paths[GPU][g1].count < nHops) nHops = peerGpu->paths[GPU][g1].count;
+          }
+        }
+        if (nHops != INT_MAX) {
+          int cands[NCCL_TOPO_MAX_NODES];
+          int count = 0;
+          for (int r=0; r<comm->localRanks; r++) {
+            int peerRank = comm->localRankToRank[r];
+            if (comm->peerInfo[peerRank].netId != netId) continue;
+            int g2;
             NCCLCHECK(ncclTopoRankToIndex(comm->topo, peerRank, &g2));
-            NCCLCHECK(ncclTopoIdToIndex(comm->topo, NET, netId, &n));
             struct ncclTopoNode* peerGpu = comm->topo->nodes[GPU].nodes+g2;
-            if (peerGpu->paths[GPU][g1].type <= PATH_NVB && peerGpu->paths[NET][n].type <= PATH_PXB) {
-              *proxyRank = peerRank;
-              if (dev) *dev = netDev;
-              if (id) *id = netId;
-              return ncclSuccess;
+            struct ncclTopoNode* net = comm->topo->nodes[NET].nodes+n;
+            if (peerGpu->paths[GPU][g1].type <= PATH_NVB
+                && net->paths[GPU][g2].type <= PATH_PXB
+                && peerGpu->paths[GPU][g1].count == nHops) {
+              cands[count++] = peerRank;
             }
+          }
+          // Keep proxy selection consistent with GDR path checks.
+          // Reject PHB/SYS paths to avoid PXN shared-buffer failures.
+          if (count > 0 && comm->topo->nodes[GPU].nodes[g1].paths[NET][n].type <= PATH_PXR) {
+            *proxyRank = cands[rank % count];
+            if (dev) *dev = netDev;
+            if (id) *id = netId;
           }
         }
       } else if (pxnLevel == 3) {
