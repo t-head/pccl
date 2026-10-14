@@ -477,7 +477,7 @@ ncclResult_t ncclTopoCheckMNNVL(struct ncclTopoSystem* system, struct ncclPeerIn
 NCCL_PARAM(NetGdrRead, "NET_GDR_READ", -2);
 int ncclTopoUserGdrLevel = -1;
 
-ncclResult_t ncclTopoCheckGdr(struct ncclTopoSystem* system, int rank, int64_t netId, int read, int* useGdr) {
+ncclResult_t ncclTopoCheckGdr(struct ncclTopoSystem* system, int rank, int64_t netId, int read, int* useGdr, bool isConnSetup) {
   *useGdr = 0;
 
   // Get GPU and NET
@@ -514,14 +514,19 @@ ncclResult_t ncclTopoCheckGdr(struct ncclTopoSystem* system, int rank, int64_t n
   int netGdrLevel = PATH_PXB;
   NCCLCHECK(ncclGetLevel(&ncclTopoUserGdrLevel, NULL, "PCCL_NET_GDR_LEVEL"));
   if (ncclTopoUserGdrLevel != -2) netGdrLevel = ncclTopoUserGdrLevel;
+  // Path computation uses the send relay without NET_GDR_READ gating.
+  // Receive setup checks NIC->PPU distance.
   int distance = gpu->paths[NET][n].type;
-  if (distance == PATH_PXN || distance == PATH_PXR) {
-    // In case of PXN, use the intermediate GPU distance instead
-    int proxyRank, g;
-    NCCLCHECK(ncclTopoGetIntermediateRank(system, gpu->gpu.rank, netId, &proxyRank));
-    NCCLCHECK(ncclTopoRankToIndex(system, proxyRank, &g));
-    struct ncclTopoNode* proxyGpu = system->nodes[GPU].nodes+g;
-    distance = proxyGpu->paths[NET][n].type;
+  if (!isConnSetup || read) {
+    if (distance == PATH_PXN || distance == PATH_PXR) {
+      int proxyRank, proxyIndex;
+      NCCLCHECK(ncclTopoGetIntermediateRank(system, gpu->gpu.rank, netId, &proxyRank));
+      NCCLCHECK(ncclTopoRankToIndex(system, proxyRank, &proxyIndex));
+      struct ncclTopoNode* proxyGpu = system->nodes[GPU].nodes+proxyIndex;
+      distance = proxyGpu->paths[NET][n].type;
+    }
+  } else {
+    distance = net->paths[GPU][g].type;
   }
   if (pcclGetPathTypeAlias(distance) > netGdrLevel) {
     INFO(NCCL_NET,"GPU Direct RDMA Disabled for Rank %d / HCA %lx (distance %d > %d)", rank, netId, distance, netGdrLevel);
