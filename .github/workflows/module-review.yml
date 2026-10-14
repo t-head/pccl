@@ -1,0 +1,32 @@
+name: Module Review
+
+on:
+  pull_request_target:
+    types: [opened, edited, synchronize, reopened, ready_for_review]
+
+permissions:
+  contents: read
+  pull-requests: write
+  statuses: write
+
+concurrency:
+  group: module-review-${{ github.event.pull_request.number }}
+  cancel-in-progress: false
+
+jobs:
+  route:
+    name: Validate modules and request reviewers
+    runs-on: ubuntu-latest
+    timeout-minutes: 5
+    steps:
+      # Execute only the trusted workflow revision, never the PR head.
+      - uses: actions/checkout@v4
+        with:
+          ref: ${{ github.workflow_sha }}
+          persist-credentials: false
+          sparse-checkout: .github/scripts
+      - uses: actions/github-script@ed597411d8f924073f98dfc5c65a23a2325f34cd # v8
+        with:
+          script: |
+            const {route} = require('./.github/scripts/module-review.cjs');
+            await route({github, context, core});
