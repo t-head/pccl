@@ -1336,7 +1336,7 @@ ncclResult_t ncclTopoGetNetDev(ncclComm_t comm, int rank, struct ncclTopoGraph* 
           // Keep proxy selection consistent with GDR path checks.
           // Reject PHB/SYS paths to avoid PXN shared-buffer failures.
           if (count > 0 && comm->topo->nodes[GPU].nodes[g1].paths[NET][n].type <= PATH_PXR) {
-            *proxyRank = cands[rank % count];
+            *proxyRank = cands[comm->rankToLocalRank[rank] % count];
             if (dev) *dev = netDev;
             if (id) *id = netId;
           }
