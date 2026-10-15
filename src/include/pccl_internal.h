@@ -102,6 +102,7 @@ constexpr auto NCCL_REG = PCCL_REG;
 constexpr auto NCCL_RAS = PCCL_RAS;
 constexpr auto NCCL_ALL = PCCL_ALL;
 constexpr auto NCCL_PROXY = PCCL_PROXY;
+constexpr auto NCCL_BOOTSTRAP = PCCL_BOOTSTRAP;
 constexpr auto NCCL_INSPECTOR = PCCL_INSPECTOR;
 
 typedef pcclDebugLogger_t ncclDebugLogger_t;

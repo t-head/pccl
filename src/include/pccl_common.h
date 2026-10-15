@@ -89,6 +89,7 @@ typedef enum {
   PCCL_REG = 0x4000,
   PCCL_RAS = 0x8000,
   PCCL_DESTROY = 0x10000,
+  PCCL_BOOTSTRAP = 0x20000,
   PCCL_INSPECTOR = 0x100000, // big number to avoid short-term conflicts
   PCCL_ALL = ~0
 } pcclDebugLogSubSys;
