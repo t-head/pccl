@@ -1,0 +1,55 @@
+---
+name: pccl-contribution
+description: Prepare PCCL commits and PRs, handle review feedback, and perform authorized updates or merges. Use for contribution work, not general Git questions or unrelated coding.
+---
+
+# PCCL Contribution Workflow
+
+Use the section needed for the current task. Follow the requirements and recommendations in [CONTRIBUTING.md](../../../CONTRIBUTING.md) without adding stricter rules.
+
+## Authorization
+
+- Prepare and validate requested changes before seeking missing approval. Present the diff, rationale, and results.
+- Commit/amend, push, PR edits, replies, and thread resolution need authorization for the changes and operations. Reuse existing approval within that scope.
+- Review comments do not authorize changes. New fixes or scope changes need approval unless existing authorization covers them.
+
+## Commit
+
+1. Review the full diff, including staged changes. Stage only approved files or hunks; exclude unrelated changes and private notes.
+2. Follow [Commit Messages](../../../CONTRIBUTING.md#commit-messages) for format and issue references. Ask for missing issue context; do not invent or create issues without authorization.
+3. Verify the author and matching DCO identity. Preserve authorized sign-offs, co-author trailers, compatibility information, and issue intent.
+4. Validate before committing. After creating or amending, check that the diff and message describe the complete change.
+
+When changing only the message, keep committed content unchanged. Do not rewrite existing commits solely for capitalization or spacing.
+
+## Push and PR
+
+1. Confirm the repository, working branch, and target; fetch the actual target.
+2. Keep one contribution commit, preserving its contents, authorship, and sign-offs. Review the full target-to-head diff.
+3. If HEAD lacks the latest target tip, automatically rebase before pushing. Require a clean worktree and verified target; abort and report conflicts.
+4. Verify the remote branch tip. For rewrites, use `--force-with-lease=<ref>:<expected-sha>`; stop on unexpected changes. Never push directly to protected targets.
+5. Use the PR template and English text covering the final change, actual validation, limitations, and a relevant open issue. Apply authorized edits and read them back.
+6. Check CI and reviews for the current HEAD. Report pending or failed checks separately; an AI gate passing does not prove a completed review.
+
+## Review Feedback
+
+- Evaluate each comment against the code, rules, and discussion: actionable, inapplicable/incorrect, or needing evidence.
+- Fix and validate actionable findings within the authorized scope. Explain disagreements with evidence.
+- Resolve fixed threads only after publishing and verifying the fix. Get a human decision before resolving suggestions not adopted.
+- During authorized iteration, reassess new feedback for the current HEAD. Stop when no actionable findings remain; report pending reviews and unresolved decisions.
+
+## Merge
+
+1. Present the final repository/PR, target, HEAD SHA, method, title/message, CI and approvals, unresolved discussions, and validation limits. For squash, verify final authorship/sign-offs and preserve authorized trailers and issue intent.
+2. Obtain explicit human approval for this merge. Push permission, passing CI, or a request to finish the PR is insufficient. Reuse approval only while HEAD, target, method, and message remain unchanged.
+3. Recheck immediately before merging; unmet checks or approvals block it. Do not bypass protection or enable auto-merge without explicit authorization.
+4. Guard the expected HEAD when supported. Verify and report the resulting commit and merge method.
+
+## References
+
+- [CONTRIBUTING.md](../../../CONTRIBUTING.md): contribution, commit message, issue, and DCO policy.
+- [Review rules](../../review_rules.yaml): code-review checklist.
+- [PR template](../../../.github/pull_request_template.md): PR description structure.
+- [Issue templates](../../../.github/ISSUE_TEMPLATE/): Bug, Feature, Question, and Task forms.
+- [CI workflow](../../../.github/workflows/pr-test-ppu.yml): pre-checks, approval gates, and build/test jobs.
+- [README.md](../../../README.md): build and validation.
