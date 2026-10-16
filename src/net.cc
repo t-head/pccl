@@ -317,7 +317,11 @@ static ncclResult_t ncclNetInitLocked() {
 
     // net plugin is already initialized
     int ndev;
-    if (nets[i]->init(ncclDebugLogForPlugin) != ncclSuccess) continue;
+    ncclResult_t initResult = nets[i]->init(ncclDebugLogForPlugin);
+    // Invalid configuration must be reported instead of silently selecting a
+    // different backend. Unavailable backends may still fall back as before.
+    if (initResult == ncclInvalidArgument) return initResult;
+    if (initResult != ncclSuccess) continue;
     if (nets[i]->devices(&ndev) != ncclSuccess) continue;
     if (ndev <= 0) continue;
     ncclNet = nets[i];
