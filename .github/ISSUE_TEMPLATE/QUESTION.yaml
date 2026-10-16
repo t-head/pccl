@@ -1,0 +1,30 @@
+# Modified for PCCL.
+
+name: PCCL question
+description: Ask about PCCL usage, configuration, or interfaces
+title: "[Question]: "
+type: Task
+body:
+  - type: markdown
+    attributes:
+      value: |
+        Use this form for usage questions or troubleshooting when you are unsure whether the cause is configuration or a bug.
+        For a reproducible failure with clear expected and actual behavior, use the Bug report form.
+        See the [PCCL documentation](https://developer.t-head.cn/docs_center/doc_detail/index.html?projectId=35) and [release notes](https://github.com/t-head/pccl/releases) for reference.
+  - type: textarea
+    id: question
+    attributes:
+      label: Question
+      description: What would you like to understand or accomplish?
+    validations:
+      required: true
+  - type: textarea
+    id: context
+    attributes:
+      label: Usage context
+      description: Describe your application or workflow. Include PCCL and SDK versions and relevant hardware details where useful.
+  - type: textarea
+    id: attempts
+    attributes:
+      label: What have you tried?
+      description: Share relevant commands, configuration, or documentation you have consulted, if any.

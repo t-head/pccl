@@ -19,6 +19,8 @@ concurrency:
   group: ci-pccl-${{ github.event.pull_request.number || github.ref }}
   cancel-in-progress: true                 # new runs cancel outdated ones
 
+# Configure required checks in the target branch ruleset to enforce merge gates.
+# Defining this workflow alone does not prevent merging.
 jobs:
   # Stage 1: Secret scan precheck (org-level reusable workflow).
   # Only meaningful for PR events; skipped for push / workflow_dispatch.
@@ -27,10 +29,108 @@ jobs:
     if: github.event_name == 'pull_request'
     uses: t-head/.github/.github/workflows/user-precheck.yml@main
 
+  commit-format:
+    name: Pre-check (Commit Message)
+    if: github.event_name == 'pull_request'
+    permissions:
+      contents: read
+    runs-on: ubuntu-latest
+    timeout-minutes: 10
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          fetch-depth: 0
+          persist-credentials: false
+      - name: Check contribution commits
+        env:
+          BASE_SHA: ${{ github.event.pull_request.base.sha }}
+          HEAD_SHA: ${{ github.event.pull_request.head.sha }}
+        run: |
+          python3 - <<'PY'
+          import os
+          import re
+          import subprocess
+          import sys
+
+          def git(*args):
+              return subprocess.check_output(['git', *args], text=True)
+
+          commits = git('rev-list',
+                        os.environ['BASE_SHA'] + '..' + os.environ['HEAD_SHA']).splitlines()
+          errors = []
+          if len(commits) != 1:
+              errors.append(f'PR must contain exactly one commit; found {len(commits)}. Squash the contribution commits before pushing.')
+          for sha in commits:
+              message = git('show', '-s', '--format=%B', sha)
+              lines = message.splitlines()
+              if not lines or not lines[0].strip():
+                  errors.append(f'{sha[:12]}: title must not be empty')
+              elif len(lines[0]) > 50:
+                  print(f'::notice::{sha[:12]}: title exceeds the recommended 50 characters; consider shortening it')
+              if len(lines) > 1 and lines[1] != '':
+                  errors.append(f'{sha[:12]}: second line must be blank')
+              issue_ref = r'(?i:\b(?:Refs|Closes|Fixes))[ \t]+(?:[A-Za-z0-9_.-]+/[A-Za-z0-9_.-]+)?#[1-9][0-9]*\b|https://github\.com/[A-Za-z0-9_.-]+/[A-Za-z0-9_.-]+/issues/[1-9][0-9]*\b'
+              if not re.search(issue_ref, '\n'.join(lines[1:])):
+                  errors.append(f'{sha[:12]}: missing issue reference in commit body')
+          for error in errors:
+              print(error)
+          print(f'Checked {len(commits)} contribution commits for message format.')
+          sys.exit(bool(errors))
+          PY
+
+  dco:
+    name: Pre-check (DCO)
+    if: github.event_name == 'pull_request'
+    permissions:
+      contents: read
+    runs-on: ubuntu-latest
+    timeout-minutes: 10
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          fetch-depth: 0
+          persist-credentials: false
+      - name: Check contribution commits
+        env:
+          BASE_SHA: ${{ github.event.pull_request.base.sha }}
+          HEAD_SHA: ${{ github.event.pull_request.head.sha }}
+        run: |
+          python3 - <<'PY'
+          import os
+          import re
+          import subprocess
+          import sys
+
+          def git(*args):
+              return subprocess.check_output(['git', *args], text=True)
+
+          commits = git('rev-list',
+                        os.environ['BASE_SHA'] + '..' + os.environ['HEAD_SHA']).splitlines()
+          errors = []
+          for sha in commits:
+              message = git('show', '-s', '--format=%B', sha)
+              trailers = subprocess.check_output(
+                  ['git', 'interpret-trailers', '--parse', '--no-divider'], input=message, text=True).splitlines()
+              signoffs = [match.groups() for line in trailers
+                          if (match := re.fullmatch(
+                              r'Signed-off-by: (\S(?:.*\S)?) <([^<>\s]+@[^<>\s]+)>', line))]
+              author = tuple(git('show', '-s', '--format=%an%x00%ae', sha).rstrip('\n').split('\0'))
+              if not signoffs:
+                  errors.append(f'{sha[:12]}: missing valid Signed-off-by trailer')
+              elif author not in signoffs:
+                  errors.append(f'{sha[:12]}: Signed-off-by name and email must match the commit author')
+          for error in errors:
+              print(error)
+          print(f'Checked {len(commits)} contribution commits for DCO.')
+          sys.exit(bool(errors))
+          PY
+
   # Stage 2: AI code review runs in parallel with prepare.
+  # The review gate should verify the current PR head and the team's resolution
+  # policy; the presence of an earlier Copilot review is not sufficient.
   ai-code-review:
     name: AI Code Review (Copilot Gate)
-    needs: precheck
+    needs: [precheck, commit-format, dco]
     if: github.event_name == 'pull_request'
     uses: t-head/.github/.github/workflows/ai-code-review.yml@main
     secrets: inherit
@@ -46,8 +146,8 @@ jobs:
   # Read the test list so each test runs in its own isolated PPU pod.
   prepare:
     name: Prepare Test Matrix
-    needs: precheck
-    if: always() && (needs.precheck.result == 'success' || needs.precheck.result == 'skipped')
+    needs: [precheck, commit-format, dco]
+    if: always() && (needs.precheck.result == 'success' || needs.precheck.result == 'skipped') && (needs.commit-format.result == 'success' || needs.commit-format.result == 'skipped') && (needs.dco.result == 'success' || needs.dco.result == 'skipped')
     runs-on: k8s-runner-group-cpu-thead
     container:
       image: ghcr.io/actions/actions-runner:latest
@@ -78,7 +178,7 @@ jobs:
   build:
     name: Build (ubuntu24_hggcrt13)
     needs: [prepare, human-review]
-    if: always() && needs.prepare.result == 'success' && (needs.human-review.result == 'success' || needs.human-review.result == 'skipped')
+    if: always() && needs.prepare.result == 'success' && (needs.human-review.result == 'success' || (github.event_name != 'pull_request' && needs.human-review.result == 'skipped'))
     runs-on: k8s-runner-group-cpu-thead
     container:
       image: ghcr.io/actions/actions-runner:latest
@@ -214,8 +314,8 @@ jobs:
   # Build and test pccl with notsm configuration in a single isolated PPU pod.
   build-test-notsm:
     name: Build & Test (ubuntu24_notsm, ZW-890P)
-    needs: [precheck, human-review]
-    if: always() && (needs.precheck.result == 'success' || needs.precheck.result == 'skipped') && (needs.human-review.result == 'success' || needs.human-review.result == 'skipped')
+    needs: [precheck, commit-format, dco, human-review]
+    if: always() && (needs.precheck.result == 'success' || needs.precheck.result == 'skipped') && (needs.commit-format.result == 'success' || needs.commit-format.result == 'skipped') && (needs.dco.result == 'success' || needs.dco.result == 'skipped') && (needs.human-review.result == 'success' || (github.event_name != 'pull_request' && needs.human-review.result == 'skipped'))
     runs-on: k8s-runner-group-cpu-thead
     container:
       image: ghcr.io/actions/actions-runner:latest
@@ -279,8 +379,8 @@ jobs:
   # Aggregate results from all test pods and publish the summary.
   summary:
     name: Test Summary
-    needs: [test, build-test-notsm]
-    if: always()
+    needs: [precheck, commit-format, dco, test, build-test-notsm]
+    if: always() && (github.event_name != 'pull_request' || (needs.precheck.result == 'success' && needs.commit-format.result == 'success' && needs.dco.result == 'success'))
     runs-on: k8s-runner-group-cpu-thead
     container:
       image: ghcr.io/actions/actions-runner:latest

@@ -1,0 +1,83 @@
+# Modified for PCCL.
+
+name: PCCL bug report
+description: Report unexpected behavior, errors, or performance problems
+title: "[Bug]: "
+type: Bug
+body:
+  - type: markdown
+    attributes:
+      value: |
+        Describe the unexpected behavior and provide steps to reproduce it.
+        Issues and attachments are public. Remove credentials and sensitive hostnames, addresses, and paths from diagnostics before sharing them.
+        Check [existing issues](https://github.com/t-head/pccl/issues) for related reports and link them if useful.
+        See the [PCCL documentation](https://developer.t-head.cn/docs_center/doc_detail/index.html?projectId=35) for usage information.
+  - type: dropdown
+    id: symptom
+    attributes:
+      label: Observed behavior
+      options:
+        - Lower performance than expected
+        - Application crash or runtime error
+        - Incorrect results or data corruption
+        - Application hang or timeout
+        - Build or installation failure
+        - Other
+    validations:
+      required: true
+  - type: textarea
+    id: behavior
+    attributes:
+      label: Expected and actual behavior
+      description: Describe what you expected and what happened. Include the first error or warning, if any.
+    validations:
+      required: true
+  - type: textarea
+    id: repro
+    attributes:
+      label: Reproduction steps
+      description: Include the steps, command or minimal example, environment variables, frequency, and whether an earlier version worked. If you cannot reproduce the issue reliably or share a reproducer, describe the triggering scenario and the steps taken before it occurred.
+  - type: markdown
+    attributes:
+      value: |
+        To inspect the PCCL library version, run `strings /path/to/libpccl.so | grep -E '^PCCL version [0-9]'`, replacing the path with the actual library path.
+  - type: input
+    id: pccl_version
+    attributes:
+      label: PCCL version or commit
+      description: |
+        Provide the version from debug logs or the library used by your application. For source builds, include the commit ID if known.
+    validations:
+      required: true
+  - type: markdown
+    attributes:
+      value: |
+        To check the SDK version, run `cat "$PPU_SDK/release.yaml"`. SDK containers normally set `PPU_SDK`; otherwise, source your SDK's `envsetup.sh` first. If unavailable, provide the SDK package or image version.
+  - type: textarea
+    id: environment
+    attributes:
+      label: SDK and execution environment
+      description: |
+        Include the SAIL SDK version, OS, and bare-metal or container setup. For containers, include the image version if known.
+  - type: textarea
+    id: hardware
+    attributes:
+      label: Hardware and scale
+      description: Include the PPU model, number of nodes, PPUs per node, and ranks. For cross-node issues, include network adapter details and topology if known.
+  - type: textarea
+    id: performance
+    attributes:
+      label: Performance comparison (if applicable)
+      description: Include the benchmark command, collective, message sizes, node setup, expected and measured latency or bandwidth with units, and the baseline version or configuration.
+  - type: markdown
+    attributes:
+      value: |
+        Set `PCCL_DEBUG=INFO` and `PCCL_DEBUG_FILE=pcclDebug.%h.%p` before running to collect one log per process (`%h` is the hostname and `%p` the process ID).
+        For topology-related issues, also set `PCCL_TOPO_DUMP_FILE=pcclSystem.xml`; PCCL adds a rank suffix, such as `pcclSystem_rank0000.xml`. Topology files are not required for every report.
+        These settings also accept the corresponding `NCCL_*` names for compatibility. When both prefixes are set for the same setting, `PCCL_*` takes precedence.
+        For build failures, provide the build command and error output instead.
+  - type: textarea
+    id: logs
+    attributes:
+      label: Logs and topology (if available)
+      description: Attach relevant logs and topology files collected using the instructions above. For build failures, include the build command and error output.

@@ -1,0 +1,55 @@
+# Modified for PCCL.
+
+name: PCCL feature request
+description: Propose a new capability or improvement
+title: "[Feature]: "
+type: Feature
+body:
+  - type: markdown
+    attributes:
+      value: |
+        Use this form to propose a new capability or improvement, whether you are an internal or external contributor.
+        Describe the need and its value. Acceptance criteria and test plans can be added later with maintainers.
+        Use the Task form for implementation, testing, documentation, refactoring, or maintenance work.
+        Check [existing requests](https://github.com/t-head/pccl/issues?q=is%3Aissue%20type%3AFeature) and link related discussions where useful.
+        Issues in this repository are public; do not include internal-only information.
+  - type: textarea
+    id: description
+    attributes:
+      label: Requirement Description
+      description: Describe the capability or improvement you need and its scope. Include relevant platform constraints; a detailed implementation proposal is not required.
+    validations:
+      required: true
+  - type: textarea
+    id: background
+    attributes:
+      label: Background and Value
+      description: Explain the background and expected value. Use the prompts below where applicable; you do not need to answer every question.
+      placeholder: |
+        - Who would benefit, and in which use cases?
+        - Is this specific to a PPU model, SDK version, or network setup?
+        - How would it improve your current workflow?
+        - How urgent is it, and why? Are there any target dates or blockers?
+    validations:
+      required: true
+  - type: textarea
+    id: acceptance
+    attributes:
+      label: Acceptance Criteria
+      description: If known, define measurable completion and release criteria, such as test pass rates, performance targets, acceptable deviations, compatibility, or documentation.
+    validations:
+      required: false
+  - type: textarea
+    id: test-plan
+    attributes:
+      label: Test Plan and Test Cases
+      description: If known, describe test scenarios, environments, and cases. Link testing tasks where useful; this can be completed later with maintainers.
+    validations:
+      required: false
+  - type: textarea
+    id: alternatives
+    attributes:
+      label: Alternatives or Workarounds
+      description: Describe how you handle this today, any alternatives considered, and the remaining limitations.
+    validations:
+      required: false
