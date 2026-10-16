@@ -17,6 +17,7 @@ LIBSRCFILES := $(filter-out ce_coll_oki.cc,$(wildcard *.cc)) \
                $(wildcard graph/*.cc) \
                $(wildcard register/*.cc) \
                $(wildcard misc/*.cc) \
+               $(filter-out param/pcclparam.cc,$(wildcard param/*.cc)) \
                $(wildcard collectives/*.cc) \
                $(wildcard transport/*.cc) \
                $(wildcard transport/net_ib/*.cc) \
@@ -35,12 +36,14 @@ endif
 LIBSRCFILES_CPP := $(wildcard transport/net_ib/gdaki/doca-gpunetio/src/*.cpp)
 
 BINSRCFILES := ras/client.cc ras/analyzer.cc
+PARAMBINSRCFILES := param/pcclparam.cc
 
 ##### lib files
 LIBNAME     := libpccl.so
 STATICLIBNAME := libpccl_static.a
 ##### binaries
 BINNAME := pcclras
+PARAMBIN := pcclparam
 ##### pkgconfig files
 #PKGCONFIGFILE := pccl.pc
 ##### dirs
@@ -88,7 +91,8 @@ LIBOBJ_CPP := $(LIBSRCFILES_CPP:%.cpp=$(OBJDIR)/%.o)
 LIBOBJ     := $(LIBOBJ_CC) $(LIBOBJ_CPP)
 DEPFILES   := $(LIBOBJ:%.o=%.d)
 BINOBJ     := $(BINSRCFILES:%.cc=$(OBJDIR)/%.o)
-DEPFILES   := $(LIBOBJ:%.o=%.d) $(BINOBJ:%.o=%.d)
+PARAMBINOBJ := $(PARAMBINSRCFILES:%.cc=$(OBJDIR)/%.o)
+DEPFILES   := $(LIBOBJ:%.o=%.d) $(BINOBJ:%.o=%.d) $(PARAMBINOBJ:%.o=%.d)
 LDFLAGS    +=  -lpthread -lrt -ldl -L$(LIBDIR) $(PPU_LIB:%=-L%)
 ifeq ($(HGGC_HAS_OKI), 1)
   ifeq ($(USE_SIMT), 1)
@@ -143,7 +147,7 @@ lib : $(INCTARGETS) $(LIBDIR)/$(LIBTARGET) #$(PKGDIR)/$(PKGTARGET)
 
 staticlib : $(LIBDIR)/$(STATICLIBTARGET)
 
-binary : $(BINDIR)/$(BINNAME)
+binary : $(BINDIR)/$(BINNAME) $(BINDIR)/$(PARAMBIN)
 
 tests : $(TESTSDIR)/tests_check
 	grep -q "FAIL" $(TESTSDIR)/tests_check && echo "tests fail" && exit 1 || echo "all tests passed."
@@ -214,6 +218,16 @@ ifeq ($(REL_NO_SYM), 1)
 	$(OBJCOPY) --add-gnu-debuglink=$(BINDIR)/$(BINNAME).dbginfo $(BINDIR)/$(BINNAME)
 endif
 
+$(BINDIR)/$(PARAMBIN): $(PARAMBINOBJ) $(LIBDIR)/$(LIBTARGET)
+	@printf "Linking    %-35s > %s\n" $(PARAMBIN) $@
+	mkdir -p $(BINDIR)
+	$(CXX) $(CXXFLAGS) $< -o $@ -L$(LIBDIR) -lpccl $(LDFLAGS)
+ifeq ($(REL_NO_SYM), 1)
+	$(OBJCOPY) --only-keep-debug $(BINDIR)/$(PARAMBIN) $(BINDIR)/$(PARAMBIN).dbginfo
+	$(STRIP) --strip-all $(BINDIR)/$(PARAMBIN)
+	$(OBJCOPY) --add-gnu-debuglink=$(BINDIR)/$(PARAMBIN).dbginfo $(BINDIR)/$(PARAMBIN)
+endif
+
 $(PKGDIR)/pccl.pc : pccl.pc.in
 	mkdir -p $(PKGDIR)
 	@printf "Generating %-35s > %s\n" $< $@
@@ -273,7 +287,7 @@ clean :
 	$(MAKE) -C collectives/device clean
 	rm -rf ${INCDIR} ${LIBDIR} ${PKGDIR} ${OBJDIR} ${BINDIR}
 
-install : lib
+install : lib binary
 	mkdir -p $(PREFIX)/lib
 	mkdir -p $(PREFIX)/lib/pkgconfig
 	mkdir -p $(PREFIX)/include
@@ -282,6 +296,7 @@ install : lib
 	cp -P -v $(BUILDDIR)/lib/pkgconfig/* $(PREFIX)/lib/pkgconfig/
 	cp -r -v $(BUILDDIR)/include/* $(PREFIX)/include/
 	cp -v $(BUILDDIR)/bin/$(BINNAME) $(PREFIX)/bin/
+	cp -v $(BUILDDIR)/bin/$(PARAMBIN) $(PREFIX)/bin/
 
 FILESTOFORMAT := $(shell find . -name ".\#*" -prune -o \( -name "*.cc" -o -name "*.h" \) -print | grep -v -E 'ibvwrap.h|nvmlwrap.h|pccl.h')
 

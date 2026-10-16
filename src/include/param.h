@@ -17,15 +17,16 @@ void initEnv();
 const char *ncclGetEnv(const char *name);
 const char* pcclGetEnvWithDualPrefix(const char* name);
 
-void ncclLoadParam(char const* env, int64_t deftVal, int64_t uninitialized, int64_t* cache);
+int64_t ncclLoadParam(char const* env, int64_t deftVal, int64_t uninitialized, int64_t* cache, int8_t* noCache);
 
 #define NCCL_PARAM(name, env, deftVal) \
   int64_t ncclParam##name() { \
     constexpr int64_t uninitialized = INT64_MIN; \
+    static int8_t noCache = /*uninitialized*/ -1; \
     static_assert(deftVal != uninitialized, "default value cannot be the uninitialized value."); \
     static int64_t cache = uninitialized; \
     if (__builtin_expect(__atomic_load_n(&cache, __ATOMIC_RELAXED) == uninitialized, false)) { \
-      ncclLoadParam("PCCL_" env, deftVal, uninitialized, &cache); \
+      return ncclLoadParam("PCCL_" env, deftVal, uninitialized, &cache, &noCache); \
     } \
     return cache; \
   }
@@ -33,10 +34,11 @@ void ncclLoadParam(char const* env, int64_t deftVal, int64_t uninitialized, int6
 #define PCCL_PARAM(name, env, deftVal) \
   int64_t pcclParam##name() { \
     constexpr int64_t uninitialized = INT64_MIN; \
+    static int8_t noCache = /*uninitialized*/ -1; \
     static_assert(deftVal != uninitialized, "default value cannot be the uninitialized value."); \
     static int64_t cache = uninitialized; \
     if (__builtin_expect(__atomic_load_n(&cache, __ATOMIC_RELAXED) == uninitialized, false)) { \
-      ncclLoadParam("PCCL_" env, deftVal, uninitialized, &cache); \
+      return ncclLoadParam("PCCL_" env, deftVal, uninitialized, &cache, &noCache); \
     } \
     return cache; \
   }
