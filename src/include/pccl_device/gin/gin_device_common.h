@@ -13,11 +13,13 @@
 #include "../net_device.h"
 #include "../utility.h"
 #include "gin_device_host_common.h"
+#include "gin_gdaki_device_host_common.h"
 
 #ifndef PCCL_GIN_PROXY_ENABLE
 #define PCCL_GIN_PROXY_ENABLE 1
 #endif
 
+// Compile-time switch for all built-in GDA provider device implementations.
 #ifndef PCCL_GIN_GDAKI_ENABLE
 #define PCCL_GIN_GDAKI_ENABLE 1
 #endif
@@ -45,6 +47,7 @@ enum pcclGinResourceSharingMode : uint8_t {
 struct pcclGinCtx {
   unsigned backendMask;
   pcclNetDeviceType backend;
+  pcclGinGdakiProvider gdaProvider;
   int rank;
   int nRanks;
   void* handle;
@@ -129,12 +132,39 @@ struct pcclGinApi_PutValue {
 
 template <pcclNetDeviceType backend>
 struct pcclGinApi_GetSignalPtr {
-  PCCL_DEVICE_INLINE static uint64_t* call(pcclGinCtx, int peer, pcclGinSignal_t signalId);
+  PCCL_DEVICE_INLINE static uint64_t* call(pcclGinCtx, pcclGinSignal_t signalId);
 };
 
 template <pcclNetDeviceType backend>
 struct pcclGinApi_GetCounterPtr {
-  PCCL_DEVICE_INLINE static uint64_t* call(pcclGinCtx, int peer, pcclGinCounter_t counterId);
+  PCCL_DEVICE_INLINE static uint64_t* call(pcclGinCtx, pcclGinCounter_t counterId);
+};
+
+// Counter observation is backend-specific: some NICs update the counter
+// autonomously, while others must first consume their send CQ on the GPU.
+template <pcclNetDeviceType backend>
+struct pcclGinApi_ReadCounter {
+  PCCL_DEVICE_INLINE static uint64_t call(pcclGinCtx ctx, pcclGinCounter_t counter,
+                                          int bits, hggc::memory_order ord) {
+    uint64_t* ptr = pcclGinApi_GetCounterPtr<backend>::call(ctx, counter);
+    uint64_t mask = uint64_t(-1) >> (64 - bits);
+    return mask & hggc::atomic_ref<uint64_t>{*ptr}.load(ord);
+  }
+};
+
+template <pcclNetDeviceType backend>
+struct pcclGinApi_WaitCounter {
+  PCCL_DEVICE_INLINE static void call(pcclGinCtx ctx, pcclGinCounter_t counter,
+                                      uint64_t least, int bits, hggc::memory_order ord,
+                                      uint32_t* abortFlag) {
+    uint32_t steps = 0;
+    uint64_t* ptr = pcclGinApi_GetCounterPtr<backend>::call(ctx, counter);
+    uint64_t got;
+    #pragma unroll 1
+    do got = hggc::atomic_ref<uint64_t>{*ptr}.load(ord);
+    while (!pccl::utility::rollingLessEq(least, got, bits) &&
+           !pccl::utility::testAbort(abortFlag, steps));
+  }
 };
 
 template <pcclNetDeviceType backend>

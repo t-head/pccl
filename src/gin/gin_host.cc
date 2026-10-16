@@ -144,11 +144,13 @@ ncclResult_t ncclGinConnectOnce(struct pcclComm* comm) {
   int localGinDevs[NCCL_TOPO_MAX_NODES];
   NCCLCHECK(ncclTopoGetLocalGinDevs(comm, localGinDevs, &nLocalGinDevs));
 
+  if (nLocalGinDevs <= 0) {
+    WARN("GIN has no local network devices");
+    return ncclInternalError;
+  }
+
   void** handles = NULL;
   char* allHandles = NULL;
-
-  int* ginCommCountHandles = NULL;
-  NCCLCHECKGOTO(ncclCalloc(&ginCommCountHandles, comm->nRanks), ret, fail);
 
   ginState->ginCommCount = nLocalGinDevs;
   if (ginState->ginVersion < 13) {
@@ -156,8 +158,14 @@ ncclResult_t ncclGinConnectOnce(struct pcclComm* comm) {
   }
 
   if (ncclParamGinNconnections() != -2) ginState->ginCommCount = ncclParamGinNconnections();
+  if (ginState->ginCommCount <= 0) {
+    WARN("GIN_NCONNECTIONS must be positive");
+    return ncclInvalidUsage;
+  }
   ginState->ginCommCount = std::min<int>(NCCL_GIN_MAX_CONNECTIONS, ginState->ginCommCount);
 
+  int* ginCommCountHandles = NULL;
+  NCCLCHECKGOTO(ncclCalloc(&ginCommCountHandles, comm->nRanks), ret, fail);
   ginCommCountHandles[comm->rank] = ginState->ginCommCount;
   NCCLCHECKGOTO(bootstrapAllGather(comm->bootstrap, ginCommCountHandles, sizeof(int)), ret, fail);
   for (int r = 0; r < comm->nRanks; r++) {
@@ -202,6 +210,9 @@ ncclResult_t ncclGinConnectOnce(struct pcclComm* comm) {
 
     NCCLCHECKGOTO(ginState->ncclGin->getProperties(localGinDevs[n%nLocalGinDevs], ginState->ginProps+n),
       ret, fail);
+    INFO(NCCL_INIT, "GIN connection %d: device %d (%s:%d)", n,
+         localGinDevs[n%nLocalGinDevs], ginState->ginProps[n].name,
+         ginState->ginProps[n].port);
 
     NCCLCHECKGOTO(bootstrapAllGather(comm->bootstrap, allHandles, NCCL_NET_HANDLE_MAXSIZE), ret, fail);
 
@@ -271,8 +282,24 @@ ncclResult_t ncclGinDevCommSetup(struct pcclComm* comm, struct ncclDevCommRequir
     NCCLCHECKGOTO(ginState->ncclGin->createContext(
                     ginState->ginComms[n], &ginConfig, &ginStateDevComm->ginCtx[n], &ginStateDevComm->devHandles[n]),
                   ret, end);
-    devComm->ginNetDeviceTypes[n] = ginStateDevComm->devHandles[n]->netDeviceType;
-    devComm->ginHandles[n] = ginStateDevComm->devHandles[n]->handle;
+    auto* handle = ginStateDevComm->devHandles[n];
+    if (!handle || !handle->handle || (int)handle->netDeviceType != (int)ginState->ginType) {
+      WARN("GIN context does not match the selected GIN mode");
+      ret = ncclInvalidUsage;
+      goto end;
+    }
+    if (handle->netDeviceType == PCCL_NET_DEVICE_GIN_GDAKI) {
+      NCCLCHECKGOTO(ncclGinGdakiPrepareHandle(handle, &ginStateDevComm->ginHandles[n],
+                                            &ginStateDevComm->ownsGinHandle[n]), ret, end);
+    } else if (handle->netDeviceType == PCCL_NET_DEVICE_GIN_PROXY) {
+      ginStateDevComm->ginHandles[n] = handle->handle;
+    } else {
+      WARN("Unsupported GIN device context type %d", handle->netDeviceType);
+      ret = ncclInvalidUsage;
+      goto end;
+    }
+    devComm->ginNetDeviceTypes[n] = handle->netDeviceType;
+    devComm->ginHandles[n] = ginStateDevComm->ginHandles[n];
     if (ginStateDevComm->devHandles[n]->needsProxyProgress) ginState->needsProxyProgress = 1;
   }
 
@@ -296,6 +323,7 @@ ncclResult_t ncclGinDevCommSetup(struct pcclComm* comm, struct ncclDevCommRequir
 end:
   if (ret != ncclSuccess) {
     for (int n = 0; n < ginState->ginCommCount; n++) {
+      if (ginStateDevComm->ownsGinHandle[n]) hggcFree(ginStateDevComm->ginHandles[n]);
       if (ginStateDevComm->ginCtx[n])
         ginState->ncclGin->destroyContext(ginStateDevComm->ginCtx[n]);
     }
@@ -314,7 +342,7 @@ ncclResult_t ncclGinDevCommFree(struct pcclComm* comm, struct ncclDevComm const*
       WARN("Dev comm not found\n");
       return ncclInternalError;
     }
-    if (dc->devHandles[0]->handle == devComm->ginHandles[0]) break;
+    if (dc->ginHandles[0] == devComm->ginHandles[0]) break;
     prevDc = dc;
     dc = dc->next;
   }
@@ -324,6 +352,7 @@ ncclResult_t ncclGinDevCommFree(struct pcclComm* comm, struct ncclDevComm const*
   lock.unlock();
 
   for (int n = 0; n < ginState->ginCommCount; n++) {
+    if (dc->ownsGinHandle[n]) HGGCCHECK(hggcFree(dc->ginHandles[n]));
     NCCLCHECK(ginState->ncclGin->destroyContext(dc->ginCtx[n]));
   }
   free(dc);

@@ -92,6 +92,14 @@ PCCL_DEVICE_INLINE void pcclGinInitCommon(GinType* gin, pcclDevComm const& comm,
 
   gin->_ginBackend = comm.ginNetDeviceTypes[gin->connectionId];
   gin->_ginHandle = comm.ginHandles[gin->connectionId];
+  gin->_ginProvider = PCCL_GIN_GDAKI_PROVIDER_NONE;
+#if PCCL_GIN_GDAKI_ENABLE
+  if (gin->_ginBackend == PCCL_NET_DEVICE_GIN_GDAKI) {
+    auto* gda = static_cast<pcclGinGdakiHandle const*>(gin->_ginHandle);
+    gin->_ginProvider = pccl::utility::loadConst(&gda->provider);
+    gin->_ginHandle = pccl::utility::loadConst(&gda->contexts);
+  }
+#endif
   gin->_signalShadows = comm.ginSignalShadows + contextIndex * comm.ginSignalCount;
 }
 
@@ -124,6 +132,7 @@ template<unsigned beMask>
 PCCL_DEVICE_INLINE pcclGinCtx_M<beMask> pcclGin_BackendMask<beMask>::_makeCtx() const {
   pcclGinCtx_M<beMask> ans;
   ans.backend = (pcclNetDeviceType)_ginBackend;
+  ans.gdaProvider = (pcclGinGdakiProvider)_ginProvider;
   if (comm.ginIsRailed) {
     pcclTeam teamRail = pcclTeamRail(comm);
     ans.rank = teamRail.rank;
@@ -142,6 +151,7 @@ PCCL_DEVICE_INLINE pcclGinCtx pcclGin_C_makeCtx(pcclGin_C* net) {
   pcclGinCtx ans;
   ans.backendMask = net->backendMask;
   ans.backend = (pcclNetDeviceType)net->_ginBackend;
+  ans.gdaProvider = (pcclGinGdakiProvider)net->_ginProvider;
   if (net->comm.ginIsRailed) {
     pcclTeam teamRail = pcclTeamRail(net->comm);
     ans.rank = teamRail.rank;
@@ -678,15 +688,10 @@ template<typename Coop>
 PCCL_DEVICE_INLINE void pcclGin_BackendMask<beMask>::waitCounter(
     Coop coop, pcclGinCounter_t counter, uint64_t least, int bits, hggc::memory_order ord
   ) const {
-  using pccl::utility::testAbort;
-  uint32_t steps = 0;
   coop.sync();
   if (coop.thread_rank() == 0) {
-    uint64_t* ptr = pcclGinCall<pcclGinApi_GetCounterPtr>(this->_makeCtx(), counter);
-    uint64_t got;
-    #pragma unroll 1
-    do got = hggc::atomic_ref<uint64_t>{*ptr}.load(ord);
-    while (!pccl::utility::rollingLessEq(least, got, bits) && !testAbort(this->comm.abortFlag, steps));
+    pcclGinCall<pcclGinApi_WaitCounter>(this->_makeCtx(), counter, least, bits, ord,
+                                       this->comm.abortFlag);
   }
   coop.sync();
 }
@@ -699,25 +704,18 @@ PCCL_DEVICE_INLINE void pcclGinWaitCounter(
     int bits,
     hggc::memory_order ord
   ) {
-  using pccl::utility::testAbort;
-  uint32_t steps = 0;
   coop.sync();
   if (coop.thread_rank() == 0) {
     pcclGinCtx ctx = pcclGin_C_makeCtx(net);
-    uint64_t* ptr = pcclGinCall<pcclGinApi_GetCounterPtr>(ctx, counter);
-    uint64_t got;
-    #pragma unroll 1
-    do got = hggc::atomic_ref<uint64_t>{*ptr}.load(ord);
-    while (!pccl::utility::rollingLessEq(least, got, bits) && !testAbort(net->comm.abortFlag, steps));
+    pcclGinCall<pcclGinApi_WaitCounter>(ctx, counter, least, bits, ord,
+                                       net->comm.abortFlag);
   }
   coop.sync();
 }
 
 template<unsigned beMask>
 PCCL_DEVICE_INLINE uint64_t pcclGin_BackendMask<beMask>::readCounter(pcclGinCounter_t counter, int bits, hggc::memory_order ord) const {
-  uint64_t* ptr = pcclGinCall<pcclGinApi_GetCounterPtr>(this->_makeCtx(), counter);
-  uint64_t mask = uint64_t(-1)>>(64-bits);
-  return mask & hggc::atomic_ref<uint64_t>{*ptr}.load(ord);
+  return pcclGinCall<pcclGinApi_ReadCounter>(this->_makeCtx(), counter, bits, ord);
 }
 
 PCCL_DEVICE_INLINE uint64_t pcclGinReadCounter(
@@ -727,9 +725,7 @@ PCCL_DEVICE_INLINE uint64_t pcclGinReadCounter(
     hggc::memory_order ord
   ) {
   pcclGinCtx ctx = pcclGin_C_makeCtx(net);
-  uint64_t* ptr = pcclGinCall<pcclGinApi_GetCounterPtr>(ctx, counter);
-  uint64_t mask = uint64_t(-1)>>(64-bits);
-  return mask & hggc::atomic_ref<uint64_t>{*ptr}.load(ord);
+  return pcclGinCall<pcclGinApi_ReadCounter>(ctx, counter, bits, ord);
 }
 
 template<unsigned beMask>
