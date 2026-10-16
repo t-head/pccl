@@ -25,11 +25,6 @@ build: ${DST_DIR}/$(PLUGIN_SO)
 ${DST_DIR}/$(PLUGIN_SO): $(VERSION_FILE) $(SRCS)
 	@echo "Compiling to create $@ from $^"
 	$(CXX) $(INC) $(CXXFLAGS)  -fPIC -shared -o  $@ -Wl,-soname,$(PLUGIN_SO) $^
-ifeq ($(REL_NO_SYM), 1)
-	$(OBJCOPY) --only-keep-debug $@ ${DST_DIR}/$(PLUGIN_SO).dbginfo
-	$(STRIP) --strip-all $@
-	$(OBJCOPY) --add-gnu-debuglink=${DST_DIR}/$(PLUGIN_SO).dbginfo $@
-endif
 
 # Rule to generate version.cc
 $(VERSION_FILE):

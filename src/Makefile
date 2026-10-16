@@ -193,11 +193,6 @@ $(LIBDIR)/$(LIBTARGET): $(LIBOBJ) $(DEVICELIB)
 	$(CXX) $(CXXFLAGS) -shared -Wl,--no-as-needed -Wl,-soname,$(LIBSONAME) -o $@ $(LIBOBJ) $(DEVICELIB) $(LDFLAGS)
 	ln -sf $(LIBSONAME) $(LIBDIR)/$(LIBNAME)
 	ln -sf $(LIBTARGET) $(LIBDIR)/$(LIBSONAME)
-ifeq ($(REL_NO_SYM), 1)
-	$(OBJCOPY) --only-keep-debug $(LIBDIR)/$(LIBTARGET) $(LIBDIR)/$(LIBTARGET).dbginfo
-	$(STRIP) --strip-all $(LIBDIR)/$(LIBTARGET)
-	$(OBJCOPY) --add-gnu-debuglink=$(LIBDIR)/$(LIBTARGET).dbginfo $(LIBDIR)/$(LIBTARGET)
-endif
 
 null :=
 space := $(null) #
@@ -212,21 +207,11 @@ $(BINDIR)/$(BINNAME): $(BINOBJ)
 	@printf "Linking    %-35s > %s\n" $(BINNAME) $@
 	mkdir -p $(BINDIR)
 	$(CXX) $(CXXFLAGS) $^ -o $@
-ifeq ($(REL_NO_SYM), 1)
-	$(OBJCOPY) --only-keep-debug $(BINDIR)/$(BINNAME) $(BINDIR)/$(BINNAME).dbginfo
-	$(STRIP) --strip-all $(BINDIR)/$(BINNAME)
-	$(OBJCOPY) --add-gnu-debuglink=$(BINDIR)/$(BINNAME).dbginfo $(BINDIR)/$(BINNAME)
-endif
 
 $(BINDIR)/$(PARAMBIN): $(PARAMBINOBJ) $(LIBDIR)/$(LIBTARGET)
 	@printf "Linking    %-35s > %s\n" $(PARAMBIN) $@
 	mkdir -p $(BINDIR)
 	$(CXX) $(CXXFLAGS) $< -o $@ -L$(LIBDIR) -lpccl $(LDFLAGS)
-ifeq ($(REL_NO_SYM), 1)
-	$(OBJCOPY) --only-keep-debug $(BINDIR)/$(PARAMBIN) $(BINDIR)/$(PARAMBIN).dbginfo
-	$(STRIP) --strip-all $(BINDIR)/$(PARAMBIN)
-	$(OBJCOPY) --add-gnu-debuglink=$(BINDIR)/$(PARAMBIN).dbginfo $(BINDIR)/$(PARAMBIN)
-endif
 
 $(PKGDIR)/pccl.pc : pccl.pc.in
 	mkdir -p $(PKGDIR)
