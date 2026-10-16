@@ -14,7 +14,7 @@ test_coll_ops="sendrecv all_reduce all_gather broadcast reduce reduce_scatter"
 ARGPARSE_DESCRIPTION="pccl build script"      # this is optional
 source "$(dirname "${BASH_SOURCE[0]}")/argparse.bash" || exit 1
 argparse "$@" <<EOF || exit 1
-parser.add_argument('--build_type', default='rel_sym', type=str, help="Symbol control. rel: release version with some symbol. dbg: debug version. rel_no_sym: release version and strip symbol.")
+parser.add_argument('--build_type', default='rel_sym', type=str, help="Build type: rel_sym (default), rel, or dbg.", choices=['rel_sym', 'rel', 'dbg'])
 parser.add_argument('--keep', default=False, action='store_true', help="Keep all intermediate files that are generated during internal compilation steps.")
 parser.add_argument('--rebuild', default=False, action='store_true', help="Clean and rebuild.")
 parser.add_argument('--verbose', default=False, action='store_true', help="Show more compile message.")
@@ -85,9 +85,7 @@ function build_dir
         build_cmd_str="${build_cmd_str} NO_EXTRA_WARP=1"
     fi
 
-    if [[ $BUILD_TYPE == "rel_no_sym" ]]; then
-        build_cmd_str="${build_cmd_str} REL_NO_SYM=1"
-    elif [[ $BUILD_TYPE == "dbg" ]]; then
+    if [[ $BUILD_TYPE == "dbg" ]]; then
         build_cmd_str="${build_cmd_str} DEBUG=1"
     fi
 

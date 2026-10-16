@@ -487,7 +487,6 @@ __hidden ncclResult_t inspectorPluginRecordEventState(void* eHandle,
   return ncclSuccess;
 }
 
-__attribute__((visibility("default")))
 ncclProfiler_t pcclProfiler_v5 = {
   "Inspector",
   inspectorPluginInit,
