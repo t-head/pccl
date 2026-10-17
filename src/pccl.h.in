@@ -51,6 +51,8 @@
 #define PCCL_SHRINK_DEFAULT 0x00
 #define PCCL_SHRINK_ABORT 0x01
 
+#define PCCL_REVOKE_DEFAULT 0x00
+
 /* Communicator suspend flags */
 #define PCCL_SUSPEND_MEM 0x01   // Suspend memory (release dynamic allocations)
 
@@ -178,10 +180,13 @@ pcclResult_t  pcclCommInitRankScalable(pcclComm_t* newcomm, int nranks, int myra
 pcclResult_t  pcclCommFinalize(pcclComm_t comm);
 pcclResult_t  pcclCommDestroy(pcclComm_t comm);
 pcclResult_t  pcclCommAbort(pcclComm_t comm);
+pcclResult_t  pcclCommRevoke(pcclComm_t comm, int revokeFlags);
 
 // adjust communicator
 pcclResult_t  pcclCommSplit(pcclComm_t comm, int color, int key, pcclComm_t *newcomm, pcclConfig_t* config);
 pcclResult_t  pcclCommShrink(pcclComm_t comm, int* excludeRanksList, int excludeRanksCount, pcclComm_t* newcomm, pcclConfig_t* config, int shrinkFlags);
+pcclResult_t  pcclCommGetUniqueId(pcclComm_t comm, pcclUniqueId* uniqueId);
+pcclResult_t  pcclCommGrow(pcclComm_t comm, int nRanks, const pcclUniqueId* uniqueId, int rank, pcclComm_t* newcomm, pcclConfig_t* config);
 
 // get communicator information
 pcclResult_t  pcclCommGetAsyncError(pcclComm_t comm, pcclResult_t *asyncError);

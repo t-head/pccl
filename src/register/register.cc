@@ -82,7 +82,7 @@ ncclResult_t ncclRegCleanup(ncclComm_t comm) {
   struct ncclRegCache* cache = &comm->regCache;
   for (int i = 0; i < cache->population; i++) {
     struct ncclReg* reg = cache->slots[i];
-    INFO(NCCL_INIT, "Cleanup buffer %p pages %lx", (void*)reg->addr, reg->pages);
+    INFO(NCCL_DESTROY, "Cleanup buffer %p pages %lx", (void*)reg->addr, reg->pages);
     NCCLCHECK(regCleanup(comm, reg));
     NCCLCHECK(ncclFree(reg));
   }

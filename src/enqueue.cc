@@ -2320,6 +2320,10 @@ static ncclResult_t taskAppend(ncclComm_t comm, struct ncclInfo* info) {
 }
 
 ncclResult_t ncclEnqueueCheck(struct ncclInfo* info) {
+  if (info->comm && info->comm->revokedFlag) {
+    ERROR("%s: communicator was revoked", info->opName);
+    return ncclGroupErrCheck(ncclInvalidUsage);
+  }
   NCCLCHECK(ncclGroupStartInternal());
   ncclResult_t ret = ncclSuccess;
   int savedDev = -1;

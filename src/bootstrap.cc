@@ -19,6 +19,7 @@
 #define BOOTSTRAP_N_CHECK_ABORT           10000
 #define BOOTSTRAP_TAG_COMMSPLIT           (0x1 << 29)
 #define BOOTSTRAP_TAG_INTRANODE_ALLGATHER (0x1 << 28)
+#define BOOTSTRAP_TAG_GROW_BOUNDARY       (0x1 << 27)
 
 #define BOOTSTRAP_INIT_TIME_CREATE 0
 #define BOOTSTRAP_INIT_TIME_SEND   1
@@ -44,14 +45,19 @@ PCCL_PARAM(BlockingBootStrap, "BLOCKING_BOOTSTRAP", 0);
 PCCL_PARAM(BootStrapDebug, "BOOTSTRAP_DEBUG", 0);
 
 #define BOOTSTRAP_PID(i, n) (((i) + (n)) % (n))
-// returns the first rank associated to the root. must have root >=0
+// returns the first rank associated to the root; root -1 denotes ranks below offset
 // if root >= n_roots, it does NOT assume periodicity
-static int firstRankFromRoot(int root, int n_ranks, int nRoots) {
-  return root * (n_ranks / nRoots) + std::min(root, n_ranks % nRoots);
+static int firstRankFromRoot(int root, int n_ranks, int nRoots, int offset) {
+  if (root == -1) return 0;
+  n_ranks -= offset;
+  return offset + root * (n_ranks / nRoots) + std::min(root, n_ranks % nRoots);
 }
 // returns the root of a rank, must have rank >=0
 // if rank >= n_ranks, it does NOT assume periodicity
-static int rootIdFromRank(int rank, int nRanks, int nRoots) {
+static int rootIdFromRank(int rank, int nRanks, int nRoots, int offset) {
+  if (nRoots == 0 || rank < offset) return -1;
+  nRanks -= offset;
+  rank -= offset;
   int rmr = nRanks % nRoots; // rank mod root
   int rpr = nRanks / nRoots; // rank per root
   int D = rmr * (rpr + 1);
@@ -61,7 +67,9 @@ static int rootIdFromRank(int rank, int nRanks, int nRoots) {
     return (rank - D) / rpr + rmr;
 }
 // return the number of child for a root, root will be periodized
-static int nRankFromRoot(int root, int nRanks, int nRoots) {
+static int nRankFromRoot(int root, int nRanks, int nRoots, int offset) {
+  if (root == -1) return 0;
+  nRanks -= offset;
   int ir = BOOTSTRAP_PID(root, nRoots);
   int rmr = nRanks % nRoots; // rank mod root
   int rpr = nRanks / nRoots; // rank per root
@@ -69,13 +77,13 @@ static int nRankFromRoot(int root, int nRanks, int nRoots) {
 }
 // return the local id of a given rank for a given root
 // root will be periodize, rank will not
-static int localIdFromRoot(int rank, int root, int nRanks, int nRoots) {
+static int localIdFromRoot(int rank, int root, int nRanks, int nRoots, int offset) {
+  if (root == -1) return rank;
   int ir = BOOTSTRAP_PID(root, nRoots);
-  return rank - firstRankFromRoot(ir, nRanks, nRoots);
+  return rank - firstRankFromRoot(ir, nRanks, nRoots, offset);
 }
-// return the number of child for a root, root will be periodized
-static int isFirstFromRoot(int rank, int root, int nRanks, int nRoots) {
-  return (rank == firstRankFromRoot(root, nRanks, nRoots));
+static int isFirstFromRoot(int rank, int root, int nRanks, int nRoots, int offset) {
+  return (rank == firstRankFromRoot(root, nRanks, nRoots, offset));
 }
 
 struct bootstrapRootArgs {
@@ -244,6 +252,7 @@ struct extInfo {
   int nranks;                                // total number of ranks
   int iroot;                                 // current root index
   int nroots;                                // total number of roots
+  int offset;                                // first rank assigned to root 0
   union ncclSocketAddress listenRootAddress; // address of my listenSocket for the root
   union ringConnectInfo connectInfo;
 };
@@ -280,7 +289,7 @@ static void* bootstrapRoot(void* rargs) {
   ncclResult_t res = ncclSuccess;
   int nranks = 0, c = 0;
   int iroot = 0, nroots = 0, localId = 0;
-  int nrecv = 0, n2send = 0;
+  int nrecv = 0, n2send = 0, offset = 0;
   struct extInfo info;
   union ringConnectInfo* rankInfo = NULL;
   union ncclSocketAddress* rankAddressesRoot = NULL; // for initial rank <-> root information exchange
@@ -313,19 +322,24 @@ static void* bootstrapRoot(void* rargs) {
       nranks = info.nranks;
       iroot = info.iroot;
       nroots = info.nroots;
+      offset = info.offset;
       // if the number of root > 1, we will receive one extra info from the first local_id of the next root
-      n2send = nRankFromRoot(iroot, nranks, nroots);
-      nrecv = n2send + ((nroots > 1) ? 1 : 0);
+      n2send = nRankFromRoot(iroot, nranks, nroots, offset);
+      nrecv = n2send + ((offset > 0 || nroots > 1) ? 1 : 0);
       NCCLCHECKGOTO(ncclCalloc(&rankInfo, nrecv), res, out);
       NCCLCHECKGOTO(ncclCalloc(&rankAddressesRoot, nrecv), res, out);
     }
 
-    if (nranks != info.nranks || nroots != info.nroots || iroot != info.iroot) {
-      ERROR("Bootstrap Root : mismatch in info from procs, nranks %d vs %d, nroots %d vs %d, iroot %d vs %d", nranks, info.nranks, nroots, info.nroots, iroot, info.iroot);
+    if (nranks != info.nranks || nroots != info.nroots || iroot != info.iroot || offset != info.offset) {
+      ERROR("Bootstrap Root : mismatch in info from procs, nranks %d vs %d, nroots %d vs %d, iroot %d vs %d, offset %d vs %d", nranks, info.nranks, nroots, info.nroots, iroot, info.iroot, offset, info.offset);
       goto out;
     }
 
-    localId = localIdFromRoot(info.rank, iroot, nranks, nroots);
+    localId = localIdFromRoot(info.rank, iroot, nranks, nroots, offset);
+    if (localId < 0 || localId >= nrecv) {
+      ERROR("Bootstrap Root : localId %d is out of range", localId);
+      goto out;
+    }
     if (memcmp(&zeroAddress, &rankAddressesRoot[localId], sizeof(union ncclSocketAddress)) != 0 ||
         memcmp(&zeroInfo, &rankInfo[localId], sizeof(union ringConnectInfo)) != 0) {
       WARN("Bootstrap Root : rank %d of %d ranks has already checked in", info.rank, nranks);
@@ -412,12 +426,15 @@ fail:
   goto exit;
 }
 
-ncclResult_t bootstrapGetUniqueId(ncclUniqueId* id) {
-  memset(id, 0, sizeof(ncclUniqueId));
-  struct ncclBootstrapHandle* handle = (struct ncclBootstrapHandle*)id;
+ncclResult_t bootstrapGetUniqueId(struct ncclBootstrapHandle* handle, ncclComm_t comm) {
+  memset(handle, 0, sizeof(struct ncclBootstrapHandle));
 
   const char* env = pcclGetEnvWithDualPrefix("PCCL_COMM_ID");
   if (env) {
+    if (comm) {
+      ERROR("pcclCommGetUniqueId should not be called when PCCL_COMM_ID is set");
+      return ncclInvalidUsage;
+    }
     INFO(NCCL_ENV, "PCCL_COMM_ID set by environment to %s", env);
     if (ncclSocketGetAddrFromString(&handle->addr, env) != ncclSuccess) {
       ERROR("Invalid PCCL_COMM_ID, please use format: <ipv4>:<port> or [<ipv6>]:<port> or <hostname>:<port>");
@@ -425,9 +442,33 @@ ncclResult_t bootstrapGetUniqueId(ncclUniqueId* id) {
     }
     handle->magic = NCCL_SOCKET_MAGIC;
   } else {
-    NCCLCHECK(getRandomData(&handle->magic, sizeof(handle->magic)));
+    if (comm) {
+      // comm->childCount will be incremented in pcclCommGrow for all existing ranks, use +1 here
+      handle->magic = hashCombine(comm->magic, comm->childCount + 1);
+    } else {
+      NCCLCHECK(getRandomData(&handle->magic, sizeof(handle->magic)));
+    }
+    handle->nRanks = comm ? comm->nRanks : 0;
     memcpy(&handle->addr, &bootstrapNetIfAddr, sizeof(union ncclSocketAddress));
     NCCLCHECK(bootstrapCreateRoot(handle, false));
+  }
+
+  return ncclSuccess;
+}
+
+ncclResult_t bcastGrowHandle(struct ncclBootstrapHandle* handle, ncclComm_t parent, bool isRoot) {
+  if (!parent || !handle) {
+    ERROR("bcastGrowHandle: parent comm and handle must be provided");
+    return ncclInvalidArgument;
+  }
+
+  if (isRoot) {
+    NCCLCHECK(bootstrapSend(parent->bootstrap, 0, BOOTSTRAP_TAG_GROW_BOUNDARY, handle, sizeof(struct ncclBootstrapHandle)));
+    if (parent->nRanks > 1) {
+      NCCLCHECK(bootstrapSend(parent->bootstrap, parent->nRanks - 1, BOOTSTRAP_TAG_GROW_BOUNDARY, handle, sizeof(struct ncclBootstrapHandle)));
+    }
+  } else {
+    NCCLCHECK(bootstrapRecv(parent->bootstrap, -1, BOOTSTRAP_TAG_GROW_BOUNDARY, handle, sizeof(struct ncclBootstrapHandle)));
   }
 
   return ncclSuccess;
@@ -630,11 +671,12 @@ fail:
 NCCL_PARAM(StaggerRate, "UID_STAGGER_RATE", 7000);
 NCCL_PARAM(StaggerThreshold, "UID_STAGGER_THRESHOLD", 256);
 NCCL_PARAM(RasEnable, "RAS_ENABLE", 1);
-ncclResult_t bootstrapInit(int nHandles, struct ncclBootstrapHandle* handles, ncclComm_t comm) {
+ncclResult_t bootstrapInit(int nHandles, void* handles, ncclComm_t comm, ncclComm_t parent) {
   ncclResult_t res = ncclSuccess;
   int rank = comm->rank;
   int nranks = comm->nRanks;
   int curr_root, nRankRoot;
+  int offset = 0;
   struct bootstrapState* state = NULL;
   struct ncclSocket* proxySocket = NULL;
   struct ncclSocket sock, listenSockRoot;
@@ -654,7 +696,15 @@ ncclResult_t bootstrapInit(int nHandles, struct ncclBootstrapHandle* handles, nc
   state->abortFlag = comm->abortFlag;
   state->net = ncclNet;
   comm->bootstrap = state;
-  comm->magic = state->magic = BOOTSTRAP_HANDLE(handles, 0)->magic; // state and comm magic set to the first magic ID
+  if (handles != NULL) {
+    comm->magic = state->magic = BOOTSTRAP_HANDLE(handles, 0)->magic;
+  } else if (parent != NULL) {
+    comm->magic = state->magic = hashCombine(parent->magic, parent->childCount);
+  } else {
+    ERROR("bootstrapInit: handles and parent are NULL");
+    res = ncclSystemError;
+    goto fail;
+  }
 
   TRACE(NCCL_BOOTSTRAP, "rank %d nranks %d", rank, nranks);
 
@@ -675,18 +725,25 @@ ncclResult_t bootstrapInit(int nHandles, struct ncclBootstrapHandle* handles, nc
     NCCLCHECK(createListenSocket(comm, comm->magic, &STATE_LISTEN(state, socket), &info.connectInfo.addr, ncclSocketTypeBootstrap));
   }
 
+  // The grow root handles the last existing rank and all new ranks.
+  if (comm->isGrow) {
+    offset = (parent ? parent->nRanks : BOOTSTRAP_HANDLE(handles, 0)->nRanks) - 1;
+  }
+  curr_root = rootIdFromRank(rank, nranks, nHandles, offset);
   // Create socket for root to contact me using the root's magic
-  curr_root = rootIdFromRank(rank, nranks, nHandles);
-  NCCLCHECKGOTO(createListenSocket(comm, BOOTSTRAP_HANDLE(handles, curr_root)->magic, &listenSockRoot, &info.listenRootAddress, ncclSocketTypeBootstrap), res, fail);
+  if (curr_root >= 0) {
+    NCCLCHECKGOTO(createListenSocket(comm, BOOTSTRAP_HANDLE(handles, curr_root)->magic, &listenSockRoot, &info.listenRootAddress, ncclSocketTypeBootstrap), res, fail);
+  }
+
   BOOTSTRAP_PROF_CLOSE(timers[BOOTSTRAP_INIT_TIME_CREATE]);
 
   // stagger connection times to avoid an overload of the root
   BOOTSTRAP_PROF_OPEN(timers[BOOTSTRAP_INIT_TIME_DELAY]);
-  nRankRoot = nRankFromRoot(curr_root, nranks, nHandles);
+  nRankRoot = nRankFromRoot(curr_root, nranks, nHandles, offset);
   if (nRankRoot > ncclParamStaggerThreshold()) {
     // for socket the message rate in microsec
     double msg_rate = ncclParamStaggerRate() / 1.0e6;
-    long musec = localIdFromRoot(rank, curr_root, nranks, nHandles) / msg_rate;
+    long musec = localIdFromRoot(rank, curr_root, nranks, nHandles, offset) / msg_rate;
     struct timespec tv;
     long c_1e6 = 1e6;
     tv.tv_sec = musec / c_1e6;
@@ -700,24 +757,34 @@ ncclResult_t bootstrapInit(int nHandles, struct ncclBootstrapHandle* handles, nc
   BOOTSTRAP_PROF_OPEN(timers[BOOTSTRAP_INIT_TIME_SEND]);
   info.rank = rank;
   info.iroot = curr_root;
-  NCCLCHECKGOTO(sendToRoot(BOOTSTRAP_HANDLE(handles, curr_root), comm, &info), res, fail);
-  // if needed, send the connection info to the previous root
-  if (nHandles > 1 && isFirstFromRoot(rank, curr_root, nranks, nHandles)) {
+  info.offset = offset;
+  if (curr_root >= 0) NCCLCHECKGOTO(sendToRoot(BOOTSTRAP_HANDLE(handles, curr_root), comm, &info), res, fail);
+  if (parent && comm->isGrow && rank != 0) {
+    NCCLCHECKGOTO(bootstrapSend(parent->bootstrap, rank - 1, 0, &info.connectInfo, sizeof(info.connectInfo)), res, fail);
+  }
+  // Ranks below offset form a root-free segment of the bootstrap ring.
+  if (((comm->isGrow && parent && (parent->nRanks > 1)) || nHandles > 1) &&
+      isFirstFromRoot(rank, curr_root, nranks, nHandles, offset)) {
     int prev_rank = BOOTSTRAP_PID(rank - 1, nranks);
-    int prev_root = rootIdFromRank(prev_rank, nranks, nHandles);
+    int prev_root = rootIdFromRank(prev_rank, nranks, nHandles, offset);
     info.rank = prev_rank + 1; // my rank as seen by the previous root
     info.iroot = prev_root;
-    NCCLCHECKGOTO(sendToRoot(BOOTSTRAP_HANDLE(handles, prev_root), comm, &info), res, fail);
+    if (prev_root >= 0) NCCLCHECKGOTO(sendToRoot(BOOTSTRAP_HANDLE(handles, prev_root), comm, &info), res, fail);
   }
   BOOTSTRAP_PROF_CLOSE(timers[BOOTSTRAP_INIT_TIME_SEND]);
 
-  // get info on my "next" rank in the bootstrap ring from root
+  // Get the next peer from the root or, for ranks below offset, the parent communicator.
   BOOTSTRAP_PROF_OPEN(timers[BOOTSTRAP_INIT_TIME_RECV]);
-  NCCLCHECKGOTO(ncclSocketInit(&sock), res, fail);
-  NCCLCHECKGOTO(ncclSocketAccept(&sock, &listenSockRoot), res, fail);
-  NCCLCHECKGOTO(socketRecv(&sock, &nextPeer, sizeof(nextPeer)), res, fail);
-  NCCLCHECKGOTO(ncclSocketClose(&sock), res, fail);
-  NCCLCHECKGOTO(ncclSocketClose(&listenSockRoot), res, fail);
+  if (curr_root >= 0) {
+    NCCLCHECKGOTO(ncclSocketInit(&sock), res, fail);
+    NCCLCHECKGOTO(ncclSocketAccept(&sock, &listenSockRoot), res, fail);
+    NCCLCHECKGOTO(socketRecv(&sock, &nextPeer, sizeof(nextPeer)), res, fail);
+    NCCLCHECKGOTO(ncclSocketClose(&sock), res, fail);
+    NCCLCHECKGOTO(ncclSocketClose(&listenSockRoot), res, fail);
+  }
+  if (parent && comm->isGrow && rank != parent->nRanks - 1) {
+    NCCLCHECKGOTO(bootstrapRecv(parent->bootstrap, rank + 1, 0, &nextPeer, sizeof(nextPeer)), res, fail);
+  }
   BOOTSTRAP_PROF_CLOSE(timers[BOOTSTRAP_INIT_TIME_RECV]);
 
   // accept and connect the ring network
@@ -957,7 +1024,8 @@ static ncclResult_t unexpectedDequeue(struct bootstrapState* state, int peer, in
   struct unexConn* prev = NULL;
   *found = 0;
   while (elem) {
-    if (elem->peer == peer && elem->tag == tag) {
+    // peer < 0 means wildcard (accept from any peer)
+    if ((peer < 0 || elem->peer == peer) && elem->tag == tag) {
       if (prev == NULL) {
         state->unexpectedConnections = elem->next;
       } else {
@@ -1003,7 +1071,7 @@ static ncclResult_t socketAccept(void* commState, int peer, int tag, struct nccl
     NCCLCHECKGOTO(ncclSocketInit(sock), ret, fail);
     NCCLCHECKGOTO(ncclSocketAccept(sock, &STATE_LISTEN(state, peerSocket)), ret, fail);
     NCCLCHECKGOTO(socketRecv(sock, &ack, sizeof(struct socketAckInfo)), ret, fail);
-    if (ack.rank == peer && ack.tag == tag) return ncclSuccess;
+    if (ack.tag == tag && (peer < 0 || ack.rank == peer)) return ncclSuccess;
     NCCLCHECKGOTO(unexpectedEnqueue(state, ack.rank, ack.tag, sock), ret, fail);
   }
 end:

@@ -47,6 +47,7 @@ struct pcclHgtxInfo {
 #define HGTX_SID_Gather               17
 #define HGTX_SID_Scatter              18
 #define HGTX_SID_CommRevoke           19 // same schema as HGTX_SID_CommInitRank
+#define HGTX_SID_CommGrow             21 // 20 is taken by HGTX_PAYLOAD_ENTRY_PCCL_REDOP
 
 // Define static schema ID for the reduction operation.
 #define HGTX_PAYLOAD_ENTRY_PCCL_REDOP 20 + HGTX_PAYLOAD_SCHEMA_ID_STATIC_START
