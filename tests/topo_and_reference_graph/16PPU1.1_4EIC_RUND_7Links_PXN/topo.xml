@@ -1,0 +1,194 @@
+<system version="1">
+  <cpu host_hash="0xf0fb59ea5ac8dbc4" numaid="1" affinity="ffffffff,ffff0000,00000000" arch="x86_64" vendor="GenuineIntel" familyid="6" modelid="207">
+    <pci busid="0000:32:00.0" class="0x060400" vendor="0x10b5" device="0x9797" subsystem_vendor="0x0000" subsystem_device="0x0000" link_speed="32.0 GT/s PCIe" link_width="16">
+      <pci busid="0000:3a:00.0" class="0x060400" vendor="0x10b5" device="0x9797" subsystem_vendor="0x0000" subsystem_device="0x0000" link_speed="32.0 GT/s PCIe" link_width="16">
+        <pci busid="0000:3c:00.0" class="0x030200" vendor="0x1ded" device="0x6001" subsystem_vendor="0x1ded" subsystem_device="0x2004" link_speed="32.0 GT/s PCIe" link_width="8">
+          <gpu dev="0" sm="80" rank="0" gdr="1" net_affinity="3">
+            <icnlink target="0000:1b:00.0" count="1" bandwidth="53" tclass="0x030200"/>
+            <icnlink target="0000:37:00.0" count="2" bandwidth="106" tclass="0x030200"/>
+            <icnlink target="0000:3d:00.0" count="2" bandwidth="106" tclass="0x030200"/>
+            <icnlink target="0000:36:00.0" count="1" bandwidth="53" tclass="0x030200"/>
+            <icnlink target="0000:2d:00.0" count="1" bandwidth="53" tclass="0x030200"/>
+          </gpu>
+        </pci>
+        <pci busid="0000:3d:00.0" class="0x030200" vendor="0x1ded" device="0x6001" subsystem_vendor="0x1ded" subsystem_device="0x2004" link_speed="32.0 GT/s PCIe" link_width="8">
+          <gpu dev="1" sm="80" rank="1" gdr="1" net_affinity="3">
+            <icnlink target="0000:1c:00.0" count="1" bandwidth="53" tclass="0x030200"/>
+            <icnlink target="0000:36:00.0" count="2" bandwidth="106" tclass="0x030200"/>
+            <icnlink target="0000:37:00.0" count="1" bandwidth="53" tclass="0x030200"/>
+            <icnlink target="0000:3c:00.0" count="2" bandwidth="106" tclass="0x030200"/>
+            <icnlink target="0000:2c:00.0" count="1" bandwidth="53" tclass="0x030200"/>
+          </gpu>
+        </pci>
+      </pci>
+      <pci busid="0000:34:00.0" class="0x060400" vendor="0x10b5" device="0x9797" subsystem_vendor="0x0000" subsystem_device="0x0000" link_speed="32.0 GT/s PCIe" link_width="16">
+        <pci busid="0000:38:00.0" class="0x020700" vendor="0x1ded" device="0x2033" subsystem_vendor="0xdb08" subsystem_device="0x0000" link_speed="32.0 GT/s PCIe" link_width="8">
+          <nic>
+            <net name="vsolar_3" dev="3" speed="400000" port="1" guid="0xab0ecdfeff9d2502" maxconn="16384" gdr="1"/>
+          </nic>
+        </pci>
+        <pci busid="0000:36:00.0" class="0x030200" vendor="0x1ded" device="0x6001" subsystem_vendor="0x1ded" subsystem_device="0x2004" link_speed="32.0 GT/s PCIe" link_width="8">
+          <gpu dev="2" sm="80" rank="2" gdr="1" net_affinity="3">
+            <icnlink target="0000:15:00.0" count="2" bandwidth="106" tclass="0x030200"/>
+            <icnlink target="0000:3d:00.0" count="2" bandwidth="106" tclass="0x030200"/>
+            <icnlink target="0000:37:00.0" count="1" bandwidth="53" tclass="0x030200"/>
+            <icnlink target="0000:3c:00.0" count="1" bandwidth="53" tclass="0x030200"/>
+            <icnlink target="0000:27:00.0" count="1" bandwidth="53" tclass="0x030200"/>
+          </gpu>
+        </pci>
+        <pci busid="0000:37:00.0" class="0x030200" vendor="0x1ded" device="0x6001" subsystem_vendor="0x1ded" subsystem_device="0x2004" link_speed="32.0 GT/s PCIe" link_width="8">
+          <gpu dev="3" sm="80" rank="3" gdr="1" net_affinity="3">
+            <icnlink target="0000:16:00.0" count="2" bandwidth="106" tclass="0x030200"/>
+            <icnlink target="0000:3c:00.0" count="2" bandwidth="106" tclass="0x030200"/>
+            <icnlink target="0000:3d:00.0" count="1" bandwidth="53" tclass="0x030200"/>
+            <icnlink target="0000:36:00.0" count="1" bandwidth="53" tclass="0x030200"/>
+            <icnlink target="0000:26:00.0" count="1" bandwidth="53" tclass="0x030200"/>
+          </gpu>
+        </pci>
+      </pci>
+    </pci>
+    <pci busid="0000:22:00.0" class="0x060400" vendor="0x10b5" device="0x9797" subsystem_vendor="0x0000" subsystem_device="0x0000" link_speed="32.0 GT/s PCIe" link_width="16">
+      <pci busid="0000:24:00.0" class="0x060400" vendor="0x10b5" device="0x9797" subsystem_vendor="0x0000" subsystem_device="0x0000" link_speed="32.0 GT/s PCIe" link_width="16">
+        <pci busid="0000:28:00.0" class="0x020700" vendor="0x1ded" device="0x2033" subsystem_vendor="0xdb08" subsystem_device="0x0000" link_speed="32.0 GT/s PCIe" link_width="8">
+          <nic>
+            <net name="vsolar_2" dev="2" speed="400000" port="1" guid="0xbed323feff9d2502" maxconn="16384" gdr="1"/>
+          </nic>
+        </pci>
+        <pci busid="0000:26:00.0" class="0x030200" vendor="0x1ded" device="0x6001" subsystem_vendor="0x1ded" subsystem_device="0x2004" link_speed="32.0 GT/s PCIe" link_width="8">
+          <gpu dev="10" sm="80" rank="10" gdr="1" net_affinity="2">
+            <icnlink target="0000:05:00.0" count="2" bandwidth="106" tclass="0x030200"/>
+            <icnlink target="0000:2d:00.0" count="2" bandwidth="106" tclass="0x030200"/>
+            <icnlink target="0000:27:00.0" count="1" bandwidth="53" tclass="0x030200"/>
+            <icnlink target="0000:2c:00.0" count="1" bandwidth="53" tclass="0x030200"/>
+            <icnlink target="0000:37:00.0" count="1" bandwidth="53" tclass="0x030200"/>
+          </gpu>
+        </pci>
+        <pci busid="0000:27:00.0" class="0x030200" vendor="0x1ded" device="0x6001" subsystem_vendor="0x1ded" subsystem_device="0x2004" link_speed="32.0 GT/s PCIe" link_width="8">
+          <gpu dev="11" sm="80" rank="11" gdr="1" net_affinity="2">
+            <icnlink target="0000:06:00.0" count="2" bandwidth="106" tclass="0x030200"/>
+            <icnlink target="0000:2c:00.0" count="2" bandwidth="106" tclass="0x030200"/>
+            <icnlink target="0000:2d:00.0" count="1" bandwidth="53" tclass="0x030200"/>
+            <icnlink target="0000:26:00.0" count="1" bandwidth="53" tclass="0x030200"/>
+            <icnlink target="0000:36:00.0" count="1" bandwidth="53" tclass="0x030200"/>
+          </gpu>
+        </pci>
+      </pci>
+      <pci busid="0000:2a:00.0" class="0x060400" vendor="0x10b5" device="0x9797" subsystem_vendor="0x0000" subsystem_device="0x0000" link_speed="32.0 GT/s PCIe" link_width="16">
+        <pci busid="0000:2c:00.0" class="0x030200" vendor="0x1ded" device="0x6001" subsystem_vendor="0x1ded" subsystem_device="0x2004" link_speed="32.0 GT/s PCIe" link_width="8">
+          <gpu dev="8" sm="80" rank="8" gdr="1" net_affinity="2">
+            <icnlink target="0000:0b:00.0" count="1" bandwidth="53" tclass="0x030200"/>
+            <icnlink target="0000:27:00.0" count="2" bandwidth="106" tclass="0x030200"/>
+            <icnlink target="0000:2d:00.0" count="2" bandwidth="106" tclass="0x030200"/>
+            <icnlink target="0000:26:00.0" count="1" bandwidth="53" tclass="0x030200"/>
+            <icnlink target="0000:3d:00.0" count="1" bandwidth="53" tclass="0x030200"/>
+          </gpu>
+        </pci>
+        <pci busid="0000:2d:00.0" class="0x030200" vendor="0x1ded" device="0x6001" subsystem_vendor="0x1ded" subsystem_device="0x2004" link_speed="32.0 GT/s PCIe" link_width="8">
+          <gpu dev="9" sm="80" rank="9" gdr="1" net_affinity="2">
+            <icnlink target="0000:0c:00.0" count="1" bandwidth="53" tclass="0x030200"/>
+            <icnlink target="0000:26:00.0" count="2" bandwidth="106" tclass="0x030200"/>
+            <icnlink target="0000:27:00.0" count="1" bandwidth="53" tclass="0x030200"/>
+            <icnlink target="0000:2c:00.0" count="2" bandwidth="106" tclass="0x030200"/>
+            <icnlink target="0000:3c:00.0" count="1" bandwidth="53" tclass="0x030200"/>
+          </gpu>
+        </pci>
+      </pci>
+    </pci>
+  </cpu>
+  <cpu host_hash="0xf0fb59ea5ac8dbc4" numaid="0" affinity="00000000,0000ffff,ffffffff" arch="x86_64" vendor="GenuineIntel" familyid="6" modelid="207">
+    <pci busid="0000:11:00.0" class="0x060400" vendor="0x10b5" device="0x9797" subsystem_vendor="0x0000" subsystem_device="0x0000" link_speed="32.0 GT/s PCIe" link_width="16">
+      <pci busid="0000:13:00.0" class="0x060400" vendor="0x10b5" device="0x9797" subsystem_vendor="0x0000" subsystem_device="0x0000" link_speed="32.0 GT/s PCIe" link_width="16">
+        <pci busid="0000:17:00.0" class="0x020700" vendor="0x1ded" device="0x2033" subsystem_vendor="0xdb08" subsystem_device="0x0000" link_speed="32.0 GT/s PCIe" link_width="8">
+          <nic>
+            <net name="vsolar_1" dev="1" speed="400000" port="1" guid="0x6e0b0cfeff9d2502" maxconn="16384" gdr="1"/>
+          </nic>
+        </pci>
+        <pci busid="0000:15:00.0" class="0x030200" vendor="0x1ded" device="0x6001" subsystem_vendor="0x1ded" subsystem_device="0x2004" link_speed="32.0 GT/s PCIe" link_width="8">
+          <gpu dev="6" sm="80" rank="6" gdr="1" net_affinity="1">
+            <icnlink target="0000:36:00.0" count="2" bandwidth="106" tclass="0x030200"/>
+            <icnlink target="0000:1c:00.0" count="2" bandwidth="106" tclass="0x030200"/>
+            <icnlink target="0000:16:00.0" count="1" bandwidth="53" tclass="0x030200"/>
+            <icnlink target="0000:1b:00.0" count="1" bandwidth="53" tclass="0x030200"/>
+            <icnlink target="0000:06:00.0" count="1" bandwidth="53" tclass="0x030200"/>
+          </gpu>
+        </pci>
+        <pci busid="0000:16:00.0" class="0x030200" vendor="0x1ded" device="0x6001" subsystem_vendor="0x1ded" subsystem_device="0x2004" link_speed="32.0 GT/s PCIe" link_width="8">
+          <gpu dev="7" sm="80" rank="7" gdr="1" net_affinity="1">
+            <icnlink target="0000:37:00.0" count="2" bandwidth="106" tclass="0x030200"/>
+            <icnlink target="0000:1b:00.0" count="2" bandwidth="106" tclass="0x030200"/>
+            <icnlink target="0000:1c:00.0" count="1" bandwidth="53" tclass="0x030200"/>
+            <icnlink target="0000:15:00.0" count="1" bandwidth="53" tclass="0x030200"/>
+            <icnlink target="0000:05:00.0" count="1" bandwidth="53" tclass="0x030200"/>
+          </gpu>
+        </pci>
+      </pci>
+      <pci busid="0000:19:00.0" class="0x060400" vendor="0x10b5" device="0x9797" subsystem_vendor="0x0000" subsystem_device="0x0000" link_speed="32.0 GT/s PCIe" link_width="16">
+        <pci busid="0000:1b:00.0" class="0x030200" vendor="0x1ded" device="0x6001" subsystem_vendor="0x1ded" subsystem_device="0x2004" link_speed="32.0 GT/s PCIe" link_width="8">
+          <gpu dev="4" sm="80" rank="4" gdr="1" net_affinity="1">
+            <icnlink target="0000:3c:00.0" count="1" bandwidth="53" tclass="0x030200"/>
+            <icnlink target="0000:16:00.0" count="2" bandwidth="106" tclass="0x030200"/>
+            <icnlink target="0000:1c:00.0" count="2" bandwidth="106" tclass="0x030200"/>
+            <icnlink target="0000:15:00.0" count="1" bandwidth="53" tclass="0x030200"/>
+            <icnlink target="0000:0c:00.0" count="1" bandwidth="53" tclass="0x030200"/>
+          </gpu>
+        </pci>
+        <pci busid="0000:1c:00.0" class="0x030200" vendor="0x1ded" device="0x6001" subsystem_vendor="0x1ded" subsystem_device="0x2004" link_speed="32.0 GT/s PCIe" link_width="8">
+          <gpu dev="5" sm="80" rank="5" gdr="1" net_affinity="1">
+            <icnlink target="0000:3d:00.0" count="1" bandwidth="53" tclass="0x030200"/>
+            <icnlink target="0000:15:00.0" count="2" bandwidth="106" tclass="0x030200"/>
+            <icnlink target="0000:16:00.0" count="1" bandwidth="53" tclass="0x030200"/>
+            <icnlink target="0000:1b:00.0" count="2" bandwidth="106" tclass="0x030200"/>
+            <icnlink target="0000:0b:00.0" count="1" bandwidth="53" tclass="0x030200"/>
+          </gpu>
+        </pci>
+      </pci>
+    </pci>
+    <pci busid="0000:01:00.0" class="0x060400" vendor="0x10b5" device="0x9797" subsystem_vendor="0x0000" subsystem_device="0x0000" link_speed="32.0 GT/s PCIe" link_width="16">
+      <pci busid="0000:03:00.0" class="0x060400" vendor="0x10b5" device="0x9797" subsystem_vendor="0x0000" subsystem_device="0x0000" link_speed="32.0 GT/s PCIe" link_width="16">
+        <pci busid="0000:07:00.0" class="0x020700" vendor="0x1ded" device="0x2033" subsystem_vendor="0xdb08" subsystem_device="0x0000" link_speed="32.0 GT/s PCIe" link_width="8">
+          <nic>
+            <net name="vsolar_0" dev="0" speed="400000" port="1" guid="0x4d4a19feff9d2502" maxconn="16384" gdr="1"/>
+          </nic>
+        </pci>
+        <pci busid="0000:05:00.0" class="0x030200" vendor="0x1ded" device="0x6001" subsystem_vendor="0x1ded" subsystem_device="0x2004" link_speed="32.0 GT/s PCIe" link_width="8">
+          <gpu dev="14" sm="80" rank="14" gdr="1" net_affinity="0">
+            <icnlink target="0000:26:00.0" count="2" bandwidth="106" tclass="0x030200"/>
+            <icnlink target="0000:0c:00.0" count="2" bandwidth="106" tclass="0x030200"/>
+            <icnlink target="0000:06:00.0" count="1" bandwidth="53" tclass="0x030200"/>
+            <icnlink target="0000:0b:00.0" count="1" bandwidth="53" tclass="0x030200"/>
+            <icnlink target="0000:16:00.0" count="1" bandwidth="53" tclass="0x030200"/>
+          </gpu>
+        </pci>
+        <pci busid="0000:06:00.0" class="0x030200" vendor="0x1ded" device="0x6001" subsystem_vendor="0x1ded" subsystem_device="0x2004" link_speed="32.0 GT/s PCIe" link_width="8">
+          <gpu dev="15" sm="80" rank="15" gdr="1" net_affinity="0">
+            <icnlink target="0000:27:00.0" count="2" bandwidth="106" tclass="0x030200"/>
+            <icnlink target="0000:0b:00.0" count="2" bandwidth="106" tclass="0x030200"/>
+            <icnlink target="0000:0c:00.0" count="1" bandwidth="53" tclass="0x030200"/>
+            <icnlink target="0000:05:00.0" count="1" bandwidth="53" tclass="0x030200"/>
+            <icnlink target="0000:15:00.0" count="1" bandwidth="53" tclass="0x030200"/>
+          </gpu>
+        </pci>
+      </pci>
+      <pci busid="0000:09:00.0" class="0x060400" vendor="0x10b5" device="0x9797" subsystem_vendor="0x0000" subsystem_device="0x0000" link_speed="32.0 GT/s PCIe" link_width="16">
+        <pci busid="0000:0b:00.0" class="0x030200" vendor="0x1ded" device="0x6001" subsystem_vendor="0x1ded" subsystem_device="0x2004" link_speed="32.0 GT/s PCIe" link_width="8">
+          <gpu dev="12" sm="80" rank="12" gdr="1" net_affinity="0">
+            <icnlink target="0000:2c:00.0" count="1" bandwidth="53" tclass="0x030200"/>
+            <icnlink target="0000:06:00.0" count="2" bandwidth="106" tclass="0x030200"/>
+            <icnlink target="0000:0c:00.0" count="2" bandwidth="106" tclass="0x030200"/>
+            <icnlink target="0000:05:00.0" count="1" bandwidth="53" tclass="0x030200"/>
+            <icnlink target="0000:1c:00.0" count="1" bandwidth="53" tclass="0x030200"/>
+          </gpu>
+        </pci>
+        <pci busid="0000:0c:00.0" class="0x030200" vendor="0x1ded" device="0x6001" subsystem_vendor="0x1ded" subsystem_device="0x2004" link_speed="32.0 GT/s PCIe" link_width="8">
+          <gpu dev="13" sm="80" rank="13" gdr="1" net_affinity="0">
+            <icnlink target="0000:2d:00.0" count="1" bandwidth="53" tclass="0x030200"/>
+            <icnlink target="0000:05:00.0" count="2" bandwidth="106" tclass="0x030200"/>
+            <icnlink target="0000:06:00.0" count="1" bandwidth="53" tclass="0x030200"/>
+            <icnlink target="0000:0b:00.0" count="2" bandwidth="106" tclass="0x030200"/>
+            <icnlink target="0000:1b:00.0" count="1" bandwidth="53" tclass="0x030200"/>
+          </gpu>
+        </pci>
+      </pci>
+    </pci>
+  </cpu>
+</system>

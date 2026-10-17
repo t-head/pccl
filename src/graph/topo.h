@@ -160,6 +160,7 @@ struct ncclTopoSystem {
   float totalWidth;
   float totalNetWidth;
   int icnFullyConnected; // all devices in this topo can connect through icnlink
+  bool enablePxbToPxn; // allow PIX peers for PXB PPU->NIC paths
 };
 
 struct ncclHostNeighborInfo {

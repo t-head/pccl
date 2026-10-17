@@ -8,7 +8,8 @@
 #*************************************************************************
 
 
-INSTALL_PATH=${PWD}/3rd_party
+set -euo pipefail
+INSTALL_PATH=$(cd "$(dirname "${BASH_SOURCE[0]}")/.." && pwd)/3rd_party
 DOWNLOAD_PATH=${INSTALL_PATH}/download
 
 # create install dir
@@ -26,7 +27,7 @@ fi
 setup_gtest() {
     GTEST_PATH=${INSTALL_PATH}/gtest
 
-    if [ -d "${GTEST_PATH}" ]
+    if [ -s "${GTEST_PATH}/lib/libgtest.a" ]
     then
         echo "GTest installed!"
         return
@@ -44,7 +45,7 @@ setup_gtest() {
         wget ${GTEST_SRC_FILE} -O ${GTEST_ZIP_FILE}
     fi
 
-    unzip ${GTEST_ZIP_FILE}
+    unzip -o ${GTEST_ZIP_FILE}
 
     GTEST_SRC_PATH=${DOWNLOAD_PATH}/googletest-release-1.7.0
     chmod +x ${GTEST_SRC_PATH}
