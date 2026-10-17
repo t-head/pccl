@@ -11,7 +11,7 @@
 #include "gin_device_common.h"
 
 #if PCCL_GIN_GDAKI_ENABLE
-#include "gdaki/gin_gdaki.h"
+#include "gin_gdaki.h"
 #endif
 #if PCCL_GIN_PROXY_ENABLE
 #include "proxy/gin_proxy.h"

@@ -351,7 +351,9 @@ ncclResult_t ncclIbInit(ncclDebugLogger_t logFunction) {
             ncclIbDevs[ncclNIbDevs].ar = ncclParamIbAdaptiveRouting();
           }
           ncclIbDevs[ncclNIbDevs].oooRqSize = oooRqSize;
-          ncclIbDevs[ncclNIbDevs].ibProvider = IB_PROVIDER_MLX5;
+          // An unknown verbs provider must not be handed to the mlx5 GPU WQE
+          // implementation. GIN can still use its proxy backend if supported.
+          ncclIbDevs[ncclNIbDevs].ibProvider = ncclIbProviderFromName(devices[d]->name);
           ncclIbDevs[ncclNIbDevs].pd = NULL;
           ncclIbDevs[ncclNIbDevs].dmaBufSupported = -1;
           NCCLCHECK(ncclIbStatsInit(&ncclIbDevs[ncclNIbDevs].stats));

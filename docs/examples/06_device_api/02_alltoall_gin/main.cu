@@ -103,6 +103,8 @@ __global__ void PureGinAlltoAllKernel(pcclWindow_t sendwin, size_t sendoffset,
 
   gin.flush(pcclCoopCta());
   bar.sync(pcclCoopCta(), hggc::memory_order_release, pcclGinFenceLevel::Relaxed);
+  // Complete the final barrier notifications before host-side context teardown.
+  gin.flush(pcclCoopCta());
 }
 
 // ==========================================================================

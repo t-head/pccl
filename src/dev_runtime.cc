@@ -1021,18 +1021,6 @@ bool ncclGinResourcesRequested(struct ncclDevCommRequirements const* reqs) {
   return requestedGinResources;
 }
 
-#include "pccl_device/gin/gdaki/gin_gdaki_device_host_common.h"
-static void ncclDevCommGdakiDump(void* handle) {
-  struct ncclGinGdakiGPUContext ctx;
-  if (hggcMemcpy(&ctx, handle, sizeof(ctx), hggcMemcpyDeviceToHost) == hggcSuccess) {
-    printf("    GDAKI qp %p companion qp %p sink buffer lkey %x\n", ctx.gdqp, ctx.companion_gdqp, ctx.sink_buffer_lkey);
-    printf("    GDAKI counters %p rkeys %p lkey %x offset %d\n", ctx.counters_table.buffer,
-        ctx.counters_table.rkeys, ctx.counters_table.lkey, ctx.counters_table.offset);
-    printf("    GDAKI signals  %p rkeys %p lkey %x offset %d\n", ctx.signals_table.buffer,
-        ctx.signals_table.rkeys, ctx.signals_table.lkey, ctx.signals_table.offset);
-  }
-}
-
 #include "pccl_device/gin/proxy/gin_proxy_device_host_common.h"
 static void ncclDevCommProxyDump(void* handle) {
   ncclGinProxyGpuCtx_t ctx;
@@ -1052,7 +1040,7 @@ void ncclDevCommDump(struct ncclDevComm* devComm) {
   printf("  Connections %d\n", devComm->ginConnectionCount);
   for (int c=0; c<devComm->ginConnectionCount; c++) {
     printf("   [%d] %d %p\n", c, devComm->ginNetDeviceTypes[c], devComm->ginHandles[c]);
-    if (devComm->ginNetDeviceTypes[c] == NCCL_GIN_TYPE_GDAKI) ncclDevCommGdakiDump(devComm->ginHandles[c]);
+    if (devComm->ginNetDeviceTypes[c] == NCCL_GIN_TYPE_GDAKI) ncclGinGdakiDump(devComm->ginHandles[c]);
     if (devComm->ginNetDeviceTypes[c] == NCCL_GIN_TYPE_PROXY) ncclDevCommProxyDump(devComm->ginHandles[c]);
   }
   printf("  Signals  %d shadows %p\n", devComm->ginSignalCount, devComm->ginSignalShadows);

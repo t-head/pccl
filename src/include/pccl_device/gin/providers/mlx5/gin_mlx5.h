@@ -6,8 +6,8 @@
  * See LICENSE.txt for more license information
  *************************************************************************/
 
-#ifndef _PCCL_DEVICE_GIN_GDAKI_H_
-#define _PCCL_DEVICE_GIN_GDAKI_H_
+#ifndef _PCCL_DEVICE_GIN_GDAKI_MLX_H_
+#define _PCCL_DEVICE_GIN_GDAKI_MLX_H_
 
 #include <cstdint>
 #ifndef DOCA_VERBS_USE_HGGC_WRAPPER
@@ -22,8 +22,8 @@
 #define DOCA_GPUNETIO_VERBS_ENABLE_DEBUG 1
 #endif
 
-#include "../gin_device_common.h"
-#include "gin_gdaki_device_host_common.h"
+#include "../../gin_gdaki_device_common.h"
+#include "gin_mlx5_device_host_common.h"
 
 // DOCA-GPUNetIO is third-party (NVIDIA): its packed-typedef structs draw
 // Silence -Wignored-attributes for the doca_gpunetio include (the structs
@@ -33,12 +33,12 @@
 #include "doca_gpunetio/doca_gpunetio_device.h"
 #pragma GCC diagnostic pop
 
-struct pcclGinGdakiRequest {
+struct pcclGinGdakiMlxRequest {
   int peer;
   doca_gpu_dev_verbs_ticket_t docaTicket;
 };
-static_assert(sizeof(pcclGinGdakiRequest) <= sizeof(pcclGinRequest_t),
-              "pcclGinGdakiRequest must fit in pcclGinRequest_t");
+static_assert(sizeof(pcclGinGdakiMlxRequest) <= sizeof(pcclGinRequest_t),
+              "pcclGinGdakiMlxRequest must fit in pcclGinRequest_t");
 
 #ifdef PCCL_DEVICE_GIN_GDAKI_ENABLE_DEBUG
 #include <stdio.h>
@@ -46,7 +46,7 @@ static_assert(sizeof(pcclGinGdakiRequest) <= sizeof(pcclGinRequest_t),
 
 namespace pccl {
 namespace gin {
-namespace gdaki {
+namespace gdaki_mlx {
 
 PCCL_DEVICE_INLINE uint32_t docaOptFlagsFromGinOptFlags(uint32_t ginOptFlags) {
   return DOCA_GPUNETIO_VERBS_GPU_CODE_OPT_DEFAULT
@@ -66,8 +66,8 @@ template <enum doca_gpu_dev_verbs_resource_sharing_mode resource_sharing_mode>
 PCCL_DEVICE_INLINE static void putGroupThreadBeginMode(
     pcclGinCtx ctx, int peer, uint32_t count, PutGroupThread* group) {
   using pccl::utility::loadConst;
-  pcclGinGdakiGPUContext* gdaki =
-    &((struct pcclGinGdakiGPUContext*)ctx.handle)[ctx.contextId];
+  pcclGinGdakiMlxGPUContext* gdaki =
+    &((struct pcclGinGdakiMlxGPUContext*)ctx.handle)[ctx.contextId];
   doca_gpu_dev_verbs_qp* qp = loadConst(&gdaki->gdqp) + peer;
   doca_gpu_dev_verbs_put_group_thread_begin<resource_sharing_mode>(
     qp, count, &group->docaGroup);
@@ -93,8 +93,8 @@ PCCL_DEVICE_INLINE static void putGroupThreadPrepare(
     pcclGinWindow_t dstWin, size_t dstOff,
     pcclGinWindow_t srcWin, size_t srcOff, size_t bytes) {
   using pccl::utility::loadConst;
-  pcclGinGdakiMemHandle* dstMh = (pcclGinGdakiMemHandle*)dstWin;
-  pcclGinGdakiMemHandle* srcMh = (pcclGinGdakiMemHandle*)srcWin;
+  pcclGinGdakiMlxMemHandle* dstMh = (pcclGinGdakiMlxMemHandle*)dstWin;
+  pcclGinGdakiMlxMemHandle* srcMh = (pcclGinGdakiMlxMemHandle*)srcWin;
   doca_gpu_dev_verbs_addr raddr, laddr;
   raddr.addr = dstOff;
   raddr.key = loadConst(loadConst(&dstMh->rkeys) + group->peer);
@@ -152,12 +152,12 @@ PCCL_DEVICE_INLINE static void putImplMode(pcclGinCtx ctx, Coop coop, int peer, 
   using pccl::utility::loadConst;
   coop.sync();
   if (coop.thread_rank() == 0) {
-    pcclGinGdakiGPUContext* gdaki = &((struct pcclGinGdakiGPUContext*)ctx.handle)[ctx.contextId];
+    pcclGinGdakiMlxGPUContext* gdaki = &((struct pcclGinGdakiMlxGPUContext*)ctx.handle)[ctx.contextId];
     doca_gpu_dev_verbs_qp* qp = loadConst(&gdaki->gdqp) + peer;
     doca_gpu_dev_verbs_qp* companion_qp;
-    pcclGinGdakiMemHandle* dstMh = (pcclGinGdakiMemHandle*)dstWin;
-    pcclGinGdakiMemHandle* srcMh = (pcclGinGdakiMemHandle*)srcWin;
-    uint32_t codeOpt = pccl::gin::gdaki::docaOptFlagsFromGinOptFlags(optFlags);
+    pcclGinGdakiMlxMemHandle* dstMh = (pcclGinGdakiMlxMemHandle*)dstWin;
+    pcclGinGdakiMlxMemHandle* srcMh = (pcclGinGdakiMlxMemHandle*)srcWin;
+    uint32_t codeOpt = pccl::gin::gdaki_mlx::docaOptFlagsFromGinOptFlags(optFlags);
 
     doca_gpu_dev_verbs_addr raddr, laddr;
     if (hasWins) {
@@ -262,10 +262,10 @@ PCCL_DEVICE_INLINE static void putValueImplMode(pcclGinCtx ctx, Coop coop, int p
 
   coop.sync();
   if (coop.thread_rank() == 0) {
-    pcclGinGdakiGPUContext* gdaki = &((struct pcclGinGdakiGPUContext*)ctx.handle)[ctx.contextId];
+    pcclGinGdakiMlxGPUContext* gdaki = &((struct pcclGinGdakiMlxGPUContext*)ctx.handle)[ctx.contextId];
     doca_gpu_dev_verbs_qp* qp = loadConst(&gdaki->gdqp) + peer;
-    pcclGinGdakiMemHandle* dstMh = (pcclGinGdakiMemHandle*)dstWin;
-    uint32_t codeOpt = pccl::gin::gdaki::docaOptFlagsFromGinOptFlags(optFlags);
+    pcclGinGdakiMlxMemHandle* dstMh = (pcclGinGdakiMlxMemHandle*)dstWin;
+    uint32_t codeOpt = pccl::gin::gdaki_mlx::docaOptFlagsFromGinOptFlags(optFlags);
 
     doca_gpu_dev_verbs_addr raddr;
     raddr.addr = dstOff;
@@ -324,12 +324,12 @@ PCCL_DEVICE_INLINE static void putValueImpl(pcclGinCtx ctx, Coop coop, int peer,
   }
 }
 
-} // namespace gdaki
+} // namespace gdaki_mlx
 } // namespace gin
 } // namespace pccl
 
 template <>
-struct pcclGinApi_Get<PCCL_NET_DEVICE_GIN_GDAKI> {
+struct pcclGinGdakiApi_Get<PCCL_GIN_GDAKI_PROVIDER_MLX5> {
   template <typename Coop>
   PCCL_DEVICE_INLINE static void call(pcclGinCtx ctx, Coop coop, int peer, pcclGinWindow_t remoteWin, size_t remoteOff,
                                       pcclGinWindow_t localWin, size_t localOff, size_t bytes,
@@ -338,10 +338,10 @@ struct pcclGinApi_Get<PCCL_NET_DEVICE_GIN_GDAKI> {
     using pccl::utility::loadConst;
     coop.sync();
     if (coop.thread_rank() == 0) {
-      pcclGinGdakiGPUContext* gdaki = &((struct pcclGinGdakiGPUContext*)ctx.handle)[ctx.contextId];
+      pcclGinGdakiMlxGPUContext* gdaki = &((struct pcclGinGdakiMlxGPUContext*)ctx.handle)[ctx.contextId];
       doca_gpu_dev_verbs_qp* qp = loadConst(&gdaki->gdqp) + peer;
-      pcclGinGdakiMemHandle* remoteMh = (pcclGinGdakiMemHandle*)remoteWin;
-      pcclGinGdakiMemHandle* localMh = (pcclGinGdakiMemHandle*)localWin;
+      pcclGinGdakiMlxMemHandle* remoteMh = (pcclGinGdakiMlxMemHandle*)remoteWin;
+      pcclGinGdakiMlxMemHandle* localMh = (pcclGinGdakiMlxMemHandle*)localWin;
       doca_gpu_dev_verbs_addr raddr, laddr;
       raddr.addr = remoteOff;
       raddr.key = loadConst(loadConst(&remoteMh->rkeys) + peer);
@@ -349,7 +349,7 @@ struct pcclGinApi_Get<PCCL_NET_DEVICE_GIN_GDAKI> {
       laddr.key = loadConst(&localMh->lkey);
       doca_gpu_dev_verbs_addr uninitialized_daddr{};
       doca_gpu_dev_verbs_ticket_t unused_out_ticket;
-      uint32_t codeOpt = pccl::gin::gdaki::docaOptFlagsFromGinOptFlags(optFlags);
+      uint32_t codeOpt = pccl::gin::gdaki_mlx::docaOptFlagsFromGinOptFlags(optFlags);
       doca_gpu_dev_verbs_get(
           qp, raddr, laddr, bytes, uninitialized_daddr, &unused_out_ticket, codeOpt);
     }
@@ -358,12 +358,12 @@ struct pcclGinApi_Get<PCCL_NET_DEVICE_GIN_GDAKI> {
 };
 
 template <>
-struct pcclGinApi_FlushAsync<PCCL_NET_DEVICE_GIN_GDAKI> {
+struct pcclGinGdakiApi_FlushAsync<PCCL_GIN_GDAKI_PROVIDER_MLX5> {
   PCCL_DEVICE_INLINE static void call(pcclGinCtx ctx, int peer, pcclGinRequest_t* outRequest, uint32_t optFlags) {
     using pccl::utility::loadConst;
-    pcclGinGdakiRequest* req = reinterpret_cast<pcclGinGdakiRequest*>(outRequest);
+    pcclGinGdakiMlxRequest* req = reinterpret_cast<pcclGinGdakiMlxRequest*>(outRequest);
     req->peer = peer;
-    pcclGinGdakiGPUContext* gdaki = &((struct pcclGinGdakiGPUContext*)ctx.handle)[ctx.contextId];
+    pcclGinGdakiMlxGPUContext* gdaki = &((struct pcclGinGdakiMlxGPUContext*)ctx.handle)[ctx.contextId];
     doca_gpu_dev_verbs_qp* qp = loadConst(&gdaki->gdqp) + peer;
     doca_gpu_dev_verbs_addr daddr;
     daddr.addr = 0;
@@ -376,14 +376,14 @@ struct pcclGinApi_FlushAsync<PCCL_NET_DEVICE_GIN_GDAKI> {
 };
 
 template <>
-struct pcclGinApi_Wait<PCCL_NET_DEVICE_GIN_GDAKI> {
+struct pcclGinGdakiApi_Wait<PCCL_GIN_GDAKI_PROVIDER_MLX5> {
   PCCL_DEVICE_INLINE static void call(pcclGinCtx ctx, pcclGinRequest_t& request, bool hasDescriptor,
                                       pcclGinDescriptorSmem* descriptor, hggc::memory_order ord, uint32_t* abortFlag) {
     (void)ord; // Ignore. DOCA already guarantees memory_order_acquire
     using pccl::utility::loadConst;
     using pccl::utility::testAbort;
-    pcclGinGdakiRequest& req = reinterpret_cast<pcclGinGdakiRequest&>(request);
-    pcclGinGdakiGPUContext* gdaki = &((struct pcclGinGdakiGPUContext*)ctx.handle)[ctx.contextId];
+    pcclGinGdakiMlxRequest& req = reinterpret_cast<pcclGinGdakiMlxRequest&>(request);
+    pcclGinGdakiMlxGPUContext* gdaki = &((struct pcclGinGdakiMlxGPUContext*)ctx.handle)[ctx.contextId];
     doca_gpu_dev_verbs_qp* qp = loadConst(&gdaki->gdqp) + req.peer;
     if (abortFlag) {
       uint32_t steps = 0;
@@ -398,7 +398,7 @@ struct pcclGinApi_Wait<PCCL_NET_DEVICE_GIN_GDAKI> {
 };
 
 template <>
-struct pcclGinApi_Put<PCCL_NET_DEVICE_GIN_GDAKI> {
+struct pcclGinGdakiApi_Put<PCCL_GIN_GDAKI_PROVIDER_MLX5> {
   template <typename Coop>
   PCCL_DEVICE_INLINE static void call(pcclGinCtx ctx, Coop coop, int peer, bool hasWins,
                                       pcclGinWindow_t dstWin, size_t dstOff, pcclGinWindow_t srcWin,
@@ -414,15 +414,15 @@ struct pcclGinApi_Put<PCCL_NET_DEVICE_GIN_GDAKI> {
     __be32 signalKey = 0;
     bool hasSignal = signal.type != PCCL_GIN_SIGNAL_TYPE_NONE;
     if (signal.type == PCCL_GIN_SIGNAL_TYPE_INDEXED) {
-      pcclGinGdakiGPUContext* gdaki = &((struct pcclGinGdakiGPUContext*)ctx.handle)[ctx.contextId];
+      pcclGinGdakiMlxGPUContext* gdaki = &((struct pcclGinGdakiMlxGPUContext*)ctx.handle)[ctx.contextId];
       signalOffset = sizeof(uint64_t) * (signal.indexedSignal.signalId + loadConst(&gdaki->signals_table.offset));
       signalKey = loadConst(loadConst(&gdaki->signals_table.rkeys) + peer);
     } else if (signal.type == PCCL_GIN_SIGNAL_TYPE_VA) {
-      pcclGinGdakiMemHandle* signalMh = (pcclGinGdakiMemHandle*)signal.vaSignal.signalWindow;
+      pcclGinGdakiMlxMemHandle* signalMh = (pcclGinGdakiMlxMemHandle*)signal.vaSignal.signalWindow;
       signalKey = loadConst(loadConst(&signalMh->rkeys) + peer);
       signalOffset = signal.vaSignal.signalOffset;
     }
-    pccl::gin::gdaki::putImpl(
+    pccl::gin::gdaki_mlx::putImpl(
       ctx, coop, peer, hasWins, dstWin, dstOff, srcWin, srcOff, bytes,
       hasSignal, signalOffset, signalKey, signalOp, signalOpArg,
       hasCounter, counterId, hasDescriptor, descriptor,
@@ -432,7 +432,7 @@ struct pcclGinApi_Put<PCCL_NET_DEVICE_GIN_GDAKI> {
 };
 
 template <>
-struct pcclGinApi_PutValue<PCCL_NET_DEVICE_GIN_GDAKI> {
+struct pcclGinGdakiApi_PutValue<PCCL_GIN_GDAKI_PROVIDER_MLX5> {
   template <typename Coop, typename T>
   PCCL_DEVICE_INLINE static void call(pcclGinCtx ctx, Coop coop, int peer, pcclGinWindow_t dstWin,
                                       size_t dstOff, T srcVal,
@@ -446,15 +446,15 @@ struct pcclGinApi_PutValue<PCCL_NET_DEVICE_GIN_GDAKI> {
     __be32 signalKey = 0;
     bool hasSignal = signal.type != PCCL_GIN_SIGNAL_TYPE_NONE;
     if (signal.type == PCCL_GIN_SIGNAL_TYPE_VA) {
-      pcclGinGdakiMemHandle* signalMh = (pcclGinGdakiMemHandle*)signal.vaSignal.signalWindow;
+      pcclGinGdakiMlxMemHandle* signalMh = (pcclGinGdakiMlxMemHandle*)signal.vaSignal.signalWindow;
       signalKey = loadConst(loadConst(&signalMh->rkeys) + peer);
       signalOffset = signal.vaSignal.signalOffset;
     } else if (signal.type == PCCL_GIN_SIGNAL_TYPE_INDEXED) {
-      pcclGinGdakiGPUContext* gdaki = &((struct pcclGinGdakiGPUContext*)ctx.handle)[ctx.contextId];
+      pcclGinGdakiMlxGPUContext* gdaki = &((struct pcclGinGdakiMlxGPUContext*)ctx.handle)[ctx.contextId];
       signalOffset = sizeof(uint64_t) * (signal.indexedSignal.signalId + loadConst(&gdaki->signals_table.offset));
       signalKey = loadConst(loadConst(&gdaki->signals_table.rkeys) + peer);
     }
-    pccl::gin::gdaki::putValueImpl(
+    pccl::gin::gdaki_mlx::putValueImpl(
       ctx, coop, peer, dstWin, dstOff, srcVal,
       hasSignal, signalOffset, signalKey, signalOp, signalOpArg,
       hasDescriptor, descriptor, required, given, optFlags
@@ -463,55 +463,55 @@ struct pcclGinApi_PutValue<PCCL_NET_DEVICE_GIN_GDAKI> {
 };
 
 template <>
-struct pcclGinApi_ResetCounter<PCCL_NET_DEVICE_GIN_GDAKI> {
+struct pcclGinGdakiApi_ResetCounter<PCCL_GIN_GDAKI_PROVIDER_MLX5> {
   PCCL_DEVICE_INLINE static void call(pcclGinCtx ctx, pcclGinCounter_t counterId) {
     using pccl::utility::loadConst;
-    pcclGinGdakiGPUContext* gdaki = &((struct pcclGinGdakiGPUContext*)ctx.handle)[ctx.contextId];
+    pcclGinGdakiMlxGPUContext* gdaki = &((struct pcclGinGdakiMlxGPUContext*)ctx.handle)[ctx.contextId];
     loadConst(&gdaki->counters_table.buffer)[counterId] = 0;
   }
 };
 
 template <>
-struct pcclGinApi_ResetSignal<PCCL_NET_DEVICE_GIN_GDAKI> {
+struct pcclGinGdakiApi_ResetSignal<PCCL_GIN_GDAKI_PROVIDER_MLX5> {
   PCCL_DEVICE_INLINE static void call(pcclGinCtx ctx, pcclGinSignalDescriptor signal) {
     using pccl::utility::loadConst;
     if (signal.type == PCCL_GIN_SIGNAL_TYPE_VA) {
       uint64_t* signalPtr = (uint64_t*)pcclGetLocalPointer(signal.vaSignal.pcclWindow, signal.vaSignal.signalOffset);
       *signalPtr = 0;
     } else {
-      pcclGinGdakiGPUContext* gdaki = &((struct pcclGinGdakiGPUContext*)ctx.handle)[ctx.contextId];
+      pcclGinGdakiMlxGPUContext* gdaki = &((struct pcclGinGdakiMlxGPUContext*)ctx.handle)[ctx.contextId];
       loadConst(&gdaki->signals_table.buffer)[signal.indexedSignal.signalId] = 0;
     }
   }
 };
 
 template <>
-struct pcclGinApi_GetCounterPtr<PCCL_NET_DEVICE_GIN_GDAKI> {
+struct pcclGinGdakiApi_GetCounterPtr<PCCL_GIN_GDAKI_PROVIDER_MLX5> {
   PCCL_DEVICE_INLINE static uint64_t* call(pcclGinCtx ctx, pcclGinCounter_t counterId) {
     using pccl::utility::loadConst;
-    pcclGinGdakiGPUContext* gdaki = &((struct pcclGinGdakiGPUContext*)ctx.handle)[ctx.contextId];
+    pcclGinGdakiMlxGPUContext* gdaki = &((struct pcclGinGdakiMlxGPUContext*)ctx.handle)[ctx.contextId];
     return loadConst(&gdaki->counters_table.buffer) + counterId;
   }
 };
 
 template <>
-struct pcclGinApi_GetSignalPtr<PCCL_NET_DEVICE_GIN_GDAKI> {
+struct pcclGinGdakiApi_GetSignalPtr<PCCL_GIN_GDAKI_PROVIDER_MLX5> {
   PCCL_DEVICE_INLINE static uint64_t* call(pcclGinCtx ctx, pcclGinSignal_t signalId) {
     using pccl::utility::loadConst;
-    pcclGinGdakiGPUContext* gdaki = &((struct pcclGinGdakiGPUContext*)ctx.handle)[ctx.contextId];
+    pcclGinGdakiMlxGPUContext* gdaki = &((struct pcclGinGdakiMlxGPUContext*)ctx.handle)[ctx.contextId];
     return loadConst(&gdaki->signals_table.buffer) + signalId;
   }
 };
 
 template <>
-struct pcclGinApi_Flush<PCCL_NET_DEVICE_GIN_GDAKI> {
+struct pcclGinGdakiApi_Flush<PCCL_GIN_GDAKI_PROVIDER_MLX5> {
   template <typename Coop>
   PCCL_DEVICE_INLINE static void call(pcclGinCtx ctx, Coop coop, hggc::memory_order ord, uint32_t* abortFlag) {
     (void)ord; // Ignore. DOCA already guarantees memory_order_acquire
     using pccl::utility::loadConst;
     using pccl::utility::testAbort;
 
-    pcclGinGdakiGPUContext* gdaki = &((struct pcclGinGdakiGPUContext*)ctx.handle)[ctx.contextId];
+    pcclGinGdakiMlxGPUContext* gdaki = &((struct pcclGinGdakiMlxGPUContext*)ctx.handle)[ctx.contextId];
     doca_gpu_dev_verbs_qp* qps = loadConst(&gdaki->gdqp);
 
     if (abortFlag) {
@@ -536,4 +536,4 @@ struct pcclGinApi_Flush<PCCL_NET_DEVICE_GIN_GDAKI> {
   }
 };
 
-#endif /* _PCCL_DEVICE_GIN_GDAKI_H_ */
+#endif /* _PCCL_DEVICE_GIN_GDAKI_MLX_H_ */

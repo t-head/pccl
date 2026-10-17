@@ -12,7 +12,8 @@ include ../makefiles/version.mk
 ##### src files
 SRCDIR ?= $(abspath .)
 INCEXPORTS  := pccl.h pccl_device.h \
-	$(patsubst include/%,%,$(wildcard include/pccl_device/*.h include/pccl_device/*/*.h include/pccl_device/*/*/*.h))
+	$(patsubst include/%,%,$(wildcard include/pccl_device/*.h include/pccl_device/*/*.h include/pccl_device/*/*/*.h \
+	                              include/pccl_device/gin/providers/*/*.h))
 LIBSRCFILES := $(filter-out ce_coll_oki.cc,$(wildcard *.cc)) \
                $(wildcard graph/*.cc) \
                $(wildcard register/*.cc) \
@@ -21,7 +22,7 @@ LIBSRCFILES := $(filter-out ce_coll_oki.cc,$(wildcard *.cc)) \
                $(wildcard collectives/*.cc) \
                $(wildcard transport/*.cc) \
                $(wildcard transport/net_ib/*.cc) \
-               $(wildcard transport/net_ib/gdaki/*.cc) \
+               $(wildcard transport/net_ib/providers/*/*.cc) \
                $(wildcard scheduler/*.cc) \
                $(wildcard plugin/*.cc) \
                $(wildcard plugin/profiler/*.cc) \
@@ -33,7 +34,7 @@ ifeq ($(HGGC_HAS_OKI), 1)
   LIBSRCFILES += ce_coll_oki.cc
 endif
 
-LIBSRCFILES_CPP := $(wildcard transport/net_ib/gdaki/doca-gpunetio/src/*.cpp)
+LIBSRCFILES_CPP := $(wildcard transport/net_ib/providers/mlx5/doca-gpunetio/src/*.cpp)
 
 BINSRCFILES := ras/client.cc ras/analyzer.cc
 PARAMBINSRCFILES := param/pcclparam.cc
@@ -58,14 +59,14 @@ BINDIR := $(BUILDDIR)/bin
 ##### target files
 INCTARGETS := $(INCEXPORTS:%=$(INCDIR)/%)
 
-# DOCA-GPUNetIO headers ship inside src/transport/net_ib/gdaki/doca-gpunetio/
+# DOCA-GPUNetIO headers ship inside src/transport/net_ib/providers/mlx5/doca-gpunetio/
 # but are exposed to downstream consumers (ext-kernel, ext-tuner) under
-# build/include/pccl_device/gin/gdaki/doca_gpunetio/. Append the install
+# build/include/pccl_device/gin/providers/mlx5/doca_gpunetio/. Append the install
 # targets and define the install rules BEFORE any rule that takes
 # $(INCTARGETS) as prerequisites — Make expands the prereq list at the time
 # the rule is parsed, so a later `+=` would never reach them.
-DOCA_GPUNETIO_INC := $(SRCDIR)/transport/net_ib/gdaki/doca-gpunetio/include
-DOCA_INC_INSTALL  := $(INCDIR)/pccl_device/gin/gdaki/doca_gpunetio
+DOCA_GPUNETIO_INC := $(SRCDIR)/transport/net_ib/providers/mlx5/doca-gpunetio/include
+DOCA_INC_INSTALL  := $(INCDIR)/pccl_device/gin/providers/mlx5/doca_gpunetio
 DOCA_INC_SRC      := $(DOCA_GPUNETIO_INC)/doca_gpunetio_device.h \
                      $(wildcard $(DOCA_GPUNETIO_INC)/common/*.h) \
                      $(wildcard $(DOCA_GPUNETIO_INC)/device/*.cuh)

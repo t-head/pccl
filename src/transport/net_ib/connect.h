@@ -36,7 +36,10 @@ struct ncclIbQpInfo {
 ncclResult_t ncclIbCreateQp(uint8_t ib_port, struct ncclIbNetCommDevBase* commDevBase, int access_flags,
                             int oooRq, struct ibv_qp** qp, void* qp_context);
 ncclResult_t ncclIbRtrQp(ibv_qp* qp, uint32_t qpn, struct ncclIbQpInfo* info, int gidIndex);
+ncclResult_t ncclIbRtrQpWithAtomic(ibv_qp* qp, uint32_t qpn, struct ncclIbQpInfo* info, int gidIndex,
+                                   uint8_t maxDestRdAtomic);
 ncclResult_t ncclIbRtsQp(ibv_qp* qp);
+ncclResult_t ncclIbRtsQpWithAtomic(ibv_qp* qp, uint8_t maxRdAtomic);
 
 // Phase-2 connection setup: complete sender/receiver QP transition.
 // Must be called after ncclIbConnect/ncclIbAccept before posting WRs directly.

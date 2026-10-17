@@ -21,7 +21,7 @@ COMMON_SRC = ../../common/src
 # pccl_device.h is an internal PCCL header that only the device API examples
 # need. The default install at $(PCCL_HOME)/include (added by
 # examples.mk) is the cuda-free, pccl-spelled tree and already ships the
-# doca_gpunetio/ subtree under pccl_device/gin/gdaki/, so no spelling
+# doca_gpunetio/ subtree under pccl_device/gin/providers/mlx5/, so no spelling
 # override is needed here -- we just prepend the example's own COMMON_INC.
 INCLUDES := -I$(COMMON_INC) $(INCLUDES)
 
