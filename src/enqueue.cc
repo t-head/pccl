@@ -11,6 +11,8 @@
 #include "coll_net.h"
 #include "gdrwrap.h"
 #include "channel.h"
+#include "a2a_send_poll.h"
+#include "net.h"
 #include "pccl_internal.h"
 #include "transport.h"
 #include "register_inline.h"
@@ -20,6 +22,22 @@
 #include "sym_kernels.h"
 #include "ce_coll.h"
 #include "comm_dumper.h"
+int64_t pcclParamSmallRequestQpBytes();
+int64_t pcclParamA2aSendWindow();
+int64_t pcclParamA2aSendWindowMinBytes();
+
+// AlltoAll request selection and host-head polling policy.
+PCCL_PARAM(A2aOptimize, "A2A_OPTIMIZE", 1);
+PCCL_PARAM(A2aMinNetConnections, "A2A_MIN_NET_CONNECTIONS", 24);
+static ncclResult_t pcclA2aPrepareRequestPolicy(ncclA2aCallPolicy* policy);
+static ncclResult_t pcclA2aPrepareParts(ncclComm_t comm, ncclA2aCallPolicy* policy);
+PCCL_PARAM(A2aPollBaseTicks, "A2A_POLL_BASE_TICKS", 4096);
+// Zero is measurement-only: never guess a reference from ranks or QPs.
+PCCL_PARAM(A2aPollRefConnections, "A2A_POLL_REF_CONNECTIONS", 24);
+PCCL_PARAM(A2aPollTrace, "A2A_POLL_TRACE", 0);
+PCCL_PARAM(A2aPollMaxTicks, "A2A_POLL_MAX_TICKS", 16384);
+PCCL_PARAM(A2aPollMinPeerBytes, "A2A_POLL_MIN_PEER_BYTES", 2 * 1024 * 1024);
+
 
 // Only generate inline kernels for LL
 #define NCCL_FUNC5(func, algo, devredop, dtype) \
@@ -1255,6 +1273,7 @@ static ncclResult_t addP2pToPlan(
   const ssize_t totBytes[2] = {totRecvBytes, totSendBytes};
   bool protoLL[2] = {!selfSend, !selfSend};
   bool network[2] = {false, false};
+  bool shared[2] = {false, false};
   struct ncclProxyOp proxyOps[2] = {};
   int nProxyOps = selfSend ? 0 : 2;
   if (!selfSend) {
@@ -1264,6 +1283,7 @@ static ncclResult_t addP2pToPlan(
       struct ncclConnector* conn = dir ? &channelPeers[peerRank]->send[connIndex]
                                        : &channelPeers[peerRank]->recv[connIndex];
       protoLL[dir] &= conn->conn.buffs[NCCL_PROTO_LL] != nullptr;
+      shared[dir] = conn->conn.shared;
       network[dir] |= conn->transportComm == (dir ? &netTransport.send : &netTransport.recv);
     }
   }
@@ -1326,6 +1346,9 @@ static ncclResult_t addP2pToPlan(
 
   struct ncclDevWorkP2p* work = (struct ncclDevWorkP2p*)(workNode+1);
   work->comm = comm->devComm;
+  work->sendPollTicks = 0;
+  work->sendPollFlags = 0;
+  work->sendPollReference = 0;
   work->sendbuff = sendAddr;
   work->sendChunkSize = chunkSize[1];
   work->sendCount = sendBytes;
@@ -1343,6 +1366,23 @@ static ncclResult_t addP2pToPlan(
   plan->channelMask |= uint64_t(1)<<channelId;
   // Add batch first.
   addWorkBatchToPlan(comm, plan, channelId, ncclDevWorkTypeP2p, funcIndex, workOffset, p2pRound, maxP2pWorkPerBatch, p2pEpoch);
+  const ncclA2aPartPolicy* partPolicy[2] = {};
+  for (int dir = 0; dir < 2; ++dir) {
+    const ncclTaskP2p* task = p2pTasks[dir];
+    if (task && task->a2aOptimized && bytes[dir] >= 0) {
+      const ncclA2aCallPolicy* call = task->a2aCallPolicy;
+      const bool isTail = bytes[dir] < call->partBytes;
+      partPolicy[dir] = &call->parts[isTail][protoLL[dir]];
+    }
+  }
+  const ncclA2aCallPolicy* policy = p2pTasks[1] ? p2pTasks[1]->a2aCallPolicy : nullptr;
+  // The call policy is finalized after preconnect, before planning work.
+  // Here only the actual connection and precomputed portion policy are needed.
+  if (network[1] && partPolicy[1] && partPolicy[1]->pollFlags) {
+    work->sendPollFlags = partPolicy[1]->pollFlags;
+    work->sendPollReference = policy->pollReference;
+    work->sendPollTicks = policy->pollTicks;
+  }
   plan->channelWorks[channelId]++;
   plan->threadPerBlock = std::max<unsigned>(plan->threadPerBlock, NCCL_MAX_NTHREADS);
 
@@ -1366,6 +1406,10 @@ static ncclResult_t addP2pToPlan(
     op->chunkSize = chunkSize[dir];
     op->coll = p2pTasks[dir] ? p2pTasks[dir]->func : 0;
     op->collAPI = p2pTasks[dir] ? p2pTasks[dir]->collAPI : 0;
+    op->a2aOptimized = p2pTasks[dir] && p2pTasks[dir]->a2aOptimized;
+    op->a2aAutoAsyncFlush = p2pTasks[dir] && p2pTasks[dir]->a2aAutoAsyncFlush;
+    op->a2aSendWindow = partPolicy[dir] ? partPolicy[dir]->sendWindow : NCCL_STEPS;
+    op->a2aSingleQp = partPolicy[dir] ? partPolicy[dir]->singleQp[shared[dir]] : 0;
     op->task.p2p = p2pTasks[dir];
     op->rank = comm->rank;
     op->eActivationMask = p2pTasks[dir] ? p2pTasks[dir]->eActivationMask : 0;
@@ -1490,6 +1534,14 @@ static size_t getP2pChunkSize(ncclComm_t comm, size_t totalSize, int minChannels
   return size;
 }
 
+// A below-threshold or mixed-group task can still reuse main's channel split.
+// The layout belongs to this invocation; it does not enable request policies.
+static const ncclA2aCallPolicy* pcclA2aTaskLayout(const ncclTaskP2p* task, int protocol) {
+  const auto* policy = task ? task->a2aCallPolicy : nullptr;
+  return policy && policy->partBytes > 0 && policy->partProtocol == protocol &&
+      policy->peerBytes == task->bytes ? policy : nullptr;
+}
+
 static ncclResult_t scheduleP2pTasksToPlan(ncclComm_t comm, int* p2pEpoch, int* p2pRound,
                                            bool pureAlltoallGroup,
                                            struct ncclKernelPlan* plan, struct ncclKernelPlanBudget* budget) {
@@ -1539,8 +1591,20 @@ static ncclResult_t scheduleP2pTasksToPlan(ncclComm_t comm, int* p2pEpoch, int* 
       if (send != NULL) totSendBytes = send->bytes;
       if (recv != NULL) totRecvBytes = recv->bytes;
       int nChannelsSend = comm->p2pnChannelsPerPeer, nChannelsRecv = comm->p2pnChannelsPerPeer;
-      ssize_t sendChunkSize = getP2pChunkSize(comm, totSendBytes, nChannelsMin, nChannelsMax, stepSize, SENDRECV_SLICEFACTOR*stepSize, &nChannelsSend);
-      ssize_t recvChunkSize = getP2pChunkSize(comm, totRecvBytes, nChannelsMin, nChannelsMax, stepSize, SENDRECV_SLICEFACTOR*stepSize, &nChannelsRecv);
+      ssize_t sendChunkSize;
+      if (const auto* layout = pcclA2aTaskLayout(send, protocol)) {
+        nChannelsSend = layout->partChannels;
+        sendChunkSize = layout->partBytes;
+      } else {
+        sendChunkSize = getP2pChunkSize(comm, totSendBytes, nChannelsMin, nChannelsMax, stepSize, SENDRECV_SLICEFACTOR*stepSize, &nChannelsSend);
+      }
+      ssize_t recvChunkSize;
+      if (const auto* layout = pcclA2aTaskLayout(recv, protocol)) {
+        nChannelsRecv = layout->partChannels;
+        recvChunkSize = layout->partBytes;
+      } else {
+        recvChunkSize = getP2pChunkSize(comm, totRecvBytes, nChannelsMin, nChannelsMax, stepSize, SENDRECV_SLICEFACTOR*stepSize, &nChannelsRecv);
+      }
       // Ensure room for worst case of one new batch per channel.
       int maxNBatches = 0;
       if (send && (nChannelsSend > maxNBatches)) {
@@ -1827,8 +1891,83 @@ static ncclResult_t finishPlan(ncclComm_t comm, struct ncclKernelPlan* plan) {
   return ncclSuccess;
 }
 
+// Include every non-self rank, even local ranks: this can only overestimate
+// the number of distinct (channel, peer) network sends used by one call.
+static uint64_t pcclA2aNetConnectionUpperBound(int nRanks, uint64_t parts,
+                                             uint64_t maxChannels) {
+  return uint64_t(nRanks - 1) * std::min(parts, maxChannels);
+}
+
+// Preconnect has completed before ncclLaunchPrepare. Count only channels
+// used by this call, not all pre-created channels or the QPs inside a connection.
+// Stop at the threshold: this is an eligibility check, not a full inventory.
+static ncclResult_t pcclA2aCountNetSends(ncclComm_t comm, ncclA2aCallPolicy* policy) {
+  policy->netSendConnections = 0;
+  if (policy->peerBytes == 0) return ncclSuccess;
+  if (policy->partBytes <= 0) return ncclInternalError;
+  const size_t parts = policy->peerBytes / size_t(policy->partBytes) +
+      (policy->peerBytes % size_t(policy->partBytes) != 0);
+  if (parts > size_t(comm->p2pnChannelsPerPeer)) return ncclInternalError;
+  if (policy->minNetConnections == 0) return ncclSuccess;
+  // Every non-self peer (including local peers) contributes at most one
+  // connection per distinct channel used by its parts. This is an upper
+  // bound, not a substitution of remote peer count for connection count.
+  const uint64_t upperBound = pcclA2aNetConnectionUpperBound(
+      comm->nRanks, parts, comm->p2pnChannels);
+  if (upperBound < policy->minNetConnections) return ncclSuccess;
+  for (int round = 0; round < comm->nRanks; ++round) {
+    const int peer = comm->p2pSchedule[round].sendRank;
+    if (peer == comm->rank) continue;
+    uint64_t visited = 0;
+    for (size_t part = 0; part < parts; ++part) {
+      const int channel = pcclP2pChannelId(comm, round, int(part));
+      if (channel < 0 || channel >= 64) return ncclInternalError;
+      const uint64_t bit = uint64_t(1) << channel;
+      if (visited & bit) continue;
+      visited |= bit;
+      const ncclConnector* conn = &comm->channels[channel].peers[peer]->send[1];
+      if (!conn->connected) return ncclInternalError;
+      policy->netSendConnections += conn->transportComm == &netTransport.send;
+      if (policy->netSendConnections >= policy->minNetConnections)
+        return ncclSuccess;
+    }
+  }
+  return ncclSuccess;
+}
+
+static ncclResult_t pcclA2aFinalizeConnections(ncclComm_t comm) {
+  auto* planner = &comm->planner;
+  if (!planner->a2aHasCallPolicies) return ncclSuccess;
+  // Finalize each call on its first task, then distribute the result in the
+  // same traversal. Identical calls in one group still have separate policies.
+  for (int peer = 0; peer < comm->nRanks; ++peer) {
+    for (int dir = 0; dir < 2; ++dir) {
+      auto* task = dir ? ncclIntruQueueHead(&planner->peers[peer].sendQueue)
+                       : ncclIntruQueueHead(&planner->peers[peer].recvQueue);
+      for (; task; task = task->next) {
+        if (!task->a2aOptimized) continue;
+        auto* policy = task->a2aCallPolicy;
+        if (!policy) return ncclInternalError;
+        if (!policy->connectionsReady) {
+          NCCLCHECK(pcclA2aCountNetSends(comm, policy));
+          policy->optimized = policy->peerBytes != 0 &&
+              policy->netSendConnections >= policy->minNetConnections;
+          if (policy->optimized) {
+            NCCLCHECK(pcclA2aPrepareRequestPolicy(policy));
+            NCCLCHECK(pcclA2aPrepareParts(comm, policy));
+          }
+          policy->connectionsReady = true;
+        }
+        task->a2aOptimized = policy->optimized;
+      }
+    }
+  }
+  return ncclSuccess;
+}
+
 PCCL_PARAM(SymOpAccPrecisionInc, "SYM_OP_ACC_PRECISION_INC", 0);
 ncclResult_t ncclLaunchPrepare(ncclComm_t comm) {
+  NCCLCHECK(pcclA2aFinalizeConnections(comm));
   ncclResult_t result = ncclSuccess;
   struct ncclKernelPlanner* planner = &comm->planner;
   bool persistent = ncclCudaGraphValid(planner->capturingGraph);
@@ -2029,6 +2168,177 @@ static ncclResult_t ncclPlannerSetCapturingGraph(ncclComm_t comm, struct ncclInf
   return ncclSuccess;
 }
 
+// Mixed groups use the ordinary task policy; connection mapping is unchanged.
+ncclResult_t pcclA2aFinalizeGroup(ncclComm_t comm) {
+  auto* planner = &comm->planner;
+  if (!planner->a2aHasCallPolicies && !planner->a2aHasAutoAsyncFlush) return ncclSuccess;
+  // Main already counts AlltoAll tasks separately. No peer-queue scan is
+  // needed to recognize a pure group. Each call passed the backend
+  // and graph checks before its optimization flags were set.
+  const bool pureAlltoall = planner->nTasksP2p == planner->nTasksP2pAlltoall &&
+      planner->nTasksColl == 0 && !planner->isExtKernel &&
+      ncclIntruQueueEmpty(&planner->collCeTaskQueue) &&
+      ncclIntruQueueEmpty(&planner->collSymTaskQueue);
+  if (pureAlltoall) return ncclSuccess;
+  // Mixed groups retain the ordinary policy for every task. Layouts remain
+  // reusable, but no request policy is finalized or emitted for this group.
+  for (int peer = 0; peer < comm->nRanks; ++peer) {
+    for (int dir = 0; dir < 2; ++dir) {
+      auto* task = dir ? ncclIntruQueueHead(&planner->peers[peer].sendQueue)
+                       : ncclIntruQueueHead(&planner->peers[peer].recvQueue);
+      for (; task; task = task->next) {
+        task->a2aOptimized = false;
+        task->a2aAutoAsyncFlush = false;
+      }
+    }
+  }
+  planner->a2aHasCallPolicies = false;
+  planner->a2aHasAutoAsyncFlush = false;
+  return ncclSuccess;
+}
+
+// Compute the existing channel split once. Transport identity is inspected
+// after preconnect; no decision here reads an uninitialized connector.
+static ncclResult_t pcclA2aPrepareLayout(ncclComm_t comm, ncclA2aCallPolicy* policy) {
+  const int protocol = policy->partProtocol;
+  int maxChannels = comm->p2pnChannelsPerPeer;
+  int minChannels = maxChannels;
+  while (minChannels*comm->nRanks > comm->p2pnChannels && minChannels > 1) minChannels /= 2;
+  while (maxChannels*comm->nRanks > comm->p2pnChannels*4 && maxChannels > 1) maxChannels /= 2;
+  const ssize_t stepSize = comm->buffSizes[protocol] / NCCL_STEPS;
+  policy->partChannels = comm->p2pnChannelsPerPeer;
+  policy->partBytes = getP2pChunkSize(comm, policy->peerBytes, minChannels, maxChannels,
+      stepSize, SENDRECV_SLICEFACTOR*stepSize, &policy->partChannels);
+  return ncclSuccess;
+}
+
+// Build this call's portion table once. Planning selects an entry using the
+// actual protocol and receive-buffer type; network progress consumes the result.
+static ncclResult_t pcclA2aPrepareParts(ncclComm_t comm, ncclA2aCallPolicy* policy) {
+  const size_t peerBytes = policy->peerBytes;
+  const int protocol = policy->partProtocol;
+  // A call can execute only its selected base protocol and, for small
+  // payloads, the existing runtime LL alternative. Do not build policies for
+  // protocols which this call cannot select.
+  const ssize_t llThreshold = ncclParamP2pLLThreshold() >= 0 ? ncclParamP2pLLThreshold() :
+      (comm->compCap < 89 ? PCCL_DEFAULT_LL_THRESHOLD : PCCL_DEFAULT_LL_THRESHOLD_PPU0015);
+  const bool canSwitchLL = (protocol == NCCL_PROTO_SIMPLE ||
+      protocol == NCCL_PROTO_SIMPLE_BULK || protocol == NCCL_PROTO_SIMPLE_BULK_AR) &&
+      ssize_t(peerBytes) <= llThreshold;
+  const uint64_t fullBytes = std::min(peerBytes, size_t(policy->partBytes));
+  // Small calls have only one portion. Exact multiples have no short tail.
+  const uint64_t remainder = peerBytes <= size_t(policy->partBytes) ? fullBytes :
+      peerBytes % size_t(policy->partBytes);
+  const uint64_t tailBytes = remainder ? remainder : fullBytes;
+  const bool distinctTail = tailBytes != fullBytes;
+  const uint64_t portionBytes[2] = {fullBytes, tailBytes};
+  const int64_t threshold = pcclParamSmallRequestQpBytes();
+  for (int variant = 0; variant < (canSwitchLL ? 2 : 1); ++variant) {
+    const int proto = variant ? NCCL_PROTO_LL : protocol;
+    const bool simpleBufferProtocol = proto == NCCL_PROTO_SIMPLE || proto == NCCL_PROTO_SIMPLE_BULK;
+    const uint64_t dedicatedCapacity = threshold > 0 ? comm->buffSizes[proto] / NCCL_STEPS : 0;
+    const uint64_t sharedCapacity = threshold > 0 && simpleBufferProtocol ?
+        comm->buffSizes[NCCL_PROTO_SIMPLE] / (NCCL_STEPS*SENDRECV_SLICEFACTOR) : dedicatedCapacity;
+    for (int portion = 0; portion < (distinctTail ? 2 : 1); ++portion) {
+      ncclA2aPartPolicy& part = policy->parts[portion][variant];
+      const uint64_t bytes = portionBytes[portion];
+      part.sendWindow = policy->sendWindow && simpleBufferProtocol &&
+          bytes >= uint64_t(policy->sendWindowMinBytes) ? policy->sendWindow : NCCL_STEPS;
+      part.pollFlags = bytes && PROTO_IS_SIMPLE_CLASS(proto) ? policy->pollFlags : 0;
+      if (threshold > 0) {
+        // The receiver advertises a fixed capacity for this channel portion,
+        // including LL flags/alignment, even on its last network request.
+        const uint64_t wireBytes = proto == NCCL_PROTO_LL ?
+            ROUNDUP(bytes * 2, sizeof(union ncclLLFifoLine)) : bytes;
+        part.singleQp[0] = std::min(wireBytes, dedicatedCapacity) <= uint64_t(threshold);
+        part.singleQp[1] = std::min(wireBytes, sharedCapacity) <= uint64_t(threshold);
+      }
+    }
+    if (!distinctTail) policy->parts[1][variant] = policy->parts[0][variant];
+  }
+  return ncclSuccess;
+}
+
+// Only caller: pcclA2aFinalizeConnections, after policy->optimized is confirmed.
+// Read and validate request settings once for this AlltoAll, not per task.
+static ncclResult_t pcclA2aPrepareRequestPolicy(ncclA2aCallPolicy* policy) {
+  const size_t peerBytes = policy->peerBytes;
+  // A Simple channel task cannot exceed peerBytes. A zero candidate keeps
+  // NCCL_STEPS; eligible candidates are resolved per portion in PrepareParts.
+  const int64_t windowMinBytes = pcclParamA2aSendWindowMinBytes();
+  if (windowMinBytes >= 0 && peerBytes >= uint64_t(windowMinBytes)) {
+    const int64_t window = pcclParamA2aSendWindow();
+    if (window > 0 && window < NCCL_STEPS) {
+      policy->sendWindow = uint8_t(window);
+      policy->sendWindowMinBytes = windowMinBytes;
+    }
+  }
+
+  const int64_t base = pcclParamA2aPollBaseTicks();
+  const int64_t reference = pcclParamA2aPollRefConnections();
+  const int64_t maximum = pcclParamA2aPollMaxTicks();
+  const int64_t pollMinPeerBytes = pcclParamA2aPollMinPeerBytes();
+  if (base < 0 || base > 65536 || reference < 0 || reference > UINT16_MAX ||
+      maximum < 0 || maximum > 65536 || pollMinPeerBytes < 0) return ncclInvalidArgument;
+  if (peerBytes >= uint64_t(pollMinPeerBytes)) {
+    policy->pollFlags = PCCL_A2A_POLL_TRACK_ACTIVE |
+        (pcclParamA2aPollTrace() ? PCCL_A2A_POLL_TRACE_ACTIVE : 0);
+    policy->pollReference = uint16_t(reference);
+    policy->pollTicks = uint32_t(base);
+  }
+  return ncclSuccess;
+}
+
+// Called only after the AlltoAll entry validated A2A_OPTIMIZE == 1. Reject
+// impossible calls before joining the group or allocating policy metadata.
+static ncclResult_t pcclA2aCreateCallPolicy(
+    ncclComm_t comm, struct ncclInfo* info, ncclA2aCallPolicy** result,
+    bool* autoAsyncFlush) {
+  *result = nullptr;
+  *autoAsyncFlush = false;
+  const int typeBytes = ncclTypeSize(info->datatype);
+  if (typeBytes <= 0 || info->count > size_t(SSIZE_MAX) / size_t(typeBytes))
+    return ncclInvalidArgument;
+  const size_t peerBytes = info->count * size_t(typeBytes);
+  const int64_t minimum = pcclParamA2aMinNetConnections();
+  if (minimum < 0) return ncclInvalidArgument;
+  if (ncclNet != &ncclNetIb || comm->nNodes <= 1 ||
+      comm->globalP2pSupport) return ncclSuccess;
+
+  if (peerBytes == 0) return ncclSuccess;
+  // Async flush does not require enough connections to benefit from request
+  // tuning. p2pTaskAppend applies the graph check using main's existing setup.
+  *autoAsyncFlush = true;
+  int protocol;
+  NCCLCHECK(ncclComputeP2pProto(comm, &protocol));
+  const ssize_t stepBytes = comm->buffSizes[protocol] / NCCL_STEPS;
+  if (minimum > 0 && stepBytes > 0) {
+    // Main's split is aligned to stepBytes, hence every nonempty part is at
+    // least this large. Use all per-peer channels as a conservative cap;
+    // no unconnected connector or remote-peer-count shortcut is inspected.
+    const uint64_t maxParts = peerBytes / size_t(stepBytes) +
+        (peerBytes % size_t(stepBytes) != 0);
+    if (pcclA2aNetConnectionUpperBound(comm->nRanks, maxParts,
+            comm->p2pnChannelsPerPeer) < uint64_t(minimum)) return ncclSuccess;
+  }
+
+  // Main's per-peer append performs this setup too. It must precede scoped
+  // allocation and graph eligibility; early fallback leaves it entirely to main.
+  ncclGroupCommJoin(comm, ncclGroupTaskTypeCollective);
+  NCCLCHECK(ncclPlannerSetCapturingGraph(comm, info));
+  if (ncclCudaGraphValid(comm->planner.capturingGraph)) return ncclSuccess;
+  auto* policy = ncclMemoryStackAlloc<ncclA2aCallPolicy>(&comm->memScoped);
+  *policy = {};
+  policy->peerBytes = peerBytes;
+  policy->minNetConnections = uint64_t(minimum);
+  policy->partProtocol = protocol;
+  policy->optimized = true;
+  NCCLCHECK(pcclA2aPrepareLayout(comm, policy));
+  comm->planner.a2aHasCallPolicies = true;
+  *result = policy;
+  return ncclSuccess;
+}
+
 static ncclResult_t p2pTaskAppend(
     ncclComm_t comm,
     struct ncclInfo* info,
@@ -2037,7 +2347,8 @@ static ncclResult_t p2pTaskAppend(
     void* buff,
     size_t count,
     ncclDataType_t datatype,
-    int peer) {
+    int peer, ncclA2aCallPolicy* callPolicy = nullptr,
+    bool autoAsyncFlush = false) {
   struct ncclKernelPlanner *planner = &comm->planner;
 
   // Determine peer and basic parameters.
@@ -2057,6 +2368,10 @@ static ncclResult_t p2pTaskAppend(
   struct ncclTaskP2p* p2p = ncclMemoryPoolAlloc<struct ncclTaskP2p>(&comm->memPool_ncclTaskP2p, &comm->memPermanent);
   p2p->func = coll;
   p2p->collAPI = collAPI;
+  p2p->a2aCallPolicy = collAPI == ncclFuncAlltoAll ? callPolicy : nullptr;
+  p2p->a2aOptimized = p2p->a2aCallPolicy && callPolicy->optimized;
+  p2p->a2aAutoAsyncFlush = autoAsyncFlush && !isGraphCaptured && collAPI == ncclFuncAlltoAll;
+  planner->a2aHasAutoAsyncFlush |= p2p->a2aAutoAsyncFlush;
   p2p->buff = buff;
   p2p->count = count;
   p2p->datatype = datatype;
@@ -2286,9 +2601,17 @@ static ncclResult_t taskAppend(ncclComm_t comm, struct ncclInfo* info) {
       NCCLCHECK(ceCollTaskAppend(comm, info, sendWin, recvWin, opDev));
     } else {
       if (info->coll == ncclFuncAlltoAll) {
+        ncclA2aCallPolicy* policy = nullptr;
+        bool autoAsyncFlush = false;
+        const int64_t optimize = pcclParamA2aOptimize();
+        if (optimize != 0 && optimize != 1) return ncclInvalidArgument;
+        if (optimize == 1) {
+          NCCLCHECK(pcclA2aCreateCallPolicy(comm, info, &policy, &autoAsyncFlush));
+        }
+        // Null policy preserves main's per-task channel selection and ordering.
         for (int r=0; r<comm->nRanks; r++) {
-          NCCLCHECK(p2pTaskAppend(comm, info, ncclFuncSend, collAPI, (void*)((char*)info->sendbuff+r*info->count*ncclTypeSize(info->datatype)), info->count, info->datatype, r));
-          NCCLCHECK(p2pTaskAppend(comm, info, ncclFuncRecv, collAPI, (void*)((char*)info->recvbuff+r*info->count*ncclTypeSize(info->datatype)), info->count, info->datatype, r));
+          NCCLCHECK(p2pTaskAppend(comm, info, ncclFuncSend, collAPI, (void*)((char*)info->sendbuff+r*info->count*ncclTypeSize(info->datatype)), info->count, info->datatype, r, policy, autoAsyncFlush));
+          NCCLCHECK(p2pTaskAppend(comm, info, ncclFuncRecv, collAPI, (void*)((char*)info->recvbuff+r*info->count*ncclTypeSize(info->datatype)), info->count, info->datatype, r, policy, autoAsyncFlush));
         }
       } else if (info->coll == ncclFuncGather){
         size_t offset = 0;
