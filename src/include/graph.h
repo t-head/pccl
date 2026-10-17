@@ -44,7 +44,7 @@ ncclResult_t ncclTopoGetNetDev(ncclComm_t comm, int rank, struct ncclTopoGraph* 
 ncclResult_t ncclTopoCheckP2p(ncclComm_t comm, struct ncclTopoSystem* system, int rank1, int rank2, int* p2p, int *read, int* intermediateRank);
 ncclResult_t pcclTopoCheckGlobalIcnP2p(ncclComm_t comm, struct ncclTopoSystem* system, bool* globalIcnP2pSupport);
 ncclResult_t ncclTopoCheckMNNVL(struct ncclTopoSystem* system, struct ncclPeerInfo* info1, struct ncclPeerInfo* info2, int* ret);
-ncclResult_t ncclTopoCheckGdr(struct ncclTopoSystem* topo, int rank, int64_t netId, int read, int* useGdr);
+ncclResult_t ncclTopoCheckGdr(struct ncclTopoSystem* topo, int rank, int64_t netId, int read, int* useGdr, bool isConnSetup = false);
 ncclResult_t ncclTopoCheckCrossNicSupport(bool* supported);
 int ncclPxnDisable();
 ncclResult_t ncclTopoGetPxnRanks(ncclComm_t comm, int** intermediateRanks, int* nranks);

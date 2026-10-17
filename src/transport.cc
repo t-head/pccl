@@ -362,7 +362,7 @@ ncclResult_t GetConnType(ncclComm_t comm, struct ncclTopoGraph* graph, int chann
         int64_t netId;
         int useGdr;
         NCCLCHECK(ncclTopoGetNetDev(comm, myInfo->rank, graph, channelId, peerInfo->rank, &netId, &netDev, &proxyRank));
-        NCCLCHECK(ncclTopoCheckGdr(comm->topo, myInfo->rank, netId, send, &useGdr));
+        NCCLCHECK(ncclTopoCheckGdr(comm->topo, myInfo->rank, netId, send, &useGdr, true));
 
         if (useGdr) {
           if (send && (proxyRank != myInfo->rank)) {
