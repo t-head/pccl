@@ -22,12 +22,8 @@ PLUGIN_SO := $(BUILDDIR)/$(LIB_NAME)
 OBJDIR := $(abspath $(BUILDDIR)/../obj)/ext-kernel
 
 CROSS_COMPILE_OPTION =
-OBJCOPY ?= objcopy
-STRIP ?= strip
 ifneq ($(PPU_HOST_ARCH),$(PPU_TARGET_ARCH))
   CROSS_COMPILE_OPTION = -ccbin ${PPU_TARGET_ARCH}-linux-gnu-g++
-  OBJCOPY := ${PPU_TARGET_ARCH}-linux-gnu-objcopy
-  STRIP := ${PPU_TARGET_ARCH}-linux-gnu-strip
   LINKER := ${PPU_TARGET_ARCH}-linux-gnu-g++
 else
   LINKER := $(CXX)
@@ -37,10 +33,6 @@ ifeq ($(strip $(LINKER)),)
 endif
 
 CXXFLAGS += -Xcompiler -Werror,-Wno-address-of-temporary,-fPIC
-ifeq ($(REL_NO_SYM), 1)
-CXXFLAGS += -Xcompiler "-fvisibility=hidden -fvisibility-inlines-hidden"
-endif
-
 CXXFLAGS += -Xcompiler $(FILE_PREFIX_MAP)=$(PCCL_SRC_ROOT)=.
 
 ifeq ($(HGTX), 0)
@@ -96,11 +88,6 @@ $(PLUGIN_SO): $(OBJS)
 	@printf "Linking    %-35s > %s\n" $(LIB_NAME) $@
 	mkdir -p $(BUILDDIR)
 	$(LINKER) -shared -fPIC -Wl,-soname=$(LIB_NAME) -o $@ $(OBJS) -L$(PPU_LIB) $(HGGCRT_LDFLAG)
-ifeq ($(REL_NO_SYM), 1)
-	$(OBJCOPY) --only-keep-debug $@ $(BUILDDIR)/$(LIB_NAME).dbginfo
-	$(STRIP) --strip-all $@
-	$(OBJCOPY) --add-gnu-debuglink=$(BUILDDIR)/$(LIB_NAME).dbginfo $@
-endif
 
 clean:
 	rm -rf $(OBJDIR)

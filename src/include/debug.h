@@ -50,16 +50,8 @@ void ncclPerCommHashDebugClose();
 void ncclDebugLog(ncclDebugLogLevel level, unsigned long flags, const char *file, const char *func, int line, bool record, const char *fmt, ...);
 void ncclDebugLogForPlugin(ncclDebugLogLevel level, unsigned long flags, const char *file, int line, const char *fmt, ...);
 
-#ifdef REL_NO_SYM
-#ifndef __hidden
-#define __hidden __attribute__((visibility("hidden")))
-#endif
-#else
-#define __hidden
-#endif
-
 // Let code temporarily downgrade WARN into INFO
-extern thread_local __hidden int ncclDebugNoWarn;
+extern thread_local int ncclDebugNoWarn;
 extern char ncclLastError[];
 #define LARGE_LOG_SIZE 2048
 

@@ -39,7 +39,7 @@ Common options:
 ```text
 --rebuild          Clean and rebuild from scratch
 --verbose          Show detailed compilation output
---build_type TYPE  Build mode: rel_sym (default), rel, dbg, or rel_no_sym
+--build_type TYPE  Build mode: rel_sym (default), rel, or dbg
 --ppu_archs ARCHS  Target PPU architectures (default: ppu_10,ppu_15)
 --cpu_num N        Number of parallel build jobs (default: auto)
 --examples         Also build examples after building the library
