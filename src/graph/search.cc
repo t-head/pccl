@@ -1233,9 +1233,31 @@ fail:
 }
 
 // 0: don't use PXN for P2P, 1: use PXN if needed, 2: use PXN as much as possible to maximize aggregation
-NCCL_PARAM(P2pPxnLevel, "P2P_PXN_LEVEL", 3);
+NCCL_PARAM(P2pPxnLevel, "P2P_PXN_LEVEL", 2);
 
 #include "comm.h"
+
+static void ncclTopoGetP2pPxnCandidates(ncclComm_t comm, int g, int n, const int* localGpus, int* cands, int* count) {
+  *count = 0;
+  // Exclude sources that cannot use this NIC from the balancing group.
+  if (comm->topo->nodes[GPU].nodes[g].paths[NET][n].type > PATH_PXR) return;
+  struct ncclTopoNode* net = comm->topo->nodes[NET].nodes+n;
+  int nHops = INT_MAX;
+  for (int r=0; r<comm->localRanks; r++) {
+    int peerRank = comm->localRankToRank[r];
+    if (comm->peerInfo[peerRank].netId != net->id) continue;
+    int p = localGpus[r];
+    struct ncclTopoLinkList* path = comm->topo->nodes[GPU].nodes[p].paths[GPU]+g;
+    if (path->type > PATH_NVB || net->paths[GPU][p].type > PATH_PXB) continue;
+    if (path->count < nHops) {
+      nHops = path->count;
+      *count = 0;
+    }
+    // Local-rank order gives identical candidate sets an identical ordering.
+    if (path->count == nHops) cands[(*count)++] = peerRank;
+  }
+}
+
 ncclResult_t ncclTopoGetNetDev(ncclComm_t comm, int rank, struct ncclTopoGraph* graph, int channelId, int peerRank, int64_t* id, int* dev, int* proxyRank) {
   int64_t netId = -1;
   int netDev = -1;
@@ -1299,21 +1321,34 @@ ncclResult_t ncclTopoGetNetDev(ncclComm_t comm, int rank, struct ncclTopoGraph* 
           NCCLCHECK(ncclTopoGetIntermediateRank(comm->topo, rank, netId, proxyRank));
         }
       } else if (pxnLevel == 2) {
-        // Check whether we can access it through our node-local GPU for that NIC.
-        for (int r=0; r<comm->localRanks; r++) {
-          int peerRank = comm->localRankToRank[r];
-          if (comm->peerInfo[peerRank].netId == netId) {
-            int g1, g2, n;
-            NCCLCHECK(ncclTopoRankToIndex(comm->topo, rank, &g1));
-            NCCLCHECK(ncclTopoRankToIndex(comm->topo, peerRank, &g2));
-            NCCLCHECK(ncclTopoIdToIndex(comm->topo, NET, netId, &n));
-            struct ncclTopoNode* peerGpu = comm->topo->nodes[GPU].nodes+g2;
-            if (peerGpu->paths[GPU][g1].type <= PATH_NVB && peerGpu->paths[NET][n].type <= PATH_PXB) {
-              *proxyRank = peerRank;
-              if (dev) *dev = netDev;
-              if (id) *id = netId;
-              return ncclSuccess;
+        int g, n;
+        NCCLCHECK(ncclTopoRankToIndex(comm->topo, rank, &g));
+        NCCLCHECK(ncclTopoIdToIndex(comm->topo, NET, netId, &n));
+        // Keep proxy selection consistent with GDR path checks.
+        // Reject PHB/SYS paths to avoid PXN shared-buffer failures.
+        if (comm->topo->nodes[GPU].nodes[g].paths[NET][n].type <= PATH_PXR) {
+          int localGpus[NCCL_TOPO_MAX_NODES];
+          // Resolve indices once; group comparisons only scan cached paths.
+          for (int r=0; r<comm->localRanks; r++) {
+            NCCLCHECK(ncclTopoRankToIndex(comm->topo, comm->localRankToRank[r], localGpus+r));
+          }
+          int cands[NCCL_TOPO_MAX_NODES];
+          int count;
+          ncclTopoGetP2pPxnCandidates(comm, g, n, localGpus, cands, &count);
+          if (count > 0) {
+            int ordinal = 0;
+            if (count > 1) {
+              int otherCands[NCCL_TOPO_MAX_NODES];
+              // Only earlier sources with this exact candidate set advance the ordinal.
+              for (int r=0; r<comm->rankToLocalRank[rank]; r++) {
+                int otherCount;
+                ncclTopoGetP2pPxnCandidates(comm, localGpus[r], n, localGpus, otherCands, &otherCount);
+                if (otherCount == count && memcmp(cands, otherCands, count*sizeof(int)) == 0) ordinal++;
+              }
             }
+            *proxyRank = cands[ordinal % count];
+            if (dev) *dev = netDev;
+            if (id) *id = netId;
           }
         }
       } else if (pxnLevel == 3) {

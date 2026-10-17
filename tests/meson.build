@@ -52,5 +52,13 @@ executable('graphSearchTest',
   link_args: pccl_link_args + ['-lrt', '-ldl', '-L'+gtest_home+'/lib', '-lgtest', '-L'+PPU_SDK+'/lib', '-lhggcrt1', '-lhggc', '-pthread'],
   cpp_args: cpp_args )
 
+pxn_peer_selection = executable('pxnPeerSelectionTest',
+  './src/pxn_peer_selection_tests.cc',
+  include_directories: incdirs,
+  link_args: pccl_link_args + ['-lrt', '-ldl', '-L'+PPU_SDK+'/lib', '-lhggcrt1', '-lhggc', '-pthread'],
+  cpp_args: cpp_args)
+test('pxnPeerSelection', pxn_peer_selection,
+  args: files('topo_and_reference_graph/8PPU1.0_4CX7_2PIXPPUsPerNET_OAM_4Links_PXN/topo.xml'))
+
 # Install the executable
 install_dir = join_paths(get_option('prefix'), 'bin')
