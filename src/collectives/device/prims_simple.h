@@ -10,11 +10,11 @@
 #define NCCL_PRIMS_SIMPLE_H_
 #include "prims_simple_base.h"
 // Implementation of primitive types
-template <typename T, int NRECV, int NSEND, class FUNC, int UNROLL, int SLICESPERCHUNK, int SLICESTEPS, int DIRECT, int P2P>
-class Primitives<T, FUNC, ProtoSimple<UNROLL, SLICESPERCHUNK, SLICESTEPS>, NRECV, NSEND, DIRECT, P2P>:
+template <typename T, int NRECV, int NSEND, class FUNC, int UNROLL, int SLICESPERCHUNK, int SLICESTEPS, int DIRECT, int P2P, bool NET_POLL>
+class Primitives<T, FUNC, ProtoSimple<UNROLL, SLICESPERCHUNK, SLICESTEPS>, NRECV, NSEND, DIRECT, P2P, NET_POLL>:
     public PrimitivesSimpleBase<T, NRECV, NSEND, FUNC, UNROLL, SLICESPERCHUNK, SLICESTEPS, DIRECT,
      ProtoSimple<UNROLL, SLICESPERCHUNK, SLICESTEPS>,
-     Primitives<T, FUNC, ProtoSimple<UNROLL, SLICESPERCHUNK, SLICESTEPS>, NRECV, NSEND, DIRECT, P2P>, P2P> {
+     Primitives<T, FUNC, ProtoSimple<UNROLL, SLICESPERCHUNK, SLICESTEPS>, NRECV, NSEND, DIRECT, P2P, NET_POLL>, P2P, NET_POLL> {
 
  private:
   static constexpr int StepPerSlice = 1;
@@ -37,7 +37,7 @@ class Primitives<T, FUNC, ProtoSimple<UNROLL, SLICESPERCHUNK, SLICESTEPS>, NRECV
     ): 
     PrimitivesSimpleBase<T, NRECV, NSEND, FUNC, UNROLL, SLICESPERCHUNK, SLICESTEPS, DIRECT,
     ProtoSimple<UNROLL, SLICESPERCHUNK, SLICESTEPS>,
-    Primitives<T, FUNC, ProtoSimple<UNROLL, SLICESPERCHUNK, SLICESTEPS>, NRECV, NSEND, DIRECT, P2P>, P2P>
+    Primitives<T, FUNC, ProtoSimple<UNROLL, SLICESPERCHUNK, SLICESTEPS>, NRECV, NSEND, DIRECT, P2P, NET_POLL>, P2P, NET_POLL>
     (tid, nworkers, recvPeers, sendPeers, directBuff, comm, redOpArg, ptrs, group, connIndexRecv, connIndexSend, collWork, p2pWork, ncclSteps, noRed, mode),
     inputBuf(inputBuf), outputBuf(outputBuf), flags(0) {
     if (mode == primsModePatRs || mode == primsModePatAg) {

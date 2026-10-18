@@ -141,6 +141,8 @@ ncclResult_t ncclInitKernelsForDevice(size_t* maxStackSize) {
   void* lru[2] = {nullptr, nullptr};
   NCCLCHECK(ncclScanKernelMaxStackSize(ncclKerns, KernelCount, lru, maxStackSize));
   NCCLCHECK(ncclScanKernelMaxStackSize(ncclSymkKernelList, ncclSymkKernelCount, lru, maxStackSize));
+  void* netPollKernel = (void*)NCCL_KERN_NAME(SendRecvNetPoll, RING, SIMPLE, Sum, int8_t);
+  NCCLCHECK(ncclScanKernelMaxStackSize(&netPollKernel, 1, lru, maxStackSize));
   return ncclSuccess;
 }
 
@@ -1390,7 +1392,10 @@ static ncclResult_t addP2pToPlan(
   // Just for HGGC kernel to know this is a P2P operation
   // The HGGC kernel does not use the inlined first work element as fastpath argument
   if (plan->kernelFn == NULL) {
-    plan->kernelFn = ncclKerns[funcIndex];
+    // Only inter-node Simple needs the polling kernel.
+    plan->kernelFn = comm->nNodes > 1 && funcIndex == 0
+        ? (void*)NCCL_KERN_NAME(SendRecvNetPoll, RING, SIMPLE, Sum, int8_t)
+        : ncclKerns[funcIndex];
     plan->funcIndex = funcIndex;
   }
 
