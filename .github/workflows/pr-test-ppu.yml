@@ -397,3 +397,70 @@ jobs:
           else
             echo "No test-results.xml found at ${NAS_RESULT_DIR}"
           fi
+
+  # Keep this check name stable for branch rules.
+  tests-gate:
+    name: PCCL Tests Gate
+    # Add each new required job ID here. If it also runs outside PRs, add it to
+    # "Require build and test jobs to succeed" below.
+    # New entries in scripts/casecmd.list are already covered by the test job.
+    # Only jobs listed here are checked, including all their matrix entries.
+    needs:
+      - precheck          # Secret scan
+      - commit-format     # Commit message
+      - dco               # Sign-off
+      - ai-code-review    # AI review
+      - human-review      # Human approval
+      - prepare           # Test matrix generation
+      - build             # Build for the test matrix
+      - test              # Every test from scripts/casecmd.list
+      - build-test-notsm  # Additional build/test configuration
+      - summary           # Test report generation
+    if: always()
+    runs-on: ubuntu-24.04
+    timeout-minutes: 5
+    permissions: {}
+    steps:
+      - name: Reject unsupported events
+        if: >-
+          always() &&
+          github.event_name != 'pull_request' &&
+          github.event_name != 'push' &&
+          github.event_name != 'workflow_dispatch'
+        run: |
+          echo "::error::Unsupported event: $GITHUB_EVENT_NAME"
+          exit 1
+
+      - name: Reject failed or cancelled jobs
+        if: >-
+          always() &&
+          (contains(needs.*.result, 'failure') || contains(needs.*.result, 'cancelled'))
+        run: |
+          echo "::error::A required job failed or was cancelled. See its logs."
+          exit 1
+
+      - name: Require build and test jobs to succeed
+        # These jobs must run on PRs, pushes, and manual runs.
+        if: >-
+          always() && (
+            needs.prepare.result != 'success' ||
+            needs.build.result != 'success' ||
+            needs.test.result != 'success' ||
+            needs.build-test-notsm.result != 'success' ||
+            needs.summary.result != 'success'
+          )
+        run: |
+          echo "::error::A required build or test job did not succeed."
+          exit 1
+
+      - name: Reject skipped jobs on pull requests
+        # Outside PRs, the five PR-only checks may be skipped.
+        if: >-
+          always() && github.event_name == 'pull_request' &&
+          contains(needs.*.result, 'skipped')
+        run: |
+          echo "::error::Pull requests require every job in needs to succeed."
+          exit 1
+
+      - name: All required checks passed
+        run: echo "Required checks passed."
