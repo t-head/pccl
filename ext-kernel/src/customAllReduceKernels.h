@@ -78,6 +78,7 @@ struct twoShotDevParams{
   uint32_t buffEltsPerBlock;
   uint32_t barrierFlag;
   uint8_t myRank;
+  uint32_t* abortFlag;
 
   volatile uint32_t** peerBarrierIn;
   volatile uint32_t** peerBarrierPre;
@@ -95,6 +96,7 @@ struct twoShotDevParams{
     eltsPerBlock = params.eltsPerBlock;
     buffEltsPerBlock = params.buffEltsPerBlock;
     myRank = params.myRank;
+    abortFlag = params.abortFlag;
     peerBarrierIn = (volatile uint32_t**)params.peerPtrTables[DEV_REGION_BARRIER_IN];
     peerBarrierPre = (volatile uint32_t**)params.peerPtrTables[DEV_REGION_BARRIER_PRE];
     peerBarrierReduce = (volatile uint32_t**)params.peerPtrTables[DEV_REGION_BARRIER_REDUCE];
@@ -113,6 +115,7 @@ struct twoShotRegDevParams{
   uint32_t buffEltsPerBlock;
   uint32_t barrierFlag;
   uint8_t myRank;
+  uint32_t* abortFlag;
 
   volatile uint32_t** peerBarrierIn;
   volatile uint32_t** peerBarrierPre;
@@ -133,6 +136,7 @@ struct twoShotRegDevParams{
     eltsPerBlock = params.eltsPerBlock;
     buffEltsPerBlock = params.buffEltsPerBlock;
     myRank = params.myRank;
+    abortFlag = params.abortFlag;
     peerBarrierIn = (volatile uint32_t**)params.peerPtrTables[DEV_REGION_BARRIER_IN];
     peerBarrierPre = (volatile uint32_t**)params.peerPtrTables[DEV_REGION_BARRIER_PRE];
     peerBarrierOut = (volatile uint32_t**)params.peerPtrTables[DEV_REGION_BARRIER_OUT];
@@ -152,6 +156,7 @@ struct oneShotLLDevParams {
   int32_t eltsTotal;
   uint32_t eltsPerBlock;
   uint8_t myRank;
+  uint32_t* abortFlag;
 
   void** peerLLBufferPtrs;
   uint32_t* llEpochs;
@@ -163,6 +168,7 @@ struct oneShotLLDevParams {
     eltsTotal = params.eltsTotal;
     eltsPerBlock = params.eltsPerBlock;
     myRank = params.myRank;
+    abortFlag = params.abortFlag;
     peerLLBufferPtrs = (void**)params.peerPtrTables[DEV_REGION_LL_BUFFER];
     llEpochs = (uint32_t*)params.llEpochs;
     sendbuff = params.sendbuff;

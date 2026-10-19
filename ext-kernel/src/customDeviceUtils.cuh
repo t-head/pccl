@@ -151,7 +151,14 @@ inline __device__ int4 add128b(T& a, T& b) {
   return c.packed;
 }
 
-__inline__ __device__ void multiGpuBarrier(volatile uint32_t** signals, const uint32_t flag, const size_t rank, const size_t worldSize, const int tidx, const int bidx) {
+// Amortize abort checks in device waits; mirrors pcclP2pDmaSpinsBeforeAbortCheck.
+constexpr int pcclExtSpinsBeforeAbortCheck = 1 << 16;
+
+__inline__ __device__ bool extAborted(uint32_t const* abortFlag) {
+  return abortFlag != nullptr && *(volatile uint32_t const*)abortFlag != 0;
+}
+
+__inline__ __device__ void multiGpuBarrier(volatile uint32_t** signals, const uint32_t flag, const size_t rank, const size_t worldSize, const int tidx, const int bidx, uint32_t const* abortFlag) {
   // At the end of the function, we now that has least block 0 from all others GPUs have reached that point.
   if (tidx < worldSize) {
     // we can think of signals having the shape [world_size, world_size]
@@ -162,7 +169,13 @@ __inline__ __device__ void multiGpuBarrier(volatile uint32_t** signals, const ui
     }
     // Busy-wait until all ranks are ready.
     volatile uint32_t* peerBarrierD = signals[rank] + tidx;
-    while (ldFlagAcquire(peerBarrierD) != flag) {}
+    uint32_t spins = 0;
+    while (ldFlagAcquire(peerBarrierD) != flag) {
+      if (++spins == pcclExtSpinsBeforeAbortCheck) {
+        spins = 0;
+        if (extAborted(abortFlag)) break;
+      }
+    }
 
     // this extra sync may introduce 4-5us overhead, comment it out before we find the necessity
 #if 0
@@ -197,7 +210,9 @@ __inline__ __device__ void exchangePtrs(volatile void** ptrs, uintptr_t sendbuff
 }
 
 template<int NRANKS>
-__inline__ __device__ void blockBarrier(volatile uint32_t** signals, uint32_t const flag, int32_t const myRank, int const tidx, int const bidx) {
+__inline__ __device__ bool blockBarrier(volatile uint32_t** signals, uint32_t const flag, int32_t const myRank,
+                                      int const tidx, int const bidx, uint32_t const* abortFlag,
+                                      int* abortVote = nullptr) {
   // After this function, the block of id == bidx of each GPU has reached the barrier
   if (tidx < NRANKS) {
     // we can think of signals having the shape [world_size, 2, num_blocks, world_size]
@@ -209,7 +224,16 @@ __inline__ __device__ void blockBarrier(volatile uint32_t** signals, uint32_t co
     stFlagRelease(flag, signals[tidx] + flagBlockOffset + myRank);
     // Blocks check that corresponding blocks on other GPUs have also set the flag
     volatile uint32_t* peerBarrierD = signals[myRank] + flagBlockOffset + tidx;
-    while (ldFlagAcquire(peerBarrierD) != flag) {}
+    uint32_t spins = 0;
+    while (ldFlagAcquire(peerBarrierD) != flag) {
+      if (++spins == pcclExtSpinsBeforeAbortCheck) {
+        spins = 0;
+        if (extAborted(abortFlag)) {
+          if (abortVote != nullptr) atomicExch(abortVote, 1);
+          break;
+        }
+      }
+    }
 
     // this extra sync may introduce 4-5us overhead, comment it out before we find the necessity
 #if 0
@@ -221,6 +245,7 @@ __inline__ __device__ void blockBarrier(volatile uint32_t** signals, uint32_t co
 #endif
   }
   __syncthreads();
+  return abortVote == nullptr || *abortVote == 0;
 }
 
 template <int NRANKS>

@@ -105,13 +105,13 @@ __global__ void pcclKernel_oneShotAllReduceKernel(struct oneShotDevParams params
   uint32_t barrierFlag = getBarrierFlag<NRANKS>(params.peerBarrierIn, params.myRank, tidx, bidx) + 1;
 
   __syncthreads();
-  blockBarrier<NRANKS>(params.peerBarrierIn, barrierFlag, params.myRank, tidx, bidx);
+  blockBarrier<NRANKS>(params.peerBarrierIn, barrierFlag, params.myRank, tidx, bidx, params.abortFlag);
 
   if (OUTPUT_ALIGN) reduceFromMultiSource<T, NRANKS, 1>(srcPtrs, &recvbuff, Npack, exElts, nWarps, wid, laneId);
   else reduceFromMultiSourceElemWise<T, NRANKS, 1>(srcPtrs, &recvbuff, eltsPerBlock, nWarps, wid, laneId);
 
   __syncthreads();
-  blockBarrier<NRANKS>(params.peerBarrierOut, barrierFlag, params.myRank, tidx, bidx);
+  blockBarrier<NRANKS>(params.peerBarrierOut, barrierFlag, params.myRank, tidx, bidx, params.abortFlag);
 }
 
 template <typename T, int NRANKS, int USE_DOUBLE_BUFFER, int INPUT_ALIGN, int OUTPUT_ALIGN>
@@ -163,7 +163,7 @@ __global__ void pcclKernel_twoShotAllReduceKernel(struct twoShotDevParams params
   uint32_t barrierFlag = getBarrierFlag<NRANKS>(params.peerBarrierIn, params.myRank, tidx, bidx) + 1;
 
   __syncthreads();
-  blockBarrier<NRANKS>(params.peerBarrierIn, barrierFlag, myRank, tidx, bidx);
+  blockBarrier<NRANKS>(params.peerBarrierIn, barrierFlag, myRank, tidx, bidx, params.abortFlag);
 
 #ifdef DEBUG_CUSTOM_ALL_REDUCE
   if (laneId == 0) printf("SC:rank:%2d, <%4d, %4d>, peer:%2d, offset:%4d, eltsTotal:%4d, eltsPerRank:%4d, exElts:%4d, Npack:%4d, warpGroupSize:%4d\n", myRank, bidx, tidx, peerRank, peerRankOffset, peerRankElts, eltsPerRank, peerRankExElts, peerRankNpack, warpGroupSize);
@@ -181,7 +181,7 @@ __global__ void pcclKernel_twoShotAllReduceKernel(struct twoShotDevParams params
   }
 
   __syncthreads();
-  blockBarrier<NRANKS>(params.peerBarrierPre, barrierFlag, myRank, tidx, bidx);
+  blockBarrier<NRANKS>(params.peerBarrierPre, barrierFlag, myRank, tidx, bidx, params.abortFlag);
 
   int32_t myRankElts = eltsPerBlock - myRank * eltsPerRank;
   myRankElts = min(myRankElts, eltsPerRank);
@@ -211,7 +211,7 @@ __global__ void pcclKernel_twoShotAllReduceKernel(struct twoShotDevParams params
     // sync threads to make sure all block threads have the sums
     // keep this sync as we must ensure all threads complete the calculation when previous several thread write flag out(we need copy remote to local later)
     __syncthreads();
-    blockBarrier<NRANKS>(params.peerBarrierReduce, barrierFlag, myRank, tidx, bidx);
+    blockBarrier<NRANKS>(params.peerBarrierReduce, barrierFlag, myRank, tidx, bidx, params.abortFlag);
     #ifdef DEBUG_CUSTOM_ALL_REDUCE
       if (laneId == 0) printf("FI:rank:%2d, <%3d, %3d>, peer:%2d, offset:%5d, eltsTotal:%4d, eltsPerRank:%4d, exElts:%3d, Npack:%2d, warpGroupSize:%d\n", myRank, bidx, tidx, peerRank, peerRankOffset, peerRankElts, eltsPerRank, peerRankExElts, peerRankNpack, warpGroupSize);
     #endif
@@ -224,7 +224,7 @@ __global__ void pcclKernel_twoShotAllReduceKernel(struct twoShotDevParams params
     }
   } else {
     __syncthreads();  // wait pre reduce done.
-    blockBarrier<NRANKS>(params.peerBarrierReduce, barrierFlag, myRank, tidx, bidx);
+    blockBarrier<NRANKS>(params.peerBarrierReduce, barrierFlag, myRank, tidx, bidx, params.abortFlag);
     // every warpGroup read the same data but send to different peer;
     volatile T* src = myBuf + myBuffOffset;
 
@@ -238,7 +238,7 @@ __global__ void pcclKernel_twoShotAllReduceKernel(struct twoShotDevParams params
       memcpyPackWise<T, 1, 0>(dst, src, myRankNpack, myRankExElts, warpGroupSize, widInGroup, laneId);
     }
     __syncthreads();
-    blockBarrier<NRANKS>(params.peerBarrierPost, barrierFlag, myRank, tidx, bidx);
+    blockBarrier<NRANKS>(params.peerBarrierPost, barrierFlag, myRank, tidx, bidx, params.abortFlag);
     #ifdef DEBUG_CUSTOM_ALL_REDUCE
       if (laneId == 0) printf("FI:rank:%2d, <%3d, %3d>, peer:%2d, offset:%5d, eltsTotal:%4d, eltsPerRank:%4d, exElts:%3d, Npack:%2d, warpGroupSize:%d\n", myRank, bidx, tidx, peerRank, peerRankOffset, peerRankElts, eltsPerRank, peerRankExElts, peerRankNpack, warpGroupSize);
     #endif
@@ -294,11 +294,14 @@ __global__ void pcclKernel_twoShotRegAllReduceKernel(struct twoShotRegDevParams 
   int32_t peerBuffOffset = peerRank * buffEltsPerRank;
   int32_t myRankOffset = myRank * eltsPerRank;
   int32_t myBuffOffset = myRank * buffEltsPerRank;
+  __shared__ int sAbortVote;
+  if (tidx == 0) sAbortVote = 0;
   uint32_t barrierFlag = getBarrierFlag<NRANKS>(params.peerBarrierIn, params.myRank, tidx, bidx) + 1;
   exchangePtrs<NRANKS>(params.peerRmtAddrs, params.sendbuffOffset, params.recvbuffOffset, params.sendbuffRmtAddrs, params.recvbuffRmtAddrs, myRank, tidx, bidx);
 
   __syncthreads();
-  blockBarrier<NRANKS>(params.peerBarrierIn, barrierFlag, myRank, tidx, bidx);
+  if (!blockBarrier<NRANKS>(params.peerBarrierIn, barrierFlag, myRank, tidx, bidx,
+                           params.abortFlag, &sAbortVote)) return;
 
 #ifdef DEBUG_CUSTOM_ALL_REDUCE
   if (laneId == 0) printf("SC:rank:%2d, <%4d, %4d>, peer:%2d, offset:%4d, eltsTotal:%4d, eltsPerRank:%4d, exElts:%4d, Npack:%4d, warpGroupSize:%4d\n", myRank, bidx, tidx, peerRank, peerRankOffset, peerRankElts, eltsPerRank, peerRankExElts, peerRankNpack, warpGroupSize);
@@ -316,7 +319,8 @@ __global__ void pcclKernel_twoShotRegAllReduceKernel(struct twoShotRegDevParams 
   }
 
   __syncthreads();
-  blockBarrier<NRANKS>(params.peerBarrierPre, barrierFlag, myRank, tidx, bidx);
+  if (!blockBarrier<NRANKS>(params.peerBarrierPre, barrierFlag, myRank, tidx, bidx,
+                           params.abortFlag, &sAbortVote)) return;
 
   int32_t myRankElts = eltsPerBlock - myRank * eltsPerRank;
   myRankElts = min(myRankElts, eltsPerRank);
@@ -344,7 +348,7 @@ __global__ void pcclKernel_twoShotRegAllReduceKernel(struct twoShotRegDevParams 
     memcpyPackWise<T, 1, 0>(dst, src, myRankNpack, myRankExElts, warpGroupSize, widInGroup, laneId);
   }
   __syncthreads();
-  blockBarrier<NRANKS>(params.peerBarrierOut, barrierFlag, myRank, tidx, bidx);
+  blockBarrier<NRANKS>(params.peerBarrierOut, barrierFlag, myRank, tidx, bidx, params.abortFlag);
 }
 
 ////////////////////////////////////////////////////////////////////////////////////////////////////
@@ -376,11 +380,14 @@ __global__ void pcclKernel_oneShotLLAllReduceKernel(struct oneShotLLDevParams pa
   T* input = (T*)params.sendbuff + eltsOffset;
   T* output = (T*)params.recvbuff + eltsOffset;
 
+  // On abort ride out the loop instead of returning early: every thread must
+  // reach the trailing __syncthreads().
+  bool aborted = false;
   #pragma unroll 1
   while (nPacks > 0) {
     int nIterPacks = min(nPacks, nThreads);
 
-    if (tidx < nIterPacks) {
+    if (tidx < nIterPacks && !aborted) {
       LLPack inp;
       llLoadPack<T, INPUT_ALIGN, EltPerPack>(inp, input, tidx, eltsPerBlock);
 
@@ -400,10 +407,16 @@ __global__ void pcclKernel_oneShotLLAllReduceKernel(struct oneShotLLDevParams pa
         int readSlot = r * nIterPacks + tidx;
         uint4 tmp;
         // Spin until epoch flags match (both .y and .w must equal llEpoch)
+        uint32_t spins = 0;
         while (true) {
           LLLoad(tmp, myBuf + readSlot);
           if (tmp.y == llEpoch && tmp.w == llEpoch) break;
+          if (++spins == pcclExtSpinsBeforeAbortCheck) {
+            spins = 0;
+            if (extAborted(params.abortFlag)) { aborted = true; break; }
+          }
         }
+        if (aborted) break;
         LLPack val;
         val.u32[0] = tmp.x;
         val.u32[1] = tmp.z;
