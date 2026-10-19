@@ -31,10 +31,14 @@ jobs:
       - name: Check out trusted test-base implementation
         uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262 # v4
         with:
-          ref: ${{ github.event.pull_request.base.sha }}
+          ref: refs/heads/test/module-review-base
           persist-credentials: false
       - name: Test review policy and pilot boundaries
-        run: node --test tests/review/*.test.mjs
+        run: |
+          test -f tests/review/policy.test.mjs
+          test -f tests/review/run.test.mjs
+          test -f tests/review/pilot.test.mjs
+          node --test tests/review/*.test.mjs
       - name: Evaluate only the existing pilot PR
         env:
           GITHUB_TOKEN: ${{ github.token }}
