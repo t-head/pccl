@@ -27,6 +27,14 @@ struct ncclP2pRequest {
   int refcount;
 };
 
+struct p2pProxyBufferRequest {
+  size_t size;
+  int memMode;
+  int reserved; // Keep allocation-only requests distinct from normal P2P setup.
+  bool trackCpuMapping;
+};
+static_assert(sizeof(p2pProxyBufferRequest) != sizeof(ncclP2pRequest), "P2P setup requests must be distinct");
+
 struct p2pConnectInfo {
   int rank;
   int read;
@@ -93,6 +101,14 @@ struct p2pResources {
 // hgMem API support
 struct p2pHgMemProxyInfo {
   struct ncclP2pBuff p2pBuff;
+};
+
+// Used only by allocation-only connections, not normal P2P communication.
+struct p2pProxyBuffer {
+  struct ncclP2pBuff p2pBuff;
+  int memMode;
+  void* cpuPtr;
+  void** cpuPtrRef;
 };
 
 #include <sys/types.h>
@@ -210,7 +226,8 @@ ncclResult_t ncclP2pAllocateShareableBuffer(size_t size, int refcount, ncclIpcDe
     hggcError_t res = hggcIpcGetMemHandle(&ipcDesc->devIpc, *ptr);
     if (res != hggcSuccess) {
       WARN("hggcIpcGetMemHandle failed : %s", hggcGetErrorString(res));
-      ncclHggcFree(*ptr);
+      NCCLCHECK(ncclHggcFree(*ptr, memMode));
+      *ptr = nullptr;
       HGGCCHECK(res);
     }
   }
@@ -589,6 +606,23 @@ ncclResult_t p2pRecvFree(struct ncclConnector* recv) {
 }
 
 static ncclResult_t p2pSendProxySetup(struct ncclProxyConnection* connection, struct ncclProxyState* proxyState, void* reqBuff, int reqSize, void* respBuff, int respSize, int* done) {
+  if (reqSize == sizeof(struct p2pProxyBufferRequest)) {
+    if (respSize != sizeof(struct p2pProxyBuffer)) return ncclInternalError;
+    auto* req = (struct p2pProxyBufferRequest*)reqBuff;
+    if (req->trackCpuMapping && req->memMode != MEM_LEGACY) return ncclInvalidArgument;
+    struct p2pProxyBuffer* info;
+    NCCLCHECK(ncclCalloc(&info, /* nelem */ 1));
+    connection->transportResources = info;
+    connection->p2pBufferAlloc = true;
+    info->memMode = req->memMode;
+    NCCLCHECK(ncclP2pAllocateShareableBuffer(req->size, /* refcount */ 0, &info->p2pBuff.ipcDesc,
+        &info->p2pBuff.directPtr, proxyState->pDevMemUsed, req->memMode));
+    info->p2pBuff.size = req->size;
+    if (req->trackCpuMapping) info->cpuPtrRef = &info->cpuPtr;
+    memcpy(respBuff, info, sizeof(*info));
+    *done = 1;
+    return ncclSuccess;
+  }
   if (usingMemcpy()) {
     struct p2pShmProxyInfo* proxyInfo;
     NCCLCHECK(ncclCalloc(&proxyInfo, 1));
@@ -629,6 +663,23 @@ static ncclResult_t p2pSendProxySetup(struct ncclProxyConnection* connection, st
   return ncclSuccess;
 }
 
+ncclResult_t pcclP2pAllocateProxyBuffer(ncclComm_t comm, size_t size, ncclIpcDesc* ipcDesc,
+    void** ptr, int memMode, void*** cpuPtrRef) {
+  struct ncclProxyConnector proxyConn = {};
+  struct p2pProxyBufferRequest req = {};
+  struct p2pProxyBuffer buff = {};
+  req.size = size;
+  req.memMode = memMode;
+  req.trackCpuMapping = cpuPtrRef != nullptr;
+  NCCLCHECK(ncclProxyConnect(comm, TRANSPORT_P2P, /* send */ 1, comm->rank, &proxyConn));
+  NCCLCHECK(ncclProxyCallBlocking(comm, &proxyConn, ncclProxyMsgSetup,
+      &req, sizeof(req), &buff, sizeof(buff)));
+  *ptr = buff.p2pBuff.directPtr;
+  *ipcDesc = buff.p2pBuff.ipcDesc;
+  if (cpuPtrRef) *cpuPtrRef = buff.cpuPtrRef;
+  return ncclSuccess;
+}
+
 static ncclResult_t p2pRecvProxySetup(struct ncclProxyConnection* connection, struct ncclProxyState* proxyState, void* reqBuff, int reqSize, void* respBuff, int respSize, int* done) {
   struct ncclP2pRequest* req = (struct ncclP2pRequest*)reqBuff;
   if (reqSize != sizeof(struct ncclP2pRequest)) return ncclInternalError;
@@ -665,6 +716,16 @@ static ncclResult_t p2pSendProxyConnect(struct ncclProxyConnection* connection, 
 }
 
 static ncclResult_t p2pSendProxyFree(struct ncclProxyConnection* connection, struct ncclProxyState* proxyState) {
+  if (connection->p2pBufferAlloc) {
+    auto* info = (struct p2pProxyBuffer*)connection->transportResources;
+    if (info->cpuPtr) {
+      HGGCCHECK(hggcEitInterface::getInstance().wrapHggcMemUnlock((HGdeviceptr)info->p2pBuff.directPtr));
+      info->cpuPtr = nullptr;
+    }
+    NCCLCHECK(ncclHggcFree(info->p2pBuff.directPtr, info->memMode));
+    NCCLCHECK(ncclFree(info));
+    return ncclSuccess;
+  }
   if (usingMemcpy()) {
     struct p2pShmProxyInfo* proxyInfo = (struct p2pShmProxyInfo*)connection->transportResources;
     if (proxyInfo) {
