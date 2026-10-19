@@ -1,0 +1,41 @@
+# Isolated integration test. This entry point must not be deployed to main.
+name: Test Module Review
+
+on:
+  pull_request:
+    branches: [test/module-review-base]
+    types: [opened, edited, synchronize, reopened, labeled, unlabeled, ready_for_review, converted_to_draft]
+  pull_request_review:
+    types: [submitted, edited, dismissed]
+
+permissions:
+  contents: read
+
+jobs:
+  route:
+    name: Test workflow-module approval
+    if: >-
+      github.repository == 't-head/pccl' &&
+      github.event.pull_request.number == 19 &&
+      github.event.pull_request.user.login == 'honganlxh' &&
+      github.event.pull_request.base.ref == 'test/module-review-base' &&
+      github.event.pull_request.head.repo.full_name == github.repository &&
+      github.event.pull_request.head.ref == 'test/module-review-pr'
+    runs-on: ubuntu-24.04
+    timeout-minutes: 10
+    permissions:
+      contents: read
+      pull-requests: write
+      checks: write
+    steps:
+      - name: Check out trusted test-base implementation
+        uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262 # v4
+        with:
+          ref: ${{ github.event.pull_request.base.sha }}
+          persist-credentials: false
+      - name: Test review policy and pilot boundaries
+        run: node --test tests/review/*.test.mjs
+      - name: Evaluate only the existing pilot PR
+        env:
+          GITHUB_TOKEN: ${{ github.token }}
+        run: node .github/review/pilot.mjs
