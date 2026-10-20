@@ -86,13 +86,6 @@ ifneq ($(PCCL_SRC_ROOT),)
   HGFLAGS += -Xcompiler $(FILE_PREFIX_MAP)=$(PCCL_SRC_ROOT)=.
 endif
 
-ifeq ($(REL_NO_SYM), 1)
-  CXXFLAGS += -DREL_NO_SYM
-  CXXFLAGS += -fvisibility=hidden -fvisibility-inlines-hidden
-  HGFLAGS += -Xcompiler -fvisibility=hidden -Xcompiler -fvisibility-inlines-hidden
-  HGFLAGS += -DREL_NO_SYM
-endif
-
 HGFLAGS += $(shell echo "$(PPU_OPTION)" | sed "s/;/ /g")
 HGLDFLAGS  := $(PPU_LIB:%=-L%)
 
@@ -104,13 +97,9 @@ else
   HGLDFLAGS += -dlto
 endif
 
-OBJCOPY ?= objcopy
-STRIP ?= strip
 ifneq ($(PPU_HOST_ARCH),$(PPU_TARGET_ARCH))
   HGFLAGS += -ccbin ${PPU_TARGET_ARCH}-linux-gnu-g++
   HGLDFLAGS += -ccbin ${PPU_TARGET_ARCH}-linux-gnu-g++
-  OBJCOPY := ${PPU_TARGET_ARCH}-linux-gnu-objcopy
-  STRIP := ${PPU_TARGET_ARCH}-linux-gnu-strip
 endif
 
 ifeq ($(CC), 1)

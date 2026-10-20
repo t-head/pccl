@@ -969,7 +969,6 @@ __hidden ncclResult_t exampleProfilerRecordEventState(void* eHandle, ncclProfile
   return ncclSuccess;
 }
 
-__attribute__((visibility("default")))
 ncclResult_t exampleProfilerPrintEvent(void* context, const char* path) {
   struct context* ctx = (struct context *)context;
 
@@ -987,7 +986,6 @@ ncclResult_t exampleProfilerPrintEvent(void* context, const char* path) {
   return ncclSuccess;
 }
 
-__attribute__((visibility("default")))
 ncclProfiler_t pcclProfiler_v5 = {
   "Example-profiler",
   exampleProfilerInit,
@@ -1053,7 +1051,6 @@ __hidden ncclResult_t exampleProfilerRecordEventState_v6(void* eHandle, ncclProf
   return exampleProfilerRecordEventState(eHandle, (ncclProfilerEventState_t)eState, (ncclProfilerEventStateArgs_t*)eStateArgs);
 }
 
-__attribute__((visibility("default")))
 ncclProfiler_v6_t pcclProfiler_v6 = {
   "Example-profiler-v6",
   exampleProfilerInit,

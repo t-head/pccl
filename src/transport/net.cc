@@ -18,7 +18,7 @@
 #include "profiler.h"
 
 bool nccl_use_eic = false;
-// EIC plugins resolve these variables with dlsym, including REL_NO_SYM builds.
+// EIC plugins resolve these variables with dlsym.
 __attribute__((visibility("default"))) int nccl_use_u2mm_host = 0;
 __attribute__((visibility("default"))) int nccl_use_u2mm_dev = 0;
 __attribute__((visibility("default"))) int nccl_eic_gpu_offset = 0;

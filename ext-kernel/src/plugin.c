@@ -451,7 +451,6 @@ ncclResult_t pluginDestroy(void* params) {
 
 #define PLUGIN_NAME "CustomCollectives"
 
-__attribute__((visibility("default")))
 pcclExtKernel_v1_t pcclExtKernelPlugin_v1 = {
   .name = PLUGIN_NAME,
   .kernelPluginInit = pluginInit,

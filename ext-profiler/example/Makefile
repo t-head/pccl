@@ -22,11 +22,6 @@ ${DST_DIR}/libpccl-profiler-example.so: ${SRC_FILES}
 	@printf "Compiling  %-35s > %s\n" $< $@
 	@mkdir -p ${DST_DIR}
 	$(CXX) $(INCDIR:%=-I%) $(CXXFLAGS) -fPIC -shared -o  $@ $^
-ifeq ($(REL_NO_SYM), 1)
-	$(OBJCOPY) --only-keep-debug $(DST_DIR)/libpccl-profiler-example.so $(DST_DIR)/libpccl-profiler-example.so.dbginfo
-	$(STRIP) --strip-all $(DST_DIR)/libpccl-profiler-example.so
-	$(OBJCOPY) --add-gnu-debuglink=$(DST_DIR)/libpccl-profiler-example.so.dbginfo $(DST_DIR)/libpccl-profiler-example.so
-endif
 
 clean:
 	rm -f ${DST_DIR}/libpccl-profiler-example.so
