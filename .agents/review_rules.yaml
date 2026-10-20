@@ -209,6 +209,12 @@ rules:
       - "Performance-related changes should provide benchmarks, stress-test results, or at least an explanation of hot-path impact."
       - "When tests are missing, the change description must explain why the risk is acceptable."
 
+  - category: "CI Configuration"
+    items:
+      - "Verify new tests run in CI. Add new required jobs to tests-gate.needs."
+      - "Required test failures or unexpected skips must fail the gate."
+      - "When changing CI routing or gate rules, verify both passing and failing cases."
+
   - category: "AI Review Mandatory Rejections"
     items:
       - "Error Handling and Abort Propagation: ignoring critical call or check-macro return values."
