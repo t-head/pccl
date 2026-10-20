@@ -104,7 +104,7 @@ ncclResult_t collNetRecvSetup(ncclComm_t comm, struct ncclTopoGraph* graph, stru
   int proxyRank;
   int64_t netId;
   NCCLCHECK(ncclTopoGetNetDev(comm, myInfo->rank, graph, channelId, -1, &netId, &resources->netDev, &proxyRank));
-  NCCLCHECK(ncclTopoCheckGdr(comm->topo, myInfo->rank, netId, 0, &resources->useGdr));
+  NCCLCHECK(ncclTopoCheckGdr(comm->topo, myInfo->rank, netId, 0, &resources->useGdr, false));
 
   NCCLCHECK(ncclHggcHostCalloc(&resources->sendMem, 1, &(comm->pinnedMemUsed)));
 
