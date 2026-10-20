@@ -391,9 +391,9 @@ int ncclNetVersion() {
   return (ncclNet == &ncclNet_v4_as_v6) ? 4 : ((ncclNet == &ncclNet_v5_as_v6) ? 5 : 6);
 }
 
-bool ncclEicNet() {
-  if (ncclNet) {
-    if (strcmp(ncclNetName(), EIC_PLUGIN_NAME) == 0)
+bool ncclEicNet(ncclNet_t* net) {
+  if (net) {
+    if (strcmp(net->name, EIC_PLUGIN_NAME) == 0)
       return true;
   }
   return false;

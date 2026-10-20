@@ -55,7 +55,7 @@ enum {
 
 // use allocFlag to check if we need other memory allocation method like u2mm alloc
 template <typename T>
-static ncclResult_t ncclHggcHostCallocU2mmDebug(T** ptr, size_t nelem, uint64_t* pPinnedMemUsed, int memMode, int dev, const char *filefunc, int line) {
+static ncclResult_t ncclHggcHostCallocU2mmDebug(T** ptr, size_t nelem, uint64_t* pPinnedMemUsed, int memMode, int dev, ncclNet_t* net, const char *filefunc, int line) {
   ncclResult_t result = ncclSuccess;
   hggcStreamCaptureMode mode = hggcStreamCaptureModeRelaxed;
   HGGCCHECK(hggcThreadExchangeStreamCaptureMode(&mode));
@@ -67,7 +67,7 @@ static ncclResult_t ncclHggcHostCallocU2mmDebug(T** ptr, size_t nelem, uint64_t*
   }
 
   if (memMode == MEM_U2MM) {
-    NCCLCHECKGOTO(nccl_u2mm_host_calloc(ptr, nelem, dev), result, finish);
+    NCCLCHECKGOTO(nccl_u2mm_host_calloc(ptr, nelem, net, dev), result, finish);
     goto finish;
   }
 
@@ -105,7 +105,7 @@ finish:
 
 template <typename T>
 static ncclResult_t ncclHggcHostCallocDebug(T** ptr, size_t nelem, uint64_t* pPinnedMemUsed, const char *filefunc, int line) {
-  return ncclHggcHostCallocU2mmDebug(ptr, nelem, pPinnedMemUsed, MEM_NORMAL, 0, filefunc, line);
+  return ncclHggcHostCallocU2mmDebug(ptr, nelem, pPinnedMemUsed, MEM_NORMAL, 0, nullptr, filefunc, line);
 }
 
 #define ncclHggcHostCalloc(...) ncclHggcHostCallocDebug(__VA_ARGS__, __FILENAME__, __LINE__)

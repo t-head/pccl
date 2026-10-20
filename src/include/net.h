@@ -25,7 +25,7 @@ ncclResult_t ncclNetInit();
 ncclResult_t ncclNetRetain();
 ncclResult_t ncclNetFinalize();
 int ncclNetVersion();
-bool ncclEicNet();
+bool ncclEicNet(ncclNet_t* net);
 
 // Translation to external API
 static const char* ncclNetName() { return ncclNet->name; }

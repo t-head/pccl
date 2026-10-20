@@ -666,10 +666,11 @@ static ncclResult_t commAlloc(ncclComm_t comm, ncclComm_t parentComm, int ndev, 
   // unloaded by the last comm destroy); released in commFree via ncclNetFinalize.
   NCCLCHECK(ncclNetRetain());
   comm->netPluginRetained = true;
+  comm->ncclNet = ncclNet;
 
-  // Safe to read ncclNetName() here: the reference taken above pins the plugin.
+  // Safe to read comm->ncclNet->name here: the reference taken above pins the plugin.
   // nccl_u2mm_init() is self-gated and idempotent across comms.
-  if (strcmp(ncclNetName(), EIC_PLUGIN_NAME) == 0) {
+  if (strcmp(comm->ncclNet->name, EIC_PLUGIN_NAME) == 0) {
     nccl_use_eic = true;
     NCCLCHECK(nccl_u2mm_init());
   }
@@ -707,7 +708,7 @@ static ncclResult_t commAlloc(ncclComm_t comm, ncclComm_t parentComm, int ndev, 
     }
   }
   if (!obtainHgmlInfo) {
-    if (strcmp(ncclNetName(), EIC_PLUGIN_NAME) == 0) {
+    if (strcmp(comm->ncclNet->name, EIC_PLUGIN_NAME) == 0) {
       ERROR("Query hgml info failed on EIC platform !");
       return pcclUnhandledHggcError;
     }
@@ -1689,7 +1690,7 @@ static ncclResult_t initTransportsRank(ncclComm_t comm, ncclComm_t parent, uint6
   timers[TIMER_INIT_CONNECT] = clockNano();
 
   comm->runtimeConn = comm->cuMemSupport && ncclParamRuntimeConnect();
-  if (strcmp(ncclNetName(), EIC_PLUGIN_NAME) == 0 && comm->nNodes > 1 && nccl_use_u2mm_dev) {
+  if (strcmp(comm->ncclNet->name, EIC_PLUGIN_NAME) == 0 && comm->nNodes > 1 && nccl_use_u2mm_dev) {
     comm->runtimeConn = 0;
     if (comm->rank == 0) {
       INFO(NCCL_INIT, "u2mm does not support vmm api for now, so we cannot use runtime connection establishment");

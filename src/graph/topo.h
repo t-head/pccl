@@ -152,6 +152,7 @@ struct ncclTopoNodeSet {
 };
 
 struct ncclTopoSystem {
+  bool isEicNet;
   int systemId;
   uint64_t hostHashes[NCCL_TOPO_MAX_NODES];
   int nHosts;
@@ -184,7 +185,7 @@ ncclResult_t ncclTopoGetBalancedProxyRank(struct ncclTopoSystem* system, int g, 
 
 #define NCCL_TOPO_XML_MAX_NODES 256
 #define NCCL_GRAPH_XML_MAX_NODES 4096
-ncclResult_t ncclTopoGetSystemFromXml(struct ncclXml* xml, struct ncclTopoSystem** topoSystem, const uint64_t localHostHash);
+ncclResult_t ncclTopoGetSystemFromXml(struct ncclXml* xml, struct ncclTopoSystem** topoSystem, const uint64_t localHostHash, bool isEicNet = false);
 ncclResult_t ncclTopoGetGraphFromXml(struct ncclXmlNode *xmlGraphs, struct ncclTopoSystem* system, struct ncclTopoGraph* graph, int* nChannels);
 ncclResult_t ncclTopoGetXmlFromGraphs(int ngraphs, struct ncclTopoGraph** graphs, struct ncclTopoSystem* system, struct ncclXml *xml);
 ncclResult_t pcclAffinityNetsPathAdjust(struct ncclTopoSystem* system);

@@ -489,7 +489,7 @@ ncclResult_t ncclTopoAddPci(struct ncclXmlNode* xmlPci, struct ncclTopoSystem* s
     }
 
     // we can only see 1 ep of 2
-    if (ncclEicNet() && type == NIC && width == PCI_LANES_X8) {
+    if (system->isEicNet && type == NIC && width == PCI_LANES_X8) {
       if (pcclParamDoubleEicPciWidthDisable() == 1) {
         INFO(NCCL_GRAPH, "found EIC pci node %lx width %d, disable double it may result in sub-optimal performance", busId, width);
       } else {
@@ -637,9 +637,10 @@ ncclResult_t ncclTopoAddNvLinks(struct ncclXmlNode* node, struct ncclTopoSystem*
   return ncclSuccess;
 }
 
-ncclResult_t ncclTopoGetSystemFromXml(struct ncclXml* xml, struct ncclTopoSystem** topoSystem, const uint64_t localHostHash) {
+ncclResult_t ncclTopoGetSystemFromXml(struct ncclXml* xml, struct ncclTopoSystem** topoSystem, const uint64_t localHostHash, bool isEicNet) {
   NCCLCHECK(ncclCalloc(topoSystem, 1));
   struct ncclTopoSystem* system = *topoSystem;
+  system->isEicNet = isEicNet;
   struct ncclXmlNode* topNode;
   NCCLCHECK(xmlFindTag(xml, "system", &topNode));
   for (int s=0; s<topNode->nSubs; s++) {
@@ -894,7 +895,7 @@ ncclResult_t ncclTopoGetSystem(ncclComm_t comm, struct ncclTopoSystem** system) 
     NCCLCHECKGOTO(ncclTopoDumpXmlToFile(xmlTopoFilePerRank, xml), res, fail);
   }
 
-  NCCLCHECKGOTO(ncclTopoGetSystemFromXml(xml, system, getHostHash()), res, fail);
+  NCCLCHECKGOTO(ncclTopoGetSystemFromXml(xml, system, getHostHash(), ncclEicNet(comm->ncclNet)), res, fail);
   if (comm->intraRank == 0) {
     NCCLCHECKGOTO(pcclCheckPPUTopo(), res, fail);
   }

@@ -78,6 +78,9 @@ struct connectMapMem{
 
 struct connectMap {
   struct ncclMemManager* memManager;
+  // Memory modes belong to the selected backend, including imported mappings.
+  int u2mmHost;
+  int u2mmDev;
   int sameProcess;
   int shared;
   int hggcDev;
@@ -263,9 +266,9 @@ static ncclResult_t netMapShm(struct connectMapMem* mem) {
   return ncclSuccess;
 }
 
-static ncclResult_t netCreateU2mmShm(struct connectMapMem* mem, int netDev, char** mkeyPtr) {
+static ncclResult_t netCreateU2mmShm(struct connectMapMem* mem, ncclNet_t* net, int netDev, char** mkeyPtr) {
   char* mkey = NULL;
-  NCCLCHECK(ncclU2mmShmCreate(&mkey, mem->size, (void**)&mem->cpuPtr, netDev));
+  NCCLCHECK(ncclU2mmShmCreate(&mkey, mem->size, (void**)&mem->cpuPtr, net, netDev));
   memcpy((void*)mem->u2mmMkey, (void*)mkey, U2MM_MKEY_MAX_LEN);
   *mkeyPtr = mkey;
   return ncclSuccess;
@@ -349,14 +352,14 @@ static ncclResult_t sendConnect(ncclComm_t comm, struct ncclConnect* connectInfo
     }
   } else if (!(map->sameProcess && map->hggcDev == comm->hggcDev)) {
     if (!map->sameProcess) {
-      if (nccl_use_u2mm_host) {
+      if (map->u2mmHost) {
         NCCLCHECK(netMapU2mmShm(map->mems+NCCL_NET_MAP_HOSTMEM));
       } else {
         NCCLCHECK(netMapShm(map->mems+NCCL_NET_MAP_HOSTMEM));
       }
     }
 
-    int memMode = (!map->sameProcess && nccl_use_u2mm_dev) ? MEM_U2MM_DIRECT : nccl_use_u2mm_dev;
+    int memMode = (!map->sameProcess && map->u2mmDev) ? MEM_U2MM_DIRECT : map->u2mmDev;
     if (map->mems[NCCL_NET_MAP_DEVMEM].size) {
       NCCLCHECK(ncclP2pImportShareableBuffer(comm, send->proxyConn.rank,
                                              map->mems[NCCL_NET_MAP_DEVMEM].size,
@@ -447,7 +450,7 @@ static ncclResult_t sendFree(struct ncclConnector* send) {
     int hggcDev;
     HGGCCHECK(hggcGetDevice(&hggcDev));
     if (map->hggcDev != hggcDev && map->mems[NCCL_NET_MAP_DEVMEM].size) {
-      int memMode = (!map->sameProcess && nccl_use_u2mm_dev) ? MEM_U2MM_DIRECT : nccl_use_u2mm_dev;
+      int memMode = (!map->sameProcess && map->u2mmDev) ? MEM_U2MM_DIRECT : map->u2mmDev;
       if (ncclCuMemEnable() && (memMode == MEM_NORMAL)) {
         // hgMem API support
         NCCLCHECK(ncclP2pFreeShareableBuffer(&map->mems[NCCL_NET_MAP_DEVMEM].ipcDesc));
@@ -458,7 +461,7 @@ static ncclResult_t sendFree(struct ncclConnector* send) {
       }
     }
     if (!map->sameProcess) {
-      if (nccl_use_u2mm_host) {
+      if (map->u2mmHost) {
         NCCLCHECK(ncclU2mmShmClose(map->mems[NCCL_NET_MAP_HOSTMEM].cpuPtr, map->mems[NCCL_NET_MAP_HOSTMEM].gpuPtr));
       } else {
         NCCLCHECK(ncclShmClose(map->mems[NCCL_NET_MAP_HOSTMEM].cpuPtr, map->mems[NCCL_NET_MAP_HOSTMEM].gpuPtr, map->mems[NCCL_NET_MAP_HOSTMEM].size));
@@ -499,7 +502,7 @@ static ncclResult_t sharedBuffersInit(struct ncclProxyState* proxyState, int hgg
   if (size) *size = state->size;
 
   if (hggc && state->hggcBuff == NULL) {
-    int memMode = (!sameProcess && nccl_use_u2mm_dev) ? MEM_U2MM_DIRECT : nccl_use_u2mm_dev;
+    int memMode = (!sameProcess && proxyState->u2mmDev) ? MEM_U2MM_DIRECT : proxyState->u2mmDev;
     if ((sameProcess == 0 && state->size > 0) || ncclCuMemEnable()) {
       NCCLCHECK(ncclP2pAllocateShareableBuffer(state->size, 0, &state->ipcDesc, (void**)&state->hggcBuff,
         proxyState->pDevMemUsed, memMode, -1, proxyState->memManager, ncclMemPersist));
@@ -514,8 +517,8 @@ static ncclResult_t sharedBuffersInit(struct ncclProxyState* proxyState, int hgg
     NCCLCHECK(ncclHggcHostCallocU2mm(&state->hostBuff,
                                       state->size,
                                       proxyState->pPinnedMemUsed,
-                                      nccl_use_u2mm_host,
-                                      0));
+                                      proxyState->u2mmHost,
+                                      0, proxyState->ncclNet));
   }
   if (cpuPtr) *cpuPtr = hggc ? state->hggcBuff : state->hostBuff;
   if (gpuPtr) *gpuPtr = (cpuPtr && sameProcess) ? *cpuPtr : NULL;
@@ -543,9 +546,9 @@ static ncclResult_t sharedBuffersDestroy(struct ncclProxyState* proxyState, int 
       if (!connection->sameProcess || ncclCuMemEnable()) {
         NCCLCHECK(ncclP2pFreeShareableBuffer(&state->ipcDesc));
       }
-      NCCLCHECK(ncclHggcFree(state->hggcBuff, nccl_use_u2mm_dev, proxyState->memManager));
+      NCCLCHECK(ncclHggcFree(state->hggcBuff, proxyState->u2mmDev, proxyState->memManager));
     }
-    if (state->hostBuff) NCCLCHECK(ncclHggcHostFree(state->hostBuff, nccl_use_u2mm_host));
+    if (state->hostBuff) NCCLCHECK(ncclHggcHostFree(state->hostBuff, proxyState->u2mmHost));
   }
   if (peer->send.refcount || peer->recv.refcount) return ncclSuccess;
   NCCLCHECK(ncclFree(proxyState->progressState.localPeers[tpLocalRank]));
@@ -610,7 +613,7 @@ static ncclResult_t recvProxySetup(struct ncclProxyConnection* connection, struc
   resources->maxRecvs = props.maxRecvs;
 
   if (respSize != sizeof(ncclNetHandle_t)) return ncclInternalError;
-  if (nccl_use_eic && nccl_eic_gpu_offset && proxyState->ownerComm->hgmlDeviceCount > 8)
+  if (ncclEicNet(proxyState->ncclNet) && nccl_eic_gpu_offset && proxyState->ownerComm->hgmlDeviceCount > 8)
     *(int *)((uintptr_t)respBuff + nccl_eic_gpu_offset) = proxyState->ownerComm->hgmlDev + 1;
   NCCLCHECK(ncclNetListen(req->netDev, respBuff, &resources->netListenComm));
   *done = 1;
@@ -621,7 +624,7 @@ static ncclResult_t sendProxyConnect(struct ncclProxyConnection* connection, str
   struct sendResources* resources = (struct sendResources*)(connection->transportResources);
   if (reqSize != sizeof(ncclNetHandle_t)) return ncclInternalError;
 
-  if (nccl_use_eic && nccl_eic_gpu_offset && proxyState->ownerComm->hgmlDeviceCount > 8)
+  if (ncclEicNet(proxyState->ncclNet) && nccl_eic_gpu_offset && proxyState->ownerComm->hgmlDeviceCount > 8)
     *(int *)((uintptr_t)reqBuff + nccl_eic_gpu_offset) = proxyState->ownerComm->hgmlDev + 1;
   if (resources->shared) {
     // Shared buffers
@@ -667,6 +670,8 @@ static ncclResult_t sendProxyConnect(struct ncclProxyConnection* connection, str
   // Create structures
   struct connectMap* map = &resources->map;
   map->sameProcess = connection->sameProcess;
+  map->u2mmHost = proxyState->u2mmHost;
+  map->u2mmDev = proxyState->u2mmDev;
   map->shared = resources->shared;
   HGGCCHECK(hggcGetDevice(&map->hggcDev));
 
@@ -705,7 +710,7 @@ static ncclResult_t sendProxyConnect(struct ncclProxyConnection* connection, str
   NCCL_NET_MAP_ADD_POINTER(map, 0, 0, sizeof(struct ncclRecvMem), recvMem);
 
   if (map->mems[NCCL_NET_MAP_DEVMEM].size) {
-    int memMode = (!map->sameProcess && nccl_use_u2mm_dev) ? MEM_U2MM_DIRECT : nccl_use_u2mm_dev;
+    int memMode = (!map->sameProcess && map->u2mmDev) ? MEM_U2MM_DIRECT : map->u2mmDev;
     if (resources->shared == 0) {
       if (!map->sameProcess || ncclCuMemEnable()) {
         ALIGN_SIZE(map->mems[NCCL_NET_MAP_DEVMEM].size, HGGC_IPC_MIN);
@@ -725,12 +730,12 @@ static ncclResult_t sendProxyConnect(struct ncclProxyConnection* connection, str
     NCCLCHECK(ncclHggcHostCallocU2mm(&map->mems[NCCL_NET_MAP_HOSTMEM].cpuPtr,
                                       map->mems[NCCL_NET_MAP_HOSTMEM].size,
                                       proxyState->pPinnedMemUsed,
-                                      nccl_use_u2mm_host,
-                                      resources->netDev));
+                                      map->u2mmHost,
+                                      resources->netDev, proxyState->ncclNet));
     map->mems[NCCL_NET_MAP_HOSTMEM].gpuPtr = map->mems[NCCL_NET_MAP_HOSTMEM].cpuPtr;
   } else {
-    if (nccl_use_u2mm_host) {
-      NCCLCHECK(netCreateU2mmShm(map->mems+NCCL_NET_MAP_HOSTMEM, resources->netDev, &resources->u2mmMkeyPtr));
+    if (map->u2mmHost) {
+      NCCLCHECK(netCreateU2mmShm(map->mems+NCCL_NET_MAP_HOSTMEM, proxyState->ncclNet, resources->netDev, &resources->u2mmMkeyPtr));
     } else {
       NCCLCHECK(netCreateShm(map->mems+NCCL_NET_MAP_HOSTMEM));
     }
@@ -854,6 +859,8 @@ static ncclResult_t recvProxyConnect(struct ncclProxyConnection* connection, str
   // Create structures
   struct connectMap* map = &resources->map;
   map->sameProcess = connection->sameProcess;
+  map->u2mmHost = proxyState->u2mmHost;
+  map->u2mmDev = proxyState->u2mmDev;
   if (map->sameProcess == 0) return ncclInternalError; // We don't support remote proxy for recv
   map->shared = resources->shared;
 
@@ -895,12 +902,12 @@ static ncclResult_t recvProxyConnect(struct ncclProxyConnection* connection, str
       if (ncclCuMemEnable()) {
         NCCLCHECK(ncclP2pAllocateShareableBuffer(map->mems[NCCL_NET_MAP_DEVMEM].size, 0,
           &map->mems[NCCL_NET_MAP_DEVMEM].ipcDesc, (void**)&map->mems[NCCL_NET_MAP_DEVMEM].gpuPtr,
-          proxyState->pDevMemUsed, nccl_use_u2mm_dev, -1, proxyState->memManager, ncclMemPersist));
+          proxyState->pDevMemUsed, map->u2mmDev, -1, proxyState->memManager, ncclMemPersist));
       } else {
         NCCLCHECK(ncclHggcCallocU2mm(&map->mems[NCCL_NET_MAP_DEVMEM].gpuPtr,
                                       map->mems[NCCL_NET_MAP_DEVMEM].size,
                                       proxyState->pDevMemUsed,
-                                      nccl_use_u2mm_dev, proxyState->memManager));
+                                      map->u2mmDev, proxyState->memManager));
       }
       map->mems[NCCL_NET_MAP_DEVMEM].cpuPtr = map->mems[NCCL_NET_MAP_DEVMEM].gpuPtr;
     }
@@ -908,8 +915,8 @@ static ncclResult_t recvProxyConnect(struct ncclProxyConnection* connection, str
   NCCLCHECK(ncclHggcHostCallocU2mm(&map->mems[NCCL_NET_MAP_HOSTMEM].cpuPtr,
                                     map->mems[NCCL_NET_MAP_HOSTMEM].size,
                                     proxyState->pPinnedMemUsed,
-                                    nccl_use_u2mm_host,
-                                    resources->netDev));
+                                    map->u2mmHost,
+                                    resources->netDev, proxyState->ncclNet));
   map->mems[NCCL_NET_MAP_HOSTMEM].gpuPtr = map->mems[NCCL_NET_MAP_HOSTMEM].cpuPtr;
   if (map->sameProcess) {
     uint64_t *cpuPtr = NULL;
@@ -981,15 +988,15 @@ static ncclResult_t sendProxyFree(struct ncclProxyConnection* connection, struct
     }
     struct connectMapMem* mems = resources->map.mems;
     if (resources->map.sameProcess) {
-      NCCLCHECK(ncclHggcHostFree(mems[NCCL_NET_MAP_HOSTMEM].cpuPtr, nccl_use_u2mm_host));
+      NCCLCHECK(ncclHggcHostFree(mems[NCCL_NET_MAP_HOSTMEM].cpuPtr, resources->map.u2mmHost));
     } else {
-      if (nccl_use_u2mm_host) {
+      if (resources->map.u2mmHost) {
         NCCLCHECK(ncclU2mmShmDestroy(resources->u2mmMkeyPtr, mems[NCCL_NET_MAP_HOSTMEM].cpuPtr));
       } else {
         NCCLCHECK(ncclShmClose(mems[NCCL_NET_MAP_HOSTMEM].cpuPtr, NULL, mems[NCCL_NET_MAP_HOSTMEM].size));
       }
     }
-    NCCLCHECK(ncclHggcFree(mems[NCCL_NET_MAP_DEVMEM].cpuPtr, nccl_use_u2mm_dev, proxyState->memManager));
+    NCCLCHECK(ncclHggcFree(mems[NCCL_NET_MAP_DEVMEM].cpuPtr, resources->map.u2mmDev, proxyState->memManager));
     if (!resources->map.sameProcess || ncclCuMemEnable()) {
       // hgMem API support
       if (mems[NCCL_NET_MAP_DEVMEM].size) {
@@ -1030,8 +1037,8 @@ static ncclResult_t recvProxyFree(struct ncclProxyConnection* connection, struct
       }
     }
     struct connectMapMem* mems = resources->map.mems;
-    NCCLCHECK(ncclHggcHostFree(mems[NCCL_NET_MAP_HOSTMEM].cpuPtr, nccl_use_u2mm_host));
-    NCCLCHECK(ncclHggcFree(mems[NCCL_NET_MAP_DEVMEM].cpuPtr, nccl_use_u2mm_dev, proxyState->memManager));
+    NCCLCHECK(ncclHggcHostFree(mems[NCCL_NET_MAP_HOSTMEM].cpuPtr, resources->map.u2mmHost));
+    NCCLCHECK(ncclHggcFree(mems[NCCL_NET_MAP_DEVMEM].cpuPtr, resources->map.u2mmDev, proxyState->memManager));
     if (!resources->map.sameProcess || ncclCuMemEnable()) {
       // hgMem API support
       if (mems[NCCL_NET_MAP_DEVMEM].size) {

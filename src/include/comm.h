@@ -589,6 +589,7 @@ struct pcclComm {
   ncclUserRedOp *userRedOps;
 
   pcclConfig_t config;
+  ncclNet_t* ncclNet;
   // Next comm in this thread's active ncclGroup[Start|End](). Holds "0x1" when
   // this comm is not yet in a group.
   struct pcclComm* groupNext[ncclGroupTaskTypeNum];

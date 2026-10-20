@@ -15,6 +15,7 @@
 #include "ipcsocket.h"
 #include <pthread.h>
 #include "p2p.h"
+#include "pccl_net_internal.h"
 
 enum { proxyRecv=0, proxySend=1 };
 enum ncclProxyOpState { ncclProxyOpNone, ncclProxyOpReady, ncclProxyOpProgress };
@@ -281,6 +282,9 @@ struct ncclIpcHdr {
 
 struct ncclProxyState {
   struct ncclMemManager* memManager;
+  ncclNet_t* ncclNet;
+  int u2mmHost;
+  int u2mmDev;
   int refCount;
   int tpRank;
   int tpnRanks;

@@ -12,6 +12,7 @@
 #include "socket.h"
 #include "shm.h"
 #include "transport.h"
+#include "net.h"
 #include "profiler.h"
 #include "alloc.h"
 #include "drv_extension.h"
@@ -1998,6 +1999,9 @@ ncclResult_t ncclProxyCreate(ncclComm_t comm) {
   struct ncclProxyState* proxyState = comm->proxyState;
   if (proxyState->refCount == 1) {
     /* we have to make sure all following fields in comm have been initialized. */
+    proxyState->ncclNet = comm->ncclNet;
+    proxyState->u2mmHost = ncclEicNet(comm->ncclNet) ? nccl_use_u2mm_host : 0;
+    proxyState->u2mmDev = ncclEicNet(comm->ncclNet) ? nccl_use_u2mm_dev : 0;
     proxyState->tpRank = comm->rank;
     proxyState->tpnRanks = comm->nRanks;
     proxyState->tpLocalnRanks = comm->localRanks;
