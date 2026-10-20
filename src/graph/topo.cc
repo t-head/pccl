@@ -800,11 +800,11 @@ ncclResult_t ncclTopoGetSystem(ncclComm_t comm, struct ncclTopoSystem** system) 
 
   // Auto-detect NICs if needed. net/collnet share the same xml/graph nodes,
   // so we start with collnet so that it has precedence.
-  if (ncclCollNet) {
-    NCCLCHECKGOTO(collNetDevices(&netDevCount), res, fail);
+  if (collNetSupport(comm)) {
+    NCCLCHECKGOTO(collNetDevices(comm, &netDevCount), res, fail);
     for (int n=0; n<netDevCount; n++) {
       ncclNetProperties_t props;
-      NCCLCHECKGOTO(collNetGetProperties(n, &props), res, fail);
+      NCCLCHECKGOTO(collNetGetProperties(comm, n, &props), res, fail);
       struct ncclXmlNode* netNode;
       NCCLCHECKGOTO(ncclTopoFillNet(xml, props.pciPath, props.name, &netNode), res, fail);
       NCCLCHECKGOTO(xmlSetAttrInt(netNode, "keep", 1), res, fail);
@@ -818,11 +818,11 @@ ncclResult_t ncclTopoGetSystem(ncclComm_t comm, struct ncclTopoSystem** system) 
     }
   }
   if (netDevCount == 0) {
-    NCCLCHECKGOTO(ncclNetDevices(&netDevCount), res, fail);
+    NCCLCHECKGOTO(comm->ncclNet->devices(&netDevCount), res, fail);
   }
   for (int n=0; n<netDevCount; n++) {
     ncclNetProperties_t props;
-    NCCLCHECKGOTO(ncclNetGetProperties(n, &props), res, fail);
+    NCCLCHECKGOTO(comm->ncclNet->getProperties(n, &props), res, fail);
     struct ncclXmlNode* netNode;
     NCCLCHECKGOTO(ncclTopoFillNet(xml, props.pciPath, props.name, &netNode), res, fail);
     NCCLCHECKGOTO(xmlSetAttrInt(netNode, "keep", 1), res, fail);

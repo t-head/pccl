@@ -195,19 +195,19 @@ static ncclResult_t checkCollNetSetup(ncclComm_t comm, int rank, int collNetSetu
     }
   }
   if (collNetSetupFail) {
-    if (rank == 0) WARN("Cannot initialize CollNet, using %s instead", ncclNetName());
+    if (rank == 0) WARN("Cannot initialize CollNet, using %s instead", comm->ncclNet->name);
     // Free collNet resources
     for (int r=0; r<comm->nChannels; r++) {
       struct ncclChannel* channel = comm->channels+r;
       struct ncclChannelPeer* peer = channel->peers[nranks];
       for (int b=0; b<NCCL_MAX_CONNS; b++) {
         struct ncclConnector* send = peer->send + b;
-        if (send->transportResources && send->transportComm) NCCLCHECK(send->transportComm->free(send));
+        if (send->transportResources && send->transportComm) NCCLCHECK(send->transportComm->free(comm, send));
         send->transportResources = NULL; // avoid double free
       }
       for (int b=0; b<NCCL_MAX_CONNS; b++) {
         struct ncclConnector* recv = peer->recv + b;
-        if (recv->transportResources && recv->transportComm) NCCLCHECK(recv->transportComm->free(recv));
+        if (recv->transportResources && recv->transportComm) NCCLCHECK(recv->transportComm->free(comm, recv));
         recv->transportResources = NULL; // avoid double free
       }
     }

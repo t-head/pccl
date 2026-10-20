@@ -556,10 +556,10 @@ static ncclResult_t netGetDevice(int rank, ncclComm_t comm, int* dev) {
         // loop over the device and return the first one matching
         int devId = 0;
         int nDev = 0;
-        NCCLCHECK(ncclNet->devices(&nDev));
+        NCCLCHECK(comm->ncclNet->devices(&nDev));
         while (devId < nDev) {
           ncclNetProperties_t props;
-          ncclNet->getProperties(devId, &props);
+          comm->ncclNet->getProperties(devId, &props);
           // check against user specified HCAs/ports
           bool found = matchIfList(props.name, props.port, userIfs, nUserIfs, searchExact) ^ searchNot;
           if (found) {
@@ -694,7 +694,7 @@ ncclResult_t bootstrapInit(int nHandles, void* handles, ncclComm_t comm, ncclCom
   state->nranks = nranks;
   state->hggcDev = comm->hggcDev;
   state->abortFlag = comm->abortFlag;
-  state->net = ncclNet;
+  state->net = comm->ncclNet;
   comm->bootstrap = state;
   if (handles != NULL) {
     comm->magic = state->magic = BOOTSTRAP_HANDLE(handles, 0)->magic;
@@ -885,7 +885,7 @@ ncclResult_t bootstrapSplit(uint64_t magic, ncclComm_t comm, ncclComm_t parent, 
   state->nranks = nranks;
   state->hggcDev = comm->hggcDev;
   state->abortFlag = comm->abortFlag;
-  state->net = ncclNet;
+  state->net = comm->ncclNet;
   comm->magic = state->magic = magic;
   comm->bootstrap = state;
 

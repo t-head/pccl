@@ -677,7 +677,7 @@ static ncclResult_t defaultGetAlgoInfo(ncclComm_t comm, ncclTaskColl* info) {
   // Check collNet support
   int collNetTypeSupport = 0;
   if (comm->collNetSupport)
-    NCCLCHECK(collNetReduceSupport(info->datatype, info->opHost, &collNetTypeSupport));
+    NCCLCHECK(collNetReduceSupport(comm, info->datatype, info->opHost, &collNetTypeSupport));
   for (int a=0; a<NCCL_NUM_ALGORITHMS; a++) {
     if (a == NCCL_ALGO_COLLNET && collNetTypeSupport != 1) continue;
     /* PAT reduceScatter doesn't support scaling yet */

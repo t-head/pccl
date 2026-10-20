@@ -590,6 +590,7 @@ struct pcclComm {
 
   pcclConfig_t config;
   ncclNet_t* ncclNet;
+  ncclCollNet_t* ncclCollNet;
   // Next comm in this thread's active ncclGroup[Start|End](). Holds "0x1" when
   // this comm is not yet in a group.
   struct pcclComm* groupNext[ncclGroupTaskTypeNum];
@@ -621,7 +622,7 @@ struct pcclComm {
   bool shareResources;
 
   // Flag indicating this comm holds a reference on the net plugin,
-  // taken by ncclNetRetain() in commAlloc and released by ncclNetFinalize() in commFree
+  // taken by ncclNetInit() in commAlloc and released by ncclNetFinalize() in commFree
   bool netPluginRetained;
 
   bool symmetricSupport;

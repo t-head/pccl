@@ -371,9 +371,9 @@ ncclResult_t GetConnType(ncclComm_t comm, struct ncclTopoGraph* graph, int chann
           } else {
             *connType = CONN_GDRDMA;
           }
-        } else if (strcmp(ncclNetName(), "IB") == 0) {
+        } else if (strcmp(comm->ncclNet->name, "IB") == 0) {
           *connType = CONN_RDMA;
-        } else if (strcmp(ncclNetName(), "Socket") == 0) {
+        } else if (strcmp(comm->ncclNet->name, "Socket") == 0) {
           *connType = CONN_SOCKET;
         } else {
           *connType = CONN_NET_EXT;

@@ -567,7 +567,7 @@ ncclResult_t p2pRecvConnect(ncclComm_t comm, struct ncclConnect* connectInfo, in
   return ncclSuccess;
 }
 
-ncclResult_t p2pSendFree(struct ncclConnector* send) {
+ncclResult_t p2pSendFree(ncclComm_t, struct ncclConnector* send) {
   struct p2pResources* resources = (struct p2pResources*)send->transportResources;
   if (resources) {
     if (ncclCuMemEnable()) {
@@ -597,7 +597,7 @@ ncclResult_t p2pSendFree(struct ncclConnector* send) {
   return ncclSuccess;
 }
 
-ncclResult_t p2pRecvFree(struct ncclConnector* recv) {
+ncclResult_t p2pRecvFree(ncclComm_t, struct ncclConnector* recv) {
   struct p2pResources* resources = (struct p2pResources*)recv->transportResources;
   if (resources) {
     if (ncclCuMemEnable()) {

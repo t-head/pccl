@@ -411,8 +411,7 @@ static ncclResult_t ncclInit() {
     initEnv();
     initGdrCopy();
     initGlobalVars();
-    NCCLCHECK(ncclNetInit());
-    INFO(NCCL_INIT, "Using network %s", ncclNetName());
+    NCCLCHECK(bootstrapNetInit());
     initialized = true;
     // hgtx not support Enum in 2.0
     // initHgtxRegisteredEnums();
@@ -509,8 +508,10 @@ static ncclResult_t commFree(ncclComm_t comm) {
   for (int channel=0; channel<MAXCHANNELS; channel++)
     NCCLCHECK(freeChannel(comm->channels+channel, comm->nRanks, comm));
 
-  NCCLCHECK(ncclGinHostFinalize(comm));
+  if (comm->sharedRes && comm->ginPluginIndex >= 0) NCCLCHECK(ncclGinHostFinalize(comm));
 
+  // Resource creation and GIN plugin assignment can fail independently.
+  bool hadSharedRes = comm->sharedRes != nullptr;
   int sharedResRefCount = 0;
   if (comm->sharedRes) {
     sharedResRefCount = ncclAtomicRefCountDecrement(&comm->sharedRes->refCount);
@@ -598,8 +599,10 @@ static ncclResult_t commFree(ncclComm_t comm) {
 
   // Release the per-comm net plugin reference taken in commAlloc; skip comms
   // that failed before the reference was taken to keep load/unload paired.
-  if (comm->netPluginRetained) NCCLCHECK(ncclNetFinalize());
-  if (sharedResRefCount == 0) {
+  if (comm->netPluginRetained) NCCLCHECK(ncclNetFinalize(comm));
+  free((void*)comm->config.netName);
+  comm->config.netName = nullptr;
+  if (hadSharedRes && sharedResRefCount == 0 && comm->ginPluginIndex >= 0) {
     NCCLCHECK(ncclGinFinalize(comm));
   }
 
@@ -662,11 +665,25 @@ static ncclResult_t commAlloc(ncclComm_t comm, ncclComm_t parentComm, int ndev, 
     return ncclInvalidArgument;
   }
 
+  HGGCCHECK(hggcGetDevice(&comm->hggcDev));
+
+  ncclMemoryStackConstruct(&comm->memPermanent);
+  ncclMemoryStackConstruct(&comm->memScoped);
+
+  comm->rank = comm->hostDevComm.comm.rank = rank;
+  comm->nRanks = comm->hostDevComm.comm.nRanks = ndev;
+  // Skip GIN cleanup until a plugin has been assigned to this communicator.
+  comm->ginPluginIndex = -1;
+
   // Take a per-comm reference on the net plugin (reloads it if it was fully
   // unloaded by the last comm destroy); released in commFree via ncclNetFinalize.
-  NCCLCHECK(ncclNetRetain());
-  comm->netPluginRetained = true;
-  comm->ncclNet = ncclNet;
+  NCCLCHECK(ncclNetInit(comm));
+  INFO(NCCL_INIT, "Using network %s", comm->ncclNet->name);
+  if (parentComm && parentComm->shareResources && parentComm->ncclNet != comm->ncclNet) {
+    WARN("Split shares resources, but parent comm netName %s is different from child comm netName %s",
+         parentComm->ncclNet->name, comm->ncclNet->name);
+    return ncclInvalidUsage;
+  }
 
   // Safe to read comm->ncclNet->name here: the reference taken above pins the plugin.
   // nccl_u2mm_init() is self-gated and idempotent across comms.
@@ -675,15 +692,9 @@ static ncclResult_t commAlloc(ncclComm_t comm, ncclComm_t parentComm, int ndev, 
     NCCLCHECK(nccl_u2mm_init());
   }
 
-  ncclMemoryStackConstruct(&comm->memPermanent);
-  ncclMemoryStackConstruct(&comm->memScoped);
-
   comm->devMemUsed = 0;
   comm->pinnedMemUsed = 0;
-  comm->rank = comm->hostDevComm.comm.rank = rank;
-  comm->nRanks = comm->hostDevComm.comm.nRanks = ndev;
   comm->hostDevComm.comm.stateMonitorLevel = ncclParamStateMonitorLevelFlag;
-  hggcGetDevice(&comm->hggcDev);
   // Initialize memory manager
   if (parentComm && parentComm->shareResources && parentComm->memManager) {
     // Share parent's memory manager
@@ -1602,7 +1613,7 @@ static ncclResult_t initTransportsRank(ncclComm_t comm, ncclComm_t parent, uint6
 
   if (comm->nNodes > 1 &&
       ncclParamCollNetEnable() == 1 &&
-      collNetSupport() && collNetGraph->nChannels) {
+      collNetSupport(comm) && collNetGraph->nChannels) {
     NCCLCHECKGOTO(ncclTopoConnectCollNet(comm, collNetGraph, rank), res, fail);
   }
 
@@ -1730,7 +1741,7 @@ static ncclResult_t initTransportsRank(ncclComm_t comm, ncclComm_t parent, uint6
     // Check if we can setup CollNet
     if (comm->nNodes > 1 &&
         ncclParamCollNetEnable() == 1 &&
-        collNetSupport() && collNetGraph->nChannels) {
+        collNetSupport(comm) && collNetGraph->nChannels) {
       NCCLCHECKGOTO(ncclTransportCollnetConnect(comm), res, fail);
     }
 
@@ -1761,7 +1772,7 @@ static ncclResult_t initTransportsRank(ncclComm_t comm, ncclComm_t parent, uint6
     NCCLCHECKGOTO(ncclProxyCallBlocking(comm, &proxyConn, ncclProxyMsgSharedInit, &comm->p2pnChannels, sizeof(int), NULL, 0), res, fail);
 
     // Then to remote ones when using PXN
-    if (ncclPxnDisable() == 0) {
+    if (ncclPxnDisable(comm) == 0) {
       int nranks;
       NCCLCHECKGOTO(ncclTopoGetPxnRanks(comm, &pxnPeers, &nranks), res, fail);
       for (int r=0; r<nranks; r++) {
@@ -2160,6 +2171,18 @@ fail:
 
 static ncclResult_t envConfigOverride(ncclComm_t comm) {
   ncclResult_t ret = ncclSuccess;
+  const char* netName = comm->config.netName;
+  const char* envNetName = pcclGetEnvWithDualPrefix("PCCL_NET");
+  if (envNetName != nullptr) netName = envNetName;
+  // Each communicator owns its copy, including configs inherited by split.
+  comm->config.netName = nullptr;
+  if (netName != nullptr) {
+    char* ownedNetName = nullptr;
+    size_t size = strlen(netName) + 1;
+    NCCLCHECK(ncclCalloc(&ownedNetName, size));
+    memcpy(ownedNetName, netName, size);
+    comm->config.netName = ownedNetName;
+  }
   int blockingEnv;
   int minCTAsEnv;
   int maxCTAsEnv;
@@ -2304,6 +2327,7 @@ static ncclResult_t parseCommConfig(ncclComm_t comm, ncclConfig_t *config) {
   NCCL_CONFIG_DEFAULT(internalConfigPtr, blocking, PCCL_CONFIG_UNDEF_INT, 1, "Blocking", "%d");
   NCCL_CONFIG_DEFAULT(internalConfigPtr, minCTAs, PCCL_CONFIG_UNDEF_INT, 1, "Min CTAs", "%d");
   NCCL_CONFIG_DEFAULT(internalConfigPtr, maxCTAs, PCCL_CONFIG_UNDEF_INT, MAXCHANNELS, "Max CTAs", "%d");
+  NCCL_CONFIG_DEFAULT(internalConfigPtr, netName, PCCL_CONFIG_UNDEF_PTR, NULL, "Net name", "%s");
   NCCL_CONFIG_DEFAULT(internalConfigPtr, splitShare, PCCL_CONFIG_UNDEF_INT, 0, "Split share", "%d");
   NCCL_CONFIG_DEFAULT(internalConfigPtr, commName, PCCL_CONFIG_UNDEF_PTR, NULL, "Comm name", "%s");
   NCCL_CONFIG_DEFAULT(internalConfigPtr, CTAPolicy, PCCL_CONFIG_UNDEF_INT, PCCL_CTA_POLICY_DEFAULT, "CTA policy flags", "%d");
@@ -2316,6 +2340,7 @@ static ncclResult_t parseCommConfig(ncclComm_t comm, ncclConfig_t *config) {
   comm->config.CTAPolicy = internalConfigPtr->CTAPolicy;
   comm->config.minCTAs = internalConfigPtr->minCTAs;
   comm->config.maxCTAs = internalConfigPtr->maxCTAs;
+  comm->config.netName = internalConfigPtr->netName;
   comm->config.shrinkShare = internalConfigPtr->shrinkShare;
 
   NCCLCHECK(envConfigOverride(comm));
@@ -2401,6 +2426,8 @@ fail:
     NCCLCHECK(ncclFree(comm->abortFlag));
     ncclHggcHostFree(comm->abortFlagDev);
     NCCLCHECK(ncclFree(comm->abortFlagRefCount));
+    free((void*)comm->config.netName);
+    comm->config.netName = nullptr;
     NCCLCHECK(ncclFree(comm));
   }
   if (newcomm) *newcomm = NULL;
@@ -3049,6 +3076,8 @@ fail:
       if (childComm->abortFlagDev) ncclHggcHostFree(childComm->abortFlagDev);
       if (childComm->abortFlagRefCount) NCCLCHECK(ncclFree(childComm->abortFlagRefCount));
     }
+    free((void*)childComm->config.netName);
+    childComm->config.netName = nullptr;
     NCCLCHECK(ncclFree(childComm));
   }
   if (newcomm) *newcomm = NULL;
@@ -3232,6 +3261,8 @@ fail:
     NCCLCHECK(ncclFree(newComm->abortFlag));
     if (newComm->abortFlagDev) ncclHggcHostFree(newComm->abortFlagDev);
     NCCLCHECK(ncclFree(newComm->abortFlagRefCount));
+    free((void*)newComm->config.netName);
+    newComm->config.netName = nullptr;
     NCCLCHECK(ncclFree(newComm));
     if (newcomm) *newcomm = NULL;
   }

@@ -91,10 +91,10 @@ ncclResult_t freeChannel(struct ncclChannel* channel, int nRanks, ncclComm_t com
   // Free per-channel device counters allocated unconditionally in initChannel.
   // These are not tied to channel->peers, so they must be freed before the
   // early return below to avoid an 8-byte device leak per counter per channel.
-  NCCLCHECK(ncclHggcFreeLegacy(channel->devIndexLevel1, MEM_NORMAL, manager));
-  NCCLCHECK(ncclHggcFreeLegacy(channel->devPerKernelBatchCounter, MEM_NORMAL, manager));
+  if (channel->devIndexLevel1) NCCLCHECK(ncclHggcFreeLegacy(channel->devIndexLevel1, MEM_NORMAL, manager));
+  if (channel->devPerKernelBatchCounter) NCCLCHECK(ncclHggcFreeLegacy(channel->devPerKernelBatchCounter, MEM_NORMAL, manager));
 #ifdef NO_TSM
-  NCCLCHECK(ncclHggcFreeLegacy(channel->shmem, MEM_NORMAL, manager));
+  if (channel->shmem) NCCLCHECK(ncclHggcFreeLegacy(channel->shmem, MEM_NORMAL, manager));
   if (channel->patShmem) NCCLCHECK(ncclHggcFreeLegacy(channel->patShmem, MEM_NORMAL, manager));
 #endif
 
@@ -114,8 +114,8 @@ ncclResult_t freeChannel(struct ncclChannel* channel, int nRanks, ncclComm_t com
     if (peer) {
       if (ncclAtomicRefCountDecrement(&peer->refCount) == 0) {
         for (int b = 0; b < NCCL_MAX_CONNS; b++) {
-          if (peer->send[b].transportComm) NCCLCHECK(peer->send[b].transportComm->free(peer->send + b));
-          if (peer->recv[b].transportComm) NCCLCHECK(peer->recv[b].transportComm->free(peer->recv + b));
+          if (peer->send[b].transportComm) NCCLCHECK(peer->send[b].transportComm->free(comm, peer->send + b));
+          if (peer->recv[b].transportComm) NCCLCHECK(peer->recv[b].transportComm->free(comm, peer->recv + b));
         }
       }
     }
