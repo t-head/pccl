@@ -14,6 +14,7 @@
 #include "pccl_net_internal.h"
 #include "pccl_gin.h"
 #include "pccl_device/gin/gin_device_host_common.h"
+#include "pccl_device/gin/gin_gdaki_device_host_common.h"
 #include <thread>
 #include <mutex>
 #include <condition_variable>
@@ -46,6 +47,10 @@ struct pcclGinState {
   struct pcclGinStateDevComm* devComms;
   ncclGinConnectionType_t ginConnectionType;
 };
+
+// Providers own the descriptor allocated by CreateHandle.
+ncclResult_t ncclGinGdakiCreateHandle(pcclGinGdakiProvider provider, uint32_t providerVersion,
+                                      void* contexts, ncclNetDeviceHandle_t* handle);
 
 extern int64_t ncclParamGinType();
 

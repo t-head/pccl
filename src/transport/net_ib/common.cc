@@ -15,7 +15,6 @@ union ncclSocketAddress ncclIbIfAddr;
 
 int ncclNIbDevs = -1;
 struct ncclIbDev ncclIbDevs[MAX_IB_DEVS];
-int ncclGinIbGdakiDevIndexes[MAX_IB_DEVS];
 
 const char* ncclIbReqTypeStr[] = {
   "Unused", "Send", "Recv", "Flush", "GIN_iput", "GIN_iget",

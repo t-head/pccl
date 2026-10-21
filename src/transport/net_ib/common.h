@@ -39,9 +39,12 @@ struct ncclIbStats {
 extern int ncclNIbDevs;
 extern int ncclIbRelaxedOrderingEnabled;
 enum ncclIbProvider {
-  IB_PROVIDER_NONE = 0,
+  IB_PROVIDER_UNKNOWN = 0,
   IB_PROVIDER_MLX5 = 1,
+  IB_PROVIDER_TROCE = 2,
 };
+enum ncclIbProvider ncclIbProviderFromDevice(struct ibv_device* device);
+const char* ncclIbProviderName(enum ncclIbProvider provider);
 struct ncclIbDev {
     int device;
     uint64_t guid;
@@ -68,7 +71,6 @@ struct ncclIbDev {
 
 #define MAX_IB_DEVS 32
 extern struct ncclIbDev ncclIbDevs[MAX_IB_DEVS];
-extern int ncclGinIbGdakiDevIndexes[MAX_IB_DEVS];
 
 #define NCCL_NET_IB_MAX_RECVS 8
 

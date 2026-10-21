@@ -11,6 +11,7 @@
 #include "pccl.h"
 #include "coop.h"
 #include "utility.h"
+#include "gin/gin_gdaki_device_host_common.h"
 
 struct pcclDevComm;
 typedef struct pcclDevComm pcclDevComm_t;
@@ -104,11 +105,17 @@ struct pcclDevCommRequirements {
   int ginTrafficClass;
 
   int worldGinBarrierCount;
+
+  // Initialized by PCCL_DEV_COMM_REQUIREMENTS_INITIALIZER; do not override.
+  uint64_t ginGdakiVersion;
 };
+
+// Older runtimes must reject the extended requirements before copying them.
+#define PCCL_DEV_COMM_REQUIREMENTS_MAGIC (PCCL_API_MAGIC ^ 0x10000u)
 
 #define PCCL_DEV_COMM_REQUIREMENTS_INITIALIZER {                               \
     sizeof(pcclDevCommRequirements_t),           /* size */                    \
-    PCCL_API_MAGIC,                              /* magic */                   \
+    PCCL_DEV_COMM_REQUIREMENTS_MAGIC,            /* magic */                   \
     PCCL_VERSION_CODE,                           /* version */                 \
     nullptr,                                     /* resourceRequirementsList*/ \
     nullptr,                                     /* teamRequirementsList */    \
@@ -127,6 +134,7 @@ struct pcclDevCommRequirements {
     0,                                           /* ginQueueDepth */           \
     PCCL_CONFIG_UNDEF_INT,                       /* ginTrafficClass */         \
     0,                                           /* worldGinBarrierCount */    \
+    PCCL_GIN_GDAKI_VERSION,                      /* ginGdakiVersion */         \
 }
 
 struct pcclDevResourceRequirements {

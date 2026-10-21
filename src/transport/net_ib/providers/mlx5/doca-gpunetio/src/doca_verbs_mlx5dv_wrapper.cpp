@@ -44,6 +44,7 @@
 #include <mutex>
 
 #include "doca_verbs_net_wrapper.h"
+#include "host/doca_verbs.h"
 #include "doca_gpunetio_log.hpp"
 #include "host/doca_error.h"
 
@@ -153,6 +154,10 @@ static int doca_verbs_wrapper_init_dlopen(void) {
     static std::once_flag once;
     std::call_once(once, doca_verbs_wrapper_init_once, &ret);
     return ret;
+}
+
+doca_error_t doca_verbs_mlx5dv_probe(void) {
+  return doca_verbs_wrapper_init_dlopen() == 0 ? DOCA_SUCCESS : DOCA_ERROR_NOT_FOUND;
 }
 
 /* *********** Wrapper Implementation with dlopen *********** */

@@ -404,14 +404,15 @@ static ncclResult_t ncclIbPrepostRecvWorkRequests(struct ncclIbRecvComm* comm) {
   return ncclSuccess;
 }
 
-ncclResult_t ncclIbRtrQp(ibv_qp* qp, uint32_t qpn, struct ncclIbQpInfo* info, int gidIndex) {
+ncclResult_t ncclIbRtrQpEx(ibv_qp* qp, uint32_t qpn, struct ncclIbQpInfo* info, int gidIndex,
+                           uint8_t maxDestRdAtomic) {
   struct ibv_qp_attr qpAttr;
   memset(&qpAttr, 0, sizeof(struct ibv_qp_attr));
   qpAttr.qp_state = IBV_QPS_RTR;
   qpAttr.path_mtu = info->mtu;
   qpAttr.dest_qp_num = qpn;
   qpAttr.rq_psn = 0;
-  qpAttr.max_dest_rd_atomic = 1;
+  qpAttr.max_dest_rd_atomic = maxDestRdAtomic;
   qpAttr.min_rnr_timer = 12;
   if (info->lid == 0) {
     qpAttr.ah_attr.is_global = 1;
@@ -432,7 +433,11 @@ ncclResult_t ncclIbRtrQp(ibv_qp* qp, uint32_t qpn, struct ncclIbQpInfo* info, in
   return ncclSuccess;
 }
 
-ncclResult_t ncclIbRtsQp(ibv_qp* qp) {
+ncclResult_t ncclIbRtrQp(ibv_qp* qp, uint32_t qpn, struct ncclIbQpInfo* info, int gidIndex) {
+  return ncclIbRtrQpEx(qp, qpn, info, gidIndex, 1);
+}
+
+ncclResult_t ncclIbRtsQpEx(ibv_qp* qp, uint8_t maxRdAtomic) {
   struct ibv_qp_attr qpAttr;
   memset(&qpAttr, 0, sizeof(struct ibv_qp_attr));
   qpAttr.qp_state = IBV_QPS_RTS;
@@ -440,9 +445,13 @@ ncclResult_t ncclIbRtsQp(ibv_qp* qp) {
   qpAttr.retry_cnt = ncclParamIbRetryCnt();
   qpAttr.rnr_retry = 7;
   qpAttr.sq_psn = 0;
-  qpAttr.max_rd_atomic = 1;
+  qpAttr.max_rd_atomic = maxRdAtomic;
   NCCLCHECK(wrap_ibv_modify_qp(qp, &qpAttr, IBV_QP_STATE | IBV_QP_TIMEOUT | IBV_QP_RETRY_CNT | IBV_QP_RNR_RETRY | IBV_QP_SQ_PSN | IBV_QP_MAX_QP_RD_ATOMIC));
   return ncclSuccess;
+}
+
+ncclResult_t ncclIbRtsQp(ibv_qp* qp) {
+  return ncclIbRtsQpEx(qp, 1);
 }
 
 ncclResult_t ncclIbListen(int dev, void* opaqueHandle, void** listenComm) {

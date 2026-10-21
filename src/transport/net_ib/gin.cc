@@ -13,7 +13,7 @@
 #include "pccl_gin.h"
 #include "gin/gin_host.h"
 #include "gin.h"
-#include "gdaki/gin_host_gdaki.h"
+#include "gin_provider.h"
 #include "param.h"
 #include <mutex>
 
@@ -24,11 +24,9 @@ extern int64_t ncclParamDmaBufEnable();
 
 // Check GDR support for GIN. This is run at init, so we don't know yet whether
 // the GPU will support DMA-BUF.
-static ncclResult_t ncclGinIbGdrSupport(bool* gdrSupport, bool gdaki) {
+static ncclResult_t ncclGinIbGdrSupport(bool* gdrSupport) {
   *gdrSupport = true;
-  bool peerMemSupport =
-      gdaki ? ncclIbPeerMemSupport() == ncclSuccess
-            : ncclIbGdrSupport() == ncclSuccess;
+  bool peerMemSupport = ncclIbGdrSupport() == ncclSuccess;
   if (ncclParamDmaBufEnable() && ncclIbDmaBufSupport(0) == ncclSuccess) {
     INFO_ONCE(NCCL_INIT|NCCL_NET, "GIN prefers DMA-BUF over alixpu_peermem to map GPU memory for RDMA.");
   } else if (peerMemSupport) {
@@ -44,15 +42,13 @@ static ncclResult_t ncclGinIbGdrSupport(bool* gdrSupport, bool gdaki) {
 }
 
 // Check the current GPU supports GDR for GIN. This is run during connect().
-static ncclResult_t ncclGinIbGdrGpuSupport(bool gdaki) {
+ncclResult_t ncclGinIbGdrGpuSupport() {
   int hggcDev;
   HGGCCHECK(hggcGetDevice(&hggcDev));
   int dmaBufSupportOnDevice = 0;
   if (ncclParamDmaBufEnable())
     HGCHECK(hgDeviceGetAttribute(&dmaBufSupportOnDevice, HG_DEVICE_ATTRIBUTE_DMA_BUF_SUPPORTED, hggcDev));
-  bool peerMemSupport =
-      gdaki ? ncclIbPeerMemSupport() == ncclSuccess
-            : ncclIbGdrSupport() == ncclSuccess;
+  bool peerMemSupport = ncclIbGdrSupport() == ncclSuccess;
   if (dmaBufSupportOnDevice == 1) {
     INFO_ONCE(NCCL_INIT|NCCL_NET, "GIN prefers DMA-BUF over alixpu_peermem to map GPU memory for RDMA.");
     return ncclSuccess;
@@ -71,61 +67,87 @@ static ncclResult_t ncclGinIbGdrGpuSupport(bool gdaki) {
 
 NCCL_PARAM(GinType, "GIN_TYPE", -1);
 
-static std::mutex ncclGinIbGdakiLockMutex;
-static int ncclGinIbGdakiNDevs = -1;
-
-ncclResult_t ncclGinIbGdakiInit() {
-  std::lock_guard<std::mutex> lock(ncclGinIbGdakiLockMutex);
-  if (ncclGinIbGdakiNDevs == -1) {
-    int ndevs = 0;
-    for (int i = 0; i < ncclNIbDevs; i++) {
-      if (ncclIbDevs[i].ibProvider == IB_PROVIDER_MLX5) {
-        ncclGinIbGdakiDevIndexes[ndevs] = i;
-        ++ndevs;
-      }
-    }
-    ncclGinIbGdakiNDevs = ndevs;
-  }
-  return ncclSuccess;
-}
-
 extern ncclGin_t ncclGinIb;
-extern ncclGin_t ncclGinIbGdaki;
 extern ncclGin_t ncclGinIbProxy;
+ncclResult_t ncclGinIbInit(void** ctx, uint64_t commId, ncclDebugLogger_t logFunction);
 
-// Initialize GDAKI or PROXY backend. ginType can force a particular backend.
-// If provided, overwrite ginIb with the backend (generic ginIb case).
-ncclResult_t ncclGinIbInitType(void** ctx, uint64_t /*commId*/, ncclDebugLogger_t logFunction, int ginType, ncclGin_t* ginIb) {
+// GIN_TYPE selects the common mode (-1 auto, 2 proxy, 3 GDAKI).
+// Provider-specific entry points constrain selection only for their own table.
+ncclResult_t ncclGinIbInitType(void** ctx, uint64_t /*commId*/, ncclDebugLogger_t logFunction,
+                               int ginType, ncclGin_t* ginIb, ncclIbProvider requiredProvider) {
+  if (ginType != -1 && ginType != PCCL_GIN_TYPE_PROXY && ginType != PCCL_GIN_TYPE_GDAKI) {
+    WARN("Unsupported GIN_TYPE %d; expected -1 (auto), 2 (proxy) or 3 (GDAKI)", ginType);
+    return ncclInvalidUsage;
+  }
   NCCLCHECK(ncclIbInitDevices(logFunction, nullptr));
   if (ncclNIbDevs == 0) return ncclInternalError;
-
-  if (ginType == NCCL_GIN_TYPE_GDAKI) goto try_gdaki;
-  if (ginType == NCCL_GIN_TYPE_PROXY) goto try_proxy;
-  if (ginType != -1) {
-    INFO(NCCL_INIT|NCCL_NET, "NET_IB: no support for GIN type %ld", ncclParamGinType());
-    return ncclInternalError;
+  const ncclGinIbProviderOps* selected = nullptr;
+  const bool forced = ginType == PCCL_GIN_TYPE_GDAKI;
+  if (ginType != PCCL_GIN_TYPE_PROXY) {
+    ncclIbProvider provider = requiredProvider;
+    if (provider == IB_PROVIDER_UNKNOWN) {
+      provider = ncclIbDevs[0].ibProvider;
+      for (int i = 1; i < ncclNIbDevs; ++i) {
+        if (ncclIbDevs[i].ibProvider != provider) {
+          provider = IB_PROVIDER_UNKNOWN;
+          break;
+        }
+      }
+    }
+    selected = ncclGinIbProviderOpsFor(provider);
+    if (selected && ncclGinIbProviderDeviceCount(provider) == 0) {
+      selected = nullptr;
+    }
+    if (selected && selected->probe) {
+      ncclResult_t probeResult = selected->probe();
+      if (probeResult != ncclSuccess) {
+        if (forced) {
+          WARN("NET/IB: GDAKI interface unavailable for provider %s", ncclIbProviderName(provider));
+          return probeResult;
+        }
+        selected = nullptr;
+      }
+    }
+    if (!selected) {
+      if (forced) {
+        WARN("NET/IB: no GDAKI implementation for provider %s", ncclIbProviderName(provider));
+        return ncclInvalidUsage;
+      }
+      INFO(NCCL_INIT|NCCL_NET, "NET/IB: provider %s has no available built-in GDA backend; trying proxy",
+           ncclIbProviderName(provider));
+    }
   }
 
-  bool gdrSupport;
+  bool gdrSupport = false;
+  NCCLCHECK(ncclGinIbGdrSupport(&gdrSupport));
+  if (!gdrSupport) {
+    return ncclInternalError;
+  }
+  ncclGin_t* backend = selected ? selected->gin : &ncclGinIbProxy;
+  if (selected) {
+    INFO(NCCL_INIT|NCCL_NET, "NET/IB: GIN GDA provider %s selected", ncclIbProviderName(selected->provider));
+  }
 
-try_gdaki:
-  NCCLCHECK(ncclGinIbGdakiInit());
-  if (ncclGinIbGdakiNDevs == 0 && ginType == -1) goto try_proxy;
-  NCCLCHECK(ncclGinIbGdrSupport(&gdrSupport, /*gdaki*/ true));
-  if (!gdrSupport && ginType == -1) goto try_proxy;
-  if (!gdrSupport) return ncclInternalError;
-  if (ginIb) memcpy(ginIb, &ncclGinIbGdaki, sizeof(ncclGinIb));
-  goto end;
-
-try_proxy:
-  NCCLCHECK(ncclGinIbGdrSupport(&gdrSupport, /*gdaki*/ false));
-  if (!gdrSupport) return ncclInternalError;
-  if (ginIb) memcpy(ginIb, &ncclGinIbProxy, sizeof(ncclGinIb));
-
-end:
   ncclNetCommConfig_t* netCommConfig = nullptr;
   NCCLCHECK(ncclCalloc(&netCommConfig, 1));
   netCommConfig->trafficClass = NCCL_NET_TRAFFIC_CLASS_UNDEF;
+  if (ginIb) {
+    // Publish the shared backend table once and retain the common initialization
+    // entry point for mode validation. The backend remains fixed for the process.
+    static std::mutex selectionMutex;
+    static ncclGin_t* publishedBackend = nullptr;
+    std::lock_guard<std::mutex> lock(selectionMutex);
+    if (publishedBackend && publishedBackend != backend) {
+      WARN("GIN backend changed after initialization; use a separate process");
+      NCCLCHECK(ncclFree(netCommConfig));
+      return ncclInvalidUsage;
+    }
+    if (!publishedBackend) {
+      *ginIb = *backend;
+      ginIb->init = ncclGinIbInit;
+      publishedBackend = backend;
+    }
+  }
   *ctx = netCommConfig;
   return ncclSuccess;
 }
@@ -134,7 +156,7 @@ ncclResult_t ncclGinIbInit(void** ctx, uint64_t commId, ncclDebugLogger_t logFun
   return ncclGinIbInitType(ctx, commId, logFunction, ncclParamGinType(), &ncclGinIb);
 }
 
-// GIN entry point, which will then morph into either the GDAKI or PROXY backend.
+// GIN entry point, which selects a provider GDA backend or the verbs proxy.
 ncclGin_t ncclGinIb = {
   "GIN_IB",
   ncclGinIbInit,
@@ -142,12 +164,14 @@ ncclGin_t ncclGinIb = {
 };
 
 ncclResult_t ncclGinIbFinalize(void* ctx) {
-  if (ctx) free(ctx);
+  if (ctx) {
+    NCCLCHECK(ncclFree(ctx));
+  }
   return ncclIbFinalizeDevices();
 }
 
 // Copy v6 IB device properties into the v12 GIN-facing property struct.
-static void ncclGinIbFillV12Properties(const ncclNetProperties_v6_t& src, ncclNetProperties_v12_t* dst) {
+void ncclGinIbFillV12Properties(const ncclNetProperties_v6_t& src, ncclNetProperties_v12_t* dst) {
   dst->name = src.name;
   dst->pciPath = src.pciPath;
   dst->guid = src.guid;
@@ -242,7 +266,9 @@ static ncclResult_t ncclGinIbAllToAll(struct ncclGinIbCollComm* cComm, void* src
   }
 
 out:
-  if (tmp_buf) free(tmp_buf);
+  if (tmp_buf) {
+    NCCLCHECK(ncclFree(tmp_buf));
+  }
   return status;
 }
 
@@ -250,7 +276,7 @@ ncclResult_t ncclGinIbP2PBarrier(struct ncclGinIbCollComm* cComm) {
   int* dummy;
   NCCLCHECK(ncclIbMalloc((void**)&dummy, cComm->nranks * sizeof(int)));
   NCCLCHECK(ncclGinIbAllGather(cComm, dummy + cComm->rank, dummy, sizeof(int)));
-  free(dummy);
+  NCCLCHECK(ncclFree(dummy));
   return ncclSuccess;
 }
 
@@ -284,7 +310,7 @@ ncclResult_t ncclGinIbConnect(void* ctx, void* handles[], int nranks, int rank,
     }
   } while (cComm->sendComm == NULL || cComm->recvComm == NULL);
 
-  cComm->getProperties = (ncclResult_t(*)(int, void*))ncclIbGetProperties;
+  cComm->getProperties = ncclIbGetPhysProperties;
   cComm->allGather = ncclGinIbAllGather;
   cComm->allToAll = ncclGinIbAllToAll;
   cComm->getGidIndex = ncclGinIbGetGidIndexAdapter;
@@ -299,7 +325,7 @@ fail:
   if (cCommArray) {
     if (cCommArray->recvComm) ncclNetIb.closeRecv(cCommArray->recvComm);
     if (cCommArray->sendComm) ncclNetIb.closeSend(cCommArray->sendComm);
-    free(cCommArray);
+    NCCLCHECK(ncclFree(cCommArray));
   }
   return ret;
 }
@@ -320,114 +346,14 @@ ncclResult_t ncclGinIbCloseColl(void* collComm) {
   }
 
   memset(cComm, 0, sizeof(*cComm));
-  free(cCommArray);
+  NCCLCHECK(ncclFree(cCommArray));
   return ncclSuccess;
-}
-
-// ---------------------- GDAKI backend ------------------------------------
-// The GDAKI backend dispatches every device-facing entry point into
-// gin_host_gdaki.cc, which drives the DOCA-GPUNetIO host library.
-
-ncclResult_t ncclGinIbGdakiInit(void** ctx, uint64_t commId, ncclDebugLogger_t logFunction) {
-  return ncclGinIbInitType(ctx, commId, logFunction, NCCL_GIN_TYPE_GDAKI, NULL);
-}
-
-ncclResult_t ncclGinIbGdakiDevices(int* ndev) {
-  std::lock_guard<std::mutex> lock(ncclGinIbGdakiLockMutex);
-  *ndev = ncclGinIbGdakiNDevs;
-  return ncclSuccess;
-}
-
-ncclResult_t ncclGinIbGdakiGetProperties(int dev, ncclNetProperties_v12_t* props) {
-  std::lock_guard<std::mutex> lock(ncclGinIbGdakiLockMutex);
-  if (dev >= ncclGinIbGdakiNDevs) {
-    WARN("NET/IB : Requested properties for GIN GDAKI NIC %d, only %d GIN GDAKI NICs have been created",
-         dev, ncclGinIbGdakiNDevs);
-    return ncclInvalidUsage;
-  }
-  ncclNetProperties_v6_t physProps = {};
-  NCCLCHECK(ncclIbGetPhysProperties(ncclGinIbGdakiDevIndexes[dev], &physProps));
-  ncclGinIbFillV12Properties(physProps, props);
-  props->netDeviceType = NCCL_NET_DEVICE_GIN_GDAKI;
-  props->vProps.ndevs = 1;
-  props->vProps.devs[0] = dev;
-  return ncclSuccess;
-}
-
-ncclResult_t ncclGinIbGdakiListen(void* /*ctx*/, int dev, void* opaqueHandle, void** listenComm) {
-  std::lock_guard<std::mutex> lock(ncclGinIbGdakiLockMutex);
-  return ncclNetIb.listen(ncclGinIbGdakiDevIndexes[dev], opaqueHandle, listenComm);
-}
-
-ncclResult_t ncclGinIbGdakiConnect(void* ctx, void* handles[], int nranks, int rank,
-                                   void* listenComm, void** collComm) {
-  NCCLCHECK(ncclGinIbGdrGpuSupport(/*gdaki*/ true));
-  NCCLCHECK(ncclGinIbConnect(ctx, handles, nranks, rank, listenComm, collComm));
-
-  struct ncclGinIbCollComm* cComm = (struct ncclGinIbCollComm*)*collComm;
-  cComm->getProperties = (ncclResult_t(*)(int, void*))ncclGinIbGdakiGetProperties;
-  return ncclSuccess;
-}
-
-ncclResult_t ncclGinIbGdakiCreateContext(void* collComm, ncclGinConfig_v13_t* config,
-                                         void** ginCtx, ncclNetDeviceHandle_v11_t** devHandle) {
-  struct ncclGinIbCollComm* cComm = (struct ncclGinIbCollComm*)collComm;
-  NCCLCHECK(ncclGinGdakiCreateContext(cComm, config->nSignals, config->nCounters,
-                                      config->nContexts, config->queueDepth,
-                                      config->trafficClass, ginCtx, devHandle));
-  return ncclSuccess;
-}
-
-ncclResult_t ncclGinIbGdakiRegMrSym(void* collComm, void* data, size_t size, int type,
-                                    uint64_t mr_flags, void** mhandle, void** ginHandle) {
-  return ncclGinGdakiRegMrSym((struct ncclGinIbCollComm*)collComm, data, size, type,
-                              mr_flags, mhandle, ginHandle);
-}
-
-ncclResult_t ncclGinIbGdakiDeregMrSym(void* collComm, void* mhandle) {
-  return ncclGinGdakiDeregMrSym((struct ncclGinIbCollComm*)collComm, mhandle);
-}
-
-ncclResult_t ncclGinIbGdakiDestroyContext(void* ginCtx) {
-  return ncclGinGdakiDestroyContext(ginCtx);
-}
-
-ncclResult_t ncclGinIbGdakiProgress(void* collComm) {
-  return ncclGinGdakiProgress(collComm);
-}
-
-ncclResult_t ncclGinIbGdakiQueryLastError(void* ginCtx, bool* hasError) {
-  return ncclGinGdakiQueryLastError(ginCtx, hasError);
 }
 
 // Adapter so the v13 listen-close signature matches the v6 IB closeListen.
-static ncclResult_t ncclGinIbCloseListen(void* listenComm) {
+ncclResult_t ncclGinIbCloseListen(void* listenComm) {
   return ncclNetIb.closeListen(listenComm);
 }
-
-ncclGin_t ncclGinIbGdaki = {
-  "GIN_IB_GDAKI",
-  ncclGinIbGdakiInit,
-  ncclGinIbGdakiDevices,
-  ncclGinIbGdakiGetProperties,
-  ncclGinIbGdakiListen,
-  ncclGinIbGdakiConnect,
-  ncclGinIbGdakiCreateContext,
-  ncclGinIbGdakiRegMrSym,
-  NULL,
-  ncclGinIbGdakiDeregMrSym,
-  ncclGinIbGdakiDestroyContext,
-  ncclGinIbCloseColl,
-  ncclGinIbCloseListen,
-  NULL,
-  NULL,
-  NULL,
-  NULL,
-  NULL,
-  ncclGinIbGdakiProgress,
-  ncclGinIbGdakiQueryLastError,
-  ncclGinIbFinalize
-};
 
 // ---------------------- PROXY backend ------------------------------------
 
@@ -449,7 +375,7 @@ ncclResult_t ncclGinIbProxyDevices(int* ndev) {
 }
 
 ncclResult_t ncclGinIbProxyGetProperties(int dev, ncclNetProperties_v12_t* props) {
-  ncclNetProperties_v6_t physProps;
+  ncclNetProperties_v6_t physProps = {};
   NCCLCHECK(ncclNetIb.getProperties(dev, &physProps));
   ncclGinIbFillV12Properties(physProps, props);
   props->vProps.devs[0] = dev;
@@ -463,7 +389,7 @@ ncclResult_t ncclGinIbProxyListen(void* /*ctx*/, int dev, void* opaqueHandle, vo
 
 ncclResult_t ncclGinIbProxyConnect(void* ctx, void* handles[], int nranks, int rank,
                                    void* listenComm, void** collComm) {
-  NCCLCHECK(ncclGinIbGdrGpuSupport(/*gdaki*/ false));
+  NCCLCHECK(ncclGinIbGdrGpuSupport());
   NCCLCHECK(ncclGinIbConnect(ctx, handles, nranks, rank, listenComm, collComm));
   return ncclSuccess;
 }
@@ -537,7 +463,7 @@ ncclResult_t ncclGinIbProxyCreateContext(void* collComm, ncclGinConfig_v13_t* co
   }
 
 end:
-  free(handles);
+  NCCLCHECK(ncclFree(handles));
   if (lComm) ncclNetIb.closeListen(lComm);
   if (ret != ncclSuccess) {
     if (ginProxyCtx != NULL) ncclGinIbProxyDestroyContext(ginProxyCtx);
@@ -558,7 +484,7 @@ ncclResult_t ncclGinIbProxyDestroyContext(void* ginCtx) {
         if (gc[c].fullRecvComm[i] != NULL)
           NCCLCHECK(ncclNetIb.closeRecv(gc[c].fullRecvComm[i]));
       }
-      free(gc[c].fullRecvComm);
+      NCCLCHECK(ncclFree(gc[c].fullRecvComm));
       gc[c].fullRecvComm = NULL;
     }
 
@@ -567,11 +493,11 @@ ncclResult_t ncclGinIbProxyDestroyContext(void* ginCtx) {
         if (gc[c].fullSendComm[i] != NULL)
           NCCLCHECK(ncclNetIb.closeSend(gc[c].fullSendComm[i]));
       }
-      free(gc[c].fullSendComm);
+      NCCLCHECK(ncclFree(gc[c].fullSendComm));
       gc[c].fullSendComm = NULL;
     }
   }
-  free(ginCtx);
+  NCCLCHECK(ncclFree(ginCtx));
   return ncclSuccess;
 }
 
@@ -604,9 +530,9 @@ ncclResult_t ncclGinIbProxyRegMrSymDmaBuf(void* collComm, void* data, size_t siz
 fail:
   if (ginMrHandle) {
     if (ginMrHandle->mrHandle) ncclNetIb.deregMr(cComm->recvComm, ginMrHandle->mrHandle);
-    free(ginMrHandle->base_vas);
-    free(ginMrHandle->rkeys);
-    free(ginMrHandle);
+    NCCLCHECK(ncclFree(ginMrHandle->base_vas));
+    NCCLCHECK(ncclFree(ginMrHandle->rkeys));
+    NCCLCHECK(ncclFree(ginMrHandle));
   }
   return ret;
 }
@@ -620,9 +546,9 @@ ncclResult_t ncclGinIbProxyDeregMrSym(void* collComm, void* mhandle) {
   struct ncclGinIbCollComm* cComm = (struct ncclGinIbCollComm*)collComm;
   struct ncclIbGinProxyMrHandle* ginMrHandle = (struct ncclIbGinProxyMrHandle*)mhandle;
   NCCLCHECK(ncclNetIb.deregMr(cComm->recvComm, ginMrHandle->mrHandle));
-  free(ginMrHandle->base_vas);
-  free(ginMrHandle->rkeys);
-  free(ginMrHandle);
+  NCCLCHECK(ncclFree(ginMrHandle->base_vas));
+  NCCLCHECK(ncclFree(ginMrHandle->rkeys));
+  NCCLCHECK(ncclFree(ginMrHandle));
   return ncclSuccess;
 }
 
