@@ -397,6 +397,7 @@ static ncclResult_t ncclProxyOpToArgs(struct ncclProxyOp* op, struct ncclProxyAr
   sub->nbytes = op->nbytes;
   sub->peer = op->peer;
   sub->sendrecv = op->sendrecv;
+  sub->eicSendEp = op->eicSendEp;
   args->nsubs = subIndex+1;
   sub->sendbuff = op->sendbuff;
   sub->recvbuff = op->recvbuff;
@@ -587,6 +588,8 @@ static ncclResult_t SaveProxy(ncclComm_t comm, struct ncclChannel* channel, int 
   } else {
     op->sendrecv = type;
     op->peer = peer;
+    op->eicSendEp = type == proxySend && connIndex == 0 ?
+        pcclTopoGetEicSendEp(comm, connector, op->pattern) : -1;
     NCCLCHECK(ncclLocalOpAppend(comm, &connector->proxyConn, op));
   }
   return ncclSuccess;
@@ -2002,6 +2005,9 @@ ncclResult_t ncclProxyCreate(ncclComm_t comm) {
     proxyState->tpnRanks = comm->nRanks;
     proxyState->tpLocalnRanks = comm->localRanks;
     proxyState->hggcDev = comm->hggcDev;
+    // Shared proxies can outlive the communicator that created them.
+    proxyState->hgmlDev = comm->hgmlDev;
+    proxyState->hgmlDeviceCount = comm->hgmlDeviceCount;
     proxyState->abortFlag = comm->abortFlag;
     proxyState->p2pnChannels = comm->p2pnChannels;
     proxyState->nChannels = comm->nChannels;

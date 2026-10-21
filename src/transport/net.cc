@@ -198,6 +198,8 @@ static ncclResult_t sendSetup(ncclComm_t comm, struct ncclTopoGraph* graph, stru
   int proxyRank;
   int64_t netId;
   NCCLCHECK(ncclTopoGetNetDev(comm, myInfo->rank, graph, channelId, peerInfo->rank, &netId, &req.netDev, &proxyRank));
+  send->eicNetDev = req.netDev;
+  send->eicHgmlDev = comm->peerInfo[proxyRank].hgmlDev;
   NCCLCHECK(ncclTopoCheckGdr(comm->topo, myInfo->rank, netId, 1, &req.useGdr));
   send->conn.direct |= req.useGdr ? NCCL_DIRECT_NIC : 0;
 
@@ -610,8 +612,8 @@ static ncclResult_t recvProxySetup(struct ncclProxyConnection* connection, struc
   resources->maxRecvs = props.maxRecvs;
 
   if (respSize != sizeof(ncclNetHandle_t)) return ncclInternalError;
-  if (nccl_use_eic && nccl_eic_gpu_offset && proxyState->ownerComm->hgmlDeviceCount > 8)
-    *(int *)((uintptr_t)respBuff + nccl_eic_gpu_offset) = proxyState->ownerComm->hgmlDev + 1;
+  if (nccl_use_eic && nccl_eic_gpu_offset && proxyState->hgmlDeviceCount > 8)
+    *(int *)((uintptr_t)respBuff + nccl_eic_gpu_offset) = proxyState->hgmlDev + 1;
   NCCLCHECK(ncclNetListen(req->netDev, respBuff, &resources->netListenComm));
   *done = 1;
   return ncclSuccess;
@@ -621,8 +623,8 @@ static ncclResult_t sendProxyConnect(struct ncclProxyConnection* connection, str
   struct sendResources* resources = (struct sendResources*)(connection->transportResources);
   if (reqSize != sizeof(ncclNetHandle_t)) return ncclInternalError;
 
-  if (nccl_use_eic && nccl_eic_gpu_offset && proxyState->ownerComm->hgmlDeviceCount > 8)
-    *(int *)((uintptr_t)reqBuff + nccl_eic_gpu_offset) = proxyState->ownerComm->hgmlDev + 1;
+  if (nccl_use_eic && nccl_eic_gpu_offset && proxyState->hgmlDeviceCount > 8)
+    *(int *)((uintptr_t)reqBuff + nccl_eic_gpu_offset) = proxyState->hgmlDev + 1;
   if (resources->shared) {
     // Shared buffers
     struct ncclProxyProgressState* progressState = &proxyState->progressState;
@@ -1066,6 +1068,15 @@ static ncclResult_t recvProxyFree(struct ncclProxyConnection* connection, struct
 
 static_assert(NCCL_STEPS <= NCCL_NET_MAX_REQUESTS, "Not enough net requests to cover for steps");
 
+// Set the EIC send EP before each Isend; P2P uses physical parity.
+static void setEicSendEp(struct ncclProxyState* proxyState, struct sendResources* resources, int pattern, int eicSendEp) {
+  if (!nccl_use_eic || nccl_eic_send_ep_offset < 0) return;
+  if (resources->connIndex == 1) {
+    eicSendEp = pattern == ncclPatternSend && proxyState->hgmlDeviceCount > 8 ? proxyState->hgmlDev & 1 : -1;
+  }
+  *(int *)((uintptr_t)resources->netSendComm + nccl_eic_send_ep_offset) = eicSendEp;
+}
+
 static ncclResult_t sendProxyProgress(struct ncclProxyState* proxyState, struct ncclProxyArgs* args) {
   if (args->state == ncclProxyOpReady) {
     for (int s = 0; s < args->nsubs; s++) {
@@ -1160,6 +1171,7 @@ static ncclResult_t sendProxyProgress(struct ncclProxyState* proxyState, struct 
           if (ready) {
             ncclProfilerRecordProxyStepEventState(s, args, transmittedStepId, ncclProfilerProxyStepSendPeerWait_v4);
             // Data is ready, try to send.
+            setEicSendEp(proxyState, resources, args->pattern, sub->eicSendEp);
 #ifdef NET_BYPASS
             if (args->bypass)
               sub->requests[buffSlot] = &sub;

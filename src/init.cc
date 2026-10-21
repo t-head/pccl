@@ -1740,6 +1740,8 @@ static ncclResult_t initTransportsRank(ncclComm_t comm, ncclComm_t parent, uint6
 
   }
 
+  NCCLCHECKGOTO(pcclTopoComputeEicSendEps(comm), res, fail);
+
   TRACE(NCCL_INIT, "rank %d nranks %d - CONNECTED %d RINGS AND TREES", rank, nranks, comm->nChannels);
 
   NCCLCHECKGOTO(initExtKernelPlugin(comm), res, fail);

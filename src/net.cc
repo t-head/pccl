@@ -22,6 +22,9 @@
 ncclNet_t *ncclNet;
 ncclCollNet_t *ncclCollNet;
 
+// Keep this cache hidden; the plugin exports the same symbol.
+int nccl_eic_send_ep_offset = -1;
+
 static ncclNet_v6_t ncclNet_v4_as_v6;
 static ncclNet_v6_t ncclNet_v5_as_v6;
 static ncclNet_v4_t *ncclNet_v4;
@@ -289,6 +292,7 @@ static ncclResult_t ncclNetPluginUnload() {
   pthread_mutex_lock(&netPluginLock);
   if (netPluginLib && netPluginRefCount > 0 && 0 == (--netPluginRefCount)) {
     INFO(NCCL_NET, "NET/Plugin: Unload net plugin");
+    nccl_eic_send_ep_offset = -1;
     dlclose(netPluginLib);
     netPluginLib = nullptr;
     netPluginStatus = netPluginLoadReady;
@@ -304,6 +308,7 @@ static ncclResult_t ncclNetPluginUnload() {
 
 // Must be called with netInitLock held.
 static ncclResult_t ncclNetInitLocked() {
+  nccl_eic_send_ep_offset = -1;
   // Initialize main communication network
   ncclNet_t* nets[3] = { nullptr, &ncclNetIb, &ncclNetSocket };
   ncclCollNet_t* collNets[3] = { nullptr, nullptr, nullptr };
@@ -321,6 +326,16 @@ static ncclResult_t ncclNetInitLocked() {
     if (nets[i]->devices(&ndev) != ncclSuccess) continue;
     if (ndev <= 0) continue;
     ncclNet = nets[i];
+    // Loading a plugin is not enough: only its selected EIC sendComms accept EP writes.
+    if (i == 0 && netPluginLib && ncclEicNet()) {
+      const int* offset = (const int*)dlsym(netPluginLib, "nccl_eic_send_ep_offset");
+      if (offset && *offset >= 0 && *offset % alignof(int) == 0) {
+        nccl_eic_send_ep_offset = *offset;
+        INFO(NCCL_NET, "NET/Plugin: EIC send EP offset %d", nccl_eic_send_ep_offset);
+      } else {
+        INFO(NCCL_INIT|NCCL_NET, "NET/Plugin: EIC send EP offset unavailable, keeping legacy routing");
+      }
+    }
     ok = true;
 
     if (collNets[i]) {

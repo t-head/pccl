@@ -7,9 +7,15 @@
  *************************************************************************/
 
 #include "comm.h"
+#include "channel.h"
 #include "graph.h"
 #include "trees.h"
 #include "rings.h"
+#include "net.h"
+#include "transport.h"
+#include "topo.h"
+#include "bootstrap.h"
+#include <string>
 
 /******************************************************************/
 /********************* Internode connection ***********************/
@@ -261,6 +267,157 @@ ncclResult_t ncclTopoConnectCollNet(ncclComm_t comm, struct ncclTopoGraph* collN
   return ncclSuccess;
 }
 
+enum ncclEicSenderMask {
+  EIC_SENDER_RING = 1 << 0,
+  EIC_SENDER_TREE = 1 << 1,
+  EIC_SENDER_PAT = 1 << 2,
+  EIC_SENDER_RING_TREE = EIC_SENDER_RING | EIC_SENDER_TREE
+};
+
+// Balance a group together with the already assigned common senders.
+static int balanceEicSendGroup(const unsigned char* senderUsed, int* sendEps, int count, int group, int commonDifference) {
+  int difference = commonDifference; // EP0 senders minus EP1 senders.
+  // Include this group's senders in the combined EP difference.
+  for (int sender=0; sender<count; sender++) {
+    if ((senderUsed[sender] & EIC_SENDER_RING_TREE) == group) difference += sendEps[sender] ? -1 : 1;
+  }
+  int sourceEp = difference > 0 ? 0 : 1;
+  // Flip excess senders from this group without changing the common senders.
+  for (int sender=0; sender<count && abs(difference)>1; sender++) {
+    if ((senderUsed[sender] & EIC_SENDER_RING_TREE) != group || sendEps[sender] != sourceEp) continue;
+    sendEps[sender] ^= 1;
+    difference += sourceEp == 0 ? -2 : 2;
+  }
+  return difference;
+}
+
+// Give Ring and Tree compatible EPs while balancing each sender set separately.
+static void balanceEicSendEps(const unsigned char* senderUsed, int* sendEps, int count) {
+  int ringDifference = 0, treeDifference = 0;
+  // Start from physical parity, including PAT-only senders.
+  for (int sender=0; sender<count; sender++) {
+    sendEps[sender] = sender & 1;
+    int difference = sendEps[sender] ? -1 : 1;
+    if (senderUsed[sender] & EIC_SENDER_RING) ringDifference += difference;
+    if (senderUsed[sender] & EIC_SENDER_TREE) treeDifference += difference;
+  }
+  if (abs(ringDifference) <= 1 && abs(treeDifference) <= 1) return;
+  // Balance the intersection first, then each algorithm's exclusive senders.
+  int commonDifference = balanceEicSendGroup(senderUsed, sendEps, count, EIC_SENDER_RING_TREE, 0);
+  balanceEicSendGroup(senderUsed, sendEps, count, EIC_SENDER_RING, commonDifference);
+  balanceEicSendGroup(senderUsed, sendEps, count, EIC_SENDER_TREE, commonDifference);
+}
+
+static ncclResult_t markEicSender(ncclComm_t comm, struct ncclChannel* channel, int peer,
+                                unsigned char algorithm, unsigned char* senderUsed) {
+  if (peer < 0 || peer == comm->rank) return ncclSuccess;
+  struct ncclConnector* connector = channel->peers[peer]->send;
+  if (!connector->connected) return ncclInternalError;
+  if (connector->transportComm != &netTransport.send) return ncclSuccess;
+  int netDev = connector->eicNetDev, sender = connector->eicHgmlDev;
+  if (netDev < 0 || netDev >= NCCL_TOPO_MAX_NODES || sender < 0 || sender >= comm->hgmlDeviceCount) {
+    ERROR("Invalid EIC sender NET/%d PPU/%d", netDev, sender);
+    return ncclInternalError;
+  }
+  senderUsed[netDev*comm->hgmlDeviceCount+sender] |= algorithm;
+  return ncclSuccess;
+}
+
+static void printEicSendEps(ncclComm_t comm, const unsigned char* senderUsed) {
+  if (comm->localRank != 0) return;
+  const struct { unsigned char mask; const char* name; } algorithms[] = {
+    {EIC_SENDER_RING, "Ring"}, {EIC_SENDER_TREE, "Tree"}, {EIC_SENDER_PAT, "PAT"}
+  };
+  // Print the actual sender sets once per algorithm and node.
+  for (const auto& algorithm : algorithms) {
+    std::string mapping;
+    // List only NICs used by this algorithm.
+    for (int netDev=0; netDev<NCCL_TOPO_MAX_NODES; netDev++) {
+      std::string epSenders[2];
+      // Group physical PPU numbers by their assigned EP.
+      for (int sender=0; sender<comm->hgmlDeviceCount; sender++) {
+        int index = netDev*comm->hgmlDeviceCount+sender;
+        if (!(senderUsed[index] & algorithm.mask)) continue;
+        std::string& senders = epSenders[comm->eicSendEps[index]];
+        if (!senders.empty()) senders += ",";
+        senders += std::to_string(sender);
+      }
+      if (epSenders[0].empty() && epSenders[1].empty()) continue;
+      if (!mapping.empty()) mapping += "; ";
+      mapping += "NET/" + std::to_string(netDev) + " EP0={" + epSenders[0] + "} EP1={" + epSenders[1] + "}";
+    }
+    if (!mapping.empty()) INFO(NCCL_NET, "EIC send EPs comm %p %s: %s", (void*)comm, algorithm.name, mapping.c_str());
+  }
+}
+
+// Read retained connections after eager setup, including connections inherited by a child comm.
+ncclResult_t pcclTopoComputeEicSendEps(ncclComm_t comm) {
+  if (!nccl_use_eic || nccl_eic_send_ep_offset < 0 || comm->nNodes <= 1 || comm->hgmlDeviceCount <= 8)
+    return ncclSuccess;
+  if (comm->runtimeConn || comm->hgmlDeviceCount > NCCL_TOPO_MAX_NODES) return ncclInternalError;
+  ncclResult_t res = ncclSuccess;
+  const int senderCount = NCCL_TOPO_MAX_NODES*comm->hgmlDeviceCount;
+  const bool usePat = comm->maxLocalRanks == 1 && pcclPatEnable(comm);
+  unsigned char* allSenders = NULL;
+  unsigned char* localSenders = NULL;
+  NCCLCHECKGOTO(ncclCalloc(&allSenders, (size_t)comm->localRanks*senderCount), res, end);
+  localSenders = allSenders+comm->localRank*senderCount;
+
+  // Mark each actual PPU/NIC once per algorithm across all channels and peers.
+  for (int channelId=0; channelId<comm->nChannels; channelId++) {
+    struct ncclChannel* channel = comm->channels+channelId;
+    NCCLCHECKGOTO(markEicSender(comm, channel, channel->ring.next, EIC_SENDER_RING, localSenders), res, end);
+    NCCLCHECKGOTO(markEicSender(comm, channel, channel->tree.up, EIC_SENDER_TREE, localSenders), res, end);
+    // Include both directions of Tree, which use the same send connector table.
+    for (int child=0; child<NCCL_MAX_TREE_ARITY; child++) {
+      NCCLCHECKGOTO(markEicSender(comm, channel, channel->tree.down[child], EIC_SENDER_TREE, localSenders), res, end);
+    }
+    // Default PAT connects power-of-two peers in both directions.
+    for (uint64_t distance=1; usePat && distance<(uint64_t)comm->nRanks; distance<<=1) {
+      int next = (comm->rank+distance)%comm->nRanks;
+      int prev = (comm->rank+comm->nRanks-distance)%comm->nRanks;
+      NCCLCHECKGOTO(markEicSender(comm, channel, next, EIC_SENDER_PAT, localSenders), res, end);
+      NCCLCHECKGOTO(markEicSender(comm, channel, prev, EIC_SENDER_PAT, localSenders), res, end);
+    }
+  }
+  NCCLCHECKGOTO(bootstrapIntraNodeAllGather(comm->bootstrap, comm->localRankToRank,
+      comm->localRank, comm->localRanks, allSenders, senderCount), res, end);
+  // Merge local contributions using physical identity, even for proxies outside the child comm.
+  for (int localRank=1; localRank<comm->localRanks; localRank++) {
+    // A bit denotes membership, not the number of connections or source ranks.
+    for (int sender=0; sender<senderCount; sender++) allSenders[sender] |= allSenders[localRank*senderCount+sender];
+  }
+  comm->eicSendEps = ncclMemoryStackAlloc<int>(&comm->memPermanent, senderCount);
+  // Balance each NIC independently without changing its connections.
+  for (int netDev=0; netDev<NCCL_TOPO_MAX_NODES; netDev++) {
+    balanceEicSendEps(allSenders+netDev*comm->hgmlDeviceCount,
+        comm->eicSendEps+netDev*comm->hgmlDeviceCount, comm->hgmlDeviceCount);
+  }
+  printEicSendEps(comm, allSenders);
+end:
+  ncclFree(allSenders);
+  return res;
+}
+
+int pcclTopoGetEicSendEp(ncclComm_t comm, struct ncclConnector* connector, int pattern) {
+  if (!comm->eicSendEps || connector->transportComm != &netTransport.send) return -1;
+  switch (pattern) {
+    case ncclPatternRing:
+    case ncclPatternRingTwice:
+    case ncclPatternPipelineFrom:
+    case ncclPatternPipelineTo:
+    case ncclPatternTreeUp:
+    case ncclPatternTreeDown:
+    case ncclPatternTreeUpDown:
+    case ncclPatternPatUp:
+    case ncclPatternPatDown:
+      return comm->eicSendEps[connector->eicNetDev*comm->hgmlDeviceCount+connector->eicHgmlDev];
+    default:
+      return -1;
+  }
+}
+
+
 // Legacy naming
 NCCL_PARAM(MinNrings, "MIN_NRINGS", -2);
 NCCL_PARAM(MaxNrings, "MAX_NRINGS", -2);
@@ -441,6 +598,7 @@ ncclResult_t ncclTopoPostset(ncclComm_t comm, int* firstRanks, int* treePatterns
       dumpLine(rings+c*nranks, comm->nRanks, prefix);
     }
   }
+
 
 end:
   if (ringRecv) free(ringRecv);

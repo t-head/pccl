@@ -135,6 +135,9 @@ ncclResult_t ncclTopoPreset(ncclComm_t comm,
 ncclResult_t ncclTopoPostset(ncclComm_t comm, int* firstRanks, int* treePatterns,
     struct ncclTopoRanks** allTopoRanks, int* rings);
 
+ncclResult_t pcclTopoComputeEicSendEps(ncclComm_t comm);
+int pcclTopoGetEicSendEp(ncclComm_t comm, struct ncclConnector* connector, int pattern);
+
 ncclResult_t ncclTopoConnectCollNet(ncclComm_t comm, struct ncclTopoGraph* collNetGraph, int rank);
 
 ncclResult_t ncclTopoTuneModel(ncclComm_t comm, int minCompCap, int maxCompCap, struct ncclTopoGraph* treeGraph, struct ncclTopoGraph* ringGraph, struct ncclTopoGraph* collNetGraph, struct ncclTopoGraph* fcGraph);

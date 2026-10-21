@@ -128,6 +128,8 @@ struct ncclProxyConnector {
 
 struct ncclConnector {
   int connected;
+  int eicNetDev; // Actual NET device retained when this connector is shared.
+  int eicHgmlDev; // Physical PXN sender, which may be outside a child comm.
   struct ncclProxyConnector proxyConn;
   struct ncclTransportComm* transportComm;
   void* transportResources; // Host-side resources

@@ -44,6 +44,7 @@ struct ncclProxyOp {
   uint8_t /*ncclPattern_t*/ pattern;
   uint8_t protocol;
   int sendrecv;
+  int eicSendEp;
   ncclComm_t perfComm;
   uint8_t* sendbuff;
   uint8_t* recvbuff;
@@ -88,6 +89,7 @@ struct ncclProxySubArgs {
   ssize_t nbytes;
   int peer;
   int sendrecv;
+  int eicSendEp;
 
   int groupSize; // Number of consecutive sub operations sharing the same recvComm
   uint64_t base;
@@ -286,6 +288,8 @@ struct ncclProxyState {
   int tpnRanks;
   int tpLocalnRanks;
   int hggcDev;
+  int hgmlDev;
+  int hgmlDeviceCount;
   int p2pnChannels;
   int nChannels;
   bool allocP2pNetLLBuffers;

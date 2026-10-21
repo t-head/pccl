@@ -16,6 +16,8 @@
 
 #define EIC_PLUGIN_NAME "accl-lite"
 extern bool nccl_use_eic;
+// Cached offset from the selected EIC plugin; -1 disables runtime EP writes.
+extern __attribute__((visibility("hidden"))) int nccl_eic_send_ep_offset;
 extern int nccl_use_u2mm_host;
 extern int nccl_use_u2mm_dev;
 extern ncclNet_t* ncclNet;

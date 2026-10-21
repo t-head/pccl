@@ -404,6 +404,7 @@ struct pcclComm {
   uint64_t* connectSend;
   uint64_t* connectRecv;
   struct ncclTopoGraph graphs[NCCL_NUM_ALGORITHMS];
+  int* eicSendEps; // [NET device * hgmlDeviceCount + physical PPU], shared by Ring/Tree/PAT
   bool initAlgoChannels[NCCL_NUM_ALGORITHMS];
   bool runtimeConn; // if dynamic connection is supported
   int cuMemSupport;
