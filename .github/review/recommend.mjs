@@ -2,11 +2,10 @@
 // Copyright (c) 2026 T-Head (Shanghai) Semiconductor Co., Ltd. All rights reserved.
 import {createHash} from 'node:crypto';
 import {execFile} from 'node:child_process';
-import {appendFileSync, mkdtempSync, readFileSync, rmSync} from 'node:fs';
+import {mkdtempSync, rmSync} from 'node:fs';
 import {tmpdir} from 'node:os';
 import {join} from 'node:path';
 import {promisify} from 'node:util';
-import {pathToFileURL} from 'node:url';
 import {classify} from './policy.mjs';
 
 // Bind a recommendation to the diff, PR description, and trusted roster used to produce it.
@@ -124,32 +123,9 @@ export async function askCopilot(prompt) {
       env: {PATH: process.env.PATH, GITHUB_TOKEN: process.env.GITHUB_TOKEN,
         COPILOT_HOME: join(directory, 'config'), COPILOT_AUTO_UPDATE: 'false', CI: 'true'}});
     return stdout.trim();
+  } catch (error) {
+    // execFile's message includes the entire prompt; keep PR data out of error annotations.
+    throw new Error(`Copilot CLI failed (${error.signal ?? error.code ?? 'unknown'}): ` +
+      JSON.stringify(String(error.stderr ?? '').trim().slice(0, 500)));
   } finally { rmSync(directory, {recursive: true, force: true}); }
-}
-
-if (process.argv[1] && import.meta.url === pathToFileURL(process.argv[1]).href) {
-  try {
-    const {GitHub} = await import('./run.mjs');
-    const {assertPilotPR, assertPilotScope, pilotPolicy} = await import('./pilot.mjs');
-    if (process.env.GITHUB_REPOSITORY !== 't-head/pccl' ||
-        !['pull_request', 'pull_request_review'].includes(process.env.GITHUB_EVENT_NAME)) {
-      throw new Error('Unexpected pilot event or repository');
-    }
-    const event = JSON.parse(readFileSync(process.env.GITHUB_EVENT_PATH));
-    assertPilotPR(event.pull_request);
-    const api = new GitHub(process.env.GITHUB_TOKEN, process.env.GITHUB_REPOSITORY);
-    const policy = pilotPolicy(JSON.parse(readFileSync(new URL('./owners.json', import.meta.url))));
-    const pr = await api.request('GET', `${api.prefix}/pulls/19`);
-    assertPilotPR(pr);
-    const files = await api.list('/pulls/19/files');
-    assertPilotScope(policy, pr, files);
-    const result = await recommend(policy, pr, files, askCopilot);
-    // Check the combined model/path/manual scope before handing anything to the write job.
-    assertPilotScope(policy, pr, files, result);
-    const scope = scopeWithRecommendation(policy, pr, files, result);
-    const summary = `Classification: ${result.source}; modules: ${scope.modules}; areas: ${scope.areas}.\n` +
-      `${JSON.stringify(scope.recommendation?.reason)}\n`;
-    appendFileSync(process.env.GITHUB_OUTPUT, `recommendation=${JSON.stringify(result)}\n`);
-    appendFileSync(process.env.GITHUB_STEP_SUMMARY, summary);
-  } catch (error) { console.error(error.message); process.exitCode = 1; }
 }

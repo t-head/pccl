@@ -2,7 +2,11 @@
 // Copyright (c) 2026 T-Head (Shanghai) Semiconductor Co., Ltd. All rights reserved.
 import test from 'node:test';
 import assert from 'node:assert/strict';
-import {readFileSync} from 'node:fs';
+import {mkdtempSync, readFileSync, rmSync, writeFileSync} from 'node:fs';
+import {spawnSync} from 'node:child_process';
+import {tmpdir} from 'node:os';
+import {join} from 'node:path';
+import {fileURLToPath} from 'node:url';
 import {recommend, recommendationPrompt, scopeWithRecommendation,
   validateRecommendation} from '../../.github/review/recommend.mjs';
 import {pilotPolicy, assertPilotScope, runPilot} from '../../.github/review/pilot.mjs';
@@ -151,4 +155,39 @@ test('an old or unavailable recommendation cannot request reviewers', async () =
     assert.equal(writes.length, 1);
     assert.equal(writes[0].body.conclusion, 'failure');
   }
+});
+
+test('the recommendation CLI starts, invokes the model, and emits only a validated result', t => {
+  const directory = mkdtempSync(join(tmpdir(), 'pccl-recommend-entry-'));
+  t.after(() => rmSync(directory, {recursive: true, force: true}));
+  const event = join(directory, 'event.json'), output = join(directory, 'output'), summary = join(directory, 'summary');
+  const executable = join(directory, 'model.cjs');
+  writeFileSync(event, JSON.stringify({pull_request: makePR()}));
+  writeFileSync(executable, `#!${process.execPath}\n` +
+    `const assert = require('node:assert/strict');\n` +
+    `assert.ok(process.argv.includes('--disable-builtin-mcps'));\n` +
+    `assert.ok(process.argv.includes('--no-custom-instructions'));\n` +
+    `assert.ok(process.argv[process.argv.indexOf('-p') + 1].includes('recommendModulesFromDiff'));\n` +
+    `console.log(${JSON.stringify(JSON.stringify(proposal))});\n`, {mode: 0o755});
+  const runner = fileURLToPath(new URL('../../.github/review/pilot.mjs', import.meta.url));
+  const script = `
+    import assert from 'node:assert/strict';
+    import {pathToFileURL} from 'node:url';
+    globalThis.fetch = async (url, options) => {
+      assert.equal(options.method, 'GET');
+      const data = url.includes('/files?') ? ${JSON.stringify(files)} : ${JSON.stringify(makePR())};
+      return {ok: true, status: 200, json: async () => data};
+    };
+    process.argv = [process.execPath, ${JSON.stringify(runner)}, '--recommend'];
+    await import(pathToFileURL(process.argv[1]).href);
+  `;
+  const result = spawnSync(process.execPath, ['--input-type=module', '--eval', script], {
+    encoding: 'utf8', timeout: 5000, env: {PATH: process.env.PATH, COPILOT_CLI: executable,
+      GITHUB_TOKEN: 'test-token', GITHUB_REPOSITORY: 't-head/pccl', GITHUB_EVENT_NAME: 'pull_request',
+      GITHUB_EVENT_PATH: event, GITHUB_OUTPUT: output, GITHUB_STEP_SUMMARY: summary},
+  });
+  assert.equal(result.status, 0, result.stderr);
+  const recommendation = JSON.parse(readFileSync(output, 'utf8').trim().replace(/^recommendation=/, ''));
+  assert.equal(recommendation.source, 'copilot');
+  assert.deepEqual(recommendation.proposal, proposal);
 });

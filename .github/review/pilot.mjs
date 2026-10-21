@@ -1,10 +1,10 @@
 // SPDX-License-Identifier: Apache-2.0
 // Copyright (c) 2026 T-Head (Shanghai) Semiconductor Co., Ltd. All rights reserved.
-import {readFileSync} from 'node:fs';
+import {appendFileSync, readFileSync} from 'node:fs';
 import {pathToFileURL} from 'node:url';
 import {GitHub, run, CHECK} from './run.mjs';
 import {validatePolicy} from './policy.mjs';
-import {scopeWithRecommendation} from './recommend.mjs';
+import {askCopilot, recommend, scopeWithRecommendation} from './recommend.mjs';
 
 const repository = 't-head/pccl';
 const number = 19;
@@ -75,6 +75,18 @@ export class PilotAPI {
   }
 }
 
+export async function recommendPilot(api, source, ask = askCopilot) {
+  const pr = await api.request('GET', `${api.prefix}/pulls/${number}`);
+  assertPilotPR(pr);
+  const policy = pilotPolicy(source);
+  const files = await api.list(`/pulls/${number}/files`);
+  assertPilotScope(policy, pr, files);
+  const result = await recommend(policy, pr, files, ask);
+  // Check combined model/path/manual coverage before handing anything to the write job.
+  const scope = assertPilotScope(policy, pr, files, result);
+  return {result, scope};
+}
+
 export async function runPilot(api, source, detailsUrl, recommendation) {
   const pr = await api.request('GET', `${api.prefix}/pulls/${number}`);
   assertPilotPR(pr);
@@ -110,8 +122,17 @@ if (process.argv[1] && import.meta.url === pathToFileURL(process.argv[1]).href) 
     const api = new GitHub(process.env.GITHUB_TOKEN, repository);
     if (!api.token) throw new Error('GITHUB_TOKEN is required');
     const source = JSON.parse(readFileSync(new URL('./owners.json', import.meta.url)));
-    const recommendation = process.env.PCCL_RECOMMENDATION ? JSON.parse(process.env.PCCL_RECOMMENDATION) : undefined;
-    await runPilot(api, source,
-      `${process.env.GITHUB_SERVER_URL}/${repository}/actions/runs/${process.env.GITHUB_RUN_ID}`, recommendation);
+    if (process.argv[2] === '--recommend') {
+      const {result, scope} = await recommendPilot(api, source);
+      appendFileSync(process.env.GITHUB_OUTPUT, `recommendation=${JSON.stringify(result)}\n`);
+      appendFileSync(process.env.GITHUB_STEP_SUMMARY,
+        `Classification: ${result.source}; modules: ${scope.modules}; areas: ${scope.areas}.\n` +
+        `${JSON.stringify(scope.recommendation?.reason)}\n`);
+    } else {
+      if (process.argv[2]) throw new Error('Unexpected pilot argument');
+      const recommendation = process.env.PCCL_RECOMMENDATION ? JSON.parse(process.env.PCCL_RECOMMENDATION) : undefined;
+      await runPilot(api, source,
+        `${process.env.GITHUB_SERVER_URL}/${repository}/actions/runs/${process.env.GITHUB_RUN_ID}`, recommendation);
+    }
   } catch (error) { console.error(error.message); process.exitCode = 1; }
 }
