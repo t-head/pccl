@@ -3,7 +3,8 @@
 import {readFileSync} from 'node:fs';
 import {pathToFileURL} from 'node:url';
 import {GitHub, run, CHECK} from './run.mjs';
-import {classify, validatePolicy} from './policy.mjs';
+import {validatePolicy} from './policy.mjs';
+import {scopeWithRecommendation} from './recommend.mjs';
 
 const repository = 't-head/pccl';
 const number = 19;
@@ -31,9 +32,9 @@ export function pilotPolicy(source) {
   return policy;
 }
 
-export function assertPilotScope(policy, pr, files) {
+export function assertPilotScope(policy, pr, files, recommendation) {
   if (files.length !== pr.changed_files || files.length === 0) throw new Error('Incomplete pilot file list');
-  const scope = classify(policy, files, pr.body, pr.labels.map(label => label.name));
+  const scope = scopeWithRecommendation(policy, pr, files, recommendation);
   if (scope.modules.length !== 1 || scope.modules[0] !== 'workflow' || scope.unmatched.length ||
       scope.backups.some(id => id !== 'workflow')) {
     throw new Error('Live pilot covers only workflow / workflow-review');
@@ -74,14 +75,17 @@ export class PilotAPI {
   }
 }
 
-export async function runPilot(api, source, detailsUrl) {
+export async function runPilot(api, source, detailsUrl, recommendation) {
   const pr = await api.request('GET', `${api.prefix}/pulls/${number}`);
   assertPilotPR(pr);
   const guarded = new PilotAPI(api, pr);
   const policy = pilotPolicy(source);
   try {
     const files = await api.list(`/pulls/${number}/files`);
-    const scope = assertPilotScope(policy, pr, files);
+    const scope = assertPilotScope(policy, pr, files, recommendation);
+    if (!scope.declared.length && !scope.recommendation) {
+      throw new Error('Automatic classification is unavailable; add PCCL-Modules to the PR body and retry');
+    }
     console.log(`Pilot PR #${number}; modules=${scope.modules}; areas=${scope.areas}; HEAD=${pr.head.sha}`);
   } catch (error) {
     // A malformed declaration must replace an older success, without requesting reviewers.
@@ -92,7 +96,7 @@ export async function runPilot(api, source, detailsUrl) {
     });
     throw error;
   }
-  return run(guarded, policy, 'workflow_dispatch', {inputs: {pr_number: String(number)}}, detailsUrl);
+  return run(guarded, policy, 'workflow_dispatch', {inputs: {pr_number: String(number)}}, detailsUrl, recommendation);
 }
 
 if (process.argv[1] && import.meta.url === pathToFileURL(process.argv[1]).href) {
@@ -106,7 +110,8 @@ if (process.argv[1] && import.meta.url === pathToFileURL(process.argv[1]).href) 
     const api = new GitHub(process.env.GITHUB_TOKEN, repository);
     if (!api.token) throw new Error('GITHUB_TOKEN is required');
     const source = JSON.parse(readFileSync(new URL('./owners.json', import.meta.url)));
+    const recommendation = process.env.PCCL_RECOMMENDATION ? JSON.parse(process.env.PCCL_RECOMMENDATION) : undefined;
     await runPilot(api, source,
-      `${process.env.GITHUB_SERVER_URL}/${repository}/actions/runs/${process.env.GITHUB_RUN_ID}`);
+      `${process.env.GITHUB_SERVER_URL}/${repository}/actions/runs/${process.env.GITHUB_RUN_ID}`, recommendation);
   } catch (error) { console.error(error.message); process.exitCode = 1; }
 }

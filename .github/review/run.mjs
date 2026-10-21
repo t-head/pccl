@@ -3,7 +3,8 @@
 import {readFileSync, appendFileSync} from 'node:fs';
 import {createHash} from 'node:crypto';
 import {pathToFileURL} from 'node:url';
-import {validatePolicy, classify, evaluate, reviewerRequests} from './policy.mjs';
+import {validatePolicy, evaluate, reviewerRequests} from './policy.mjs';
+import {scopeWithRecommendation} from './recommend.mjs';
 
 export const CHECK = 'PCCL Module Owner Approval';
 export class GitHub {
@@ -46,14 +47,14 @@ export function fingerprint(pr, files, reviews, permissions, policy) {
     draft: pr.draft, state: pr.state, files, reviews, permissions, policy})).digest('hex');
 }
 
-async function snapshot(api, policy, number) {
+async function snapshot(api, policy, number, recommendation) {
   const pr = await api.request('GET', `${api.prefix}/pulls/${number}`);
   if (pr.changed_files > 3000) throw new Error('GitHub lists at most 3000 files; split this PR');
   const [files, reviews] = await Promise.all([
     api.list(`/pulls/${number}/files`), api.list(`/pulls/${number}/reviews`),
   ]);
   if (files.length !== pr.changed_files) throw new Error('Incomplete file list');
-  const scope = classify(policy, files, pr.body, pr.labels.map(l => l.name));
+  const scope = scopeWithRecommendation(policy, pr, files, recommendation);
   const users = new Set(scope.modules.flatMap(id => {
     const m = policy.modules[id];
     return [m.maintainer, m.backup].map(p => policy.people[p].github.toLowerCase());
@@ -77,6 +78,10 @@ function summary(state, result, warnings) {
   const unmapped = state.scope.unmatched.slice(0, 20).map(p => JSON.stringify(p)).join(', ');
   return [
     `PR #${state.pr.number}; HEAD \`${state.pr.head.sha}\`.`,
+    ...(state.scope.recommendation ? [
+      `Module classification: ${state.scope.recommendation.source}.`,
+      `Reason: ${JSON.stringify(state.scope.recommendation.reason)}`,
+    ] : []),
     'One current-head approval from any affected module\'s Maintainer OR Backup satisfies owner approval.',
     result.approvedBy.length
       ? `Owner approval received from: ${result.approvedBy.join(', ')}.`
@@ -93,7 +98,7 @@ function summary(state, result, warnings) {
   ].join('\n\n');
 }
 
-export async function reconcile(api, policy, number, openPRs, detailsUrl) {
+export async function reconcile(api, policy, number, openPRs, detailsUrl, recommendation) {
   let check;
   let pr;
   try {
@@ -103,7 +108,7 @@ export async function reconcile(api, policy, number, openPRs, detailsUrl) {
       name: CHECK, head_sha: pr.head.sha, status: 'in_progress', details_url: detailsUrl,
       external_id: `pccl-review:${number}:${pr.head.sha}`,
     });
-    const state = await snapshot(api, policy, number);
+    const state = await snapshot(api, policy, number, recommendation);
     if (state.pr.head.sha !== pr.head.sha) throw new Error('Head changed; rerun for the new commit');
     const result = evaluate(policy, state.pr, state.scope, state.reviews, state.permissions);
     if (openPRs.filter(p => p.head.sha === pr.head.sha).length !== 1) {
@@ -111,7 +116,10 @@ export async function reconcile(api, policy, number, openPRs, detailsUrl) {
       result.pass = false;
     }
     const warnings = [];
-    if (!pr.draft) {
+    if (!pr.draft && (state.scope.declared.length || state.scope.recommendation)) {
+      const candidates = reviewerRequests(policy, {...state.pr, requested_reviewers: []},
+        state.scope, state.reviews, state.permissions);
+      if (candidates.length) warnings.push(`Routing selects: ${candidates.join(', ')} (existing requests are retained).`);
       for (const reviewer of reviewerRequests(policy, state.pr, state.scope, state.reviews, state.permissions)) {
         try {
           await api.request('POST', `${api.prefix}/pulls/${number}/requested_reviewers`, {reviewers: [reviewer]});
@@ -119,7 +127,7 @@ export async function reconcile(api, policy, number, openPRs, detailsUrl) {
       }
     }
     // Re-read authoritative state. Event payloads and request-review success are not approval evidence.
-    const fresh = await snapshot(api, policy, number);
+    const fresh = await snapshot(api, policy, number, recommendation);
     if (fresh.fingerprint !== state.fingerprint) throw new Error('PR/reviews changed during evaluation; rerun');
     const currentPRs = await api.list('/pulls?state=open');
     if (currentPRs.filter(p => p.head.sha === pr.head.sha).length !== 1) {
@@ -141,7 +149,7 @@ export async function reconcile(api, policy, number, openPRs, detailsUrl) {
   }
 }
 
-export async function run(api, policy, eventName, event, detailsUrl) {
+export async function run(api, policy, eventName, event, detailsUrl, recommendation) {
   const openPRs = await api.list('/pulls?state=open');
   let targets;
   if (eventName === 'pull_request_target') targets = [event.pull_request.number];
@@ -166,7 +174,7 @@ export async function run(api, policy, eventName, event, detailsUrl) {
   } else throw new Error(`Unsupported event: ${eventName}`);
   const failures = [];
   for (const number of targets) {
-    try { await reconcile(api, policy, number, openPRs, detailsUrl); }
+    try { await reconcile(api, policy, number, openPRs, detailsUrl, recommendation); }
     catch (error) { failures.push(`PR #${number}: ${error.message}`); }
   }
   if (failures.length) throw new Error(failures.join('\n'));

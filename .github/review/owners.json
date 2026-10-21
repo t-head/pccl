@@ -342,6 +342,7 @@
         ".github/workflows/module-review.yml",
         ".github/workflows/module-review-events.yml",
         ".github/workflows/module-review-tests.yml",
+        ".github/workflows/test-module-review.yml",
         ".github/workflows/copilot-access.md",
         ".github/workflows/copilot-access.lock.yml"
       ],

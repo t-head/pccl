@@ -119,7 +119,9 @@ export function evaluate(policy, pr, scope, reviews, permissions = {}) {
   const canApprove = login => ['write', 'maintain', 'admin'].includes(permissions[login]);
   if (pr.state !== 'open' || pr.draft) errors.push('PR must be open and ready for review');
   if (pr.base.ref !== policy.targetBranch) errors.push(`Only ${policy.targetBranch} is supported`);
-  if (!scope.declared.length) errors.push('Declare PCCL-Modules in the PR body or apply module/ labels');
+  if (!scope.declared.length && !scope.recommendation) {
+    errors.push('Automatic classification is unavailable; declare PCCL-Modules in the PR body or apply module/ labels');
+  }
   if (!scope.modules.length || !scope.fileCount) errors.push('No affected modules/files');
   const modules = scope.modules.map(id => {
     const owners = ownerLogins(policy, id);
