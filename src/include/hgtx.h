@@ -52,6 +52,10 @@ struct pcclHgtxInfo {
 // Define static schema ID for the reduction operation.
 #define HGTX_PAYLOAD_ENTRY_PCCL_REDOP 20 + HGTX_PAYLOAD_SCHEMA_ID_STATIC_START
 
+#define HGTX_SID_PutSignal            22
+#define HGTX_SID_Signal               23
+#define HGTX_SID_WaitSignal           24
+
 extern const hgtxDomainHandle_t pcclHgtxDomainHandle;
 
 struct pccl_domain{static constexpr char const* name{"PCCL"};};

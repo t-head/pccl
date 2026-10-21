@@ -278,6 +278,56 @@ fail:
   return result;
 }
 
+static inline ncclResult_t ncclHgMemHostAlloc(void **ptr, size_t size, size_t *pSizeAligned,
+                                              HGmemGenericAllocationHandle *pHandle) {
+  ncclResult_t result = ncclSuccess;
+  size_t granularity = 0;
+  size_t sizeAligned = 0;
+  HGdevice currentDev;
+  HGmemAllocationProp prop = {};
+  HGmemAccessDesc accessDesc = {};
+  HGmemGenericAllocationHandle handle;
+  int hggcDev;
+  int cpuNumaNodeId = -1;
+
+  HGGCCHECK(hggcGetDevice(&hggcDev));
+  HGCHECK(hgDeviceGet(&currentDev, hggcDev));
+  HGCHECK(hgDeviceGetAttribute(&cpuNumaNodeId, HG_DEVICE_ATTRIBUTE_HOST_NUMA_ID, currentDev));
+  if (cpuNumaNodeId < 0) cpuNumaNodeId = 0;
+  prop.type = HG_MEM_ALLOCATION_TYPE_PINNED;
+  prop.location.type = HG_MEM_LOCATION_TYPE_HOST_NUMA;
+  prop.location.id = cpuNumaNodeId;
+  HGCHECK(hgMemGetAllocationGranularity(&granularity, &prop, HG_MEM_ALLOC_GRANULARITY_MINIMUM));
+  // hgMemCreate only accepts sizes that are a multiple of the granularity.
+  sizeAligned = ROUNDUP(size, granularity);
+  /* Allocate the physical memory on the host NUMA node */
+  HGCHECK(hgMemCreate(&handle, sizeAligned, &prop, 0));
+  /* Reserve a virtual address range */
+  HGCHECK(hgMemAddressReserve((HGdeviceptr *)ptr, sizeAligned, granularity, 0, 0));
+  /* Map the virtual address range to the physical allocation */
+  HGCHECK(hgMemMap((HGdeviceptr)*ptr, sizeAligned, 0, handle, 0));
+  /* Now allow RW access to the newly mapped memory for the local GPU */
+  accessDesc.location.type = HG_MEM_LOCATION_TYPE_DEVICE;
+  accessDesc.location.id = currentDev;
+  accessDesc.flags = HG_MEM_ACCESS_FLAGS_PROT_READWRITE;
+  HGCHECK(hgMemSetAccess((HGdeviceptr)*ptr, sizeAligned, &accessDesc, 1));
+  /* Now allow RW access to the newly mapped memory from the CPU */
+  accessDesc.location.type = HG_MEM_LOCATION_TYPE_HOST_NUMA;
+  accessDesc.location.id = cpuNumaNodeId;
+  accessDesc.flags = HG_MEM_ACCESS_FLAGS_PROT_READWRITE;
+  HGCHECK(hgMemSetAccess((HGdeviceptr)*ptr, sizeAligned, &accessDesc, 1));
+  memset(*ptr, 0, sizeAligned);
+  if (pHandle != nullptr) {
+    *pHandle = handle;
+  } else {
+    HGCHECK(hgMemRelease(handle));
+  }
+  if (pSizeAligned != nullptr) *pSizeAligned = sizeAligned;
+  VERBOSE(NCCL_ALLOC, "HgMem Host Alloc Size %zi sizeAligned %zi pointer %p handle %llx numa %d dev %d", size,
+          sizeAligned, *ptr, handle, cpuNumaNodeId, hggcDev);
+  return result;
+}
+
 template <typename T>
 ncclResult_t ncclHggcCallocAsyncDebug(const char *filefunc, int line, T** ptr, size_t nelem, uint64_t* pDevMemUsed, hggcStream_t stream, struct ncclMemManager* manager = nullptr, ncclMemType_t memType = ncclMemPersist) {
   ncclResult_t result = ncclSuccess;

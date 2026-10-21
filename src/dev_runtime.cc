@@ -18,6 +18,7 @@
 #include "utils.h"
 #include "argcheck.h"
 #include "gin/gin_host.h"
+#include "rma/rma.h"
 #include <mutex>
 
 NCCL_PARAM(WinStride, "WIN_STRIDE", -1);
@@ -575,6 +576,13 @@ static ncclResult_t symMemoryObtain(
     mem->numGinSegments = 1;
   }
 
+  // Connect the RMA proxy on the first GIN-registered window. ncclRmaProxyConnectOnce
+  // is idempotent; the windows are already MR-registered on every GIN comm by
+  // symMemoryRegisterGin.
+  if (devr->ginEnabled && ncclRmaProxyEnabled(comm)) {
+    NCCLCHECKGOTO(ncclRmaProxyConnectOnce(comm), ret, fail_mem_space);
+  }
+
   // Add to list of mems.
   mem->next = devr->memHead;
   devr->memHead = mem;
@@ -842,12 +850,42 @@ ncclResult_t ncclDevrWindowRegisterInGroup(
   size_t offset = 0;
   bool hasSysmemSegment = false;
   bool globalSameMemOffset = true;
+  size_t* globalWinSizes = nullptr;
 
   NCCLCHECKGOTO(ncclCommRegister(comm, userPtr, userSize, &localRegHandle), ret, fail);
 
   if (winFlags & NCCL_WIN_COLL_SYMMETRIC) {
     // Defer symmetric kernel init until at least one window with that flag exists.
     NCCLCHECKGOTO(ncclSymkInitOnce(comm), ret, fail_locReg);
+    if (comm->hostRmaSupport && !comm->devrState.ginEnabled && ncclRmaProxyEnabled(comm)) {
+      struct ncclDevCommRequirements ginReqs = NCCL_DEV_COMM_REQUIREMENTS_INITIALIZER;
+      ginReqs.ginConnectionType = NCCL_GIN_CONNECTION_RAIL;
+      // The proxy backend requires a device context to exist on each GIN
+      // connection before its own createContext call.
+      ginReqs.ginContextCount = 1;
+      struct ncclDevComm ginDevComm;
+      NCCLCHECKGOTO(ncclDevrCommCreateInternal(comm, &ginReqs, &ginDevComm, /*isInternal=*/true), ret, fail_locReg);
+    }
+    // Initialize RMA CE alongside the first symmetric window registration,
+    // the same pattern as ncclSymkInitOnce above. initInProgress guards
+    // re-entry: ncclRmaCeInit registers its own signal window through this
+    // very function.
+    if (comm->hostRmaSupport && !comm->rmaState.rmaCeState.initialized &&
+        !comm->rmaState.rmaCeState.initInProgress) {
+      NCCLCHECKGOTO(ncclRmaCeInit(comm), ret, fail_locReg);
+    }
+    NCCLCHECKGOTO(ncclCalloc(&globalWinSizes, comm->nRanks), ret, fail_locReg);
+    globalWinSizes[comm->rank] = userSize;
+    NCCLCHECKGOTO(bootstrapAllGather(comm->bootstrap, globalWinSizes, sizeof(size_t)), ret, fail_locReg_sizes);
+    for (int r = 0; r < comm->nRanks; r++) {
+      if (globalWinSizes[r] != userSize) {
+        WARN("Rank %d registered a %zu-byte symmetric window, but rank %d registered %zu bytes; symmetric window sizes must match on all ranks", comm->rank, userSize, r, globalWinSizes[r]);
+        ret = ncclInvalidArgument;
+        goto fail_locReg_sizes;
+      }
+    }
+    free(globalWinSizes);
+    globalWinSizes = nullptr;
   }
 
   // Get underlying cumem base address and number of mapped physical segments that userPtr spans
@@ -939,6 +977,8 @@ fail_locReg_memHandle:
     if (memHandles[idx] != 0x0ULL) { HGCHECKIGNORE(hgMemRelease(memHandles[idx])); }
   }
   free(memHandles);
+fail_locReg_sizes:
+  free(globalWinSizes);
 fail_locReg:
   ncclCommDeregister(comm, localRegHandle);
 fail:
@@ -1133,6 +1173,11 @@ ncclResult_t ncclDevrCommCreateInternal(
     // we have a stream.
     for (struct ncclDevrMemory* mem = devr->memHead; mem != nullptr; mem = mem->next) {
       NCCLCHECKGOTO(symMemoryRegisterGin(comm, mem), ret, fail);
+    }
+    // Memories registered before GIN activation skipped the RMA proxy connection;
+    // connect it now that the GIN comms exist.
+    if (ncclRmaProxyEnabled(comm)) {
+      NCCLCHECKGOTO(ncclRmaProxyConnectOnce(comm), ret, fail);
     }
   }
 
@@ -1381,6 +1426,27 @@ bool ncclDevrWindowHasSysmemSegment(struct ncclDevrWindow* win) {
   return win != NULL && win->memory->globalHasSysmemSegment;
 }
 
+// Get the data-window MR handle registered on GIN connection `ginCommIdx`.
+// The handles are filled by ncclGinRegister() and consumed by the RMA proxy
+// launch layer.
+void* ncclDevrGetGinWin(struct ncclDevrWindow* winHost, int ginCommIdx) {
+  if (winHost == nullptr || winHost->memory == nullptr) {
+    return nullptr;
+  }
+  if (ginCommIdx < 0 || ginCommIdx >= NCCL_GIN_MAX_CONNECTIONS) {
+    return nullptr;
+  }
+  return winHost->memory->ginHostWins[ginCommIdx];
+}
+
+// Get the byte offset of a window within its backing memory allocation.
+size_t ncclDevrGetWinOffset(struct ncclDevrWindow* winHost) {
+  if (winHost == nullptr || winHost->memory == nullptr) {
+    return 0;
+  }
+  return winHost->bigOffset - winHost->memory->bigOffset;
+}
+
 void ncclDevCommCopyLsaData(void* dstRankPtr, void const* srcRankPtr) {
   memcpy(dstRankPtr, srcRankPtr, offsetof(struct ncclDevComm, railGinBarrier) - offsetof(struct ncclDevComm, rank));
 }
@@ -1403,7 +1469,7 @@ ncclResult_t pcclCommQueryProperties(ncclComm_t comm, ncclCommProperties_t* prop
   props->hgmlDev = comm->hgmlDev;
   props->deviceApiSupport = comm->symmetricSupport;
   props->multimemSupport = false; // PPU does not support multimem/NVLS
-  props->hostRmaSupport = false;  // PPU does not support host RMA
+  props->hostRmaSupport = comm->hostRmaSupport;
   NCCLCHECK(getGlobalGinType(comm, &props->ginType));
   NCCLCHECK(getGlobalRailedGinType(comm, &props->railedGinType));
 

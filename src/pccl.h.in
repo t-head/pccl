@@ -111,6 +111,8 @@ typedef struct pcclConfig_v22700 {
   int CTAPolicy;
   int shrinkShare;
   int nvlsCTAs;
+  int numRmaCtx;
+  int numRmaSig;
 } pcclConfig_t;
 
 typedef struct pcclSimInfo_v22200 {
@@ -161,6 +163,8 @@ typedef enum { pcclInt8       = 0, pcclChar       = 0,
   PCCL_CONFIG_UNDEF_INT,                    /* CTAPolicy */             \
   PCCL_CONFIG_UNDEF_INT,                    /* shrinkShare */           \
   PCCL_CONFIG_UNDEF_INT,                    /* nvlsCTAs */              \
+  PCCL_CONFIG_UNDEF_INT,                    /* numRmaCtx */             \
+  PCCL_CONFIG_UNDEF_INT,                    /* numRmaSig */             \
 }
 
 #define PCCL_SIM_INFO_INITIALIZER {                                         \
@@ -212,6 +216,103 @@ pcclResult_t  pcclBroadcast(const void* sendbuff, void* recvbuff, size_t count, 
 pcclResult_t  pcclBcast(void* buff, size_t count, pcclDataType_t datatype, int root, pcclComm_t comm, hggcStream_t stream);
 pcclResult_t  pcclSend(const void* sendbuff, size_t count, pcclDataType_t datatype, int peer, pcclComm_t comm, hggcStream_t stream);
 pcclResult_t  pcclRecv(void* recvbuff, size_t count, pcclDataType_t datatype, int peer, pcclComm_t comm, hggcStream_t stream);
+
+// one-sided (RMA) operation
+/*
+ * Put
+ *
+ * One-sided communication operation that writes data from the local buffer to a
+ * remote peer's registered memory window without explicit participation from the
+ * target process, then raises a signal on the target.
+ *
+ * Prerequisites:
+ *   localbuff must live in a window registered with PCCL_WIN_COLL_SYMMETRIC on
+ *   this rank, and peerWin must be such a window registered by the target peer.
+ *
+ * Parameters:
+ *   localbuff    - Local source buffer containing data to be transferred, in a
+ *                  PCCL_WIN_COLL_SYMMETRIC window (see Prerequisites)
+ *   count        - Number of elements to transfer
+ *   datatype     - PCCL data type of each element
+ *   peer         - Target rank to write data to
+ *   peerWin      - Memory window object registered by the target peer with
+ *                  PCCL_WIN_COLL_SYMMETRIC
+ *   peerWinOffset- Offset in bytes from the start of peer's registered window
+ *   sigIdx       - Signal index identifier for the operation, in
+ *                  [0, numRmaSig) of the communicator config
+ *   ctx          - RMA context identifier, must be 0 (a single context is
+ *                  supported for now)
+ *   flags        - Reserved for future use, must be 0
+ *   comm         - PCCL communicator
+ *   stream       - HGGC stream to enqueue the operation on
+ *
+ * Returns:
+ *   pcclSuccess on successful enqueue, error code otherwise
+ */
+pcclResult_t  pcclPutSignal(const void* localbuff, size_t count, pcclDataType_t datatype, int peer, pcclWindow_t peerWin, size_t peerWinOffset, int sigIdx, int ctx, unsigned int flags, pcclComm_t comm, hggcStream_t stream);
+
+/*
+ * Signal
+ *
+ * Sends a signal to the specified peer without transferring data.
+ *
+ * Prerequisites:
+ *   Signal carries no window and cannot itself trigger the collective RMA
+ *   setup performed by the first symmetric window registration, so at least
+ *   one window registered with PCCL_WIN_COLL_SYMMETRIC must already exist on
+ *   this communicator; otherwise pcclInvalidUsage is returned.
+ *
+ * Parameters:
+ *   peer         - Target rank to send signal to
+ *   sigIdx       - Signal index identifier for the operation, in
+ *                  [0, numRmaSig) of the communicator config
+ *   ctx          - RMA context identifier, must be 0 (a single context is
+ *                  supported for now)
+ *   flags        - Reserved for future use, must be 0
+ *   comm         - PCCL communicator
+ *   stream       - HGGC stream to enqueue the operation on
+ *
+ * Returns:
+ *   pcclSuccess on successful signal enqueue, error code otherwise
+ */
+pcclResult_t  pcclSignal(int peer, int sigIdx, int ctx, unsigned int flags, pcclComm_t comm, hggcStream_t stream);
+
+/*
+ * Wait Signal Descriptor
+ *
+ * Describes how many signal operations to wait for
+ * from a particular rank on a given signal index and context.
+ */
+typedef struct {
+  int opCnt;    // Number of signal operations to wait for
+  int peer;     // Target peer to wait for signals from
+  int sigIdx;   // Signal index identifier, in [0, numRmaSig) of the communicator config
+  int ctx;      // RMA context identifier, must be 0 (a single context is supported)
+} pcclWaitSignalDesc_t;
+
+/*
+ * Wait Signal
+ *
+ * Waits for signals as described in the signal descriptor array.
+ *
+ * Prerequisites:
+ *   WaitSignal carries no window and cannot itself trigger the collective RMA
+ *   setup performed by the first symmetric window registration, so at least
+ *   one window registered with PCCL_WIN_COLL_SYMMETRIC must already exist on
+ *   this communicator; otherwise pcclInvalidUsage is returned.
+ *
+ * Parameters:
+ *   nDesc        - Number of signal descriptors in the array
+ *   signalDescs  - Array of descriptors specifying the signals to wait for.
+ *                  Each descriptor indicates how many signals to expect from
+ *                  a specific peer on a particular signal index and context.
+ *   comm         - PCCL communicator
+ *   stream       - HGGC stream to enqueue the operation on
+ *
+ * Returns:
+ *   pcclSuccess when all required signals received, error code otherwise
+ */
+pcclResult_t  pcclWaitSignal(int nDesc, pcclWaitSignalDesc_t* signalDescs, pcclComm_t comm, hggcStream_t stream);
 
 // memory operation
 pcclResult_t  pcclCommRegister(const pcclComm_t comm, void* buff, size_t size, void** handle);
