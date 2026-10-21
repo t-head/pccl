@@ -29,14 +29,14 @@ constexpr int pcclP2pDmaMaxSignallers = 2; // == PCCL_CE_MAX_DIE_NUM
 
 // Release seq after off; acquire seq before reading off.
 struct alignas(16) pcclP2pDmaMboxCell {
-  uint64_t off;
+  uint64_t off;   // destination offset from the receiver's LSA rank-slot base
   uint32_t seq;
   uint32_t pad;
 };
 
 // One send/recv op, resolved to (peer, batch-local k, byte range, sequence).
 struct alignas(16) pcclP2pDmaWork {
-  uint64_t off;    // this rank's own buffer offset (send: src, recv: dst)
+  uint64_t off;    // buffer offset from this rank's LSA slot (send: src, recv: dst)
   uint64_t bytes;
   int32_t  peer;
   int32_t  k;      // occurrence index within this batch, [0, pcclP2pDmaOpsPerPeer)
@@ -69,8 +69,8 @@ struct alignas(16) pcclP2pDmaArgs {
   uint32_t stride4G;
   int32_t  nRanks;
   int32_t  rank;
-  uint64_t sendFlatBase;     // self send-win lsa-flat slot (team base + rank*stride4G)
-  uint64_t recvFlatBase;     // self recv-win lsa-flat slot (team base + rank*stride4G)
+  uint64_t sendFlatBase;     // self LSA rank-slot base, excluding any window offset
+  uint64_t recvFlatBase;     // same rank-slot base; peer slots are reached via stride4G
   uint64_t mboxFlatBase;     // mailbox TEAM lsa-flat base; rank r's window at +r*stride4G
   uint32_t* abortFlag;       // device-visible abort flag (comm->abortFlagDev)
   int32_t  nSend;

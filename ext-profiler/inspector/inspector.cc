@@ -256,11 +256,14 @@ ncclFunc_t ncclStringToFunc(const char* str) {
   if (strcmp(str, "AllGather") == 0) return ncclFuncAllGather;
   if (strcmp(str, "AllReduce") == 0) return ncclFuncAllReduce;
   if (strcmp(str, "Broadcast") == 0) return ncclFuncBroadcast;
+  if (strcmp(str, "PutSignal") == 0) return ncclFuncPutSignal;
   if (strcmp(str, "Recv") == 0) return ncclFuncRecv;
   if (strcmp(str, "Reduce") == 0) return ncclFuncReduce;
   if (strcmp(str, "ReduceScatter") == 0) return ncclFuncReduceScatter;
   if (strcmp(str, "SendRecv") == 0) return ncclFuncSendRecv;
   if (strcmp(str, "Send") == 0) return ncclFuncSend;
+  if (strcmp(str, "Signal") == 0) return ncclFuncSignal;
+  if (strcmp(str, "WaitSignal") == 0) return ncclFuncWaitSignal;
   return ncclNumFuncs; // Invalid / unknown
 }
 
@@ -269,11 +272,14 @@ const char* ncclFuncToString(ncclFunc_t fn) {
   case ncclFuncAllGather: return "AllGather";
   case ncclFuncAllReduce: return "AllReduce";
   case ncclFuncBroadcast: return "Broadcast";
+  case ncclFuncPutSignal: return "PutSignal";
   case ncclFuncRecv: return "Recv";
   case ncclFuncReduce: return "Reduce";
   case ncclFuncReduceScatter: return "ReduceScatter";
   case ncclFuncSendRecv: return "SendRecv";
   case ncclFuncSend: return "Send";
+  case ncclFuncSignal: return "Signal";
+  case ncclFuncWaitSignal: return "WaitSignal";
   default: return "Invalid";
   }
 }

@@ -21,6 +21,7 @@
 #include "argcheck.h"
 #include "tuner.h"
 #include "ras.h"
+#include "rma/rma.h"
 #include "mnnvl.h"
 #include "u2mm.h"
 #include "utils.h"
@@ -69,6 +70,7 @@ NCCL_PARAM(AllocP2pNetLLBuffers, "ALLOC_P2P_NET_LL_BUFFERS", 0);
 NCCL_PARAM(NChannelsPerNetPeer, "NCHANNELS_PER_NET_PEER", PCCL_CONFIG_UNDEF_INT);
 NCCL_PARAM(GraphMixingSupport, "GRAPH_MIXING_SUPPORT", PCCL_CONFIG_UNDEF_INT);
 NCCL_PARAM(MaxP2pPeers, "P2P_MAX_PEERS", PCCL_CONFIG_UNDEF_INT);
+NCCL_PARAM(NumRmaCtx, "NUM_RMA_CTX", PCCL_CONFIG_UNDEF_INT);
 
 // GDRCOPY support: Off by default
 NCCL_PARAM(GdrCopyEnable, "GDRCOPY_ENABLE", 0);
@@ -439,6 +441,9 @@ static ncclResult_t commFree(ncclComm_t comm) {
   // are initialized. Do not release references this communicator never acquired.
   const bool hasSharedRes = comm->sharedRes != NULL;
   NCCLCHECK(ncclCeFinalize(comm));
+  // The RMA CE signal windows must be deregistered while the devr window
+  // machinery is still alive, so tear the RMA CE down right after ncclCeFinalize.
+  NCCLCHECK(ncclRmaCeFinalize(comm));
 
   if (comm->symmetricSupport) {
     NCCLCHECK(pcclP2pDmaFinalize(comm));
@@ -706,6 +711,7 @@ static ncclResult_t commAlloc(ncclComm_t comm, ncclComm_t parentComm, int ndev, 
 
   ncclIntruQueueConstruct(&comm->suspendTaskQueue);
   ncclIntruQueueConstruct(&comm->resumeTaskQueue);
+  ncclIntruQueueConstruct(&comm->rmaCeInitTaskQueue);
 
   if (parentComm == NULL || !parentComm->shareResources) {
     NCCLCHECK(ncclCalloc(&comm->sharedRes, 1));
@@ -878,6 +884,10 @@ static ncclResult_t showVersion() {
 NCCL_PARAM(MNNVLUUID, "MNNVL_UUID", -1);
 NCCL_PARAM(MNNVLCliqueId, "MNNVL_CLIQUE_ID", -1);
 
+static bool pcclHostRmaPlatformSupported(ncclComm_t comm) {
+  return comm->compCap == 89 && comm->icnRmtType == PCCL_ICNLINK_SWITCH;
+}
+
 static ncclResult_t fillInfo(ncclComm_t comm, struct ncclPeerInfo* info, uint64_t commHash) {
   hggcDeviceProp prop;
   info->rank = comm->rank;
@@ -923,6 +933,9 @@ static ncclResult_t fillInfo(ncclComm_t comm, struct ncclPeerInfo* info, uint64_
   HGCHECK(hgDeviceGetAttribute(&cuMemGdrFlag, HG_DEVICE_ATTRIBUTE_GPU_DIRECT_RDMA_WITH_HGGC_VMM_SUPPORTED, comm->hggcDev));
   info->cuMemGdrSupport = (cuMemGdrFlag == 1);
   info->supportedGinType = comm->sharedRes->ginState.ginType;
+  info->rmaPlatformSupport = pcclHostRmaPlatformSupported(comm);
+  INFO(NCCL_INIT, "Rank %d device %d Host RMA platform support %d (compCap %d icnRmtType %s)",
+       comm->rank, comm->hggcDev, info->rmaPlatformSupport, comm->compCap, icnRmtTypeStr[comm->icnRmtType]);
 
   // MNNVL support
   if (pcclHgmlEnsureInitialized() == ncclSuccess) {
@@ -1258,6 +1271,7 @@ static ncclResult_t initTransportsRank(ncclComm_t comm, ncclComm_t parent, uint6
   bool globalGinSupport = false;
   bool globalCrossNicSupport = true;
   bool globalCuMemGdrSupport = true;
+  bool globalRmaPlatformSupport = true;
 
   // respect NCCL_ALGO when init
   const char *algoStr = pcclGetEnvWithDualPrefix("PCCL_ALGO");
@@ -1305,6 +1319,7 @@ static ncclResult_t initTransportsRank(ncclComm_t comm, ncclComm_t parent, uint6
     globalGinSupport &= (comm->peerInfo[i].supportedGinType == comm->sharedRes->ginState.ginType);
     globalCrossNicSupport &= comm->peerInfo[i].crossNicSupport;
     globalCuMemGdrSupport &= comm->peerInfo[i].cuMemGdrSupport;
+    globalRmaPlatformSupport &= comm->peerInfo[i].rmaPlatformSupport;
     if (i == rank) comm->peerInfo[comm->rank].hostid = nNodes - 1;
     if ((i != rank) && (comm->peerInfo[i].hostHash == comm->peerInfo[rank].hostHash) && (comm->peerInfo[i].busId == comm->peerInfo[rank].busId)) {
       ERROR("Duplicate PPU detected : rank %d and rank %d both on HGGC device %lx", rank, i, comm->peerInfo[rank].busId);
@@ -1701,6 +1716,17 @@ static ncclResult_t initTransportsRank(ncclComm_t comm, ncclComm_t parent, uint6
 
   comm->planner.peers = ncclMemoryStackAlloc<ncclKernelPlanner::Peer>(&comm->memPermanent, comm->nRanks);
 
+  // One intrusive queue of RMA tasks per user-addressable context. Lives on
+  // memPermanent, like planner.peers, so it survives the memset in
+  // ncclGroupCommJoin / ncclGroupCommLeave, which save and restore the pointer.
+  if (comm->config.numRmaCtx > 0) {
+    comm->planner.rmaTaskQueues = ncclMemoryStackAlloc<
+        ncclIntruQueue<struct ncclTaskRma, &ncclTaskRma::next>>(&comm->memPermanent, comm->config.numRmaCtx);
+    for (int c = 0; c < comm->config.numRmaCtx; c++) {
+      ncclIntruQueueConstruct(&comm->planner.rmaTaskQueues[c]);
+    }
+  }
+
   if (netCount > 0) {
     // Connect to local net proxy
     struct ncclProxyConnector proxyConn;
@@ -1726,6 +1752,10 @@ static ncclResult_t initTransportsRank(ncclComm_t comm, ncclComm_t parent, uint6
   }
   comm->symmetricSupport = ncclParamWinEnable() && ncclCuMemEnable() &&
       (comm->globalGinSupport != NCCL_GIN_CONNECTION_NONE || (comm->localP2pSupport && ncclDevrIsOneLsaTeam(comm)));
+
+  // One-sided RMA capability. Peers are reached through CE, so every rank must
+  // be in a single LSA team.
+  comm->hostRmaSupport = globalRmaPlatformSupport && comm->symmetricSupport && ncclDevrIsOneLsaTeam(comm);
   // Automatic AllGather needs the same streams/events and strategy resources as
   // explicit ZERO policy. Keep OKI and P2P DMA on their existing ZERO-only gate.
   INFO(NCCL_INIT, "CE AllGather auto support %d minCompCap %d architecture / ICNS / algorithm eligibility %d",
@@ -2131,6 +2161,7 @@ static ncclResult_t envConfigOverride(ncclComm_t comm) {
   int nChannelsPerNetPeerEnv;
   int graphMixingSupportEnv;
   int maxP2pPeersEnv;
+  int numRmaCtxEnv;
 
   /* override configuration from env variable. */
   blockingEnv = ncclParamCommBlocking();
@@ -2183,6 +2214,14 @@ static ncclResult_t envConfigOverride(ncclComm_t comm) {
   maxP2pPeersEnv = ncclParamMaxP2pPeers();
   if (maxP2pPeersEnv > 0) {
     comm->config.maxP2pPeers = maxP2pPeersEnv;
+  }
+
+  numRmaCtxEnv = ncclParamNumRmaCtx();
+  if (numRmaCtxEnv != PCCL_CONFIG_UNDEF_INT) {
+    if (numRmaCtxEnv <= 0)
+      INFO(NCCL_ENV, "PCCL_NUM_RMA_CTX %d is too low, leaving it set at %d", numRmaCtxEnv, comm->config.numRmaCtx);
+    else
+      comm->config.numRmaCtx = numRmaCtxEnv;
   }
 
   /* cap channels if needed */
@@ -2253,6 +2292,7 @@ static ncclResult_t parseCommConfig(ncclComm_t comm, ncclConfig_t *config) {
       internalConfigPtr->nvlsCTAs = defaultConfig.nvlsCTAs;
     }
 
+    // numRmaCtx was introduced in PCCL 2.3.0.
     if (pcclVersion < PCCL_VERSION(2, 3, 0)) {
       internalConfigPtr->nChannelsPerNetPeer = defaultConfig.nChannelsPerNetPeer;
       internalConfigPtr->nvlinkCentricSched = defaultConfig.nvlinkCentricSched;
@@ -2314,7 +2354,12 @@ static ncclResult_t parseCommConfig(ncclComm_t comm, ncclConfig_t *config) {
   PCCL_CONFIG_UNSUPPORTED(internalConfigPtr, collnetEnable, PCCL_CONFIG_UNDEF_INT);
   PCCL_CONFIG_UNSUPPORTED(internalConfigPtr, nvlsCTAs, PCCL_CONFIG_UNDEF_INT);
   PCCL_CONFIG_UNSUPPORTED(internalConfigPtr, nvlinkCentricSched, PCCL_CONFIG_UNDEF_INT);
-  PCCL_CONFIG_UNSUPPORTED(internalConfigPtr, numRmaCtx, PCCL_CONFIG_UNDEF_INT);
+
+  if (internalConfigPtr->numRmaCtx != PCCL_CONFIG_UNDEF_INT && internalConfigPtr->numRmaCtx <= 0) {
+    WARN("Invalid config numRmaCtx attribute value %d", internalConfigPtr->numRmaCtx);
+    ret = ncclInvalidArgument;
+    goto fail;
+  }
 
   /* default config value can be tuned on different platform. */
   NCCL_CONFIG_DEFAULT(internalConfigPtr, blocking, PCCL_CONFIG_UNDEF_INT, 1, "Blocking", "%d");
@@ -2328,6 +2373,7 @@ static ncclResult_t parseCommConfig(ncclComm_t comm, ncclConfig_t *config) {
   NCCL_CONFIG_DEFAULT(internalConfigPtr, nChannelsPerNetPeer, PCCL_CONFIG_UNDEF_INT, PCCL_CONFIG_UNDEF_INT, "nChannelsPerNetPeer", "%d");
   NCCL_CONFIG_DEFAULT(internalConfigPtr, graphUsageMode, PCCL_CONFIG_UNDEF_INT, 2, "graphUsageMode", "%d");
   NCCL_CONFIG_DEFAULT(internalConfigPtr, maxP2pPeers, PCCL_CONFIG_UNDEF_INT, PCCL_CONFIG_UNDEF_INT, "maxP2pPeers", "%d");
+  NCCL_CONFIG_DEFAULT(internalConfigPtr, numRmaCtx, PCCL_CONFIG_UNDEF_INT, 1, "numRmaCtx", "%d");
 
   /* assign config to communicator */
   comm->config.blocking = internalConfigPtr->blocking;
@@ -2341,6 +2387,7 @@ static ncclResult_t parseCommConfig(ncclComm_t comm, ncclConfig_t *config) {
   comm->config.nChannelsPerNetPeer = internalConfigPtr->nChannelsPerNetPeer;
   comm->config.graphUsageMode = internalConfigPtr->graphUsageMode;
   comm->config.maxP2pPeers = internalConfigPtr->maxP2pPeers;
+  comm->config.numRmaCtx = internalConfigPtr->numRmaCtx;
 
   NCCLCHECK(envConfigOverride(comm));
 

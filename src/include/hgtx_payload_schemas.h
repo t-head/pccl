@@ -24,6 +24,7 @@ static constexpr char const* pccl_hgtxRankStr = "Rank";
 static constexpr char const* pccl_hgtxNranksStr = "No. of ranks";
 static constexpr char const* pccl_hgtxMsgSizeStr = "Message size [bytes]";
 static constexpr char const* pccl_hgtxReductionOpStrpStr = "Reduction operation";
+static constexpr char const* pccl_hgtxRmaCtxStr = "Context ID";
 
 PCCL_HGTX_DEFINE_STRUCT_WITH_SCHEMA_ENTRIES(PcclHgtxParamsCommInitAll, static constexpr,
   HGTX_PAYLOAD_ENTRIES(
@@ -156,6 +157,34 @@ PCCL_HGTX_DEFINE_STRUCT_WITH_SCHEMA_ENTRIES(PcclHgtxParamsSendRecv, static const
     (uint64_t, comm, TYPE_UINT64, pccl_hgtxCommStr),
     (size_t, bytes, TYPE_SIZE, pccl_hgtxMsgSizeStr),
     (int, peer, TYPE_INT, "Peer rank")
+  )
+)
+
+// Used in PCCL API `pcclPutSignal`.
+PCCL_HGTX_DEFINE_STRUCT_WITH_SCHEMA_ENTRIES(PcclHgtxParamsPutSignal, static constexpr,
+  HGTX_PAYLOAD_ENTRIES(
+    (uint64_t, comm, TYPE_UINT64, pccl_hgtxCommStr),
+    (size_t, bytes, TYPE_SIZE, pccl_hgtxMsgSizeStr),
+    (int, peer, TYPE_INT, "Peer rank"),
+    (int, ctx, TYPE_INT, pccl_hgtxRmaCtxStr)
+  )
+)
+
+// Used in PCCL API `pcclSignal`.
+PCCL_HGTX_DEFINE_STRUCT_WITH_SCHEMA_ENTRIES(PcclHgtxParamsSignal, static constexpr,
+  HGTX_PAYLOAD_ENTRIES(
+    (uint64_t, comm, TYPE_UINT64, pccl_hgtxCommStr),
+    (int, peer, TYPE_INT, "Peer rank"),
+    (int, ctx, TYPE_INT, pccl_hgtxRmaCtxStr)
+  )
+)
+
+// Used in PCCL API `pcclWaitSignal`.
+PCCL_HGTX_DEFINE_STRUCT_WITH_SCHEMA_ENTRIES(PcclHgtxParamsWaitSignal, static constexpr,
+  HGTX_PAYLOAD_ENTRIES(
+    (uint64_t, comm, TYPE_UINT64, pccl_hgtxCommStr),
+    (int, npeers, TYPE_INT, "Number of peers"),
+    (int, ctx, TYPE_INT, pccl_hgtxRmaCtxStr)
   )
 )
 
