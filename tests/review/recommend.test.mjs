@@ -139,7 +139,7 @@ test('semantic routing really calls the invitation API, retains pending requests
     const completion = calls.filter(call => call.method === 'PATCH').at(-1).body;
     assert.equal(completion.conclusion, 'failure');
     assert.match(completion.output.summary, /Module classification: copilot/);
-    assert.match(completion.output.summary, /Routing selects: wensuyang/);
+    assert.match(completion.output.summary, /Requested reviewers: wensuyang/);
   }
 });
 

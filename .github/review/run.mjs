@@ -77,25 +77,45 @@ async function snapshot(api, policy, number, recommendation) {
 function summary(state, result, warnings) {
   const unmapped = state.scope.unmatched.slice(0, 20).map(p => JSON.stringify(p)).join(', ');
   return [
-    `PR #${state.pr.number}; HEAD \`${state.pr.head.sha}\`.`,
+    `### PR #${state.pr.number} · \`${state.pr.head.sha.slice(0, 7)}\``,
+    '',
+    `- Modules: ${state.scope.modules.join(', ')}`,
+    `- Areas: ${state.scope.areas.join(', ') || 'none'}`,
+    `- Requested reviewers: ${(state.pr.requested_reviewers ?? []).map(r => r.login).join(', ') || 'none'}`,
+    `- Module approval: **${result.pass ? 'passed' : 'not passed'}**`,
+    ...warnings.map(w => `- Notice: ${w}`),
+    '',
+    '<details>',
+    '<summary>Classification and approval details</summary>',
+    '',
     ...(state.scope.recommendation ? [
       `Module classification: ${state.scope.recommendation.source}.`,
-      `Reason: ${JSON.stringify(state.scope.recommendation.reason)}`,
+      '',
+      `Reason: ${summaryText(state.scope.recommendation.reason)}`,
+      '',
     ] : []),
-    'One current-head approval from any affected module\'s Maintainer OR Backup satisfies owner approval.',
     result.approvedBy.length
       ? `Owner approval received from: ${result.approvedBy.join(', ')}.`
       : 'Awaiting one eligible owner approval across the affected modules.',
+    '',
     ...result.modules.map(m => `- ${m.id}: eligible owners ${m.owners.join(' or ')}` +
       (m.approvedBy.length ? '; approved by ' + m.approvedBy.join(', ') : '')),
     ...result.errors.map(e => `- BLOCKED: ${e}`),
     ...(state.scope.unmatched.length ? [
+      '',
       `Unmapped paths were routed to the triage module. Verify their semantic scope: ${unmapped}` +
         (state.scope.unmatched.length > 20 ? ' (truncated)' : ''),
     ] : []),
-    ...warnings.map(w => `- Notice: ${w}`),
-    'Other required CI/review rules still apply. This check does not grant merge permission.',
-  ].join('\n\n');
+    '',
+    '</details>',
+  ].join('\n');
+}
+
+// Keep model explanations on one line and display their Markdown/HTML as plain text.
+export function summaryText(value) {
+  return String(value ?? '').replace(/\s+/g, ' ')
+    .replace(/&/g, '&amp;').replace(/</g, '&lt;').replace(/>/g, '&gt;')
+    .replace(/[\\`*_[\]]/g, '\\$&');
 }
 
 export async function reconcile(api, policy, number, openPRs, detailsUrl, recommendation) {
@@ -117,9 +137,6 @@ export async function reconcile(api, policy, number, openPRs, detailsUrl, recomm
     }
     const warnings = [];
     if (!pr.draft && (state.scope.declared.length || state.scope.recommendation)) {
-      const candidates = reviewerRequests(policy, {...state.pr, requested_reviewers: []},
-        state.scope, state.reviews, state.permissions);
-      if (candidates.length) warnings.push(`Routing selects: ${candidates.join(', ')} (existing requests are retained).`);
       for (const reviewer of reviewerRequests(policy, state.pr, state.scope, state.reviews, state.permissions)) {
         try {
           await api.request('POST', `${api.prefix}/pulls/${number}/requested_reviewers`, {reviewers: [reviewer]});
@@ -138,8 +155,7 @@ export async function reconcile(api, policy, number, openPRs, detailsUrl, recomm
       status: 'completed', conclusion: result.pass ? 'success' : 'failure',
       output: {title: result.pass ? 'Module owner approval received' : 'Module approval required', summary: output},
     });
-    if (process.env.GITHUB_STEP_SUMMARY) appendFileSync(process.env.GITHUB_STEP_SUMMARY, output + '\n');
-    return result;
+    return {...result, summary: output};
   } catch (error) {
     if (check) await api.request('PATCH', `${api.prefix}/check-runs/${check.id}`, {
       status: 'completed', conclusion: 'failure',
@@ -173,11 +189,16 @@ export async function run(api, policy, eventName, event, detailsUrl, recommendat
     targets = openPRs.map(p => p.number); // Policy/permission changes and missed webhooks.
   } else throw new Error(`Unsupported event: ${eventName}`);
   const failures = [];
+  const summaries = [];
   for (const number of targets) {
-    try { await reconcile(api, policy, number, openPRs, detailsUrl, recommendation); }
+    try {
+      const result = await reconcile(api, policy, number, openPRs, detailsUrl, recommendation);
+      if (result) summaries.push(result.summary);
+    }
     catch (error) { failures.push(`PR #${number}: ${error.message}`); }
   }
   if (failures.length) throw new Error(failures.join('\n'));
+  return summaries.join('\n\n');
 }
 
 if (process.argv[1] && import.meta.url === pathToFileURL(process.argv[1]).href) {
@@ -186,7 +207,9 @@ if (process.argv[1] && import.meta.url === pathToFileURL(process.argv[1]).href) 
     const event = JSON.parse(readFileSync(process.env.GITHUB_EVENT_PATH));
     const api = new GitHub(process.env.GITHUB_TOKEN, process.env.GITHUB_REPOSITORY);
     if (!api.token) throw new Error('GITHUB_TOKEN is required');
-    await run(api, policy, process.env.GITHUB_EVENT_NAME, event,
+    const output = await run(api, policy, process.env.GITHUB_EVENT_NAME, event,
       `${process.env.GITHUB_SERVER_URL}/${process.env.GITHUB_REPOSITORY}/actions/runs/${process.env.GITHUB_RUN_ID}`);
+    // Only the real workflow entry point writes a job summary, never library calls in tests.
+    if (process.env.GITHUB_STEP_SUMMARY && output) appendFileSync(process.env.GITHUB_STEP_SUMMARY, output + '\n');
   } catch (error) { console.error(error.message); process.exitCode = 1; }
 }

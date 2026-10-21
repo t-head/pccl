@@ -72,6 +72,22 @@ test('reconciler publishes the required check on actual PR HEAD after two author
   assert.equal(api.completion.conclusion, 'success');
 });
 
+test('library calls cannot append fixture PRs to an inherited workflow summary', async t => {
+  const directory = mkdtempSync(join(tmpdir(), 'pccl-review-summary-'));
+  const path = join(directory, 'summary.md');
+  const previous = process.env.GITHUB_STEP_SUMMARY;
+  t.after(() => {
+    if (previous === undefined) delete process.env.GITHUB_STEP_SUMMARY;
+    else process.env.GITHUB_STEP_SUMMARY = previous;
+    rmSync(directory, {recursive: true, force: true});
+  });
+  writeFileSync(path, 'Real workflow summary\n');
+  process.env.GITHUB_STEP_SUMMARY = path;
+  const output = await run(new FakeAPI(), policy, 'workflow_dispatch', {inputs: {pr_number: '42'}});
+  assert.match(output, /PR #42/);
+  assert.equal(readFileSync(path, 'utf8'), 'Real workflow summary\n');
+});
+
 test('successful event handling does not turn missing owner approval into a passing check', async () => {
   const api = new FakeAPI();
   api.reviews = [];

@@ -2,7 +2,7 @@
 // Copyright (c) 2026 T-Head (Shanghai) Semiconductor Co., Ltd. All rights reserved.
 import {appendFileSync, readFileSync} from 'node:fs';
 import {pathToFileURL} from 'node:url';
-import {GitHub, run, CHECK} from './run.mjs';
+import {GitHub, run, CHECK, summaryText} from './run.mjs';
 import {validatePolicy} from './policy.mjs';
 import {askCopilot, recommend, scopeWithRecommendation} from './recommend.mjs';
 
@@ -126,13 +126,16 @@ if (process.argv[1] && import.meta.url === pathToFileURL(process.argv[1]).href) 
       const {result, scope} = await recommendPilot(api, source);
       appendFileSync(process.env.GITHUB_OUTPUT, `recommendation=${JSON.stringify(result)}\n`);
       appendFileSync(process.env.GITHUB_STEP_SUMMARY,
-        `Classification: ${result.source}; modules: ${scope.modules}; areas: ${scope.areas}.\n` +
-        `${JSON.stringify(scope.recommendation?.reason)}\n`);
+        `- Classification: ${result.source}\n- Modules: ${scope.modules.join(', ')}\n` +
+        `- Areas: ${scope.areas.join(', ') || 'none'}\n\n` +
+        `<details>\n<summary>Classification reason</summary>\n\n` +
+        `${summaryText(scope.recommendation?.reason)}\n\n</details>\n`);
     } else {
       if (process.argv[2]) throw new Error('Unexpected pilot argument');
       const recommendation = process.env.PCCL_RECOMMENDATION ? JSON.parse(process.env.PCCL_RECOMMENDATION) : undefined;
-      await runPilot(api, source,
+      const output = await runPilot(api, source,
         `${process.env.GITHUB_SERVER_URL}/${repository}/actions/runs/${process.env.GITHUB_RUN_ID}`, recommendation);
+      if (process.env.GITHUB_STEP_SUMMARY && output) appendFileSync(process.env.GITHUB_STEP_SUMMARY, output + '\n');
     }
   } catch (error) { console.error(error.message); process.exitCode = 1; }
 }
