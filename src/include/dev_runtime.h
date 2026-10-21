@@ -112,6 +112,14 @@ void freeDevCommRequirements(struct ncclDevCommRequirements* reqs);
 bool ncclDevrWindowIsMultiSegment(struct ncclDevrWindow* win);
 bool ncclDevrWindowHasSysmemSegment(struct ncclDevrWindow* win);
 
+// Get the data-window MR handle registered on GIN connection `ginCommIdx`.
+// The handles are filled by ncclGinRegister() and consumed by the RMA proxy
+// launch layer.
+void* ncclDevrGetGinWin(struct ncclDevrWindow* winHost, int ginCommIdx);
+
+// Get the byte offset of a window within its backing memory allocation.
+size_t ncclDevrGetWinOffset(struct ncclDevrWindow* winHost);
+
 // Get pointer into another LSA rank's symmetric memory
 ncclResult_t ncclDevrGetLsaRankPtr(struct pcclComm* comm, struct ncclDevrWindow* winHost, size_t offset, int lsaRank, void** outPtr);
 

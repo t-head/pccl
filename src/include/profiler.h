@@ -80,9 +80,10 @@ typedef struct ncclProfilerApiState {
   int eActivationMask;
   groupApiState state;
   void *groupApiEventHandle;
-  // Tracks the latest API event handles for p2p/collectives
+  // Tracks the latest API event handles for p2p/collectives/one-sided RMA
   void* p2pApiEventHandle;
   void *collApiEventHandle;
+  void *rmaApiEventHandle;
 } ncclProfilerApiState_t;
 
 extern thread_local ncclProfilerApiState_t ncclProfilerApiState;
@@ -111,6 +112,10 @@ ncclResult_t ncclProfilerStopP2pApiEvent();
 //Profiler Start/Stop wrappers for Collective API calls
 ncclResult_t ncclProfilerStartCollApiEvent(struct ncclInfo *info, bool isGraphCaptured);
 ncclResult_t ncclProfilerStopCollApiEvent();
+
+//Profiler Start/Stop wrappers for One-sided RMA API calls
+ncclResult_t ncclProfilerStartRmaApiEvent(struct ncclInfo *info, bool isGraphCaptured);
+ncclResult_t ncclProfilerStopRmaApiEvent();
 
 // Kernel Launch Start/Stop Event Wrappers
 ncclResult_t ncclProfilerStartKernelLaunchEvent(struct ncclKernelPlan* plan, hggcStream_t stream);

@@ -12,6 +12,7 @@
 #include "transport.h"
 #include "symmetric.h"
 #include "ce_coll.h"
+#include "rma/rma.h"
 #include <assert.h>
 #include "hgtx.h"
 #include "dev_runtime.h"
@@ -307,6 +308,8 @@ static ncclResult_t doLaunches(ncclComm_t head) {
             NCCLCHECKGOTO(ncclLaunchCeColl(comm, plan), ret, end);
           } else if (plan->isCeP2p) {
             NCCLCHECKGOTO(pcclP2pDmaLaunch(comm, plan), ret, end);
+          } else if (plan->isRma) {
+            NCCLCHECKGOTO(ncclLaunchRma(comm, plan), ret, end);
           } else {
             NCCLCHECKGOTO(ncclLaunchKernel(comm, plan), ret, end);
           }
@@ -372,9 +375,14 @@ static void groupCleanup(ncclComm_t* groupCommHeadPtr, struct ncclIntruQueue<str
 
         { // Reset comm->planner to empty.
           ncclKernelPlanner::Peer* tmp = comm->planner.peers;
+          ncclIntruQueue<struct ncclTaskRma, &ncclTaskRma::next>* tmpRma = comm->planner.rmaTaskQueues;
           memset(&comm->planner, 0, sizeof(comm->planner));
           comm->planner.peers = tmp;
           if (comm->planner.peers != NULL) memset(comm->planner.peers, 0, comm->nRanks * sizeof(comm->planner.peers[0]));
+          comm->planner.rmaTaskQueues = tmpRma;
+          if (tmpRma != NULL) {
+            for (int c = 0; c < comm->config.numRmaCtx; c++) ncclIntruQueueConstruct(&tmpRma[c]);
+          }
         }
       }
 

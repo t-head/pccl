@@ -33,7 +33,11 @@ typedef enum {
   ncclFuncAlltoAll = 8,
   ncclFuncScatter = 9,
   ncclFuncGather = 10,
-  ncclNumFuncs = 11
+  // One-sided (RMA) ops, kept at the tail so pre-existing indices stay stable.
+  ncclFuncPutSignal = 11,
+  ncclFuncSignal = 12,
+  ncclFuncWaitSignal = 13,
+  ncclNumFuncs = 14
 } ncclFunc_t;
 
 #define NCCL_NUM_ALGORITHMS 5 // Tree/Ring/CollNet/FC/PAT

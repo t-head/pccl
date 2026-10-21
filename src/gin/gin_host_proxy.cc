@@ -542,7 +542,8 @@ static ncclResult_t ncclGinProxyCreateContext(void* collComm, ncclGinConfig_t* c
 
   proxyCtx->devHandle = devHandle;
 
-  *outDevHandle = devHandle;
+  // Host-only consumers (e.g. the RMA proxy) pass outDevHandle == NULL.
+  if (outDevHandle) *outDevHandle = devHandle;
   *outGinCtx = proxyCtx;
 
   free(devGpuCtxArray_h);
@@ -655,8 +656,48 @@ static ncclResult_t ncclGinProxyQueryLastError(void *ginCtx, bool *hasError) {
   struct ginProxyCtx *ctx = (struct ginProxyCtx *)ginCtx;
   *hasError = ctx->hasError;
   if (ctx->hasError == ncclSuccess && ginBackend->queryLastError)
-    NCCLCHECK(ginBackend->queryLastError(ginCtx, hasError));
+    NCCLCHECK(ginBackend->queryLastError(ctx->ginCtx, hasError));
   return ncclSuccess;
+}
+
+// ctx-taking entry points receive the wrapping ginProxyCtx (test() receives
+// the wrapping ncclGinProxyCollComm); unwrap before handing off to the
+// backend, like the direct ginBackend-> calls above.
+static ncclResult_t ncclGinProxyIPut(void* ginCtx, int context, uint64_t srcOff, void* srcMhandle,
+                                     size_t size, uint64_t dstOff, void* dstMhandle, uint32_t rank,
+                                     void** request) {
+  return ginBackend->iput(((struct ginProxyCtx*)ginCtx)->ginCtx, context, srcOff, srcMhandle, size,
+                          dstOff, dstMhandle, rank, request);
+}
+
+static ncclResult_t ncclGinProxyIPutSignal(void* ginCtx, int context, uint64_t srcOff, void* srcMhandle,
+                                           size_t size, uint64_t dstOff, void* dstMhandle,
+                                           uint32_t rank, uint64_t signalOff, void* signalMhandle,
+                                           uint64_t signalValue, uint32_t signalOp, void** request) {
+  return ginBackend->iputSignal(((struct ginProxyCtx*)ginCtx)->ginCtx, context, srcOff, srcMhandle, size,
+                                dstOff, dstMhandle, rank, signalOff, signalMhandle, signalValue,
+                                signalOp, request);
+}
+
+static ncclResult_t ncclGinProxyIget(void* ginCtx, int context, uint64_t remoteOff, void* remoteMhandle,
+                                     size_t size, uint64_t localOff, void* localMhandle, uint32_t rank,
+                                     void** request) {
+  return ginBackend->iget(((struct ginProxyCtx*)ginCtx)->ginCtx, context, remoteOff, remoteMhandle, size,
+                          localOff, localMhandle, rank, request);
+}
+
+static ncclResult_t ncclGinProxyIflush(void* ginCtx, int context, void* mhandle, uint32_t rank,
+                                       void** request) {
+  return ginBackend->iflush(((struct ginProxyCtx*)ginCtx)->ginCtx, context, mhandle, rank, request);
+}
+
+static ncclResult_t ncclGinProxyTest(void* collComm, void* request, int* done) {
+  return ginBackend->test(((struct ncclGinProxyCollComm*)collComm)->collComm, request, done);
+}
+
+static ncclResult_t ncclGinProxyFinalize(void* ginCtx) {
+  if (ginCtx == NULL) return ncclSuccess;
+  return ginBackend->finalize(((struct ginProxyCtx*)ginCtx)->ginCtx);
 }
 
 ncclGin_t ncclGinProxy {
@@ -673,14 +714,14 @@ ncclGin_t ncclGinProxy {
   ncclGinProxyDestroyContext,
   ncclGinProxyCloseColl,
   ncclGinProxyCloseListen,
-  NULL, // Will map directly to the plugin: iput()
-  NULL, // Will map directly to the plugin: iputSignal()
-  NULL, // Will map directly to the plugin: iget()
-  NULL, // Will map directly to the plugin: iflush()
-  NULL, // Will map directly to the plugin: test()
+  ncclGinProxyIPut,
+  ncclGinProxyIPutSignal,
+  ncclGinProxyIget,
+  ncclGinProxyIflush,
+  ncclGinProxyTest,
   ncclGinProxyProgress,
   ncclGinProxyQueryLastError,
-  NULL  // Will map directly to the plugin: finalize()
+  ncclGinProxyFinalize
 };
 
 ncclResult_t ncclGinProxyInit(ncclGin_t** proxyGin) {
@@ -691,10 +732,8 @@ ncclResult_t ncclGinProxyInit(ncclGin_t** proxyGin) {
   ncclGinProxy.init = ginBackend->init;
   ncclGinProxy.devices = ginBackend->devices;
   ncclGinProxy.getProperties = ginBackend->getProperties;
-  ncclGinProxy.iput = ginBackend->iput;
-  ncclGinProxy.iputSignal = ginBackend->iputSignal;
-  ncclGinProxy.test = ginBackend->test;
-  ncclGinProxy.finalize = ginBackend->finalize;
+  // iput/iputSignal/iget/iflush/test/finalize stay on the unwrapping wrappers
+  // above so the backend never sees the wrapping ctx.
   *proxyGin = &ncclGinProxy;
   return ncclSuccess;
 }
