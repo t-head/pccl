@@ -2393,8 +2393,8 @@ static ncclResult_t rmaTaskAppend(ncclComm_t comm, struct ncclInfo* info) {
   // Must be in thread local group before tasks can be alloc'd in `comm->memScoped`.
   ncclGroupCommJoin(info->comm, ncclGroupTaskTypeCollective);
   NCCLCHECK(ncclPlannerSetCapturingGraph(comm, info));
-  if (ncclCudaGraphValid(planner->capturingGraph)) {
-    WARN("One sided RMA: graph capture is not supported");
+  if (ncclCudaGraphValid(planner->capturingGraph) && !ncclDevrIsOneLsaTeam(comm)) {
+    WARN("One sided RMA: graph capture requires a single LSA team");
     return ncclInvalidUsage;
   }
 
