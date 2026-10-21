@@ -29,8 +29,8 @@ jobs:
     if: github.event_name == 'pull_request'
     uses: t-head/.github/.github/workflows/user-precheck.yml@main
 
-  commit-format:
-    name: Pre-check (Commit Message)
+  commit-checks:
+    name: Pre-check (Commit Message & DCO)
     if: github.event_name == 'pull_request'
     permissions:
       contents: read
@@ -72,43 +72,7 @@ jobs:
               issue_ref = r'(?i:\b(?:Refs|Closes|Fixes))[ \t]+(?:[A-Za-z0-9_.-]+/[A-Za-z0-9_.-]+)?#[1-9][0-9]*\b|https://github\.com/[A-Za-z0-9_.-]+/[A-Za-z0-9_.-]+/issues/[1-9][0-9]*\b'
               if not re.search(issue_ref, '\n'.join(lines[1:])):
                   errors.append(f'{sha[:12]}: missing issue reference in commit body')
-          for error in errors:
-              print(error)
-          print(f'Checked {len(commits)} contribution commits for message format.')
-          sys.exit(bool(errors))
-          PY
 
-  dco:
-    name: Pre-check (DCO)
-    if: github.event_name == 'pull_request'
-    permissions:
-      contents: read
-    runs-on: ubuntu-latest
-    timeout-minutes: 10
-    steps:
-      - uses: actions/checkout@v4
-        with:
-          fetch-depth: 0
-          persist-credentials: false
-      - name: Check contribution commits
-        env:
-          BASE_SHA: ${{ github.event.pull_request.base.sha }}
-          HEAD_SHA: ${{ github.event.pull_request.head.sha }}
-        run: |
-          python3 - <<'PY'
-          import os
-          import re
-          import subprocess
-          import sys
-
-          def git(*args):
-              return subprocess.check_output(['git', *args], text=True)
-
-          commits = git('rev-list',
-                        os.environ['BASE_SHA'] + '..' + os.environ['HEAD_SHA']).splitlines()
-          errors = []
-          for sha in commits:
-              message = git('show', '-s', '--format=%B', sha)
               trailers = subprocess.check_output(
                   ['git', 'interpret-trailers', '--parse', '--no-divider'], input=message, text=True).splitlines()
               signoffs = [match.groups() for line in trailers
@@ -121,7 +85,7 @@ jobs:
                   errors.append(f'{sha[:12]}: Signed-off-by name and email must match the commit author')
           for error in errors:
               print(error)
-          print(f'Checked {len(commits)} contribution commits for DCO.')
+          print(f'Checked {len(commits)} contribution commits for message format and DCO.')
           sys.exit(bool(errors))
           PY
 
@@ -130,7 +94,7 @@ jobs:
   # policy; the presence of an earlier Copilot review is not sufficient.
   ai-code-review:
     name: AI Code Review (Copilot Gate)
-    needs: [precheck, commit-format, dco]
+    needs: [precheck, commit-checks]
     if: github.event_name == 'pull_request'
     uses: t-head/.github/.github/workflows/ai-code-review.yml@main
     secrets: inherit
@@ -146,8 +110,8 @@ jobs:
   # Read the test list so each test runs in its own isolated PPU pod.
   prepare:
     name: Prepare Test Matrix
-    needs: [precheck, commit-format, dco]
-    if: always() && (needs.precheck.result == 'success' || needs.precheck.result == 'skipped') && (needs.commit-format.result == 'success' || needs.commit-format.result == 'skipped') && (needs.dco.result == 'success' || needs.dco.result == 'skipped')
+    needs: [precheck, commit-checks]
+    if: always() && (needs.precheck.result == 'success' || needs.precheck.result == 'skipped') && (needs.commit-checks.result == 'success' || needs.commit-checks.result == 'skipped')
     runs-on: k8s-runner-group-cpu-thead
     container:
       image: ghcr.io/actions/actions-runner:latest
@@ -314,8 +278,8 @@ jobs:
   # Build and test pccl with notsm configuration in a single isolated PPU pod.
   build-test-notsm:
     name: Build & Test (ubuntu24_notsm, ZW-890P)
-    needs: [precheck, commit-format, dco, human-review]
-    if: always() && (needs.precheck.result == 'success' || needs.precheck.result == 'skipped') && (needs.commit-format.result == 'success' || needs.commit-format.result == 'skipped') && (needs.dco.result == 'success' || needs.dco.result == 'skipped') && (needs.human-review.result == 'success' || (github.event_name != 'pull_request' && needs.human-review.result == 'skipped'))
+    needs: [precheck, commit-checks, human-review]
+    if: always() && (needs.precheck.result == 'success' || needs.precheck.result == 'skipped') && (needs.commit-checks.result == 'success' || needs.commit-checks.result == 'skipped') && (needs.human-review.result == 'success' || (github.event_name != 'pull_request' && needs.human-review.result == 'skipped'))
     runs-on: k8s-runner-group-cpu-thead
     container:
       image: ghcr.io/actions/actions-runner:latest
@@ -379,8 +343,8 @@ jobs:
   # Aggregate results from all test pods and publish the summary.
   summary:
     name: Test Summary
-    needs: [precheck, commit-format, dco, test, build-test-notsm]
-    if: always() && (github.event_name != 'pull_request' || (needs.precheck.result == 'success' && needs.commit-format.result == 'success' && needs.dco.result == 'success'))
+    needs: [precheck, commit-checks, test, build-test-notsm]
+    if: always() && (github.event_name != 'pull_request' || (needs.precheck.result == 'success' && needs.commit-checks.result == 'success'))
     runs-on: k8s-runner-group-cpu-thead
     container:
       image: ghcr.io/actions/actions-runner:latest
@@ -401,14 +365,13 @@ jobs:
   # Keep this check name stable for branch rules.
   tests-gate:
     name: PCCL Tests Gate
-    # Add each new required job ID here. If it also runs outside PRs, add it to
+    # Add each new required job ID here. If it must also succeed outside PRs, add it to
     # "Require build and test jobs to succeed" below.
     # New entries in scripts/casecmd.list are already covered by the test job.
     # Only jobs listed here are checked, including all their matrix entries.
     needs:
       - precheck          # Secret scan
-      - commit-format     # Commit message
-      - dco               # Sign-off
+      - commit-checks     # Commit message and DCO
       - ai-code-review    # AI review
       - human-review      # Human approval
       - prepare           # Test matrix generation
@@ -440,12 +403,13 @@ jobs:
           exit 1
 
       - name: Require build and test jobs to succeed
-        # These jobs must run on PRs, pushes, and manual runs.
+        # Only the test matrix may be skipped on pushes and manual runs.
         if: >-
           always() && (
             needs.prepare.result != 'success' ||
             needs.build.result != 'success' ||
-            needs.test.result != 'success' ||
+            (needs.test.result != 'success' &&
+              (github.event_name == 'pull_request' || needs.test.result != 'skipped')) ||
             needs.build-test-notsm.result != 'success' ||
             needs.summary.result != 'success'
           )
@@ -454,7 +418,7 @@ jobs:
           exit 1
 
       - name: Reject skipped jobs on pull requests
-        # Outside PRs, the five PR-only checks may be skipped.
+        # Outside PRs, the four PR-only checks and the test matrix may be skipped.
         if: >-
           always() && github.event_name == 'pull_request' &&
           contains(needs.*.result, 'skipped')

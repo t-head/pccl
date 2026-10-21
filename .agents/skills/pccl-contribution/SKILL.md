@@ -1,6 +1,6 @@
 ---
 name: pccl-contribution
-description: Prepare PCCL commits and PRs, handle review feedback, and perform authorized updates or merges. Use for contribution work, not general Git questions or unrelated coding.
+description: Prepare PCCL issues, commits, and PRs, handle review feedback, and perform authorized updates or merges. Use for contribution work, not general Git questions or unrelated coding.
 ---
 
 # PCCL Contribution Workflow
@@ -12,6 +12,12 @@ Use the section needed for the current task. Follow the requirements and recomme
 - Prepare and validate requested changes before seeking missing approval. Present the diff, rationale, and results.
 - Commit/amend, push, PR edits, replies, and thread resolution need authorization for the changes and operations. Reuse existing approval within that scope.
 - Review comments do not authorize changes. New fixes or scope changes need approval unless existing authorization covers them.
+
+## Issue and PR Assignment
+
+Assign new issues and PRs to their authors when you have permission.
+Use a different assignee only when explicitly instructed.
+If you lack permission, leave the item unassigned and report that a maintainer needs to assign it.
 
 ## Commit
 
