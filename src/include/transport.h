@@ -59,6 +59,7 @@ struct ncclPeerInfo {
   ncclGinType_t supportedGinType;
   bool crossNicSupport;
   bool cuMemGdrSupport;
+  bool rmaPlatformSupport;
 };
 
 #define PCCL_SAME_PID(MYINFO, PEERINFO) \

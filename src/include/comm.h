@@ -26,6 +26,7 @@
 #include "dev_runtime.h"
 #include "sym_kernels.h"
 #include "gin/gin_host.h"
+#include "rma/rma.h"
 
 #define CACHE_LINE_SIZE 128
 #define MEM_ALIGN 4096
@@ -239,6 +240,36 @@ struct ncclTaskP2p {
   uint8_t nChannels;
 };
 
+struct ncclTaskRma {
+  struct ncclTaskRma* next;
+  ncclFunc_t func;
+  int ctx;
+  size_t count;
+  ncclDataType_t datatype;
+  size_t bytes;
+
+  void const* srcBuff;
+  size_t srcWinOffset;
+  struct ncclDevrWindow* srcWinHost;
+
+  int peer;
+  size_t peerWinOffset;
+  struct ncclDevrWindow* peerWinHost;
+
+  // Signal operations
+  ncclSignalMode_t signalMode;
+  int* peers;
+  int* nsignals;
+  int npeers;
+
+  // Profiler plugin
+  int eActivationMask;
+  void* groupApiEventHandle;
+  void* rmaApiEventHandle;
+  void* eventHandle;
+  uint8_t nChannels;
+};
+
 struct ncclKernelPlan {
   // A kernel plan is also a callback that reclaims itself. Hence this must
   // be the first member.
@@ -251,6 +282,7 @@ struct ncclKernelPlan {
   bool isHostCbEnq;
   bool isSymColl;
   bool isCeColl;
+  bool isRma;
   bool isCeP2p;
   enum ncclDevWorkStorageType workStorageType;
   void *kernelFn;
@@ -262,6 +294,7 @@ struct ncclKernelPlan {
     struct ncclDevKernelArgs* kernelArgs;
     void* kernelSymkArgs;
     struct ncclCeCollArgs ceCollArgs;
+    struct ncclRmaArgs* rmaArgs;
   };
   size_t kernelArgsSize;
   uint64_t channelMask; // bitset of which channels are present
@@ -276,6 +309,7 @@ struct ncclKernelPlan {
   void* workBufPersistent;
 
   struct ncclIntruQueue<struct ncclTaskP2p, &ncclTaskP2p::next> p2pTaskQueue;
+  struct ncclIntruQueue<struct ncclTaskRma, &ncclTaskRma::next> rmaTaskQueueCe;
   struct ncclIntruQueue<struct ncclTaskColl, &ncclTaskColl::next> collTaskQueue;
   struct ncclIntruQueue<struct ncclProxyOp, &ncclProxyOp::enqNext> proxyOpQueue;
 
@@ -305,6 +339,7 @@ struct ncclKernelPlanner {
   struct Peer* peers/*[nRanks]*/;
   int nTasksColl;
   int nTasksP2p;
+  int nTasksRma;
   int nTasksP2pAlltoall; // subset of nTasksP2p coming from the Alltoall API
   bool persistent;
   bool isCeColl;
@@ -335,6 +370,7 @@ struct ncclKernelPlanner {
 
   struct ncclIntruQueue<struct ncclTaskColl, &ncclTaskColl::next> collTaskQueue;
   struct ncclIntruQueue<struct ncclTaskColl, &ncclTaskColl::next> collCeTaskQueue;
+  struct ncclIntruQueue<struct ncclTaskRma, &ncclTaskRma::next> *rmaTaskQueues; // Per-context queue for RMA tasks
   struct ncclIntruQueue<struct ncclTaskColl, &ncclTaskColl::next> collSymTaskQueue;
   struct ncclIntruQueue<struct ncclWorkList, &ncclWorkList::next> collWorkQueue;
   struct ncclIntruQueue<struct ncclCommCallback, &ncclCommCallback::next> collCleanupQueue;
@@ -598,6 +634,7 @@ struct pcclComm {
   // pools backed by comm->memPermanent
   struct ncclMemoryPool memPool_ncclTaskColl;
   struct ncclMemoryPool memPool_ncclTaskP2p;
+  struct ncclMemoryPool memPool_ncclTaskRma;
   struct ncclMemoryPool memPool_ncclProxyOp;
   struct ncclMemoryPool memPool_ncclKernelPlan;
   struct ncclMemoryPool memPool_kernelSymkArgs;
@@ -623,7 +660,12 @@ struct pcclComm {
   // Reference taken by ncclNetInit() and released by ncclNetFinalize().
   bool netPluginRetained;
 
+  // RMA state
+  struct ncclRmaState rmaState;
+  struct ncclIntruQueue<struct ncclRmaCeInitTask, &ncclRmaCeInitTask::next> rmaCeInitTaskQueue;
+
   bool symmetricSupport;
+  bool hostRmaSupport;
 
   struct ncclDevrState devrState;
   struct ncclSymkState symkState;

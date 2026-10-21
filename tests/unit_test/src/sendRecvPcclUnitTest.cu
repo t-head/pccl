@@ -23,6 +23,7 @@
 
 #include <string.h>
 #include <unordered_map>
+#include <vector>
 
 #include "logger.h"
 #include "cxxopts.hpp"
@@ -34,6 +35,7 @@ int min_num_elems = 0;
 int max_num_elems = 0;
 int num_iterations = 1;
 std::string mode = "single";
+bool testWindowOffsets = false;
 
 class Barrier {
     public:
@@ -56,6 +58,8 @@ void parseArguments(int argc, char **argv) {
   cxxopts::Options options("sendRecvPcclUnitTest", "This is PCCL send&recv test.");
   options.add_options()
     ("h,help", "Print usage")
+    ("window-offsets", "Test symmetric cached subwindows with unequal sizes and rank-slot DMA offsets.",
+       cxxopts::value<bool>()->default_value("false"))
     ("s,start_dev_id", "Starting GPU device ID (default: 0).",
             cxxopts::value<int>()->default_value(std::to_string(start_dev_id)))
     ("e,num_elems", "Number of float elements for send/recv operation.",
@@ -103,6 +107,8 @@ void parseArguments(int argc, char **argv) {
   if (args.count("num_iterations")) {
     num_iterations = args["num_iterations"].as<int>();
   }
+
+  testWindowOffsets = args["window-offsets"].as<bool>();
 
   // Parse mode.
   if (args.count("mode")) {
@@ -204,6 +210,121 @@ int runTest(int* devs, hggcStream_t* s, pcclComm_t* comms, int num_devs, int num
   return res;
 }
 
+static int runWindowOffsetTests(int* devs, hggcStream_t* streams, pcclComm_t* comms) {
+  const size_t alignment = PCCL_WIN_REQUIRED_ALIGNMENT;
+  const size_t capacity = 80 * 512;
+  const size_t allocationBytes = capacity + 8 * alignment;
+  const size_t counts[] = {0, 1, 3, 127, 128, 129, 255, 256, 257};
+  const int nOps = 65;
+  unsigned char* allocations[num_devs][2] = {};
+  pcclWindow_t seedWindows[num_devs][2] = {};
+  pcclWindow_t windows[num_devs][2] = {};
+  size_t windowOffsets[num_devs][2];
+  size_t windowBytes[num_devs];
+  std::vector<unsigned char> input[num_devs];
+  std::vector<unsigned char> expected[num_devs];
+  std::vector<unsigned char> actual(allocationBytes);
+  int res = 0;
+
+  for (int rank = 0; rank < num_devs; rank++) {
+    HGGCCHECK(hggcSetDevice(devs[rank]));
+    for (int direction = 0; direction < 2; direction++) {
+      PCCLCHECK(pcclMemAlloc((void**)&allocations[rank][direction], allocationBytes));
+    }
+    input[rank].resize(allocationBytes);
+    expected[rank].resize(allocationBytes);
+    windowBytes[rank] = capacity - rank * alignment;
+  }
+
+  PCCLCHECK(pcclGroupStart());
+  for (int rank = 0; rank < num_devs; rank++) {
+    HGGCCHECK(hggcSetDevice(devs[rank]));
+    for (int direction = 0; direction < 2; direction++) {
+      PCCLCHECK(pcclCommWindowRegister(comms[rank], allocations[rank][direction], alignment,
+                                      &seedWindows[rank][direction], PCCL_WIN_COLL_SYMMETRIC));
+    }
+  }
+  PCCLCHECK(pcclGroupEnd());
+
+  for (int phase = 0; phase < 2; phase++) {
+    PCCLCHECK(pcclGroupStart());
+    for (int rank = 0; rank < num_devs; rank++) {
+      HGGCCHECK(hggcSetDevice(devs[rank]));
+      windowOffsets[rank][0] = (1 + rank + phase) * alignment;
+      windowOffsets[rank][1] = (3 - rank + phase) * alignment;
+      for (int direction = 0; direction < 2; direction++) {
+        PCCLCHECK(pcclCommWindowRegister(comms[rank], allocations[rank][direction] + windowOffsets[rank][direction],
+                                        windowBytes[rank], &windows[rank][direction], PCCL_WIN_COLL_SYMMETRIC));
+      }
+    }
+    PCCLCHECK(pcclGroupEnd());
+
+    for (int self = 0; self < 2; self++) {
+      for (int round = 0; round < 3; round++) {
+        for (int rank = 0; rank < num_devs; rank++) {
+          for (size_t i = 0; i < allocationBytes; i++) {
+            input[rank][i] = (unsigned char)(17 * i + 131 * rank + 29 * phase + round);
+            expected[rank][i] = 0xa5;
+          }
+          HGGCCHECK(hggcSetDevice(devs[rank]));
+          HGGCCHECK(hggcMemcpy(allocations[rank][0], input[rank].data(), allocationBytes, hggcMemcpyHostToDevice));
+          HGGCCHECK(hggcMemset(allocations[rank][1], 0xa5, allocationBytes));
+        }
+
+        PCCLCHECK(pcclGroupStart());
+        for (int rank = 0; rank < num_devs; rank++) {
+          HGGCCHECK(hggcSetDevice(devs[rank]));
+          int peer = self ? rank : 1 - rank;
+          int ops = round == 2 ? 1 : nOps;
+          for (int op = 0; op < ops; op++) {
+            size_t bytes = round == 2 ? 257 : counts[op % (sizeof(counts) / sizeof(counts[0]))];
+            size_t sendOffset = round == 2 ? windowBytes[rank] - bytes : op * 512 + round * 31;
+            size_t recvOffset = round == 2 ? windowBytes[rank] - bytes : op * 512 + round * 31;
+            size_t peerSendOffset = round == 2 ? windowBytes[peer] - bytes : op * 512 + round * 31;
+            unsigned char* src = allocations[rank][0] + windowOffsets[rank][0] + sendOffset;
+            unsigned char* dst = allocations[rank][1] + windowOffsets[rank][1] + recvOffset;
+            PCCLCHECK(pcclSend(src, bytes, pcclUint8, peer, comms[rank], streams[rank]));
+            PCCLCHECK(pcclRecv(dst, bytes, pcclUint8, peer, comms[rank], streams[rank]));
+            memcpy(expected[rank].data() + windowOffsets[rank][1] + recvOffset,
+                   input[peer].data() + windowOffsets[peer][0] + peerSendOffset, bytes);
+          }
+        }
+        PCCLCHECK(pcclGroupEnd());
+
+        for (int rank = 0; rank < num_devs; rank++) {
+          HGGCCHECK(hggcSetDevice(devs[rank]));
+          HGGCCHECK(hggcStreamSynchronize(streams[rank]));
+          HGGCCHECK(hggcMemcpy(actual.data(), allocations[rank][1], allocationBytes, hggcMemcpyDeviceToHost));
+          for (size_t i = 0; i < allocationBytes; i++) {
+            if (actual[i] != expected[rank][i]) {
+              ERROR("Window offset test: phase %d self %d round %d rank %d byte %zu got %u expected %u",
+                    phase, self, round, rank, i, (unsigned)actual[i], (unsigned)expected[rank][i]);
+              res = -1;
+              break;
+            }
+          }
+        }
+      }
+    }
+
+    for (int rank = 0; rank < num_devs; rank++) {
+      HGGCCHECK(hggcSetDevice(devs[rank]));
+      for (int direction = 0; direction < 2; direction++) {
+        PCCLCHECK(pcclCommWindowDeregister(comms[rank], windows[rank][direction]));
+      }
+    }
+  }
+
+  for (int rank = 0; rank < num_devs; rank++) {
+    HGGCCHECK(hggcSetDevice(devs[rank]));
+    for (int direction = 0; direction < 2; direction++) {
+      PCCLCHECK(pcclCommWindowDeregister(comms[rank], seedWindows[rank][direction]));
+      PCCLCHECK(pcclMemFree(allocations[rank][direction]));
+    }
+  }
+  return res;
+}
+
 int main(int argc, char **argv) {
   gethostname(hostName, HOST_NAME_LEN);
   // parse input arguments
@@ -221,13 +342,29 @@ int main(int argc, char **argv) {
   // initialize pccl comm
   INFO("Init all comms start.");
   pcclComm_t comms[num_devs];
-  PCCLCHECK(pcclCommInitAll(comms, num_devs, devs));
+  if (testWindowOffsets) {
+    pcclUniqueId id;
+    pcclConfig_t config = PCCL_CONFIG_INITIALIZER;
+    config.CTAPolicy = PCCL_CTA_POLICY_ZERO;
+    PCCLCHECK(pcclGetUniqueId(&id));
+    PCCLCHECK(pcclGroupStart());
+    for (int rank = 0; rank < num_devs; rank++) {
+      HGGCCHECK(hggcSetDevice(devs[rank]));
+      PCCLCHECK(pcclCommInitRankConfig(&comms[rank], num_devs, id, rank, &config));
+    }
+    PCCLCHECK(pcclGroupEnd());
+  } else {
+    PCCLCHECK(pcclCommInitAll(comms, num_devs, devs));
+  }
   INFO("Init all comms done.");
 
   // start peer2peer pccl send/recv testing
   int res = 0;
   bool isRandomTest = min_num_elems > 0 && max_num_elems > 0 && min_num_elems < max_num_elems;
-  if (isRandomTest) {
+  if (testWindowOffsets) {
+    INFO("Testing cached symmetric subwindows; enable PCCL_P2P_DMA_ENABLE=1 to exercise eligible DMA batches.");
+    res = runWindowOffsetTests(devs, s, comms);
+  } else if (isRandomTest) {
     std::random_device rd; // obtain a random number from hardware
     std::mt19937 gen(rd()); // seed the generator
     std::uniform_int_distribution<> distr(min_num_elems, max_num_elems); // define the range

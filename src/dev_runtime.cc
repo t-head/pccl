@@ -55,7 +55,7 @@ struct ncclDevrMemory {
   // Communicator-wide aggregates over all nRanks, populated via bootstrapAllGather
   int maxGlobalNumSegments;    // max(numSegments) across all communicator ranks
   bool globalHasSysmemSegment; // true if any communicator rank has a sysmem segment
-  bool globalSameMemOffset;    // true if every rank registered this buffer at the same allocation offset
+  bool globalSameBigOffset;
   // LSA-team aggregates, derived from a global allgather
   int* lsaNumSegments;   // numSegments for each LSA rank, length lsaSize
   // GIN registration state
@@ -162,6 +162,7 @@ fail_lsaRankList:
 }
 
 static void symTeamDestroyAll(struct pcclComm* comm); // Further down
+ncclResult_t ncclDevCommDestroy(struct pcclComm* comm, struct ncclDevComm const* devComm); // Further down
 
 ncclResult_t ncclDevrFinalize(struct pcclComm* comm) {
   struct ncclDevrState* devr = &comm->devrState;
@@ -484,12 +485,12 @@ fail:
 // caller do a world barrier before returning to user.
 static ncclResult_t symMemoryObtain(
     struct pcclComm* comm, HGmemGenericAllocationHandle* memHandles, int numSegments, void* memAddr, size_t size, int winFlags,
-    size_t memOffset, struct ncclDevrMemory** outMem, bool hasSysmemSegment = false
+    struct ncclDevrMemory** outMem, bool hasSysmemSegment = false
   ) {
   ncclResult_t ret = ncclSuccess;
   struct ncclDevrState* devr = &comm->devrState;
   int64_t bigOffset = 0;
-  struct segmentInfo { int numSegments; bool hasSysmemSegment; size_t memOffset; };
+  struct segmentInfo { int numSegments; bool hasSysmemSegment; size_t bigOffset; };
   struct segmentInfo* globalSegmentInfo = nullptr;
   const int globalLsaTeamBaseIdx = devr->lsaSize * (comm->rank / devr->lsaSize);
 
@@ -525,7 +526,6 @@ static ncclResult_t symMemoryObtain(
   mem->numSegments = numSegments;
 
   NCCLCHECKGOTO(ncclCalloc(&mem->segmentSizes, numSegments), ret, fail_mem);
-  NCCLCHECKGOTO(ncclCalloc(&globalSegmentInfo, comm->nRanks), ret, fail_mem);
 
   if (numSegments > 1) {
     size_t offset = 0;
@@ -540,31 +540,29 @@ static ncclResult_t symMemoryObtain(
     mem->segmentSizes[0] = size;
   }
 
+  NCCLCHECKGOTO(ncclSpaceAlloc(&devr->bigSpace, devr->bigSize, size, devr->granularity, &bigOffset), ret, fail_mem);
+  mem->bigOffset = bigOffset;
+  NCCLCHECKGOTO(ncclCalloc(&globalSegmentInfo, comm->nRanks), ret, fail_mem_space);
+
   // We need max segments and global sysmem info to selectively disable some features
   globalSegmentInfo[comm->rank].numSegments = numSegments;
   globalSegmentInfo[comm->rank].hasSysmemSegment = hasSysmemSegment;
-  globalSegmentInfo[comm->rank].memOffset = memOffset;
-  NCCLCHECKGOTO(bootstrapAllGather(comm->bootstrap, globalSegmentInfo, sizeof(*globalSegmentInfo)), ret, fail_mem);
+  globalSegmentInfo[comm->rank].bigOffset = mem->bigOffset;
+  NCCLCHECKGOTO(bootstrapAllGather(comm->bootstrap, globalSegmentInfo, sizeof(*globalSegmentInfo)), ret, fail_mem_space);
   mem->globalHasSysmemSegment = false;
-  mem->globalSameMemOffset = true;
+  mem->globalSameBigOffset = true;
   for (int r = 0; r < comm->nRanks; r++) {
     if (mem->maxGlobalNumSegments < globalSegmentInfo[r].numSegments) {
       mem->maxGlobalNumSegments = globalSegmentInfo[r].numSegments;
     }
     if (globalSegmentInfo[r].hasSysmemSegment) mem->globalHasSysmemSegment = true;
-    // Every rank must agree on the offset for the flat-address arithmetic in the
-    // symmetric p2p DMA path to resolve to the same buffer on both endpoints.
-    if (globalSegmentInfo[r].memOffset != memOffset) mem->globalSameMemOffset = false;
+    if (globalSegmentInfo[r].bigOffset != mem->bigOffset) mem->globalSameBigOffset = false;
   }
 
-  NCCLCHECKGOTO(ncclCalloc(&mem->lsaNumSegments, devr->lsaSize), ret, fail_mem);
+  NCCLCHECKGOTO(ncclCalloc(&mem->lsaNumSegments, devr->lsaSize), ret, fail_mem_space);
   for (int r = 0; r < devr->lsaSize; r++) {
     mem->lsaNumSegments[r] = globalSegmentInfo[globalLsaTeamBaseIdx + r].numSegments;
   }
-
-  // Grab offset in the big space.
-  NCCLCHECKGOTO(ncclSpaceAlloc(&devr->bigSpace, devr->bigSize, size, devr->granularity, &bigOffset), ret, fail_mem);
-  mem->bigOffset = bigOffset;
 
   // Map unicast addresses into flat VA space for lsa team.
   NCCLCHECKGOTO(symMemoryMapLsaTeam(comm, mem), ret, fail_mem_space);
@@ -700,7 +698,6 @@ fail:
 static ncclResult_t symWindowCreate(
     struct pcclComm* comm, struct ncclDevrMemory* mem,
     size_t memOffset, void* userPtr, size_t userSize, int winFlags, void* localReg,
-    bool globalSameMemOffset,
     struct ncclWindow_vidmem** outWinDev, struct ncclDevrWindow** outWin,
     hggcStream_t stream
   ) {
@@ -721,7 +718,6 @@ static ncclResult_t symWindowCreate(
   win->bigOffset = mem->bigOffset + memOffset;
   win->winFlags = winFlags;
   win->localRegHandle = localReg;
-  win->globalSameMemOffset = globalSameMemOffset;
   win->vidmem = winDev;
   if (userPtr == nullptr) {
     // Null means caller has no VA and will use the lsa team flat VA address.
@@ -848,7 +844,6 @@ ncclResult_t ncclDevrWindowRegisterInGroup(
   int numSegments = 0;
   size_t offset = 0;
   bool hasSysmemSegment = false;
-  bool globalSameMemOffset = true;
 
   NCCLCHECKGOTO(ncclCommRegister(comm, userPtr, userSize, &localRegHandle), ret, fail);
 
@@ -899,17 +894,15 @@ ncclResult_t ncclDevrWindowRegisterInGroup(
     offset += baseSendSize;
   }
 
-  // Trade cumem handles for ncclDevrMemory*. symMemoryObtain folds the memOffset
-  // exchange into its own segment-info allgather and records whether every rank
-  // agreed on the offset, so no separate bootstrap round is needed here.
-  NCCLCHECKGOTO(symMemoryObtain(comm, memHandles, numSegments, (void*)memAddr, memSize, winFlags, memOffset, &mem, hasSysmemSegment), ret, fail_locReg_memHandle);
+  // Trade cumem handles for ncclDevrMemory*.
+  NCCLCHECKGOTO(symMemoryObtain(comm, memHandles, numSegments, (void*)memAddr, memSize, winFlags,
+                              &mem, hasSysmemSegment), ret, fail_locReg_memHandle);
   memset(memHandles, 0, numSegments * sizeof(*memHandles)); // symMemoryObtain took our reference
-  globalSameMemOffset = mem->globalSameMemOffset;
 
   HGGCCHECKGOTO(hggcStreamCreateWithFlags(&stream, hggcStreamNonBlocking), ret, fail_locReg_memHandle_mem);
 
   NCCLCHECKGOTO(symWindowCreate(
-      comm, mem, memOffset, userPtr, userSize, winFlags, localRegHandle, globalSameMemOffset, outWinDev, &winHost, stream
+      comm, mem, memOffset, userPtr, userSize, winFlags, localRegHandle, outWinDev, &winHost, stream
     ), ret, fail_locReg_memHandle_mem_stream);
   mem = nullptr; // symWindowCreate took our reference
 
@@ -1290,12 +1283,13 @@ ncclResult_t ncclDevrCommCreateInternal(
 
     HGCHECKGOTO(hgMemCreate(&memHandle, bufSizeTotal, &memProp, 0), ret, fail_stream);
 
-    NCCLCHECKGOTO(symMemoryObtain(comm, &memHandle, 1, NULL, bufSizeTotal, /*winFlags=*/0, /*memOffset=*/0, &mem), ret, fail_stream_mem);
+    NCCLCHECKGOTO(symMemoryObtain(comm, &memHandle, 1, NULL, bufSizeTotal, /*winFlags=*/0, &mem),
+                                ret, fail_stream_mem);
     memHandle = 0x0; // Reference given to symMemoryObtain
 
     NCCLCHECKGOTO(symWindowCreate( // Requires world barrier afterward.
       comm, mem, /*memOffset=*/0, nullptr, bufSizeTotal, /*winFlags=*/0,
-      /*localReg=*/nullptr, /*globalSameMemOffset=*/true, &outDevComm->resourceWindow, &win,
+      /*localReg=*/nullptr, &outDevComm->resourceWindow, &win,
       stream), ret, fail_stream_mem);
     mem = nullptr; // Reference given to symWindowCreate
     NCCLCHECKGOTO(ncclShadowPoolToHost(&devr->shadows, win->vidmem, &winHost), ret, fail_stream_mem_win);
@@ -1416,6 +1410,10 @@ bool ncclDevrWindowHasSysmemSegment(struct ncclDevrWindow* win) {
   return win != NULL && win->memory->globalHasSysmemSegment;
 }
 
+bool pcclDevrWindowHasSameLsaOffset(struct ncclDevrWindow* win) {
+  return win != nullptr && win->memory != nullptr && win->memory->globalSameBigOffset;
+}
+
 void ncclDevCommCopyLsaData(void* dstRankPtr, void const* srcRankPtr) {
   memcpy(dstRankPtr, srcRankPtr, offsetof(struct ncclDevComm, railGinBarrier) - offsetof(struct ncclDevComm, rank));
 }
@@ -1434,7 +1432,7 @@ ncclResult_t pcclCommQueryProperties(ncclComm_t comm, ncclCommProperties_t* prop
   props->hgmlDev = comm->hgmlDev;
   props->deviceApiSupport = comm->symmetricSupport;
   props->multimemSupport = false; // PPU does not support multimem/NVLS
-  props->hostRmaSupport = false;  // PPU does not support host RMA
+  props->hostRmaSupport = comm->hostRmaSupport;
   NCCLCHECK(getGlobalGinType(comm, &props->ginType));
   NCCLCHECK(getGlobalRailedGinType(comm, &props->railedGinType));
 
