@@ -56,6 +56,22 @@ test('workflow routes the author to Backup once, including explicit backup label
   assert.deepEqual(reviewerRequests(policy, pr, scope, [], permissions), []);
 });
 
+test('Copilot access workflows stay within the two-person pilot', () => {
+  const policy = pilotPolicy(source), pr = makePR();
+  const probeFiles = ['copilot-access.md', 'copilot-access.lock.yml']
+    .map(name => ({filename: `.github/workflows/${name}`}));
+  pr.changed_files = probeFiles.length;
+  const scope = assertPilotScope(policy, pr, probeFiles);
+  assert.deepEqual(scope.modules, ['workflow']);
+  assert.deepEqual(reviewerRequests(policy, pr, scope, [], permissions), ['wensuyang']);
+  pr.requested_reviewers = [{login: 'wensuyang'}];
+  assert.deepEqual(reviewerRequests(policy, pr, scope, [], permissions), []);
+
+  pr.changed_files = 1;
+  assert.throws(() => assertPilotScope(policy, pr,
+    [{filename: '.github/workflows/pr-test-ppu.yml'}]));
+});
+
 test('only a current-head Backup approval works on the Maintainer-authored pilot', () => {
   const policy = pilotPolicy(source), pr = makePR(), scope = assertPilotScope(policy, pr, files);
   for (const reviews of [[], [review('honganlxh')], [review('wensuyang', 'COMMENTED')],

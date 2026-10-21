@@ -341,7 +341,9 @@
         ".github/copilot-instructions.md",
         ".github/workflows/module-review.yml",
         ".github/workflows/module-review-events.yml",
-        ".github/workflows/module-review-tests.yml"
+        ".github/workflows/module-review-tests.yml",
+        ".github/workflows/copilot-access.md",
+        ".github/workflows/copilot-access.lock.yml"
       ],
       "prefixes": [
         ".github/review/",
