@@ -24,20 +24,32 @@ struct ncclRmaCeInitTask {
 struct ncclRmaCeCtx {
   ncclComm_t comm;
 
-  // Per-rank sequence number for the signal operations
+  // Per-rank sequence number for non-graph signal operations
   uint64_t* signalOpSeqs;
   uint64_t* signalOpSeqsDev;
-  // Host buffer to track the expected values of the signals
+  // Host buffer to track the expected values of the non-graph signals
   uint64_t* signalsHost;
 
-  // Signal memory layout and management
-  // Each RMA context allocates a signal buffer with the following layout:
-  // - Offsets [0 to nRanks*8-1]: per-rank distinct signals (8 bytes per rank)
-  // - Offset [nRanks*8]: shared aggregate signal counter (8 bytes)
-  // Total signal buffer size: (nRanks + 1) * 8 bytes
+  // Single symmetric window for all signal and ack memory.
+  // Layout (all uint64_t slots):
+  //   [0 .. nRanks-1]              non-graph per-rank signals
+  //   [nRanks]                     non-graph aggregate signal
+  //   [nRanks+1 .. 2*nRanks]       graph per-rank signals
+  //   [2*nRanks+1]                 graph aggregate signal
+  //   [2*nRanks+2 .. 3*nRanks+1]   graph per-rank ack flags
+  // Total: (3*nRanks + 2) * sizeof(uint64_t)
   struct ncclDevrWindow* signalsWin;
-  uint64_t* signalsDev;       // per-rank signals
-  size_t signalOffset;        // byte offset of signals
+  uint64_t* signalsDev;       // non-graph per-rank signals
+  uint64_t* graphSignalsDev;  // graph per-rank signals
+  uint64_t* graphAckDev;      // graph per-rank ack flags
+  size_t signalOffset;        // byte offset of non-graph signals
+  size_t graphSignalOffset;   // byte offset of graph signals
+  size_t graphAckOffset;      // byte offset of graph ack flags
+
+  // Device-resident constants for graph-safe D2D signal/ack writes
+  uint64_t* signalConstDev;
+  uint64_t* signalConstOneDev;
+  uint64_t* signalConstZeroDev;
 };
 
 struct ncclRmaCeState {
