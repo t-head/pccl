@@ -135,8 +135,8 @@ __global__ void pcclKernel_twoShotAllReduceKernel(struct twoShotDevParams params
   const int32_t buffEltsPerRank = params.buffEltsPerBlock / NRANKS;
   T* myBufD = NULL;
   T* peerBufD = NULL;
-  if (USE_DOUBLE_BUFFER) myBufD = (T*)((char*)params.peerBuffersD[myRank] + params.buffEltsPerBlock * bidx);
-  if (USE_DOUBLE_BUFFER) peerBufD = (T*)((char*)params.peerBuffersD[peerRank] + params.buffEltsPerBlock * bidx);
+  if (USE_DOUBLE_BUFFER) myBufD = (T*)params.peerBuffersD[myRank] + params.buffEltsPerBlock * bidx;
+  if (USE_DOUBLE_BUFFER) peerBufD = (T*)params.peerBuffersD[peerRank] + params.buffEltsPerBlock * bidx;
 
   volatile T* sendbuff = (T*)params.sendbuff + params.eltsPerBlock * bidx;
   volatile T* recvbuff = (T*)params.recvbuff + params.eltsPerBlock * bidx;

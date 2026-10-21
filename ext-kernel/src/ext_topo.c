@@ -207,15 +207,15 @@ extKernelTuner shmTuners[] = {
 
 const extTopoConfig topoConfigs[] = {
 //{ topoId                        , boundLow , boundHigh , oneShotLLBoundHigh , twoShotSwitchPoint , maxBlockNum , agBoundHigh , rsBoundHigh}
-{TWO_RANKS_810_TOPO               , 0        , 32_MB     , 16_KB              , 190_KB             , 128         , 32_MB       , 32_MB}       ,
-{TWO_RANKS_810E_TOPO              , 0        , 32_MB     , 16_KB              , 190_KB             , 128         , 32_MB       , 32_MB}       ,
+{TWO_RANKS_810_TOPO               , 0        , 32_MB     , 16_KB              , 190_KB             , 32          , 32_MB       , 32_MB}       ,
+{TWO_RANKS_810E_TOPO              , 0        , 32_MB     , 16_KB              , 190_KB             , 32          , 32_MB       , 32_MB}       ,
 {TWO_RANKS_M890P_TOPO             , 0        , 32_MB     , 16_KB              , 190_KB             , 32          , 32_MB       , 8_MB}        ,
 {TWO_RANKS_M890P_SHM_TOPO         , 0        , 8_MB      , 16_KB              , 190_KB             , 32          , 16_MB       , 4_MB}        ,
-{FOUR_RANKS_810_FC_TOPO           , 0        , 32_MB     , 8_KB               , 248_KB             , 128         , 4_MB        , 4_MB }       ,
-{FOUR_RANKS_810_SQUARE_TOPO       , 0        , 4_MB      , 8_KB               , 152_KB             , 128         , 4_MB        , 4_MB }       ,
-{FOUR_RANKS_810E_FC_TOPO          , 0        , 16_MB     , 8_KB               , 312_KB             , 128         , 4_MB        , 4_MB }       ,
-{FOUR_RANKS_810E_SQUARE1_TOPO     , 0        , 4_MB      , 8_KB               , 184_KB             , 128         , 4_MB        , 4_MB }       ,
-{FOUR_RANKS_810E_SQUARE2_TOPO     , 0        , 8_MB      , 8_KB               , 212_KB             , 128         , 4_MB        , 4_MB }       ,
+{FOUR_RANKS_810_FC_TOPO           , 0        , 32_MB     , 8_KB               , 248_KB             , 32          , 4_MB        , 4_MB }       ,
+{FOUR_RANKS_810_SQUARE_TOPO       , 0        , 4_MB      , 8_KB               , 152_KB             , 32          , 4_MB        , 4_MB }       ,
+{FOUR_RANKS_810E_FC_TOPO          , 0        , 16_MB     , 8_KB               , 312_KB             , 32          , 4_MB        , 4_MB }       ,
+{FOUR_RANKS_810E_SQUARE1_TOPO     , 0        , 4_MB      , 8_KB               , 184_KB             , 32          , 4_MB        , 4_MB }       ,
+{FOUR_RANKS_810E_SQUARE2_TOPO     , 0        , 8_MB      , 8_KB               , 212_KB             , 32          , 4_MB        , 4_MB }       ,
 {FOUR_RANKS_M890P_FC_TOPO         , 0        , 32_MB     , 16_KB              , 312_KB             , 32          , 32_MB       , 32_MB}       ,
 {FOUR_RANKS_M890P_SHM_TOPO        , 0        , 8_MB      , 16_KB              , 312_KB             , 32          , 16_MB       , 8_MB}        ,
 {EIGHT_RANKS_810_TOPO             , 0        , 2_MB      , 8_KB               , 64_KB              , 32          , 2_MB        , 2_MB }       ,
