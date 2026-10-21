@@ -22,6 +22,7 @@ typedef pcclResult_t ncclResult_t;
 typedef pcclWindow_t ncclWindow_t;
 typedef pcclConfig_t ncclConfig_t;
 typedef pcclUniqueId ncclUniqueId;
+typedef pcclWaitSignalDesc_t ncclWaitSignalDesc_t;
 #define NCCL_CONFIG_INITIALIZER PCCL_CONFIG_INITIALIZER
 #define NCCL_VERSION(X,Y,Z) (((X) <= 2 && (Y) <= 8) ? (X) * 1000 + (Y) * 100 + (Z) : (X) * 10000 + (Y) * 100 + (Z))
 #define NCCL_UNIQUE_ID_BYTES 128

@@ -90,6 +90,8 @@ static ncclResult_t ncclProfiler_startEvent(void* ctx, void** eHandle, ncclProfi
     case ncclProfileCeColl:
     case ncclProfileCeSync:
     case ncclProfileCeBatch:
+    // One-sided RMA API event: not supported in v5, discard
+    case ncclProfileRmaApi:
       *eHandle = NULL;
       return ncclSuccess;
     default:

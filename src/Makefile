@@ -19,6 +19,7 @@ LIBSRCFILES := $(filter-out ce_coll_oki.cc,$(wildcard *.cc)) \
                $(wildcard misc/*.cc) \
                $(filter-out param/pcclparam.cc,$(wildcard param/*.cc)) \
                $(wildcard collectives/*.cc) \
+               $(wildcard rma/*.cc) \
                $(wildcard transport/*.cc) \
                $(wildcard transport/net_ib/*.cc) \
                $(wildcard transport/net_ib/gdaki/*.cc) \
@@ -190,7 +191,12 @@ $(INCDIR)/pccl.h : pccl.h.in
 $(LIBDIR)/$(LIBTARGET): $(LIBOBJ) $(DEVICELIB)
 	@printf "Linking    %-35s > %s\n" $(LIBTARGET) $@
 	mkdir -p $(LIBDIR)
-	$(CXX) $(CXXFLAGS) -shared -Wl,--no-as-needed -Wl,-soname,$(LIBSONAME) -o $@ $(LIBOBJ) $(DEVICELIB) $(LDFLAGS)
+	# OKI_DEV_LIB must appear on the shared-library link line: the hgcc dlink
+	# step merges the OKI runtime's fatbin *registration* into devlink.o but
+	# leaves the matching __fatbinwrap_* data object behind in the SDK archive.
+	# Without it the library exports an unresolved fatbin descriptor and
+	# ncclInitKernelsForDevice faults on the missing module at init.
+	$(CXX) $(CXXFLAGS) -shared -Wl,--no-as-needed -Wl,-soname,$(LIBSONAME) -o $@ $(LIBOBJ) $(DEVICELIB) $(OKI_DEV_LIB) $(LDFLAGS)
 	ln -sf $(LIBSONAME) $(LIBDIR)/$(LIBNAME)
 	ln -sf $(LIBTARGET) $(LIBDIR)/$(LIBSONAME)
 

@@ -48,6 +48,16 @@ struct ncclInfo {
   // Algorithm details
   int chunkSteps;
   int sliceSteps;
+  // One-sided ops: sigIdx in [0, numRmaSig), ctx in [0, numRmaCtx). PutSignal
+  // requires localbuff and peerWin in PCCL_WIN_COLL_SYMMETRIC windows.
+  size_t peerWinOffset;
+  ncclWindow_t peerWin;
+  int sigIdx;
+  int ctx;
+  unsigned int flags;
+  // WaitSignal descriptors; sigIdx/ctx ranges as above.
+  int nDesc;
+  ncclWaitSignalDesc_t* signalDescs;
   // Computed later
   struct ncclDevRedOpFull opFull;
   int algorithm;

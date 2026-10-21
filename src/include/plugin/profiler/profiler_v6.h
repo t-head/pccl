@@ -119,6 +119,19 @@ typedef struct {
       size_t totalBytes;
       bool useIntraSync;
     } ceCollBatch;
+
+    // One-sided RMA API descriptor. peer/ctx carry the operation's peer and
+    // ctx for PutSignal/Signal; nDesc the descriptor count for WaitSignal.
+    struct {
+      const char* func;
+      size_t count;
+      const char* datatype;
+      int peer;
+      int ctx;
+      int nDesc;
+      void* stream;
+      bool graphCaptured;
+    } rmaApi;
   };
 } ncclProfilerEventDescr_v6_t;
 

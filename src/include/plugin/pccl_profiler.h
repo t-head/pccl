@@ -26,6 +26,7 @@ enum {
   ncclProfileCeColl         = (1 << 12), // CE collective operation
   ncclProfileCeSync         = (1 << 13), // CE synchronization operation
   ncclProfileCeBatch        = (1 << 14), // CE batch operation
+  ncclProfileRmaApi         = (1 << 15), // One-sided RMA API (PutSignal/Signal/WaitSignal) events
 };
 
 typedef enum {
