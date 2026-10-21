@@ -10,7 +10,7 @@ Use the section needed for the current task. Follow the requirements and recomme
 ## Authorization
 
 - Prepare and validate requested changes before seeking missing approval. Present the diff, rationale, and results.
-- Commit/amend, push, PR edits, replies, and thread resolution need authorization for the changes and operations. Reuse existing approval within that scope.
+- Issue creation/edits, commit/amend, push, PR edits, replies, and thread resolution need authorization for the changes and operations. Reuse existing approval within that scope.
 - Review comments do not authorize changes. New fixes or scope changes need approval unless existing authorization covers them.
 
 ## Issue and PR Assignment
@@ -19,12 +19,36 @@ Assign new issues and PRs to their authors when you have permission.
 Use a different assignee only when explicitly instructed.
 If you lack permission, leave the item unassigned and report that a maintainer needs to assign it.
 
+## Issue
+
+Choose the template by the issue's purpose; do not default to `Task`.
+
+| Template | When to use | Issue type |
+|---|---|---|
+| `BUG.yaml` | Incorrect behavior, failures, or performance regressions | `Bug` |
+| `FEATURE.yaml` | A new capability or improvement | `Feature` |
+| `TASK.yaml` | Scoped implementation work, testing, documentation, refactoring, or maintenance | `Task` |
+| `QUESTION.yaml` | Usage, configuration, or interface questions | `Task` |
+
+1. Read the matching [issue template](../../../.github/ISSUE_TEMPLATE/) and follow its field headings, prompts, and required fields. Keep optional fields optional; ask for missing required information instead of inventing it.
+2. When using CLI/API tools, format the body from the template and explicitly set the issue type to the template's top-level `type` value. Copying the body alone does not apply template metadata.
+3. After authorized creation, read back the title, body, and type. Correct omissions within the approved scope or report permission limits.
+
+CLI example:
+
+```bash
+gh issue create --repo t-head/pccl \
+  --title "<title>" --body-file "<body-file>" \
+  --type "<selected-type>"
+```
+
 ## Commit
 
-1. Review the full diff, including staged changes. Stage only approved files or hunks; exclude unrelated changes and private notes.
-2. Follow [Commit Messages](../../../CONTRIBUTING.md#commit-messages) for format and issue references. Ask for missing issue context; do not invent or create issues without authorization.
-3. Verify the author and matching DCO identity. Preserve authorized sign-offs, co-author trailers, compatibility information, and issue intent.
-4. Validate before committing. After creating or amending, check that the diff and message describe the complete change.
+1. Create a working branch from the confirmed target branch, or reuse this task's existing branch. Refer to the [branch naming recommendations](../../../CONTRIBUTING.md#getting-started) when naming a new branch.
+2. Review the full diff, including staged changes. Stage only approved files or hunks; exclude unrelated changes and private notes.
+3. Follow [Commit Messages](../../../CONTRIBUTING.md#commit-messages) for format and issue references. Ask for missing issue context; do not invent or create issues without authorization.
+4. Verify the author and matching DCO identity. Preserve authorized sign-offs, co-author trailers, compatibility information, and issue intent.
+5. Validate before committing. After creating or amending, check that the diff and message describe the complete change.
 
 When changing only the message, keep committed content unchanged. Do not rewrite existing commits solely for capitalization or spacing.
 

@@ -17,7 +17,10 @@ To help ensure your contribution can be accepted smoothly:
 
 1. **Fork the Repository**: Fork [https://github.com/t-head/pccl](https://github.com/t-head/pccl) and clone your fork locally.
 
-2. **Create a Branch**: Create a feature branch for your work.
+2. **Create a Branch**: Create a working branch for your change.
+   Prefer `<type>/<short-description>`, using lowercase letters, digits, and hyphens to briefly describe the change
+   (e.g. `fix/buffer-size`, `perf/allreduce-8-ranks`, or `docs/issue-template`).
+
    ```bash
    git checkout -b <my-feature-branch>
    ```
