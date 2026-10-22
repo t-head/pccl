@@ -157,6 +157,7 @@ ncclResult_t pluginInit(const struct pcclExtKernelInitInfo* info, void** params,
   extKernelParams->hostParams.defaultStrategy = info->defaultStrategy;
 
   devParams->myRank = rank;
+  devParams->abortFlag = info->abortFlagDev;
   *params = reinterpret_cast<void*>(extKernelParams);
   NCCLCHECKGOTO(configHostParams(nRanks, topo, &extKernelParams->hostParams), result, cleanup);
 

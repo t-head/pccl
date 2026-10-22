@@ -229,6 +229,7 @@ ncclResult_t initExtKernelPlugin(ncclComm_t comm) {
     initInfo.icnRmtType = comm->icnRmtType;
     initInfo.defaultStrategy = comm->defaultStrategy;
     initInfo.topoArray = topoArray;
+    initInfo.abortFlagDev = comm->abortFlagDev;
 
     ncclResult_t initRes = comm->extKernel->kernelPluginInit(&initInfo, &comm->extKernelPluginWorkspace.extKernelPluginParams, &extKernelDevWorkspaceSize, ncclDebugLogForPlugin);
     NCCLCHECK(ncclFree(topoArray));
