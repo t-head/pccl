@@ -6,6 +6,7 @@
  * See LICENSE.txt for more license information
  *************************************************************************/
 
+#include "net_request_tag.h"
 #include "comm.h"
 #include "transport.h"
 #include "net.h"
@@ -1298,7 +1299,8 @@ static ncclResult_t recvProxyProgress(struct ncclProxyState* proxyState, struct 
             sizes[subCount] = stepSize * args->sliceSteps;
           }
           if (sub->nbytes < sizes[subCount]) sizes[subCount] = sub->nbytes;
-          tags[subCount] = resources->tpRemoteRank;
+          tags[subCount] = resources->tpRemoteRank |
+              (ncclNet == &ncclNetIb && args->pattern == ncclPatternRecv ? PCCL_NET_REQUEST_TAG : 0);
           mhandles[subCount] = resources->mhandles[p];
           subCount++;
         }

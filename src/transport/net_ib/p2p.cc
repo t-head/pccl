@@ -6,12 +6,20 @@
  * See LICENSE.txt for more license information
  *************************************************************************/
 
+#include "net_request_tag.h"
 #include "p2p.h"
 #include "common.h"
 #include "connect.h"
 
 NCCL_PARAM(IbArThreshold, "IB_AR_THRESHOLD", -2);
 int64_t ncclIbArThreshold = 8192;
+PCCL_PARAM(IbP2PSmallRequestSingleQp, "IB_P2P_SMALL_REQUEST_SINGLE_QP", 1);
+// Threshold applies to the receive capacities supplied to Irecv.
+PCCL_PARAM(IbP2PSmallRequestThreshold, "IB_P2P_SMALL_REQUEST_THRESHOLD", 4096);
+static int pcclIbRequestQps(int configured, bool singleQp) {
+  return singleQp && configured > 1 ? 1 : configured;
+}
+
 
 ncclResult_t ncclIbGetRequest(struct ncclIbNetCommBase* base, struct ncclIbRequest** req) {
   for (int i = 0; i < NET_IB_MAX_REQUESTS; i++) {
@@ -129,7 +137,7 @@ ncclResult_t ncclIbMultiSend(struct ncclIbSendComm* comm, int slot) {
 
   // Multi-QP: make sure IB writes are multiples of 128B so that LL and LL128 protocols still work
   const int align = 128;
-  const int nqps = ncclIbCommBaseGetNqpsPerRequest(&comm->base);
+  const int nqps = reqs[0]->events;
   for (int q = 0; q < nqps; q++) {
     TRACE(NCCL_NET, "NET/IB: %s: Posting send (req=%p, comm=%p, slot=%d, nreqs=%d, wr_id=%ld) on QP (qp_num=%u, qpIndex=%d)",
           __func__, reqs[0], reqs[0]->base, slot, nreqs, wr_id, comm->base.qps[comm->base.qpIndex]->qp_num, comm->base.qpIndex);
@@ -187,8 +195,15 @@ ncclResult_t ncclIbIsend(void* sendComm, void* data, int size, int tag, void* mh
   // Wait until all data has arrived
   for (int r = 1; r < nreqs; r++) while(slots[r].idx != idx);
   __sync_synchronize(); // order the nreqsPtr load against tag/rkey/addr loads below
+  bool singleQp = nreqs > 0;
+  // One ineligible request is enough to keep the configured QP count.
+  for (int i = 0; singleQp && i < nreqs; i++) {
+    singleQp = pcclNetSingleQpTag(slots[i].tag);
+  }
+  const int requestQps = pcclIbRequestQps(
+      ncclIbCommBaseGetNqpsPerRequest(&comm->base), singleQp);
   for (int r = 0; r < nreqs; r++) {
-    if (reqs[r] != NULL || slots[r].tag != tag) continue;
+    if (reqs[r] != NULL || pcclNetMatchTag(slots[r].tag) != pcclNetMatchTag(tag)) continue;
 
     // Sanity checks to catch user collective call count/size mismatches
     if (size > slots[r].size) {
@@ -214,7 +229,7 @@ ncclResult_t ncclIbIsend(void* sendComm, void* data, int size, int tag, void* mh
     req->send.data = data;
     req->send.lkey = mr->lkey;
     req->send.offset = 0;
-    req->events = ncclIbCommBaseGetNqpsPerRequest(&comm->base);
+    req->events = requestQps;
     *request = reqs[r] = req;
     TRACE(NCCL_NET, "NET/IB: %s: Send request created (req=%p, comm=%p, slot=%d, reqIdx=%d, nreqs=%d, tag=%x, size=%ld, data=0x%016" PRIx64 ")",
           __func__, req, req->base, slot, r, nreqs, tag, size, (uint64_t)data);
@@ -311,6 +326,8 @@ ncclResult_t ncclIbIrecv(void* recvComm, int n, void** data, int* sizes, int* ta
   if (comm->base.ready == 0) { *request = NULL; return ncclSuccess; }
 
   if (n > NCCL_NET_IB_MAX_RECVS) return ncclInternalError;
+  const int64_t optimize = pcclParamIbP2PSmallRequestSingleQp();
+  if (optimize != 0 && optimize != 1) return ncclInvalidArgument;
   NCCLCHECK(ncclIbStatsCheckFatalCount(&comm->base.stats, __func__));
 
   struct ncclIbRequest* req;
@@ -327,7 +344,20 @@ ncclResult_t ncclIbIrecv(void* recvComm, int n, void** data, int* sizes, int* ta
 
   uint64_t reqIdx = req - comm->base.reqs;
   comm->recvReqs[reqIdx] = req;
-  const int nqps = ncclIbCommBaseGetNqpsPerRequest(&comm->base);
+  // sizes already include protocol flags/alignment and receive-buffer limits.
+  const int64_t threshold = pcclParamIbP2PSmallRequestThreshold();
+  bool singleQp = optimize == 1 && n > 0 && threshold > 0;
+  for (int i = 0; singleQp && i < n; i++) {
+    singleQp = pcclIsNetRequestTag(tags[i]) && sizes[i] >= 0 && sizes[i] <= threshold;
+  }
+  // Advertise one decision for the entire receive group without modifying caller tags.
+  int ctsTags[NCCL_NET_IB_MAX_RECVS];
+  for (int i = 0; i < n; i++) {
+    ctsTags[i] = pcclIsNetRequestTag(tags[i]) ? tags[i] & ~PCCL_NET_SINGLE_QP_TAG : tags[i];
+    if (singleQp) ctsTags[i] |= PCCL_NET_SINGLE_QP_TAG;
+  }
+  const int nqps = pcclIbRequestQps(
+      ncclIbCommBaseGetNqpsPerRequest(&comm->base), singleQp);
   if (comm->base.recvMatchingScheme == BY_INDEX) {
     struct ibv_recv_wr wr;
     memset(&wr, 0, sizeof(wr));
@@ -347,7 +377,7 @@ ncclResult_t ncclIbIrecv(void* recvComm, int n, void** data, int* sizes, int* ta
   *request = req;
 
   // Post to FIFO to notify sender
-  NCCLCHECK(ncclIbPostFifo(comm, n, data, sizes, tags, mhandles, req));
+  NCCLCHECK(ncclIbPostFifo(comm, n, data, sizes, ctsTags, mhandles, req));
   return ncclSuccess;
 }
 
