@@ -9,6 +9,7 @@
 #include "core.h"
 #include "graph.h"
 #include "topo.h"
+#include "net.h"
 #include "transport.h"
 #include "xml.h"
 #include <math.h>
@@ -342,6 +343,23 @@ bool isGraphWithAllPxnChannels(ncclTopoGraph *graph) {
   return ret;
 }
 
+// Measure proxy device parity imbalance without changing proxies or paths.
+static int ncclTopoGraphProxyImbalance(const struct ncclTopoGraph* graph) {
+  int64_t nets[MAXCHANNELS];
+  int balances[MAXCHANNELS] = {0};
+  int netCount = 0;
+  for (int c=0; c<graph->nChannels; c++) {
+    int64_t net = graph->inter[2*c+1];
+    int n = 0;
+    while (n < netCount && nets[n] != net) n++;
+    if (n == netCount) nets[netCount++] = net;
+    balances[n] += (graph->proxyDevs[c] & 1) ? -1 : 1;
+  }
+  int imbalance = 0;
+  for (int n=0; n<netCount; n++) imbalance += abs(balances[n]);
+  return imbalance;
+}
+
 ncclResult_t ncclTopoCompareGraphs(struct ncclTopoGraph* graph, struct ncclTopoGraph* refGraph, int* copy) {
   // 1. Constraint to get the same nChannels between Rings and Trees
   if (graph->nChannels < graph->minChannels) return ncclSuccess;
@@ -378,6 +396,13 @@ ncclResult_t ncclTopoCompareGraphs(struct ncclTopoGraph* graph, struct ncclTopoG
   } else if (graph->typeInter == refGraph->typeInter) {
     if (graph->typeIntra < refGraph->typeIntra) {
       *copy = 1;
+    } else if (nccl_use_eic && graph->typeIntra == refGraph->typeIntra &&
+        graph->pattern == NCCL_TOPO_PATTERN_RING && refGraph->pattern == NCCL_TOPO_PATTERN_RING &&
+        graph->crossNic == 0 && refGraph->crossNic == 0 && graph->typeInter == PATH_PXN &&
+        graph->nChannels == refGraph->nChannels && graph->speedInter == refGraph->speedInter &&
+        isGraphWithAllPxnChannels(graph) && isGraphWithAllPxnChannels(refGraph)) {
+      // For EIC, prefer balanced proxy device parity when all other criteria tie.
+      *copy = ncclTopoGraphProxyImbalance(graph) < ncclTopoGraphProxyImbalance(refGraph);
     }
   }
 
