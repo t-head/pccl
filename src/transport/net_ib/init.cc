@@ -16,8 +16,15 @@ NCCL_PARAM(DmaBufEnable, "DMABUF_ENABLE", 0);
 NCCL_PARAM(IbDataDirect, "IB_DATA_DIRECT", 0);
 NCCL_PARAM(IbPciRelaxedOrdering, "IB_PCI_RELAXED_ORDERING", 2);
 NCCL_PARAM(IbAdaptiveRouting, "IB_ADAPTIVE_ROUTING", -2);
-// Disabled by default. A non-zero value force-enables OOO RQ and fails
-// communicator setup when any prerequisite is missing.
+// Disabled by default. A non-zero value requests OOO RQ
+// (mlx5 out-of-order data placement), which is what turns multipath on.
+// Opt in per deployment with:
+//   PCCL_IB_ADAPTIVE_ROUTING=1 PCCL_IB_OOO_RQ=1
+// The NCCL_ spelling of both variables is accepted as well; PCCL_ wins when
+// both are set.
+// Requesting OOO RQ falls back to in-order operation when the capability and
+// policy checks determine that OOO is unavailable. Capability-query and
+// QP-creation errors may still fail initialization or connection setup.
 NCCL_PARAM(IbOooRq, "IB_OOO_RQ", 0);
 
 extern int64_t ncclParamIbArThreshold();
@@ -234,8 +241,9 @@ ncclResult_t ncclIbInit(ncclDebugLogger_t logFunction) {
   static int shownIbHcaEnv = 0;
   if(wrap_ibv_symbols() != ncclSuccess) { return ncclInternalError; }
   if (ncclParamIbOooRq() && wrap_mlx5dv_symbols() != ncclSuccess) {
-    WARN("NET/IB : NCCL_IB_OOO_RQ is enabled but mlx5 Direct Verbs symbols are unavailable");
-    return ncclInternalError;
+    // Non-fatal: OOO RQ is auto-disabled per-device because wrap_mlx5dv_is_supported()
+    // returns false once the mlx5dv symbols failed to load (see ncclIbQueryOooRqSize).
+    WARN("NET/IB : NCCL_IB_OOO_RQ is enabled but mlx5 Direct Verbs symbols are unavailable; continuing with OOO RQ disabled");
   }
   if (ncclParamIbDisable()) return ncclInternalError;
 
@@ -383,11 +391,7 @@ ncclResult_t ncclIbInit(ncclDebugLogger_t logFunction) {
     } else {
       ncclIbRelaxedOrderingEnabled = ncclIbRelaxedOrderingCapable();
       if (ncclParamIbArThreshold() != -2) {
-        if (ncclParamIbOooRq()) {
-          INFO(NCCL_NET, "NET/IB: OOO RQ is enabled, AR threshold will be ignored.");
-        } else {
-          ncclIbArThreshold = ncclParamIbArThreshold();
-        }
+        ncclIbArThreshold = ncclParamIbArThreshold();
       }
       char line[1024];
       line[0] = '\0';
