@@ -170,16 +170,7 @@ bool ncclCeImplemented(ncclFunc_t coll, int/*ncclRedOp_t*/ red, ncclDataType_t t
   }
 }
 
-// Same graph state that comm->planner.capturingGraph ends up holding: ncclPlannerSetCapturingGraph
-// runs this very query, only later, during task append — so the planner is not yet populated when
-// CE admission is decided here. A failed query counts as capturing, i.e. CE is not used.
-static inline bool ceStreamCapturing(hggcStream_t stream) {
-  struct ncclCudaGraph graph;
-  if (ncclCudaGetCapturingGraph(&graph, stream) != ncclSuccess) return true;
-  return ncclCudaGraphValid(graph);
-}
-
-bool ncclCeAvailable(ncclComm_t comm, ncclFunc_t coll, int/*ncclRedOp_t*/ red, ncclDataType_t ty, size_t count, ncclSymRegType_t winRegType, const void* recvbuff, hggcStream_t stream) {
+bool ncclCeAvailable(ncclComm_t comm, ncclFunc_t coll, int/*ncclRedOp_t*/ red, ncclDataType_t ty, size_t count, ncclSymRegType_t winRegType, const void* recvbuff) {
   if (!ncclCeImplemented(coll, red, ty, comm->okiSupport)) {
     TRACE(NCCL_TUNING, "Skipping CE collective: not implemented");
     return false;
@@ -193,13 +184,6 @@ bool ncclCeAvailable(ncclComm_t comm, ncclFunc_t coll, int/*ncclRedOp_t*/ red, n
       return false;
     }
 #endif
-    // The tail/head handshake is driven by host-side step counters
-    // (comm->ceReduceStep, comm->ceOkiStep) that advance once per launch. A captured graph
-    // replays the values baked in at capture time, so the waits would never be satisfied.
-    if (ceStreamCapturing(stream)) {
-      TRACE(NCCL_TUNING, "Skipping CE reduce: graph capture is not supported");
-      return false;
-    }
     // CE reduce kernels only exist for nRanks 2/4/8 (see localReduceFuncIndex).
     if (comm->nRanks != 2 && comm->nRanks != 4 && comm->nRanks != 8) {
       TRACE(NCCL_TUNING, "Skipping CE reduce: nRanks %d not in {2,4,8}", comm->nRanks);
@@ -275,16 +259,19 @@ ncclResult_t ncclCeInit(ncclComm_t comm) {
 
   HGGCCHECKGOTO(hggcMemset(cec->ceSyncBase, 0, ceDevBaseSize), ret, fail);
   // The CE reduce family's waitValue semantics are waitValue = 1 + iter - pcclCeReduceMaxSect,
-  // with the first iter == comm->ceReduceStep. The tail/head arrays must be pre-seeded
-  // to ceReduceStep so the first GEQ wait passes; otherwise the collective deadlocks.
+  // with the first iter == pcclCeReduceMaxSect. The tail/head arrays must be pre-seeded
+  // along with reduceStep so the first GEQ wait passes; otherwise the collective deadlocks.
   if (comm->okiSupport && (ncclCeReduceEnabled(ncclFuncAllReduce) || ncclCeReduceEnabled(ncclFuncReduceScatter))) {
     int count = comm->nRanks * PCCL_CE_MAX_DIE_NUM;
     NCCLCHECKGOTO(ncclCalloc(&ceArStepInitMem, count), ret, fail);
-    for (int i = 0; i < count; i++) ceArStepInitMem[i] = comm->ceReduceStep;
+    for (int i = 0; i < count; i++) ceArStepInitMem[i] = pcclCeReduceMaxSect;
     uint64_t* tailBase = (uint64_t*)ncclSymDevBase_getCeTailBase((struct ncclSymDevBase*)cec->ceSyncBase, comm->nRanks);
     uint64_t* headBase = (uint64_t*)ncclSymDevBase_getCeHeadBase((struct ncclSymDevBase*)cec->ceSyncBase, comm->nRanks);
     HGGCCHECKGOTO(hggcMemcpy(tailBase, ceArStepInitMem, count * sizeof(uint64_t), hggcMemcpyHostToDevice), ret, fail);
     HGGCCHECKGOTO(hggcMemcpy(headBase, ceArStepInitMem, count * sizeof(uint64_t), hggcMemcpyHostToDevice), ret, fail);
+    auto* sync = (struct ncclCeGridSyncMem*)ncclSymDevBase_getGridSyncBase(
+        (struct ncclSymDevBase*)cec->ceSyncBase, comm->nRanks);
+    HGGCCHECKGOTO(hggcMemcpy(&sync->reduceStep, ceArStepInitMem, sizeof(uint64_t), hggcMemcpyHostToDevice), ret, fail);
   }
   cec->initialized = true;
 
@@ -327,15 +314,6 @@ ncclResult_t ncclMemOpSync(ncclComm_t comm, struct ncclCeCollArgs* args, hggcStr
   ncclProfilerStopCeSyncEvent(comm, ceSyncHandle, stream);
   return ncclSuccess;
 }
-
-#if PCCL_HGGC_VERSION >= PCCL_HGGC_DRIVER_VERSION(2, 2, 0)
-ncclResult_t ncclMemOpSyncWithTrigger(struct ncclCeCollArgs* args, hggcStream_t stream, uint64_t* triggerPtr, uint64_t trigger) {
-  void* pargs[] = {&args->comm, &triggerPtr, &trigger};
-  int nThreads = ROUNDUP(args->comm.nRanks, WARP_SIZE);
-  HGGCCHECK(hggcLaunchKernel((const void*)gpuBarrierWithTrigger, 1, nThreads, pargs, 0, stream));
-  return ncclSuccess;
-}
-#endif
 
 ncclResult_t ncclCeInitBatchOpsParams(struct ncclCeBatchOpsParams* params, int nRanks) {
   ncclResult_t ret = ncclSuccess;
@@ -915,8 +893,7 @@ ncclResult_t ncclLaunchCeColl(ncclComm_t comm, struct ncclKernelPlan* plan) {
       break;
     case ncclFuncAllReduce:
 #if PCCL_HGGC_VERSION >= PCCL_HGGC_DRIVER_VERSION(2, 2, 0)
-      if (comm->okiSupport && !plan->persistent) {
-        // INFO: oki do not support graph for now.
+      if (comm->okiSupport) {
         NCCLCHECKGOTO(pcclCeOkiAllReduce(comm, args, stream), ret, fail);
         break;
       }
@@ -926,8 +903,7 @@ ncclResult_t ncclLaunchCeColl(ncclComm_t comm, struct ncclKernelPlan* plan) {
       break;
     case ncclFuncReduceScatter:
 #if PCCL_HGGC_VERSION >= PCCL_HGGC_DRIVER_VERSION(2, 2, 0)
-      if (comm->okiSupport && !plan->persistent) {
-        // INFO: oki do not support graph for now.
+      if (comm->okiSupport) {
         NCCLCHECKGOTO(pcclCeOkiReduceScatter(comm, args, stream), ret, fail);
         break;
       }

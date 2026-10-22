@@ -117,16 +117,12 @@ static int localReduceFuncIndex(pcclDataType_t dtype, int nRanks, int/*ncclRedOp
 
 bool ncclCeOkiRequested();
 bool ncclCeReduceEnabled(ncclFunc_t coll);
-bool ncclCeImplemented(ncclFunc_t coll, int/*ncclRedOp_t*/ red, ncclDataType_t ty);
-bool ncclCeAvailable(ncclComm_t comm, ncclFunc_t coll, int/*ncclRedOp_t*/ red, ncclDataType_t ty, size_t count, ncclSymRegType_t winRegType, const void* recvbuff, hggcStream_t stream);
+bool ncclCeAvailable(ncclComm_t comm, ncclFunc_t coll, int/*ncclRedOp_t*/ red, ncclDataType_t ty, size_t count, ncclSymRegType_t winRegType, const void* recvbuff);
 
 ncclResult_t ncclCeInit(ncclComm_t comm);
 ncclResult_t ncclCeFinalize(ncclComm_t comm);
 
 ncclResult_t ncclMemOpSync(ncclComm_t comm, struct ncclCeCollArgs* args, hggcStream_t stream);
-#if PCCL_HGGC_VERSION >= PCCL_HGGC_DRIVER_VERSION(2, 2, 0)
-ncclResult_t ncclMemOpSyncWithTrigger(struct ncclCeCollArgs* args, hggcStream_t stream, uint64_t* triggerPtr, uint64_t trigger);
-#endif
 
 ncclResult_t ncclLaunchCeColl(ncclComm_t comm, struct ncclKernelPlan* plan);
 

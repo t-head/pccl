@@ -549,7 +549,6 @@ struct pcclComm {
   hggcStream_t* ceStreams;
   hggcEvent_t* ceEvents;
   hggcEvent_t ceSyncEvent;
-  int64_t ceReduceStep;
   struct pcclCeCollConfig ceCollConfigs;
   struct ncclCeColl ceColl;
 
@@ -565,13 +564,10 @@ struct pcclComm {
 
 #if PCCL_HGGC_VERSION >= PCCL_HGGC_DRIVER_VERSION(2, 2, 0)
   bool okiSupport;
-  int64_t ceOkiStep;
 
   ltOkiDevice_t okiDevice;
   ltOkiQP_t*    okiQps;          // Host-allocated QPs, accessible from both CPU and GPU
   int           okiQpCount;
-  uint64_t*     okiDependencyAddr;  // PCCL-allocated dependency fence address
-                                         // used to create dependency between normal kernel and okiQP
 #endif
 
   // buffer registration cache
