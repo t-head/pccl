@@ -1,7 +1,15 @@
 # pccl PR unit-test commands (ubuntu24_hggcrt13)
 # To add a test, put run_<name>_test.sh in this directory and add
-# "bash run_<name>_test.sh" below. It becomes a test matrix entry and is
-# automatically included in PCCL Tests Gate; no gate changes are needed.
+# "bash run_<name>_test.sh" below, then add the suffixed names
+# run_<name>_test_890P.sh / run_<name>_test_810E.sh to the STATIC script
+# matrices of the test-890P / test-810E jobs in pr-test-ppu.yml: dynamic
+# script matrices do not expand on this runner fleet, so the workflow
+# carries the list statically. The prepare job validates that every
+# suffixed script exists on disk, and the gate requires the test matrix
+# to actually run.
+# Entries stay unsuffixed: the per-machine scripts are
+# run_<name>_test_890P.sh / run_<name>_test_810E.sh; the 810E copies
+# additionally export PCCL_NET_PLUGIN_ENABLE=1.
 # Blank lines and comments are ignored.
 # Scripts that depended on comm-internal-testbox-only binaries
 # (composite_test, unit_test, cuda graph, etc.) are excluded because the
