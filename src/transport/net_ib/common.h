@@ -215,15 +215,18 @@ struct alignas(32) ncclIbNetCommBase {
 
 struct ncclIbNetCommDevBase* ncclIbGetNetCommDevBase(ncclIbNetCommBase* base, int devIndex);
 
-// Each request is transfered over all devices, and depending on the
-// "splitDataOnQps" configuration parameter, a request may be transffered over
-// a single QP per device or on all QPs of each device.
-static inline int ncclIbCommBaseGetNqpsPerRequest(struct ncclIbNetCommBase* baseComm) {
+int64_t ncclParamIbSplitSizeThreshold();
+
+// Both peers use the maximum receive capacity advertised in CTS, not the
+// actual send lengths. Split and threshold settings must match on both peers.
+static inline int ncclIbCommBaseGetNqpsPerRequest(struct ncclIbNetCommBase* baseComm, int maxRecvSize) {
   if (baseComm->nqps <= 0) {
     ERROR("NET/IB: %s: Invalid nqps=%d (comm=%p)", __func__, baseComm->nqps, baseComm);
     return ncclInternalError;
   }
-  return (baseComm->splitDataOnQps) ? baseComm->nqps : 1;
+  if (!baseComm->splitDataOnQps) return 1;
+  const int64_t threshold = ncclParamIbSplitSizeThreshold();
+  return threshold > 0 && maxRecvSize <= threshold ? 1 : baseComm->nqps;
 }
 
 struct ncclIbSendComm {
