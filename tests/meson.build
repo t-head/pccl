@@ -31,6 +31,7 @@ endif
 # Add include paths
 incdirs = include_directories(
   gtest_home + '/include',
+  '../build/include',
   '../src/include',
   '../src/include/drv_eit',
   '../src/include/plugin',
