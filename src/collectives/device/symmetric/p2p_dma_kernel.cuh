@@ -79,7 +79,8 @@ static __device__ __forceinline__ uint64_t p2pDmaSelfDstOff(struct pcclP2pDmaWor
 // Publish all declarations before waiting; drain CQs before signaling done.
 
 template<int DIE_NUM>
-__global__ void pcclP2pDmaOkiRound(struct pcclP2pDmaArgs args, ltOkiQP_t* qps, uint64_t step) {
+__global__ void pcclP2pDmaOkiRound(struct pcclP2pDmaArgs args, ltOkiQP_t* qps, uint64_t* stepDev) {
+  uint64_t step = *stepDev + 1;
   int tid = threadIdx.x;
   int wid = tid / WARP_SIZE;
   int laneId = tid % WARP_SIZE;
@@ -197,12 +198,15 @@ __global__ void pcclP2pDmaOkiRound(struct pcclP2pDmaArgs args, ltOkiQP_t* qps, u
       p2pDmaWaitDone(p2pDmaDoneSlot(myDoneBox, q, recvs[i].k, sg), recvs[i].seq, args.abortFlag);
     }
   }
+  // This single-CTA kernel shares completion queues with replayable reduce work.
+  __syncthreads();
+  if (tid == 0) *stepDev = step;
 }
 
 template
-__global__ void pcclP2pDmaOkiRound<1>(struct pcclP2pDmaArgs args, ltOkiQP_t* qps, uint64_t step);
+__global__ void pcclP2pDmaOkiRound<1>(struct pcclP2pDmaArgs args, ltOkiQP_t* qps, uint64_t* stepDev);
 template
-__global__ void pcclP2pDmaOkiRound<2>(struct pcclP2pDmaArgs args, ltOkiQP_t* qps, uint64_t step);
+__global__ void pcclP2pDmaOkiRound<2>(struct pcclP2pDmaArgs args, ltOkiQP_t* qps, uint64_t* stepDev);
 
 #endif // PCCL_HGGC_VERSION >= 2.2.0
 

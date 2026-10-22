@@ -2279,7 +2279,7 @@ static ncclResult_t taskAppend(ncclComm_t comm, struct ncclInfo* info) {
     // Append CE collective task if CE is supported and requested by user
     ncclSymRegType_t winRegType;
     NCCLCHECK(ncclGetSymRegType(sendWin, recvWin, &winRegType));
-    bool ceAvailable = ncclCeAvailable(comm, info->coll, info->op, info->datatype, info->count, winRegType, info->recvbuff, info->stream);
+    bool ceAvailable = ncclCeAvailable(comm, info->coll, info->op, info->datatype, info->count, winRegType, info->recvbuff);
     bool hasSysmemSegment = ncclDevrWindowHasSysmemSegment(sendWin) || ncclDevrWindowHasSysmemSegment(recvWin);
 
     if ((comm->config.CTAPolicy & PCCL_CTA_POLICY_ZERO) && ceAvailable && !hasSysmemSegment) {
