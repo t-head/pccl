@@ -26,6 +26,10 @@ typedef ncclResult_t (*proxyProgressFunc_t)(struct ncclProxyState*, struct ncclP
 static_assert(NCCL_MAX_DEV_WORK_P2P_PER_BATCH <= MAXCHANNELS, "Not enough sub space for max work elements");
 
 struct ncclProxyOp {
+  uint8_t a2aOptimized;
+  uint8_t a2aAutoAsyncFlush; // Task-local opt-in; explicit public settings take precedence.
+  uint8_t a2aSingleQp; // Receive-capacity decision from this AlltoAll only.
+  uint8_t a2aSendWindow; // Preselected per-task send-step limit.
   struct ncclProxyConnection* connection;
   int channelId;
   int nsteps;
@@ -80,6 +84,11 @@ struct ncclProxyEventHandle {
 };
 
 struct ncclProxySubArgs {
+  uint8_t a2aOptimized;
+  uint8_t a2aAutoAsyncFlush; // Task-local opt-in; explicit public settings take precedence.
+  uint8_t a2aSingleQp; // Receive-capacity decision from this AlltoAll only.
+  uint8_t a2aSendWindow; // Cached per-task send-step limit.
+  uint8_t a2aAsyncFlush; // Finalized per receive group; never a connection setting.
   struct ncclProxyConnection* connection;
   uint8_t* sendbuff;
   uint8_t* recvbuff;
@@ -200,6 +209,8 @@ struct ncclSharedNetComms {
 
 struct ncclProxyPool;
 int64_t pcclParamCpuFlushAsync();
+// Called only by the receive progress thread for eligible AlltoAll work.
+void ncclProxyEnsureA2aCpuFlush(struct ncclProxyState* proxyState);
 struct ncclProxyProgressState {
   // Used by main threads to send work to progress thread
   struct ncclProxyOpsPool* opsPool;

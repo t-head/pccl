@@ -13,7 +13,7 @@ OBJDIR := $(BUILDDIR)/obj/collectives/device
 
 LIBSRCFILES := all_reduce.cu broadcast.cu reduce.cu all_gather.cu reduce_scatter.cu sendrecv.cu
 
-LIBSRCFILES += functions.cu
+LIBSRCFILES += functions.cu sendrecv_net_poll.cu
 
 DEPFILES   := $(patsubst %.cu, $(OBJDIR)/%.d, $(LIBSRCFILES))
 DEPENDFILES:= $(DEPFILES:%.d=%.dep)
@@ -81,7 +81,7 @@ $(RULESFILE) :
 # "SYMMETRIC_RULES_FILE" populates $(LIB_OBJS_SYM_GEN)
 -include $(SYMMETRIC_RULES_FILE)
 
-LIBOBJ     := $(GENOBJS) $(LIB_OBJS_SYM_GEN) $(OBJDIR)/functions.o $(OBJDIR)/onerank.o $(OBJDIR)/ce_kernel.o
+LIBOBJ     := $(GENOBJS) $(LIB_OBJS_SYM_GEN) $(OBJDIR)/functions.o $(OBJDIR)/onerank.o $(OBJDIR)/ce_kernel.o $(OBJDIR)/sendrecv_net_poll.o
 
 -include $(DEPFILES)
 
@@ -138,6 +138,11 @@ $(OBJDIR)/ce_kernel.o : symmetric/ce_kernel.cu $(OBJDIR)/symmetric/ce_kernel.dep
 	@printf "Compiling  %-35s > %s\n" $< $@
 	mkdir -p `dirname $@`
 	$(HGCC) $(HGFLAGS) -c $< -o ${OBJDIR}/ce_kernel.o
+
+$(OBJDIR)/sendrecv_net_poll.o : sendrecv_net_poll.cu $(OBJDIR)/sendrecv_net_poll.dep
+	@printf "Compiling  %-35s > %s\n" $< $@
+	@mkdir -p $(dir $@)
+	$(HGCC) $(HGFLAGS) -c $< -o $@
 
 # ... and create the device-side linked object with all those.
 $(DEVOBJ) : $(LIBOBJ)
