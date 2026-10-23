@@ -825,6 +825,9 @@ static ncclResult_t ipcRegisterBuffer(ncclComm_t comm, const void* userbuff, siz
   size_t sizeAlignedVir = 0;
   void* baseAddr = NULL;
   bool needUpdate = false;
+  int expFd = -1;
+  HGmemGenericAllocationHandle handle;
+  bool retained = false;
 
   *regBufFlag = 0;
   *offsetOut = 0;
@@ -844,7 +847,7 @@ static ncclResult_t ipcRegisterBuffer(ncclComm_t comm, const void* userbuff, siz
       } else {
         // Register buffer with peerLocalRank
         struct ncclProxyConnector* proxyConn = NULL;
-        struct p2pIpcExpInfo ipcInfo;
+        struct p2pIpcExpInfo ipcInfo = {};
 
         if (baseAddr == NULL) {
           HGCHECKGOTO(hgMemGetAddressRange((HGdeviceptr*)&baseAddr, &sizeAlignedPhy, (HGdeviceptr)userbuff), ret, fail);
@@ -858,7 +861,6 @@ static ncclResult_t ipcRegisterBuffer(ncclComm_t comm, const void* userbuff, siz
         // Get the mem handle for that buffer. It may have been allocated through hggcMalloc in which case we'll
         // get the hggc legacy mem handle, or through hgMem*.
         if (ncclCuMemEnable()) {
-          HGmemGenericAllocationHandle handle;
           if (hgMemRetainAllocationHandle(&handle, baseAddr) != HGGC_SUCCESS) {
             // if hgMem* export fails, retry legacy export
             if (comm->directMode || !ncclLegacyCudaRegister()) goto fail;
@@ -866,6 +868,7 @@ static ncclResult_t ipcRegisterBuffer(ncclComm_t comm, const void* userbuff, siz
             ipcInfo.legacyIpcCap = true;
             if (isLegacyIpc) *isLegacyIpc = true;
           } else {
+            retained = true;
             ipcInfo.legacyIpcCap = false;
             if (isLegacyIpc) *isLegacyIpc = false;
             // hgMem* export to file descriptor or fabric handle
@@ -873,23 +876,21 @@ static ncclResult_t ipcRegisterBuffer(ncclComm_t comm, const void* userbuff, siz
               memcpy(&ipcInfo.ipcDesc.memHandle, &handle, sizeof(HGmemGenericAllocationHandle));
             } else {
               if (ncclHgMemHandleType == HG_MEM_HANDLE_TYPE_POSIX_FILE_DESCRIPTOR) {
-                int expFd = -1;
                 HGCHECKGOTO(hgMemExportToShareableHandle(&expFd, handle, ncclHgMemHandleType, 0), ret, fail);
-                NCCLCHECKGOTO(ncclProxyClientQueryFdBlocking(comm, proxyConn, expFd, &ipcInfo.impFd), ret, fail);
-                SYSCHECKGOTO(close(expFd), "close", ret, fail);
               } else {
                 // Allow this to silently fail for cases where the user buff cannot be registered
                 if ((hgMemExportToShareableHandle(&ipcInfo.ipcDesc.hgDesc.handle, handle, ncclHgMemHandleType, 0)) != HGGC_SUCCESS) {
-                  HGCHECKGOTO(hgMemRelease(handle), ret, fail);
                   goto fail;
                 }
               }
             }
             HGmemAllocationProp prop = {};
             size_t granularityVir = 0;
-            HGCHECK(hgMemGetAllocationPropertiesFromHandle(&prop, handle));
-            HGCHECK(hgMemGetAllocationGranularity(&granularityVir, &prop, HG_MEM_ALLOC_GRANULARITY_MINIMUM));
+            HGCHECKGOTO(hgMemGetAllocationPropertiesFromHandle(&prop, handle), ret, fail);
+            HGCHECKGOTO(hgMemGetAllocationGranularity(&granularityVir, &prop, HG_MEM_ALLOC_GRANULARITY_MINIMUM),
+              ret, fail);
             ALIGN_SIZE_WITH_RTN(sizeAlignedPhy, granularityVir, sizeAlignedVir);
+            retained = false;
             HGCHECKGOTO(hgMemRelease(handle), ret, fail);
           }
         } else if (legacyIpcCap) {
@@ -907,6 +908,13 @@ static ncclResult_t ipcRegisterBuffer(ncclComm_t comm, const void* userbuff, siz
         ipcInfo.phySize = sizeAlignedPhy;
         ipcInfo.virSize = sizeAlignedVir;
         ipcInfo.offset = regRecord->addr - (uintptr_t)baseAddr;
+        if (expFd != -1) {
+          ret = ncclProxyClientQueryFdBlocking(comm, proxyConn, expFd, &ipcInfo.impFd);
+          int fd = expFd;
+          expFd = -1;
+          SYSCHECKGOTO(close(fd), "close", ret, fail);
+          NCCLCHECKGOTO(ret, ret, fail);
+        }
         // Now ipcInfo contains all necessary registration info. Start to register buffer on proxy side
         // and get the remote register address back.
         if (proxyConn) {
@@ -929,6 +937,7 @@ static ncclResult_t ipcRegisterBuffer(ncclComm_t comm, const void* userbuff, siz
           newInfo->impInfo.legacyIpcCap = ipcInfo.legacyIpcCap;
           newInfo->ipcProxyconn = proxyConn;
           regRecord->ipcInfos[peerLocalRank] = newInfo;
+          newInfo = NULL;
           if (regRecord->regIpcAddrs.hostPeerRmtAddrs == NULL) {
             NCCLCHECKGOTO(ncclCalloc(&regRecord->regIpcAddrs.hostPeerRmtAddrs, comm->localRanks), ret, fail);
           }
@@ -965,6 +974,16 @@ static ncclResult_t ipcRegisterBuffer(ncclComm_t comm, const void* userbuff, siz
 exit:
   return ret;
 fail:
+  if (expFd != -1) (void)close(expFd);
+  if (retained) {
+    HGresult err = hgMemRelease(handle);
+    if (err != HGGC_SUCCESS) {
+      const char *errStr = "unknown";
+      (void) hgGetErrorString(err, &errStr);
+      WARN("Hg failure: cmd=hgMemRelease(handle) '%s'", errStr);
+      if (ret == ncclSuccess) ret = ncclUnhandledHggcError;
+    }
+  }
   *regBufFlag = 0;
   *offsetOut = 0;
   *peerRmtAddrsOut = NULL;
@@ -1064,6 +1083,7 @@ static ncclResult_t p2pProxyRegister(struct ncclProxyConnection* connection, str
   ncclResult_t ret = ncclSuccess;
   bool mapped = false;
   bool imported = false;
+  int fd = -1;
   HGmemGenericAllocationHandle handle;
 
   if (reqSize != sizeof(struct p2pIpcExpInfo)) {
@@ -1091,8 +1111,16 @@ static ncclResult_t p2pProxyRegister(struct ncclProxyConnection* connection, str
       memcpy(&handle, &ipcExpInfo->ipcDesc.memHandle, sizeof(HGmemGenericAllocationHandle));
     } else {
       if (ncclHgMemHandleType == HG_MEM_HANDLE_TYPE_POSIX_FILE_DESCRIPTOR) {
-        HGCHECKGOTO(hgMemImportFromShareableHandle(&handle, (void*)(uintptr_t)ipcExpInfo->impFd, ncclHgMemHandleType), ret, fail);
-        SYSCHECKGOTO(close(ipcExpInfo->impFd), "close", ret, fail);
+        fd = ipcExpInfo->impFd;
+        if (fd != -1 && fd == connection->pidfdImportFd) {
+          connection->pidfdImportFd = -1;
+          INFO(NCCL_REG, "pidfd: Register imported fd %d", fd);
+        }
+        HGCHECKGOTO(hgMemImportFromShareableHandle(&handle, (void*)(uintptr_t)fd, ncclHgMemHandleType), ret, fail);
+        imported = true;
+        int importedFd = fd;
+        fd = -1;
+        SYSCHECKGOTO(close(importedFd), "close", ret, fail);
       } else {
         HGCHECKGOTO(hgMemImportFromShareableHandle(&handle, (void*)&ipcExpInfo->ipcDesc.hgDesc, ncclHgMemHandleType), ret, fail);
       }
@@ -1116,6 +1144,7 @@ exit:
   *done = 1;
   return ret;
 fail:
+  if (fd != -1) (void)close(fd);
   if (!ipcExpInfo->legacyIpcCap) {
     if (mapped) HGCHECK(hgMemUnmap((HGdeviceptr)regAddr, ipcExpInfo->phySize));
     if (regAddr) HGCHECK(hgMemAddressFree((HGdeviceptr)regAddr, ipcExpInfo->virSize));
