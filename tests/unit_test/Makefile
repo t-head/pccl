@@ -6,16 +6,17 @@
 # See LICENSE.txt for more license information
 #*************************************************************************
 
-if [[ ! -d ./3rd_party ]]; then
-  bash ./setup_3rd.sh
-fi
+.PHONY : all clean
 
-ppu_archs="ppu001,ppu0015"
-if [[ $# -ge 1 ]] && [[ $1 == "--ppu_archs" ]]; then
-  ppu_archs="$2"
-fi
+default : src.build
 
-rm -rf build
-meson build -Dppu_archs=${ppu_archs}
-cd build
-ninja
+TARGETS=src
+
+all:   ${TARGETS:%=%.build}
+clean: ${TARGETS:%=%.clean}
+
+%.build:
+	${MAKE} -C $* build
+
+%.clean:
+	${MAKE} -C $* clean
