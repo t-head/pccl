@@ -203,7 +203,6 @@ static ncclResult_t pcclOkiDestroyResources(ncclComm_t comm) {
     comm->okiQps[i] = nullptr;
   }
   HGGCCHECK(hggcFreeHost(comm->okiQps));
-  NCCLCHECK(ncclHggcFree(comm->okiDependencyAddr, MEM_NORMAL, comm->memManager));
   LT_OKI_CHECK(ltOkiCloseDevice(comm->okiDevice));
   comm->okiQps = NULL;
   comm->okiDevice = NULL;
@@ -1780,7 +1779,6 @@ static ncclResult_t initTransportsRank(ncclComm_t comm, ncclComm_t parent, uint6
   comm->symmetricSupport = ncclParamWinEnable() && ncclCuMemEnable() &&
       (comm->globalGinSupport != NCCL_GIN_CONNECTION_NONE || (comm->localP2pSupport && ncclDevrIsOneLsaTeam(comm)));
   if (ncclCeSupported(comm)) {
-    comm->ceReduceStep = pcclCeReduceMaxSect;
     int p2pRingNeededPerDie = std::min(comm->nRanks, HG_DMA_RING_PER_DIE);
     int num = p2pRingNeededPerDie * ppuDiesNum;
     comm->ceStreamsNum = num;
@@ -2069,9 +2067,6 @@ static ncclResult_t ncclCommInitRankFunc(struct ncclAsyncJob* job_) {
     }
     INFO(NCCL_INIT, "OKI QPs: %d total = (1 local + %d remote) x %d dies",
          maxQPNum, remotePairs, ppuDiesNum);
-    // Allocate PCCL-managed dependency fence address, used as the cross-collective
-    // trigger point (written by gpuBarrierWithTrigger, read by okiMemcpyBatchAsync).
-    NCCLCHECKGOTO(ncclHggcCalloc(&comm->okiDependencyAddr, 1, &comm->devMemUsed, comm->memManager), res, fail);
   }
 #endif
 

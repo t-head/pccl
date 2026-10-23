@@ -22,35 +22,11 @@
 extern int ppuDiesNum;
 extern void* pcclCeOkiReduceFuncs[];
 
-// pcclCeLaunchBatchOpsMultiStreamWithOki — OKI batch DMA two-kernel pipeline
-//
-// Why two kernels on different streams?
-//
-// Kernel 1 (okiMemcpyBatchAsync): Launched on comm->ceStreams[0].
-//   - All threads cooperatively fill WQE (Work Queue Entry) slots for their
-//     assigned DMA ops. Threads in the same warp share the same QP.
-//   - Returns immediately after enqueuing WQEs to the hardware queue.
-//     DMA is queued, NOT complete — the GPU has submitted work to the DMA engine.
-//
-// Kernel 2 (okiBatchSynchronize): Launched on the caller's 'stream'.
-//   - Polls each QP's Completion Queue (CQ) until the posted fence value is
-//     observed (ltOkiPollCQ). Blocks GPU threads until DMA is actually done.
-//
-// The dependencyFenceAddr cross-kernel handoff:
-//   - A prior GPU kernel (gpuBarrierWithTrigger, launched by ncclMemOpSyncWithTrigger
-//     on the caller's stream) writes dependencyFenceAddr <- (baseStep+1) on the device
-//     via __ppu_global_store_volatile_b64, after all ranks have arrived at the barrier.
-//   - Kernel 1 waits on this fence before issuing DMA WQEs (ltOkiQPWriteWaitFenceWqe).
-//     This ensures no rank starts DMA until all ranks have reached the trigger.
-//   - Kernel 2 polls the QP's CQ, which was written by Kernel 1's fence write,
-//     confirming DMA completion per-QP.
-//
-// Stream ordering: hggcEventRecord on ceStreams[0] + hggcStreamWaitEvent on the
-//   caller's stream provides stream-level ordering on the host side, but does NOT
-//   replace the fence handoff above — the fence is required for GPU-side queue
-//   ordering. Without it, a later collective on a different stream could start
-//   before DMA from this collective is visible to remote ranks.
-static ncclResult_t pcclCeLaunchBatchOpsMultiStreamWithOki(ncclComm_t comm, const struct ncclCeBatchOpsParams* params, ncclCeCollArgs* ceCollArgs, uint64_t baseStep, uint64_t syncStep, hggcStream_t stream) {
+// Keep submission and polling on the caller's stream so both read the epoch after
+// preceding graph/eager work has finished using these QPs. Stream ordering covers
+// submission only; the CQ poll is still needed to wait for the asynchronous DMA.
+static ncclResult_t pcclCeLaunchBatchOpsWithOki(
+    ncclComm_t comm, const struct ncclCeBatchOpsParams* params, hggcStream_t stream) {
   // Check if there are any operations to perform
   if (params->numOps == 0) {
     return ncclSuccess;
@@ -67,13 +43,15 @@ static ncclResult_t pcclCeLaunchBatchOpsMultiStreamWithOki(ncclComm_t comm, cons
   uint64_t offset = (uint8_t*)rankRemoteFenceAddrs - (uint8_t*)comm->ceColl.ceSyncBase;
   NCCLCHECK(ncclDevrGetLsaRankPtr(comm, comm->ceColl.ceSyncWin, offset, 0, (void**)&args.rank0RemoteFenceAddrs));
 
-  uint64_t* dependencyFenceAddr = comm->okiDependencyAddr;
+  auto* sync = (struct ncclCeGridSyncMem*)ncclSymDevBase_getGridSyncBase(
+      (struct ncclSymDevBase*)comm->ceColl.ceSyncBase, comm->nRanks);
+  uint64_t* stepDev = &sync->okiStep;
 
   uint32_t stride4G = comm->devrState.bigSize >> 32;
   ltOkiQP_t* qps = comm->okiQps;
   // One warp per QP group, one lane per die.
   int numQpGroups = comm->okiQpCount / ppuDiesNum;
-  void* pargs[] = {&args, &qps, &dependencyFenceAddr, &baseStep, &comm->rank, &stride4G, &numQpGroups};
+  void* pargs[] = {&args, &qps, &stepDev, &comm->rank, &stride4G, &numQpGroups};
   struct dispatchStrategyExAD launchConfig = {1, 1, 1, -2, /*cooperative=*/0};
   dim3 grid = {1, 1, 1};
   dim3 block = {(uint32_t)(WARP_SIZE * numQpGroups), 1, 1};
@@ -82,14 +60,12 @@ static ncclResult_t pcclCeLaunchBatchOpsMultiStreamWithOki(ncclComm_t comm, cons
   if (ppuDiesNum == 1) func = (void**) okiMemcpyBatchAsync<1>;
   else if (ppuDiesNum == 2) func = (void**) okiMemcpyBatchAsync<2>;
   else return ncclInternalError;
-  // okiMemcpyBatchAsync kernel will wait dependencyFenceAddr to meet request then launch DMA.
-  LAUNCH_KERNEL(func, grid, block, pargs, (ssize_t)0, comm->ceStreams[0], 1, launchConfig);
+  LAUNCH_KERNEL(func, grid, block, pargs, (ssize_t)0, stream, 1, launchConfig);
 
-  // cannot use wait Event to implement the dependency as we use queue directly, there is no stream concept.
   if (ppuDiesNum == 1) func = (void*)okiBatchSynchronize<1>;
   else if (ppuDiesNum == 2) func = (void*)okiBatchSynchronize<2>;
   else return ncclInternalError;
-  void* pargs1[] = {&args, &qps, &comm->rank, &syncStep, &numQpGroups};
+  void* pargs1[] = {&args, &qps, &comm->rank, &stepDev, &numQpGroups};
   // okiBatchSynchronize kernel will wait DMA done launched by okiMemcpyBatchAsync
   LAUNCH_KERNEL(func, grid, block, pargs1, (ssize_t)0, stream, 1, launchConfig);
   return ncclSuccess;
@@ -128,10 +104,8 @@ static ncclResult_t pcclCeOkiReduceLaunch(
 // block barriers with the peers, drives the OKI queues for the reduce-scatter and -- for
 // AllReduce -- the allgather, waits for its own completion queues, and barriers again.
 //
-// The barriers used to be two kernels (gpuBarrierWithTrigger / gpuBarrier) with a device fence
-// carrying the handoff to the cmd kernel on comm->ceStreams[0]. Fused, the handoff is program
-// order, and because the kernel does not retire until the cmd block has drained its queues,
-// stream ordering alone provides the back-pressure that the host-side sliding window used to.
+// Because the kernel does not retire until the cmd block drains its queues,
+// stream ordering also serializes access to the shared execution-time epochs.
 static ncclResult_t pcclCeOkiReduce(ncclComm_t comm, struct ncclCeCollArgs* args, hggcStream_t stream, ncclFunc_t func) {
   struct pcclCeOkiReduceState state = {};
   state.func = func;
@@ -139,10 +113,6 @@ static ncclResult_t pcclCeOkiReduce(ncclComm_t comm, struct ncclCeCollArgs* args
   NCCLCHECK(pcclCeOkiReduceSetup(comm, args, &state));
   NCCLCHECK(pcclCeOkiReduceLaunch(comm, args, &state, stream));
 
-  // +1 covers the closing CQ fence the cmd block writes for both collectives; the next
-  // collective's first self-wait is on exactly this value.
-  comm->ceOkiStep += (state.rank0LoopCnt + 1);
-  comm->ceReduceStep += state.rank0LoopCnt;
   return ncclSuccess;
 }
 
@@ -223,8 +193,6 @@ static ncclResult_t pcclCeOkiReduceLaunch(
   kargs.myElts = state->currentRankElts;
   kargs.nElts = state->totalElts;
   kargs.chunkElts = state->chunkElts;
-  kargs.okiBaseStep = comm->ceOkiStep + 1;
-  kargs.reduceStepBase = comm->ceReduceStep;
   kargs.eltSize = args->eltSize;
   kargs.loopCnt = state->rank0LoopCnt;
   kargs.nDies = ppuDiesNum;
@@ -278,34 +246,11 @@ ncclResult_t pcclCeOkiAllGather(ncclComm_t comm, struct ncclCeCollArgs* args, hg
   int peerNumStage1 = strategy->peerNumStage1;
 
   struct ncclCeBatchOpsParams batchOpsParams = {};
-  uint64_t* dependencyAddr = nullptr;
-  uint64_t baseStep = comm->ceOkiStep;
-  uint64_t syncStep = baseStep + 1;
   NCCLCHECKGOTO(ncclCeInitBatchOpsParams(&batchOpsParams, comm->nRanks), res, fail);
 
-  // 3-phase synchronization protocol for OKI batch operations:
-  //
-  // Phase 1 (device barrier): ncclMemOpSyncWithTrigger launches gpuBarrierWithTrigger,
-  //   which performs a barrier arrive/wait across all ranks on the caller's stream, then
-  //   stores dependencyAddr <- (baseStep+1) via __ppu_global_store_volatile_b64.
-  //   All ranks must arrive at the barrier before any rank proceeds — this is the
-  //   hardware-enforced ordering point that ensures no rank starts DMA while another
-  //   is still filling its WQEs.
-  //
-  // Phase 2 (device, okiMemcpyBatchAsync): each thread-block waits on
-  //   dependencyAddr == (baseStep+1) before issuing DMA WQEs. This provides
-  //   GPU-side ordering: all blocks see the trigger before any DMA fires.
-  //
-  // Phase 3 (device, okiBatchSynchronize): each thread polls its QP's CQ until
-  //   the posted value == (syncStep == baseStep+1), confirming DMA completion.
-  //
-  // NOTE: on error return from any phase, other ranks may be left waiting at
-  //   Phase 1 (barrier) or Phase 2 (dependency wait) indefinitely — the collective
-  //   has no timeout or abort mechanism. This is a known correctness limitation.
-
-  // Ensure all ranks are ready before starting transfers
-  dependencyAddr = comm->okiDependencyAddr;
-  NCCLCHECKGOTO(ncclMemOpSyncWithTrigger(args, stream, dependencyAddr, baseStep+1), res, fail);
+  // Both DMA kernels follow this barrier on the same stream. The poll kernel
+  // advances the shared epoch only after every submitted CQ fence completes.
+  NCCLCHECKGOTO(ncclMemOpSync(comm, args, stream), res, fail);
 
   // Copy own data to receive buffer if operation is out-of-place
   if (myRecvBuff != mySendBuff) {
@@ -332,9 +277,8 @@ ncclResult_t pcclCeOkiAllGather(ncclComm_t comm, struct ncclCeCollArgs* args, hg
     batchOpsParams.numOps++;
   }
 
-  NCCLCHECKGOTO(pcclCeLaunchBatchOpsMultiStreamWithOki(comm, &batchOpsParams, args, baseStep, syncStep, stream), res, fail);
+  NCCLCHECKGOTO(pcclCeLaunchBatchOpsWithOki(comm, &batchOpsParams, stream), res, fail);
   NCCLCHECKGOTO(ncclMemOpSync(comm, args, stream), res, fail);
-  comm->ceOkiStep += 1;
 
 exit:
   NCCLCHECK(ncclCeFreeBatchOpsParams(&batchOpsParams));

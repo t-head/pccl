@@ -152,19 +152,6 @@ __global__ void gpuBarrier(ncclSymDevArgs const args) {
   prim.barrierWait(ncclCoopCta(), /*acquire=*/false);
 }
 
-#if PCCL_HGGC_VERSION >= PCCL_HGGC_DRIVER_VERSION(2, 2, 0)
-__global__ void gpuBarrierWithTrigger(ncclSymDevArgs const args, uint64_t* addr, uint64_t value) {
-  ncclSymPrims prim(args.comm, 1, ncclSymPrims_UseBarrier);
-  prim.barrierArrive(ncclCoopCta(), /*release=*/true);
-  prim.barrierWait(ncclCoopCta(), /*acquire=*/false);
-  if (threadIdx.x == 0 && blockIdx.x == 0) {
-    if (addr != NULL) {
-      __ppu_global_store_volatile_b64((volatile void*)addr, value);
-    }
-  }
-}
-#endif
-
 __device__ void fastDivModOfPow2(int32_t dividend, uint32_t divisor, int32_t* quotient, int32_t* remainder) {
   if ((divisor & (divisor - 1)) == 0) {
     int log2 = __ffs(divisor) - 1;
@@ -348,7 +335,8 @@ __device__ void ceLocalReduce(const struct pcclCeOkiReduceArgs& args) {
   uint32_t iters = args.loopCnt;
   uint32_t stride4G = args.stride4G;
   void* gridSyncPtr = args.gridSyncPtr;
-  int64_t baseStep = args.reduceStepBase;
+  auto* sync = (struct ncclCeGridSyncMem*)gridSyncPtr;
+  int64_t baseStep = sync->reduceStep;
   constexpr uint32_t blockNum = pcclCeReduceMaxBlocks;
 
   static constexpr int PACKED_ELTS_PER_THREAD = 16 / sizeof(T);
@@ -459,23 +447,34 @@ template<typename T, int NRANKS, bool AVG>
 __global__ void pcclCeOkiReduceFused(struct pcclCeOkiReduceArgs args) {
   if (blockIdx.x < pcclCeReduceMaxBlocks) {
     ceLocalReduce<T, NRANKS, AVG>(args);
-    return;
+  } else {
+    // Entry protects station reuse; exit makes peers' remote writes visible after
+    // the command block has drained its completion queues.
+    ncclSymPrims prim(args.comm, 1, ncclSymPrims_UseBarrier);
+    prim.barrierArrive(ncclCoopCta(), /*release=*/true);
+    prim.barrierWait(ncclCoopCta(), /*acquire=*/false);
+
+    if (args.nDies == 1) okiReduceDmaCmd<1>(args, NRANKS);
+    else okiReduceDmaCmd<2>(args, NRANKS);
+
+    prim.barrierArrive(ncclCoopCta(), /*release=*/true);
+    prim.barrierWait(ncclCoopCta(), /*acquire=*/false);
   }
 
-  // The cmd block. The barriers around the DMA are what used to be gpuBarrierWithTrigger and
-  // the trailing gpuBarrier: the first one keeps any rank from writing into a peer's station
-  // buffer before that peer is in this collective, the second one -- placed after the cmd path
-  // has polled its own queues -- is what makes every peer's remote writes visible in recvBuff
-  // by the time the kernel retires.
-  ncclSymPrims prim(args.comm, 1, ncclSymPrims_UseBarrier);
-  prim.barrierArrive(ncclCoopCta(), /*release=*/true);
-  prim.barrierWait(ncclCoopCta(), /*acquire=*/false);
-
-  if (args.nDies == 1) okiReduceDmaCmd<1>(args, NRANKS);
-  else okiReduceDmaCmd<2>(args, NRANKS);
-
-  prim.barrierArrive(ncclCoopCta(), /*release=*/true);
-  prim.barrierWait(ncclCoopCta(), /*acquire=*/false);
+  __syncthreads();
+  if (threadIdx.x == 0) {
+    auto* sync = (struct ncclCeGridSyncMem*)args.gridSyncPtr;
+    __threadfence();
+    // The command CTA alone may finish before an idle reduce CTA has read its base.
+    // Advance only after every CTA has finished using the old epochs. The closing
+    // CQ fence consumes one extra OKI step; station epochs advance by loopCnt.
+    if (atomicAdd(&sync->okiCompletedBlocks, 1u) == gridDim.x - 1) {
+      __threadfence();
+      sync->okiStep += (uint64_t)args.loopCnt + 1;
+      sync->reduceStep += args.loopCnt;
+      sync->okiCompletedBlocks = 0;
+    }
+  }
 }
 
 #define CE_OKI_REDUCE_IMPL(T, nRanks, avg) \

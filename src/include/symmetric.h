@@ -51,6 +51,10 @@ constexpr __host__ __device__ int ncclSymLLEpochSize(int nRanks) {
 struct ncclCeGridSyncMem {
   uint32_t gridSyncCounter;
   uint32_t gridSyncGeneration;
+  // Eager work and graph replay share these epochs; ncclCeInit seeds reduceStep.
+  uint32_t okiCompletedBlocks;
+  uint64_t okiStep;  // The sole CQ epoch for reduce, P2P and legacy OKI AllGather.
+  uint64_t reduceStep;
 };
 
 constexpr size_t pcclCeReduceStaBufSize(int nRanks) {
@@ -171,9 +175,6 @@ struct alignas(16) pcclSymDevArgs {
 // generated __global__ wrappers translate into.
 
 __global__ void gpuBarrier(ncclSymDevArgs const args);
-#if PCCL_HGGC_VERSION >= PCCL_HGGC_DRIVER_VERSION(2, 2, 0)
-__global__ void gpuBarrierWithTrigger(ncclSymDevArgs const args, uint64_t* addr, uint64_t value);
-#endif
 __global__ void gpuGEQ(volatile uint64_t* ptr, uint64_t data);
 
 #if PCCL_HGGC_VERSION >= PCCL_HGGC_DRIVER_VERSION(2, 2, 0)
@@ -195,8 +196,6 @@ struct alignas(16) pcclCeOkiReduceArgs {
   uint64_t nElts;                  // total elements across all ranks' sendBuff
   // AllReduce slices are rounded to 512B; ReduceScatter uses the exact recvcount.
   int64_t chunkElts;
-  uint64_t okiBaseStep;
-  int64_t reduceStepBase;
   int eltSize;
   uint32_t loopCnt;
   uint32_t nDies;
@@ -229,8 +228,7 @@ template<int DIE_NUM>
 __global__ void okiMemcpyBatchAsync(
   struct ncclCeCollKernelLaunchArgs args, // use struct to prevent compiler opt array to pointer.
   ltOkiQP_t* ibs,
-  uint64_t* dependencyFenceAddr,
-  uint64_t step,
+  uint64_t* stepDev,
   int myRank,
   int stride4G,
   int numQpGroups
@@ -241,7 +239,7 @@ __global__ void okiBatchSynchronize(
   struct ncclCeCollKernelLaunchArgs args, // use struct to prevent compiler opt array to pointer.
   ltOkiQP_t* qps,
   int myRank,
-  uint64_t pollValue,
+  uint64_t* stepDev,
   int numQpGroups
 );
 #endif
