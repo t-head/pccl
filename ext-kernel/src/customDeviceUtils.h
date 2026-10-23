@@ -103,6 +103,7 @@ struct extKernelDevParams {
   uint32_t eltsPerBlock;
   uint32_t buffEltsPerBlock;
   uint8_t myRank;
+  uint32_t* abortFlag;
 
   void* peerPtrTables[DEV_REGION_COUNT];
   void* llEpochs;
@@ -199,6 +200,7 @@ struct oneShotDevParams {
   uint32_t buffEltsPerBlock;
   uint32_t barrierFlag;
   uint8_t myRank;
+  uint32_t* abortFlag;
 
   volatile uint32_t** peerBarrierIn;
   volatile uint32_t** peerBarrierOut;
@@ -213,6 +215,7 @@ struct oneShotDevParams {
     eltsPerBlock = params.eltsPerBlock;
     buffEltsPerBlock = params.buffEltsPerBlock;
     myRank = params.myRank;
+    abortFlag = params.abortFlag;
     peerBarrierIn = (volatile uint32_t**)params.peerPtrTables[DEV_REGION_BARRIER_IN];
     peerBarrierOut = (volatile uint32_t**)params.peerPtrTables[DEV_REGION_BARRIER_OUT];
     peerBarrierReduce = (volatile uint32_t**)params.peerPtrTables[DEV_REGION_BARRIER_REDUCE];

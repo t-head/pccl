@@ -22,6 +22,8 @@ struct pcclExtKernelInitInfo {
   pcclICNRemoteDeviceType_t icnRmtType;
   struct ncclDispatchStrategy defaultStrategy;
   const int* topoArray;  // localRanks x localRanks, pre-filled by core
+  // Device-visible comm abort flag, set by pcclCommAbort
+  uint32_t* abortFlagDev;
 };
 
 /*========================================================================

@@ -81,7 +81,7 @@ __global__ void pcclKernel_oneShotAllGatherKernel(struct oneShotDevParams params
   uint32_t barrierFlag = getBarrierFlag<NRANKS>(params.peerBarrierIn, params.myRank, tidx, bidx) + 1;
 
   __syncthreads();
-  blockBarrier<NRANKS>(params.peerBarrierIn, barrierFlag, params.myRank, tidx, bidx);
+  blockBarrier<NRANKS>(params.peerBarrierIn, barrierFlag, params.myRank, tidx, bidx, params.abortFlag);
 
   // Phase 2: gather from local buffer to recvbuff (warps grouped by peer rank).
   // After barrier, srcPtrs[0] contains all ranks' data. Each warp group
@@ -113,7 +113,7 @@ __global__ void pcclKernel_oneShotAllGatherKernel(struct oneShotDevParams params
   // Make sure every rank is done reading this round before the next round
   // starts overwriting the shared staging buffers.
   __syncthreads();
-  blockBarrier<NRANKS>(params.peerBarrierOut, barrierFlag, params.myRank, tidx, bidx);
+  blockBarrier<NRANKS>(params.peerBarrierOut, barrierFlag, params.myRank, tidx, bidx, params.abortFlag);
 }
 
 // Template instantiations (macros defined in header)
