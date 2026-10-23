@@ -49,7 +49,6 @@ PARAMBIN := pcclparam
 ##### dirs
 BUILDDIR ?= $(abspath ../build)
 TESTSDIR = $(abspath ../tests)
-TESTSSRCS = $(TESTSDIR)/src/graph_search_tests.cc
 INCDIR := $(BUILDDIR)/include
 LIBDIR := $(BUILDDIR)/lib
 OBJDIR := $(BUILDDIR)/obj
@@ -149,9 +148,16 @@ staticlib : $(LIBDIR)/$(STATICLIBTARGET)
 
 binary : $(BINDIR)/$(BINNAME) $(BINDIR)/$(PARAMBIN)
 
-tests : $(TESTSDIR)/tests_check
-	grep -q "FAIL" $(TESTSDIR)/tests_check && echo "tests fail" && exit 1 || echo "all tests passed."
-# grep -q "FAIL" $(TESTSDIR)/tests.log && $(error "tests failed") || echo "all tests passed."
+tests : graph_search_test unit_test
+
+graph_search_test: lib
+	$(MAKE) -C $(TESTSDIR)/graph_search_test
+
+unit_test: lib
+	cd $(TESTSDIR)/unit_test && ./build.sh --ppu_archs $(PPU_ARCHS)
+
+$(DEVICELIB): ALWAYS_REBUILD $(INCTARGETS)
+	$(MAKE) -C collectives/device
 
 release_yaml :
 	@mkdir -p $(BUILDDIR)
@@ -159,15 +165,6 @@ release_yaml :
 	@echo "version: $(RELEASE_YAML_VERSION)" > $(BUILDDIR)/release.yaml
 	@echo "name: $(RELEASE_YAML_NAME)" >> $(BUILDDIR)/release.yaml
 	@echo "hggcrt_version: $(RELEASE_YAML_HGGCRT_VERSION)" >> $(BUILDDIR)/release.yaml
-
-$(TESTSDIR)/tests_check : ALWAYS_REBUILD $(TESTSDIR)/build/graphSearchTest
-	cd $(TESTSDIR) && ./build/graphSearchTest > tests_check
-
-$(TESTSDIR)/build/graphSearchTest : $(TESTSSRCS)
-	cd $(TESTSDIR) && ./build.sh
-
-$(DEVICELIB): ALWAYS_REBUILD $(INCTARGETS)
-	$(MAKE) -C collectives/device
 
 # Empty target to force rebuild
 ALWAYS_REBUILD:
@@ -271,6 +268,8 @@ $(OBJDIR)/%.o : %.cpp $(INCTARGETS)
 clean :
 	$(MAKE) -C collectives/device clean
 	rm -rf ${INCDIR} ${LIBDIR} ${PKGDIR} ${OBJDIR} ${BINDIR}
+	cd ${TESTSDIR}/graph_search_test && make clean
+	cd ${TESTSDIR}/unit_test && make clean
 
 install : lib binary
 	mkdir -p $(PREFIX)/lib

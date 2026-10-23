@@ -1,0 +1,18 @@
+{
+    "testConfigs" :{
+        "test1" : {
+            "graph": true,
+            "streams" : ["s1"],
+            "buffs" : ["A", "B"],
+            "inits" : [
+                ["compute", "init", "2048", "float", "s1", "A"]
+            ],
+            "kernels" : [
+                ["pccl", "alltoall", "2048", "float", "s1", "A", "B"]
+            ],
+            "outbuffs" : ["B"]
+        }
+    },
+    "order": ["test1"],
+    "compareTests" : []
+}

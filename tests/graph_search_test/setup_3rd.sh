@@ -35,8 +35,8 @@ setup_gtest() {
     echo
     echo -------- GTest Installing --------
 
-    GTEST_ZIP_FILE=${DOWNLOAD_PATH}/gtest-1.7.0.zip
-    GTEST_SRC_FILE=https://github.com/google/googletest/archive/refs/tags/release-1.7.0.zip
+    GTEST_ZIP_FILE=${DOWNLOAD_PATH}/gtest-1.14.0.zip
+    GTEST_SRC_FILE=https://github.com/google/googletest/archive/refs/tags/v1.14.0.zip
 
     cd ${DOWNLOAD_PATH}
     if [ ! -f ${GTEST_ZIP_FILE} ]
@@ -44,9 +44,9 @@ setup_gtest() {
         wget ${GTEST_SRC_FILE} -O ${GTEST_ZIP_FILE}
     fi
 
-    unzip ${GTEST_ZIP_FILE}
+    unzip -o ${GTEST_ZIP_FILE}
 
-    GTEST_SRC_PATH=${DOWNLOAD_PATH}/googletest-release-1.7.0
+    GTEST_SRC_PATH=${DOWNLOAD_PATH}/googletest-1.14.0
     chmod +x ${GTEST_SRC_PATH}
 
     cd ${GTEST_SRC_PATH}
@@ -62,19 +62,19 @@ setup_gtest() {
         mkdir -p ${GTEST_PATH}
     fi
 
-    cp -rf ${GTEST_SRC_PATH}/include/ ${GTEST_PATH}
+    cp -rf ${GTEST_SRC_PATH}/googletest/include/ ${GTEST_PATH}
 
     GTEST_LIB_PATH=${GTEST_PATH}/lib
     if [ ! -d "${GTEST_LIB_PATH}" ]
     then
         mkdir -p ${GTEST_LIB_PATH}
     fi
-    cp -rf ${GTEST_SRC_PATH}/build/libgtest.a ${GTEST_LIB_PATH}
+    cp -rf ${GTEST_SRC_PATH}/build/lib/libgtest.a ${GTEST_LIB_PATH}
 
     make clean
-    cmake -DCMAKE_CXX_FLAGS="-D_GLIBCXX_USE_CXX11_ABI=0" -DCMAKE_POSITION_INDEPENDENT_CODE=ON .
+    cmake -DCMAKE_CXX_FLAGS="-D_GLIBCXX_USE_CXX11_ABI=0" -DCMAKE_POSITION_INDEPENDENT_CODE=ON ..
     make -j16
-    cp -rf ${GTEST_SRC_PATH}/build/libgtest.a ${GTEST_LIB_PATH}/libgtest_no_cxx11_abi.a
+    cp -rf ${GTEST_SRC_PATH}/build/lib/libgtest.a ${GTEST_LIB_PATH}/libgtest_no_cxx11_abi.a
 
     echo
     echo -------- Complete GTest Installing --------

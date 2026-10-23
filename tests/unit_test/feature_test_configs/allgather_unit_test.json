@@ -1,0 +1,59 @@
+{
+    "testConfigs" :{
+        "test1" : {
+            "graph": false,
+            "streams" : ["s1", "s2"],
+            "buffs" : ["A", "A1", "B", "C"],
+            "inits" : [
+                ["compute", "init", "8192", "int8", "s1", "A"],
+                ["compute", "init", "8192", "int8", "s1", "A1"]
+            ],
+            "kernels" : [
+                ["compute", "inc", "8192", "int8", "s1", "A"],
+                ["pccl", "groupStart" ],
+                ["pccl", "allgather", "151936", "int8", "s1", "A", "A"],
+                ["pccl", "groupEnd" ],
+                ["pccl", "groupStart" ],
+                ["pccl", "allgather", "15801344", "int8", "s1", "A", "A1"],
+                ["pccl", "groupEnd" ],
+                ["pccl", "groupStart" ],
+                ["pccl", "allgather", "14585856", "int8", "s1", "A1", "A1"],
+                ["pccl", "groupEnd" ],
+                ["pccl", "groupStart" ],
+                ["pccl", "allgather", "13370368", "int8", "s1", "A1", "B"],
+                ["pccl", "groupEnd" ],
+                ["compute", "inc", "8192", "int8", "s1", "B"]
+            ],
+            "outbuffs" : ["B"]
+        },
+        "test2" : {
+            "graph": true,
+            "streams" : ["s1", "s2"],
+            "buffs" : ["A", "A1", "B", "C"],
+            "inits" : [
+                ["compute", "init", "8192", "int8", "s1", "A"],
+                ["compute", "init", "8192", "int8", "s1", "A1"]
+            ],
+            "kernels" : [
+                ["compute", "inc", "8192", "int8", "s1", "A"],
+                ["pccl", "groupStart" ],
+                ["pccl", "allgather", "151936", "int8", "s1", "A", "A"],
+                ["pccl", "groupEnd" ],
+                ["pccl", "groupStart" ],
+                ["pccl", "allgather", "15801344", "int8", "s1", "A", "A1"],
+                ["pccl", "groupEnd" ],
+                ["pccl", "groupStart" ],
+                ["pccl", "allgather", "14585856", "int8", "s1", "A1", "A1"],
+                ["pccl", "groupEnd" ],
+                ["pccl", "groupStart" ],
+                ["pccl", "allgather", "13370368", "int8", "s1", "A1", "B"],
+                ["pccl", "groupEnd" ],
+                ["compute", "inc", "8192", "int8", "s1", "B"]
+            ],
+            "outbuffs" : ["B"]
+        }
+    },
+    "order": ["test1", "test2"],
+     "outbuffs" : ["B", "C"],
+    "compareTests" : ["test1", "test2"]
+}

@@ -1,0 +1,41 @@
+{
+    "testConfigs" :{
+        "test1" : {
+            "graph": false,
+            "streams" : ["s1", "s2"],
+            "buffs" : ["A", "A1", "B", "C"],
+            "inits" : [
+                ["compute", "init", "8192", "float", "s1", "A"],
+                ["compute", "init", "8192", "float", "s1", "A1"]
+            ],
+            "kernels" : [
+                ["compute", "inc", "8192", "float", "s1", "A"],
+                ["pccl", "groupStart" ],
+                ["pccl", "allreduce", "8192", "float", "s1", "A", "B"],
+                ["pccl", "alltoall", "8192", "float", "s1", "A1", "C"],
+                ["pccl", "groupEnd" ],
+                ["compute", "inc", "8192", "float", "s1", "B"]
+            ],
+            "outbuffs" : ["B"]
+        },
+        "test2" : {
+            "graph": false,
+            "streams" : ["s1", "s2"],
+            "buffs" : ["A", "A1", "B", "C"],
+            "inits" : [
+                ["compute", "init", "8192", "float", "s1", "A"],
+                ["compute", "init", "8192", "float", "s1", "A1"]
+            ],
+            "kernels" : [
+                ["compute", "inc", "8192", "float", "s1", "A"],
+                ["pccl", "allreduce", "8192", "float", "s1", "A", "B"],
+                ["pccl", "alltoall", "8192", "float", "s1", "A1", "C"],
+                ["compute", "inc", "8192", "float", "s1", "B"]
+            ],
+            "outbuffs" : ["B"]
+        }
+    },
+    "order": ["test1", "test2"],
+     "outbuffs" : ["B", "C"],
+    "compareTests" : ["test1", "test2"]
+}
