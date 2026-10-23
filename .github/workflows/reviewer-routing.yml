@@ -1,0 +1,98 @@
+name: Recommend PCCL reviewers
+run-name: "Recommend reviewers for PR #${{ github.event.pull_request.number || inputs.pr_number }}"
+
+on:
+  pull_request_target:
+    branches: [main]
+    types: [opened, synchronize, reopened, ready_for_review, edited]
+  workflow_dispatch:
+    inputs:
+      pr_number:
+        description: PR number to classify again
+        required: true
+        type: number
+  workflow_call:
+    inputs:
+      pr_number:
+        description: PR number to classify
+        required: true
+        type: number
+      target_branch:
+        description: Expected PR target branch
+        default: main
+        type: string
+      state_branch:
+        description: Branch that stores reviewer rotation and PR assignments
+        default: automation/reviewer-rotation
+        type: string
+
+permissions: {}
+
+concurrency:
+  group: reviewers-${{ github.event.pull_request.number || inputs.pr_number }}
+  cancel-in-progress: true
+
+env:
+  PR_NUMBER: ${{ github.event.pull_request.number || inputs.pr_number }}
+  REVIEW_BASE_BRANCH: ${{ inputs.target_branch || 'main' }}
+  REVIEW_STATE_BRANCH: ${{ inputs.state_branch || 'automation/reviewer-rotation' }}
+  PYTHONUTF8: '1'
+
+jobs:
+  classify:
+    name: Classify changed modules
+    if: >-
+      github.repository == 't-head/pccl' &&
+      !github.event.pull_request.draft &&
+      (github.event_name != 'workflow_dispatch' || github.ref == 'refs/heads/main')
+    runs-on: ubuntu-24.04
+    timeout-minutes: 10
+    permissions:
+      contents: read
+      pull-requests: read
+      copilot-requests: write
+    outputs:
+      recommendation: ${{ steps.classify.outputs.recommendation }}
+    steps:
+      # Always run trusted base code. PR contents are only read through the API.
+      - uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262 # v4
+        with:
+          ref: ${{ github.event.pull_request.base.sha || github.sha }}
+          persist-credentials: false
+      - name: Validate reviewer selection rules
+        run: python3 -m unittest discover -s tests/review -p 'test_*.py'
+      - name: Prepare standalone Copilot CLI
+        shell: bash
+        run: |
+          curl --fail --location --retry 3 \
+            https://github.com/github/copilot-cli/releases/download/v1.0.100/copilot-linux-x64.tar.gz \
+            --output "$RUNNER_TEMP/copilot.tar.gz"
+          echo "65dfb019192afebed7abb385323a232a5ac32fa8c40a230880d4013cffb6b0b3  $RUNNER_TEMP/copilot.tar.gz" | sha256sum --check -
+          mkdir -p "$RUNNER_TEMP/copilot"
+          tar -xzf "$RUNNER_TEMP/copilot.tar.gz" -C "$RUNNER_TEMP/copilot"
+      - name: Classify using the module Skill
+        id: classify
+        env:
+          GITHUB_TOKEN: ${{ github.token }}
+          COPILOT_CLI: ${{ runner.temp }}/copilot/copilot
+        run: python3 .github/scripts/request_reviewers.py classify
+
+  invite:
+    name: Request reviewers
+    needs: classify
+    if: needs.classify.outputs.recommendation != ''
+    runs-on: ubuntu-24.04
+    timeout-minutes: 5
+    permissions:
+      contents: write # Persist rotation with a conditional file update.
+      pull-requests: write
+    steps:
+      - uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262 # v4
+        with:
+          ref: ${{ github.event.pull_request.base.sha || github.sha }}
+          persist-credentials: false
+      - name: Validate and request reviewers from the roster
+        env:
+          GITHUB_TOKEN: ${{ github.token }}
+          RECOMMENDATION: ${{ needs.classify.outputs.recommendation }}
+        run: python3 .github/scripts/request_reviewers.py invite

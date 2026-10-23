@@ -1,0 +1,167 @@
+{
+  "lead_maintainer": "shusen",
+  "people": {
+    "yuanchao": {"name": "远超", "github": "xiangzhixyc"},
+    "chenkai": {"name": "陈凯", "github": "ck-milo"},
+    "suyang": {"name": "苏洋", "github": "wensuyang"},
+    "weilai": {"name": "未来", "github": "levilee-lwl"},
+    "shusen": {"name": "书森", "github": "lishusen2026"},
+    "honglei": {"name": "洪磊", "github": "honglei-lu"},
+    "zhouwang": {"name": "周旺", "github": "snowdrift-zw"},
+    "zhiyang": {"name": "志阳", "github": "OtoriEmu000"},
+    "xianghan": {"name": "湘涵", "github": "honganlxh"},
+    "liyou": {"name": "李游", "github": "QingxunLy"},
+    "tingting": {"name": "婷婷", "github": "ctt284373"},
+    "xuying": {"name": "徐迎", "github": "xuying-xy"},
+    "zhiyuan": {"name": "志远", "github": "qinghanke"},
+    "jingyu": {"name": "静宇", "github": "whale494255"},
+    "shulei": {"name": "舒磊", "github": null},
+    "yinxin": {"name": "寅鑫", "github": "xuyinxin-xyx"}
+  },
+  "modules": {
+    "build": {
+      "name": "Build system",
+      "description": "Build definitions, compiler integration, SDK setup and packaging.",
+      "maintainer": "weilai",
+      "reviewers": ["yuanchao", "chenkai", "suyang"]
+    },
+    "bootstrap": {
+      "name": "Bootstrap",
+      "description": "Peer discovery, bootstrap sockets and initial rank exchange.",
+      "maintainer": "chenkai",
+      "reviewers": ["honglei", "zhouwang"]
+    },
+    "device-topology": {
+      "name": "Device detection and path building",
+      "description": "Device and link discovery, topology representation and communication path construction.",
+      "maintainer": "xianghan",
+      "reviewers": ["yuanchao", "zhiyang", "chenkai"]
+    },
+    "graph-search": {
+      "name": "Topology graph search",
+      "description": "Search for rings, trees and channel graphs over the detected topology.",
+      "maintainer": "xianghan",
+      "reviewers": ["yuanchao", "zhiyang", "chenkai"]
+    },
+    "transport": {
+      "name": "Transport build and connect",
+      "description": "Choose, initialize and connect transports between ranks, including P2P and SHM.",
+      "maintainer": "chenkai",
+      "reviewers": ["yuanchao", "zhouwang", "honglei"]
+    },
+    "tuning": {
+      "name": "Algorithm and protocol selection",
+      "description": "Built-in tuning models, algorithm/protocol decisions and selection thresholds.",
+      "maintainer": "xianghan",
+      "reviewers": ["chenkai", "liyou"]
+    },
+    "communicator": {
+      "name": "Communicator lifecycle",
+      "description": "Communicator split, shrink, revoke, resume, suspend and lifecycle management.",
+      "maintainer": "zhiyang",
+      "reviewers": ["xianghan", "tingting"]
+    },
+    "memory": {
+      "name": "Memory management",
+      "description": "Memory allocation, registration, mapping, ownership and release.",
+      "maintainer": "honglei",
+      "reviewers": ["tingting", "chenkai"]
+    },
+    "enqueue": {
+      "name": "Runtime kernel planning and enqueue",
+      "description": "Host-side work planning, enqueue, streams, groups and graph capture.",
+      "maintainer": "tingting",
+      "reviewers": ["chenkai", "yuanchao"]
+    },
+    "dispatch": {
+      "name": "Kernel dispatch and CE masks",
+      "description": "Kernel dispatch strategy and copy-engine mask selection.",
+      "maintainer": "xianghan",
+      "reviewers": ["chenkai", "yuanchao", "suyang", "tingting"]
+    },
+    "network": {
+      "name": "Network transport, plugin and proxy",
+      "description": "Network backends, net-plugin interfaces, network transfers and proxy progress.",
+      "maintainer": "zhouwang",
+      "reviewers": ["yuanchao", "xuying"]
+    },
+    "kernels": {
+      "name": "Native operations and device kernels",
+      "description": "Built-in collective/P2P kernels, communication primitives and reduction operations.",
+      "maintainer": "xianghan",
+      "reviewers": ["yuanchao", "chenkai", "zhiyuan", "tingting"]
+    },
+    "scheduling": {
+      "name": "AlltoAll and P2P scheduling",
+      "description": "Host scheduling, batching, rank pairing and ordering for AlltoAll and P2P.",
+      "maintainer": "xianghan",
+      "reviewers": ["weilai", "yuanchao", "tingting"]
+    },
+    "kernel-plugin": {
+      "name": "Kernel plugin and extension kernels",
+      "description": "Extension-kernel interfaces, loading and externally supplied kernels.",
+      "maintainer": "chenkai",
+      "reviewers": ["xianghan", "liyou"]
+    },
+    "tuner-plugin": {
+      "name": "Tuner plugin",
+      "description": "Tuner-plugin ABI, loading and external tuning implementations.",
+      "maintainer": "chenkai",
+      "reviewers": ["xianghan", "liyou"]
+    },
+    "profiler": {
+      "name": "Profiler and plugin",
+      "description": "Profiling events, instrumentation, profiler plugins and inspector integration.",
+      "maintainer": "weilai",
+      "reviewers": ["chenkai", "jingyu"]
+    },
+    "symmetric": {
+      "name": "Symmetric-memory kernels",
+      "description": "Symmetric-memory-based collective kernels and their synchronization.",
+      "maintainer": "zhouwang",
+      "reviewers": ["chenkai", "suyang", "xianghan"]
+    },
+    "copy-engine": {
+      "name": "Copy-engine operations",
+      "description": "Collective or P2P operations implemented through copy engines and DMA.",
+      "maintainer": "chenkai",
+      "reviewers": ["zhouwang", "suyang"]
+    },
+    "ras": {
+      "name": "RAS and hang diagnostics",
+      "description": "RAS, hang monitoring, communicator dumps and related diagnostics.",
+      "maintainer": "chenkai",
+      "reviewers": ["liyou", "shulei"]
+    },
+    "device-api": {
+      "name": "Device API and LSA",
+      "description": "Public device APIs, windows, local shared access and their implementation.",
+      "maintainer": "suyang",
+      "reviewers": ["zhouwang", "suyang"]
+    },
+    "gin": {
+      "name": "GIN",
+      "description": "GPU/PPU-initiated networking, GIN APIs, plugins and RDMA backends.",
+      "maintainer": "zhouwang",
+      "reviewers": ["suyang", "xuying", "shulei"]
+    },
+    "workflow": {
+      "name": "Contribution and review workflows",
+      "description": "Contribution guidance, issue/PR templates, review rules and reviewer automation.",
+      "maintainer": "xianghan",
+      "reviewers": ["xianghan", "suyang"]
+    },
+    "ci": {
+      "name": "Open-source test workflows",
+      "description": "Test selection, CI execution, test gates, runners and result reporting.",
+      "maintainer": "yinxin",
+      "reviewers": ["yinxin"]
+    },
+    "other": {
+      "name": "Other changes",
+      "description": "Changes outside the listed modules; explain the uncovered behavior explicitly.",
+      "maintainer": "shusen",
+      "reviewers": ["shusen", "xianghan"]
+    }
+  }
+}
