@@ -341,6 +341,7 @@ struct ncclProxyConnection {
   struct ncclProxyArgs **proxyAppendPtr;
   void* transportResources;
   proxyConnectState state;
+  int exportFd;
 };
 
 typedef ncclResult_t (*threadFunc_t)(struct ncclProxyArgs*);
@@ -365,10 +366,11 @@ enum ncclProxyMsgType {
   ncclProxyMsgClose = 6,
   ncclProxyMsgAbort = 7,
   ncclProxyMsgStop = 8,
-  ncclProxyMsgGetFd = 9, // cuMem API support (UDS)
+  ncclProxyMsgGetFd = 9, // cuMem API support
   ncclProxyMsgQueryFd = 10, // cuMem API support (UDS)
   ncclProxyMsgRegister = 11 ,
-  ncclProxyMsgDeregister = 12
+  ncclProxyMsgDeregister = 12,
+  pcclProxyMsgCloseFd = 13
 };
 
 // This function is called by a client of the proxy that needs to invoke any of the non-progress proxyOp types
@@ -376,14 +378,17 @@ enum ncclProxyMsgType {
 // ncclPollProxyResponse(), supplying the same opId to confirm the operation has completed
 ncclResult_t ncclProxyCallAsync(ncclComm_t comm, struct ncclProxyConnector* proxyConn, int type, void* reqBuff, int reqSize, int respSize, void* opId);
 
-ncclResult_t ncclPollProxyResponse(ncclComm_t comm, struct ncclProxyConnector* proxyConn, void* respBuff, void* opId);
+ncclResult_t ncclPollProxyResponse(ncclComm_t comm, struct ncclProxyConnector* proxyConn, void* respBuff,
+    void* opId, bool abortable = true);
 
 // This function will internally call ncclProxyCallAsync() and spin until ncclPollProxyResponse() confirms the result is received
-ncclResult_t ncclProxyCallBlocking(ncclComm_t comm, struct ncclProxyConnector* proxyConn, int type, void* reqBuff, int reqSize, void* respBuff, int respSize);
+ncclResult_t ncclProxyCallBlocking(ncclComm_t comm, struct ncclProxyConnector* proxyConn, int type,
+    void* reqBuff, int reqSize, void* respBuff, int respSize, bool abortable = true);
 
 ncclResult_t ncclProxyClientGetFdBlocking(ncclComm_t comm, int proxyRank, void *handle, int* convertedFd);
 
-ncclResult_t ncclProxyClientQueryFdBlocking(ncclComm_t comm, struct ncclProxyConnector* proxyConn, int localFd, int* rmtFd);
+ncclResult_t ncclProxyClientQueryFdBlocking(ncclComm_t comm, struct ncclProxyConnector* proxyConn, int localFd,
+    int* rmtFd, struct pcclIpcFdInfo* fdInfo);
 
 ncclResult_t ncclProxyStop(ncclComm_t comm);
 ncclResult_t ncclProxyShmUnlink(ncclComm_t comm);
