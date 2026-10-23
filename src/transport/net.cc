@@ -76,6 +76,18 @@ struct connectMapMem{
   };
 };
 
+// Sender-owned storage, independent of GDRCopy. The proxy receives this descriptor only.
+struct netSendHead {
+  uint64_t* gpuPtr;
+  void** cpuPtrRef;
+  ncclIpcDesc ipc;
+};
+
+struct netSendConnectReq {
+  ncclNetHandle_t handle;
+  struct netSendHead head;
+};
+
 struct connectMap {
   int sameProcess;
   int shared;
@@ -104,6 +116,11 @@ struct sendResources {
   int maxRecvs;
   uint64_t* gdcSync;
   void* gdrDesc;
+  // Device-head mapping owned by this proxy connection; the sender owns the storage.
+  uint64_t* headGpuPtr;
+  void** headCpuPtrRef;
+  bool headImported;
+  bool headLocked;
   int shared;
   int channelId;
   int connIndex;
@@ -167,6 +184,51 @@ PCCL_PARAM(GdrCpuFlush, "GDR_CPU_FLUSH", 0);
 PCCL_PARAM(SnicCpuFlush, "SNIC_CPU_FLUSH", 1);
 PCCL_PARAM(CpuFlushAsync, "CPU_FLUSH_ASYNC", 0);
 PCCL_PARAM(GdrUseDevMemForRxTail, "GDR_USE_DEV_MEM_FOR_RX_TAIL", 1);
+PCCL_PARAM(GdrUseDevMemForTxHead, "GDR_USE_DEV_MEM_FOR_TX_HEAD", /* deftVal */ 1);
+
+static ncclResult_t closeSendHeadMapping(sendResources* resources) {
+  if (resources->headLocked) {
+    HGGCCHECK(hggcEitInterface::getInstance().wrapHggcMemUnlock((HGdeviceptr)resources->headGpuPtr));
+    resources->headLocked = false;
+    resources->gdcSync = nullptr;
+    resources->map.mems[NCCL_NET_MAP_GDCMEM].cpuPtr = nullptr;
+  }
+  if (resources->headImported) {
+    HGGCCHECK(hggcIpcCloseMemHandle(resources->headGpuPtr));
+    resources->headImported = false;
+  }
+  resources->headGpuPtr = nullptr;
+  return ncclSuccess;
+}
+
+static ncclResult_t openSendHeadMapping(sendResources* resources) {
+  connectMapMem* gdcMem = resources->map.mems+NCCL_NET_MAP_GDCMEM;
+  if (ncclGdrCopy || !gdcMem->gpuPtr) return ncclSuccess;
+  if (resources->map.sameProcess) {
+    if (!resources->headCpuPtrRef) return ncclInternalError;
+    resources->headGpuPtr = (uint64_t*)gdcMem->gpuPtr;
+  } else {
+    HGGCCHECK(hggcIpcOpenMemHandle((void**)&resources->headGpuPtr, gdcMem->ipcDesc.devIpc,
+                                 hggcIpcMemLazyEnablePeerAccess));
+    resources->headImported = true;
+    int device;
+    HGGCCHECK(hggcGetDevice(&device));
+    VERBOSE(NCCL_NET, "Imported send head device %d size %d ptr %p via HGGC IPC",
+         device, gdcMem->size, (void*)resources->headGpuPtr);
+  }
+  HGGCCHECK(hggcEitInterface::getInstance().wrapHggcMemLock((HGdeviceptr)resources->headGpuPtr,
+                                                        (void**)&resources->gdcSync));
+  if (!resources->gdcSync) return ncclUnhandledHggcError;
+  if (resources->map.sameProcess) {
+    // The allocation owner unlocks this mapping before freeing the storage.
+    *resources->headCpuPtrRef = resources->gdcSync;
+  } else {
+    resources->headLocked = true;
+  }
+  // Keep the sender's GPU address in the map returned to sendConnect.
+  gdcMem->cpuPtr = (char*)resources->gdcSync;
+  return ncclSuccess;
+}
 
 // Sentinel stored in subGroup->requests[slot] to mark that this step issued an
 // async CPU flush (so recv progress stage-B polls the ticket instead of ncclNetTest).
@@ -315,7 +377,17 @@ static ncclResult_t sendConnect(ncclComm_t comm, struct ncclConnect* connectInfo
     send->transportResources = map;
     opId = send;
     INFO(NCCL_PROXY, "sendConnect pcclProxyCallAsync opId=%p", opId);
-    NCCLCHECK(ncclProxyCallAsync(comm, &send->proxyConn, ncclProxyMsgConnect, connectInfo, sizeof(ncclNetHandle_t), sizeof(struct connectMap), opId));
+    netSendConnectReq req = {};
+    memcpy(&req.handle, connectInfo, sizeof(req.handle));
+    if (!ncclGdrCopy && pcclParamGdrUseDevMemForTxHead()) {
+      // A setup-only P2P connection on the sender owns the storage until proxy teardown.
+      NCCLCHECK(pcclP2pAllocateProxyBuffer(comm, sizeof(uint64_t), &req.head.ipc,
+          (void**)&req.head.gpuPtr, MEM_LEGACY,
+          send->proxyConn.sameProcess ? &req.head.cpuPtrRef : nullptr));
+      VERBOSE(NCCL_NET, "NET/TX_HEAD_LOCAL rank=%d head=%p", comm->rank, req.head.gpuPtr);
+    }
+    NCCLCHECK(ncclProxyCallAsync(comm, &send->proxyConn, ncclProxyMsgConnect,
+                               &req, sizeof(req), sizeof(struct connectMap), opId));
   } else {
     opId = send;
   }
@@ -617,7 +689,16 @@ static ncclResult_t recvProxySetup(struct ncclProxyConnection* connection, struc
 
 static ncclResult_t sendProxyConnect(struct ncclProxyConnection* connection, struct ncclProxyState* proxyState, void* reqBuff, int reqSize, void* respBuff, int respSize, int* done) {
   struct sendResources* resources = (struct sendResources*)(connection->transportResources);
-  if (reqSize != sizeof(ncclNetHandle_t)) return ncclInternalError;
+  if (reqSize != sizeof(netSendConnectReq)) return ncclInternalError;
+  auto* req = (netSendConnectReq*)reqBuff;
+  if (req->head.gpuPtr) {
+    connectMapMem* gdcMem = resources->map.mems+NCCL_NET_MAP_GDCMEM;
+    gdcMem->gpuPtr = (char*)req->head.gpuPtr;
+    resources->headCpuPtrRef = req->head.cpuPtrRef;
+    gdcMem->size = sizeof(uint64_t);
+    gdcMem->ipcDesc = req->head.ipc;
+  }
+  reqBuff = &req->handle;
 
   if (nccl_use_eic && nccl_eic_gpu_offset && proxyState->ownerComm->hgmlDeviceCount > 8)
     *(int *)((uintptr_t)reqBuff + nccl_eic_gpu_offset) = proxyState->ownerComm->hgmlDev + 1;
@@ -753,6 +834,17 @@ static ncclResult_t sendProxyConnect(struct ncclProxyConnection* connection, str
 
   // Don't give credits yet in shared mode.
   resources->sendMem->head = map->shared ? -NCCL_STEPS : 0;
+
+  NCCLCHECK(openSendHeadMapping(resources));
+  if (resources->gdcSync) {
+    // Shared credits must remain negative until their offsets are published.
+    *(volatile uint64_t*)resources->gdcSync = resources->sendMem->head;
+    wc_store_fence();
+  }
+  VERBOSE(NCCL_NET, "NET/TX_HEAD rank=%d channel=%d peer=%d shared=%d storage=%s initial=%llu",
+      resources->tpRank, resources->channelId, resources->tpRemoteRank, map->shared,
+      resources->gdcSync ? "device" : "host",
+      (unsigned long long)resources->sendMem->head);
   for (int i=0; i<NCCL_STEPS; i++) resources->recvMem->sizesFifo[i] = -1;
 
   for (int p=0; p<NCCL_NUM_PROTOCOLS; p++) {
@@ -970,6 +1062,9 @@ static ncclResult_t sendProxyFree(struct ncclProxyConnection* connection, struct
     return ncclSuccess;
   }
 
+  // Also close partial head mappings when connection setup did not complete.
+  if (resources) NCCLCHECK(closeSendHeadMapping(resources));
+
   if (connection->state == connConnected) {
     for (int p=0; p<NCCL_NUM_PROTOCOLS; p++) {
       if (p > NCCL_PROTO_SIMPLE) break;
@@ -994,7 +1089,7 @@ static ncclResult_t sendProxyFree(struct ncclProxyConnection* connection, struct
         NCCLCHECK(ncclP2pFreeShareableBuffer(&mems[NCCL_NET_MAP_DEVMEM].ipcDesc));
       }
     }
-    if (mems[NCCL_NET_MAP_GDCMEM].cpuPtr) NCCLCHECK(ncclGdrCudaFree(resources->gdrDesc));
+    if (ncclGdrCopy && mems[NCCL_NET_MAP_GDCMEM].cpuPtr) NCCLCHECK(ncclGdrCudaFree(resources->gdrDesc));
     if (resources->shared) {
       NCCLCHECK(sharedBuffersDestroy(proxyState, resources->tpLocalRank, 0, connection));
       if (resources->maxRecvs > 1 && ncclParamNetSharedComms()) {

@@ -54,6 +54,10 @@ typedef union {
 
 ncclResult_t ncclP2pAllocateShareableBuffer(size_t size, int refcount, ncclIpcDesc *ipcDesc, void **ptr,
   uint64_t* pDevMemUsed, int memMode=MEM_NORMAL);
+// Allocate on this rank's local proxy; its connection owns the returned buffer.
+// cpuPtrRef optionally returns a same-process slot for a mapping that the owner must unlock before free.
+ncclResult_t pcclP2pAllocateProxyBuffer(ncclComm_t comm, size_t size, ncclIpcDesc* ipcDesc,
+  void** ptr, int memMode=MEM_NORMAL, void*** cpuPtrRef=nullptr);
 ncclResult_t ncclP2pFreeShareableBuffer(ncclIpcDesc *ipcDesc);
 ncclResult_t ncclP2pImportShareableBuffer(ncclComm_t comm, int tpPeer, size_t size, ncclIpcDesc *ipcDesc,
   void **devMemPtr, int memMode=MEM_NORMAL);
