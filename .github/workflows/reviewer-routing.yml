@@ -21,6 +21,10 @@ on:
         description: Expected PR target branch
         default: main
         type: string
+      state_branch:
+        description: Branch that stores reviewer rotation and PR assignments
+        default: automation/reviewer-rotation
+        type: string
 
 permissions: {}
 
@@ -31,6 +35,7 @@ concurrency:
 env:
   PR_NUMBER: ${{ github.event.pull_request.number || inputs.pr_number }}
   REVIEW_BASE_BRANCH: ${{ inputs.target_branch || 'main' }}
+  REVIEW_STATE_BRANCH: ${{ inputs.state_branch || 'automation/reviewer-rotation' }}
   PYTHONUTF8: '1'
 
 jobs:
@@ -79,7 +84,7 @@ jobs:
     runs-on: ubuntu-24.04
     timeout-minutes: 5
     permissions:
-      contents: read
+      contents: write # Persist rotation with a conditional file update.
       pull-requests: write
     steps:
       - uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262 # v4
