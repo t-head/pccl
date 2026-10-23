@@ -37,8 +37,8 @@
 #define ncclDevResourceRequirements              pcclDevResourceRequirements
 #define ncclGinConnectionType_t                  pcclGinConnectionType_t
 #define ncclGinCounter_t                         pcclGinCounter_t
-#define ncclGinGdakiGPUContext                   pcclGinGdakiGPUContext
-#define ncclGinGdakiMemHandle                    pcclGinGdakiMemHandle
+#define ncclGinGdakiMlxGPUContext                pcclGinGdakiMlxGPUContext
+#define ncclGinGdakiMlxMemHandle                 pcclGinGdakiMlxMemHandle
 #define ncclGinInboxA2AHandle                    pcclGinInboxA2AHandle
 #define ncclGinOutboxHandle                      pcclGinOutboxHandle
 #define ncclGinProxyGfdCompletion                pcclGinProxyGfdCompletion

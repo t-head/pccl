@@ -18,6 +18,7 @@
 #include "utils.h"
 #include "argcheck.h"
 #include "gin/gin_host.h"
+#include <algorithm>
 #include <mutex>
 
 NCCL_PARAM(WinStride, "WIN_STRIDE", -1);
@@ -959,7 +960,11 @@ static ncclResult_t deepCopyDevCommRequirements(
 
   // Copy the entire struct now and update linked lists later.  Because of backwards compatibility, the source may
   // actually be smaller than the type would imply.
-  memcpy(*dst, src, src->size);
+  size_t copySize = std::min(src->size, sizeof(**dst));
+  memcpy(*dst, src, copySize);
+  if (copySize < offsetof(ncclDevCommRequirements, ginGdakiVersion) + sizeof((*dst)->ginGdakiVersion)) {
+    (*dst)->ginGdakiVersion = 0;
+  }
 
   dstRes = &(*dst)->resourceRequirementsList;
   for (struct ncclDevResourceRequirements* rr = src->resourceRequirementsList; rr != nullptr; rr = rr->next) {
@@ -1021,15 +1026,48 @@ bool ncclGinResourcesRequested(struct ncclDevCommRequirements const* reqs) {
   return requestedGinResources;
 }
 
-#include "pccl_device/gin/gdaki/gin_gdaki_device_host_common.h"
+#include "pccl_device/gin/providers/mlx5/gin_mlx5_device_host_common.h"
+#include "pccl_device/gin/providers/troce/gin_troce_device_host_common.h"
 static void ncclDevCommGdakiDump(void* handle) {
-  struct ncclGinGdakiGPUContext ctx;
-  if (hggcMemcpy(&ctx, handle, sizeof(ctx), hggcMemcpyDeviceToHost) == hggcSuccess) {
-    printf("    GDAKI qp %p companion qp %p sink buffer lkey %x\n", ctx.gdqp, ctx.companion_gdqp, ctx.sink_buffer_lkey);
-    printf("    GDAKI counters %p rkeys %p lkey %x offset %d\n", ctx.counters_table.buffer,
-        ctx.counters_table.rkeys, ctx.counters_table.lkey, ctx.counters_table.offset);
-    printf("    GDAKI signals  %p rkeys %p lkey %x offset %d\n", ctx.signals_table.buffer,
-        ctx.signals_table.rkeys, ctx.signals_table.lkey, ctx.signals_table.offset);
+  pcclGinGdakiHandle gda = {};
+  if (hggcMemcpy(&gda, handle, sizeof(gda), hggcMemcpyDeviceToHost) != hggcSuccess) {
+    printf("    GDAKI could not read descriptor %p\n", handle);
+    return;
+  }
+  printf("    GDAKI provider %u context version %u contexts %p\n",
+         (unsigned)gda.provider, gda.providerVersion, gda.contexts);
+  switch (gda.provider) {
+    case PCCL_GIN_GDAKI_PROVIDER_MLX5: {
+      pcclGinGdakiMlxGPUContext ctx = {};
+      if (hggcMemcpy(&ctx, gda.contexts, sizeof(ctx), hggcMemcpyDeviceToHost) != hggcSuccess) {
+        printf("    GDAKI MLX5 could not read context\n");
+        return;
+      }
+      printf("    GDAKI MLX5 qp %p companion qp %p sink buffer lkey %x\n",
+             (void*)ctx.gdqp, (void*)ctx.companion_gdqp, ctx.sink_buffer_lkey);
+      printf("    GDAKI MLX5 counters %p rkeys %p lkey %x offset %u\n", (void*)ctx.counters_table.buffer,
+             (void*)ctx.counters_table.rkeys, ctx.counters_table.lkey, ctx.counters_table.offset);
+      printf("    GDAKI MLX5 signals %p rkeys %p lkey %x offset %u\n", (void*)ctx.signals_table.buffer,
+             (void*)ctx.signals_table.rkeys, ctx.signals_table.lkey, ctx.signals_table.offset);
+      break;
+    }
+    case PCCL_GIN_GDAKI_PROVIDER_TROCE: {
+      pcclGinGdakiTroceGPUContext ctx = {};
+      if (hggcMemcpy(&ctx, gda.contexts, sizeof(ctx), hggcMemcpyDeviceToHost) != hggcSuccess) {
+        printf("    GDAKI TROCE could not read context\n");
+        return;
+      }
+      printf("    GDAKI TROCE qps %p nranks %d sink buffer %p lkey %x\n",
+             (void*)ctx.qps, ctx.nRanks, (void*)ctx.sink_buffer, ctx.sink_buffer_lkey);
+      printf("    GDAKI TROCE counters %p rkeys %p lkey %x offset %u\n", (void*)ctx.counters_table.buffer,
+             (void*)ctx.counters_table.rkeys, ctx.counters_table.lkey, ctx.counters_table.offset);
+      printf("    GDAKI TROCE signals %p rkeys %p lkey %x offset %u\n", (void*)ctx.signals_table.buffer,
+             (void*)ctx.signals_table.rkeys, ctx.signals_table.lkey, ctx.signals_table.offset);
+      break;
+    }
+    default:
+      printf("    GDAKI provider-specific dump unavailable\n");
+      break;
   }
 }
 
@@ -1052,7 +1090,9 @@ void ncclDevCommDump(struct ncclDevComm* devComm) {
   printf("  Connections %d\n", devComm->ginConnectionCount);
   for (int c=0; c<devComm->ginConnectionCount; c++) {
     printf("   [%d] %d %p\n", c, devComm->ginNetDeviceTypes[c], devComm->ginHandles[c]);
-    if (devComm->ginNetDeviceTypes[c] == NCCL_GIN_TYPE_GDAKI) ncclDevCommGdakiDump(devComm->ginHandles[c]);
+    if (devComm->ginNetDeviceTypes[c] == PCCL_NET_DEVICE_GIN_GDAKI) {
+      ncclDevCommGdakiDump(devComm->ginHandles[c]);
+    }
     if (devComm->ginNetDeviceTypes[c] == NCCL_GIN_TYPE_PROXY) ncclDevCommProxyDump(devComm->ginHandles[c]);
   }
   printf("  Signals  %d shadows %p\n", devComm->ginSignalCount, devComm->ginSignalShadows);
@@ -1422,7 +1462,7 @@ ncclResult_t ncclDevCommCreate(
   ) {
   NCCLCHECK(CommCheck(comm, __func__, "comm"));
   NCCLCHECK(PtrCheck(reqs, __func__, "reqs"));
-  if (reqs->magic != PCCL_API_MAGIC) {
+  if (reqs->magic != PCCL_API_MAGIC && reqs->magic != PCCL_DEV_COMM_REQUIREMENTS_MAGIC) {
     WARN("Cannot create device communicator: pcclDevCommRequirements_t argument must be initialized via PCCL_DEV_COMM_REQUIREMENTS_INITIALIZER");
     return ncclInvalidUsage;
   }
