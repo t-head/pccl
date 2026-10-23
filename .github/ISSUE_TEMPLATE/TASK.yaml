@@ -1,0 +1,39 @@
+name: PCCL task
+description: Track implementation, testing, documentation, refactoring, or maintenance work
+title: "[Task]: "
+type: Task
+body:
+  - type: markdown
+    attributes:
+      value: |
+        Use this form to track implementation, testing, documentation, refactoring, or maintenance work.
+        To propose a new capability or improvement, use the Feature request form.
+        Issues in this repository are public; do not include internal-only information.
+  - type: textarea
+    id: description
+    attributes:
+      label: Task Description
+      description: Describe the work to complete, its scope, and the expected deliverables.
+    validations:
+      required: true
+  - type: textarea
+    id: completion
+    attributes:
+      label: Completion Criteria
+      description: Describe how to determine that the task is complete. A checklist is welcome.
+    validations:
+      required: false
+  - type: textarea
+    id: related-issues
+    attributes:
+      label: Related Issues
+      description: Link related feature requests, parent tasks, or dependencies, if any.
+    validations:
+      required: false
+  - type: textarea
+    id: validation
+    attributes:
+      label: Validation
+      description: Describe how the completed work will be verified. Write N/A if validation is not applicable.
+    validations:
+      required: false

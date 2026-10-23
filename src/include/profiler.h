@@ -85,15 +85,7 @@ typedef struct ncclProfilerApiState {
   void *collApiEventHandle;
 } ncclProfilerApiState_t;
 
-#ifdef REL_NO_SYM
-#ifndef __hidden
-#define __hidden __attribute__((visibility("hidden")))
-#endif
-#else
-#define __hidden
-#endif
-
-extern thread_local __hidden ncclProfilerApiState_t ncclProfilerApiState;
+extern thread_local ncclProfilerApiState_t ncclProfilerApiState;
 
 extern int ncclProfilerEventMask;
 

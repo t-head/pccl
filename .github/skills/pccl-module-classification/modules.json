@@ -1,0 +1,95 @@
+{
+  "runtime": {
+    "description": "运行时与任务调度",
+    "maintainer": "ctt284373",
+    "backup": "ck-milo",
+    "areas": {
+      "runtime-1": {"description": "初始化与通信器生命周期", "reviewers": ["ck-milo", "ctt284373", "honglei-lu"]},
+      "runtime-2": {"description": "任务计划、执行与 Stream / Graph", "reviewers": ["ctt284373", "ck-milo"]},
+      "runtime-3": {"description": "AlltoAll / P2P 调度", "reviewers": ["ctt284373", "levilee-lwl", "xiangzhixyc"]},
+      "runtime-4": {"description": "P2P / SHM 与内存注册", "reviewers": ["ctt284373", "ck-milo"]}
+    }
+  },
+  "topology": {
+    "description": "拓扑发现与路径搜索",
+    "maintainer": "xiangzhixyc",
+    "backup": "ck-milo",
+    "areas": {
+      "topology-1": {"description": "设备拓扑与 Graph 搜索", "reviewers": ["xiangzhixyc", "ck-milo", "OtoriEmu000"]}
+    }
+  },
+  "tuning": {
+    "description": "算法与协议调优",
+    "maintainer": "ck-milo",
+    "backup": "honganlxh",
+    "areas": {
+      "tuning-1": {"description": "算法 / 协议选择与 Tuner Plugin", "reviewers": ["ck-milo", "honganlxh"]}
+    }
+  },
+  "network": {
+    "description": "网络通信",
+    "maintainer": "xiangzhixyc",
+    "backup": "snowdrift-zw",
+    "areas": {
+      "network-common": {"description": "通用传输与 Net Plugin", "reviewers": ["xiangzhixyc", "snowdrift-zw"]},
+      "network-rdma": {"description": "IB / RoCE / GDR", "reviewers": ["xiangzhixyc", "snowdrift-zw", "xuying-xy", "levilee-lwl"]},
+      "network-eic": {"description": "EIC 接入与兼容", "reviewers": ["ziannchen", "ctt284373"]},
+      "network-snic": {"description": "SNIC 接入与适配", "reviewers": ["snowdrift-zw"]}
+    }
+  },
+  "kernels": {
+    "description": "集合通信与 P2P 内核",
+    "maintainer": "ck-milo",
+    "backup": "xiangzhixyc",
+    "areas": {
+      "kernels-1": {"description": "常规内核与通信原语", "reviewers": ["xiangzhixyc", "honganlxh", "ck-milo", "qinghanke"]},
+      "kernels-2": {"description": "RedOp", "reviewers": ["wensuyang"]},
+      "kernels-3": {"description": "Symmetric", "reviewers": ["snowdrift-zw"]},
+      "kernels-4": {"description": "扩展内核与 Kernel Plugin", "reviewers": ["ck-milo", "honganlxh", "snowdrift-zw"]},
+      "kernels-5": {"description": "CE / OKI / P2P DMA", "reviewers": ["ck-milo", "snowdrift-zw"]}
+    }
+  },
+  "device": {
+    "description": "Device API 与 GIN",
+    "maintainer": "wensuyang",
+    "backup": "snowdrift-zw",
+    "areas": {
+      "device-1": {"description": "基础接口 / LSA / Window", "reviewers": ["wensuyang"]},
+      "device-gin": {"description": "GIN", "reviewers": ["wensuyang", "snowdrift-zw", "xiangzhixyc"]}
+    }
+  },
+  "profiler": {
+    "description": "Profiler 与 Inspector",
+    "maintainer": "levilee-lwl",
+    "backup": "whale494255",
+    "areas": {
+      "profiler-1": {"description": "Profiler 框架与事件", "reviewers": ["levilee-lwl"]},
+      "profiler-2": {"description": "Inspector", "reviewers": ["whale494255"]}
+    }
+  },
+  "ras": {
+    "description": "RAS 与诊断",
+    "maintainer": "ck-milo",
+    "backup": "QingxunLy",
+    "areas": {
+      "ras-1": {"description": "RAS / Hang Monitor / Comm Dump", "reviewers": ["ck-milo", "QingxunLy"]}
+    }
+  },
+  "workflow": {
+    "description": "贡献流程",
+    "maintainer": "honganlxh",
+    "backup": "wensuyang",
+    "areas": {
+      "workflow-review": {"description": "提交、评审与合入流程", "reviewers": ["honganlxh", "wensuyang"]}
+    }
+  },
+  "build": {
+    "description": "构建与 CI",
+    "maintainer": "levilee-lwl",
+    "backup": "ck-milo",
+    "areas": {
+      "build-1": {"description": "构建、编译链与打包", "reviewers": ["levilee-lwl", "ck-milo"]},
+      "build-2": {"description": "CI", "reviewers": ["xuyinxin-xyx"]}
+    }
+  }
+}

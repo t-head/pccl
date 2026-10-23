@@ -19,6 +19,8 @@ concurrency:
   group: ci-pccl-${{ github.event.pull_request.number || github.ref }}
   cancel-in-progress: true                 # new runs cancel outdated ones
 
+# Configure required checks in the target branch ruleset to enforce merge gates.
+# Defining this workflow alone does not prevent merging.
 jobs:
   # Stage 1: Secret scan precheck (org-level reusable workflow).
   # Only meaningful for PR events; skipped for push / workflow_dispatch.
@@ -27,10 +29,72 @@ jobs:
     if: github.event_name == 'pull_request'
     uses: t-head/.github/.github/workflows/user-precheck.yml@main
 
+  commit-checks:
+    name: Pre-check (Commit Message & DCO)
+    if: github.event_name == 'pull_request'
+    permissions:
+      contents: read
+    runs-on: ubuntu-latest
+    timeout-minutes: 10
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          fetch-depth: 0
+          persist-credentials: false
+      - name: Check contribution commits
+        env:
+          BASE_SHA: ${{ github.event.pull_request.base.sha }}
+          HEAD_SHA: ${{ github.event.pull_request.head.sha }}
+        run: |
+          python3 - <<'PY'
+          import os
+          import re
+          import subprocess
+          import sys
+
+          def git(*args):
+              return subprocess.check_output(['git', *args], text=True)
+
+          commits = git('rev-list',
+                        os.environ['BASE_SHA'] + '..' + os.environ['HEAD_SHA']).splitlines()
+          errors = []
+          if len(commits) != 1:
+              errors.append(f'PR must contain exactly one commit; found {len(commits)}. Squash the contribution commits before pushing.')
+          for sha in commits:
+              message = git('show', '-s', '--format=%B', sha)
+              lines = message.splitlines()
+              if not lines or not lines[0].strip():
+                  errors.append(f'{sha[:12]}: title must not be empty')
+              elif len(lines[0]) > 50:
+                  print(f'::notice::{sha[:12]}: title exceeds the recommended 50 characters; consider shortening it')
+              if len(lines) > 1 and lines[1] != '':
+                  errors.append(f'{sha[:12]}: second line must be blank')
+              issue_ref = r'(?i:\b(?:Refs|Closes|Fixes))[ \t]+(?:[A-Za-z0-9_.-]+/[A-Za-z0-9_.-]+)?#[1-9][0-9]*\b|https://github\.com/[A-Za-z0-9_.-]+/[A-Za-z0-9_.-]+/issues/[1-9][0-9]*\b'
+              if not re.search(issue_ref, '\n'.join(lines[1:])):
+                  errors.append(f'{sha[:12]}: missing issue reference in commit body')
+
+              trailers = subprocess.check_output(
+                  ['git', 'interpret-trailers', '--parse', '--no-divider'], input=message, text=True).splitlines()
+              signoffs = [match.groups() for line in trailers
+                          if (match := re.fullmatch(
+                              r'Signed-off-by: (\S(?:.*\S)?) <([^<>\s]+@[^<>\s]+)>', line))]
+              author = tuple(git('show', '-s', '--format=%an%x00%ae', sha).rstrip('\n').split('\0'))
+              if not signoffs:
+                  errors.append(f'{sha[:12]}: missing valid Signed-off-by trailer')
+              elif author not in signoffs:
+                  errors.append(f'{sha[:12]}: Signed-off-by name and email must match the commit author')
+          for error in errors:
+              print(error)
+          print(f'Checked {len(commits)} contribution commits for message format and DCO.')
+          sys.exit(bool(errors))
+          PY
+
   # Stage 2: AI code review runs in parallel with prepare.
+  # The review gate should verify the current PR head and the team's resolution
+  # policy; the presence of an earlier Copilot review is not sufficient.
   ai-code-review:
     name: AI Code Review (Copilot Gate)
-    needs: precheck
+    needs: [precheck, commit-checks]
     if: github.event_name == 'pull_request'
     uses: t-head/.github/.github/workflows/ai-code-review.yml@main
     secrets: inherit
@@ -46,8 +110,8 @@ jobs:
   # Read the test list so each test runs in its own isolated PPU pod.
   prepare:
     name: Prepare Test Matrix
-    needs: precheck
-    if: always() && (needs.precheck.result == 'success' || needs.precheck.result == 'skipped')
+    needs: [precheck, commit-checks]
+    if: always() && (needs.precheck.result == 'success' || needs.precheck.result == 'skipped') && (needs.commit-checks.result == 'success' || needs.commit-checks.result == 'skipped')
     runs-on: k8s-runner-group-cpu-thead
     container:
       image: ghcr.io/actions/actions-runner:latest
@@ -78,7 +142,7 @@ jobs:
   build:
     name: Build (ubuntu24_hggcrt13)
     needs: [prepare, human-review]
-    if: always() && needs.prepare.result == 'success' && (needs.human-review.result == 'success' || needs.human-review.result == 'skipped')
+    if: always() && needs.prepare.result == 'success' && (needs.human-review.result == 'success' || (github.event_name != 'pull_request' && needs.human-review.result == 'skipped'))
     runs-on: k8s-runner-group-cpu-thead
     container:
       image: ghcr.io/actions/actions-runner:latest
@@ -93,7 +157,6 @@ jobs:
           repository: t-head/pccl-tests
           ref: main
           path: pccl-tests
-          token: ${{ secrets.PAT_FOR_CHECKOUT }}
       - name: Build on PPU
         id: ppu-build
         uses: t-head/ppu-scheduler-action@main
@@ -214,8 +277,8 @@ jobs:
   # Build and test pccl with notsm configuration in a single isolated PPU pod.
   build-test-notsm:
     name: Build & Test (ubuntu24_notsm, ZW-890P)
-    needs: [precheck, human-review]
-    if: always() && (needs.precheck.result == 'success' || needs.precheck.result == 'skipped') && (needs.human-review.result == 'success' || needs.human-review.result == 'skipped')
+    needs: [precheck, commit-checks, human-review]
+    if: always() && (needs.precheck.result == 'success' || needs.precheck.result == 'skipped') && (needs.commit-checks.result == 'success' || needs.commit-checks.result == 'skipped') && (needs.human-review.result == 'success' || (github.event_name != 'pull_request' && needs.human-review.result == 'skipped'))
     runs-on: k8s-runner-group-cpu-thead
     container:
       image: ghcr.io/actions/actions-runner:latest
@@ -230,7 +293,6 @@ jobs:
           repository: t-head/pccl-tests
           ref: main
           path: pccl-tests
-          token: ${{ secrets.PAT_FOR_CHECKOUT }}
       - name: Build and Test on PPU (notsm)
         id: ppu-test-notsm
         uses: t-head/ppu-scheduler-action@main
@@ -279,8 +341,8 @@ jobs:
   # Aggregate results from all test pods and publish the summary.
   summary:
     name: Test Summary
-    needs: [test, build-test-notsm]
-    if: always()
+    needs: [precheck, commit-checks, test, build-test-notsm]
+    if: always() && (github.event_name != 'pull_request' || (needs.precheck.result == 'success' && needs.commit-checks.result == 'success'))
     runs-on: k8s-runner-group-cpu-thead
     container:
       image: ghcr.io/actions/actions-runner:latest
@@ -297,3 +359,70 @@ jobs:
           else
             echo "No test-results.xml found at ${NAS_RESULT_DIR}"
           fi
+
+  # Keep this check name stable for branch rules.
+  tests-gate:
+    name: PCCL Tests Gate
+    # Add each new required job ID here. If it must also succeed outside PRs, add it to
+    # "Require build and test jobs to succeed" below.
+    # New entries in scripts/casecmd.list are already covered by the test job.
+    # Only jobs listed here are checked, including all their matrix entries.
+    needs:
+      - precheck          # Secret scan
+      - commit-checks     # Commit message and DCO
+      - ai-code-review    # AI review
+      - human-review      # Human approval
+      - prepare           # Test matrix generation
+      - build             # Build for the test matrix
+      - test              # Every test from scripts/casecmd.list
+      - build-test-notsm  # Additional build/test configuration
+      - summary           # Test report generation
+    if: always()
+    runs-on: ubuntu-24.04
+    timeout-minutes: 5
+    permissions: {}
+    steps:
+      - name: Reject unsupported events
+        if: >-
+          always() &&
+          github.event_name != 'pull_request' &&
+          github.event_name != 'push' &&
+          github.event_name != 'workflow_dispatch'
+        run: |
+          echo "::error::Unsupported event: $GITHUB_EVENT_NAME"
+          exit 1
+
+      - name: Reject failed or cancelled jobs
+        if: >-
+          always() &&
+          (contains(needs.*.result, 'failure') || contains(needs.*.result, 'cancelled'))
+        run: |
+          echo "::error::A required job failed or was cancelled. See its logs."
+          exit 1
+
+      - name: Require build and test jobs to succeed
+        # Only the test matrix may be skipped on pushes and manual runs.
+        if: >-
+          always() && (
+            needs.prepare.result != 'success' ||
+            needs.build.result != 'success' ||
+            (needs.test.result != 'success' &&
+              (github.event_name == 'pull_request' || needs.test.result != 'skipped')) ||
+            needs.build-test-notsm.result != 'success' ||
+            needs.summary.result != 'success'
+          )
+        run: |
+          echo "::error::A required build or test job did not succeed."
+          exit 1
+
+      - name: Reject skipped jobs on pull requests
+        # Outside PRs, the four PR-only checks and the test matrix may be skipped.
+        if: >-
+          always() && github.event_name == 'pull_request' &&
+          contains(needs.*.result, 'skipped')
+        run: |
+          echo "::error::Pull requests require every job in needs to succeed."
+          exit 1
+
+      - name: All required checks passed
+        run: echo "Required checks passed."

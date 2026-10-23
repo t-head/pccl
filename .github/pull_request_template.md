@@ -19,20 +19,6 @@ A PR reference alone does not satisfy this check. -->
 
 <!-- Note any breaking changes or API modifications -->
 
-## Review Scope
-
-<!-- Fill the lines below with IDs from .github/review/owners.json.
-Example: PCCL-Modules: device, network
-Example: PCCL-Areas: device-gin, network-rdma
-Choose the affected modules from the roster and include cross-module impact. No local tool is required.
-Once enabled, GitHub Actions checks path coverage and requests reviewers automatically.
-Path-derived modules remain in the review scope even when omitted here. Explain added scope in Changes & Impact.
-The module check needs one approval from a Maintainer or Backup of any affected module on the current PR HEAD.
-See docs/workflow/module-review.md. -->
-
-PCCL-Modules:
-PCCL-Areas:
-
 ## Performance Impact
 
 <!-- If possible include benchmark results for performance changes & list what testing you've performed -->

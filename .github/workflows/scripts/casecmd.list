@@ -1,6 +1,8 @@
 # pccl PR unit-test commands (ubuntu24_hggcrt13)
-# Each non-empty, non-comment line is executed as a shell command.
-# Test runner scripts are maintained under .github/workflows/scripts.
+# To add a test, put run_<name>_test.sh in this directory and add
+# "bash run_<name>_test.sh" below. It becomes a test matrix entry and is
+# automatically included in PCCL Tests Gate; no gate changes are needed.
+# Blank lines and comments are ignored.
 # Scripts that depended on comm-internal-testbox-only binaries
 # (composite_test, unit_test, cuda graph, etc.) are excluded because the
 # workflow only keeps pccl and pccl-tests repositories.

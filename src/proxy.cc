@@ -1852,7 +1852,7 @@ void* ncclProxyService(void* _args) {
           WARN("[Service thread] Could not receive type from localRank %d", peer->tpLocalRank);
           closeConn = 1;
         } else if (closed) {
-          INFO(NCCL_INIT|NCCL_NET, "[Service thread] Connection closed by localRank %d", peer->tpLocalRank);
+          INFO(NCCL_DESTROY|NCCL_NET, "[Service thread] Connection closed by localRank %d", peer->tpLocalRank);
           closeConn = 1;
         } else if (res == ncclSuccess) {
           if (type == ncclProxyMsgStop) {

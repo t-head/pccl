@@ -95,7 +95,7 @@ __global__ void pcclKernel_oneShotReduceScatterKernel(struct oneShotDevParams pa
   uint32_t barrierFlag = getBarrierFlag<NRANKS>(params.peerBarrierIn, params.myRank, tidx, bidx) + 1;
 
   __syncthreads();
-  blockBarrier<NRANKS>(params.peerBarrierIn, barrierFlag, params.myRank, tidx, bidx);
+  blockBarrier<NRANKS>(params.peerBarrierIn, barrierFlag, params.myRank, tidx, bidx, params.abortFlag);
 
   // The last block processes the remainder (recvCount - bidx * chunksPerWarpIter).
   {
@@ -132,7 +132,7 @@ __global__ void pcclKernel_oneShotReduceScatterKernel(struct oneShotDevParams pa
   // Trailing barrier: ensure all ranks have finished reading from peer buffers
   // before any rank reuses them in the next call.
   __syncthreads();
-  blockBarrier<NRANKS>(params.peerBarrierOut, barrierFlag, params.myRank, tidx, bidx);
+  blockBarrier<NRANKS>(params.peerBarrierOut, barrierFlag, params.myRank, tidx, bidx, params.abortFlag);
 }
 
 RS_ONE_SHOT_FUNCS_IMPL()

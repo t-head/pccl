@@ -157,6 +157,7 @@ ncclResult_t pluginInit(const struct pcclExtKernelInitInfo* info, void** params,
   extKernelParams->hostParams.defaultStrategy = info->defaultStrategy;
 
   devParams->myRank = rank;
+  devParams->abortFlag = info->abortFlagDev;
   *params = reinterpret_cast<void*>(extKernelParams);
   NCCLCHECKGOTO(configHostParams(nRanks, topo, &extKernelParams->hostParams), result, cleanup);
 
@@ -451,7 +452,6 @@ ncclResult_t pluginDestroy(void* params) {
 
 #define PLUGIN_NAME "CustomCollectives"
 
-__attribute__((visibility("default")))
 pcclExtKernel_v1_t pcclExtKernelPlugin_v1 = {
   .name = PLUGIN_NAME,
   .kernelPluginInit = pluginInit,

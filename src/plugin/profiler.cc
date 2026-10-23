@@ -158,7 +158,7 @@ static ncclResult_t ncclProfilerPluginUnload(void) {
   std::lock_guard<std::mutex> lock(profilerMutex);
   if (0 == (--profilerPluginRefCount)) {
     if (__builtin_expect(ncclProfiler != NULL, 0)) {
-      INFO(NCCL_INIT, "PROFILER/Plugin: Closing profiler plugin %s", ncclProfiler->name);
+      INFO(NCCL_DESTROY, "PROFILER/Plugin: Closing profiler plugin %s", ncclProfiler->name);
     }
     NCCLCHECK(ncclClosePluginLib(profilerPluginLib, ncclPluginTypeProfiler));
     profilerPluginLib = nullptr;

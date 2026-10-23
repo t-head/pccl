@@ -69,19 +69,11 @@ ncclResult_t ncclGroupEndInternal(ncclSimInfo_t* simInfo = NULL);
 ncclResult_t ncclAsyncJobComplete(struct ncclAsyncJob* job);
 
 ////////////////////////////////////////////////////////////////////////////////
-#ifdef REL_NO_SYM
-#ifndef __hidden
-#define __hidden __attribute__((visibility("hidden")))
-#endif
-#else
-#define __hidden
-#endif
-
-extern thread_local __hidden int ncclGroupDepth; // depth of ncclGroupStart nesting
-extern thread_local __hidden ncclResult_t ncclGroupError;
-extern thread_local __hidden ncclComm_t ncclGroupCommHead[ncclGroupTaskTypeNum];
-extern thread_local __hidden ncclComm_t ncclGroupCommPreconnectHead;
-extern thread_local __hidden int ncclGroupBlocking;
+extern thread_local int ncclGroupDepth; // depth of ncclGroupStart nesting
+extern thread_local ncclResult_t ncclGroupError;
+extern thread_local ncclComm_t ncclGroupCommHead[ncclGroupTaskTypeNum];
+extern thread_local ncclComm_t ncclGroupCommPreconnectHead;
+extern thread_local int ncclGroupBlocking;
 
 inline ncclResult_t ncclGroupStartInternal() {
   ncclGroupDepth++;

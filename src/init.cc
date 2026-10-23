@@ -229,6 +229,7 @@ ncclResult_t initExtKernelPlugin(ncclComm_t comm) {
     initInfo.icnRmtType = comm->icnRmtType;
     initInfo.defaultStrategy = comm->defaultStrategy;
     initInfo.topoArray = topoArray;
+    initInfo.abortFlagDev = comm->abortFlagDev;
 
     ncclResult_t initRes = comm->extKernel->kernelPluginInit(&initInfo, &comm->extKernelPluginWorkspace.extKernelPluginParams, &extKernelDevWorkspaceSize, ncclDebugLogForPlugin);
     NCCLCHECK(ncclFree(topoArray));
@@ -438,7 +439,10 @@ NCCL_API(ncclResult_t, pcclGetUniqueId, ncclUniqueId* out);
 ncclResult_t pcclGetUniqueId(ncclUniqueId* out) {
   NCCLCHECK(ncclInit());
   NCCLCHECK(PtrCheck(out, "GetUniqueId", "out"));
-  NCCLCHECK(bootstrapGetUniqueId(out));
+  struct ncclBootstrapHandle handle;
+  NCCLCHECK(bootstrapGetUniqueId(&handle, NULL));
+  memset(out, 0, sizeof(ncclUniqueId));
+  memcpy(out, &handle, sizeof(handle));
 
   INFO_CALL("PCCL API: pcclGetUniqueId(out=0x%llx)", (unsigned long long)getHash(out->internal, NCCL_UNIQUE_ID_BYTES));
   return ncclSuccess;
@@ -1674,7 +1678,7 @@ static ncclResult_t initTransportsRank(ncclComm_t comm, ncclComm_t parent, uint6
   // Must be set before ncclProxyCreate snapshots it into proxyState.
   comm->allocP2pNetLLBuffers = ncclParamAllocP2pNetLLBuffers() == 1;
   // Launch proxy service thread, after this, the proxy calls can be used.
-  if (parent && parent->shareResources) {
+  if (parent && parent->shareResources && !comm->isGrow) {
     comm->proxyState = parent->sharedRes->proxyState;
     ncclAtomicRefCountIncrement(&parent->sharedRes->proxyState->refCount);
   } else {
@@ -1842,13 +1846,20 @@ struct ncclCommInitRankAsyncJob {
   // for ncclCommSplit
   ncclComm_t parent;
   int color, key;
-  int splitCount;
+  int childCount;
   // For Shrink
   int* excludeRanksList;
   int excludeRanksCount;
+  // for pcclCommGrow
+  bool isGrow;
 };
 
 struct ncclCommFinalizeAsyncJob {
+  struct ncclAsyncJob base;
+  ncclComm_t comm;
+};
+
+struct ncclCommRevokeAsyncJob {
   struct ncclAsyncJob base;
   ncclComm_t comm;
 };
@@ -1954,7 +1965,7 @@ static ncclResult_t ncclCommInitRankFunc(struct ncclAsyncJob* job_) {
   // dummpy kernel time here
   timers[TIMER_INIT_KERNELS] = clockNano() - timers[TIMER_INIT_KERNELS];
 
-  if (job->parent) {
+  if (job->parent && !job->isGrow) {
     NCCLCHECKGOTO(ncclCalloc(&parentRanks, job->parent->nRanks), res, fail);
     if (job->excludeRanksCount) {
       NCCLCHECKGOTO(getParentRanks(job->parent->nRanks, job->parent->rank, job->excludeRanksList, job->excludeRanksCount, &job->nranks, &job->myrank, parentRanks), res, fail);
@@ -1964,29 +1975,36 @@ static ncclResult_t ncclCommInitRankFunc(struct ncclAsyncJob* job_) {
       if (job->color == PCCL_SPLIT_NOCOLOR) goto exit;
     }
 
-    // child hash obtained from (parent hash, split count, color)
+    // child hash obtained from (parent hash, child count, color)
     uint64_t hacc[2] = {1, 1};
     eatHash(hacc, &job->parent->commHash);
-    eatHash(hacc, &job->splitCount);
+    eatHash(hacc, &job->childCount);
     eatHash(hacc, &job->color);
     comm->commHash = digestHash(hacc);
     timers[TIMER_INIT_ALLOC] = clockNano();
     NCCLCHECKGOTO(commAlloc(comm, job->parent, job->nranks, job->myrank), res, fail);
     timers[TIMER_INIT_ALLOC] = clockNano() - timers[TIMER_INIT_ALLOC];
-    INFO(NCCL_INIT, "pcclCommSplit comm %p rank %d nranks %d hggcDev %d busId %lx parent %p splitCount %d color %d key %d - Init START",
-         comm, comm->rank, comm->nRanks, comm->hggcDev, comm->busId, job->parent, job->splitCount, job->color, job->key);
+    INFO(NCCL_INIT, "pcclCommSplit comm %p rank %d nranks %d hggcDev %d busId %lx parent %p childCount %d color %d key %d - Init START",
+         comm, comm->rank, comm->nRanks, comm->hggcDev, comm->busId, job->parent, job->childCount, job->color, job->key);
     timers[TIMER_INIT_BOOTSTRAP] = clockNano();
     NCCLCHECKGOTO(bootstrapSplit(comm->commHash, comm, job->parent, job->color, job->key, parentRanks), res, fail);
     timers[TIMER_INIT_BOOTSTRAP] = clockNano() - timers[TIMER_INIT_BOOTSTRAP];
   } else {
+    if (job->isGrow) {
+      struct ncclBootstrapHandle* growHandle = (struct ncclBootstrapHandle*)job->commId;
+      uint64_t baseMagic = growHandle ? growHandle->magic : hashCombine(job->parent->magic, job->parent->childCount);
+      comm->commHash = hashCombine(baseMagic, job->nranks);
+    } else {
+      comm->commHash = getHash(job->commId->internal, NCCL_UNIQUE_ID_BYTES);
+    }
     timers[TIMER_INIT_ALLOC] = clockNano();
     NCCLCHECKGOTO(commAlloc(comm, NULL, job->nranks, job->myrank), res, fail);
     timers[TIMER_INIT_ALLOC] = clockNano() - timers[TIMER_INIT_ALLOC];
-    comm->commHash = getHash(job->commId->internal, NCCL_UNIQUE_ID_BYTES);
+    comm->isGrow = job->isGrow;
     INFO(NCCL_INIT,"pcclCommInitRank comm %p rank %d nranks %d hggcDev %d busId %lx commHash %lx - Init START",
     comm, comm->rank, comm->nRanks, comm->hggcDev, comm->busId, comm->commHash);
     timers[TIMER_INIT_BOOTSTRAP] = clockNano();
-    NCCLCHECKGOTO(bootstrapInit(job->nId, (struct ncclBootstrapHandle*)job->commId, comm), res, fail);
+    NCCLCHECKGOTO(bootstrapInit(job->nId, job->commId, comm, job->parent), res, fail);
     timers[TIMER_INIT_BOOTSTRAP] = clockNano() - timers[TIMER_INIT_BOOTSTRAP];
   }
 
@@ -2082,10 +2100,16 @@ static ncclResult_t ncclCommInitRankFunc(struct ncclAsyncJob* job_) {
   if (job->parent) {
     /* unlink child abort flag. */
     __atomic_store_n(&job->parent->childAbortFlag, NULL, __ATOMIC_RELEASE);
-    TRACE_CALL("pcclCommSplit(%p, %d, %d, %p, %d, %d)",
-                job->parent, job->color, job->key, comm, comm->rank, comm->nRanks);
-    INFO(NCCL_INIT,"pcclCommSplit comm %p rank %d nranks %d hggcDev %d busId %lx parent %p color %d key %d commHash %lx maxConnType %d - Init COMPLETE",
-    comm, comm->rank, comm->nRanks, comm->hggcDev, comm->busId, job->parent, job->color, job->key, comm->commHash, comm->maxConnType);
+    if (job->isGrow) {
+      TRACE_CALL("pcclCommGrow(%p, %d, %p)", job->parent, comm->nRanks, comm);
+      INFO(NCCL_INIT,"pcclCommGrow comm %p rank %d nranks %d hggcDev %d busId %lx parent %p commHash %lx maxConnType %d - Init COMPLETE",
+      comm, comm->rank, comm->nRanks, comm->hggcDev, comm->busId, job->parent, comm->commHash, comm->maxConnType);
+    } else {
+      TRACE_CALL("pcclCommSplit(%p, %d, %d, %p, %d, %d)",
+                  job->parent, job->color, job->key, comm, comm->rank, comm->nRanks);
+      INFO(NCCL_INIT,"pcclCommSplit comm %p rank %d nranks %d hggcDev %d busId %lx parent %p color %d key %d commHash %lx maxConnType %d - Init COMPLETE",
+      comm, comm->rank, comm->nRanks, comm->hggcDev, comm->busId, job->parent, job->color, job->key, comm->commHash, comm->maxConnType);
+    }
   } else {
     TRACE_CALL("pcclCommInitRank(%p, %d, 0x%lx, %d, %d)",
                 comm, comm->nRanks, comm->commHash, comm->rank, comm->hggcDev);
@@ -2539,11 +2563,15 @@ static ncclResult_t commDestroySync(struct ncclAsyncJob* job_) {
     HGGCCHECKGOTO(hggcSetDevice(commDevice), ret, fail);
   }
 
-  VERBOSE(NCCL_INIT, "Destroying comm %p rank %d abortFlag %d asyncResult %d", comm, comm->rank, *comm->abortFlag, comm->asyncResult);
+  VERBOSE(NCCL_DESTROY, "Destroying comm %p rank %d abortFlag %d asyncResult %d", comm, comm->rank, *comm->abortFlag, comm->asyncResult);
 
   if (comm->initState == ncclSuccess) {
-    NCCLCHECKGOTO(ncclStrongStreamSynchronize(&comm->sharedRes->hostStream), ret, fail);
-    NCCLCHECKGOTO(ncclStrongStreamSynchronize(&comm->sharedRes->deviceStream), ret, fail);
+    if ((ret = ncclStrongStreamSynchronize(&comm->sharedRes->hostStream)) != ncclSuccess) {
+      WARN("commDestroySync: comm %p rank %d sync hostStream error %d", comm, comm->rank, ret);
+    }
+    if ((ret = ncclStrongStreamSynchronize(&comm->sharedRes->deviceStream)) != ncclSuccess) {
+      WARN("commDestroySync: comm %p rank %d sync deviceStream error %d", comm, comm->rank, ret);
+    }
   }
 
   NCCLCHECK(ncclCommPollCallbacks(comm, false));
@@ -2561,6 +2589,10 @@ static ncclResult_t commDestroySync(struct ncclAsyncJob* job_) {
 
   if (savedDevice != commDevice) {
     HGGCCHECKGOTO(hggcSetDevice(savedDevice), ret, fail);
+  }
+
+  if ((ret = ncclProxyStop(comm)) != ncclSuccess) {
+    WARN("ncclProxyStop: comm %p (rank = %d) destroys proxy resource error %d", comm, comm->rank, ret);
   }
 
 exit:
@@ -2717,29 +2749,6 @@ static ncclResult_t commReclaim(struct ncclAsyncJob* job_) {
         }
       }
 
-      /* ncclProxyDestroy() loop must be put after commDestroySync() loop. Namely, you cannot do:
-       *  while(...) {
-       *     commDestroySync(...);
-       *     ncclProxyDestroy(...);
-       *  }
-       * Considering one process multi-gpu case, we must guarantee all kernels are complete before
-       * we free proxy resources; otherwise, we will face invalid memory issues where proxy connection
-       * and related intermediate memory from one rank are freed but other ranks are still using it.
-       * This is not a problem for multi-process case, since intermediate memory is opened by HGGC IPC
-       * or mmap where memory free is guarded by HGGC driver and operating system, so we will not have
-       * invalid memory access issue. */
-      nextIntraComm = intracomm0;
-      while (nextIntraComm) {
-        curIntraComm = nextIntraComm;
-        curRank = curIntraComm->rank;
-        nextIntraComm = nextIntraComm->intraNext;
-
-        /* free intraprocess proxy resources. */
-        if ((ret = ncclProxyStop(curIntraComm)) != ncclSuccess) {
-          WARN("commReclaim: comm %p (rank = %d) destroys proxy resource error %d", curIntraComm, curRank, ret);
-        }
-      }
-
       /* free local resources. */
       nextIntraComm = intracomm0;
       while (nextIntraComm) {
@@ -2794,7 +2803,7 @@ ncclResult_t pcclCommDestroy(ncclComm_t comm) {
   NCCLCHECKGOTO(ncclAsyncLaunch(&job->base, commReclaim, NULL, free, comm), res, fail);
 
 exit:
-  INFO(NCCL_INIT,"comm 0x%lx rank %d nranks %d hggcDev %d busId %lx - Destroy COMPLETE", (unsigned long)commAddress, rank, nranks, hggcDev, busId);
+  INFO(NCCL_DESTROY,"comm 0x%lx rank %d nranks %d hggcDev %d busId %lx - Destroy COMPLETE", (unsigned long)commAddress, rank, nranks, hggcDev, busId);
   // coverity[leaked_storage]
   return res;
 fail:
@@ -2813,11 +2822,95 @@ static ncclResult_t setCommAbortFlags(ncclComm_t comm, int value) {
   return ncclSuccess;
 }
 
+static ncclResult_t commRevokeAsync(struct ncclAsyncJob* job_) {
+  struct ncclCommRevokeAsyncJob* job = (struct ncclCommRevokeAsyncJob*)job_;
+  ncclComm_t comm = job->comm;
+  ncclResult_t ret = ncclSuccess;
+  NCCLCHECKGOTO(PtrCheck(comm, "CommRevokeAsync", "comm"), ret, exit);
+  INFO(NCCL_DESTROY, "CommRevokeAsync START comm %p rank %d nranks %d nNodes %d localRank %d hggcDev %d", comm,
+       comm->rank, comm->nRanks, comm->nNodes, comm->localRank, comm->hggcDev);
+  HGGCCHECKGOTO(hggcSetDevice(comm->hggcDev), ret, exit);
+  NCCLCHECKGOTO(ncclStrongStreamSynchronize(&comm->sharedRes->hostStream), ret, exit);
+  NCCLCHECKGOTO(ncclStrongStreamSynchronize(&comm->sharedRes->deviceStream), ret, exit);
+  NCCLCHECKGOTO(ncclCommPollEventCallbacks(comm, /*waitSome=*/true), ret, exit);
+  NCCLCHECKGOTO(ncclCommPollCallbacks(comm, /*waitSome=*/false), ret, exit);
+  {
+    ncclResult_t tmpRet = ncclSuccess;
+    if ((tmpRet = ncclProxyStop(comm)) != ncclSuccess) {
+      WARN("ncclProxyStop: comm %p (rank = %d) destroys proxy resource error %d", comm, comm->rank, tmpRet);
+    }
+    if (comm->proxyState && comm->proxyRefCountOld == 0 && comm->proxyState->thread) {
+      PTHREADCHECK(pthread_join(comm->proxyState->thread, nullptr), "pthread_join");
+      comm->proxyState->thread = 0;
+      if (comm->proxyState->threadUDS) {
+        PTHREADCHECK(pthread_join(comm->proxyState->threadUDS, nullptr), "pthread_join");
+        comm->proxyState->threadUDS = 0;
+      }
+    }
+  }
+  NCCLCHECKGOTO(setCommAbortFlags(comm, 0), ret, exit);
+exit:
+  (void)ncclCommSetAsyncError(comm, ret);
+  INFO(NCCL_DESTROY, "CommRevokeAsync END comm %p result %d", comm, ret);
+  return ret;
+}
+
+NCCL_API(ncclResult_t, pcclCommRevoke, ncclComm_t comm, int revokeFlags);
+ncclResult_t pcclCommRevoke(ncclComm_t comm, int revokeFlags) {
+  HGTX3_RANGE(PcclHgtxParamsCommRevoke);
+
+  INFO_CALL("PCCL API: pcclCommRevoke(comm=%p, revokeFlags=%d)", comm, revokeFlags);
+  if (comm == NULL) {
+    return ncclSuccess;
+  }
+  if (revokeFlags != PCCL_REVOKE_DEFAULT) {
+    return ncclInvalidArgument;
+  }
+  if (comm->destroyFlag || comm->finalizeCalled) {
+    return ncclInvalidArgument;
+  }
+  if (comm->revokedFlag) {
+    return ncclInvalidArgument;
+  }
+
+  INFO(NCCL_DESTROY, "comm %p rank %d nranks %d hggcDev %d busId %lx commHash %lx - Revoke START", comm, comm->rank, comm->nRanks, comm->hggcDev, comm->busId, comm->commHash);
+
+  NCCLCHECK(ncclGroupStartInternal());
+  (void)setCommAbortFlags(comm, 1);
+  comm->revokedFlag = 1;
+  (void)ncclCommEnsureReady(comm);
+  comm->finalizeCalled = true;
+
+  int rank = comm->rank, nranks = comm->nRanks, hggcDev = comm->hggcDev;
+  struct ncclCommRevokeAsyncJob* job = NULL;
+  ncclResult_t ret = ncclSuccess;
+
+  NCCLCHECKGOTO(ncclCalloc(&job, 1), ret, fail);
+  job->comm = comm;
+  NCCLCHECKGOTO(ncclAsyncLaunch(&job->base, commRevokeAsync, NULL, free, comm), ret, fail);
+
+exit:
+  ncclGroupErrCheck(ret);
+  NCCLCHECK(ncclGroupEndInternal());
+  if (comm) {
+    if (!comm->config.blocking) {
+      NCCLCHECK(pcclCommGetAsyncError(comm, &ret));
+    }
+    HGTX3_RANGE_ADD_PAYLOAD(CommRevoke, PcclHgtxParamsCommInitRankSchema,
+      HGTX3_PAYLOAD(comm->commHash, nranks, rank, hggcDev));
+  }
+  INFO(NCCL_DESTROY, "comm %p rank %d nranks %d hggcDev %d busId %lx commHash %lx - Revoke COMPLETE, result %d", comm, rank, nranks, hggcDev, comm->busId, comm->commHash, ret);
+  return ret;
+fail:
+  if (comm && !comm->config.blocking) (void) ncclCommSetAsyncError(comm, ret);
+  goto exit;
+}
+
 NCCL_API(ncclResult_t, pcclCommAbort, ncclComm_t comm);
 ncclResult_t pcclCommAbort(ncclComm_t comm) {
   HGTX3_RANGE(PcclHgtxParamsCommAbort);
   INFO_CALL("PCCL API: pcclCommAbort(comm=%p)", comm);
-  INFO(NCCL_INIT, "pcclCommAbort!");
+  INFO(NCCL_DESTROY, "pcclCommAbort!");
   if (comm == NULL)
     return ncclSuccess;
 
@@ -2856,7 +2949,7 @@ ncclResult_t pcclCommAbort(ncclComm_t comm) {
   NCCLCHECKGOTO(ncclAsyncLaunch(&job->base, commReclaim, NULL, free, comm), res, fail);
 
 exit:
-  INFO(NCCL_INIT,"comm 0x%lx rank %d nranks %d hggcDev %d busId %lx - Abort COMPLETE", (unsigned long)commAddress, rank, nranks, hggcDev, busId);
+  INFO(NCCL_DESTROY,"comm 0x%lx rank %d nranks %d hggcDev %d busId %lx - Abort COMPLETE", (unsigned long)commAddress, rank, nranks, hggcDev, busId);
   /* abort should never report an error to the user. */
   // coverity[leaked_storage]
   return ncclSuccess;
@@ -2902,7 +2995,7 @@ static ncclResult_t ncclCommInitChildComm(ncclComm_t comm, ncclComm_t* newcomm, 
     // Set the shareResource field, this is used throughout the init and must be reset every time.
     // Never share resources if the parent communicator has been revoked.
     // If we shrink, we only reuse resources in default mode.
-    comm->shareResources = isShrink ? (!(flags & PCCL_SHRINK_ABORT) && comm->config.shrinkShare) : comm->config.splitShare;
+    comm->shareResources = !comm->revokedFlag && (isShrink ? (!(flags & PCCL_SHRINK_ABORT) && comm->config.shrinkShare) : comm->config.splitShare);
     if (comm->shareResources) {
       childComm->abortFlag = comm->abortFlag;
       childComm->abortFlagDev = comm->abortFlagDev;
@@ -2939,8 +3032,8 @@ static ncclResult_t ncclCommInitChildComm(ncclComm_t comm, ncclComm_t* newcomm, 
     NCCLCHECKGOTO(ncclCalloc(&job->excludeRanksList, excludeRanksCount), res, fail);
     memcpy(job->excludeRanksList, excludeRanksList, excludeRanksCount * sizeof(int));
   } else {
-    // each split has to lead to a unique comm, so increment the split count
-    job->splitCount = ++comm->splitCount;
+    // each split has to lead to a unique comm, so increment the child count
+    job->childCount = ++comm->childCount;
     job->excludeRanksList = NULL;
   }
   job->hggcDev = comm->hggcDev;
@@ -2981,6 +3074,168 @@ exit:
   (void)ncclGroupErrCheck(res);
   NCCLCHECK(ncclGroupEndInternal());
   return res;
+}
+
+NCCL_API(ncclResult_t, pcclCommGetUniqueId, ncclComm_t comm, ncclUniqueId* uniqueId);
+ncclResult_t pcclCommGetUniqueId(ncclComm_t comm, ncclUniqueId* uniqueId) {
+  NCCLCHECK(CommCheck(comm, __func__, "comm"));
+  NCCLCHECK(ncclCommEnsureReady(comm));
+  NCCLCHECK(PtrCheck(uniqueId, "CommGetUniqueId", "uniqueId"));
+
+  struct ncclBootstrapHandle growHandle;
+  NCCLCHECK(bootstrapGetUniqueId(&growHandle, comm));
+  NCCLCHECK(bcastGrowHandle(&growHandle, comm, /*isRoot=*/true));
+  memset(uniqueId, 0, sizeof(ncclUniqueId));
+  memcpy(uniqueId, &growHandle, sizeof(growHandle));
+
+  INFO_CALL("PCCL API: pcclCommGetUniqueId(comm=%p, out=0x%llx)", comm, (unsigned long long)getHash(uniqueId->internal, NCCL_UNIQUE_ID_BYTES));
+  return ncclSuccess;
+}
+
+NCCL_API(ncclResult_t, pcclCommGrow, ncclComm_t comm, int nRanks, const ncclUniqueId* uniqueId, int rank, ncclComm_t* newcomm, ncclConfig_t* config);
+ncclResult_t pcclCommGrow(ncclComm_t comm, int nRanks, const ncclUniqueId* uniqueId, int rank, ncclComm_t* newcomm, ncclConfig_t* config) {
+  HGTX3_RANGE(PcclHgtxParamsCommGrow)
+  ncclResult_t res = ncclSuccess;
+  bool isExistingRank = (comm != NULL);
+  struct ncclCommInitRankAsyncJob* job = NULL;
+  ncclComm_t newComm = NULL;
+  struct ncclBootstrapHandle recvHandle;
+  const void* growHandle = uniqueId;
+  bool launchedJob = false;
+
+  INFO_CALL("PCCL API: pcclCommGrow(comm=%p, nRanks=%d, uniqueId=%p, rank=%d, newcomm=%p, config=%p)", comm, nRanks, (void*)uniqueId, rank, (void*)newcomm, (void*)config);
+  if (newcomm == NULL) return ncclInvalidArgument;
+  if (nRanks <= 0) {
+    ERROR("pcclCommGrow: total ranks must be positive, got %d", nRanks);
+    return ncclInvalidArgument;
+  }
+  if (comm && nRanks <= comm->nRanks) {
+    ERROR("pcclCommGrow: total ranks %d is less than current ranks %d", nRanks, comm->nRanks);
+    return ncclInvalidArgument;
+  }
+
+  *newcomm = NULL;
+
+  NCCLCHECK(ncclGroupStartInternal());
+
+  if (isExistingRank) {
+    NCCLCHECKGOTO(CommCheck(comm, __func__, "comm"), res, exit);
+    NCCLCHECKGOTO(ncclCommEnsureReady(comm), res, exit);
+    if (rank != -1) {
+      ERROR("pcclCommGrow: existing ranks must pass rank=-1, got %d", rank);
+      res = ncclInvalidArgument;
+      goto exit;
+    }
+
+    // each grow has to lead to a unique comm, so increment the child count
+    ++comm->childCount;
+
+    // Only boundary ranks (0 and N-1) receive grow handle from coordinator
+    if (comm->rank == 0 || comm->rank == comm->nRanks - 1) {
+      NCCLCHECKGOTO(bcastGrowHandle(&recvHandle, comm, /*isRoot=*/false), res, exit);
+      if (recvHandle.magic != hashCombine(comm->magic, comm->childCount)) {
+        ERROR("pcclCommGrow: magic mismatch computed by the root, got %lx expected %lx", recvHandle.magic,
+              hashCombine(comm->magic, comm->childCount));
+        res = ncclInvalidArgument;
+        goto exit;
+      }
+      growHandle = &recvHandle;
+    }
+  } else {
+    if (rank < 0) {
+      ERROR("pcclCommGrow: new ranks must pass valid rank >= 0, got %d", rank);
+      res = ncclInvalidArgument;
+      goto exit;
+    }
+    if (uniqueId == NULL) {
+      ERROR("pcclCommGrow: new ranks must pass non-NULL uniqueId");
+      res = ncclInvalidArgument;
+      goto exit;
+    }
+    if (rank >= nRanks) {
+      ERROR("pcclCommGrow: new rank %d exceeds total ranks %d", rank, nRanks);
+      res = ncclInvalidArgument;
+      goto exit;
+    }
+
+    memcpy(&recvHandle, uniqueId, sizeof(recvHandle));
+    if (recvHandle.nRanks <= 0 || recvHandle.nRanks >= nRanks || rank < recvHandle.nRanks) {
+      ERROR("pcclCommGrow: invalid existing rank count %d for rank %d of %d", recvHandle.nRanks, rank, nRanks);
+      res = ncclInvalidArgument;
+      goto exit;
+    }
+
+    (void)ncclHggcLibraryInit();
+    NCCLCHECKGOTO(ncclInit(), res, exit);
+    if (showVersion() != ncclSuccess) WARN("Get version error");
+    HGGCCHECKGOTO(hggcFree(NULL), res, exit);
+  }
+
+  NCCLCHECKGOTO(ncclCalloc(&newComm, 1), res, fail);
+
+  NCCLCHECKGOTO(ncclCalloc(&newComm->abortFlag, 1), res, fail);
+  NCCLCHECKGOTO(ncclHggcHostCalloc((uint32_t**)&newComm->abortFlagDev, 1, &(newComm->pinnedMemUsed)), res, fail);
+  NCCLCHECKGOTO(ncclCalloc(&newComm->abortFlagRefCount, 1), res, fail);
+  *newComm->abortFlagRefCount = 1;
+
+  if (isExistingRank && config == NULL) {
+    NCCLCHECKGOTO(copyCommConfig(newComm, comm), res, fail);
+  } else {
+    NCCLCHECKGOTO(parseCommConfig(newComm, config), res, fail);
+  }
+
+  newComm->initState = ncclInProgress;
+  *newcomm = newComm;
+
+  NCCLCHECKGOTO(ncclCalloc(&job, 1), res, fail);
+  job->nId = (growHandle != NULL) ? 1 : 0;
+  if (job->nId == 1) {
+    NCCLCHECKGOTO(ncclCalloc(&job->commId, 1), res, fail);
+  }
+
+  if (isExistingRank) {
+    job->parent = comm;
+    job->hggcDev = comm->hggcDev;
+    job->myrank = comm->rank;
+  } else {
+    int device;
+    HGGCCHECKGOTO(hggcGetDevice(&device), res, fail);
+    job->parent = NULL;
+    job->hggcDev = device;
+    job->myrank = rank;
+  }
+
+  job->comm = newComm;
+
+  if (job->nId == 1) memcpy(job->commId, growHandle, sizeof(struct ncclBootstrapHandle));
+  job->nranks = nRanks;
+  job->newcomm = newcomm;
+  job->isGrow = true;
+  job->color = 0;
+  job->key = job->myrank;
+  launchedJob = true;
+  NCCLCHECKGOTO(ncclAsyncLaunch(&job->base, ncclCommInitRankFunc, NULL, ncclCommInitJobFree, newComm), res, fail);
+
+exit:
+  if (*newcomm) {
+    uint64_t parentHash = isExistingRank ? comm->commHash : 0;
+    HGTX3_RANGE_ADD_PAYLOAD(CommGrow, PcclHgtxParamsCommGrowSchema,
+      HGTX3_PAYLOAD((*newcomm)->commHash, parentHash, nRanks, (*newcomm)->rank, (*newcomm)->hggcDev));
+  }
+  (void)ncclGroupErrCheck(res);
+  NCCLCHECK(ncclGroupEndInternal());
+  return res;
+
+fail:
+  if (job && !launchedJob) ncclCommInitJobFree(job);
+  if (newComm) {
+    NCCLCHECK(ncclFree(newComm->abortFlag));
+    if (newComm->abortFlagDev) ncclHggcHostFree(newComm->abortFlagDev);
+    NCCLCHECK(ncclFree(newComm->abortFlagRefCount));
+    NCCLCHECK(ncclFree(newComm));
+    if (newcomm) *newcomm = NULL;
+  }
+  goto exit;
 }
 
 NCCL_API(ncclResult_t, pcclCommSplit, ncclComm_t comm, int color, int key, ncclComm_t *newcomm, ncclConfig_t *config);

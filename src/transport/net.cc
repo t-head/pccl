@@ -18,7 +18,7 @@
 #include "profiler.h"
 
 bool nccl_use_eic = false;
-// EIC plugins resolve these variables with dlsym, including REL_NO_SYM builds.
+// EIC plugins resolve these variables with dlsym.
 __attribute__((visibility("default"))) int nccl_use_u2mm_host = 0;
 __attribute__((visibility("default"))) int nccl_use_u2mm_dev = 0;
 __attribute__((visibility("default"))) int nccl_eic_gpu_offset = 0;
@@ -236,7 +236,7 @@ static ncclResult_t recvSetup(ncclComm_t comm, struct ncclTopoGraph* graph, stru
   // Use myInfo->rank as the receiver uses its own NIC
   int64_t netId;
   NCCLCHECK(ncclTopoGetNetDev(comm, myInfo->rank, graph, channelId, myInfo->rank, &netId, &req.netDev, NULL));
-  NCCLCHECK(ncclTopoCheckGdr(comm->topo, myInfo->rank, netId, 0, &req.useGdr));
+  NCCLCHECK(ncclTopoCheckGdr(comm->topo, myInfo->rank, netId, 0, &req.useGdr, false));
 
   // We don't support PXN on receive yet
   NCCLCHECK(ncclProxyConnect(comm, TRANSPORT_NET, 0, myInfo->rank, &recv->proxyConn));

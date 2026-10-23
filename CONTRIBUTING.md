@@ -17,7 +17,10 @@ To help ensure your contribution can be accepted smoothly:
 
 1. **Fork the Repository**: Fork [https://github.com/t-head/pccl](https://github.com/t-head/pccl) and clone your fork locally.
 
-2. **Create a Branch**: Create a feature branch for your work.
+2. **Create a Branch**: Create a working branch for your change.
+   Prefer `<type>/<short-description>`, using lowercase letters, digits, and hyphens to briefly describe the change
+   (e.g. `fix/buffer-size`, `perf/allreduce-8-ranks`, or `docs/issue-template`).
+
    ```bash
    git checkout -b <my-feature-branch>
    ```
@@ -210,16 +213,6 @@ By making a contribution to this project, I certify that:
 ```
 
 ## Code Review Process
-
-Declare the affected modules and specialist areas in the PR template. The
-[module review workflow](docs/workflow/module-review.md) explains scope declarations, Maintainer/Backup routing,
-and the required approval check once enabled by repository administrators. Node.js and the local classification helper
-are optional for contributors. One approval on the current PR HEAD from a Maintainer or Backup of any affected module
-satisfies the module check, including cross-module PRs. Specialist reviews complement this approval; the existing CI and repository
-protection rules still apply. Approval does not itself grant permission to merge.
-
-Contribution rules, templates, skills, and module-review automation belong to the `workflow` module
-(Maintainer: `honganlxh`; Backup: `wensuyang`). Build and hardware CI remain in `build` (Maintainer: `levilee-lwl`).
 
 After you submit a PR:
 
