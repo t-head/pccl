@@ -382,7 +382,7 @@ __inline__ __device__ void memcpyPackWise(volatile T* dstPtr, volatile T* srcPtr
 
 template<typename T, int SRC_AT_LOCAL, int DST_AT_LOCAL>
 __inline__ __device__ void memcpyElementWise(volatile T* dstPtr, volatile T* srcPtr, int32_t totalElts, int32_t warpGroupSize, int32_t wid, int32_t laneId) {
-  // elment wise data load/store.
+  // element wise data load/store.
   // do not fuse with bulk load/store for now. handle the address later.
   int32_t offset = laneId + wid * WARP_SIZE;
   while(offset < totalElts) {
@@ -570,7 +570,7 @@ __inline__ __device__ void reduceFromMultiSource(volatile T* srcs[NRANKS], volat
 
 template<typename T, int NRANKS, int DSTS>
 __inline__ __device__ void reduceFromMultiSourceElemWise(volatile T* srcs[NRANKS], volatile T** dsts, int32_t totalElts, int32_t warpGroupSize, int32_t wid, int32_t laneId) {
-  // elment wise data load/store.
+  // element wise data load/store.
   // do not fuse with bulk load/store for now. handle the address later.
   int32_t offset = laneId + wid * WARP_SIZE;
   while(offset < totalElts) {

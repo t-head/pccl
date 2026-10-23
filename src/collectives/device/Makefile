@@ -54,7 +54,7 @@ $(SYMMETRIC_GENSRC_DIR): symmetric/generate.py
 	@mkdir -p $@
 	(which python3 >/dev/null || \
 	  (bar='!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!'; \
-	   printf "\n$${bar}\nERROR: Building NCCL requires a Python 3 installation invokable as 'python3'.\n$${bar}\n\n" 1>&2; \
+	   printf "\n$${bar}\nERROR: Building NCCL requires a Python 3 installation invocable as 'python3'.\n$${bar}\n\n" 1>&2; \
 	   exit 1)) \
 	&& ./symmetric/generate.py $@
 

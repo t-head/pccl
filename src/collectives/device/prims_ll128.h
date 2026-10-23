@@ -172,7 +172,7 @@ class Primitives<T, FUNC, ProtoLL128, NRECV, NSEND, DIRECT, P2P>:
   template<int WordPerThread>
   __device__ __forceinline__ void storeRegs(T *dst, uint64_t(&regs)[WordPerThread], int eltN) {
     constexpr int EltPer16B = 16/sizeof(T);
-    // Reverse Finish() register permuatation.
+    // Reverse Finish() register permutation.
     #pragma unroll
     for (int g=1; g < WordPerThread/2; g+=2) {
       if (flagThread) regs[2*g-1] = regs[2*g];

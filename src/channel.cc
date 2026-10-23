@@ -103,7 +103,7 @@ ncclResult_t freeChannel(struct ncclChannel* channel, int nRanks, ncclComm_t com
   NCCLCHECK(ncclHggcFree(channel->ring.devUserRanks, MEM_NORMAL, manager));
 
   /* channel peers are only valid when async init thread completes commAlloc() and
-   * the channel is intialized with initChannel(); if either is not done, this channel
+   * the channel is initialized with initChannel(); if either is not done, this channel
    * should never be free. */
   if (channel->peers == NULL) return ncclSuccess;
 

@@ -345,7 +345,7 @@ struct Apply_Reduce<FuncMinMax<T>, /*EltPerPack=*/1> {
   }
 };
 
-// Optimizations for specfic types and element count combinations:
+// Optimizations for specific types and element count combinations:
 template<>
 struct Apply_Reduce<FuncSum<uint8_t>, /*EltPerPack=*/4> {
   __device__ __forceinline__ static BytePack<4> reduce(FuncSum<uint8_t> fn, BytePack<4> a, BytePack<4> b) {

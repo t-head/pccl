@@ -319,7 +319,7 @@ ncclResult_t pcclShuffleChannel(ncclComm_t comm, struct ncclTopoGraph* graph, in
     int finalChannelsPerDie = std::min(std::min(graph->nChannels*2, std::max(ncclMaxNchannels(comm), ncclMinNchannels(comm))), comm->config.maxCTAs) / ppuDiesNum;
     int repeat = graph->nGraphChannels / graph->nSubChannels;
     bool isPerfectRepetition = finalChannelsPerDie % graph->nSubChannels == 0 ?  true : false;
-    // check if the graph channels are pefect repetition of sub channels
+    // check if the graph channels are perfect repetition of sub channels
     for (int c=1; isPerfectRepetition && c<graph->nGraphChannels; c++) {
       if (memcmp(graph->intra+c*ngpus, graph->subIntra+c/repeat*ngpus, sizeof(int)*ngpus) != 0) {
         isPerfectRepetition = false;

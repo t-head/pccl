@@ -1249,7 +1249,7 @@ ncclResult_t pcclFillPPUTopoArray(int *ppuTopoArray, ppuDeviceInfo *ppuDevInfo) 
         tailId = values.value.uiVal;
       } else {
         if (values.value.uiVal != tailId) {
-          INFO(NCCL_INIT, "ppus within current hgml device list are in differen tails, skip to do topo check");
+          INFO(NCCL_INIT, "ppus within current hgml device list are in different tails, skip to do topo check");
           goto clear;
         }
       }
@@ -1374,7 +1374,7 @@ ncclResult_t pcclTopoSetNetAffinityPPUs(struct ncclXml* xml, int ppuCount, int n
         NCCLVERIFY(xmlFindTagKvInt(xml, "gpu", &gpuNode, "dev", ppuId));
         if (gpuNode) {
           NCCLCHECKGOTO(xmlSetAttrInt(gpuNode, "net_affinity", netDev), res, out);
-          INFO(NCCL_INIT, "Affinity maping PPU %d: NET %d", ppuId, netDev);
+          INFO(NCCL_INIT, "Affinity mapping PPU %d: NET %d", ppuId, netDev);
         }
       } else {
         WARN("unsupported net affinity setting: ppu (%d/%d), net (%d/%d)",
@@ -1443,7 +1443,7 @@ ncclResult_t pcclTopoSetNetAffinityPPUs(struct ncclXml* xml, int ppuCount, int n
           NCCLVERIFY(xmlGetAttrInt(neighborNode, "net_affinity", &neighborNetAffinity, true));
           if (neighborNetAffinity != -1) {
             NCCLVERIFY(xmlSetAttrInt(node, "net_affinity", neighborNetAffinity));
-            INFO(NCCL_INIT, "Affinity maping PPU %d: NET %d", dev, neighborNetAffinity);
+            INFO(NCCL_INIT, "Affinity mapping PPU %d: NET %d", dev, neighborNetAffinity);
             break;
           }
         }
