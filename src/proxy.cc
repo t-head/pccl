@@ -1919,7 +1919,7 @@ static ncclResult_t proxyUDSRecvReq(struct ncclProxyState* proxyState, int reqFd
     close(rmtFd);
     return proxyGetFd(proxyState, hdr.rank, hdr.opId, handle);
   } else if (hdr.type == ncclProxyMsgQueryFd) {
-    // remote main thread registers buffer into this rank, it querys rmtFd of this rank through UDS
+    // remote main thread registers buffer into this rank, it queries rmtFd of this rank through UDS
     // and the rmtFd is returned unchanged back to remote main thread which will use rmtFd to call into
     // proxy service thread for buffer registration.
     INFO(NCCL_PROXY, "proxyUDSRecvReq::proxyQueryFd rank %d opId %p rmtFd %d", hdr.rank, hdr.opId, rmtFd);

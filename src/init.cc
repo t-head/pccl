@@ -2373,7 +2373,7 @@ static ncclResult_t ncclCommInitRankDev(ncclComm_t* newcomm, int nranks, int nId
   job->nranks = nranks;
   job->myrank = myrank;
   job->hggcDev = hggcDev;
-  // need to copy the commIds to allow async commInit and to avoid alignement issues when casting from ncclUNiqueId and ncclBootstrapHandle
+  // need to copy the commIds to allow async commInit and to avoid alignment issues when casting from ncclUNiqueId and ncclBootstrapHandle
   // ncclUniqueIds and ncclBootstrapHandle don't have the same alignment requirements.
   // Therefore the array of Ids coming from the user might not be properly aligned to be cast into a ncclBootstrapHandle
   // copying into allocated memory guarantees that the memory is properly aligned for any objects, removing that issue

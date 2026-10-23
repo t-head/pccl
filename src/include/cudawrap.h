@@ -71,7 +71,7 @@ inline ncclResult_t ncclHggcDriverVersion(uint* driver) {
       minor = versionInfo.driver.minor;
       version = PCCL_HGGC_DRIVER_VERSION(major, minor, 0);
     } else {
-      ERROR("hgDriverGetVersion faild(%d)", res);
+      ERROR("hgDriverGetVersion failed(%d)", res);
       *driver = PCCL_UNDEF_DRIVER_VERSION;
       return ncclInternalError;
     }

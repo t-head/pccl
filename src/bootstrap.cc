@@ -721,7 +721,7 @@ ncclResult_t bootstrapInit(int nHandles, void* handles, ncclComm_t comm, ncclCom
     NCCLCHECK(state->net->listen(STATE_LISTEN(state, net.dev), STATE_LISTEN(state, net.handle), &STATE_LISTEN(state, net.comm)));
     memcpy(info.connectInfo.handle, STATE_LISTEN(state, net.handle), NCCL_NET_HANDLE_MAXSIZE);
   } else {
-    // create socket for ring neightbor to contact mee
+    // create socket for ring neighbor to contact mee
     NCCLCHECK(createListenSocket(comm, comm->magic, &STATE_LISTEN(state, socket), &info.connectInfo.addr, ncclSocketTypeBootstrap));
   }
 
@@ -901,7 +901,7 @@ ncclResult_t bootstrapSplit(uint64_t magic, ncclComm_t comm, ncclComm_t parent, 
     NCCLCHECKGOTO(state->net->listen(STATE_LISTEN(state, net.dev), STATE_LISTEN(state, net.handle), &STATE_LISTEN(state, net.comm)), res, fail);
     memcpy(info.handle, STATE_LISTEN(state, net.handle), NCCL_NET_HANDLE_MAXSIZE);
   } else {
-    // create socket for ring neightbor to contact mee
+    // create socket for ring neighbor to contact mee
     NCCLCHECK(createListenSocket(comm, comm->magic, &STATE_LISTEN(state, socket), &info.addr, ncclSocketTypeBootstrap));
   }
   // create a socket for others to reach out (P2P)

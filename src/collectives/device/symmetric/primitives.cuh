@@ -29,7 +29,7 @@ static __device__ Int0 flattenIx(Int0 pos, Int1 size, Ints ...more) {
   return pos + size*flattenIx(more...);
 }
 
-// Precomputed integer reciprocoals for denominator values 1..64 inclusive.
+// Precomputed integer reciprocals for denominator values 1..64 inclusive.
 // Pass these to idivFast64() for fast division on the GPU.
 static __device__ uint64_t idivRcp64_upto64(int x) {
   static constexpr uint64_t table[65] = {

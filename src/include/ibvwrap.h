@@ -527,7 +527,7 @@ struct ibv_qp_init_attr {
 	struct ibv_qp_cap	cap;
 	enum ibv_qp_type	qp_type;
 	int			sq_sig_all;
-	/* Below is needed for backwards compatabile */
+	/* Below is needed for backwards compatible */
 	struct ibv_xrc_domain  *xrc_domain;
 };
 
@@ -721,7 +721,7 @@ struct ibv_srq {
 	pthread_cond_t		cond;
 	uint32_t		events_completed;
 
-	/* below are for source compatabilty with legacy XRC,
+	/* below are for source compatibility with legacy XRC,
 	*   padding based on ibv_srq_legacy.
 	*/
 	uint32_t		xrc_srq_num_bin_compat_padding;

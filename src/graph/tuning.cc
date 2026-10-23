@@ -317,7 +317,7 @@ ncclResult_t ncclTopoTuneModel(ncclComm_t comm, int minCompCap, int maxCompCap, 
 
         // Extra model for ppu
         // normal v4 ld/st Vs remote v4 ld/st, normal every 128B with 26B header, remote every 512B with 26B header
-        // tread remote as 1, normal deacy fac is (512+26)/(512+26*4)
+        // treat remote as 1, normal deacy fac is (512+26)/(512+26*4)
         if (multiHostsBulkMode != 0) {
           if (multiHostsBulkMode == 1 || nNodes == 1 || comm->MNNVL == 1 ||
               (graphs[a]->id == 0 && graphs[a]->crossNic == 1) || (ppn == 1)) {
@@ -484,7 +484,7 @@ ncclResult_t ncclTopoTuneModel(ncclComm_t comm, int minCompCap, int maxCompCap, 
       pEnable = 0;
     }
     if (pEnable == 2 && ((a == NCCL_ALGO_FC && p == NCCL_PROTO_LL) || p == NCCL_PROTO_SIMPLE_BULK_AR)) {
-      // disable fc+ll and simpleBulkAR by default untill tuning strategy is ready
+      // disable fc+ll and simpleBulkAR by default until tuning strategy is ready
       pEnable = 0;
     }
     if (pEnable == 1 && p == NCCL_PROTO_SIMPLE_BULK_AR && maxCompCap < 89) {

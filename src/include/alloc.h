@@ -310,7 +310,7 @@ static ncclResult_t ncclHggcHostFree(void* ptr, int memMode=MEM_NORMAL) {
   HGGCCHECK(hggcThreadExchangeStreamCaptureMode(&mode));
 
   if (memMode == MEM_U2MM_DIRECT) {
-    ERROR("Unsupport to free u2mm direct host memory.");
+    ERROR("Unsupported to free u2mm direct host memory.");
     result = ncclInternalError;
     goto finish;
   }

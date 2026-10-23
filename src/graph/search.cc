@@ -295,7 +295,7 @@ ncclResult_t ncclTopoSearchNextGpuSort(struct ncclTopoSystem* system, struct ncc
 
 ncclResult_t ncclTopoSearchRec(struct ncclTopoSystem* system, struct ncclTopoGraph* graph, struct ncclTopoGraph* saveGraph, int* time);
 
-// Try to keep all searchs within one second
+// Try to keep all searches within one second
 #define NCCL_SEARCH_GLOBAL_TIMEOUT (3ULL<<20)
 #define NCCL_SEARCH_TIMEOUT (1<<18)
 #define NCCL_SEARCH_TIMEOUT_TREE (1<<17)
@@ -381,7 +381,7 @@ ncclResult_t ncclTopoCompareGraphs(struct ncclTopoGraph* graph, struct ncclTopoG
     return ncclSuccess;
   }
 
-  // 4. Pefect PXN
+  // 4. Perfect PXN
   if ((graph->nChannels == refGraph->nChannels) &&
       (graph->speedInter == refGraph->speedInter) &&
       (graph->typeInter == PATH_PXN && refGraph->typeInter == PATH_PXN) &&
@@ -418,7 +418,7 @@ ncclResult_t ncclTopoCompareGraphs(struct ncclTopoGraph* graph, struct ncclTopoG
 // 1. Select NETs starting with those close to GPU(s), based on paths[n].type.
 // 2. For each GPU, once that list of NICs with a given distance is prepared, shuffle the list
 //    based on the GPU NVML index so that e.g. GPU 1 chooses NIC 1 first instead of NIC 0 which
-//    might have been choosen by GPU 0 (case with multiple independent communicators per node)
+//    might have been chosen by GPU 0 (case with multiple independent communicators per node)
 // 3. Then add the NETs to the final list if they were not already added by another closer GPU.
 
 ncclResult_t ncclTopoSelectNets(struct ncclTopoSystem* system, int typeInter, int gpu, int* nets, int* netCountRet) {
@@ -865,7 +865,7 @@ ncclResult_t ncclTopoSearchTryFC(ncclTopoSystem* system, struct ncclTopoGraph* g
     return ncclSuccess;
   }
 
-  // Altough this is ugly, but should refine later
+  // Although this is ugly, but should refine later
   if (usingMemcpy()) {
     return ncclSuccess;
   }

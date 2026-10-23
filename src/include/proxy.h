@@ -71,7 +71,7 @@ struct ncclProxyOp {
   struct ncclProxyOp *enqNext;
 };
 
-// TODO: current p2p enqueue & kernel can't seprate p2p send/recv ncclProxyOp
+// TODO: current p2p enqueue & kernel can't separate p2p send/recv ncclProxyOp
 // static_assert(sizeof(struct ncclProxyOp) == 64, "Keep ProxyOp aligned with cache lines for effective prefetch");
 
 struct ncclProxyEventHandle {

@@ -491,7 +491,7 @@ static void addWorkBatchToPlan(
       chan->wipBatch.workBytes = 0;
       chan->wipBatch.nP2ps = 0;
       // We don't count extension batches since this is used to derive a proxyOpCount,
-      // and we wan't all ops which are fused together to have the same value.
+      // and we want all ops which are fused together to have the same value.
       chan->nWorkBatchesP2p += (workType == ncclDevWorkTypeP2p ? 1 : 0);
     }
     plan->nWorkBatches += 1;
@@ -573,7 +573,7 @@ static void HGGCRT_CB hostStreamPlanCallback(void *plan_) {
 
 ncclResult_t ncclLaunchKernelAfter_NoHggc(ncclComm_t comm, struct ncclKernelPlan* plan) {
   if (!plan->isHostCbEnq) {
-    // We are not using the host stream for proxy ops and reclaimation submission.
+    // We are not using the host stream for proxy ops and reclamation submission.
     NCCLCHECK(hostStreamPlanTask(comm, plan));
   }
   return ncclSuccess;
@@ -738,7 +738,7 @@ static ncclResult_t defaultGetAlgoInfo(ncclComm_t comm, ncclTaskColl* info) {
 // Use the default topo-based tuner if tuner plugin is not successful.
 // Call the plugin first. Let it set algo+proto, and/or nChannels.
 // Then, defaultGetAlgoInfo will set algo/proto if not set, then nChannels and nThreads based on algo/proto.
-// Finally, nChannels will be overriden by the plugin setting.
+// Finally, nChannels will be overridden by the plugin setting.
 static ncclResult_t getAlgoInfo(ncclComm_t comm, ncclTaskColl* info, ncclSimInfo_t* simInfo = NULL) {
   if (comm->nRanks == 1) {
     // Single-rank: no inter-rank communication is performed, so the estimated

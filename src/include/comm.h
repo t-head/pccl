@@ -388,7 +388,7 @@ struct pcclComm {
   uint64_t commHash;
   // sequence number for split and grow, used to derive unique comm hashes
   int childCount;
-  bool directMode;    // used to disble register for legecyIPC when at least two ranks in one process.
+  bool directMode;    // used to disable register for legecyIPC when at least two ranks in one process.
 
   struct ncclPeerInfo* peerInfo;
   struct ncclTopoSystem* topo;
