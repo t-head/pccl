@@ -52,6 +52,9 @@ const char* ncclFuncToString(ncclFunc_t fn) {
   case ncclFuncScatter: return "Scatter";
   case ncclFuncSendRecv: return "SendRecv";
   case ncclFuncSend: return "Send";
+  case ncclFuncPutSignal: return "PutSignal";
+  case ncclFuncSignal: return "Signal";
+  case ncclFuncWaitSignal: return "WaitSignal";
   default: return "Invalid";
   }
 }
@@ -191,6 +194,7 @@ static void printProfilerEventMask(int mask) {
   if (mask & ncclProfileCeColl)       pos += sprintf(enabled + pos, "CeColl ");
   if (mask & ncclProfileCeSync)       pos += sprintf(enabled + pos, "CeSync ");
   if (mask & ncclProfileCeBatch)      pos += sprintf(enabled + pos, "CeBatch ");
+  if (mask & ncclProfileRmaApi)       pos += sprintf(enabled + pos, "RmaApi ");
   INFO(NCCL_INIT, "Profiler event mask: 0x%x (%d) - Enabled: %s", mask, mask, enabled);
 }
 
@@ -224,7 +228,8 @@ ncclResult_t ncclProfilerStartGroupApiEvent(struct ncclInfo* info, bool isGraphC
   ncclProfilerApiState.eActivationMask = __atomic_load_n(&ncclProfilerEventMask, __ATOMIC_RELAXED);
   int groupApiMask = ncclProfileGroupApi | ncclProfileP2pApi | ncclProfileCollApi | ncclProfileKernelLaunch
           | ncclProfileGroup | ncclProfileColl | ncclProfileP2p | ncclProfileProxyOp | ncclProfileProxyStep
-          | ncclProfileKernelCh | ncclProfileNetPlugin | ncclProfileCeColl | ncclProfileCeSync | ncclProfileCeBatch;
+          | ncclProfileKernelCh | ncclProfileNetPlugin | ncclProfileCeColl | ncclProfileCeSync | ncclProfileCeBatch
+          | ncclProfileRmaApi;
   // Only count outermost groups when emitting group API events
   if (__builtin_expect(ncclProfiler != NULL, 0) && (ncclProfilerApiState.eActivationMask & groupApiMask)) {
     if (ncclProfilerApiState.profilerGroupDepth == 0) {
@@ -308,6 +313,35 @@ ncclResult_t ncclProfilerStartCollApiEvent(struct ncclInfo *info, bool isGraphCa
 ncclResult_t ncclProfilerStopCollApiEvent() {
   if (__builtin_expect(ncclProfiler != NULL, 0) && ncclProfilerApiState.collApiEventHandle) {
     ncclProfiler->stopEvent(ncclProfilerApiState.collApiEventHandle);
+  }
+  return ncclSuccess;
+}
+
+// Modeled on ncclProfilerStartP2pApiEvent above.
+ncclResult_t ncclProfilerStartRmaApiEvent(struct ncclInfo *info, bool isGraphCaptured) {
+  ncclProfilerEventDescr_t eDescr = { 0 };
+  eDescr.type = ncclProfileRmaApi;
+  eDescr.parentObj = ncclProfilerApiState.groupApiEventHandle;
+  eDescr.rmaApi.func = ncclFuncToString(info->coll);
+  eDescr.rmaApi.count = info->count;
+  eDescr.rmaApi.datatype = ncclDatatypeToString(info->datatype);
+  eDescr.rmaApi.peer = info->root;   // the RMA peer rides info->root, as for p2p
+  eDescr.rmaApi.ctx = info->ctx;
+  eDescr.rmaApi.nDesc = info->nDesc;
+  eDescr.rmaApi.stream = (void *) info->stream;
+  eDescr.rmaApi.graphCaptured = isGraphCaptured;
+  // RMA execution emits no sub-events, so the mask is the API bit alone.
+  int rmaApiMask = ncclProfileRmaApi;
+  if (__builtin_expect(ncclProfiler != NULL, 0) && (ncclProfilerApiState.eActivationMask & rmaApiMask)) {
+    ncclProfiler->startEvent(info->comm->profilerContext, &ncclProfilerApiState.rmaApiEventHandle, &eDescr);
+  }
+  return ncclSuccess;
+}
+
+ncclResult_t ncclProfilerStopRmaApiEvent() {
+  if (__builtin_expect(ncclProfiler != NULL, 0) && ncclProfilerApiState.rmaApiEventHandle) {
+    ncclProfiler->stopEvent(ncclProfilerApiState.rmaApiEventHandle);
+    ncclProfilerApiState.rmaApiEventHandle = nullptr;
   }
   return ncclSuccess;
 }

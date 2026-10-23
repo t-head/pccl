@@ -22,6 +22,7 @@
 #include "argcheck.h"
 #include "tuner.h"
 #include "ras.h"
+#include "rma/rma.h"
 #include "mnnvl.h"
 #include "u2mm.h"
 #include "utils.h"
@@ -466,6 +467,9 @@ static ncclResult_t commFree(ncclComm_t comm) {
     return ncclSuccess;
 
   NCCLCHECK(ncclCeFinalize(comm));
+  // The RMA CE signal windows must be deregistered while the devr window
+  // machinery is still alive, so tear the RMA CE down right after ncclCeFinalize.
+  NCCLCHECK(ncclRmaCeFinalize(comm));
 
   if (comm->symmetricSupport) {
     NCCLCHECK(pcclP2pDmaFinalize(comm));
@@ -509,6 +513,10 @@ static ncclResult_t commFree(ncclComm_t comm) {
 
   for (int channel=0; channel<MAXCHANNELS; channel++)
     NCCLCHECK(freeChannel(comm->channels+channel, comm->nRanks, comm));
+
+  // The RMA proxy rides on the GIN connections owned by comm->sharedRes->ginState,
+  // which ncclGinHostFinalize closeColls, so the proxy must be torn down first.
+  NCCLCHECK(ncclRmaProxyFinalize(comm));
 
   NCCLCHECK(ncclGinHostFinalize(comm));
 
@@ -1754,6 +1762,17 @@ static ncclResult_t initTransportsRank(ncclComm_t comm, ncclComm_t parent, uint6
 
   comm->planner.peers = ncclMemoryStackAlloc<ncclKernelPlanner::Peer>(&comm->memPermanent, comm->nRanks);
 
+  // One intrusive queue of RMA tasks per user-addressable context. Lives on
+  // memPermanent, like planner.peers, so it survives the memset in
+  // ncclGroupCommJoin / ncclGroupCommLeave, which save and restore the pointer.
+  if (comm->config.numRmaCtx > 0) {
+    comm->planner.rmaTaskQueues = ncclMemoryStackAlloc<
+        ncclIntruQueue<struct ncclTaskRma, &ncclTaskRma::next>>(&comm->memPermanent, comm->config.numRmaCtx);
+    for (int c = 0; c < comm->config.numRmaCtx; c++) {
+      ncclIntruQueueConstruct(&comm->planner.rmaTaskQueues[c]);
+    }
+  }
+
   if (netCount > 0) {
     // Connect to local net proxy
     struct ncclProxyConnector proxyConn;
@@ -1779,6 +1798,12 @@ static ncclResult_t initTransportsRank(ncclComm_t comm, ncclComm_t parent, uint6
   }
   comm->symmetricSupport = ncclParamWinEnable() && ncclCuMemEnable() &&
       (comm->globalGinSupport != NCCL_GIN_CONNECTION_NONE || (comm->localP2pSupport && ncclDevrIsOneLsaTeam(comm)));
+
+  // One-sided RMA capability. The proxy path needs the same cross-NIC / GDR
+  // guarantees as GIN.
+  comm->globalRmaProxySupport = globalCrossNicSupport && globalCuMemGdrSupport;
+  comm->hostRmaSupport = comm->config.numRmaCtx > 0 && comm->symmetricSupport &&
+      (ncclDevrIsOneLsaTeam(comm) || comm->globalRmaProxySupport);
   if (ncclCeSupported(comm)) {
     comm->ceReduceStep = pcclCeReduceMaxSect;
     int p2pRingNeededPerDie = std::min(comm->nRanks, HG_DMA_RING_PER_DIE);
@@ -2272,6 +2297,11 @@ static ncclResult_t parseCommConfig(ncclComm_t comm, ncclConfig_t *config) {
       internalConfigPtr->shrinkShare = defaultConfig.shrinkShare;
       internalConfigPtr->nvlsCTAs = defaultConfig.nvlsCTAs;
     }
+
+    if (pcclVersion < PCCL_VERSION(2, 2, 0)) {
+      internalConfigPtr->numRmaCtx = defaultConfig.numRmaCtx;
+      internalConfigPtr->numRmaSig = defaultConfig.numRmaSig;
+    }
   }
 
   /* check input config attributes, -1 means user-undefined and we should use default value from NCCL. */
@@ -2300,6 +2330,18 @@ static ncclResult_t parseCommConfig(ncclComm_t comm, ncclConfig_t *config) {
     goto fail;
   }
 
+  if (internalConfigPtr->numRmaCtx != PCCL_CONFIG_UNDEF_INT && internalConfigPtr->numRmaCtx < 0) {
+    ERROR("Invalid config numRmaCtx attribute value %d", internalConfigPtr->numRmaCtx);
+    ret = ncclInvalidArgument;
+    goto fail;
+  }
+
+  if (internalConfigPtr->numRmaSig != PCCL_CONFIG_UNDEF_INT && internalConfigPtr->numRmaSig < 0) {
+    ERROR("Invalid config numRmaSig attribute value %d", internalConfigPtr->numRmaSig);
+    ret = ncclInvalidArgument;
+    goto fail;
+  }
+
   /* default config value can be tuned on different platform. */
   NCCL_CONFIG_DEFAULT(internalConfigPtr, blocking, PCCL_CONFIG_UNDEF_INT, 1, "Blocking", "%d");
   NCCL_CONFIG_DEFAULT(internalConfigPtr, minCTAs, PCCL_CONFIG_UNDEF_INT, 1, "Min CTAs", "%d");
@@ -2308,6 +2350,8 @@ static ncclResult_t parseCommConfig(ncclComm_t comm, ncclConfig_t *config) {
   NCCL_CONFIG_DEFAULT(internalConfigPtr, commName, PCCL_CONFIG_UNDEF_PTR, NULL, "Comm name", "%s");
   NCCL_CONFIG_DEFAULT(internalConfigPtr, CTAPolicy, PCCL_CONFIG_UNDEF_INT, PCCL_CTA_POLICY_DEFAULT, "CTA policy flags", "%d");
   NCCL_CONFIG_DEFAULT(internalConfigPtr, shrinkShare, PCCL_CONFIG_UNDEF_INT, 0, "shrinkShare", "%d");
+  NCCL_CONFIG_DEFAULT(internalConfigPtr, numRmaCtx, PCCL_CONFIG_UNDEF_INT, 1, "numRmaCtx", "%d");
+  NCCL_CONFIG_DEFAULT(internalConfigPtr, numRmaSig, PCCL_CONFIG_UNDEF_INT, 1, "numRmaSig", "%d");
 
   /* assign config to communicator */
   comm->config.blocking = internalConfigPtr->blocking;
@@ -2317,6 +2361,8 @@ static ncclResult_t parseCommConfig(ncclComm_t comm, ncclConfig_t *config) {
   comm->config.minCTAs = internalConfigPtr->minCTAs;
   comm->config.maxCTAs = internalConfigPtr->maxCTAs;
   comm->config.shrinkShare = internalConfigPtr->shrinkShare;
+  comm->config.numRmaCtx = internalConfigPtr->numRmaCtx;
+  comm->config.numRmaSig = internalConfigPtr->numRmaSig;
 
   NCCLCHECK(envConfigOverride(comm));
 
