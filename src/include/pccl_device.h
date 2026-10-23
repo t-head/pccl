@@ -13,6 +13,7 @@
 #include "pccl_device/impl/core__funcs.h"
 #include "pccl_device/impl/ll_a2a__funcs.h"
 #include "pccl_device/impl/lsa_barrier__funcs.h"
+#include "pccl_device/impl/lsa_bulk__funcs.h"
 #if !defined(PCCL_OS_WINDOWS)
 #include "pccl_device/impl/gin__funcs.h"
 #include "pccl_device/impl/gin_barrier__funcs.h"
@@ -25,6 +26,7 @@
 #include "pccl_device/coop.h"
 #include "pccl_device/core.h"
 #include "pccl_device/ll_a2a.h"
+#include "pccl_device/lsa_bulk.h"
 #include "pccl_device/barrier.h"
 #include "pccl_device/ptr.h"
 #include "pccl_device/reduce_copy.h"
