@@ -46,6 +46,9 @@ class FakeGitHub:
 
 class ReviewerRoutingTests(unittest.TestCase):
     def setUp(self):
+        environment = patch.dict(os.environ, {"REVIEW_BASE_BRANCH": "main"})
+        environment.start()
+        self.addCleanup(environment.stop)
         self.api = FakeGitHub()
         self.roster, self.skill = routing.load_config()
         self.proposal = {"modules": ["workflow"], "areas": ["workflow-review"],
