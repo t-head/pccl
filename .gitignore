@@ -39,3 +39,8 @@ docs/examples/**/allreduce_sm
 docs/examples/**/allreduce_lsa
 docs/examples/**/alltoall_gin
 docs/examples/**/alltoall_hybrid
+
+# Test build artifacts and dependencies
+tests/graph_search_test/3rd_party/
+tests/graph_search_test/build/
+tests/unit_test/build/

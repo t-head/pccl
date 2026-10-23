@@ -1,0 +1,21 @@
+{
+    "testConfigs" :{
+        "test1" : {
+            "graph": true,
+            "streams" : ["s1"],
+            "buffs" : ["A", "B", "C"],
+            "inits" : [
+                ["compute", "init", "2048", "float", "s1", "A"]
+            ],
+            "kernels" : [
+                ["compute", "inc", "2048", "float", "s1", "A"],
+                ["pccl", "allreduce", "2048", "float", "s1", "A", "C"],
+                ["pccl", "alltoall", "2048", "float", "s1", "C", "B"],
+                ["compute", "inc", "2048", "float", "s1", "B"]
+            ],
+            "outbuffs" : ["B"]
+        }
+    },
+    "order": ["test1"],
+    "compareTests" : []
+}
