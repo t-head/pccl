@@ -10,6 +10,7 @@
 #include "include/file_compare.h"
 #include "pccl_internal.h"
 #include "topo.h"
+#include "net.h"
 #include "xml.h"
 #include "globals.h"
 #include <fcntl.h>
@@ -26,7 +27,7 @@ enum NodeCount {
   TWO_NODES = 2,
 };
 
-#define TEST_CASE(testClass, testName, topoDir, refGraph, nNodes, algoMode, ppus, ...) \
+#define TEST_CASE_IMPL(testClass, testName, topoDir, refGraph, nNodes, algoMode, searchFunc, ppus, ...) \
 TEST(testClass, testName) { \
   const ::testing::TestInfo* const test_info = ::testing::UnitTest::GetInstance()->current_test_info();  \
   std::string testCaseName = std::string(test_info->name()) + "." + std::string(test_info->test_case_name()); \
@@ -34,14 +35,15 @@ TEST(testClass, testName) { \
   std::string topoFile = topoPath + "topo.xml"; \
   std::string graphDumpFile = "/tmp/" + testCaseName + "." + "graph.xml"; \
   std::vector ppuList = {ppus, ##__VA_ARGS__}; \
-  ncclResult_t res = testGraphSearch(ppuList, topoFile.c_str(), graphDumpFile.c_str(), nNodes, algoMode); \
+  ncclResult_t res = searchFunc(ppuList, topoFile.c_str(), graphDumpFile.c_str(), nNodes, algoMode); \
   EXPECT_EQ(res, ncclSuccess); \
   std::string refFile = topoPath + refGraph;  \
   bool areEqual = CompareFiles(graphDumpFile.c_str(), refFile.c_str()); \
   EXPECT_TRUE(areEqual); \
 }
 
-#define TEST_TEMP(testName, topoDir, refGraph, nNodes, algoMode, ppus, ...) TEST_CASE(graphSearchTestWithoutPXN, testName, topoDir, refGraph, nNodes, algoMode, ppus, __VA_ARGS__)
+#define TEST_CASE(testClass, testName, topoDir, refGraph, nNodes, algoMode, ppus, ...) TEST_CASE_IMPL(testClass, testName, topoDir, refGraph, nNodes, algoMode, testGraphSearch, ppus, ##__VA_ARGS__)
+#define TEST_EIC_CASE(testClass, testName, topoDir, refGraph, nNodes, algoMode, ppus, ...) TEST_CASE_IMPL(testClass, testName, topoDir, refGraph, nNodes, algoMode, testGraphSearchWithEic, ppus, ##__VA_ARGS__)
 
 std::string globalTopoAndRefDir;
 
@@ -193,56 +195,82 @@ ncclResult_t testGraphSearch(std::vector<int> ppuList, const char *topoFile, con
   return ncclSuccess;
 }
 
+class ScopedEicNet {
+ public:
+  ScopedEicNet() : savedNet(ncclNet), savedUseEic(nccl_use_eic) {
+    // Graph search only reads the plugin name; no network transport callbacks are invoked.
+    eicNet.name = EIC_PLUGIN_NAME;
+    ncclNet = &eicNet;
+    nccl_use_eic = true;
+  }
+  ~ScopedEicNet() {
+    ncclNet = savedNet;
+    nccl_use_eic = savedUseEic;
+  }
+
+ private:
+  ncclNet_t eicNet = {};
+  ncclNet_t* savedNet;
+  bool savedUseEic;
+};
+
+ncclResult_t testGraphSearchWithEic(std::vector<int> ppuList, const char *topoFile, const char *graphFile, int nNodes, AlgoMode algoMode) {
+  // Simulate doubled NIC PCI bandwidth and EIC proxy balancing, restoring global state on exit.
+  ScopedEicNet eicNet;
+  return testGraphSearch(ppuList, topoFile, graphFile, nNodes, algoMode);
+}
+
 // 8PPU 4CX7
-TEST_TEMP(8PPU4CX7Tp1GraphSearchTest, "./8PPU1.0_4CX7_OAM_4Links/", "graph_tp1.xml", TWO_NODES, ALGO_SPECIFIED, 0,1,2,3,4,5,6,7)
+TEST_CASE(graphSearchTestWithoutPXN, 8PPU4CX7Tp1GraphSearchTest, "./8PPU1.0_4CX7_OAM_4Links/", "graph_tp1.xml", TWO_NODES, ALGO_SPECIFIED, 0,1,2,3,4,5,6,7)
 
-TEST_TEMP(8PPU4CX7Tp2Sub0GraphSearchTest, "./8PPU1.0_4CX7_OAM_4Links/", "graph_tp2_0167.xml", TWO_NODES, ALGO_SPECIFIED, 0,1,6,7)
-TEST_TEMP(8PPU4CX7Tp2Sub1GraphSearchTest, "./8PPU1.0_4CX7_OAM_4Links/", "graph_tp2_2345.xml", TWO_NODES, ALGO_SPECIFIED, 2,3,4,5)
+TEST_CASE(graphSearchTestWithoutPXN, 8PPU4CX7Tp2Sub0GraphSearchTest, "./8PPU1.0_4CX7_OAM_4Links/", "graph_tp2_0167.xml", TWO_NODES, ALGO_SPECIFIED, 0,1,6,7)
+TEST_CASE(graphSearchTestWithoutPXN, 8PPU4CX7Tp2Sub1GraphSearchTest, "./8PPU1.0_4CX7_OAM_4Links/", "graph_tp2_2345.xml", TWO_NODES, ALGO_SPECIFIED, 2,3,4,5)
 
-TEST_TEMP(8PPU4CX7Tp4Sub0GraphSearchTest, "./8PPU1.0_4CX7_OAM_4Links/", "graph_tp4_06.xml", TWO_NODES, ALGO_SPECIFIED, 0,6)
-TEST_TEMP(8PPU4CX7Tp4Sub1GraphSearchTest, "./8PPU1.0_4CX7_OAM_4Links/", "graph_tp4_17.xml", TWO_NODES, ALGO_SPECIFIED, 1,7)
-TEST_TEMP(8PPU4CX7Tp4Sub2GraphSearchTest, "./8PPU1.0_4CX7_OAM_4Links/", "graph_tp4_24.xml", TWO_NODES, ALGO_SPECIFIED, 2,4)
-TEST_TEMP(8PPU4CX7Tp4Sub3GraphSearchTest, "./8PPU1.0_4CX7_OAM_4Links/", "graph_tp4_35.xml", TWO_NODES, ALGO_SPECIFIED, 3,5)
+TEST_CASE(graphSearchTestWithoutPXN, 8PPU4CX7Tp4Sub0GraphSearchTest, "./8PPU1.0_4CX7_OAM_4Links/", "graph_tp4_06.xml", TWO_NODES, ALGO_SPECIFIED, 0,6)
+TEST_CASE(graphSearchTestWithoutPXN, 8PPU4CX7Tp4Sub1GraphSearchTest, "./8PPU1.0_4CX7_OAM_4Links/", "graph_tp4_17.xml", TWO_NODES, ALGO_SPECIFIED, 1,7)
+TEST_CASE(graphSearchTestWithoutPXN, 8PPU4CX7Tp4Sub2GraphSearchTest, "./8PPU1.0_4CX7_OAM_4Links/", "graph_tp4_24.xml", TWO_NODES, ALGO_SPECIFIED, 2,4)
+TEST_CASE(graphSearchTestWithoutPXN, 8PPU4CX7Tp4Sub3GraphSearchTest, "./8PPU1.0_4CX7_OAM_4Links/", "graph_tp4_35.xml", TWO_NODES, ALGO_SPECIFIED, 3,5)
 
-TEST_TEMP(8PPU4CX7Tp8Sub0GraphSearchTest, "./8PPU1.0_4CX7_OAM_4Links/", "graph_tp8_0.xml", TWO_NODES, ALGO_SPECIFIED, 0)
-TEST_TEMP(8PPU4CX7Tp8Sub1GraphSearchTest, "./8PPU1.0_4CX7_OAM_4Links/", "graph_tp8_1.xml", TWO_NODES, ALGO_SPECIFIED, 1)
-TEST_TEMP(8PPU4CX7Tp8Sub2GraphSearchTest, "./8PPU1.0_4CX7_OAM_4Links/", "graph_tp8_2.xml", TWO_NODES, ALGO_SPECIFIED, 2)
-TEST_TEMP(8PPU4CX7Tp8Sub3GraphSearchTest, "./8PPU1.0_4CX7_OAM_4Links/", "graph_tp8_3.xml", TWO_NODES, ALGO_SPECIFIED, 3)
-TEST_TEMP(8PPU4CX7Tp8Sub4GraphSearchTest, "./8PPU1.0_4CX7_OAM_4Links/", "graph_tp8_4.xml", TWO_NODES, ALGO_SPECIFIED, 4)
-TEST_TEMP(8PPU4CX7Tp8Sub5GraphSearchTest, "./8PPU1.0_4CX7_OAM_4Links/", "graph_tp8_5.xml", TWO_NODES, ALGO_SPECIFIED, 5)
-TEST_TEMP(8PPU4CX7Tp8Sub6GraphSearchTest, "./8PPU1.0_4CX7_OAM_4Links/", "graph_tp8_6.xml", TWO_NODES, ALGO_SPECIFIED, 6)
-TEST_TEMP(8PPU4CX7Tp8Sub7GraphSearchTest, "./8PPU1.0_4CX7_OAM_4Links/", "graph_tp8_7.xml", TWO_NODES, ALGO_SPECIFIED, 7)
+TEST_CASE(graphSearchTestWithoutPXN, 8PPU4CX7Tp8Sub0GraphSearchTest, "./8PPU1.0_4CX7_OAM_4Links/", "graph_tp8_0.xml", TWO_NODES, ALGO_SPECIFIED, 0)
+TEST_CASE(graphSearchTestWithoutPXN, 8PPU4CX7Tp8Sub1GraphSearchTest, "./8PPU1.0_4CX7_OAM_4Links/", "graph_tp8_1.xml", TWO_NODES, ALGO_SPECIFIED, 1)
+TEST_CASE(graphSearchTestWithoutPXN, 8PPU4CX7Tp8Sub2GraphSearchTest, "./8PPU1.0_4CX7_OAM_4Links/", "graph_tp8_2.xml", TWO_NODES, ALGO_SPECIFIED, 2)
+TEST_CASE(graphSearchTestWithoutPXN, 8PPU4CX7Tp8Sub3GraphSearchTest, "./8PPU1.0_4CX7_OAM_4Links/", "graph_tp8_3.xml", TWO_NODES, ALGO_SPECIFIED, 3)
+TEST_CASE(graphSearchTestWithoutPXN, 8PPU4CX7Tp8Sub4GraphSearchTest, "./8PPU1.0_4CX7_OAM_4Links/", "graph_tp8_4.xml", TWO_NODES, ALGO_SPECIFIED, 4)
+TEST_CASE(graphSearchTestWithoutPXN, 8PPU4CX7Tp8Sub5GraphSearchTest, "./8PPU1.0_4CX7_OAM_4Links/", "graph_tp8_5.xml", TWO_NODES, ALGO_SPECIFIED, 5)
+TEST_CASE(graphSearchTestWithoutPXN, 8PPU4CX7Tp8Sub6GraphSearchTest, "./8PPU1.0_4CX7_OAM_4Links/", "graph_tp8_6.xml", TWO_NODES, ALGO_SPECIFIED, 6)
+TEST_CASE(graphSearchTestWithoutPXN, 8PPU4CX7Tp8Sub7GraphSearchTest, "./8PPU1.0_4CX7_OAM_4Links/", "graph_tp8_7.xml", TWO_NODES, ALGO_SPECIFIED, 7)
 
 // 8PPU 4CX7
-TEST_TEMP(8PPU4CX6Tp1GraphSearchTest, "./8PPU1.0_4CX6_OAM_4Links_PIX/", "graph_tp1.xml", TWO_NODES, ALGO_SPECIFIED, 0,1,2,3,4,5,6,7)
+TEST_CASE(graphSearchTestWithoutPXN, 8PPU4CX6Tp1GraphSearchTest, "./8PPU1.0_4CX6_OAM_4Links_PIX/", "graph_tp1.xml", TWO_NODES, ALGO_SPECIFIED, 0,1,2,3,4,5,6,7)
 
-TEST_TEMP(8PPU4CX6Tp2Sub0GraphSearchTest, "./8PPU1.0_4CX6_OAM_4Links_PIX/", "graph_tp2_0167.xml", TWO_NODES, ALGO_SPECIFIED, 0,1,6,7)
-// TEST_TEMP(8PPU4CX6Tp2Sub1GraphSearchTest, "./8PPU1.0_4CX6_OAM_4Links_PIX/", "graph_tp2_2345.xml", 2,3,4,5)
+TEST_CASE(graphSearchTestWithoutPXN, 8PPU4CX6Tp2Sub0GraphSearchTest, "./8PPU1.0_4CX6_OAM_4Links_PIX/", "graph_tp2_0167.xml", TWO_NODES, ALGO_SPECIFIED, 0,1,6,7)
+// TEST_CASE(graphSearchTestWithoutPXN, 8PPU4CX6Tp2Sub1GraphSearchTest, "./8PPU1.0_4CX6_OAM_4Links_PIX/", "graph_tp2_2345.xml", 2,3,4,5)
 
-TEST_TEMP(8PPU4CX6Tp4Sub0GraphSearchTest, "./8PPU1.0_4CX6_OAM_4Links_PIX/", "graph_tp4_07.xml", TWO_NODES, ALGO_SPECIFIED, 0,7)
-// TEST_TEMP(8PPU4CX6Tp4Sub1GraphSearchTest, "./8PPU1.0_4CX6_OAM_4Links_PIX/", "graph_tp4_17.xml", 1,7)
-// TEST_TEMP(8PPU4CX6Tp4Sub2GraphSearchTest, "./8PPU1.0_4CX6_OAM_4Links_PIX/", "graph_tp4_24.xml", 2,4)
-// TEST_TEMP(8PPU4CX6Tp4Sub3GraphSearchTest, "./8PPU1.0_4CX6_OAM_4Links_PIX/", "graph_tp4_35.xml", 3,5)
+TEST_CASE(graphSearchTestWithoutPXN, 8PPU4CX6Tp4Sub0GraphSearchTest, "./8PPU1.0_4CX6_OAM_4Links_PIX/", "graph_tp4_07.xml", TWO_NODES, ALGO_SPECIFIED, 0,7)
+// TEST_CASE(graphSearchTestWithoutPXN, 8PPU4CX6Tp4Sub1GraphSearchTest, "./8PPU1.0_4CX6_OAM_4Links_PIX/", "graph_tp4_17.xml", 1,7)
+// TEST_CASE(graphSearchTestWithoutPXN, 8PPU4CX6Tp4Sub2GraphSearchTest, "./8PPU1.0_4CX6_OAM_4Links_PIX/", "graph_tp4_24.xml", 2,4)
+// TEST_CASE(graphSearchTestWithoutPXN, 8PPU4CX6Tp4Sub3GraphSearchTest, "./8PPU1.0_4CX6_OAM_4Links_PIX/", "graph_tp4_35.xml", 3,5)
 
-// TEST_TEMP(8PPU4CX6Tp8Sub0GraphSearchTest, "./8PPU1.0_4CX6_OAM_4Links_PIX/", "graph_tp8_0.xml", 0)
-// TEST_TEMP(8PPU4CX6Tp8Sub1GraphSearchTest, "./8PPU1.0_4CX6_OAM_4Links_PIX/", "graph_tp8_1.xml", 1)
-// TEST_TEMP(8PPU4CX6Tp8Sub2GraphSearchTest, "./8PPU1.0_4CX6_OAM_4Links_PIX/", "graph_tp8_2.xml", 2)
-// TEST_TEMP(8PPU4CX6Tp8Sub3GraphSearchTest, "./8PPU1.0_4CX6_OAM_4Links_PIX/", "graph_tp8_3.xml", 3)
-// TEST_TEMP(8PPU4CX6Tp8Sub4GraphSearchTest, "./8PPU1.0_4CX6_OAM_4Links_PIX/", "graph_tp8_4.xml", 4)
-// TEST_TEMP(8PPU4CX6Tp8Sub5GraphSearchTest, "./8PPU1.0_4CX6_OAM_4Links_PIX/", "graph_tp8_5.xml", 5)
-TEST_TEMP(8PPU4CX6Tp8Sub6GraphSearchTest, "./8PPU1.0_4CX6_OAM_4Links_PIX/", "graph_tp8_6.xml", TWO_NODES, ALGO_SPECIFIED, 6)
-// TEST_TEMP(8PPU4CX6Tp8Sub7GraphSearchTest, "./8PPU1.0_4CX6_OAM_4Links_PIX/", "graph_tp8_7.xml", 7)
+// TEST_CASE(graphSearchTestWithoutPXN, 8PPU4CX6Tp8Sub0GraphSearchTest, "./8PPU1.0_4CX6_OAM_4Links_PIX/", "graph_tp8_0.xml", 0)
+// TEST_CASE(graphSearchTestWithoutPXN, 8PPU4CX6Tp8Sub1GraphSearchTest, "./8PPU1.0_4CX6_OAM_4Links_PIX/", "graph_tp8_1.xml", 1)
+// TEST_CASE(graphSearchTestWithoutPXN, 8PPU4CX6Tp8Sub2GraphSearchTest, "./8PPU1.0_4CX6_OAM_4Links_PIX/", "graph_tp8_2.xml", 2)
+// TEST_CASE(graphSearchTestWithoutPXN, 8PPU4CX6Tp8Sub3GraphSearchTest, "./8PPU1.0_4CX6_OAM_4Links_PIX/", "graph_tp8_3.xml", 3)
+// TEST_CASE(graphSearchTestWithoutPXN, 8PPU4CX6Tp8Sub4GraphSearchTest, "./8PPU1.0_4CX6_OAM_4Links_PIX/", "graph_tp8_4.xml", 4)
+// TEST_CASE(graphSearchTestWithoutPXN, 8PPU4CX6Tp8Sub5GraphSearchTest, "./8PPU1.0_4CX6_OAM_4Links_PIX/", "graph_tp8_5.xml", 5)
+TEST_CASE(graphSearchTestWithoutPXN, 8PPU4CX6Tp8Sub6GraphSearchTest, "./8PPU1.0_4CX6_OAM_4Links_PIX/", "graph_tp8_6.xml", TWO_NODES, ALGO_SPECIFIED, 6)
+// TEST_CASE(graphSearchTestWithoutPXN, 8PPU4CX6Tp8Sub7GraphSearchTest, "./8PPU1.0_4CX6_OAM_4Links_PIX/", "graph_tp8_7.xml", 7)
+
+TEST_CASE(graphSearchTestWithoutPXN, 16PPUs4BF3SameNICPIX, "./16PPU1.1_4BF3_7Links_PIX/", "graph.xml", TWO_NODES, ALGO_SPECIFIED, 0,1,2,3,4,5,6,7,8,9,10,11,12,13,14,15)
 
 // 8PPU 4CX6
 
 // 8PPU 8CX6 with 2 PPUs & 2 NETs per PCIe switch
-TEST_TEMP(8PPU8CX62PPUsAnd2NETsPerPCIeSwitchGraphSearchTest, "./8PPU1.0_8CX6_4PIX_OAM_4Links/", "graph.xml", TWO_NODES, ALGO_SPECIFIED, 0,1,2,3,4,5,6,7)
+TEST_CASE(graphSearchTestWithoutPXN, 8PPU8CX62PPUsAnd2NETsPerPCIeSwitchGraphSearchTest, "./8PPU1.0_8CX6_4PIX_OAM_4Links/", "graph.xml", TWO_NODES, ALGO_SPECIFIED, 0,1,2,3,4,5,6,7)
 
 TEST_CASE(graphSearchTestWithPXN, PXN8PPUs8CX6, "./8PPU1.0_8CX6_OAM_4Links_PXN/", "graph.xml", TWO_NODES, ALGO_SPECIFIED, 0,1,2,3,4,5,6,7)
 TEST_CASE(graphSearchTestWithPXN, PXN8PPUs4BF3, "./8PPU1.0_4BF3_OAM_4Links_PXN/", "graph.xml", TWO_NODES, ALGO_SPECIFIED, 0,1,2,3,4,5,6,7)
 
 TEST_CASE(graphSearchTestWithPXN, PXN16PPUs4BF3, "./16PPU1.1_4BF3_7Links_PXN/", "graph.xml", TWO_NODES, ALGO_SPECIFIED, 0,1,2,3,4,5,6,7,8,9,10,11,12,13,14,15)
-TEST_TEMP(16PPUs4BF3SameNICPIX, "./16PPU1.1_4BF3_7Links_PIX/", "graph.xml", TWO_NODES, ALGO_SPECIFIED, 0,1,2,3,4,5,6,7,8,9,10,11,12,13,14,15)
 TEST_CASE(graphSearchTestWithPXN, PXN8PPUs2PPUsPerNET, "./8PPU1.0_4CX7_2PIXPPUsPerNET_OAM_4Links_PXN/", "graph.xml", TWO_NODES, ALGO_SPECIFIED, 0,1,2,3,4,5,6,7)
 
 // 8PPU 890L
@@ -251,6 +279,9 @@ TEST_CASE(graphSearchTestWithPXN, 8PPUs890LSingleNode8Numa, "./8PPU1.5_890L_Sing
 
 // 8PPU 890L 4CX7
 TEST_CASE(graphSearchTestWithPXN, PXN8PPUs890L4CX7, "./8PPU1.5_4CX7_2PIXPPUsPerNET_OAM_8Links_PXN/", "graph.xml", TWO_NODES, ALGO_AUTO, 0,1,2,3,4,5,6,7)
+
+// 16PPU 4EIC under RUND
+TEST_EIC_CASE(graphSearchTestWithPXN, PXN16PPUs4EICRUND, "./16PPU1.1_4EIC_7Links_RUND_PXN/", "graph.xml", TWO_NODES, ALGO_SPECIFIED, 0,1,2,3,4,5,6,7,8,9,10,11,12,13,14,15)
 
 int main(int argc, char **argv) {
   ::testing::InitGoogleTest(&argc, argv);
