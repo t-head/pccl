@@ -1,5 +1,17 @@
 {
   "version": 1,
-  "last_reviewers": {},
-  "pull_requests": {}
+  "last_reviewers": {
+    "workflow": "wensuyang"
+  },
+  "pull_requests": {
+    "19": {
+      "author": "honganlxh",
+      "modules": {
+        "workflow": {
+          "reviewer": "wensuyang",
+          "maintainer": "lishusen2026"
+        }
+      }
+    }
+  }
 }
