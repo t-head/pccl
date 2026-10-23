@@ -1,10 +1,11 @@
 name: pccl checkin
+run-name: "${{ github.event_name == 'pull_request' && format('PCCL checkin for PR #{0} at {1}', github.event.pull_request.number, github.sha) || format('PCCL checkin on {0}', github.ref_name) }}"
 
 # Triggers: manual / PR / push
 on:
   workflow_dispatch:                                       # manual trigger (web/API)
   pull_request:
-    branches: [main]                                       # default branch is main
+    branches: [main, 'release/**']
     types: [opened, synchronize, reopened, ready_for_review]
   push:
     branches: [main]                                       # run again after merge
@@ -13,7 +14,7 @@ permissions:
   contents: read
   packages: write
   pull-requests: write
-  statuses: write
+  statuses: read
 
 concurrency:
   group: ci-pccl-${{ github.event.pull_request.number || github.ref }}
@@ -43,7 +44,6 @@ jobs:
           persist-credentials: false
       - name: Check contribution commits
         env:
-          BASE_SHA: ${{ github.event.pull_request.base.sha }}
           HEAD_SHA: ${{ github.event.pull_request.head.sha }}
         run: |
           python3 - <<'PY'
@@ -55,8 +55,12 @@ jobs:
           def git(*args):
               return subprocess.check_output(['git', *args], text=True)
 
-          commits = git('rev-list',
-                        os.environ['BASE_SHA'] + '..' + os.environ['HEAD_SHA']).splitlines()
+          head_sha = os.environ['HEAD_SHA']
+          parents = git('show', '-s', '--format=%P', os.environ['GITHUB_SHA']).split()
+          if len(parents) != 2 or parents[1] != head_sha:
+              sys.exit('Test merge does not match the PR head; start a new checkin run.')
+          # The event base SHA can lag behind the base already included in this test merge.
+          commits = git('rev-list', parents[0] + '..' + head_sha).splitlines()
           errors = []
           if len(commits) != 1:
               errors.append(f'PR must contain exactly one commit; found {len(commits)}. Squash the contribution commits before pushing.')
