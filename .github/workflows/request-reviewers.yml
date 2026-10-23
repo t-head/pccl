@@ -1,0 +1,27 @@
+name: Recommend PCCL reviewers
+run-name: "Recommend reviewers for PR #${{ github.event.pull_request.number }}"
+
+on:
+  pull_request:
+    branches: [test/module-review-base]
+    types: [opened, synchronize, reopened, ready_for_review, edited]
+
+permissions:
+  contents: write
+  pull-requests: write
+  copilot-requests: write
+
+jobs:
+  reviewers:
+    name: Reviewer routing
+    if: >-
+      github.repository == 't-head/pccl' &&
+      github.event.pull_request.number == 19 &&
+      github.event.pull_request.user.login == 'honganlxh' &&
+      github.event.pull_request.head.repo.full_name == github.repository &&
+      github.event.pull_request.head.ref == 'test/module-review-pr'
+    uses: t-head/pccl/.github/workflows/reviewer-routing.yml@e8f35dad85d7718f71ab5950e89c6066f6f71aaa
+    with:
+      pr_number: ${{ github.event.pull_request.number }}
+      target_branch: test/module-review-base
+      state_branch: automation/reviewer-rotation-pr19
