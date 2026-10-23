@@ -1056,7 +1056,7 @@ search:
   if (time == -1) goto done;
   if (graph->nChannels*graph->speedInter >= system->totalWidth and graph->typeInter < PATH_PHB) goto done;
   if ((graph->nChannels*graph->speedInter >= system->totalNetWidth) &&
-      (graph->speedInter == PATH_PXN && isGraphWithAllPxnChannels(graph))) {
+      (graph->typeInter == PATH_PXN && isGraphWithAllPxnChannels(graph))) {
     goto done;
   }
 
