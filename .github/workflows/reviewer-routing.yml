@@ -1,0 +1,118 @@
+name: Recommend PCCL reviewers
+run-name: "${{ github.event.workflow_run.display_title || format('Recommend reviewers for PR #{0}', github.event.pull_request.number || inputs.pr_number) }}"
+
+on:
+  pull_request_target:
+    branches: [main, 'release/**']
+    types: [opened, synchronize, reopened, ready_for_review, edited]
+  workflow_run:
+    workflows: [PCCL review trigger]
+    types: [completed]
+  workflow_dispatch:
+    inputs:
+      pr_number:
+        description: PR number to classify again
+        required: true
+        type: number
+
+permissions: {}
+
+concurrency:
+  group: reviewers-${{ github.event_name }}-${{ github.event.pull_request.number || inputs.pr_number || github.event.workflow_run.display_title }}
+  cancel-in-progress: false
+
+env:
+  PR_NUMBER: ${{ github.event.pull_request.number || inputs.pr_number }}
+  PYTHONUTF8: '1'
+
+jobs:
+  classify:
+    name: Classify changed modules
+    if: >-
+      github.repository == 't-head/pccl' &&
+      github.event_name != 'workflow_run' &&
+      !github.event.pull_request.draft &&
+      (github.event_name != 'workflow_dispatch' || github.ref == 'refs/heads/main')
+    runs-on: ubuntu-24.04
+    timeout-minutes: 10
+    permissions:
+      contents: read
+      pull-requests: read
+      copilot-requests: write
+    outputs:
+      recommendation: ${{ steps.classify.outputs.recommendation }}
+    steps:
+      # Use this run's trusted main revision for every target branch; PR contents are data only.
+      - uses: actions/checkout@d23441a48e516b6c34aea4fa41551a30e30af803 # v6
+        with:
+          ref: ${{ github.sha }}
+          persist-credentials: false
+      - name: Install Copilot CLI
+        shell: bash
+        env:
+          VERSION: v1.0.100
+          PREFIX: ${{ runner.temp }}/copilot
+        run: |
+          curl --fail --silent --show-error --location --retry 3 \
+            https://raw.githubusercontent.com/github/copilot-cli/84ee80ea6490ce02d6000439356a609fcefbb9ae/install.sh | bash
+          # The installer allows missing checksums; verify the executable before use.
+          echo "0d0cfb14f1a214ebbe0edc20c509dce0bc4f2bd0e4310c849af5c436d4d9f321  $PREFIX/bin/copilot" | sha256sum --check -
+      - name: Classify modules using the review Skill
+        id: classify
+        env:
+          GITHUB_TOKEN: ${{ github.token }}
+          COPILOT_CLI: ${{ runner.temp }}/copilot/bin/copilot
+        run: python3 .github/scripts/review_automation.py classify
+
+  invite:
+    name: Request reviewers
+    needs: classify
+    if: needs.classify.outputs.recommendation != ''
+    runs-on: ubuntu-24.04
+    timeout-minutes: 5
+    concurrency:
+      # Read and update module rotations one PR at a time, without dropping queued PRs.
+      group: reviewer-invitations
+      queue: max
+      cancel-in-progress: false
+    permissions:
+      contents: write # Store allocations on workflow/review; this job runs trusted base code.
+      pull-requests: write
+    steps:
+      - uses: actions/checkout@d23441a48e516b6c34aea4fa41551a30e30af803 # v6
+        with:
+          ref: ${{ github.sha }}
+          persist-credentials: false
+      - name: Rotate reviewers and request review
+        env:
+          GITHUB_TOKEN: ${{ github.token }}
+          RECOMMENDATION: ${{ needs.classify.outputs.recommendation }}
+        run: python3 .github/scripts/review_automation.py invite
+
+  approval:
+    name: Check Maintainer approvals
+    needs: [classify, invite]
+    if: >-
+      always() && github.repository == 't-head/pccl' &&
+      !github.event.pull_request.draft &&
+      (github.event_name != 'workflow_dispatch' || github.ref == 'refs/heads/main')
+    runs-on: ubuntu-24.04
+    timeout-minutes: 5
+    permissions:
+      contents: read
+      pull-requests: read
+      actions: read
+      statuses: write
+    concurrency:
+      group: "maintainer-approval-${{ github.event.workflow_run.display_title || format('Review update for PR #{0}', github.event.pull_request.number || inputs.pr_number) }}"
+      cancel-in-progress: false
+    steps:
+      - uses: actions/checkout@d23441a48e516b6c34aea4fa41551a30e30af803 # v6
+        with:
+          ref: ${{ github.sha }}
+          persist-credentials: false
+      - name: Refresh the approval status for the current PR commit
+        env:
+          GITHUB_TOKEN: ${{ github.token }}
+          RECOMMENDATION: ${{ needs.classify.outputs.recommendation }}
+        run: python3 .github/scripts/review_automation.py approval

@@ -1,0 +1,232 @@
+{
+  "lead_maintainer": {"login": "lishusen2026", "id": 340101345},
+  "modules": {
+    "build": {
+      "name": "Build system",
+      "description": "Build definitions, compiler integration, SDK setup and packaging.",
+      "maintainer": {"login": "levilee-lwl", "id": 340491409},
+      "reviewers": [
+        {"login": "xiangzhixyc", "id": 341355176},
+        {"login": "ck-milo", "id": 341349555},
+        {"login": "wensuyang", "id": 333277982}
+      ]
+    },
+    "bootstrap": {
+      "name": "Bootstrap",
+      "description": "Peer discovery, bootstrap sockets and initial rank exchange.",
+      "maintainer": {"login": "ck-milo", "id": 341349555},
+      "reviewers": [
+        {"login": "honglei-lu", "id": 340104201},
+        {"login": "snowdrift-zw", "id": 341341178}
+      ]
+    },
+    "device-topology": {
+      "name": "Device detection and path building",
+      "description": "Device and link discovery, topology representation and communication path construction.",
+      "maintainer": {"login": "honganlxh", "id": 335730053},
+      "reviewers": [
+        {"login": "xiangzhixyc", "id": 341355176},
+        {"login": "OtoriEmu000", "id": 335834228},
+        {"login": "ck-milo", "id": 341349555}
+      ]
+    },
+    "graph-search": {
+      "name": "Topology graph search",
+      "description": "Search for rings, trees and channel graphs over the detected topology.",
+      "maintainer": {"login": "honganlxh", "id": 335730053},
+      "reviewers": [
+        {"login": "xiangzhixyc", "id": 341355176},
+        {"login": "OtoriEmu000", "id": 335834228},
+        {"login": "ck-milo", "id": 341349555}
+      ]
+    },
+    "transport": {
+      "name": "Transport build and connect",
+      "description": "Choose, initialize and connect transports between ranks, including P2P and SHM.",
+      "maintainer": {"login": "ck-milo", "id": 341349555},
+      "reviewers": [
+        {"login": "xiangzhixyc", "id": 341355176},
+        {"login": "snowdrift-zw", "id": 341341178},
+        {"login": "honglei-lu", "id": 340104201}
+      ]
+    },
+    "tuning": {
+      "name": "Algorithm and protocol selection",
+      "description": "Built-in tuning models, algorithm/protocol decisions and selection thresholds.",
+      "maintainer": {"login": "honganlxh", "id": 335730053},
+      "reviewers": [
+        {"login": "ck-milo", "id": 341349555},
+        {"login": "QingxunLy", "id": 341751581}
+      ]
+    },
+    "communicator": {
+      "name": "Communicator lifecycle",
+      "description": "Communicator split, shrink, revoke, resume, suspend and lifecycle management.",
+      "maintainer": {"login": "OtoriEmu000", "id": 335834228},
+      "reviewers": [
+        {"login": "honganlxh", "id": 335730053},
+        {"login": "ctt284373", "id": 340404662}
+      ]
+    },
+    "memory": {
+      "name": "Memory management",
+      "description": "Memory allocation, registration, mapping, ownership and release.",
+      "maintainer": {"login": "honglei-lu", "id": 340104201},
+      "reviewers": [
+        {"login": "ctt284373", "id": 340404662},
+        {"login": "ck-milo", "id": 341349555}
+      ]
+    },
+    "enqueue": {
+      "name": "Runtime kernel planning and enqueue",
+      "description": "Host-side work planning, enqueue, streams, groups and graph capture.",
+      "maintainer": {"login": "ctt284373", "id": 340404662},
+      "reviewers": [
+        {"login": "ck-milo", "id": 341349555},
+        {"login": "xiangzhixyc", "id": 341355176}
+      ]
+    },
+    "dispatch": {
+      "name": "Kernel dispatch and CE masks",
+      "description": "Kernel dispatch strategy and copy-engine mask selection.",
+      "maintainer": {"login": "honganlxh", "id": 335730053},
+      "reviewers": [
+        {"login": "ck-milo", "id": 341349555},
+        {"login": "xiangzhixyc", "id": 341355176},
+        {"login": "wensuyang", "id": 333277982},
+        {"login": "ctt284373", "id": 340404662}
+      ]
+    },
+    "network": {
+      "name": "Network transport, plugin and proxy",
+      "description": "Network backends, net-plugin interfaces, network transfers and proxy progress.",
+      "maintainer": {"login": "snowdrift-zw", "id": 341341178},
+      "reviewers": [
+        {"login": "xiangzhixyc", "id": 341355176},
+        {"login": "wagmy-xy", "id": 341353320}
+      ]
+    },
+    "kernels": {
+      "name": "Native operations and device kernels",
+      "description": "Built-in collective/P2P kernels, communication primitives and reduction operations.",
+      "maintainer": {"login": "honganlxh", "id": 335730053},
+      "reviewers": [
+        {"login": "xiangzhixyc", "id": 341355176},
+        {"login": "ck-milo", "id": 341349555},
+        {"login": "qinghanke", "id": 341371372},
+        {"login": "ctt284373", "id": 340404662}
+      ]
+    },
+    "scheduling": {
+      "name": "AlltoAll and P2P scheduling",
+      "description": "Host scheduling, batching, rank pairing and ordering for AlltoAll and P2P.",
+      "maintainer": {"login": "honganlxh", "id": 335730053},
+      "reviewers": [
+        {"login": "levilee-lwl", "id": 340491409},
+        {"login": "xiangzhixyc", "id": 341355176},
+        {"login": "ctt284373", "id": 340404662}
+      ]
+    },
+    "kernel-plugin": {
+      "name": "Kernel plugin and extension kernels",
+      "description": "Extension-kernel interfaces, loading and externally supplied kernels.",
+      "maintainer": {"login": "ck-milo", "id": 341349555},
+      "reviewers": [
+        {"login": "honganlxh", "id": 335730053},
+        {"login": "QingxunLy", "id": 341751581}
+      ]
+    },
+    "tuner-plugin": {
+      "name": "Tuner plugin",
+      "description": "Tuner-plugin ABI, loading and external tuning implementations.",
+      "maintainer": {"login": "ck-milo", "id": 341349555},
+      "reviewers": [
+        {"login": "honganlxh", "id": 335730053},
+        {"login": "QingxunLy", "id": 341751581}
+      ]
+    },
+    "profiler": {
+      "name": "Profiler and plugin",
+      "description": "Profiling events, instrumentation, profiler plugins and inspector integration.",
+      "maintainer": {"login": "levilee-lwl", "id": 340491409},
+      "reviewers": [
+        {"login": "ck-milo", "id": 341349555},
+        {"login": "whale494255", "id": 340521072}
+      ]
+    },
+    "symmetric": {
+      "name": "Symmetric-memory kernels",
+      "description": "Symmetric-memory-based collective kernels and their synchronization.",
+      "maintainer": {"login": "snowdrift-zw", "id": 341341178},
+      "reviewers": [
+        {"login": "ck-milo", "id": 341349555},
+        {"login": "wensuyang", "id": 333277982},
+        {"login": "honganlxh", "id": 335730053}
+      ]
+    },
+    "copy-engine": {
+      "name": "Copy-engine operations",
+      "description": "Collective or P2P operations implemented through copy engines and DMA.",
+      "maintainer": {"login": "ck-milo", "id": 341349555},
+      "reviewers": [
+        {"login": "snowdrift-zw", "id": 341341178},
+        {"login": "wensuyang", "id": 333277982}
+      ]
+    },
+    "ras": {
+      "name": "RAS and hang diagnostics",
+      "description": "RAS, hang monitoring, communicator dumps and related diagnostics.",
+      "maintainer": {"login": "ck-milo", "id": 341349555},
+      "reviewers": [
+        {"login": "QingxunLy", "id": 341751581},
+        {"login": "close-shulei", "id": 262349997}
+      ]
+    },
+    "device-api": {
+      "name": "Device API and LSA",
+      "description": "Public device APIs, windows, local shared access and their implementation.",
+      "maintainer": {"login": "wensuyang", "id": 333277982},
+      "reviewers": [
+        {"login": "snowdrift-zw", "id": 341341178},
+        {"login": "wensuyang", "id": 333277982}
+      ]
+    },
+    "gin": {
+      "name": "GIN",
+      "description": "GPU/PPU-initiated networking, GIN APIs, plugins and RDMA backends.",
+      "maintainer": {"login": "snowdrift-zw", "id": 341341178},
+      "reviewers": [
+        {"login": "wensuyang", "id": 333277982},
+        {"login": "wagmy-xy", "id": 341353320},
+        {"login": "close-shulei", "id": 262349997}
+      ]
+    },
+    "workflow": {
+      "name": "Contribution and review workflows",
+      "description": "Contribution guidance, issue/PR templates, review rules and reviewer automation.",
+      "maintainer": {"login": "honganlxh", "id": 335730053},
+      "reviewers": [
+        {"login": "honganlxh", "id": 335730053},
+        {"login": "wensuyang", "id": 333277982}
+      ]
+    },
+    "ci": {
+      "name": "Open-source test workflows",
+      "description": "Test selection, CI execution, test gates, runners and result reporting.",
+      "maintainer": {"login": "xuyinxin-xyx", "id": 333302477},
+      "reviewers": [
+        {"login": "xuyinxin-xyx", "id": 333302477}
+      ],
+      "author_review_exemption": 333302477
+    },
+    "other": {
+      "name": "Other changes",
+      "description": "Changes outside the listed modules; explain the uncovered behavior explicitly.",
+      "maintainer": {"login": "lishusen2026", "id": 340101345},
+      "reviewers": [
+        {"login": "lishusen2026", "id": 340101345},
+        {"login": "honganlxh", "id": 335730053}
+      ]
+    }
+  }
+}
