@@ -477,7 +477,7 @@ ncclResult_t ncclTopoCheckMNNVL(struct ncclTopoSystem* system, struct ncclPeerIn
 NCCL_PARAM(NetGdrRead, "NET_GDR_READ", -2);
 int ncclTopoUserGdrLevel = -1;
 
-ncclResult_t ncclTopoCheckGdr(struct ncclTopoSystem* system, int rank, int64_t netId, int read, int* useGdr, bool send) {
+ncclResult_t ncclTopoCheckGdr(struct ncclTopoSystem* system, int rank, int64_t netId, int read, int* useGdr) {
   *useGdr = 0;
 
   // Get GPU and NET
@@ -514,10 +514,9 @@ ncclResult_t ncclTopoCheckGdr(struct ncclTopoSystem* system, int rank, int64_t n
   int netGdrLevel = PATH_PXB;
   NCCLCHECK(ncclGetLevel(&ncclTopoUserGdrLevel, NULL, "PCCL_NET_GDR_LEVEL"));
   if (ncclTopoUserGdrLevel != -2) netGdrLevel = ncclTopoUserGdrLevel;
-  // PXN/PXR relays are send-only; receives use the NIC->PPU path.
-  // Path computation keeps send=true with read=0 to bypass NET_GDR_READ policy.
-  int distance = send ? gpu->paths[NET][n].type : net->paths[GPU][g].type;
-  if (send && (distance == PATH_PXN || distance == PATH_PXR)) {
+  int distance = gpu->paths[NET][n].type;
+  if (distance == PATH_PXN || distance == PATH_PXR) {
+    // In case of PXN, use the intermediate GPU distance instead
     int proxyRank, g;
     NCCLCHECK(ncclTopoGetIntermediateRank(system, gpu->gpu.rank, netId, &proxyRank));
     NCCLCHECK(ncclTopoRankToIndex(system, proxyRank, &g));
