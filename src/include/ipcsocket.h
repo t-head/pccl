@@ -40,4 +40,13 @@ ncclResult_t ncclIpcSocketSendFd(struct ncclIpcSocket *handle, const int fd, int
 ncclResult_t ncclIpcSocketSendMsg(ncclIpcSocket *handle, void *hdr, int hdrLen, const int sendFd, int rank, uint64_t hash);
 ncclResult_t ncclIpcSocketRecvMsg(ncclIpcSocket *handle, void *hdr, int hdrLen, int *recvFd);
 
+struct pcclIpcFdInfo {
+  pid_t pid;
+  int fd;
+  uint64_t pidNamespace;
+};
+
+void pcclIpcGetFdInfo(int fd, struct pcclIpcFdInfo* info);
+ncclResult_t pcclIpcGetFd(struct pcclIpcFdInfo* info, int* fd);
+
 #endif /* NCCL_IPCSOCKET_H */
