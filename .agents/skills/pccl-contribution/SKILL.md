@@ -55,7 +55,7 @@ When changing only the message, keep committed content unchanged. Do not rewrite
 ## Push and PR
 
 1. Confirm the repository, working branch, and target; fetch the actual target.
-2. Keep one contribution commit, preserving its contents, authorship, and sign-offs. Review the full target-to-head diff.
+2. Keep 1 to 5 contribution commits. Squash excess commits while preserving contents, authorship, and sign-offs. Review the full target-to-head diff.
 3. If HEAD lacks the latest target tip, automatically rebase before pushing. Require a clean worktree and verified target; abort and report conflicts.
 4. Verify the remote branch tip. For rewrites, use `--force-with-lease=<ref>:<expected-sha>`; stop on unexpected changes. Never push directly to protected targets.
 5. Use the PR template and English text covering the final change, actual validation, limitations, and a relevant open issue. Apply authorized edits and read them back.

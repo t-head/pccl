@@ -129,7 +129,7 @@ Reference at least one open issue in the PR description to satisfy the organizat
 1. Consider rebasing onto the latest target branch before submitting. Being behind alone does not block submission; resolve conflicts and address relevant integration issues before merging.
 2. Set up the T-Head SAIL SDK and run `./build.sh` as described in [README.md](README.md) to ensure a clean build with no warnings. Use [pccl-tests](https://github.com/t-head/pccl-tests) for relevant functional and performance validation.
 
-Each PR must contain exactly one contribution commit relative to its target branch. Squash multiple contribution commits before pushing; preserve existing author attribution and authorized DCO sign-offs. The Commit Message pre-check rejects PRs with zero or multiple commits.
+Each PR must contain 1 to 5 contribution commits relative to its target branch. Every commit must meet the message and DCO requirements below. Squash excess commits before pushing, preserving existing author attribution and authorized DCO sign-offs.
 
 ### Commit Messages
 
