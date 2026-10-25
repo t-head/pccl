@@ -58,8 +58,8 @@ jobs:
           commits = git('rev-list',
                         os.environ['BASE_SHA'] + '..' + os.environ['HEAD_SHA']).splitlines()
           errors = []
-          if len(commits) != 1:
-              errors.append(f'PR must contain exactly one commit; found {len(commits)}. Squash the contribution commits before pushing.')
+          if not 1 <= len(commits) <= 5:
+              errors.append(f'PR must contain 1 to 5 contribution commits; found {len(commits)}. Squash excess commits before pushing.')
           for sha in commits:
               message = git('show', '-s', '--format=%B', sha)
               lines = message.splitlines()
