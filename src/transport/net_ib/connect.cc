@@ -182,10 +182,7 @@ static bool configuredGid(union ibv_gid* gid) {
 
 static bool linkLocalGid(union ibv_gid* gid) {
   const struct in6_addr *a = (struct in6_addr *)gid->raw;
-  if (a->s6_addr32[0] == htonl(0xfe800000) && a->s6_addr32[1] == 0UL) {
-    return true;
-  }
-  return false;
+  return IN6_IS_ADDR_LINKLOCAL(a);
 }
 
 static bool validGid(union ibv_gid* gid) {
