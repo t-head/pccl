@@ -375,7 +375,7 @@ __device__ void ceLocalReduce(const struct pcclCeOkiReduceArgs& args) {
     tailPtr = (uint64_t*)add4G((uint8_t*)tailPtr, threadIdx.x * stride4G);
   }
 
-  for (int iter = 0; iter < iters; ++iter) { // can't conbine baseStep into for loop calculation, as C2CDMA always use sect0 first for now.
+  for (int iter = 0; iter < iters; ++iter) { // can't combine baseStep into for loop calculation, as C2CDMA always use sect0 first for now.
     int64_t currentStep = baseStep + iter;
     uint64_t barrierFlag = baseStep + iter + 1;
     int32_t chunkElts = 0;

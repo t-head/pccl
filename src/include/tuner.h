@@ -15,7 +15,7 @@
 
 // Attempts to load NCCL tuner from environmental variable.
 // Returns ncclSuccess if the correct tuner symbol has been found and
-// successully loaded.  Otherwise returns an error and also logs the error.
+// successfully loaded.  Otherwise returns an error and also logs the error.
 ncclResult_t ncclLoadTunerPlugin(ncclTuner_t** tuner);
 
 // Cleans up NCCL tuner plugin.

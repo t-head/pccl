@@ -38,7 +38,7 @@ const char* jsonErrorString(jsonResult_t res) {
   }
 }
 
-// We use these statics to mantain a stack of states where we are writing.
+// We use these statics to maintain a stack of states where we are writing.
 typedef struct jsonFileOutput {
   jsonState_t* states;
   size_t state_cap; // Allocated stack capacity
@@ -258,7 +258,7 @@ static jsonState_t jsonPopState(jsonFileOutput* jfo) {
   return jfo->states[--jfo->state_n];
 }
 
-// Emit a key and separator. Santize the key.
+// Emit a key and separator. Sanitize the key.
 // This is only acceptable if the top state is an object
 // Emit a ',' separator of we aren't the first item.
 jsonResult_t jsonKey(jsonFileOutput* jfo, const char* name) {
@@ -284,7 +284,7 @@ jsonResult_t jsonKey(jsonFileOutput* jfo, const char* name) {
 
 // Helper function for inserting values.
 // Only acceptable after keys, top-level, or in lists.
-// Emit preceeding ',' if in a list and not first item.
+// Emit preceding ',' if in a list and not first item.
 static jsonResult_t jsonValHelper(jsonFileOutput* jfo) {
   switch (jsonCurrState(jfo)) {
   case JSON_LIST_EMPTY:

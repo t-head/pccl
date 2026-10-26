@@ -16,7 +16,7 @@ NCCLDIR=`basename $PWD`
 echo "Checking for unclean directory ..."
 git clean -x -i
 echo "Clean done."
-echo "Checking for uncommited files ..."
+echo "Checking for uncommitted files ..."
 if [ "`git status -s | wc -l`" != "0" ]; then
   git status -s
   echo "Some changes are not committed yet. Continue ? (Ctrl-C to abort)"

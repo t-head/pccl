@@ -66,7 +66,7 @@ install: $(TARGET)
 
 # Help
 help:
-	@echo "PCCL Example: Symmetric Memeory Allreduce"
+	@echo "PCCL Example: Symmetric Memory Allreduce"
 	@echo "=============================================="
 	@echo ""
 	@echo "Targets:"

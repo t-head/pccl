@@ -73,8 +73,8 @@ __global__ void simpleAllReduceKernel(pcclWindow_t sendwin, size_t sendoffset,
 
   const int rank = devComm.rank, nRanks = devComm.nRanks;
 
-  // We are going to spread the workload accross all GPU ranks.
-  // So calculate the global thread ID accross all ranks.
+  // We are going to spread the workload across all GPU ranks.
+  // So calculate the global thread ID across all ranks.
   // This maps global threads to data elements in the data to be reduced
   const int globalTid = threadIdx.x + blockDim.x * (rank + blockIdx.x * nRanks);
   const int globalNthreads = blockDim.x * gridDim.x * nRanks;

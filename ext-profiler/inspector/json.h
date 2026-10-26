@@ -49,7 +49,7 @@ jsonResult_t jsonFinalizeFileOutput(jsonFileOutput *jfo);
 jsonResult_t jsonNewline(jsonFileOutput *jfo);
 jsonResult_t jsonFlushOutput(jsonFileOutput *jfo);
 
-// Emit a key and separator. Santize the key.
+// Emit a key and separator. Sanitize the key.
 // This is only acceptable if the top state is an object
 // Emit a ',' separator of we aren't the first item.
 jsonResult_t jsonKey(jsonFileOutput *jfo, const char *name);
