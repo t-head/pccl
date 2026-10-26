@@ -239,11 +239,7 @@ ncclResult_t ncclTransportP2pSetup(ncclComm_t comm, struct ncclTopoGraph* graph,
                     NCCLCHECKGOTO(dumpConnInfo(conn->conn, c, comm->rank, sendPeer, 1), ret, fail);
                   }
                   /* comm->channels[c].devPeers[sendPeer]->send is a device memory access. */
-                  if (ncclPerfmodelSpeedup) {
-                    ncclHggcMemcpy(&comm->channels[c].devPeersHostPtr[sendPeer]->send[connIndex], &conn->conn, 1);
-                  } else {
-                    HGGCCHECKGOTO(hggcMemcpyAsync(&comm->channels[c].devPeersHostPtr[sendPeer]->send[connIndex], &conn->conn, sizeof(struct ncclConnInfo), hggcMemcpyHostToDevice, comm->sharedRes->hostStream.hggcStream), ret, fail);
-                  }
+                  HGGCCHECKGOTO(hggcMemcpyAsync(&comm->channels[c].devPeersHostPtr[sendPeer]->send[connIndex], &conn->conn, sizeof(struct ncclConnInfo), hggcMemcpyHostToDevice, comm->sharedRes->hostStream.hggcStream), ret, fail);
                 } else if (ret == ncclInProgress) {
                   allChannelsConnected = false;
                 }
@@ -262,12 +258,7 @@ ncclResult_t ncclTransportP2pSetup(ncclComm_t comm, struct ncclTopoGraph* graph,
                     NCCLCHECKGOTO(dumpConnInfo(conn->conn, c, comm->rank, recvPeer, 0), ret, fail);
                   }
                   /* comm->channels[c].devPeers[recvPeer]->recv is a device memory access. */
-                  if (ncclPerfmodelSpeedup) {
-                    ncclHggcMemcpy(&comm->channels[c].devPeersHostPtr[recvPeer]->recv[connIndex], &conn->conn, 1);
-                  }
-                  else {
-                    HGGCCHECKGOTO(hggcMemcpyAsync(&comm->channels[c].devPeersHostPtr[recvPeer]->recv[connIndex], &conn->conn, sizeof(struct ncclConnInfo), hggcMemcpyHostToDevice, comm->sharedRes->hostStream.hggcStream), ret, fail);
-                  }
+                  HGGCCHECKGOTO(hggcMemcpyAsync(&comm->channels[c].devPeersHostPtr[recvPeer]->recv[connIndex], &conn->conn, sizeof(struct ncclConnInfo), hggcMemcpyHostToDevice, comm->sharedRes->hostStream.hggcStream), ret, fail);
                 } else if (ret == ncclInProgress) {
                   allChannelsConnected = false;
                 }

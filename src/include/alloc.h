@@ -25,22 +25,6 @@
 #include <sys/mman.h>
 #include <iostream>
 
-enum {
-  HW_PPU = 0,             // ppu mode.
-  HW_BEHAVIOR = 1,        // behavior mode.
-  HW_BIT_ACCURATE = 2,    // bit accurate.
-  HW_PERF = 3,            // perf mode.
-};
-extern int gModelType;
-
-extern int ncclPerfmodelSpeedup;
-extern void* ncclPerfmodelHostPtr[8];
-extern void* ncclPerfmodelDevicePtr[8];
-extern size_t ncclPerfmodelMemOffset[8];
-extern const size_t ncclPerfmodelTotalDeviceMemSize;
-extern const size_t ncclPerfmodelDevMemAlignSize;
-extern int ncclPerfmodelNeedCopy[8];
-
 template<typename T>
 constexpr size_t ncclSizeOfT() { return sizeof(T); }
 template<>
@@ -396,15 +380,7 @@ static ncclResult_t ncclHggcCallocOrigin(T** ptr, size_t nelem, size_t *sizeAlig
     HGGCCHECK(hggcMalloc(ptr, nelem*sizeof(T)));
   }
   if (ncclParamNoMemsetFlag == 0) {
-    // for bit accurate mode.
-    if (gModelType == HW_PERF) {
-        T* host_ptr = NULL;
-        ncclCalloc(&host_ptr, nelem);
-        HGGCCHECK(hggcMemcpyAsync(*ptr, host_ptr, nelem*sizeof(T), hggcMemcpyDefault, stream));
-        free((void*)host_ptr);
-    } else {
-      HGGCCHECK(hggcMemsetAsync(*ptr, 0, nelem*ncclSizeOfT<T>(), stream));
-    }
+    HGGCCHECK(hggcMemsetAsync(*ptr, 0, nelem*ncclSizeOfT<T>(), stream));
   }
   HGGCCHECK(hggcStreamSynchronize(stream));
   HGGCCHECK(hggcStreamDestroy(stream));
@@ -431,42 +407,14 @@ static ncclResult_t ncclRealloc(T** ptr, size_t oldNelem, size_t nelem) {
 }
 
 template <typename T>
-static ncclResult_t ncclHggcCallocPerfmodelSpeedup(T** ptr, size_t nelem, size_t *sizeAligned) {
-  if (ncclCuMemEnable()) {
-    NCCLCHECK(ncclHgMemAlloc((void **)ptr, NULL, ncclHgMemHandleType, nelem*sizeof(T), nullptr, sizeAligned));
-  } else {
-    VERBOSE(NCCL_ALLOC, "hggcMalloc(ptr=%p)", *ptr);
-    HGGCCHECK(hggcMalloc(ptr, nelem*sizeof(T)));
-  }
-
-  int dev;
-  HGGCCHECK(hggcGetDevice(&dev));
-  *ptr = (T*)ncclPerfmodelDevicePtr[dev] + ncclPerfmodelMemOffset[dev]/sizeof(T);
-  int align_size = (nelem*sizeof(T) + ncclPerfmodelDevMemAlignSize - 1) / ncclPerfmodelDevMemAlignSize * ncclPerfmodelDevMemAlignSize;
-  ncclPerfmodelMemOffset[dev] += align_size;
-  ncclPerfmodelNeedCopy[dev] = 1;
-  if (ncclPerfmodelMemOffset[dev] > ncclPerfmodelTotalDeviceMemSize) {
-    ERROR("hggc device memory exceed %lx, you need to increase the total memory size", ncclPerfmodelTotalDeviceMemSize);
-    return ncclSystemError;
-  }
-
-  return ncclSuccess;
-}
-
-template <typename T>
 static ncclResult_t ncclHggcCallocU2mmDebug(const char *filefunc, int line, T** ptr, size_t nelem, uint64_t* pDevMemUsed, int memMode, struct ncclMemManager* manager = nullptr, ncclMemType_t memType = ncclMemPersist) {
   ncclResult_t result = ncclSuccess;
   size_t sizeAligned = nelem * sizeof(T);
   hggcStreamCaptureMode mode = hggcStreamCaptureModeRelaxed;
   HGGCCHECK(hggcThreadExchangeStreamCaptureMode(&mode));
 
-  if (ncclPerfmodelSpeedup) {
-    assert(memMode == MEM_NORMAL);
-    NCCLCHECKGOTO(ncclHggcCallocPerfmodelSpeedup(ptr, nelem, &sizeAligned), result, finish);
-  } else {
-    // use memMode to specify other kinds of memory alloc
-    NCCLCHECKGOTO(ncclHggcCallocOrigin(ptr, nelem, &sizeAligned, memMode, manager, memType), result, finish);
-  }
+  // use memMode to specify other kinds of memory alloc
+  NCCLCHECKGOTO(ncclHggcCallocOrigin(ptr, nelem, &sizeAligned, memMode, manager, memType), result, finish);
 
 finish:
   HGGCCHECK(hggcThreadExchangeStreamCaptureMode(&mode));
@@ -490,15 +438,7 @@ static ncclResult_t ncclHggcMemcpy(T* dst, T* src, size_t nelem) {
   hggcStreamCaptureMode mode = hggcStreamCaptureModeRelaxed;
   HGGCCHECK(hggcThreadExchangeStreamCaptureMode(&mode));
 
-  if (ncclPerfmodelSpeedup) {
-    int dev;
-    HGGCCHECKGOTO(hggcGetDevice(&dev), result, finish);
-    size_t off = (char*)dst - (char*)ncclPerfmodelDevicePtr[dev];
-    memcpy((T*)ncclPerfmodelHostPtr[dev]+off/sizeof(T), src, nelem*sizeof(T));
-    ncclPerfmodelNeedCopy[dev] = 1;
-  } else {
-    HGGCCHECKGOTO(hggcMemcpy(dst, src, nelem*sizeof(T), hggcMemcpyDefault), result, finish);
-  }
+  HGGCCHECKGOTO(hggcMemcpy(dst, src, nelem*sizeof(T), hggcMemcpyDefault), result, finish);
 
 finish:
   HGGCCHECK(hggcThreadExchangeStreamCaptureMode(&mode));
@@ -560,29 +500,14 @@ static ncclResult_t ncclHggcFreeDebug(const char *filefunc, int line, T* ptr, in
   VERBOSE(NCCL_ALLOC, "%s:%d Hggc Free pointer %p", filefunc, line, ptr);
   HGGCCHECK(hggcThreadExchangeStreamCaptureMode(&mode));
 
-  if (ncclPerfmodelSpeedup) {
-    int dev;
-    HGGCCHECKGOTO(hggcGetDevice(&dev), result, finish);
-    size_t off = (size_t)((char*)ptr - (char*)ncclPerfmodelDevicePtr[dev]);
-    if (off < 0 || off >= ncclPerfmodelTotalDeviceMemSize) {
-      INFO(NCCL_INIT, "perf acc mode, ptr:%p out of the pcclPerfmodelDevicePtr(%p):+0x%lx range", ptr, ncclPerfmodelDevicePtr[dev], ncclPerfmodelTotalDeviceMemSize);
-      if (ncclCuMemEnable()) {
-        NCCLCHECKGOTO(ncclHgMemFree((void *)ptr, manager), result, finish);
-        untracked = true;
-      } else {
-        HGGCCHECKGOTO(hggcFree(ptr), result, finish);
-      }
-    }
+  if (memMode == MEM_U2MM) {
+    NCCLCHECKGOTO(nccl_u2mm_gpu_free(ptr), result, finish);
   } else {
-    if (memMode == MEM_U2MM) {
-      NCCLCHECKGOTO(nccl_u2mm_gpu_free(ptr), result, finish);
+    if (ncclCuMemEnable()) {
+      NCCLCHECKGOTO(ncclHgMemFree((void *)ptr, manager), result, finish);
+      untracked = true;
     } else {
-      if (ncclCuMemEnable()) {
-        NCCLCHECKGOTO(ncclHgMemFree((void *)ptr, manager), result, finish);
-        untracked = true;
-      } else {
-        HGGCCHECKGOTO(hggcFree(ptr), result, finish);
-      }
+      HGGCCHECKGOTO(hggcFree(ptr), result, finish);
     }
   }
   if (manager && !untracked) NCCLCHECKGOTO(ncclMemUntrack(manager, (void*)ptr, 0), result, finish);

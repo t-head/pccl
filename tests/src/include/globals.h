@@ -32,17 +32,7 @@ extern ncclCollNet_t* ncclCollNet;
 NCCL_PARAM(CollNetEnable, "COLLNET_ENABLE", 0);
 PCCL_PARAM(NoMemset, "NO_MEMSET", 0);
 PCCL_PARAM(SingleHostCrossNodeTest, "SINGLE_HOST_CROSS_NODE_TEST", 0);
-PCCL_PARAM(PerfmodelSpeedup, "PERFMODEL_SPEEDUP", 0);
 PCCL_PARAM(ChannelShuffle, "CHANNEL_SHUFFLE", 0);
-
-int gModelType = HW_PPU;
-int ncclPerfmodelSpeedup = 0;
-const size_t ncclPerfmodelTotalDeviceMemSize = 1*1024*1024*1024;
-const size_t ncclPerfmodelDevMemAlignSize = 2*1024*1024;
-void* ncclPerfmodelHostPtr[8];
-void* ncclPerfmodelDevicePtr[8];
-size_t ncclPerfmodelMemOffset[8];
-int ncclPerfmodelNeedCopy[8];
 
 int ncclParamNoMemsetFlag;
 int ncclParamSingleHostCrossNodeTestFlag;
