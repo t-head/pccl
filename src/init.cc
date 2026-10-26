@@ -348,20 +348,10 @@ NCCL_PARAM(CollNetEnable, "COLLNET_ENABLE", 0);
 PCCL_PARAM(MNNVLFakeAdvancedFeature, "MNNVL_FAKE_ADVANCED_FEATURE", 0);
 PCCL_PARAM(NoMemset, "NO_MEMSET", 0);
 PCCL_PARAM(SingleHostCrossNodeTest, "SINGLE_HOST_CROSS_NODE_TEST", 0);
-PCCL_PARAM(PerfmodelSpeedup, "PERFMODEL_SPEEDUP", 0);
 PCCL_PARAM(ChannelShuffle, "CHANNEL_SHUFFLE", -2);
 PCCL_PARAM(StateMonitorDisable, "STATE_MONITOR_DISABLE", 0);
 PCCL_PARAM(StateMonitorLevel, "STATE_MONITOR_LEVEL", 1);
 PCCL_PARAM(StateMonitorTimeoutMs, "STATE_MONITOR_TIMEOUT_MS", 300*1e3 /* 5mins */);
-
-int gModelType = HW_PPU;
-int ncclPerfmodelSpeedup = 0;
-const size_t ncclPerfmodelTotalDeviceMemSize = 1*1024*1024*1024;
-const size_t ncclPerfmodelDevMemAlignSize = 2*1024*1024;
-void* ncclPerfmodelHostPtr[8];
-void* ncclPerfmodelDevicePtr[8];
-size_t ncclPerfmodelMemOffset[8];
-int ncclPerfmodelNeedCopy[8];
 
 int ncclParamNoMemsetFlag;
 int ncclParamSingleHostCrossNodeTestFlag;
@@ -379,27 +369,6 @@ static void initGlobalVars() {
   ncclParamStateMonitorLevelFlag = pcclParamStateMonitorDisable() ? 0 : pcclParamStateMonitorLevel();
   ncclParamMnnvlFakeAdvancedFeatureFlag = pcclParamMNNVLFakeAdvancedFeature();
   ncclParamStateMonitorTimeoutMs = pcclParamStateMonitorTimeoutMs();
-
-  // check hw model type env setting
-  const char* str = ncclGetEnv("ALIPPU_HW_TYPE");
-  if (str) {
-    if (strcmp(str, "MODEL_BEHAVIOR") == 0) {
-      gModelType = HW_BEHAVIOR;
-    } else if (strcmp(str, "MODEL_BIT_ACCURATE") == 0) {
-      gModelType = HW_BIT_ACCURATE;
-    } else if (strcmp(str, "MODEL_PERFORMANCE") == 0) {
-      gModelType = HW_PERF;
-    } else {
-      WARN("invalid ALIPPU_HW_TYPE env (%s) set, set to ppu default", str);
-      gModelType = HW_PPU;
-    }
-    INFO(NCCL_ENV, "ALIPPU_HW_TYPE set by environment to %s", str);
-  }
-
-  if (pcclParamPerfmodelSpeedup() == 1) {
-    ncclPerfmodelSpeedup = 1;
-    INFO(NCCL_ENV, "PCCL PERFMODEL SPEEDUP %d", ncclPerfmodelSpeedup);
-  }
 }
 
 pthread_mutex_t initLock = PTHREAD_MUTEX_INITIALIZER;
@@ -555,12 +524,6 @@ static ncclResult_t commFree(ncclComm_t comm) {
 
   NCCLCHECK(ncclRegCleanup(comm));
 
-  // Poison comm to try and catch a double free
-  int dev = 0;
-  if (ncclPerfmodelSpeedup == 1) {
-    dev = comm->hggcDev;
-  }
-
   NCCLCHECK(ncclFree(comm->hgtxMessage));
 
   NCCLCHECK(ncclFree(comm->kernelInfoMonitorPtr));
@@ -590,6 +553,7 @@ static ncclResult_t commFree(ncclComm_t comm) {
     pthread_mutex_unlock(&commArrayLock);
   }
 
+  // Poison comm to try and catch a double free
   commPoison(comm);
   NCCLCHECK(ncclProfilerPluginFinalize(comm));
   NCCLCHECK(ncclHggcHostFree(comm->profiler.workStarted));
@@ -617,12 +581,6 @@ static ncclResult_t commFree(ncclComm_t comm) {
   NCCLCHECK(ncclMemManagerDestroy(comm));
 
   NCCLCHECK(ncclFree(comm));
-
-  if (ncclPerfmodelSpeedup) {
-    NCCLCHECK(ncclFree(ncclPerfmodelHostPtr[dev]));
-    INFO(NCCL_INIT, "rank:%d, free hggc ptr:%p", dev, ncclPerfmodelDevicePtr[dev]);
-    HGGCCHECK(hggcFree(ncclPerfmodelDevicePtr[dev]));
-  }
 
   return ncclSuccess;
 }
@@ -1945,12 +1903,6 @@ static ncclResult_t ncclCommInitRankFunc(struct ncclAsyncJob* job_) {
   HGGCCHECKGOTO(hggcSetDevice(hggcDev), res, fail);
 
   timers[TIMER_INIT_KERNELS] = clockNano();
-
-  if (ncclPerfmodelSpeedup) {
-    ncclPerfmodelHostPtr[hggcDev] = malloc(ncclPerfmodelTotalDeviceMemSize);
-    memset(ncclPerfmodelHostPtr[hggcDev], 0, ncclPerfmodelTotalDeviceMemSize);
-    HGGCCHECK(hggcMalloc(&ncclPerfmodelDevicePtr[hggcDev], ncclPerfmodelTotalDeviceMemSize));
-  }
 
   NCCLCHECK(ncclInitKernelsForDevice(&maxLocalSizeBytes));
   if (maxLocalSizeBytes > 0 && ncclParamSetStackSize() == 1) {

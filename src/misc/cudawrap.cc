@@ -32,21 +32,6 @@ int ncclIsHgMemSupported() {
   int hggcDev;
   int flag = 0;
   ncclResult_t ret = ncclSuccess;
-  // todo: kafe + model not support cuMem* API now
-  const char* pDriEnv = ncclGetEnv("HGGC_DRIVER_CANDIDATE");
-  if (pDriEnv) {
-    if (strcmp(pDriEnv, "FAKE") == 0) {
-      return 0;
-    }
-  }
-
-  const char* pHwTypeEnv = ncclGetEnv("ALIPPU_HW_TYPE");
-  if (pHwTypeEnv) {
-    if (strcmp(pHwTypeEnv, "MODEL_BIT_ACCURATE") == 0) {
-      return 0;
-    }
-  }
-
   HGGCCHECKGOTO(hggcGetDevice(&hggcDev), ret, error);
   HGCHECKGOTO(hgDeviceGet(&currentDev, hggcDev), ret, error);
   // Query device to see if HGMEM VMM support is available
