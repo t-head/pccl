@@ -59,7 +59,7 @@ jobs:
                         os.environ['BASE_SHA'] + '..' + os.environ['HEAD_SHA']).splitlines()
           errors = []
           if not 1 <= len(commits) <= 5:
-              errors.append(f'PR must contain 1 to 5 contribution commits; found {len(commits)}. If above the limit, confirm with the author before squashing.')
+              errors.append(f'PR must contain 1 to 5 contribution commits; found {len(commits)}.')
           for sha in commits:
               message = git('show', '-s', '--format=%B', sha)
               lines = message.splitlines()
