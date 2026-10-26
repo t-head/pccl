@@ -50,7 +50,8 @@ enum {
   MEM_NORMAL = 0,       // normal ppu mem alloc & free mode.
   MEM_U2MM = 1,         // u2mm mem alloc & free mode.
   MEM_ALIGN_2M = 2,     // u2mm host mem alloc for old rund arch
-  MEM_U2MM_DIRECT = 3   // direct alloc u2mm cuda mem
+  MEM_U2MM_DIRECT = 3,  // direct alloc u2mm cuda mem
+  MEM_LEGACY = 4        // runtime device allocation; caller initializes memory
 };
 
 // use allocFlag to check if we need other memory allocation method like u2mm alloc
@@ -460,7 +461,11 @@ static ncclResult_t ncclHggcCallocU2mmDebug(const char *filefunc, int line, T** 
   hggcStreamCaptureMode mode = hggcStreamCaptureModeRelaxed;
   HGGCCHECK(hggcThreadExchangeStreamCaptureMode(&mode));
 
-  if (ncclPerfmodelSpeedup) {
+  if (memMode == MEM_LEGACY) {
+    HGGCCHECKGOTO(hggcMalloc(ptr, nelem*sizeof(T)), result, finish);
+    if (manager) NCCLCHECKGOTO(ncclMemTrack(manager, *ptr, nelem*sizeof(T), /* handle */ 0,
+        ncclHgMemHandleType, memType, nelem*sizeof(T)), result, finish);
+  } else if (ncclPerfmodelSpeedup) {
     assert(memMode == MEM_NORMAL);
     NCCLCHECKGOTO(ncclHggcCallocPerfmodelSpeedup(ptr, nelem, &sizeAligned), result, finish);
   } else {
@@ -560,7 +565,9 @@ static ncclResult_t ncclHggcFreeDebug(const char *filefunc, int line, T* ptr, in
   VERBOSE(NCCL_ALLOC, "%s:%d Hggc Free pointer %p", filefunc, line, ptr);
   HGGCCHECK(hggcThreadExchangeStreamCaptureMode(&mode));
 
-  if (ncclPerfmodelSpeedup) {
+  if (memMode == MEM_LEGACY) {
+    HGGCCHECKGOTO(hggcFree(ptr), result, finish);
+  } else if (ncclPerfmodelSpeedup) {
     int dev;
     HGGCCHECKGOTO(hggcGetDevice(&dev), result, finish);
     size_t off = (size_t)((char*)ptr - (char*)ncclPerfmodelDevicePtr[dev]);

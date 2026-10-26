@@ -341,6 +341,7 @@ struct ncclProxyConnection {
   struct ncclProxyArgs **proxyAppendPtr;
   void* transportResources;
   proxyConnectState state;
+  bool p2pBufferAlloc; // transportResources owns an allocation-only P2P buffer.
 };
 
 typedef ncclResult_t (*threadFunc_t)(struct ncclProxyArgs*);
