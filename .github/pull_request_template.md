@@ -2,7 +2,7 @@
 
 <!-- PR title: use a clear summary; a type prefix such as feat:, fix:, or docs: is recommended but not required. -->
 
-<!-- Keep 1 to 5 contribution commits in this PR; squash excess commits before pushing. -->
+<!-- Keep 1 to 5 contribution commits in this PR. If there are more than 5, ask the author whether to squash them before pushing. -->
 
 ## Description
 
