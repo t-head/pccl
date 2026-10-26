@@ -148,6 +148,7 @@ static ncclResult_t ncclTopoFollowPath(struct ncclTopoSystem* system, struct ncc
   if (type1 == -1) return ncclSuccess;
   struct ncclTopoNode* node1 = system->nodes[type1].nodes+index1;
   struct ncclTopoLinkList* path = node1->paths[type2]+index2;
+  struct ncclTopoLinkList* revPath = (*node)->paths[type1] + index1;
   if (path->count == 0 ) return ncclSuccess;
 
   // Now check link type
@@ -157,6 +158,11 @@ static ncclResult_t ncclTopoFollowPath(struct ncclTopoSystem* system, struct ncc
   int type = intra ? graph->typeIntra : graph->typeInter;
 
   if (mult == 1 && (path->type > type)) return ncclSuccess;
+  if (mult == 1 &&
+      (graph->pattern == NCCL_TOPO_PATTERN_BALANCED_TREE || graph->pattern == NCCL_TOPO_PATTERN_TREE ||
+       graph->pattern == NCCL_TOPO_PATTERN_SPLIT_TREE) &&
+      (revPath->type > type))
+    return ncclSuccess;
 
   speed *= mult;
 
@@ -1105,7 +1111,9 @@ search:
       goto search;
     }
     tmpGraph.typeIntra = ngpus == 1 ? PATH_LOC : PATH_NVL;
-    if (!system->icnFullyConnected && tmpGraph.typeInter < PATH_SYS && (graph->nChannels == 0 || tmpGraph.typeInter < graph->typeInter || tmpGraph.typeInter < PATH_PXR)) {
+    // Keep balanced trees off PHB/SYS paths, prefer PIX ordinary tree instead of PHB/SYS balanced tree
+    const int maxTypeInter = tmpGraph.pattern == NCCL_TOPO_PATTERN_BALANCED_TREE ? PATH_PHBH : PATH_SYS;
+    if (!system->icnFullyConnected && tmpGraph.typeInter < maxTypeInter && (graph->nChannels == 0 || tmpGraph.typeInter < graph->typeInter || tmpGraph.typeInter < PATH_PXR)) {
       tmpGraph.typeInter += 1;
       goto search;
     }
@@ -1119,7 +1127,7 @@ search:
     tmpGraph.crossNic = 0;
 
     // Try a simpler tree
-    if (tmpGraph.pattern == NCCL_TOPO_PATTERN_SPLIT_TREE) {
+    if (tmpGraph.pattern == NCCL_TOPO_PATTERN_SPLIT_TREE || tmpGraph.pattern == NCCL_TOPO_PATTERN_BALANCED_TREE) {
       tmpGraph.pattern = NCCL_TOPO_PATTERN_TREE;
       goto search;
     }
