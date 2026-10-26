@@ -401,14 +401,14 @@ static ncclResult_t ncclIbPrepostRecvWorkRequests(struct ncclIbRecvComm* comm) {
   return ncclSuccess;
 }
 
-ncclResult_t ncclIbRtrQp(ibv_qp* qp, uint32_t qpn, struct ncclIbQpInfo* info, int gidIndex) {
+ncclResult_t ncclIbRtrQp(ibv_qp* qp, uint32_t qpn, struct ncclIbQpInfo* info, int gidIndex, int maxDestRdAtomic) {
   struct ibv_qp_attr qpAttr;
   memset(&qpAttr, 0, sizeof(struct ibv_qp_attr));
   qpAttr.qp_state = IBV_QPS_RTR;
   qpAttr.path_mtu = info->mtu;
   qpAttr.dest_qp_num = qpn;
   qpAttr.rq_psn = 0;
-  qpAttr.max_dest_rd_atomic = 1;
+  qpAttr.max_dest_rd_atomic = maxDestRdAtomic;
   qpAttr.min_rnr_timer = 12;
   if (info->lid == 0) {
     qpAttr.ah_attr.is_global = 1;
@@ -429,7 +429,7 @@ ncclResult_t ncclIbRtrQp(ibv_qp* qp, uint32_t qpn, struct ncclIbQpInfo* info, in
   return ncclSuccess;
 }
 
-ncclResult_t ncclIbRtsQp(ibv_qp* qp) {
+ncclResult_t ncclIbRtsQp(ibv_qp* qp, int maxRdAtomic) {
   struct ibv_qp_attr qpAttr;
   memset(&qpAttr, 0, sizeof(struct ibv_qp_attr));
   qpAttr.qp_state = IBV_QPS_RTS;
@@ -437,7 +437,7 @@ ncclResult_t ncclIbRtsQp(ibv_qp* qp) {
   qpAttr.retry_cnt = ncclParamIbRetryCnt();
   qpAttr.rnr_retry = 7;
   qpAttr.sq_psn = 0;
-  qpAttr.max_rd_atomic = 1;
+  qpAttr.max_rd_atomic = maxRdAtomic;
   NCCLCHECK(wrap_ibv_modify_qp(qp, &qpAttr, IBV_QP_STATE | IBV_QP_TIMEOUT | IBV_QP_RETRY_CNT | IBV_QP_RNR_RETRY | IBV_QP_SQ_PSN | IBV_QP_MAX_QP_RD_ATOMIC));
   return ncclSuccess;
 }
@@ -597,6 +597,19 @@ fail:
 
 NCCL_PARAM(IbGdrFlushDisable, "GDR_FLUSH_DISABLE", 0);
 PCCL_PARAM(IbGdrFlushWrite, "GDR_FLUSH_WRITE", 0);
+PCCL_PARAM(IbGdrFlushMaxRdAtomic, "GDR_FLUSH_MAX_RD_ATOMIC", 8);
+
+static int ncclIbGetFlushReadDepth(const struct ncclIbDev* dev) {
+  int64_t requested = pcclParamIbGdrFlushMaxRdAtomic();
+  // The loopback flush QP uses the same depth for its requester and responder.
+  if (requested < 1 || requested > dev->maxQpInitRdAtom || requested > dev->maxQpRdAtom) {
+    VERBOSE(NCCL_NET, "NET/IB: Invalid READ flush depth: PCCL_GDR_FLUSH_MAX_RD_ATOMIC=%lld; "
+            "must be >= 1 and not exceed device limits %d/%d (requester/responder); using depth 1",
+            (long long)requested, dev->maxQpInitRdAtom, dev->maxQpRdAtom);
+    requested = 1;
+  }
+  return (int)requested;
+}
 
 ncclResult_t ncclIbAccept(void* listenComm, void** recvComm) {
   ncclResult_t res = ncclSuccess;
@@ -693,6 +706,10 @@ ib_recv:
   rComm->gpuFlush.enabled = (ncclIbGdrSupport() == 0) && (ncclParamIbGdrFlushDisable() == 0) ? 1 : 0;
   rComm->gpuFlush.useWrite = pcclParamIbGdrFlushWrite();
   if (rComm->gpuFlush.enabled) {
+    int flushReadDepth = 1;
+    if (!rComm->gpuFlush.useWrite) {
+      flushReadDepth = ncclIbGetFlushReadDepth(ncclIbDevs + lComm->dev);
+    }
     int hostMrFlags = IBV_ACCESS_LOCAL_WRITE;
     int qpFlags = IBV_ACCESS_LOCAL_WRITE;
     if (rComm->gpuFlush.useWrite) {
@@ -715,8 +732,12 @@ ib_recv:
     localQpInfo.spn=gid.global.subnet_prefix;
     localQpInfo.iid=gid.global.interface_id;
     localQpInfo.mtu=portAttr.active_mtu;
-    NCCLCHECKGOTO(ncclIbRtrQp(rComm->gpuFlush.qp, rComm->gpuFlush.qp->qp_num, &localQpInfo, gidIndex), res, fail);
-    NCCLCHECKGOTO(ncclIbRtsQp(rComm->gpuFlush.qp), res, fail);
+    NCCLCHECKGOTO(ncclIbRtrQp(rComm->gpuFlush.qp, rComm->gpuFlush.qp->qp_num, &localQpInfo, gidIndex, flushReadDepth), res, fail);
+    NCCLCHECKGOTO(ncclIbRtsQp(rComm->gpuFlush.qp, flushReadDepth), res, fail);
+    if (!rComm->gpuFlush.useWrite) {
+      VERBOSE(NCCL_NET, "NET/IB: GDR READ flush QP dev=%d qp=%u depth=%d",
+              lComm->dev, rComm->gpuFlush.qp->qp_num, flushReadDepth);
+    }
     if (rComm->gpuFlush.useWrite) {
       INFO(NCCL_INIT, "NET/IB: GDR flush using RDMA Write (dev %d)", lComm->dev);
     }
