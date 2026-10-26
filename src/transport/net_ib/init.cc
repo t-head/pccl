@@ -368,6 +368,8 @@ ncclResult_t ncclIbInit(ncclDebugLogger_t logFunction) {
           NCCLCHECKGOTO(ncclIbGetPciPath(ncclIbDevs[ncclNIbDevs].devName, &ncclIbDevs[ncclNIbDevs].pciPath, &ncclIbDevs[ncclNIbDevs].realPort), res, exit);
           NCCLCHECKGOTO(ncclIbGetSpeed(ncclIbDevs[ncclNIbDevs].ifName, &portAttr, &ncclIbDevs[ncclNIbDevs].speed), res, exit);
           ncclIbDevs[ncclNIbDevs].maxQp = devAttr.max_qp;
+          ncclIbDevs[ncclNIbDevs].maxQpInitRdAtom = devAttr.max_qp_init_rd_atom;
+          ncclIbDevs[ncclNIbDevs].maxQpRdAtom = devAttr.max_qp_rd_atom;
           ncclIbDevs[ncclNIbDevs].ar = portAttr.link_layer == IBV_LINK_LAYER_INFINIBAND ? 1 : 0;
           if (ncclParamIbAdaptiveRouting() != -2) {
             ncclIbDevs[ncclNIbDevs].ar = ncclParamIbAdaptiveRouting();
