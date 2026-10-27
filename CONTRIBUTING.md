@@ -129,7 +129,7 @@ Reference at least one open issue in the PR description to satisfy the organizat
 1. Consider rebasing onto the latest target branch before submitting. Being behind alone does not block submission; resolve conflicts and address relevant integration issues before merging.
 2. Set up the T-Head SAIL SDK and run `./build.sh` as described in [README.md](README.md) to ensure a clean build with no warnings. Use [pccl-tests](https://github.com/t-head/pccl-tests) for relevant functional and performance validation.
 
-Each PR must contain 1 to 5 contribution commits relative to its target branch. Every commit must meet the message and DCO requirements below.
+You may append commits throughout development and review; there is no commit-count limit. Every commit must meet the message and DCO requirements below. Merge the PR using squash and merge so it produces one commit on the target branch.
 
 ### Commit Messages
 
@@ -162,6 +162,20 @@ fix: reject invalid buffer sizes
 Refs #123
 Signed-off-by: Your Name <your@email.com>
 ```
+
+### Preparing the Squash Message
+
+The **Prepare squash commit** workflow drafts a short final message from the complete PR diff. It preserves and deduplicates existing issue references, sign-offs, and co-author trailers, then applies the same message checks as CI.
+
+For PRs from this repository, it runs on updates. For fork PRs or a fresh draft, a maintainer can run it from `main` with the PR number. Review the message in the workflow Summary and download the `squash-message` artifact. Large or incomplete diffs require manual preparation instead of a partial AI summary.
+
+Before merging, verify that the draft still matches the PR:
+
+```bash
+GITHUB_TOKEN="$(gh auth token)" python3 .github/scripts/prepare_squash.py --verify /path/to/proposal.json
+```
+
+The contributor or merging maintainer must confirm the final message. A contribution agent can then squash-merge using that exact text after rechecking the PR HEAD, target, CI and approvals. The workflow itself does not merge, edit the PR, or fill GitHub's merge dialog. A new commit or changed PR input requires a new draft and confirmation.
 
 ### Signed Commits
 All commits must be signed off to certify you have the right to submit the code:
