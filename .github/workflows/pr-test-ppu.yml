@@ -45,6 +45,7 @@ jobs:
         env:
           HEAD_SHA: ${{ github.event.pull_request.head.sha }}
         run: |
+          python3 -m unittest discover -s tests/ci -p 'test_*.py'
           python3 - <<'PY'
           import os
           import re
@@ -61,8 +62,6 @@ jobs:
           # The event base SHA can lag behind the base already included in this test merge.
           commits = git('rev-list', parents[0] + '..' + head_sha).splitlines()
           errors = []
-          if not 1 <= len(commits) <= 5:
-              errors.append(f'PR must contain 1 to 5 contribution commits; found {len(commits)}.')
           for sha in commits:
               message = git('show', '-s', '--format=%B', sha)
               lines = message.splitlines()

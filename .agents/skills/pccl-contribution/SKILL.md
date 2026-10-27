@@ -55,8 +55,8 @@ When changing only the message, keep committed content unchanged. Do not rewrite
 ## Push and PR
 
 1. Confirm the repository, working branch, and target; fetch the actual target.
-2. Keep 1 to 5 contribution commits. Review the full target-to-head diff.
-3. If HEAD lacks the latest target tip, automatically rebase before pushing. Require a clean worktree and verified target; abort and report conflicts.
+2. Allow follow-up commits during development and review without a count limit. Preserve authorship and authorized sign-offs. Review the full target-to-head diff.
+3. Rebase when needed to resolve conflicts or integrate relevant target changes. Do not rewrite reviewed commits merely because the target advanced. Require a clean worktree before rebasing; abort and report unresolved conflicts.
 4. Verify the remote branch tip. For rewrites, use `--force-with-lease=<ref>:<expected-sha>`; stop on unexpected changes. Never push directly to protected targets.
 5. Use the PR template and English text covering the final change, actual validation, limitations, and a relevant open issue. Apply authorized edits and read them back.
 6. Check CI and reviews for the current HEAD. Report pending or failed checks separately; an AI gate passing does not prove a completed review.
@@ -70,10 +70,16 @@ When changing only the message, keep committed content unchanged. Do not rewrite
 
 ## Merge
 
+Use squash and merge. Prepare an AI draft with **Prepare squash commit** and download the `squash-message` artifact from that run.
+
+- Read the Summary and check it against the complete PR diff, including compatibility impact and limitations.
+- Run `python3 .github/scripts/prepare_squash.py --verify /path/to/proposal.json` with `GITHUB_TOKEN` available before presenting the message for confirmation. Changed inputs require a fresh draft.
+- The draft preserves original issue references and signing identities and uses the same validator as PR commits. Format validation does not prove the summary is accurate.
+
 1. Present the final repository/PR, target, HEAD SHA, method, title/message, CI and approvals, unresolved discussions, and validation limits. For squash, verify final authorship/sign-offs and preserve authorized trailers and issue intent.
 2. Obtain explicit human approval for this merge. Push permission, passing CI, or a request to finish the PR is insufficient. Reuse approval only while HEAD, target, method, and message remain unchanged.
 3. Recheck immediately before merging; unmet checks or approvals block it. Do not bypass protection or enable auto-merge without explicit authorization.
-4. Guard the expected HEAD when supported. Verify and report the resulting commit and merge method.
+4. Use the exact confirmed title and body with `gh pr merge --squash --match-head-commit <sha> --subject <title> --body-file <body-file>`. Do not append another sign-off or substitute GitHub’s concatenated default. Verify and report the resulting commit and merge method.
 
 ## References
 
