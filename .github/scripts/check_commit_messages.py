@@ -7,9 +7,10 @@ import re
 import subprocess
 import sys
 
+ISSUE_URL = r'(?i:https://github\.com)/[A-Za-z0-9_.-]+/[A-Za-z0-9_.-]+/issues/[1-9][0-9]*\b'
 ISSUE_REFERENCE = re.compile(
     r'(?i:\b(?:Refs|Closes|Fixes))[ \t]+(?:[A-Za-z0-9_.-]+/[A-Za-z0-9_.-]+)?#[1-9][0-9]*\b'
-    r'|https://github\.com/[A-Za-z0-9_.-]+/[A-Za-z0-9_.-]+/issues/[1-9][0-9]*\b')
+    r'|' + ISSUE_URL)
 IDENTITY = r'(\S(?:.*\S)?) <([^<>\s]+@[^<>\s]+)>'
 
 
