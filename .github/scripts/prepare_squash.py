@@ -17,14 +17,15 @@ import time
 from urllib.error import HTTPError
 from urllib.request import Request, urlopen
 
-from check_commit_messages import IDENTITY, ISSUE_REFERENCE, trailers, validate_message
+from check_commit_messages import IDENTITY, ISSUE_REFERENCE, ISSUE_URL, trailers, validate_message
 
 COMMENT_MARKER = '<!-- pccl-squash-message -->'
+ISSUE_TARGET = re.compile(r'(?:' + ISSUE_URL + r'|(?:[\w.-]+/[\w.-]+)?#[1-9][0-9]*\b)')
 REFERENCE = re.compile(
     r'\b(?P<verb>(?i:Refs|Close[sd]?|Fix(?:e[sd])?|Resolve[sd]?)):?[ \t]+'
-    r'(?P<target>(?:[\w.-]+/[\w.-]+)?#[1-9][0-9]*\b'
-    r'|https://github\.com/[\w.-]+/[\w.-]+/issues/[1-9][0-9]*\b)|'
-    r'(?P<url>https://github\.com/[\w.-]+/[\w.-]+/issues/[1-9][0-9]*)\b')
+    rf'(?P<targets>{ISSUE_TARGET.pattern}'
+    rf'(?:(?:\s*,\s*(?:(?i:and)\s+)?|\s+(?:(?i:and)\s+)?){ISSUE_TARGET.pattern})*)'
+    rf'|(?P<url>{ISSUE_URL})')
 
 
 def digest(value):
@@ -158,11 +159,13 @@ def metadata(data):
         if errors:
             raise ValueError(f"Commit {commit['sha'][:12]}: " + '; '.join(errors))
         for match in REFERENCE.finditer('\n'.join(commit['message'].splitlines()[1:])):
-            verb = match['verb']
-            target = match['target'] or match['url']
-            line = (verb.capitalize() + ' ' if verb else '') + target
-            if line not in references:
-                references.append(line)
+            targets = ISSUE_TARGET.findall(match['targets'] or match['url'])
+            for index, target in enumerate(targets):
+                # Closing keywords apply only to the explicitly prefixed target.
+                verb = match['verb'].capitalize() if index == 0 and match['verb'] else 'Refs'
+                line = verb + ' ' + target
+                if line not in references:
+                    references.append(line)
         for line in trailers(commit['message']):
             if re.fullmatch(r'(?:Signed-off-by|Co-authored-by): ' + IDENTITY, line, re.I) and line not in preserved:
                 preserved.append(line)
@@ -173,8 +176,8 @@ def verify_issues(api, references):
     checked = set()
     for reference in references:
         target = reference.split()[-1]
-        if target.startswith('https://github.com/'):
-            owner, repo, _, number = target.removeprefix('https://github.com/').split('/')
+        if target.lower().startswith('https://github.com/'):
+            owner, repo, _, number = target.split('/')[3:]
             repository = owner + '/' + repo
         else:
             repository, number = target.split('#')

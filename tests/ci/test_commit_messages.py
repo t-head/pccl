@@ -35,7 +35,8 @@ class MessageTests(unittest.TestCase):
                 self.assertTrue(validate_message(message, AUTHOR))
 
     def test_reference_formats(self):
-        for reference in ['Refs t-head/pccl#12', 'Fixes #12', 'Closes #12', 'https://github.com/t-head/pccl/issues/12']:
+        for reference in ['Refs t-head/pccl#12', 'Fixes #12', 'Closes #12',
+                          'https://github.com/t-head/pccl/issues/12', 'HTTPS://GitHub.com/t-head/pccl/issues/12']:
             with self.subTest(reference=reference):
                 self.assertEqual(validate_message(MESSAGE.replace('Refs #12', reference), AUTHOR), [])
 

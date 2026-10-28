@@ -112,6 +112,33 @@ class SquashTests(unittest.TestCase):
                 references, _ = squash.metadata(squash.snapshot(self.api, 98))
                 self.assertIn(verb.capitalize() + ' https://github.com/t-head/pccl/issues/12', references)
 
+    def test_reference_lists_preserve_and_validate_every_target(self):
+        for references, expected in [
+            ('Refs #12, #34 and t-head/other#56', ['Refs #12', 'Refs #34', 'Refs t-head/other#56']),
+            ('Refs #12,\n#34, and HTTPS://GitHub.com/t-head/other/issues/56',
+             ['Refs #12', 'Refs #34', 'Refs HTTPS://GitHub.com/t-head/other/issues/56']),
+            ('Closes #12, #34, fixes t-head/other#56', ['Closes #12', 'Refs #34', 'Fixes t-head/other#56']),
+        ]:
+            with self.subTest(references=references):
+                self.api = GitHubFixture()
+                self.api.commits[0]['commit']['message'] = MESSAGE.replace('Refs #12', references)
+                draft = self.generate()
+                squash.verify(self.api, draft)
+                for reference in expected:
+                    self.assertIn(reference, draft['message'].splitlines())
+                for path in ('/repos/t-head/pccl/issues/12', '/repos/t-head/pccl/issues/34',
+                             '/repos/t-head/other/issues/56'):
+                    self.assertIn(path, self.api.paths)
+                self.assertNotIn('Closes #34', draft['message'])
+
+    def test_a_later_reference_cannot_bypass_issue_validation(self):
+        self.api.commits[0]['commit']['message'] = MESSAGE.replace('Refs #12', 'Refs #12, #34')
+        original_get = self.api.get
+        def get(path):
+            return {'pull_request': {}} if path.endswith('/issues/34') else original_get(path)
+        with patch.object(self.api, 'get', side_effect=get), self.assertRaisesRegex(ValueError, 'points to a PR'):
+            self.generate()
+
     def test_rejects_missing_metadata_in_any_original_commit(self):
         self.api.commits[1]['commit']['message'] = MESSAGE.replace('Refs #12', '')
         with self.assertRaises(ValueError):
@@ -195,7 +222,8 @@ class SquashTests(unittest.TestCase):
     def test_rejects_model_metadata_and_control_characters(self):
         data = squash.snapshot(self.api, 98)
         for text in ['Signed-off-by: Fake <fake@example.org>', 'By Signed-off-by: Fake <fake@example.org>', 'Refs #99',
-                     'https://github.com/t-head/pccl/issues/99', 'Fixes: #99', '- Fixes: #99',
+                     'https://github.com/t-head/pccl/issues/99', 'HTTPS://GitHub.com/t-head/pccl/issues/99',
+                     'Fixes: #99', '- Fixes: #99',
                      'Resolves #99', '- address other/project#99', '\x1b[31mred', '\rhidden']:
             with self.subTest(text=text):
                 with self.assertRaises(ValueError):
