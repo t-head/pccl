@@ -70,11 +70,14 @@ When changing only the message, keep committed content unchanged. Do not rewrite
 
 ## Merge
 
-Use squash and merge. Prepare an AI draft with **Prepare squash commit** and download the `squash-message` artifact from that run.
+Use squash and merge. For a PR with two or more commits, prepare an AI draft with **Prepare squash commit**. Review its complete message in the PR comment or download the `squash-message` artifact. For a single-commit PR, use its original message and preserve signing metadata; no AI draft is needed.
 
-- Read the Summary and check it against the complete PR diff, including compatibility impact and limitations.
+- Check the message against the complete PR diff, including compatibility impact and limitations. The bot comment is a suggestion, not an approval or a merge command.
 - Run `python3 .github/scripts/prepare_squash.py --verify /path/to/proposal.json` with `GITHUB_TOKEN` available before presenting the message for confirmation. Changed inputs require a fresh draft.
-- The draft preserves original issue references and signing identities and uses the same validator as PR commits. Format validation does not prove the summary is accurate.
+- The draft preserves and deduplicates original issue references and signing identities, and uses the same validator as PR commits. Format validation does not prove the summary is accurate.
+- Same-repository PR updates prepare the message automatically. For fork PRs or a fresh draft, run the workflow from `main` after it is merged. Large or incomplete diffs require manual preparation.
+- The bot updates one visible comment. If the PR is reduced to one commit, it removes that comment, leaving historical Actions runs and artifacts intact.
+- After rollout on `main`, the comment links to the workflow form. Enter its PR number and `confirm_run` ID, then click **Run workflow** to confirm that exact draft. The workflow rechecks the displayed text, current PR and write permission, then records the account and HEAD in the comment. This confirms the message only; merge authorization and PR approvals remain separate.
 
 1. Present the final repository/PR, target, HEAD SHA, method, title/message, CI and approvals, unresolved discussions, and validation limits. For squash, verify final authorship/sign-offs and preserve authorized trailers and issue intent.
 2. Obtain explicit human approval for this merge. Push permission, passing CI, or a request to finish the PR is insufficient. Reuse approval only while HEAD, target, method, and message remain unchanged.
