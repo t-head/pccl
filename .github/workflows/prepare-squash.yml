@@ -1,5 +1,5 @@
 name: Prepare squash commit
-run-name: "${{ inputs.confirm_run && 'Confirm' || 'Prepare' }} squash message for PR #${{ github.event.pull_request.number || inputs.pr_number }}"
+run-name: "Prepare squash message for PR #${{ github.event.pull_request.number || inputs.pr_number }}"
 
 on:
   pull_request:
@@ -10,10 +10,6 @@ on:
       pr_number:
         description: PR number to prepare a final commit message for
         required: true
-        type: number
-      confirm_run:
-        description: Confirm the message from this run ID; leave 0 to generate a new draft
-        default: 0
         type: number
 
 permissions: {}
@@ -27,7 +23,7 @@ jobs:
     name: Draft and validate squash message
     # Fork PRs use a maintainer-triggered run from main with trusted workflow code.
     if: >-
-      github.repository == 't-head/pccl' && !inputs.confirm_run && (
+      github.repository == 't-head/pccl' && (
         (github.event_name == 'pull_request' && !github.event.pull_request.draft &&
          github.event.pull_request.head.repo.full_name == github.repository) ||
         (github.event_name == 'workflow_dispatch' && github.ref == 'refs/heads/main'))
@@ -92,36 +88,3 @@ jobs:
           python3 .github/scripts/prepare_squash.py
           --publish "$RUNNER_TEMP/squash-message/proposal.json"
           --expected-pr "$PR_NUMBER"
-
-  confirm:
-    name: Confirm the displayed commit message
-    if: >-
-      github.repository == 't-head/pccl' && github.event_name == 'workflow_dispatch' &&
-      github.ref == 'refs/heads/main' && inputs.confirm_run > 0
-    runs-on: ubuntu-24.04
-    timeout-minutes: 5
-    permissions:
-      contents: read
-      actions: read
-      issues: read
-      pull-requests: write
-    steps:
-      - uses: actions/checkout@d23441a48e516b6c34aea4fa41551a30e30af803 # v6
-        with:
-          persist-credentials: false
-      - uses: actions/download-artifact@9000827ccba6bdab643e8b6fd33ac0654aef8333 # v8
-        with:
-          name: squash-message
-          run-id: ${{ inputs.confirm_run }}
-          github-token: ${{ github.token }}
-          path: ${{ runner.temp }}/squash-message
-      - name: Recheck the exact message and record the human confirmation
-        env:
-          GITHUB_TOKEN: ${{ github.token }}
-          PR_NUMBER: ${{ inputs.pr_number }}
-          SOURCE_RUN: ${{ inputs.confirm_run }}
-          PYTHONUTF8: '1'
-        run: >-
-          python3 .github/scripts/prepare_squash.py
-          --confirm "$RUNNER_TEMP/squash-message/proposal.json"
-          --expected-pr "$PR_NUMBER" --source-run "$SOURCE_RUN"

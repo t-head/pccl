@@ -33,9 +33,6 @@ class GitHubFixture:
         self.issue = {'number': 12}
         self.paths = []
         self.comments, self.writes = [], []
-        self.run = {'repository': {'full_name': self.repository}, 'conclusion': 'success',
-                    'path': '.github/workflows/prepare-squash.yml', 'event': 'pull_request'}
-        self.permission = {'permission': 'write'}
 
     def get(self, path):
         self.paths.append(path)
@@ -44,10 +41,6 @@ class GitHubFixture:
                     if '/CONTRIBUTING.md?' in path else
                     '## Commit\nPreserve signing identities.\n## Push and PR\n')
             return {'encoding': 'base64', 'content': base64.b64encode(text.encode()).decode()}
-        if '/actions/runs/' in path:
-            return copy.deepcopy(self.run)
-        if '/collaborators/' in path:
-            return copy.deepcopy(self.permission)
         if '/issues/' in path:
             return copy.deepcopy(self.issue)
         return copy.deepcopy(self.pr)
@@ -338,34 +331,6 @@ class SquashTests(unittest.TestCase):
         for body in ('Signed`-off-`by: Fake <fake@example.org>', 'Re`fs` #99'):
             with self.subTest(body=body), self.assertRaises(ValueError):
                 squash.final_message(dict(PROPOSAL, body=body), data)
-
-    def test_confirmation_records_the_account_for_the_exact_displayed_message(self):
-        draft = self.generate()
-        squash.publish(self.api, draft, 98, '101')
-        squash.confirm(self.api, draft, 98, 101, 'maintainer')
-        self.assertIn('Confirmed by @maintainer', self.api.comments[0]['body'])
-        self.assertIn(draft['head'], self.api.comments[0]['body'])
-        self.assertEqual(len(self.api.writes), 2)
-        squash.confirm(self.api, draft, 98, 101, 'maintainer')
-        self.assertEqual(len(self.api.writes), 2)
-
-    def test_confirmation_rejects_wrong_permission_workflow_message_or_head(self):
-        for change in ('permission', 'workflow', 'message', 'head'):
-            with self.subTest(change=change):
-                self.api = GitHubFixture()
-                draft = self.generate()
-                squash.publish(self.api, draft, 98, '101')
-                if change == 'permission':
-                    self.api.permission['permission'] = 'read'
-                elif change == 'workflow':
-                    self.api.run['path'] = '.github/workflows/unrelated.yml'
-                elif change == 'message':
-                    self.api.comments[0]['body'] += 'changed'
-                else:
-                    self.api.pr['head']['sha'] = 'c' * 40
-                with self.assertRaises(ValueError):
-                    squash.confirm(self.api, draft, 98, 101, 'maintainer')
-                self.assertEqual(len(self.api.writes), 1)
 
 
 if __name__ == '__main__':
