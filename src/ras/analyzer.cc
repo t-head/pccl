@@ -56,15 +56,20 @@ typedef enum {
 
 static int analyzerCategoryCount(void) { return ANALYZER_CAT_COUNT; }
 
-static const char* const kRasConnTypeStr[] = {
-  "CONN_NORMAL", "CONN_ICN", "CONN_PCIE", "CONN_SHM", "CONN_GDRDMA",
-  "CONN_RDMA", "CONN_SOCKET", "CONN_NET_EXT", "CONN_NUM"
-};
-
 static const char* analyzerConnTypeToString(uint8_t t) {
   if (t == RAS_DIAG_CONN_NONE) return "NONE";
   if (t >= CONN_NUM) return "UNKNOWN";
-  return kRasConnTypeStr[t];
+  return rasConnTypeStr[t];
+}
+
+int analyzerConnTypeFromString(const char* s, int peer) {
+  if (s == nullptr || peer < 0) return RAS_DIAG_CONN_NONE;
+  if (strcmp(s, "NONE") == 0) return CONN_NUM;
+  for (int i = 0; i < CONN_NUM; i++) {
+    if (strcmp(s, rasConnTypeStr[i]) == 0) return i;
+  }
+  fprintf(stderr, "WARN: unrecognized conn type token \"%s\" in comm dump, treating as NONE\n", s);
+  return RAS_DIAG_CONN_NONE;
 }
 
 static bool analyzerConnTypeIsValid(uint8_t t) {
@@ -109,11 +114,31 @@ static int analyzerBuildDiagIndex(const struct rasCollComms::comm* comm, analyze
   const char* end = base + comm->nDiagBytes;
   int n = 0;
   const char* p = base;
-  while (p + sizeof(struct rasDiagRankHeader) <= end && n < maxIdx) {
+  while ((size_t)(end - p) >= sizeof(struct rasDiagRankHeader) && n < maxIdx) {
     struct rasDiagRankHeader* rh = (struct rasDiagRankHeader*)p;
-    if (rh->totalBytes < sizeof(*rh) || p + rh->totalBytes > end) break;
+    if (rh->totalBytes < sizeof(*rh) || rh->totalBytes > (size_t)(end - p)) break;
     if (rh->nChannels < 0 || rh->nChannels > MAXCHANNELS) break;
     if (rh->wireVersion == RAS_DIAG_WIRE_VERSION) {
+      const char* channel = p + sizeof(*rh);
+      size_t remaining = rh->totalBytes - sizeof(*rh);
+      bool valid = true;
+      for (int c = 0; c < rh->nChannels; c++) {
+        if (remaining < sizeof(struct rasDiagChannel)) { valid = false; break; }
+        const auto* dc = (const struct rasDiagChannel*)channel;
+        remaining -= sizeof(*dc);
+        if (dc->nPeerEntries < 0 || (size_t)dc->nPeerEntries > remaining / sizeof(struct rasDiagPeer)) {
+          valid = false;
+          break;
+        }
+        size_t peerBytes = (size_t)dc->nPeerEntries * sizeof(struct rasDiagPeer);
+        channel += sizeof(*dc) + peerBytes;
+        remaining -= peerBytes;
+      }
+      if (!valid) {
+        fprintf(stderr, "WARN: RAS hang-check: skipping rank %d with incomplete channel/peer records\n", rh->commRank);
+        p += rh->totalBytes;
+        continue;
+      }
       idx[n].rank = rh->commRank;
       idx[n].rh = rh;
       n++;
@@ -255,7 +280,12 @@ static analyzerResult_t analyzerCheckConnType(FILE* fp, const analyzerRankEntry*
   return analyzerSuccess;
 }
 
-static analyzerResult_t analyzerCheckConsistency(FILE* fp, const analyzerRankEntry* ranks, int nRanks) {
+static bool analyzerConsistencyStateValid(const struct rasDiagChannel* dc) {
+  return dc != nullptr && dc->devCompletedKernelIdxValid && dc->devHangReportedKernelIdxValid;
+}
+
+static analyzerResult_t analyzerCheckConsistency(FILE* fp, const analyzerRankEntry* ranks, int nRanks,
+                                               int expectedRanks) {
   if (fp == nullptr || ranks == nullptr || nRanks <= 0) return analyzerDataMissing;
   fprintf(fp, "\n[Check: Consistency (per-channel device kernel index across ranks; kernel idx is 1-based, 0 = none yet)]\n");
 
@@ -300,14 +330,14 @@ static analyzerResult_t analyzerCheckConsistency(FILE* fp, const analyzerRankEnt
   };
 
   int nBad = 0;
+  size_t nUnavailable = 0;
   for (auto& kv : channelCount) {
     int channelId = kv.first;
     std::unordered_map<std::pair<uint64_t,uint64_t>, GroupInfo, PairHash> groups;
-    int nSkipped = 0;
+    int nSkipped = std::max(0, expectedRanks - nRanks);
     for (int r = 0; r < nRanks; r++) {
       struct rasDiagChannel* dc = findChannelInRank(ranks[r].rh, channelId);
-      if (dc == nullptr) continue;
-      if (!dc->devCompletedKernelIdxValid && !dc->devHangReportedKernelIdxValid) { nSkipped++; continue; }
+      if (!analyzerConsistencyStateValid(dc)) { nSkipped++; continue; }
       auto key = stateKey(dc->devCompletedKernelIdx, dc->devHangReportedKernelIdx);
       auto it = groups.find(key);
       if (it == groups.end()) { // new state group
@@ -364,13 +394,17 @@ static analyzerResult_t analyzerCheckConsistency(FILE* fp, const analyzerRankEnt
       }
       nBad++;
     }
+    nUnavailable += nSkipped;
     if (nSkipped > 0) {
-      fprintf(fp, "  [WARN] channel %d skipped %d rank(s) with both device reads failing\n",
+      fprintf(fp, "  [WARN] channel %d: %d rank(s) with missing channel data or an unreadable device index (unknown)\n",
               channelId, nSkipped);
     }
   }
-  if (nBad == 0) fprintf(fp, "  PASS (all ranks agree on completed and hang-reported kernel idx per channel)\n");
-  else           fprintf(fp, "  FAIL (%d channel(s) divergent)\n", nBad);
+  if (nBad > 0) fprintf(fp, "  FAIL (%d channel(s) divergent)\n", nBad);
+  else if (channelCount.empty()) fprintf(fp, "  INCONCLUSIVE (no channel state available)\n");
+  else if (nUnavailable > 0)
+    fprintf(fp, "  INCONCLUSIVE (%zu rank-channel state(s) unavailable; agreement cannot be established)\n", nUnavailable);
+  else fprintf(fp, "  PASS (all ranks agree on completed and hang-reported kernel idx per channel)\n");
   return analyzerSuccess;
 }
 
@@ -515,11 +549,14 @@ static analyzerResult_t analyzerCheckHangReported(FILE* fp, const analyzerRankEn
   fprintf(fp, "\n[Check: HangReportedKernelIdx (kernel idx is 1-based; idx=N means the N-th kernel ever submitted)]\n");
   std::unordered_map<uint64_t, std::unordered_set<int>> byIdx;
   std::unordered_set<int> uniqReportingRanks;
+  int nUnknownChannels = 0;
   for (int r = 0; r < nRanks; r++) {
     struct rasDiagRankHeader* rh = ranks[r].rh;
     struct rasDiagChannel* dc = rasDiagFirstChannel(rh);
     for (int c = 0; c < rh->nChannels; c++) {
-      if (dc->devHangReportedKernelIdxValid && dc->devHangReportedKernelIdx != 0) {
+      if (!dc->devHangReportedKernelIdxValid) {
+        nUnknownChannels++;
+      } else if (dc->devHangReportedKernelIdx != 0) {
         byIdx[dc->devHangReportedKernelIdx].insert(rh->commRank);
         uniqReportingRanks.insert(rh->commRank);
       }
@@ -540,8 +577,14 @@ static analyzerResult_t analyzerCheckHangReported(FILE* fp, const analyzerRankEn
     fprintf(fp, "  devHangReportedKernelIdx %lu: %zu rank(s) [%s%s]\n",
             (unsigned long)idx, sortedRanks.size(), rankBuf, truncated ? " truncated" : "");
   }
+  if (nUnknownChannels > 0)
+    fprintf(fp, "  [WARN] %d channel(s) had an unreadable hang-reported index (hang status unknown there)\n",
+            nUnknownChannels);
   if (nReporting > 0)
     fprintf(fp, "  FAIL (%d rank(s) self-reported hang)\n", nReporting);
+  else if (nUnknownChannels > 0)
+    fprintf(fp, "  INCONCLUSIVE (no readable channel self-reported hang, but %d channel(s) unreadable)\n",
+            nUnknownChannels);
   else
     fprintf(fp, "  PASS (no rank self-reported hang)\n");
   return analyzerSuccess;
@@ -552,12 +595,12 @@ static analyzerResult_t analyzerCheckHangReported(FILE* fp, const analyzerRankEn
 ///////////////////////////////////////////////////////////////////////////////
 
 int analyzerFormatReport(FILE* fp, const struct rasCollComms* blob, int nLegTimeouts,
-                     int singleCategory) {
+                     int singleCategory, const char* title) {
   if (fp == nullptr || blob == nullptr) return -1;
   time_t now = time(nullptr);
   char ts[64];
   strftime(ts, sizeof(ts), "%Y%m%d-%H%M%S", localtime(&now));
-  fprintf(fp, "=== PCCL Online Hang Analyzer Report ===\n");
+  fprintf(fp, "=== %s ===\n", title != nullptr ? title : "PCCL Online Hang Analyzer Report");
   fprintf(fp, "wall time      : %s\n", ts);
   fprintf(fp, "leg timeouts   : %d%s\n", nLegTimeouts,
           nLegTimeouts > 0 ? " (incomplete data!)" : "");
@@ -579,7 +622,7 @@ int analyzerFormatReport(FILE* fp, const struct rasCollComms* blob, int nLegTime
         fprintf(fp, "  (no usable rank blocks; check wire version)\n");
       } else {
         if (singleCategory == -1 || singleCategory == ANALYZER_CAT_CONN_TYPE)   analyzerCheckConnType(fp, ranks, nRanks);
-        if (singleCategory == -1 || singleCategory == ANALYZER_CAT_CONSISTENCY) analyzerCheckConsistency(fp, ranks, nRanks);
+        if (singleCategory == -1 || singleCategory == ANALYZER_CAT_CONSISTENCY) analyzerCheckConsistency(fp, ranks, nRanks, comm->nRanks);
         if (singleCategory == -1 || singleCategory == ANALYZER_CAT_RING_GRAPH)  analyzerCheckRingGraph(fp, ranks, nRanks);
         if (singleCategory == -1 || singleCategory == ANALYZER_CAT_P2P_CONNECT) analyzerCheckP2pConnect(fp, ranks, nRanks);
         if (singleCategory == -1 || singleCategory == ANALYZER_CAT_HANG_REPORTED) analyzerCheckHangReported(fp, ranks, nRanks);
@@ -632,7 +675,7 @@ static void analyzerCollectConnType(uint64_t commHash, const analyzerRankEntry* 
 }
 
 static void analyzerCollectConsistency(uint64_t commHash, const analyzerRankEntry* ranks, int nRanks,
-                               std::vector<analyzerSummaryMessage>& out) {
+                               int expectedRanks, std::vector<analyzerSummaryMessage>& out) {
   int minN = ranks[0].rh->nChannels, maxN = minN;
   for (int r = 1; r < nRanks; r++) {
     int n = ranks[r].rh->nChannels;
@@ -642,20 +685,21 @@ static void analyzerCollectConsistency(uint64_t commHash, const analyzerRankEntr
   if (minN != maxN) {
     char buf[256];
     snprintf(buf, sizeof(buf), "ranks have inconsistent nChannels (range %d..%d)", minN, maxN);
-    out.push_back({commHash, buf, false});
+    out.push_back({commHash, buf, true});
   }
 
   std::unordered_map<int, int> channelCount;
   buildChannelCount(ranks, nRanks, channelCount);
   int nDivergent = 0;
+  size_t nUnavailable = 0;
   for (auto& kv : channelCount) {
     int channelId = kv.first;
+    nUnavailable += std::max(0, expectedRanks - nRanks);
     uint64_t expectedCmpl = 0, expectedHang = 0;
     bool initialized = false, diverged = false;
     for (int r = 0; r < nRanks; r++) {
       struct rasDiagChannel* dc = findChannelInRank(ranks[r].rh, channelId);
-      if (dc == nullptr) continue;
-      if (!dc->devCompletedKernelIdxValid && !dc->devHangReportedKernelIdxValid) continue;
+      if (!analyzerConsistencyStateValid(dc)) { nUnavailable++; continue; }
       if (!initialized) {
         expectedCmpl = dc->devCompletedKernelIdx;
         expectedHang = dc->devHangReportedKernelIdx;
@@ -664,10 +708,16 @@ static void analyzerCollectConsistency(uint64_t commHash, const analyzerRankEntr
       }
       if (dc->devCompletedKernelIdx != expectedCmpl || dc->devHangReportedKernelIdx != expectedHang) {
         diverged = true;
-        break;
       }
     }
     if (diverged) nDivergent++;
+  }
+  if (channelCount.empty()) {
+    out.push_back({commHash, "INCONCLUSIVE: no channel state available", true});
+  } else if (nUnavailable > 0) {
+    char buf[256];
+    snprintf(buf, sizeof(buf), "INCONCLUSIVE coverage: %zu rank-channel state(s) missing or unreadable", nUnavailable);
+    out.push_back({commHash, buf, true});
   }
   if (nDivergent == 0) return;
   char buf[256];
@@ -764,15 +814,24 @@ static void analyzerCollectP2pConnect(uint64_t commHash, const analyzerRankEntry
 static void analyzerCollectHangReported(uint64_t commHash, const analyzerRankEntry* ranks, int nRanks,
                                          std::vector<analyzerSummaryMessage>& out) {
   std::unordered_map<uint64_t, std::unordered_map<int, int>> agg;
+  int nUnknown = 0;
   for (int r = 0; r < nRanks; r++) {
     struct rasDiagRankHeader* rh = ranks[r].rh;
     struct rasDiagChannel* dc = rasDiagFirstChannel(rh);
     for (int c = 0; c < rh->nChannels; c++) {
-      if (dc->devHangReportedKernelIdxValid && dc->devHangReportedKernelIdx != 0) {
+      if (!dc->devHangReportedKernelIdxValid) {
+        nUnknown++;
+      } else if (dc->devHangReportedKernelIdx != 0) {
         agg[dc->devHangReportedKernelIdx][rh->commRank]++;
       }
       dc = rasDiagNextChannel(dc);
     }
+  }
+  if (nUnknown > 0) {
+    char ubuf[128];
+    snprintf(ubuf, sizeof(ubuf), "%d channel(s) with unreadable hang-reported index (hang status unknown)",
+             nUnknown);
+    out.push_back({commHash, ubuf, true});
   }
   if (agg.empty()) return;
   std::unordered_map<int, int> allRanks;
@@ -786,6 +845,8 @@ static void analyzerCollectHangReported(uint64_t commHash, const analyzerRankEnt
 int analyzerFormatSummary(FILE* fp, const struct rasCollComms* blob) {
   if (fp == nullptr || blob == nullptr) return -1;
   std::vector<analyzerSummaryMessage> byCategory[ANALYZER_CAT_COUNT];
+  int errorComms[ANALYZER_CAT_COUNT] = {};
+  int warnComms[ANALYZER_CAT_COUNT] = {};
 
   const struct rasCollComms::comm* comm = blob->comms;
   int analyzed = 0;
@@ -795,12 +856,27 @@ int analyzerFormatSummary(FILE* fp, const struct rasCollComms* blob) {
       analyzerRankEntry* ranks = ranksVec.data();
       int nRanks = analyzerBuildDiagIndex(comm, ranks, comm->nRanks);
       if (nRanks > 0) {
+        size_t previousSizes[ANALYZER_CAT_COUNT];
+        for (int cat = 0; cat < ANALYZER_CAT_COUNT; cat++) previousSizes[cat] = byCategory[cat].size();
         uint64_t h = comm->commId.commHash;
         analyzerCollectConnType(h, ranks, nRanks, byCategory[ANALYZER_CAT_CONN_TYPE]);
-        analyzerCollectConsistency(h, ranks, nRanks, byCategory[ANALYZER_CAT_CONSISTENCY]);
+        analyzerCollectConsistency(h, ranks, nRanks, comm->nRanks, byCategory[ANALYZER_CAT_CONSISTENCY]);
         analyzerCollectRingGraph(h, ranks, nRanks, byCategory[ANALYZER_CAT_RING_GRAPH]);
         analyzerCollectP2pConnect(h, ranks, nRanks, byCategory[ANALYZER_CAT_P2P_CONNECT]);
         analyzerCollectHangReported(h, ranks, nRanks, byCategory[ANALYZER_CAT_HANG_REPORTED]);
+        // Classify per collected entry: an entry counts as ERROR only if it
+        // produced an error-severity finding; same-hash comms stay separate.
+        for (int cat = 0; cat < ANALYZER_CAT_COUNT; cat++) {
+          size_t prev = previousSizes[cat];
+          size_t now = byCategory[cat].size();
+          if (now <= prev) continue;
+          bool hasErrorFinding = false;
+          for (size_t i = prev; i < now; i++) {
+            if (!byCategory[cat][i].isWarn) hasErrorFinding = true;
+          }
+          if (hasErrorFinding) errorComms[cat]++;
+          else warnComms[cat]++;
+        }
         analyzed++;
       }
     }
@@ -815,11 +891,10 @@ int analyzerFormatSummary(FILE* fp, const struct rasCollComms* blob) {
     auto& findings = byCategory[cat];
     bool hasError = false, hasWarn = false;
     for (auto& f : findings) { if (f.isWarn) hasWarn = true; else hasError = true; }
-
     if (hasError) {
-      fprintf(fp, "# %s %d/%d comms ERROR\n", analyzerCategoryName(cat), (int)findings.size(), analyzed);
+      fprintf(fp, "# %s %d/%d comms ERROR\n", analyzerCategoryName(cat), errorComms[cat], analyzed);
     } else if (hasWarn) {
-      fprintf(fp, "# %s %d/%d comms WARNING\n", analyzerCategoryName(cat), (int)findings.size(), analyzed);
+      fprintf(fp, "# %s %d/%d comms WARNING\n", analyzerCategoryName(cat), warnComms[cat], analyzed);
     } else {
       fprintf(fp, "# %s PASS\n", analyzerCategoryName(cat));
       continue;

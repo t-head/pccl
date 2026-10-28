@@ -44,6 +44,12 @@ union ncclSocketAddress {
 #define RAS_DIAG_WIRE_VERSION RAS_COMMS_DIAG_WIRE_VERSION
 #define RAS_DIAG_CONN_NONE   ((uint8_t)0xFF)
 
+#define RAS_CONN_TYPE_STR_COUNT 8
+static const char* const rasConnTypeStr[RAS_CONN_TYPE_STR_COUNT] = {
+  "CONN_NORMAL", "CONN_ICN", "CONN_PCIE", "CONN_SHM", "CONN_GDRDMA",
+  "CONN_RDMA", "CONN_SOCKET", "CONN_NET_EXT"
+};
+
 // Unique communicator identifier.  commHash by itself is definitely not guaranteed to be unique.
 // Combined with the two other hashes, the chance is much better...
 // All three fields are used for sorting.

@@ -25,7 +25,7 @@ LIBSRCFILES := $(filter-out ce_coll_oki.cc,$(wildcard *.cc)) \
                $(wildcard scheduler/*.cc) \
                $(wildcard plugin/*.cc) \
                $(wildcard plugin/profiler/*.cc) \
-               $(filter-out ras/client.cc,$(wildcard ras/*.cc)) \
+               $(filter-out ras/client.cc ras/offline_dump.cc,$(wildcard ras/*.cc)) \
                $(wildcard pccl_device/*.cc) \
                $(wildcard gin/*.cc) \
                $(wildcard plugin/gin/*.cc)
@@ -35,7 +35,7 @@ endif
 
 LIBSRCFILES_CPP := $(wildcard transport/net_ib/gdaki/doca-gpunetio/src/*.cpp)
 
-BINSRCFILES := ras/client.cc ras/analyzer.cc
+BINSRCFILES := ras/client.cc ras/analyzer.cc ras/offline_dump.cc
 PARAMBINSRCFILES := param/pcclparam.cc
 
 ##### lib files
