@@ -31,6 +31,7 @@ class GitHubFixture:
                          'author': {'name': AUTHOR[0], 'email': AUTHOR[1]}}} for i in (1, 2)]
         self.issue = {'number': 12}
         self.paths = []
+        self.comments, self.writes = [], []
 
     def get(self, path):
         self.paths.append(path)
@@ -39,7 +40,16 @@ class GitHubFixture:
         return copy.deepcopy(self.pr)
 
     def pages(self, path):
+        if path.endswith('/comments'):
+            return copy.deepcopy(self.comments)
         return copy.deepcopy(self.files if path.endswith('/files') else self.commits)
+
+    def write_comment(self, path, body, update=False):
+        self.writes.append((path, body, update))
+        comment = {'id': 123, 'html_url': 'https://github.com/t-head/pccl/pull/98#issuecomment-123',
+                   'body': body, 'user': {'login': 'github-actions[bot]', 'type': 'Bot'}}
+        self.comments = [comment]
+        return copy.deepcopy(comment)
 
 
 class SquashTests(unittest.TestCase):
@@ -168,6 +178,61 @@ class SquashTests(unittest.TestCase):
             run.return_value.stdout = event
             with self.assertRaisesRegex(ValueError, 'must not execute tools'):
                 squash.ask_copilot('Example')
+
+    def test_publishes_one_collapsed_comment_and_updates_in_place(self):
+        draft = self.generate()
+        squash.publish(self.api, draft, 98, '101')
+        self.assertFalse(self.api.writes[0][2])
+        self.assertIn('<details>', self.api.comments[0]['body'])
+        self.assertNotIn('<details open>', self.api.comments[0]['body'])
+        squash.publish(self.api, draft, 98, '101')
+        self.assertEqual(len(self.api.writes), 1)
+        squash.publish(self.api, draft, 98, '102')
+        self.assertEqual(self.api.writes[-1][0], '/repos/t-head/pccl/issues/comments/123')
+        self.assertTrue(self.api.writes[-1][2])
+
+    def test_comment_does_not_display_signing_names_or_emails(self):
+        draft = self.generate()
+        body = squash.comment_body(draft, '101')
+        self.assertNotIn(AUTHOR[0], body)
+        self.assertNotIn(AUTHOR[1], body)
+        self.assertIn('Signed-off-by:', draft['message'])
+
+    def test_comment_escapes_model_text(self):
+        draft = self.generate()
+        draft['proposal']['body'] = '</pre><script>alert(1)</script>'
+        body = squash.comment_body(draft, '101')
+        self.assertNotIn('<script>', body)
+        self.assertIn('&lt;script&gt;', body)
+
+    def test_human_comment_cannot_impersonate_the_bot(self):
+        draft = self.generate()
+        self.api.comments = [{'id': 10, 'body': squash.comment_body(draft, '200'),
+                              'user': {'login': 'contributor', 'type': 'User'}}]
+        squash.publish(self.api, draft, 98, '101')
+        self.assertFalse(self.api.writes[0][2])
+
+    def test_comment_rejects_stale_inputs_before_writing(self):
+        draft = self.generate()
+        self.api.pr['head']['sha'] = 'c' * 40
+        with self.assertRaisesRegex(ValueError, 'changed'):
+            squash.publish(self.api, draft, 98, '101')
+        self.assertEqual(self.api.writes, [])
+
+    def test_comment_cannot_target_another_pr_or_replace_a_newer_run(self):
+        draft = self.generate()
+        with self.assertRaisesRegex(ValueError, 'workflow PR'):
+            squash.publish(self.api, draft, 19, '101')
+        self.assertEqual(self.api.writes, [])
+        squash.publish(self.api, draft, 98, '102')
+        with self.assertRaisesRegex(ValueError, 'newer workflow'):
+            squash.publish(self.api, draft, 98, '101')
+        self.assertEqual(len(self.api.writes), 1)
+
+    def test_invalid_run_id_cannot_be_rendered(self):
+        for run in ('', '0', '1/other', '1\ntext'):
+            with self.subTest(run=run), self.assertRaises(ValueError):
+                squash.comment_body(self.generate(), run)
 
 
 if __name__ == '__main__':

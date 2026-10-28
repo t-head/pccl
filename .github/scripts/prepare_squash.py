@@ -1,6 +1,6 @@
 # SPDX-License-Identifier: Apache-2.0
 # Copyright (c) 2026 T-Head (Shanghai) Semiconductor Co., Ltd. All rights reserved.
-"""Draft and validate a squash message. This tool never writes to GitHub."""
+"""Draft and validate a squash message; optionally publish its preview to the PR."""
 
 import argparse
 import hashlib
@@ -18,6 +18,7 @@ from urllib.request import Request, urlopen
 from check_commit_messages import IDENTITY, ISSUE_REFERENCE, trailers, validate_message
 
 ROOT = Path(__file__).resolve().parents[2]
+COMMENT_MARKER = '<!-- pccl-squash-message -->'
 REFERENCE = re.compile(
     r'\b(?P<verb>(?i:Refs|Closes|Fixes))[ \t]+(?P<short>(?:[\w.-]+/[\w.-]+)?#[1-9][0-9]*)\b'
     r'|(?:(?P<url_verb>(?i:Refs|Closes|Fixes))[ \t]+)?'
@@ -54,6 +55,23 @@ class GitHub:
             if len(items) < 100:
                 return result
         raise ValueError('GitHub list is too large; prepare the message manually')
+
+    def write_comment(self, path, body, update=False):
+        suffix = r'/issues/comments/[1-9][0-9]*' if update else r'/issues/[1-9][0-9]*/comments'
+        if not re.fullmatch(re.escape('/repos/' + self.repository) + suffix, path):
+            raise ValueError('Only PR comment writes are supported')
+        request = Request('https://api.github.com' + path,
+                          data=json.dumps({'body': body}).encode(),
+                          headers={'Authorization': 'Bearer ' + self.token,
+                                   'Accept': 'application/vnd.github+json',
+                                   'Content-Type': 'application/json',
+                                   'X-GitHub-Api-Version': '2022-11-28'},
+                          method='PATCH' if update else 'POST')
+        try:
+            with urlopen(request, timeout=30) as response:
+                return json.load(response)
+        except HTTPError as error:
+            raise ValueError(f'Could not publish the comment: HTTP {error.code}') from None
 
 
 def policy():
@@ -230,6 +248,48 @@ def verify(api, draft):
     verify_issues(api, metadata(data)[0])
 
 
+def comment_body(draft, run_id):
+    if not re.fullmatch(r'[1-9][0-9]*', str(run_id)):
+        raise ValueError('Invalid workflow run ID')
+    # Keep signing names/emails out of the conversation preview. The exact merge
+    # message, including unmodified DCO trailers, remains in the artifact.
+    preview = draft['proposal']['title'].strip() + '\n\n' + draft['proposal']['body'].strip()
+    run_url = f"https://github.com/{draft['repository']}/actions/runs/{run_id}"
+    return (f'{COMMENT_MARKER}\n<!-- run: {run_id} -->\n'
+            '### AI squash message · Awaiting confirmation\n\n'
+            f"<code>{html.escape(draft['proposal']['title'].strip())}</code>\n\n"
+            f"For commit `{draft['head'][:12]}`. New PR changes require a fresh draft.\n\n"
+            '<details>\n<summary>View proposed summary</summary>\n\n'
+            f'<pre>{html.escape(preview)}</pre>\n\n</details>\n\n'
+            f'[Generation record and full message]({run_url}) · artifact: `squash-message`\n\n'
+            'The full message preserves issue references and signing trailers. '
+            'Confirm that exact message before merging; this comment does not approve or merge the PR.\n')
+
+
+def publish(api, draft, expected_pr, run_id):
+    if type(expected_pr) is not int or expected_pr <= 0 or draft['number'] != expected_pr:
+        raise ValueError('Draft does not match the workflow PR')
+    body = comment_body(draft, run_id)
+    path = f'/repos/{api.repository}/issues/{expected_pr}/comments'
+    comments = [item for item in api.pages(path)
+                if item['user']['login'] == 'github-actions[bot]' and item['user']['type'] == 'Bot'
+                and item.get('body', '').startswith(COMMENT_MARKER + '\n')]
+    if len(comments) > 1:
+        raise ValueError('Multiple draft comments found; keep one before publishing')
+    existing = comments[0] if comments else None
+    if existing:
+        previous_run = re.search(r'<!-- run: ([1-9][0-9]*) -->', existing['body'])
+        if previous_run and int(previous_run[1]) > int(run_id):
+            raise ValueError('A newer workflow has already published its draft')
+    # Re-read the complete PR after locating the comment and before any write.
+    verify(api, draft)
+    if existing:
+        if existing['body'] == body:
+            return existing['html_url']
+        path = f"/repos/{api.repository}/issues/comments/{existing['id']}"
+    return api.write_comment(path, body, update=existing is not None)['html_url']
+
+
 def write_output(draft, directory):
     directory.mkdir(parents=True, exist_ok=True)
     (directory / 'proposal.json').write_text(json.dumps(draft, ensure_ascii=False, indent=2) + '\n')
@@ -251,11 +311,17 @@ def main():
     mode = parser.add_mutually_exclusive_group(required=True)
     mode.add_argument('--pr', type=int)
     mode.add_argument('--verify', type=Path)
+    mode.add_argument('--publish', type=Path)
+    parser.add_argument('--expected-pr', type=int)
     parser.add_argument('--repository', default=os.environ.get('GITHUB_REPOSITORY', 't-head/pccl'))
     parser.add_argument('--output', type=Path, default=Path('squash-message'))
     args = parser.parse_args()
     api = GitHub(args.repository, os.environ.get('GITHUB_TOKEN', ''))
-    if args.verify:
+    if args.publish:
+        url = publish(api, json.loads(args.publish.read_text()), args.expected_pr,
+                      os.environ.get('GITHUB_RUN_ID', ''))
+        print('Published squash message preview: ' + url)
+    elif args.verify:
         verify(api, json.loads(args.verify.read_text()))
         print('Draft matches current PR inputs and passes message checks. Human confirmation is still required.')
     else:
