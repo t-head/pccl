@@ -37,10 +37,11 @@ ncclResult_t ncclIbCreateQp(uint8_t ib_port, struct ncclIbNetCommDevBase* commDe
                             int oooRq, struct ibv_qp** qp, void* qp_context);
 ncclResult_t ncclIbRtrQp(ibv_qp* qp, uint32_t qpn, struct ncclIbQpInfo* info, int gidIndex);
 ncclResult_t ncclIbRtsQp(ibv_qp* qp);
+void pcclIbSetSendTxAffinity(struct ncclIbSendComm* comm, int numDataQps);
 
 // Phase-2 connection setup: complete sender/receiver QP transition.
 // Must be called after ncclIbConnect/ncclIbAccept before posting WRs directly.
-ncclResult_t ncclSendCheck(struct ncclIbSendComm* comm);
+ncclResult_t ncclSendCheck(struct ncclIbSendComm* comm, int numDataQps);
 ncclResult_t ncclRecvCheck(struct ncclIbRecvComm* comm);
 
 #endif //NET_IB_CONNECT_H_
