@@ -118,6 +118,9 @@ class SquashTests(unittest.TestCase):
             ('Refs #12,\n#34, and HTTPS://GitHub.com/t-head/other/issues/56',
              ['Refs #12', 'Refs #34', 'Refs HTTPS://GitHub.com/t-head/other/issues/56']),
             ('Closes #12, #34, fixes t-head/other#56', ['Closes #12', 'Refs #34', 'Fixes t-head/other#56']),
+            ('Refs #12; #34; t-head/other#56', ['Refs #12', 'Refs #34', 'Refs t-head/other#56']),
+            ('https://github.com/t-head/pccl/issues/12, #34 and t-head/other#56',
+             ['Refs https://github.com/t-head/pccl/issues/12', 'Refs #34', 'Refs t-head/other#56']),
         ]:
             with self.subTest(references=references):
                 self.api = GitHubFixture()
@@ -130,6 +133,13 @@ class SquashTests(unittest.TestCase):
                              '/repos/t-head/other/issues/56'):
                     self.assertIn(path, self.api.paths)
                 self.assertNotIn('Closes #34', draft['message'])
+
+    def test_closing_references_in_subjects_are_preserved(self):
+        self.api.commits[0]['commit']['message'] = MESSAGE.replace(
+            'ci: improve contribution checks', 'ci: improve checks (fixes #34)')
+        message = self.generate()['message']
+        self.assertIn('Fixes #34', message.splitlines())
+        self.assertIn('/repos/t-head/pccl/issues/34', self.api.paths)
 
     def test_a_later_reference_cannot_bypass_issue_validation(self):
         self.api.commits[0]['commit']['message'] = MESSAGE.replace('Refs #12', 'Refs #12, #34')
@@ -261,6 +271,22 @@ class SquashTests(unittest.TestCase):
             run.return_value.stdout = event
             with self.assertRaisesRegex(ValueError, 'must not execute tools'):
                 squash.ask_copilot('Example')
+
+    def test_copilot_failure_reports_a_bounded_redacted_error(self):
+        for stdout, stderr, expected in [
+            (json.dumps({'type': 'session.error', 'data': {'message': 'Request denied test-token'}}), '', 'Request denied [redacted]'),
+            ('invalid JSON', 'Request failed test-token\n' + 'x' * 1000, 'Request failed [redacted]'),
+        ]:
+            with self.subTest(stdout=stdout), \
+                    patch.dict(os.environ, {'COPILOT_CLI': '/example/copilot', 'GITHUB_TOKEN': 'test-token'}), \
+                    patch.object(squash.subprocess, 'run') as run:
+                run.return_value.returncode = 1
+                run.return_value.stdout, run.return_value.stderr = stdout, stderr
+                with self.assertRaises(ValueError) as error:
+                    squash.ask_copilot('Example')
+                self.assertIn(expected, str(error.exception))
+                self.assertNotIn('test-token', str(error.exception))
+                self.assertLess(len(str(error.exception)), 550)
 
     def test_publishes_one_visible_comment_and_updates_in_place(self):
         draft = self.generate()

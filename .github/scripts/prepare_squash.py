@@ -22,10 +22,9 @@ from check_commit_messages import IDENTITY, ISSUE_REFERENCE, ISSUE_URL, trailers
 COMMENT_MARKER = '<!-- pccl-squash-message -->'
 ISSUE_TARGET = re.compile(r'(?:' + ISSUE_URL + r'|(?:[\w.-]+/[\w.-]+)?#[1-9][0-9]*\b)')
 REFERENCE = re.compile(
-    r'\b(?P<verb>(?i:Refs|Close[sd]?|Fix(?:e[sd])?|Resolve[sd]?)):?[ \t]+'
-    rf'(?P<targets>{ISSUE_TARGET.pattern}'
-    rf'(?:(?:\s*,\s*(?:(?i:and)\s+)?|\s+(?:(?i:and)\s+)?){ISSUE_TARGET.pattern})*)'
-    rf'|(?P<url>{ISSUE_URL})')
+    r'(?:\b(?P<verb>(?i:Refs|Close[sd]?|Fix(?:e[sd])?|Resolve[sd]?)):?[ \t]+'
+    rf'{ISSUE_TARGET.pattern}|{ISSUE_URL})'
+    rf'(?:(?:\s*[,;]\s*(?:(?i:and)\s+)?|\s+(?:(?i:and)\s+)?){ISSUE_TARGET.pattern})*')
 
 
 def digest(value):
@@ -158,8 +157,8 @@ def metadata(data):
         errors = validate_message(commit['message'], commit['author'])
         if errors:
             raise ValueError(f"Commit {commit['sha'][:12]}: " + '; '.join(errors))
-        for match in REFERENCE.finditer('\n'.join(commit['message'].splitlines()[1:])):
-            targets = ISSUE_TARGET.findall(match['targets'] or match['url'])
+        for match in REFERENCE.finditer(commit['message']):
+            targets = ISSUE_TARGET.findall(match[0])
             for index, target in enumerate(targets):
                 # Closing keywords apply only to the explicitly prefixed target.
                 verb = match['verb'].capitalize() if index == 0 and match['verb'] else 'Refs'
@@ -230,7 +229,16 @@ def ask_copilot(prompt):
             if result.returncode == 0:
                 break
             if 'Model catalog request timed out' not in result.stderr or attempt == 2:
-                raise ValueError('Copilot failed; no message was published')
+                detail = result.stderr.strip()
+                for line in result.stdout.splitlines():
+                    try:
+                        event = json.loads(line)
+                    except json.JSONDecodeError:
+                        continue
+                    if isinstance(event, dict) and event.get('type') == 'session.error':
+                        detail = event.get('data', {}).get('message') or detail
+                detail = ' '.join(str(detail).replace(os.environ['GITHUB_TOKEN'], '[redacted]').split())[:500]
+                raise ValueError(f'Copilot failed (exit {result.returncode}): {detail or "No error detail returned"}')
             time.sleep(min(5 * (attempt + 1), max(0, deadline - time.monotonic())))
     # CLI 1.0.100 can mis-escape its echoed input. It is never a model response.
     events = [json.loads(line) for line in result.stdout.splitlines()
