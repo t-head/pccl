@@ -180,7 +180,7 @@ enum {
 
 static int netPluginStatus = netPluginLoadReady;
 
-PCCL_PARAM(NetPluginEnable, "NET_PLUGIN_ENABLE", 0);
+PCCL_PARAM(NetPluginEnable, "NET_PLUGIN_ENABLE", 1);
 
 static ncclResult_t ncclNetPluginLoad(ncclNet_v6_t** net, ncclCollNet_v6_t** collnet) {
 
