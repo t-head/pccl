@@ -54,6 +54,8 @@ struct ncclIbDev {
     char* pciPath;
     int realPort;
     int maxQp;
+    int maxQpInitRdAtom;
+    int maxQpRdAtom;
     int gidIndex;
     int ar;
     uint32_t oooRqSize;
