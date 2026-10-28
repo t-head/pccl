@@ -6,6 +6,7 @@
  * See LICENSE.txt for more license information
  *************************************************************************/
 
+#include "alloc.h"
 #include "comm.h"
 #include "gin.h"
 #include "param.h"
@@ -144,11 +145,13 @@ ncclResult_t ncclGinConnectOnce(struct pcclComm* comm) {
   int localGinDevs[NCCL_TOPO_MAX_NODES];
   NCCLCHECK(ncclTopoGetLocalGinDevs(comm, localGinDevs, &nLocalGinDevs));
 
+  if (nLocalGinDevs <= 0) {
+    WARN("GIN has no local network devices");
+    return ncclInternalError;
+  }
+
   void** handles = NULL;
   char* allHandles = NULL;
-
-  int* ginCommCountHandles = NULL;
-  NCCLCHECKGOTO(ncclCalloc(&ginCommCountHandles, comm->nRanks), ret, fail);
 
   ginState->ginCommCount = nLocalGinDevs;
   if (ginState->ginVersion < 13) {
@@ -156,8 +159,14 @@ ncclResult_t ncclGinConnectOnce(struct pcclComm* comm) {
   }
 
   if (ncclParamGinNconnections() != -2) ginState->ginCommCount = ncclParamGinNconnections();
+  if (ginState->ginCommCount <= 0) {
+    WARN("GIN_NCONNECTIONS must be positive");
+    return ncclInvalidUsage;
+  }
   ginState->ginCommCount = std::min<int>(NCCL_GIN_MAX_CONNECTIONS, ginState->ginCommCount);
 
+  int* ginCommCountHandles = NULL;
+  NCCLCHECKGOTO(ncclCalloc(&ginCommCountHandles, comm->nRanks), ret, fail);
   ginCommCountHandles[comm->rank] = ginState->ginCommCount;
   NCCLCHECKGOTO(bootstrapAllGather(comm->bootstrap, ginCommCountHandles, sizeof(int)), ret, fail);
   for (int r = 0; r < comm->nRanks; r++) {
@@ -202,6 +211,9 @@ ncclResult_t ncclGinConnectOnce(struct pcclComm* comm) {
 
     NCCLCHECKGOTO(ginState->ncclGin->getProperties(localGinDevs[n%nLocalGinDevs], ginState->ginProps+n),
       ret, fail);
+    INFO(NCCL_INIT, "GIN connection %d: device %d (%s:%d)", n,
+         localGinDevs[n%nLocalGinDevs], ginState->ginProps[n].name,
+         ginState->ginProps[n].port);
 
     NCCLCHECKGOTO(bootstrapAllGather(comm->bootstrap, allHandles, NCCL_NET_HANDLE_MAXSIZE), ret, fail);
 
@@ -211,29 +223,55 @@ ncclResult_t ncclGinConnectOnce(struct pcclComm* comm) {
 
     NCCLCHECKGOTO(ginState->ncclGin->closeListen(listenComm), ret, fail);
   }
-  free(handles);
+  NCCLCHECK(ncclFree(handles));
   handles = NULL;
-  free(allHandles);
+  NCCLCHECK(ncclFree(allHandles));
   allHandles = NULL;
-  free(ginCommCountHandles);
+  NCCLCHECK(ncclFree(ginCommCountHandles));
   ginCommCountHandles = NULL;
 
 exit:
   if (ret == ncclSuccess) ginState->connected = true;
   return ret;
 fail:
-  if (allHandles)
-    free(allHandles);
-  if (handles)
-    free(handles);
-  if (ginCommCountHandles)
-    free(ginCommCountHandles);
+  if (allHandles) {
+    NCCLCHECK(ncclFree(allHandles));
+  }
+  if (handles) {
+    NCCLCHECK(ncclFree(handles));
+  }
+  if (ginCommCountHandles) {
+    NCCLCHECK(ncclFree(ginCommCountHandles));
+  }
   goto exit;
+}
+
+static ncclResult_t checkGdakiApplicationAbi(struct pcclComm* comm, uint64_t version) {
+  uint64_t* versions = nullptr;
+  NCCLCHECK(ncclIbMalloc((void**)&versions, (size_t)comm->nRanks * sizeof(*versions)));
+  versions[comm->rank] = version;
+  ncclResult_t result = bootstrapAllGather(comm->bootstrap, versions, sizeof(*versions));
+  if (result == ncclSuccess) {
+    for (int r = 0; r < comm->nRanks; r++) {
+      if (versions[r] != PCCL_GIN_GDAKI_VERSION) {
+        WARN("Rank %d GDAKI application ABI %llu is incompatible with %d; rebuild with current device headers",
+             r, (unsigned long long)versions[r], PCCL_GIN_GDAKI_VERSION);
+        result = ncclInvalidUsage;
+        break;
+      }
+    }
+  }
+  NCCLCHECK(ncclFree(versions));
+  return result;
 }
 
 ncclResult_t ncclGinDevCommSetup(struct pcclComm* comm, struct ncclDevCommRequirements const* reqs,
     struct ncclDevComm* devComm) {
   struct pcclGinState* ginState = &comm->sharedRes->ginState;
+
+  if (ginState->ginType == PCCL_GIN_TYPE_GDAKI) {
+    NCCLCHECK(checkGdakiApplicationAbi(comm, reqs->ginGdakiVersion));
+  }
 
   devComm->ginSignalCount = reqs->ginSignalCount;
   devComm->ginCounterCount = reqs->ginCounterCount;
@@ -271,8 +309,25 @@ ncclResult_t ncclGinDevCommSetup(struct pcclComm* comm, struct ncclDevCommRequir
     NCCLCHECKGOTO(ginState->ncclGin->createContext(
                     ginState->ginComms[n], &ginConfig, &ginStateDevComm->ginCtx[n], &ginStateDevComm->devHandles[n]),
                   ret, end);
-    devComm->ginNetDeviceTypes[n] = ginStateDevComm->devHandles[n]->netDeviceType;
-    devComm->ginHandles[n] = ginStateDevComm->devHandles[n]->handle;
+    auto* handle = ginStateDevComm->devHandles[n];
+    if (!handle || !handle->handle || (int)handle->netDeviceType != (int)ginState->ginType) {
+      WARN("GIN context does not match the selected GIN mode");
+      ret = ncclInvalidUsage;
+      goto end;
+    }
+    if (handle->netDeviceType == PCCL_NET_DEVICE_GIN_GDAKI) {
+      if (handle->netDeviceVersion != PCCL_GIN_GDAKI_VERSION) {
+        WARN("Unsupported GDAKI handle version %d (expected %d)", handle->netDeviceVersion, PCCL_GIN_GDAKI_VERSION);
+        ret = ncclInvalidUsage;
+        goto end;
+      }
+    } else if (handle->netDeviceType != PCCL_NET_DEVICE_GIN_PROXY) {
+      WARN("Unsupported GIN device context type %d", handle->netDeviceType);
+      ret = ncclInvalidUsage;
+      goto end;
+    }
+    devComm->ginNetDeviceTypes[n] = handle->netDeviceType;
+    devComm->ginHandles[n] = handle->handle;
     if (ginStateDevComm->devHandles[n]->needsProxyProgress) ginState->needsProxyProgress = 1;
   }
 
@@ -299,7 +354,7 @@ end:
       if (ginStateDevComm->ginCtx[n])
         ginState->ncclGin->destroyContext(ginStateDevComm->ginCtx[n]);
     }
-    free(ginStateDevComm);
+    NCCLCHECK(ncclFree(ginStateDevComm));
   }
   return ret;
 }
@@ -314,7 +369,9 @@ ncclResult_t ncclGinDevCommFree(struct pcclComm* comm, struct ncclDevComm const*
       WARN("Dev comm not found\n");
       return ncclInternalError;
     }
-    if (dc->devHandles[0]->handle == devComm->ginHandles[0]) break;
+    if (dc->devHandles[0]->handle == devComm->ginHandles[0]) {
+      break;
+    }
     prevDc = dc;
     dc = dc->next;
   }
@@ -326,7 +383,7 @@ ncclResult_t ncclGinDevCommFree(struct pcclComm* comm, struct ncclDevComm const*
   for (int n = 0; n < ginState->ginCommCount; n++) {
     NCCLCHECK(ginState->ncclGin->destroyContext(dc->ginCtx[n]));
   }
-  free(dc);
+  NCCLCHECK(ncclFree(dc));
   return ncclSuccess;
 }
 

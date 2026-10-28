@@ -6,6 +6,7 @@
  * See LICENSE.txt for more license information
  *************************************************************************/
 
+#include "alloc.h"
 #include "gin.h"
 #include "bootstrap.h"
 #include "checks.h"
@@ -21,7 +22,6 @@ typedef ncclGin_t* getNcclGin_t(void* ginPluginLib);
 extern getNcclGin_t getNcclGin_v13;
 extern getNcclGin_t getNcclGin_v11;
 extern getNcclGin_t getNcclGin_v12;
-extern getNcclGin_t getNcclGin_v13;
 NCCL_PARAM(GinPluginRefCount, "GIN_PLUGIN_REF_COUNT", 0);
 #define NCCL_GIN_VERSION_COUNT 3
 int ncclGinVersion[NCCL_GIN_VERSION_COUNT] = {13, 12, 11};
@@ -187,7 +187,13 @@ static void initPluginLibsOnceFunc() {
       }
       ginPluginName = strtok_r(nullptr, ",", &savePtr);
     }
-    if (envGinPluginList) free(envGinPluginList);
+    if (envGinPluginList) {
+      // std::call_once requires a void callback; NCCLCHECK returns a result.
+      if (ncclFree(envGinPluginList) != ncclSuccess) {
+        WARN("Failed to free GIN plugin list");
+        return;
+      }
+    }
   } else {
     // Add default gin plugin
     ginPluginLibs[pluginCounter].ncclGinPluginState = ncclGinPluginStateLoadReady;

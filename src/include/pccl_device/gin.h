@@ -51,7 +51,7 @@ using pcclGin = pcclGin_BackendMask<PCCL_GIN_BACKEND_MASK_ALL>;
 
 struct pcclGin_C {
   pcclDevComm const& comm;
-  uint32_t nConnections:8, connectionId:8, _ginBackend:8;
+  uint32_t nConnections:8, connectionId:8, _ginBackend:8, _ginProvider:8;
   uint32_t contextId;
   pcclGinResourceSharingMode resourceSharingMode;
 
@@ -183,7 +183,7 @@ PCCL_IR_EXTERN_C PCCL_DEVICE_INLINE uint64_t* pcclGinGetSignalShadowPtr(
 template<unsigned backendMask>
 struct pcclGin_BackendMask {
   pcclDevComm const& comm;
-  uint32_t nConnections:8, connectionId:8, _ginBackend:8;
+  uint32_t nConnections:8, connectionId:8, _ginBackend:8, _ginProvider:8;
   uint32_t contextId;
   // Runtime-selected resource sharing mode for this context.
   pcclGinResourceSharingMode resourceSharingMode;

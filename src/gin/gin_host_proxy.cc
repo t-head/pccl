@@ -328,15 +328,18 @@ static ncclResult_t ncclGinProxyListen(void* ctx, int dev, void* handle, void** 
   NCCLCHECKGOTO(ginBackend->listen(ctx, dev, handle, &lComm->listenComm), ret, end);
 
 end:
-  if (ret != ncclSuccess) free(lComm);
-  else *listenComm = lComm;
+  if (ret != ncclSuccess) {
+    NCCLCHECK(ncclFree(lComm));
+  } else {
+    *listenComm = lComm;
+  }
   return ret;
 }
 
 static ncclResult_t ncclGinProxyCloseListen(void* listenComm) {
   struct ncclGinProxyListenComm* lComm = (struct ncclGinProxyListenComm*)listenComm;
   NCCLCHECK(ginBackend->closeListen(lComm->listenComm));
-  free(lComm);
+  NCCLCHECK(ncclFree(lComm));
   return ncclSuccess;
 }
 
@@ -357,15 +360,18 @@ static ncclResult_t ncclGinProxyConnect(void* ctx, void* handles[], int nranks, 
   NCCLCHECKGOTO(ginBackend->connect(ctx, handles, nranks, rank, lComm->listenComm, &cComm->collComm), ret, end);
 
 end:
-  if (ret != ncclSuccess) free(cComm);
-  else *collComm = cComm;
+  if (ret != ncclSuccess) {
+    NCCLCHECK(ncclFree(cComm));
+  } else {
+    *collComm = cComm;
+  }
   return ret;
 }
 
 static ncclResult_t ncclGinProxyCloseColl(void* collComm) {
   struct ncclGinProxyCollComm* cComm = (struct ncclGinProxyCollComm*)collComm;
   NCCLCHECK(ginBackend->closeColl(cComm->collComm));
-  free(cComm);
+  NCCLCHECK(ncclFree(cComm));
   return ncclSuccess;
 }
 
@@ -545,15 +551,17 @@ static ncclResult_t ncclGinProxyCreateContext(void* collComm, ncclGinConfig_t* c
   *outDevHandle = devHandle;
   *outGinCtx = proxyCtx;
 
-  free(devGpuCtxArray_h);
+  NCCLCHECK(ncclFree(devGpuCtxArray_h));
 
   return ncclSuccess;
 
 fail:
-  if (devGpuCtxArray_h) free(devGpuCtxArray_h);
+  if (devGpuCtxArray_h) {
+    NCCLCHECK(ncclFree(devGpuCtxArray_h));
+  }
   if (devHandle) {
     if (devHandle->handle) (void)ncclHggcFree((void *)devHandle->handle);
-    free(devHandle);
+    NCCLCHECK(ncclFree(devHandle));
   } else if (devGpuCtx_d) {
     (void)ncclHggcFree(devGpuCtx_d);
   }
@@ -591,14 +599,22 @@ static ncclResult_t ncclGinProxyDestroyContext(void *ginCtx) {
   if (ctx->hostGpuCtx) {
     for (int contextId = 0; contextId < ctx->nContexts; contextId++) {
       struct ginProxyHostGpuCtx *hostGpuCtx = ctx->hostGpuCtx + contextId;
-      if (hostGpuCtx->cisShadow) free(hostGpuCtx->cisShadow);
-      if (hostGpuCtx->sis) free(hostGpuCtx->sis);
+      if (hostGpuCtx->cisShadow) {
+        NCCLCHECK(ncclFree(hostGpuCtx->cisShadow));
+      }
+      if (hostGpuCtx->sis) {
+        NCCLCHECK(ncclFree(hostGpuCtx->sis));
+      }
       if (hostGpuCtx->pis) {
         ncclResult_t r = ncclHggcFree(hostGpuCtx->pis);
         if (r != ncclSuccess) { WARN("pcclHggcFree(pis) failed: %d", r); if (ret == ncclSuccess) ret = r; }
       }
-      if (hostGpuCtx->states) free(hostGpuCtx->states);
-      if (hostGpuCtx->inlines) free(hostGpuCtx->inlines);
+      if (hostGpuCtx->states) {
+        NCCLCHECK(ncclFree(hostGpuCtx->states));
+      }
+      if (hostGpuCtx->inlines) {
+        NCCLCHECK(ncclFree(hostGpuCtx->inlines));
+      }
       if (ctx->collComm && hostGpuCtx->inlinesMhandle) {
         ncclResult_t r = ginBackend->deregMrSym(ctx->collComm, hostGpuCtx->inlinesMhandle);
         if (r != ncclSuccess) { WARN("deregMrSym(inlines) failed: %d", r); if (ret == ncclSuccess) ret = r; }
@@ -612,7 +628,7 @@ static ncclResult_t ncclGinProxyDestroyContext(void *ginCtx) {
         if (r != ncclSuccess) { WARN("freeMemCPUAccessible(cis) failed: %d", r); if (ret == ncclSuccess) ret = r; }
       }
     }
-    free(ctx->hostGpuCtx);
+    NCCLCHECK(ncclFree(ctx->hostGpuCtx));
   }
 
   ncclNetDeviceHandle_t *devHandle = (ncclNetDeviceHandle_t *)ctx->devHandle;
@@ -621,10 +637,10 @@ static ncclResult_t ncclGinProxyDestroyContext(void *ginCtx) {
       ncclResult_t r = ncclHggcFree((void *)devHandle->handle);
       if (r != ncclSuccess) { WARN("pcclHggcFree(devHandle->handle) failed: %d", r); if (ret == ncclSuccess) ret = r; }
     }
-    free(devHandle);
+    NCCLCHECK(ncclFree(devHandle));
   }
 
-  free(ctx);
+  NCCLCHECK(ncclFree(ctx));
   return ret;
 }
 

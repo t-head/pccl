@@ -2277,6 +2277,9 @@ void *doca_verbs_srq_get_dbr_addr(const struct doca_verbs_srq *verbs_srq);
  * Capabilities functions
  *********************************************************************************************************************/
 
+// Resolve required MLX5 symbols without allocating device or verbs resources.
+doca_error_t doca_verbs_mlx5dv_probe(void);
+
 /**
  * @brief Query DOCA Verbs device attributes.
  *
