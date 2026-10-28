@@ -21,8 +21,9 @@ from check_commit_messages import IDENTITY, ISSUE_REFERENCE, trailers, validate_
 ROOT = Path(__file__).resolve().parents[2]
 COMMENT_MARKER = '<!-- pccl-squash-message -->'
 REFERENCE = re.compile(
-    r'\b(?P<verb>(?i:Refs|Closes|Fixes))[ \t]+(?P<short>(?:[\w.-]+/[\w.-]+)?#[1-9][0-9]*)\b'
-    r'|(?:(?P<url_verb>(?i:Refs|Closes|Fixes))[ \t]+)?'
+    r'\b(?P<verb>(?i:Refs|Close[sd]?|Fix(?:e[sd])?|Resolve[sd]?)):?[ \t]+'
+    r'(?P<target>(?:[\w.-]+/[\w.-]+)?#[1-9][0-9]*\b'
+    r'|https://github\.com/[\w.-]+/[\w.-]+/issues/[1-9][0-9]*\b)|'
     r'(?P<url>https://github\.com/[\w.-]+/[\w.-]+/issues/[1-9][0-9]*)\b')
 
 
@@ -111,6 +112,12 @@ def snapshot(api, number):
     path = f'/repos/{api.repository}/pulls/{number}'
     files = api.pages(path + '/files')
     commits = api.pages(path + '/commits')
+    current = pull_request(api, number)
+    if (any(pr.get(key) != current.get(key) for key in
+            ('title', 'body', 'state', 'draft', 'commits', 'changed_files')) or
+            any(pr[side][key] != current[side][key] for side, key in
+                (('head', 'sha'), ('base', 'sha'), ('base', 'ref')))):
+        raise ValueError('PR inputs changed while reading files and commits; run again')
     if not files or len(files) != pr['changed_files'] or not commits or len(commits) != pr['commits']:
         raise ValueError('Incomplete PR files or commits; prepare the message manually')
     for file in files:
@@ -118,7 +125,7 @@ def snapshot(api, number):
         lines = patch.splitlines()
         if (sum(line.startswith('+') for line in lines) != file['additions'] or
                 sum(line.startswith('-') for line in lines) != file['deletions'] or
-                (not patch and file['status'] != 'renamed')):
+                not patch):
             raise ValueError('Incomplete or binary diff; prepare the message manually')
     return {'repository': api.repository, 'number': number, 'head': pr['head']['sha'],
             'base': pr['base']['sha'], 'target': pr['base']['ref'],
@@ -138,8 +145,8 @@ def metadata(data):
         if errors:
             raise ValueError(f"Commit {commit['sha'][:12]}: " + '; '.join(errors))
         for match in REFERENCE.finditer('\n'.join(commit['message'].splitlines()[1:])):
-            verb = match['verb'] or match['url_verb']
-            target = match['short'] or match['url']
+            verb = match['verb']
+            target = match['target'] or match['url']
             line = (verb.capitalize() + ' ' if verb else '') + target
             if line not in references:
                 references.append(line)
@@ -233,6 +240,7 @@ def final_message(proposal, data):
     text = title + '\n\n' + body
     if (not title or not body or '\n' in title or re.search(r'[\x00-\x08\x0b-\x1f\x7f]', text) or
             len(body.split()) > 120 or 'codex' in text.lower() or ISSUE_REFERENCE.search(text) or
+            re.search(r'#[1-9][0-9]*\b', text) or
             re.search(r'(?i)\b(?:Signed-off-by|Co-authored-by)\s*:', text) or
             re.search(r'(?im)^(?:Refs|Closes|Fixes)\b', text)):
         raise ValueError('The AI draft contains invalid text or metadata; generate it again')

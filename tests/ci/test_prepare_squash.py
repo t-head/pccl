@@ -92,6 +92,15 @@ class SquashTests(unittest.TestCase):
         self.assertIn('Fixes https://github.com/t-head/other/issues/7', message)
         self.assertIn('/repos/t-head/other/issues/7', self.api.paths)
 
+    def test_preserves_closing_keyword_variants_and_colons(self):
+        for verb in ('close', 'closes', 'closed', 'fix', 'fixes', 'fixed',
+                     'resolve', 'resolves', 'resolved'):
+            with self.subTest(verb=verb):
+                reference = verb.upper() + ': https://github.com/t-head/pccl/issues/12'
+                self.api.commits[0]['commit']['message'] = MESSAGE.replace('Refs #12', reference)
+                references, _ = squash.metadata(squash.snapshot(self.api, 98))
+                self.assertIn(verb.capitalize() + ' https://github.com/t-head/pccl/issues/12', references)
+
     def test_rejects_missing_metadata_in_any_original_commit(self):
         self.api.commits[1]['commit']['message'] = MESSAGE.replace('Refs #12', '')
         with self.assertRaises(ValueError):
@@ -111,11 +120,34 @@ class SquashTests(unittest.TestCase):
                     squash.snapshot(api, 98)
 
     def test_rejects_binary_and_truncated_diffs(self):
-        for file in [dict(self.api.files[0], patch=''), dict(self.api.files[0], additions=2)]:
+        for file in [dict(self.api.files[0], patch=''), dict(self.api.files[0], additions=2),
+                     dict(self.api.files[0], status='renamed', patch='', additions=0, deletions=0)]:
             with self.subTest(file=file):
                 self.api.files = [file]
                 with self.assertRaises(ValueError):
                     squash.snapshot(self.api, 98)
+
+    def test_pr_changes_during_snapshot_cannot_publish_a_stale_draft(self):
+        for field in ('title', 'body', 'state', 'target', 'head'):
+            with self.subTest(field=field):
+                self.api = GitHubFixture()
+                draft = self.generate()
+                original_pages = self.api.pages
+
+                def changing_pages(path):
+                    items = original_pages(path)
+                    if path.endswith('/files'):
+                        if field == 'target':
+                            self.api.pr['base']['ref'] = 'release'
+                        elif field == 'head':
+                            self.api.pr['head']['sha'] = 'c' * 40
+                        else:
+                            self.api.pr[field] = 'closed' if field == 'state' else 'Changed'
+                    return items
+
+                with patch.object(self.api, 'pages', side_effect=changing_pages), self.assertRaises(ValueError):
+                    squash.publish(self.api, draft, 98, '101')
+                self.assertEqual(self.api.writes, [])
 
     def test_rejects_closed_pr(self):
         self.api.pr['state'] = 'closed'
@@ -152,7 +184,8 @@ class SquashTests(unittest.TestCase):
     def test_rejects_model_metadata_and_control_characters(self):
         data = squash.snapshot(self.api, 98)
         for text in ['Signed-off-by: Fake <fake@example.org>', 'By Signed-off-by: Fake <fake@example.org>', 'Refs #99',
-                     'https://github.com/t-head/pccl/issues/99', 'Fixes: #99', '\x1b[31mred', '\rhidden']:
+                     'https://github.com/t-head/pccl/issues/99', 'Fixes: #99', '- Fixes: #99',
+                     'Resolves #99', '- address other/project#99', '\x1b[31mred', '\rhidden']:
             with self.subTest(text=text):
                 with self.assertRaises(ValueError):
                     squash.final_message(dict(PROPOSAL, body=text), data)
