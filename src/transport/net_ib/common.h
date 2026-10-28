@@ -54,6 +54,8 @@ struct ncclIbDev {
     char* pciPath;
     int realPort;
     int maxQp;
+    int maxQpInitRdAtom;
+    int maxQpRdAtom;
     int gidIndex;
     // Slot 0 is AF_INET and slot 1 is AF_INET6; -1 means unavailable.
     int gidIndexByFamily[2];
