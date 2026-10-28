@@ -32,9 +32,16 @@ class GitHubFixture:
         self.issue = {'number': 12}
         self.paths = []
         self.comments, self.writes = [], []
+        self.run = {'repository': {'full_name': self.repository}, 'conclusion': 'success',
+                    'path': '.github/workflows/prepare-squash.yml', 'event': 'pull_request'}
+        self.permission = {'permission': 'write'}
 
     def get(self, path):
         self.paths.append(path)
+        if '/actions/runs/' in path:
+            return copy.deepcopy(self.run)
+        if '/collaborators/' in path:
+            return copy.deepcopy(self.permission)
         if '/issues/' in path:
             return copy.deepcopy(self.issue)
         return copy.deepcopy(self.pr)
@@ -50,6 +57,10 @@ class GitHubFixture:
                    'body': body, 'user': {'login': 'github-actions[bot]', 'type': 'Bot'}}
         self.comments = [comment]
         return copy.deepcopy(comment)
+
+    def delete_comment(self, comment_id):
+        self.writes.append(('DELETE', comment_id))
+        self.comments = [item for item in self.comments if item['id'] != comment_id]
 
 
 class SquashTests(unittest.TestCase):
@@ -179,28 +190,29 @@ class SquashTests(unittest.TestCase):
             with self.assertRaisesRegex(ValueError, 'must not execute tools'):
                 squash.ask_copilot('Example')
 
-    def test_publishes_one_collapsed_comment_and_updates_in_place(self):
+    def test_publishes_one_visible_comment_and_updates_in_place(self):
         draft = self.generate()
         squash.publish(self.api, draft, 98, '101')
         self.assertFalse(self.api.writes[0][2])
-        self.assertIn('<details>', self.api.comments[0]['body'])
-        self.assertNotIn('<details open>', self.api.comments[0]['body'])
+        self.assertNotIn('<details', self.api.comments[0]['body'])
+        self.assertIn(squash.html.escape(draft['message']), self.api.comments[0]['body'])
         squash.publish(self.api, draft, 98, '101')
         self.assertEqual(len(self.api.writes), 1)
         squash.publish(self.api, draft, 98, '102')
         self.assertEqual(self.api.writes[-1][0], '/repos/t-head/pccl/issues/comments/123')
         self.assertTrue(self.api.writes[-1][2])
 
-    def test_comment_does_not_display_signing_names_or_emails(self):
+    def test_comment_preserves_the_exact_refs_and_dco(self):
         draft = self.generate()
         body = squash.comment_body(draft, '101')
-        self.assertNotIn(AUTHOR[0], body)
-        self.assertNotIn(AUTHOR[1], body)
-        self.assertIn('Signed-off-by:', draft['message'])
+        self.assertIn(AUTHOR[0], body)
+        self.assertIn(AUTHOR[1], body)
+        self.assertEqual(body.count('Refs #12'), 1)
+        self.assertEqual(body.count('Signed-off-by:'), 1)
 
     def test_comment_escapes_model_text(self):
         draft = self.generate()
-        draft['proposal']['body'] = '</pre><script>alert(1)</script>'
+        draft['message'] = '</pre><script>alert(1)</script>'
         body = squash.comment_body(draft, '101')
         self.assertNotIn('<script>', body)
         self.assertIn('&lt;script&gt;', body)
@@ -233,6 +245,76 @@ class SquashTests(unittest.TestCase):
         for run in ('', '0', '1/other', '1\ntext'):
             with self.subTest(run=run), self.assertRaises(ValueError):
                 squash.comment_body(self.generate(), run)
+
+    def test_single_commit_skips_the_model_and_does_not_publish(self):
+        self.api.pr['commits'] = 1
+        self.api.commits = self.api.commits[:1]
+        self.api.files[0]['patch'] = ''  # Even binary diffs do not need an AI draft for one commit.
+        with patch.object(squash, 'ask_copilot') as ask:
+            draft = squash.generate(self.api, 98, ask)
+            ask.assert_not_called()
+        self.assertIsNone(draft['message'])
+        self.assertIsNone(squash.publish(self.api, draft, 98, '101'))
+        self.assertEqual(self.api.writes, [])
+        with tempfile.TemporaryDirectory() as directory, patch.dict(os.environ, {}, clear=True):
+            squash.write_output(draft, Path(directory))
+            self.assertFalse((Path(directory) / 'merge-message.txt').exists())
+            self.assertIn('one commit', (Path(directory) / 'summary.md').read_text())
+
+    def test_squashing_to_one_commit_removes_only_the_bot_preview(self):
+        squash.publish(self.api, self.generate(), 98, '101')
+        self.api.comments.append({'id': 456, 'body': 'Human discussion',
+                                  'user': {'login': 'contributor', 'type': 'User'}})
+        self.api.pr['commits'] = 1
+        self.api.commits = self.api.commits[:1]
+        self.api.pr['head']['sha'] = 'c' * 40
+        self.assertIsNone(squash.publish(self.api, self.generate(), 98, '102'))
+        self.assertEqual(self.api.writes[-1], ('DELETE', 123))
+        self.assertEqual([item['id'] for item in self.api.comments], [456])
+
+    def test_plain_text_wraps_prose_and_preserves_trailers(self):
+        proposal = {'title': 'ci: improve **message** checks',
+                    'body': '- Use **plain text** and `example.py` to ' + 'explain the changes ' * 12}
+        message = squash.final_message(proposal, squash.snapshot(self.api, 98))
+        self.assertNotIn('**', message)
+        self.assertNotIn('`', message)
+        prose = message.split('\n\nRefs #12')[0]
+        self.assertLessEqual(max(map(len, prose.splitlines())), 72)
+        self.assertIn(f'Signed-off-by: {AUTHOR[0]} <{AUTHOR[1]}>', message)
+
+    def test_markdown_cleanup_cannot_introduce_fabricated_metadata(self):
+        data = squash.snapshot(self.api, 98)
+        for body in ('Signed`-off-`by: Fake <fake@example.org>', 'Re`fs` #99'):
+            with self.subTest(body=body), self.assertRaises(ValueError):
+                squash.final_message(dict(PROPOSAL, body=body), data)
+
+    def test_confirmation_records_the_account_for_the_exact_displayed_message(self):
+        draft = self.generate()
+        squash.publish(self.api, draft, 98, '101')
+        squash.confirm(self.api, draft, 98, 101, 'maintainer')
+        self.assertIn('Confirmed by @maintainer', self.api.comments[0]['body'])
+        self.assertIn(draft['head'], self.api.comments[0]['body'])
+        self.assertEqual(len(self.api.writes), 2)
+        squash.confirm(self.api, draft, 98, 101, 'maintainer')
+        self.assertEqual(len(self.api.writes), 2)
+
+    def test_confirmation_rejects_wrong_permission_workflow_message_or_head(self):
+        for change in ('permission', 'workflow', 'message', 'head'):
+            with self.subTest(change=change):
+                self.api = GitHubFixture()
+                draft = self.generate()
+                squash.publish(self.api, draft, 98, '101')
+                if change == 'permission':
+                    self.api.permission['permission'] = 'read'
+                elif change == 'workflow':
+                    self.api.run['path'] = '.github/workflows/unrelated.yml'
+                elif change == 'message':
+                    self.api.comments[0]['body'] += 'changed'
+                else:
+                    self.api.pr['head']['sha'] = 'c' * 40
+                with self.assertRaises(ValueError):
+                    squash.confirm(self.api, draft, 98, 101, 'maintainer')
+                self.assertEqual(len(self.api.writes), 1)
 
 
 if __name__ == '__main__':

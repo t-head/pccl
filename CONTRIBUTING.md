@@ -163,20 +163,6 @@ Refs #123
 Signed-off-by: Your Name <your@email.com>
 ```
 
-### Preparing the Squash Message
-
-The **Prepare squash commit** workflow drafts a short final message from the complete PR diff. It preserves and deduplicates existing issue references, sign-offs, and co-author trailers, then applies the same message checks as CI.
-
-For PRs from this repository, it runs on updates. For fork PRs or a fresh draft, a maintainer can run it from `main` with the PR number. A single bot comment in the PR conversation shows a collapsible preview and is updated for each new draft. The preview omits signing identities; review the exact message in the workflow Summary or the `squash-message` artifact before confirming it. Large or incomplete diffs require manual preparation instead of a partial AI summary.
-
-Before merging, verify that the draft still matches the PR:
-
-```bash
-GITHUB_TOKEN="$(gh auth token)" python3 .github/scripts/prepare_squash.py --verify /path/to/proposal.json
-```
-
-The contributor or merging maintainer must confirm the final message. A contribution agent can then squash-merge using that exact text after rechecking the PR HEAD, target, CI and approvals. The workflow itself does not merge, edit the PR description, or fill GitHub's merge dialog. A new commit or changed PR input requires a new draft and confirmation.
-
 ### Signed Commits
 All commits must be signed off to certify you have the right to submit the code:
 ```bash

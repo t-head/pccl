@@ -11,6 +11,7 @@ from pathlib import Path
 import re
 import subprocess
 import tempfile
+import textwrap
 import time
 from urllib.error import HTTPError
 from urllib.request import Request, urlopen
@@ -73,6 +74,20 @@ class GitHub:
         except HTTPError as error:
             raise ValueError(f'Could not publish the comment: HTTP {error.code}') from None
 
+    def delete_comment(self, comment_id):
+        if type(comment_id) is not int or comment_id <= 0:
+            raise ValueError('Invalid comment ID')
+        request = Request(
+            f'https://api.github.com/repos/{self.repository}/issues/comments/{comment_id}',
+            headers={'Authorization': 'Bearer ' + self.token,
+                     'Accept': 'application/vnd.github+json',
+                     'X-GitHub-Api-Version': '2022-11-28'}, method='DELETE')
+        try:
+            with urlopen(request, timeout=30):
+                pass
+        except HTTPError as error:
+            raise ValueError(f'Could not remove the old preview: HTTP {error.code}') from None
+
 
 def policy():
     guide = (ROOT / 'CONTRIBUTING.md').read_text()
@@ -81,13 +96,19 @@ def policy():
     return commit_rules + '\n' + skill.split('## Commit\n', 1)[1].split('## Push and PR', 1)[0]
 
 
-def snapshot(api, number):
+def pull_request(api, number):
     if type(number) is not int or number <= 0:
         raise ValueError('PR number must be a positive integer')
     path = f'/repos/{api.repository}/pulls/{number}'
     pr = api.get(path)
     if pr['state'] != 'open' or pr['base']['repo']['full_name'] != api.repository:
         raise ValueError('Expected an open PR in this repository')
+    return pr
+
+
+def snapshot(api, number):
+    pr = pull_request(api, number)
+    path = f'/repos/{api.repository}/pulls/{number}'
     files = api.pages(path + '/files')
     commits = api.pages(path + '/commits')
     if not files or len(files) != pr['changed_files'] or not commits or len(commits) != pr['commits']:
@@ -152,8 +173,9 @@ Describe the complete final diff, not the last commit or the history of revision
 PR descriptions and commit messages are context; only keep claims supported by the final diff.
 Follow the supplied trusted message policy. Prefer an imperative title of at most
 50 characters and 1-3 short bullets explaining the problem, solution and material
-limitations, including compatibility and migration when relevant. Keep the body
-within 120 words. Do not claim tests passed, deployment or approval without evidence.
+limitations, including compatibility and migration when relevant. Use plain text:
+no Markdown emphasis, headings, code fences or backticks. Keep the body within
+90 words. Do not claim tests passed, deployment or approval without evidence.
 Do not include issue references, signing identities or any trailers: code will
 preserve these from the original commits. Do not include the word codex.
 Return only JSON with exactly two string fields: title and body.
@@ -206,13 +228,22 @@ def final_message(proposal, data):
         raise ValueError('Expected a nonempty title and body')
     if any(re.search(r'[\x00-\x08\x0b-\x1f\x7f]', value) for value in proposal.values()):
         raise ValueError('The AI draft contains control characters')
-    title, body = proposal['title'].strip(), proposal['body'].strip()
+    title, body = (proposal[key].strip().replace('**', '').replace('`', '')
+                   for key in ('title', 'body'))
     text = title + '\n\n' + body
-    if ('\n' in title or re.search(r'[\x00-\x08\x0b-\x1f\x7f]', text) or
+    if (not title or not body or '\n' in title or re.search(r'[\x00-\x08\x0b-\x1f\x7f]', text) or
             len(body.split()) > 120 or 'codex' in text.lower() or ISSUE_REFERENCE.search(text) or
             re.search(r'(?i)\b(?:Signed-off-by|Co-authored-by)\s*:', text) or
             re.search(r'(?im)^(?:Refs|Closes|Fixes)\b', text)):
         raise ValueError('The AI draft contains invalid text or metadata; generate it again')
+    # Commit messages are plain text, not rendered Markdown. Wrap only prose;
+    # original references and signing trailers must remain intact.
+    paragraphs = re.split(r'\n\s*\n|\n(?=- )', body)
+    body = '\n'.join(textwrap.fill(
+        paragraph, width=72,
+        subsequent_indent='  ' if paragraph.startswith('- ') else '',
+        break_long_words=False, break_on_hyphens=False) for paragraph in paragraphs)
+    text = title + '\n\n' + body
     references, preserved = metadata(data)
     message = text + '\n\n' + '\n'.join(references) + '\n\n' + '\n'.join(preserved) + '\n'
     for commit in data['commits']:
@@ -223,7 +254,14 @@ def final_message(proposal, data):
 
 
 def generate(api, number, ask=ask_copilot):
+    pr = pull_request(api, number)
+    if pr['commits'] == 1:
+        return {'repository': api.repository, 'number': number, 'head': pr['head']['sha'],
+                'base': pr['base']['sha'], 'target': pr['base']['ref'], 'commit_count': 1,
+                'file_count': pr['changed_files'], 'proposal': None, 'message': None, 'model': None}
     data = snapshot(api, number)
+    if len(data['commits']) < 2:
+        raise ValueError('PR inputs changed during preparation; run again')
     references, _ = metadata(data)
     verify_issues(api, references)
     proposal, model = ask(prompt_for(data))
@@ -239,6 +277,14 @@ def generate(api, number, ask=ask_copilot):
 def verify(api, draft):
     if draft['repository'] != api.repository:
         raise ValueError('Draft repository does not match')
+    if draft['commit_count'] == 1:
+        pr = pull_request(api, draft['number'])
+        if (pr['commits'] != 1 or draft['head'] != pr['head']['sha'] or
+                draft['base'] != pr['base']['sha'] or draft['target'] != pr['base']['ref']):
+            raise ValueError('PR inputs changed; run again')
+        if draft['message'] is not None or draft['proposal'] is not None:
+            raise ValueError('A single-commit PR must not publish an AI draft')
+        return 1
     data = snapshot(api, draft['number'])
     if (draft['input_digest'] != digest(data) or draft['head'] != data['head'] or
             draft['base'] != data['base'] or draft['target'] != data['target']):
@@ -246,30 +292,30 @@ def verify(api, draft):
     if draft['message'] != final_message(draft['proposal'], data):
         raise ValueError('Draft message or preserved metadata changed')
     verify_issues(api, metadata(data)[0])
+    return len(data['commits'])
 
 
 def comment_body(draft, run_id):
     if not re.fullmatch(r'[1-9][0-9]*', str(run_id)):
         raise ValueError('Invalid workflow run ID')
-    # Keep signing names/emails out of the conversation preview. The exact merge
-    # message, including unmodified DCO trailers, remains in the artifact.
-    preview = draft['proposal']['title'].strip() + '\n\n' + draft['proposal']['body'].strip()
     run_url = f"https://github.com/{draft['repository']}/actions/runs/{run_id}"
+    confirm_url = f"https://github.com/{draft['repository']}/actions/workflows/prepare-squash.yml"
     return (f'{COMMENT_MARKER}\n<!-- run: {run_id} -->\n'
-            '### AI squash message · Awaiting confirmation\n\n'
-            f"<code>{html.escape(draft['proposal']['title'].strip())}</code>\n\n"
-            f"For commit `{draft['head'][:12]}`. New PR changes require a fresh draft.\n\n"
-            '<details>\n<summary>View proposed summary</summary>\n\n'
-            f'<pre>{html.escape(preview)}</pre>\n\n</details>\n\n'
-            f'[Generation record and full message]({run_url}) · artifact: `squash-message`\n\n'
-            'The full message preserves issue references and signing trailers. '
-            'Confirm that exact message before merging; this comment does not approve or merge the PR.\n')
+            '### Suggested squash commit message\n\n'
+            f"For commit `{draft['head'][:12]}`.\n\n"
+            f"<pre>{html.escape(draft['message'])}</pre>\n\n"
+            f'**[Review and confirm this message]({confirm_url})**\n\n'
+            f"Select `main`, enter PR `{draft['number']}` and confirmation run `{run_id}`, "
+            'then click **Run workflow**. This form is available after the workflow is on `main`. '
+            'Confirmation records your acceptance of this message; it does not approve code or merge the PR.\n\n'
+            f'[Generation record and download]({run_url}) · artifact: `squash-message`\n')
 
 
 def publish(api, draft, expected_pr, run_id):
     if type(expected_pr) is not int or expected_pr <= 0 or draft['number'] != expected_pr:
         raise ValueError('Draft does not match the workflow PR')
-    body = comment_body(draft, run_id)
+    if not re.fullmatch(r'[1-9][0-9]*', str(run_id)):
+        raise ValueError('Invalid workflow run ID')
     path = f'/repos/{api.repository}/issues/{expected_pr}/comments'
     comments = [item for item in api.pages(path)
                 if item['user']['login'] == 'github-actions[bot]' and item['user']['type'] == 'Bot'
@@ -282,7 +328,11 @@ def publish(api, draft, expected_pr, run_id):
         if previous_run and int(previous_run[1]) > int(run_id):
             raise ValueError('A newer workflow has already published its draft')
     # Re-read the complete PR after locating the comment and before any write.
-    verify(api, draft)
+    if verify(api, draft) == 1:
+        if existing:
+            api.delete_comment(existing['id'])
+        return None
+    body = comment_body(draft, run_id)
     if existing:
         if existing['body'] == body:
             return existing['html_url']
@@ -290,16 +340,53 @@ def publish(api, draft, expected_pr, run_id):
     return api.write_comment(path, body, update=existing is not None)['html_url']
 
 
+def confirm(api, draft, expected_pr, source_run, actor):
+    if (type(source_run) is not int or source_run <= 0 or type(expected_pr) is not int or
+            expected_pr <= 0 or draft['number'] != expected_pr or draft['commit_count'] < 2 or
+            not re.fullmatch(r'[A-Za-z0-9](?:[A-Za-z0-9-]{0,37}[A-Za-z0-9])?', actor)):
+        raise ValueError('Invalid confirmation request')
+    run = api.get(f'/repos/{api.repository}/actions/runs/{source_run}')
+    if (run['repository']['full_name'] != api.repository or
+            run['path'] != '.github/workflows/prepare-squash.yml' or
+            run['event'] not in {'pull_request', 'workflow_dispatch'} or
+            run['conclusion'] != 'success'):
+        raise ValueError('Expected a successful message preparation run in this repository')
+    permission = api.get(f'/repos/{api.repository}/collaborators/{actor}/permission')
+    if permission['permission'] not in {'write', 'maintain', 'admin'}:
+        raise ValueError('Confirming a message requires repository write access')
+    expected = comment_body(draft, source_run)
+    comments = [item for item in api.pages(f'/repos/{api.repository}/issues/{expected_pr}/comments')
+                if item['user']['login'] == 'github-actions[bot]' and item['user']['type'] == 'Bot'
+                and item.get('body', '').startswith(COMMENT_MARKER + '\n')]
+    if len(comments) != 1:
+        raise ValueError('The current draft comment is missing or ambiguous')
+    comment = comments[0]
+    confirmed = expected + f"\nConfirmed by @{actor} for commit `{draft['head']}`.\n"
+    if comment['body'] not in {expected, confirmed}:
+        raise ValueError('The displayed message changed; review the latest draft before confirming')
+    if verify(api, draft) < 2:
+        raise ValueError('Single-commit PRs do not need an AI message confirmation')
+    if comment['body'] != confirmed:
+        api.write_comment(f"/repos/{api.repository}/issues/comments/{comment['id']}",
+                          confirmed, update=True)
+    return comment['html_url']
+
+
 def write_output(draft, directory):
     directory.mkdir(parents=True, exist_ok=True)
     (directory / 'proposal.json').write_text(json.dumps(draft, ensure_ascii=False, indent=2) + '\n')
-    (directory / 'merge-message.txt').write_text(draft['message'])
-    summary = (f"## Squash message for PR #{draft['number']}\n\n"
-               f"HEAD: `{draft['head']}` · {draft['commit_count']} commits · {draft['file_count']} files\n\n"
-               f"<pre>{html.escape(draft['message'])}</pre>\n\n"
-               'Message format, issue references and original author sign-offs validated.\n\n'
-               'Review the meaning and confirm this exact message before squash-merging. '
-               'Existing CI and approval requirements still apply. This workflow does not merge.\n')
+    if draft['message'] is None:
+        (directory / 'merge-message.txt').unlink(missing_ok=True)
+        summary = (f"PR #{draft['number']} has one commit; no AI draft is needed. "
+                   'Use the original commit message.\n')
+    else:
+        (directory / 'merge-message.txt').write_text(draft['message'])
+        summary = (f"## Squash message for PR #{draft['number']}\n\n"
+                   f"HEAD: `{draft['head']}` · {draft['commit_count']} commits · {draft['file_count']} files\n\n"
+                   f"<pre>{html.escape(draft['message'])}</pre>\n\n"
+                   'Message format, issue references and original author sign-offs validated.\n\n'
+                   'Review the meaning and confirm this exact message before squash-merging. '
+                   'Existing CI and approval requirements still apply. This workflow does not merge.\n')
     (directory / 'summary.md').write_text(summary)
     if os.environ.get('GITHUB_STEP_SUMMARY'):
         with open(os.environ['GITHUB_STEP_SUMMARY'], 'a') as output:
@@ -312,21 +399,28 @@ def main():
     mode.add_argument('--pr', type=int)
     mode.add_argument('--verify', type=Path)
     mode.add_argument('--publish', type=Path)
+    mode.add_argument('--confirm', type=Path)
+    parser.add_argument('--source-run', type=int)
     parser.add_argument('--expected-pr', type=int)
     parser.add_argument('--repository', default=os.environ.get('GITHUB_REPOSITORY', 't-head/pccl'))
     parser.add_argument('--output', type=Path, default=Path('squash-message'))
     args = parser.parse_args()
     api = GitHub(args.repository, os.environ.get('GITHUB_TOKEN', ''))
-    if args.publish:
+    if args.confirm:
+        url = confirm(api, json.loads(args.confirm.read_text()), args.expected_pr,
+                      args.source_run, os.environ.get('GITHUB_TRIGGERING_ACTOR', ''))
+        print('Message confirmation recorded: ' + url)
+    elif args.publish:
         url = publish(api, json.loads(args.publish.read_text()), args.expected_pr,
                       os.environ.get('GITHUB_RUN_ID', ''))
-        print('Published squash message preview: ' + url)
+        print('Published squash message: ' + url if url else
+              'Single-commit PR: no AI draft comment; any previous preview was removed.')
     elif args.verify:
         verify(api, json.loads(args.verify.read_text()))
         print('Draft matches current PR inputs and passes message checks. Human confirmation is still required.')
     else:
         write_output(generate(api, args.pr), args.output)
-        print('Validated squash message prepared for human review.')
+        print('Message preparation completed. See the workflow Summary.')
 
 
 if __name__ == '__main__':
