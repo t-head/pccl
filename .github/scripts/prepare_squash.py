@@ -91,7 +91,7 @@ class GitHub:
 
 
 def policy(api, revision):
-    # Generation and confirmation use the same trusted target policy, even if
+    # Generation and verification use the same trusted target policy, even if
     # the PR proposes edits to these files or runs from a different checkout.
     if not re.fullmatch(r'[0-9a-f]{40}', revision):
         raise ValueError('A policy commit SHA is required')
@@ -311,7 +311,7 @@ def verify(api, draft):
     if (draft['input_digest'] != digest(data) or draft['head'] != data['head'] or
             draft['base'] != data['base'] or draft['target'] != data['target'] or
             draft['policy_revision'] != data['policy_revision']):
-        raise ValueError('PR inputs changed; generate and confirm a fresh draft')
+        raise ValueError('PR inputs changed; generate a fresh draft')
     if draft['message'] != final_message(draft['proposal'], data):
         raise ValueError('Draft message or preserved metadata changed')
     verify_issues(api, metadata(data)[0])
@@ -322,16 +322,12 @@ def comment_body(draft, run_id):
     if not re.fullmatch(r'[1-9][0-9]*', str(run_id)):
         raise ValueError('Invalid workflow run ID')
     run_url = f"https://github.com/{draft['repository']}/actions/runs/{run_id}"
-    confirm_url = f"https://github.com/{draft['repository']}/actions/workflows/prepare-squash.yml"
     return (f'{COMMENT_MARKER}\n<!-- run: {run_id} -->\n'
             '### Suggested squash commit message\n\n'
             f"For commit `{draft['head'][:12]}`.\n\n"
             f"<pre>{html.escape(draft['message'])}</pre>\n\n"
-            f'**[Review and confirm this message]({confirm_url})**\n\n'
-            f"Select `main`, enter PR `{draft['number']}` and confirmation run `{run_id}`, "
-            'then click **Run workflow**. This form is available after the workflow is on `main`. '
-            'Confirmation records your acceptance of this message; it does not approve code or merge the PR.\n\n'
-            f'[Generation record and download]({run_url}) · artifact: `squash-message`\n')
+            'Review and confirm the final text before merging.\n\n'
+            f'[View generation record]({run_url})\n')
 
 
 def publish(api, draft, expected_pr, run_id):
@@ -363,38 +359,6 @@ def publish(api, draft, expected_pr, run_id):
     return api.write_comment(path, body, update=existing is not None)['html_url']
 
 
-def confirm(api, draft, expected_pr, source_run, actor):
-    if (type(source_run) is not int or source_run <= 0 or type(expected_pr) is not int or
-            expected_pr <= 0 or draft['number'] != expected_pr or draft['commit_count'] < 2 or
-            not re.fullmatch(r'[A-Za-z0-9](?:[A-Za-z0-9-]{0,37}[A-Za-z0-9])?', actor)):
-        raise ValueError('Invalid confirmation request')
-    run = api.get(f'/repos/{api.repository}/actions/runs/{source_run}')
-    if (run['repository']['full_name'] != api.repository or
-            run['path'] != '.github/workflows/prepare-squash.yml' or
-            run['event'] not in {'pull_request', 'workflow_dispatch'} or
-            run['conclusion'] != 'success'):
-        raise ValueError('Expected a successful message preparation run in this repository')
-    permission = api.get(f'/repos/{api.repository}/collaborators/{actor}/permission')
-    if permission['permission'] not in {'write', 'maintain', 'admin'}:
-        raise ValueError('Confirming a message requires repository write access')
-    expected = comment_body(draft, source_run)
-    comments = [item for item in api.pages(f'/repos/{api.repository}/issues/{expected_pr}/comments')
-                if item['user']['login'] == 'github-actions[bot]' and item['user']['type'] == 'Bot'
-                and item.get('body', '').startswith(COMMENT_MARKER + '\n')]
-    if len(comments) != 1:
-        raise ValueError('The current draft comment is missing or ambiguous')
-    comment = comments[0]
-    confirmed = expected + f"\nConfirmed by @{actor} for commit `{draft['head']}`.\n"
-    if comment['body'] not in {expected, confirmed}:
-        raise ValueError('The displayed message changed; review the latest draft before confirming')
-    if verify(api, draft) < 2:
-        raise ValueError('Single-commit PRs do not need an AI message confirmation')
-    if comment['body'] != confirmed:
-        api.write_comment(f"/repos/{api.repository}/issues/comments/{comment['id']}",
-                          confirmed, update=True)
-    return comment['html_url']
-
-
 def write_output(draft, directory):
     directory.mkdir(parents=True, exist_ok=True)
     (directory / 'proposal.json').write_text(json.dumps(draft, ensure_ascii=False, indent=2) + '\n')
@@ -422,18 +386,12 @@ def main():
     mode.add_argument('--pr', type=int)
     mode.add_argument('--verify', type=Path)
     mode.add_argument('--publish', type=Path)
-    mode.add_argument('--confirm', type=Path)
-    parser.add_argument('--source-run', type=int)
     parser.add_argument('--expected-pr', type=int)
     parser.add_argument('--repository', default=os.environ.get('GITHUB_REPOSITORY', 't-head/pccl'))
     parser.add_argument('--output', type=Path, default=Path('squash-message'))
     args = parser.parse_args()
     api = GitHub(args.repository, os.environ.get('GITHUB_TOKEN', ''))
-    if args.confirm:
-        url = confirm(api, json.loads(args.confirm.read_text()), args.expected_pr,
-                      args.source_run, os.environ.get('GITHUB_TRIGGERING_ACTOR', ''))
-        print('Message confirmation recorded: ' + url)
-    elif args.publish:
+    if args.publish:
         url = publish(api, json.loads(args.publish.read_text()), args.expected_pr,
                       os.environ.get('GITHUB_RUN_ID', ''))
         print('Published squash message: ' + url if url else
