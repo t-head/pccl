@@ -33,7 +33,7 @@ ncclResult_t ncclIbFreeRequest(struct ncclIbRequest* r) {
   return ncclSuccess;
 }
 
-ncclResult_t ncclSendCheck(struct ncclIbSendComm* comm) {
+ncclResult_t ncclSendCheck(struct ncclIbSendComm* comm, int numDataQps) {
   struct ncclIbQpInfo remQpInfo;
 
   // Do not block on this receive, return if not ready.
@@ -47,6 +47,8 @@ ncclResult_t ncclSendCheck(struct ncclIbSendComm* comm) {
     NCCLCHECK(ncclIbRtrQp(qp, remQpInfo.qpn[q], &remQpInfo, ncclIbGidIndexFromDevice(comm->netDev)));
     NCCLCHECK(ncclIbRtsQp(qp));
   }
+
+  pcclIbSetSendTxAffinity(comm, numDataQps);
   comm->base.ready = 1;
   // Block until this is done. It *should* not block indefinitely.
   NCCLCHECK(ncclSocketSend(&comm->base.sock, &comm->base.ready, sizeof(int)));
@@ -167,7 +169,7 @@ ncclResult_t ncclIbMultiSend(struct ncclIbSendComm* comm, int slot) {
 
 ncclResult_t ncclIbIsend(void* sendComm, void* data, int size, int tag, void* mhandle, void** request) {
   struct ncclIbSendComm* comm = (struct ncclIbSendComm*)sendComm;
-  if (comm->base.ready == 0) { NCCLCHECK(ncclSendCheck(comm)); }
+  if (comm->base.ready == 0) { NCCLCHECK(ncclSendCheck(comm, comm->base.nqps)); }
   if (comm->base.ready == 0) { *request = NULL; return ncclSuccess; }
   NCCLCHECK(ncclIbStatsCheckFatalCount(&comm->base.stats, __func__));
 
