@@ -1,6 +1,7 @@
 # SPDX-License-Identifier: Apache-2.0
 # Copyright (c) 2026 T-Head (Shanghai) Semiconductor Co., Ltd. All rights reserved.
 
+import base64
 import copy
 import json
 import os
@@ -38,6 +39,11 @@ class GitHubFixture:
 
     def get(self, path):
         self.paths.append(path)
+        if '/contents/' in path:
+            text = ('### Commit Messages\nUse concise messages.\n### Signed Commits\n'
+                    if '/CONTRIBUTING.md?' in path else
+                    '## Commit\nPreserve signing identities.\n## Push and PR\n')
+            return {'encoding': 'base64', 'content': base64.b64encode(text.encode()).decode()}
         if '/actions/runs/' in path:
             return copy.deepcopy(self.run)
         if '/collaborators/' in path:
@@ -75,6 +81,18 @@ class SquashTests(unittest.TestCase):
         self.assertEqual(draft['message'].count('Refs #12'), 1)
         self.assertEqual(draft['message'].count('Signed-off-by:'), 1)
         squash.verify(self.api, draft)
+
+    def test_policy_uses_the_pinned_base_instead_of_the_current_checkout(self):
+        with patch.object(Path, 'read_text', side_effect=AssertionError('Do not read PR policy')):
+            draft = self.generate()
+            squash.verify(self.api, draft)
+        self.assertEqual(draft['policy_revision'], self.api.pr['base']['sha'])
+        paths = [path for path in self.api.paths if '/contents/' in path]
+        self.assertTrue(paths)
+        self.assertTrue(all(path.endswith('?ref=' + draft['policy_revision']) for path in paths))
+        draft['policy_revision'] = 'c' * 40
+        with self.assertRaises(ValueError):
+            squash.verify(self.api, draft)
 
     def test_multiple_authors_and_coauthors_are_preserved(self):
         second = self.api.commits[1]['commit']
