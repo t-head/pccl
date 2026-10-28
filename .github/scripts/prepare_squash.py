@@ -3,6 +3,7 @@
 """Draft and validate a squash message; optionally publish its preview to the PR."""
 
 import argparse
+import base64
 import hashlib
 import html
 import json
@@ -18,7 +19,6 @@ from urllib.request import Request, urlopen
 
 from check_commit_messages import IDENTITY, ISSUE_REFERENCE, trailers, validate_message
 
-ROOT = Path(__file__).resolve().parents[2]
 COMMENT_MARKER = '<!-- pccl-squash-message -->'
 REFERENCE = re.compile(
     r'\b(?P<verb>(?i:Refs|Close[sd]?|Fix(?:e[sd])?|Resolve[sd]?)):?[ \t]+'
@@ -90,10 +90,21 @@ class GitHub:
             raise ValueError(f'Could not remove the old preview: HTTP {error.code}') from None
 
 
-def policy():
-    guide = (ROOT / 'CONTRIBUTING.md').read_text()
+def policy(api, revision):
+    # Generation and confirmation use the same trusted target policy, even if
+    # the PR proposes edits to these files or runs from a different checkout.
+    if not re.fullmatch(r'[0-9a-f]{40}', revision):
+        raise ValueError('A policy commit SHA is required')
+
+    def read(path):
+        file = api.get(f'/repos/{api.repository}/contents/{path}?ref={revision}')
+        if file.get('encoding') != 'base64':
+            raise ValueError('Cannot read the pinned commit-message policy')
+        return base64.b64decode(file['content']).decode('utf-8')
+
+    guide = read('CONTRIBUTING.md')
     commit_rules = guide.split('### Commit Messages\n', 1)[1].split('### ', 1)[0]
-    skill = (ROOT / '.agents/skills/pccl-contribution/SKILL.md').read_text()
+    skill = read('.agents/skills/pccl-contribution/SKILL.md')
     return commit_rules + '\n' + skill.split('## Commit\n', 1)[1].split('## Push and PR', 1)[0]
 
 
@@ -112,6 +123,7 @@ def snapshot(api, number):
     path = f'/repos/{api.repository}/pulls/{number}'
     files = api.pages(path + '/files')
     commits = api.pages(path + '/commits')
+    rules = policy(api, pr['base']['sha'])
     current = pull_request(api, number)
     if (any(pr.get(key) != current.get(key) for key in
             ('title', 'body', 'state', 'draft', 'commits', 'changed_files')) or
@@ -135,7 +147,8 @@ def snapshot(api, number):
                       for file in files],
             'commits': [{'sha': commit['sha'], 'message': commit['commit']['message'],
                          'author': [commit['commit']['author']['name'], commit['commit']['author']['email']]}
-                        for commit in commits], 'policy': policy()}
+                        for commit in commits], 'policy': rules,
+            'policy_revision': pr['base']['sha']}
 
 
 def metadata(data):
@@ -278,6 +291,7 @@ def generate(api, number, ask=ask_copilot):
         raise ValueError('PR inputs changed during generation; run again')
     return {'repository': api.repository, 'number': number, 'head': data['head'], 'base': data['base'],
             'target': data['target'], 'input_digest': digest(data), 'proposal': proposal,
+            'policy_revision': data['policy_revision'],
             'message': message, 'model': model,
             'commit_count': len(data['commits']), 'file_count': len(data['files'])}
 
@@ -295,7 +309,8 @@ def verify(api, draft):
         return 1
     data = snapshot(api, draft['number'])
     if (draft['input_digest'] != digest(data) or draft['head'] != data['head'] or
-            draft['base'] != data['base'] or draft['target'] != data['target']):
+            draft['base'] != data['base'] or draft['target'] != data['target'] or
+            draft['policy_revision'] != data['policy_revision']):
         raise ValueError('PR inputs changed; generate and confirm a fresh draft')
     if draft['message'] != final_message(draft['proposal'], data):
         raise ValueError('Draft message or preserved metadata changed')
