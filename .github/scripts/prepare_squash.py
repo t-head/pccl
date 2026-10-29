@@ -1,6 +1,6 @@
 # SPDX-License-Identifier: Apache-2.0
 # Copyright (c) 2026 T-Head (Shanghai) Semiconductor Co., Ltd. All rights reserved.
-"""Draft and validate a squash message; optionally publish its preview to the PR."""
+"""Draft a squash message and publish its preview to the PR."""
 
 import argparse
 import hashlib
@@ -13,9 +13,9 @@ import tempfile
 import textwrap
 import time
 
-from check_commit_messages import IDENTITY, ISSUE_REFERENCE, ISSUE_URL, trailers, validate_message
-
 COMMENT_MARKER = '<!-- pccl-squash-message -->'
+IDENTITY = r'(\S(?:.*\S)?) <([^<>\s]+@[^<>\s]+)>'
+ISSUE_URL = r'(?i:https://github\.com)/[A-Za-z0-9_.-]+/[A-Za-z0-9_.-]+/issues/[1-9][0-9]*\b'
 ISSUE_TARGET = re.compile(r'(?:' + ISSUE_URL + r'|(?:[\w.-]+/[\w.-]+)?#[1-9][0-9]*\b)')
 REFERENCE = re.compile(
     r'(?:\b(?P<verb>(?i:Refs|Close[sd]?|Fix(?:e[sd])?|Resolve[sd]?)):?[ \t]+'
@@ -171,9 +171,6 @@ def ask_copilot(data):
 def metadata(data):
     references, preserved = [], []
     for commit in data['commits']:
-        errors = validate_message(commit['message'])
-        if errors:
-            raise ValueError(f"Commit {commit['sha'][:12]}: " + '; '.join(errors))
         for match in REFERENCE.finditer(commit['message']):
             targets = ISSUE_TARGET.findall(match[0])
             for index, target in enumerate(targets):
@@ -182,32 +179,17 @@ def metadata(data):
                 line = verb + ' ' + target
                 if line not in references:
                     references.append(line)
-        for line in trailers(commit['message']):
+        trailers = subprocess.check_output(
+            ['git', 'interpret-trailers', '--parse', '--no-divider'],
+            input=commit['message'], text=True).splitlines()
+        for line in trailers:
             if re.fullmatch(r'(?:Signed-off-by|Co-authored-by): ' + IDENTITY, line, re.I) and line not in preserved:
                 preserved.append(line)
     return references, preserved
 
 
-def verify_issues(api, references):
-    checked = set()
-    for reference in references:
-        target = reference.split()[-1]
-        if target.lower().startswith('https://github.com/'):
-            owner, repo, _, number = target.split('/')[3:]
-            repository = owner + '/' + repo
-        else:
-            repository, number = target.split('#')
-            repository = repository or api.repository
-        key = (repository.lower(), number)
-        if key not in checked:
-            issue = api.get(f'/repos/{repository}/issues/{number}')
-            if 'pull_request' in issue:
-                raise ValueError('An issue reference points to a PR; check the original messages')
-            checked.add(key)
-
-
 def final_message(proposal, data):
-    """Combine AI prose with original metadata and reuse the CI validator."""
+    """Add original references and signing trailers to the AI prose."""
     if (not isinstance(proposal, dict) or set(proposal) != {'title', 'body'} or
             any(not isinstance(value, str) or not value.strip() for value in proposal.values())):
         raise ValueError('Expected a nonempty title and body')
@@ -216,8 +198,7 @@ def final_message(proposal, data):
     title, body = (proposal[key].strip().replace('**', '').replace('`', '')
                    for key in ('title', 'body'))
     text = title + '\n\n' + body
-    if (not title or not body or '\n' in title or re.search(r'[\x00-\x08\x0b-\x1f\x7f]', text) or
-            len(body.split()) > 120 or 'codex' in text.lower() or ISSUE_REFERENCE.search(text) or
+    if (not title or not body or '\n' in title or 'codex' in text.lower() or REFERENCE.search(text) or
             re.search(r'#[1-9][0-9]*\b', text) or
             re.search(r'(?i)\b(?:Signed-off-by|Co-authored-by)\s*:', text) or
             re.search(r'(?im)^(?:Refs|Closes|Fixes)\b', text)):
@@ -231,12 +212,9 @@ def final_message(proposal, data):
         break_long_words=False, break_on_hyphens=False) for paragraph in paragraphs)
     text = title + '\n\n' + body
     references, preserved = metadata(data)
-    message = text + '\n\n' + '\n'.join(references) + '\n\n' + '\n'.join(preserved) + '\n'
-    # Preserve existing sign-offs; DCO validation belongs to the PR CI check.
-    errors = validate_message(message)
-    if errors:
-        raise ValueError('Final message validation failed: ' + '; '.join(errors))
-    return message
+    # Format and DCO checks stay in PR CI; preserve only metadata already present.
+    sections = [text, '\n'.join(references), '\n'.join(preserved)]
+    return '\n\n'.join(section for section in sections if section) + '\n'
 
 
 # Prepare a draft and recheck it before publishing or merging
@@ -246,7 +224,6 @@ def generate(api, number, ask=ask_copilot):
     # One commit already has its final message; only remove any old preview.
     proposal = message = None
     if len(data['commits']) > 1:
-        verify_issues(api, metadata(data)[0])
         proposal = ask(data)
         message = final_message(proposal, data)
     # The PR may change while the model is running.
@@ -273,7 +250,6 @@ def verify(api, draft):
     else:
         if draft['message'] != final_message(draft['proposal'], data):
             raise ValueError('Draft message or preserved metadata changed')
-        verify_issues(api, metadata(data)[0])
     if version(pull_request(api, data['number'])) != data['version']:
         raise ValueError('PR inputs changed during verification; generate a fresh draft')
     return len(data['commits'])

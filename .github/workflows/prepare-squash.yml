@@ -20,7 +20,7 @@ concurrency:
 
 jobs:
   draft:
-    name: Draft and validate squash message
+    name: Draft squash message
     # Fork PRs use a maintainer-triggered run from main with trusted workflow code.
     if: >-
       github.repository == 't-head/pccl' && (
@@ -48,7 +48,7 @@ jobs:
           echo "65dfb019192afebed7abb385323a232a5ac32fa8c40a230880d4013cffb6b0b3  $RUNNER_TEMP/copilot.tar.gz" | sha256sum --check -
           mkdir -p "$RUNNER_TEMP/copilot"
           tar -xzf "$RUNNER_TEMP/copilot.tar.gz" -C "$RUNNER_TEMP/copilot"
-      - name: Prepare a draft for multiple commits and validate metadata
+      - name: Prepare a draft for multiple commits
         id: prepare
         env:
           GITHUB_TOKEN: ${{ github.token }}
