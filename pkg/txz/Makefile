@@ -22,11 +22,11 @@ prep: $(TXZTARGETS)
 	$(MAKE) -C ../.. lic BUILDDIR=$(BUILDDIR)
 
 build: prep
-	$(MAKE) -C ../.. src.build BUILDDIR=$(BUILDDIR)
+	(cd ../..; bash ./build.sh --use_sdk)
 	@printf "Building tar.xz package\n"
 	(cd $(BUILDDIR); bash txz/create_txz.sh)
 	mkdir -p $(PKGDIR)
-	mv $(BUILDDIR)/../nccl*.txz $(PKGDIR)
+	mv $(BUILDDIR)/../pccl*.txz $(PKGDIR)
 
 clean:
 	rm -Rf $(TXZPREPDIR) $(PKGDIR)
@@ -34,12 +34,12 @@ clean:
 $(TXZPREPDIR)/% : %.in
 	@printf "Generating %-35s > %s\n" $< $@
 	mkdir -p $(TXZPREPDIR)
-	sed -e "s/\$${nccl:Major}/$(NCCL_MAJOR)/g" \
-	    -e "s/\$${nccl:Minor}/$(NCCL_MINOR)/g" \
-	    -e "s/\$${nccl:Patch}/$(NCCL_PATCH)/g" \
-	    -e "s/\$${nccl:Suffix}/$(NCCL_SUFFIX)/g" \
-	    -e "s/\$${cuda:Major}/$(CUDA_MAJOR)/g" \
-	    -e "s/\$${cuda:Minor}/$(CUDA_MINOR)/g" \
+	sed -e "s/\$${pccl:Major}/$(PCCL_MAJOR)/g" \
+	    -e "s/\$${pccl:Minor}/$(PCCL_MINOR)/g" \
+	    -e "s/\$${pccl:Patch}/$(PCCL_PATCH)/g" \
+	    -e "s/\$${pccl:Suffix}/$(PCCL_SUFFIX)/g" \
+	    -e "s/\$${hggc:Major}/$(HGGC_MAJOR)/g" \
+	    -e "s/\$${hggc:Minor}/$(HGGC_MINOR)/g" \
 	    -e "s/\$${pkg:Revision}/$(PKG_REVISION)/g" \
 	    -e "s/\$${pkg:Arch}/$(PKG_ARCH)/g" \
 	    $< > $@

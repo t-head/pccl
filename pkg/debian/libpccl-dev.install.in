@@ -1,0 +1,4 @@
+bin/pcclras /usr/bin
+include/* /usr/include
+lib/libpccl.so /usr/lib/${pkg:MultiArch}
+lib/libpccl_static.a /usr/lib/${pkg:MultiArch}
