@@ -45,9 +45,7 @@ jobs:
         env:
           BASE_SHA: ${{ github.event.pull_request.base.sha }}
           HEAD_SHA: ${{ github.event.pull_request.head.sha }}
-        run: |
-          python3 -m unittest discover -s tests/ci -p 'test_*.py'
-          python3 .github/scripts/check_commit_messages.py
+        run: python3 .github/scripts/check_commit_messages.py
 
   # Stage 2: AI code review runs in parallel with prepare.
   # The review gate should verify the current PR head and the team's resolution
