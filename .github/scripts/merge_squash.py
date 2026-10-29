@@ -83,10 +83,18 @@ def check_readiness(api, number, draft):
         raise ValueError('Only an open, non-draft PR targeting main can be merged')
     if current['headRefOid'] != draft['head'] or current['baseRefOid'] != draft['base']:
         raise ValueError('The PR changed; generate a fresh draft and send /merge again')
-    if current['reviewDecision'] != 'APPROVED' or current['mergeStateStatus'] != 'CLEAN':
+    # UNSTABLE can mean that only optional checks failed. GitHub still enforces
+    # branch rules when merging; check the required results explicitly here.
+    if (current['reviewDecision'] != 'APPROVED' or
+            current['mergeStateStatus'] not in {'CLEAN', 'UNSTABLE', 'HAS_HOOKS'}):
         raise ValueError('PR is not ready: reviews=' + str(current['reviewDecision']) +
                          ', merge status=' + str(current['mergeStateStatus']) +
                          '. Complete the required reviews and checks, then send /merge again')
+    checks = json.loads(api.cli('pr', 'checks', str(number), '--repo', api.repository,
+                               '--required', '--json', 'name,bucket'))
+    blocked = [check['name'] for check in checks if check['bucket'] not in {'pass', 'skipping'}]
+    if not checks or blocked:
+        raise ValueError('Required checks are not ready: ' + ', '.join(blocked or ['no results']))
 
 
 def merge_message(api, number, draft):
@@ -114,6 +122,13 @@ def merge_request(api, event):
     return merge_message(api, number, draft)
 
 
+def error_detail(api, error):
+    """Keep diagnostics useful without exposing the workflow token."""
+    detail = ' '.join(str(error).replace(api.token, '[redacted]').split())[:500]
+    print(f'{type(error).__name__}: {detail}', file=sys.stderr)
+    return detail
+
+
 def main():
     if os.environ.get('GITHUB_EVENT_NAME') != 'issue_comment':
         raise ValueError('Only a new PR command comment can request merging')
@@ -124,13 +139,26 @@ def main():
         result = f"Squash-merged PR #{event['issue']['number']} using the confirmed message: `{sha}`."
         status = 0
     except Exception as error:
-        result = 'Could not merge: ' + (str(error) if isinstance(error, ValueError)
+        detail = error_detail(api, error)
+        result = 'Could not merge: ' + (detail if isinstance(error, ValueError)
                                       else 'Verification failed; see the merge workflow logs')
         status = 1
+    else:
+        # GITHUB_TOKEN merges do not trigger push workflows. Explicit dispatch
+        # is supported, and starts post-merge CI without changing PR requirements.
+        try:
+            api.request(f'/repos/{api.repository}/actions/workflows/pr-test-ppu.yml/dispatches',
+                        'POST', {'ref': 'main'})
+            result += ' Main CI has been requested.'
+        except Exception as error:
+            error_detail(api, error)
+            result += ' Main CI could not be started; run pr-test-ppu.yml on main manually.'
+            status = 1
     print(result)
     try:
         api.write_comment(f"/repos/{api.repository}/issues/{event['issue']['number']}/comments", result)
-    except Exception:
+    except Exception as error:
+        error_detail(api, error)
         print('Could not publish the result comment; check the PR and workflow logs.', file=sys.stderr)
     return status
 
