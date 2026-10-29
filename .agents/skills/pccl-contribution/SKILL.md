@@ -74,7 +74,7 @@ Use squash and merge. For a PR with two or more commits, prepare an AI draft wit
 
 - Check the message against the complete PR diff, including compatibility impact and limitations. The bot comment is a suggestion, not an approval or a merge command.
 - The preview carries its PR version and generation record. `/merge` reads the displayed message directly and verifies it against the current PR. Changed inputs require a fresh draft.
-- AI drafts the title and body. Code preserves and deduplicates original issue references and signing identities, then uses the same validator as PR commits. Format validation does not prove the summary is accurate.
+- Copilot reads the complete PR diff and message rules at the target SHA using read-only GitHub tools, then drafts the title and body. Code verifies those reads, preserves and deduplicates original issue references and signing identities, and applies the existing message validator. Human review still confirms the summary's accuracy.
 - Same-repository PR updates prepare the message automatically. For fork PRs or a fresh draft, run the workflow from `main` after it is merged. Large or incomplete diffs require manual preparation.
 - Each new draft is posted at the end of the conversation and replaces old previews. Retrying the same publication does not post it twice. Single-commit PRs remove the preview; Actions logs remain available.
 - After the merge workflow is on `main`, a human with repository Write, Maintain or Admin access can comment exactly `/merge` to confirm the displayed multi-commit message and request squash merging. Actions handles the command; no separate bot account or @mention is needed. PR or draft changes require a fresh message and command.
