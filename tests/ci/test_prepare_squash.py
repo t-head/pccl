@@ -23,7 +23,7 @@ class GitHubFixture:
     repository = 't-head/pccl'
 
     def __init__(self):
-        self.pr = {'state': 'open', 'number': 98, 'title': 'Improve contribution checks', 'body': 'Refs #12',
+        self.pr = {'state': 'open', 'draft': False, 'number': 98, 'title': 'Improve contribution checks', 'body': 'Refs #12',
                    'base': {'repo': {'full_name': self.repository}, 'ref': 'main', 'sha': 'b' * 40},
                    'head': {'sha': 'a' * 40}, 'commits': 2, 'changed_files': 1}
         self.files = [{'filename': 'example.py', 'status': 'modified', 'patch': '@@ -1 +1 @@\n-old\n+new',
@@ -74,6 +74,19 @@ class SquashTests(unittest.TestCase):
         self.assertEqual(draft['message'].count('Refs #12'), 1)
         self.assertEqual(draft['message'].count('Signed-off-by:'), 1)
         squash.verify(self.api, draft)
+
+    def test_rechecks_pr_after_issue_lookups(self):
+        for field, value in (('title', 'Edited title'), ('draft', True), ('state', 'closed')):
+            with self.subTest(field=field):
+                self.api = GitHubFixture()
+                draft = self.generate()
+                original = self.api.get
+                def get(path):
+                    if path.endswith('/issues/12'):
+                        self.api.pr[field] = value
+                    return original(path)
+                with patch.object(self.api, 'get', side_effect=get), self.assertRaises(ValueError):
+                    squash.verify(self.api, draft)
 
     def test_policy_uses_the_pinned_base_instead_of_the_current_checkout(self):
         with patch.object(Path, 'read_text', side_effect=AssertionError('Do not read PR policy')):

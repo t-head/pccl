@@ -77,6 +77,8 @@ Use squash and merge. For a PR with two or more commits, prepare an AI draft wit
 - The draft preserves and deduplicates original issue references and signing identities, and uses the same validator as PR commits. Format validation does not prove the summary is accurate.
 - Same-repository PR updates prepare the message automatically. For fork PRs or a fresh draft, run the workflow from `main` after it is merged. Large or incomplete diffs require manual preparation.
 - The bot updates one visible comment. If the PR is reduced to one commit, it removes that comment, leaving historical Actions runs and artifacts intact.
+- After the merge workflow is on `main`, a human with repository Write, Maintain or Admin access can comment exactly `/merge` to confirm the displayed multi-commit message and request squash merging. Actions handles the command; no separate bot account or @mention is needed. PR or draft changes require a fresh message and command.
+- The command checks current reviews and required checks without waiting or bypassing branch rules. On failure, complete the missing requirements and send `/merge` again. Single-commit PRs use their original message through the web button or the CLI command below. The web Squash and merge button remains available for every PR.
 
 1. Present the final repository/PR, target, HEAD SHA, method, title/message, CI and approvals, unresolved discussions, and validation limits. For squash, verify final authorship/sign-offs and preserve authorized trailers and issue intent.
 2. Obtain explicit human approval for this merge. Push permission, passing CI, or a request to finish the PR is insufficient. Reuse approval only while HEAD, target, method, and message remain unchanged.
