@@ -7,7 +7,6 @@ import json
 import os
 from pathlib import Path
 import sys
-import tempfile
 import unittest
 from unittest.mock import patch
 
@@ -68,7 +67,7 @@ class SquashTests(unittest.TestCase):
         self.api = GitHubFixture()
 
     def generate(self):
-        return squash.generate(self.api, 98, lambda _: (copy.deepcopy(PROPOSAL), 'test-model'))
+        return squash.generate(self.api, 98, lambda _: copy.deepcopy(PROPOSAL))
 
     def test_deduplicates_refs_and_signoffs(self):
         draft = self.generate()
@@ -219,7 +218,7 @@ class SquashTests(unittest.TestCase):
     def test_rejects_changed_head_during_generation(self):
         def ask(_):
             self.api.pr['head']['sha'] = 'c' * 40
-            return PROPOSAL, 'test-model'
+            return PROPOSAL
         with self.assertRaisesRegex(ValueError, 'changed during generation'):
             squash.generate(self.api, 98, ask)
 
@@ -267,35 +266,28 @@ class SquashTests(unittest.TestCase):
         with self.assertRaises(ValueError):
             squash.prompt_for(data)
 
-    def test_summary_escapes_message_and_tests_do_not_write_job_summary(self):
-        draft = self.generate()
-        draft['message'] += '<script>alert(1)</script>'
-        with tempfile.TemporaryDirectory() as directory, patch.dict(os.environ, {}, clear=True):
-            squash.write_output(draft, Path(directory))
-            summary = (Path(directory) / 'summary.md').read_text()
-            self.assertNotIn('<script>', summary)
-            self.assertIn('&lt;script&gt;', summary)
-            self.assertEqual(json.loads((Path(directory) / 'proposal.json').read_text())['head'], draft['head'])
-
-    def test_model_cannot_execute_tools(self):
-        event = json.dumps({'type': 'tool.execution_start'})
+    def test_copilot_returns_only_the_message_with_tools_disabled(self):
         with patch.dict(os.environ, {'COPILOT_CLI': '/example/copilot', 'GITHUB_TOKEN': 'test'}), \
                 patch.object(squash.subprocess, 'run') as run:
             run.return_value.returncode = 0
-            run.return_value.stdout = event
-            with self.assertRaisesRegex(ValueError, 'must not execute tools'):
-                squash.ask_copilot('Example')
+            run.return_value.stdout = json.dumps(PROPOSAL)
+            self.assertEqual(squash.ask_copilot('Example'), PROPOSAL)
+            args = run.call_args.args[0]
+            self.assertIn('--available-tools=', args)
+            self.assertIn('--disable-builtin-mcps', args)
+            self.assertIn('-s', args)
+            self.assertEqual(args[args.index('--output-format') + 1], 'text')
 
     def test_copilot_failure_reports_a_bounded_redacted_error(self):
-        for stdout, stderr, expected in [
-            (json.dumps({'type': 'session.error', 'data': {'message': 'Request denied test-token'}}), '', 'Request denied [redacted]'),
-            ('invalid JSON', 'Request failed test-token\n' + 'x' * 1000, 'Request failed [redacted]'),
+        for stderr, expected in [
+            ('', 'No error detail returned'),
+            ('Request failed test-token\n' + 'x' * 1000, 'Request failed [redacted]'),
         ]:
-            with self.subTest(stdout=stdout), \
+            with self.subTest(stderr=stderr), \
                     patch.dict(os.environ, {'COPILOT_CLI': '/example/copilot', 'GITHUB_TOKEN': 'test-token'}), \
                     patch.object(squash.subprocess, 'run') as run:
                 run.return_value.returncode = 1
-                run.return_value.stdout, run.return_value.stderr = stdout, stderr
+                run.return_value.stderr = stderr
                 with self.assertRaises(ValueError) as error:
                     squash.ask_copilot('Example')
                 self.assertIn(expected, str(error.exception))
@@ -391,10 +383,6 @@ class SquashTests(unittest.TestCase):
         self.assertIsNone(draft['message'])
         self.assertIsNone(squash.publish(self.api, draft, 98, '101'))
         self.assertEqual(self.api.writes, [])
-        with tempfile.TemporaryDirectory() as directory, patch.dict(os.environ, {}, clear=True):
-            squash.write_output(draft, Path(directory))
-            self.assertFalse((Path(directory) / 'merge-message.txt').exists())
-            self.assertIn('one commit', (Path(directory) / 'summary.md').read_text())
 
     def test_squashing_to_one_commit_removes_only_the_bot_preview(self):
         squash.publish(self.api, self.generate(), 98, '101')

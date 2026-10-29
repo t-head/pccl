@@ -8,14 +8,11 @@ import hashlib
 import html
 import json
 import os
-from pathlib import Path
 import re
 import subprocess
 import tempfile
 import textwrap
 import time
-from urllib.error import HTTPError
-from urllib.request import Request, urlopen
 
 from check_commit_messages import IDENTITY, ISSUE_REFERENCE, ISSUE_URL, trailers, validate_message
 
@@ -37,43 +34,39 @@ class GitHub:
             raise ValueError('A GitHub repository and token are required')
         self.repository, self.token = repository, token
 
-    def _request(self, path, method='GET', payload=None):
-        request = Request('https://api.github.com' + path, method=method,
-                          data=json.dumps(payload).encode() if payload is not None else None,
-                          headers={'Authorization': 'Bearer ' + self.token,
-                                   'Accept': 'application/vnd.github+json',
-                                   'Content-Type': 'application/json',
-                                   'X-GitHub-Api-Version': '2022-11-28'})
+    def request(self, path, method='GET', payload=None):
+        args = ['api', path, '--method', method]
+        if payload is not None:
+            args += ['--input', '-']
+        output = self.cli(*args, input=json.dumps(payload) if payload is not None else None)
+        return json.loads(output) if output.strip() else None
+
+    def cli(self, *args, input=None):
         try:
-            with urlopen(request, timeout=30) as response:
-                return None if response.status == 204 else json.load(response)
-        except HTTPError as error:
-            raise ValueError(f'GitHub {method} returned HTTP {error.code}') from None
+            return subprocess.run(
+                ['gh', *args], input=input, text=True, capture_output=True, timeout=60, check=True,
+                env={**os.environ, 'GH_TOKEN': self.token, 'GH_HOST': 'github.com'}).stdout
+        except subprocess.CalledProcessError as error:
+            detail = error.stderr.replace(self.token, '[redacted]').strip()[:500]
+            raise ValueError('GitHub command failed: ' + detail) from None
 
     def get(self, path):
-        return self._request(path)
+        return self.request(path)
 
     def pages(self, path):
-        result = []
-        for page in range(1, 31):
-            items = self.get(f'{path}?per_page=100&page={page}')
-            if not isinstance(items, list):
-                raise ValueError('Expected a complete GitHub list')
-            result.extend(items)
-            if len(items) < 100:
-                return result
-        raise ValueError('GitHub list is too large; prepare the message manually')
+        pages = json.loads(self.cli('api', path + '?per_page=100', '--paginate', '--slurp'))
+        return [item for page in pages for item in page]
 
     def write_comment(self, path, body):
         suffix = r'/issues/[1-9][0-9]*/comments'
         if not re.fullmatch(re.escape('/repos/' + self.repository) + suffix, path):
             raise ValueError('Only PR comment writes are supported')
-        return self._request(path, 'POST', {'body': body})
+        return self.request(path, 'POST', {'body': body})
 
     def delete_comment(self, comment_id):
         if type(comment_id) is not int or comment_id <= 0:
             raise ValueError('Invalid comment ID')
-        self._request(f'/repos/{self.repository}/issues/comments/{comment_id}', 'DELETE')
+        self.request(f'/repos/{self.repository}/issues/comments/{comment_id}', 'DELETE')
 
 
 def policy(api, revision):
@@ -99,9 +92,14 @@ def pull_request(api, number):
         raise ValueError('PR number must be a positive integer')
     path = f'/repos/{api.repository}/pulls/{number}'
     pr = api.get(path)
-    if pr['state'] != 'open' or pr['base']['repo']['full_name'] != api.repository:
-        raise ValueError('Expected an open PR in this repository')
+    if pr['state'] != 'open' or pr['draft'] or pr['base']['repo']['full_name'] != api.repository:
+        raise ValueError('Expected an open, non-draft PR in this repository')
     return pr
+
+
+def version(pr):
+    return [pr[key] for key in ('title', 'body', 'commits', 'changed_files')] + [
+        pr['head']['sha'], pr['base']['sha'], pr['base']['ref']]
 
 
 def snapshot(api, number):
@@ -110,11 +108,7 @@ def snapshot(api, number):
     files = api.pages(path + '/files')
     commits = api.pages(path + '/commits')
     rules = policy(api, pr['base']['sha'])
-    current = pull_request(api, number)
-    if (any(pr.get(key) != current.get(key) for key in
-            ('title', 'body', 'state', 'draft', 'commits', 'changed_files')) or
-            any(pr[side][key] != current[side][key] for side, key in
-                (('head', 'sha'), ('base', 'sha'), ('base', 'ref')))):
+    if version(pr) != version(pull_request(api, number)):
         raise ValueError('PR inputs changed while reading files and commits; run again')
     if not files or len(files) != pr['changed_files'] or not commits or len(commits) != pr['commits']:
         raise ValueError('Incomplete PR files or commits; prepare the message manually')
@@ -125,7 +119,7 @@ def snapshot(api, number):
                 sum(line.startswith('-') for line in lines) != file['deletions'] or
                 not patch):
             raise ValueError('Incomplete or binary diff; prepare the message manually')
-    return {'repository': api.repository, 'number': number, 'head': pr['head']['sha'],
+    return {'repository': api.repository, 'number': number, 'version': version(pr), 'head': pr['head']['sha'],
             'base': pr['base']['sha'], 'target': pr['base']['ref'],
             'title': pr['title'], 'body': pr['body'],
             'files': [{key: file.get(key) for key in
@@ -207,36 +201,17 @@ def ask_copilot(prompt):
             result = subprocess.run([
                 os.environ['COPILOT_CLI'], '--no-auto-update', '--prompt=' + prompt,
                 '-s', '--no-ask-user', '--no-custom-instructions', '--disable-builtin-mcps',
-                '--available-tools=', '--no-color', '--stream', 'off', '--output-format', 'json',
+                '--available-tools=', '--no-color', '--stream', 'off', '--output-format', 'text',
                 '--log-level', 'error', '--log-dir', directory], cwd=directory,
                 capture_output=True, text=True, timeout=remaining,
                 env={'PATH': os.environ.get('PATH', ''), 'GITHUB_TOKEN': os.environ['GITHUB_TOKEN'],
                      'COPILOT_HOME': directory, 'COPILOT_AUTO_UPDATE': 'false', 'CI': 'true', 'NO_COLOR': '1'})
             if result.returncode == 0:
-                break
+                return json.loads(result.stdout)
             if 'Model catalog request timed out' not in result.stderr or attempt == 2:
-                detail = result.stderr.strip()
-                for line in result.stdout.splitlines():
-                    try:
-                        event = json.loads(line)
-                    except json.JSONDecodeError:
-                        continue
-                    if isinstance(event, dict) and event.get('type') == 'session.error':
-                        detail = event.get('data', {}).get('message') or detail
-                detail = ' '.join(str(detail).replace(os.environ['GITHUB_TOKEN'], '[redacted]').split())[:500]
+                detail = ' '.join(result.stderr.replace(os.environ['GITHUB_TOKEN'], '[redacted]').split())[:500]
                 raise ValueError(f'Copilot failed (exit {result.returncode}): {detail or "No error detail returned"}')
             time.sleep(min(5 * (attempt + 1), max(0, deadline - time.monotonic())))
-    # CLI 1.0.100 can mis-escape its echoed input. It is never a model response.
-    events = [json.loads(line) for line in result.stdout.splitlines()
-              if line.strip() and not line.startswith('{"type":"user.message",')]
-    if any(event.get('type') == 'tool.execution_start' for event in events):
-        raise ValueError('Message generation must not execute tools')
-    messages = [event['data'] for event in events
-                if event.get('type') == 'assistant.message' and event.get('data', {}).get('content')]
-    if not messages:
-        raise ValueError('Copilot returned no message')
-    reply = messages[-1]
-    return json.loads(reply['content']), reply.get('model')
 
 
 def final_message(proposal, data):
@@ -264,8 +239,8 @@ def final_message(proposal, data):
     text = title + '\n\n' + body
     references, preserved = metadata(data)
     message = text + '\n\n' + '\n'.join(references) + '\n\n' + '\n'.join(preserved) + '\n'
-    for commit in data['commits']:
-        errors = validate_message(message, commit['author'])
+    for author in {tuple(commit['author']) for commit in data['commits']}:
+        errors = validate_message(message, author)
         if errors:
             raise ValueError('Final message validation failed: ' + '; '.join(errors))
     return message
@@ -276,20 +251,22 @@ def generate(api, number, ask=ask_copilot):
     if pr['commits'] == 1:
         return {'repository': api.repository, 'number': number, 'head': pr['head']['sha'],
                 'base': pr['base']['sha'], 'target': pr['base']['ref'], 'commit_count': 1,
-                'file_count': pr['changed_files'], 'proposal': None, 'message': None, 'model': None}
+                'file_count': pr['changed_files'], 'proposal': None, 'message': None}
     data = snapshot(api, number)
     if len(data['commits']) < 2:
         raise ValueError('PR inputs changed during preparation; run again')
     references, _ = metadata(data)
     verify_issues(api, references)
-    proposal, model = ask(prompt_for(data))
+    proposal = ask(prompt_for(data))
     message = final_message(proposal, data)
-    if digest(data) != digest(snapshot(api, number)):
+    # Fixed head/base SHAs pin the diff and commits; only mutable PR fields
+    # need another read after the model finishes.
+    if data['version'] != version(pull_request(api, number)):
         raise ValueError('PR inputs changed during generation; run again')
     return {'repository': api.repository, 'number': number, 'head': data['head'], 'base': data['base'],
             'target': data['target'], 'input_digest': digest(data), 'proposal': proposal,
             'policy_revision': data['policy_revision'],
-            'message': message, 'model': model,
+            'message': message,
             'commit_count': len(data['commits']), 'file_count': len(data['files'])}
 
 
@@ -312,12 +289,7 @@ def verify(api, draft):
     if draft['message'] != final_message(draft['proposal'], data):
         raise ValueError('Draft message or preserved metadata changed')
     verify_issues(api, metadata(data)[0])
-    current = pull_request(api, data['number'])
-    if (any(current.get(key) != data.get(key) for key in ('title', 'body')) or
-            current['draft'] or current['commits'] != len(data['commits']) or
-            current['changed_files'] != len(data['files']) or
-            current['head']['sha'] != data['head'] or current['base']['sha'] != data['base'] or
-            current['base']['ref'] != data['target']):
+    if version(pull_request(api, data['number'])) != data['version']:
         raise ValueError('PR inputs changed during verification; generate a fresh draft')
     return len(data['commits'])
 
@@ -326,7 +298,12 @@ def comment_body(draft, run_id):
     if not re.fullmatch(r'[1-9][0-9]*', str(run_id)):
         raise ValueError('Invalid workflow run ID')
     run_url = f"https://github.com/{draft['repository']}/actions/runs/{run_id}"
-    return (f'{COMMENT_MARKER}\n<!-- run: {run_id} -->\n'
+    # Keep verification data with the displayed message. Escape HTML delimiters
+    # so model text cannot end this hidden comment or alter the visible preview.
+    context = json.dumps({key: value for key, value in draft.items() if key != 'message'},
+                         ensure_ascii=True, separators=(',', ':'))
+    context = context.replace('<', '\\u003c').replace('>', '\\u003e')
+    return (f'{COMMENT_MARKER}\n<!-- run: {run_id} -->\n<!-- draft: {context} -->\n'
             '### Suggested squash commit message\n\n'
             f"For commit `{draft['head'][:12]}`.\n\n"
             f"<pre>{html.escape(draft['message'])}</pre>\n\n"
@@ -365,49 +342,22 @@ def publish(api, draft, expected_pr, run_id):
     return current['html_url']
 
 
-def write_output(draft, directory):
-    directory.mkdir(parents=True, exist_ok=True)
-    (directory / 'proposal.json').write_text(json.dumps(draft, ensure_ascii=False, indent=2) + '\n')
-    if draft['message'] is None:
-        (directory / 'merge-message.txt').unlink(missing_ok=True)
-        summary = (f"PR #{draft['number']} has one commit; no AI draft is needed. "
-                   'Use the original commit message.\n')
-    else:
-        (directory / 'merge-message.txt').write_text(draft['message'])
-        summary = (f"## Squash message for PR #{draft['number']}\n\n"
-                   f"HEAD: `{draft['head']}` · {draft['commit_count']} commits · {draft['file_count']} files\n\n"
-                   f"<pre>{html.escape(draft['message'])}</pre>\n\n"
-                   'Message format, issue references and original author sign-offs validated.\n\n'
-                   'Review the meaning and confirm this exact message before squash-merging. '
-                   'Existing CI and approval requirements still apply. This workflow does not merge.\n')
-    (directory / 'summary.md').write_text(summary)
-    if os.environ.get('GITHUB_STEP_SUMMARY'):
-        with open(os.environ['GITHUB_STEP_SUMMARY'], 'a') as output:
-            output.write(summary)
-
-
 def main():
     parser = argparse.ArgumentParser(description=__doc__)
     mode = parser.add_mutually_exclusive_group(required=True)
     mode.add_argument('--pr', type=int)
-    mode.add_argument('--verify', type=Path)
-    mode.add_argument('--publish', type=Path)
+    mode.add_argument('--publish', action='store_true')
     parser.add_argument('--expected-pr', type=int)
     parser.add_argument('--repository', default=os.environ.get('GITHUB_REPOSITORY', 't-head/pccl'))
-    parser.add_argument('--output', type=Path, default=Path('squash-message'))
     args = parser.parse_args()
     api = GitHub(args.repository, os.environ.get('GITHUB_TOKEN', ''))
     if args.publish:
-        url = publish(api, json.loads(args.publish.read_text()), args.expected_pr,
+        url = publish(api, json.loads(os.environ['SQUASH_DRAFT']), args.expected_pr,
                       os.environ.get('GITHUB_RUN_ID', ''))
         print('Published squash message: ' + url if url else
               'Single-commit PR: no AI draft comment; any previous preview was removed.')
-    elif args.verify:
-        verify(api, json.loads(args.verify.read_text()))
-        print('Draft matches current PR inputs and passes message checks. Human confirmation is still required.')
     else:
-        write_output(generate(api, args.pr), args.output)
-        print('Message preparation completed. See the workflow Summary.')
+        print(json.dumps(generate(api, args.pr), ensure_ascii=True))
 
 
 if __name__ == '__main__':

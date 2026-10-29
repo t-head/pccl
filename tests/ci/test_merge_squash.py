@@ -2,12 +2,10 @@
 # Copyright (c) 2026 T-Head (Shanghai) Semiconductor Co., Ltd. All rights reserved.
 
 import copy
-import io
 import json
+import subprocess
 import unittest
 from unittest.mock import patch
-from urllib.error import HTTPError
-import zipfile
 
 from test_prepare_squash import GitHubFixture, PROPOSAL
 import merge_squash as merge
@@ -27,7 +25,7 @@ class MergeFixture(GitHubFixture):
         self.event = {'action': 'created', 'repository': {'full_name': self.repository},
                       'issue': {'number': 98, 'pull_request': {'url': 'pulls/98'}},
                       'comment': copy.deepcopy(self.command)}
-        self.draft = squash.generate(self, 98, lambda _: (PROPOSAL, 'test-model'))
+        self.draft = squash.generate(self, 98, lambda _: PROPOSAL)
         self.comments = [{'id': 123, 'body': squash.comment_body(self.draft, 99),
                           'updated_at': '2026-10-29T01:00:00Z',
                           'user': {'type': 'Bot', 'login': 'github-actions[bot]'}}]
@@ -35,7 +33,6 @@ class MergeFixture(GitHubFixture):
                     'conclusion': 'success', 'event': 'pull_request', 'head_branch': 'main',
                     'repository': {'full_name': self.repository},
                     'head_repository': {'full_name': self.repository}}
-        self.artifact = {'id': 17, 'name': 'squash-message', 'expired': False, 'size_in_bytes': 1024}
         self.ready = {'state': 'OPEN', 'isDraft': False, 'baseRefName': 'main',
                       'headRefOid': self.draft['head'], 'baseRefOid': self.draft['base'],
                       'reviewDecision': 'APPROVED', 'mergeStateStatus': 'CLEAN'}
@@ -45,19 +42,13 @@ class MergeFixture(GitHubFixture):
             return {'permission': self.permission}
         if path.endswith('/issues/comments/456'):
             return copy.deepcopy(self.command)
-        if '/artifacts?' in path:
-            return {'total_count': 1, 'artifacts': [self.artifact]}
         if path.endswith('/actions/runs/99'):
             return copy.deepcopy(self.run)
         return super().get(path)
 
-    def cli(self, api, *args):
-        if args[0] == 'pr':
-            return json.dumps(self.ready).encode()
-        archive = io.BytesIO()
-        with zipfile.ZipFile(archive, 'w') as files:
-            files.writestr('proposal.json', json.dumps(self.draft))
-        return archive.getvalue()
+    def cli(self, *args):
+        assert args[0] == 'pr', 'Merging must not download artifacts'
+        return json.dumps(self.ready).encode()
 
 
 class MergeTests(unittest.TestCase):
@@ -65,8 +56,7 @@ class MergeTests(unittest.TestCase):
         self.api = MergeFixture()
 
     def attempt(self):
-        with patch.object(merge, 'github_cli', side_effect=self.api.cli):
-            return merge.merge_request(self.api, self.api.event)
+        return merge.merge_request(self.api, self.api.event)
 
     def assert_rejected(self):
         with patch.object(merge, 'merge_message') as write:
@@ -123,14 +113,28 @@ class MergeTests(unittest.TestCase):
                 self.api.run = {**original, **change}
                 self.assert_rejected()
 
-    def test_refuses_expired_artifacts_and_changed_messages(self):
-        self.api.artifact['expired'] = True
-        self.assert_rejected()
-        self.api.artifact.update(expired=False, size_in_bytes=262145)
-        self.assert_rejected()
-        self.api.artifact['size_in_bytes'] = 1024
-        self.api.comments[0]['body'] += 'An edited message.'
-        self.assert_rejected()
+    def test_refuses_incomplete_records_wrong_prs_and_changed_messages(self):
+        original = self.api.comments[0]['body']
+        for body in (original + 'An edited message.',
+                     original.replace('<!-- draft:', '<!-- removed:'),
+                     original.replace('"number":98', '"number":19'),
+                     original.replace('Refs #12', 'Closes #12')):
+            with self.subTest(body=body):
+                self.api.comments[0]['body'] = body
+                self.assert_rejected()
+
+    def test_comment_round_trip_preserves_text_and_hides_verification_data(self):
+        proposal = {**PROPOSAL, 'body': '- Handle -->, <tags>, & and Unicode λ as plain text.'}
+        self.api.draft['proposal'] = proposal
+        self.api.draft['message'] = squash.final_message(proposal, squash.snapshot(self.api, 98))
+        body = squash.comment_body(self.api.draft, 99)
+        self.api.comments[0]['body'] = body
+        context = body.split('<!-- draft: ', 1)[1].split(' -->', 1)[0]
+        self.assertNotIn('<', context)
+        self.assertNotIn('>', context)
+        self.assertEqual(merge.load_draft(self.api, 98, self.api.comments[0]), self.api.draft)
+        with patch.object(merge, 'merge_message', return_value='c' * 40):
+            self.attempt()
 
     def test_refuses_stale_pr_inputs_and_unmet_merge_requirements(self):
         original = copy.deepcopy(self.api.ready)
@@ -146,24 +150,22 @@ class MergeTests(unittest.TestCase):
         self.assert_rejected()
 
     def test_rechecks_reviews_before_the_merge_write(self):
-        original = merge.check_readiness
-        calls = []
-        def check(*args):
-            calls.append(True)
-            if len(calls) == 2:
-                self.api.ready['reviewDecision'] = 'REVIEW_REQUIRED'
-            return original(*args)
-        with patch.object(merge, 'check_readiness', side_effect=check):
+        original = squash.verify
+        def verify(*args):
+            result = original(*args)
+            self.api.ready['reviewDecision'] = 'REVIEW_REQUIRED'
+            return result
+        with patch.object(squash, 'verify', side_effect=verify):
             self.assert_rejected()
-        self.assertEqual(len(calls), 2)
 
     def test_rest_merge_binds_head_and_preserves_refs_and_dco_once(self):
-        response = io.BytesIO(json.dumps({'merged': True, 'sha': 'c' * 40}).encode())
-        with patch.object(merge, 'urlopen', return_value=response) as send:
-            self.assertEqual(merge.merge_message(self.api, 98, self.api.draft), 'c' * 40)
-        request = send.call_args.args[0]
-        payload = json.loads(request.data)
-        self.assertEqual(request.get_method(), 'PUT')
+        api = squash.GitHub(self.api.repository, self.api.token)
+        with patch.object(squash.subprocess, 'run') as send:
+            send.return_value.stdout = json.dumps({'merged': True, 'sha': 'c' * 40})
+            self.assertEqual(merge.merge_message(api, 98, self.api.draft), 'c' * 40)
+        self.assertEqual(send.call_args.args[0], ['gh', 'api', '/repos/t-head/pccl/pulls/98/merge',
+                                                '--method', 'PUT', '--input', '-'])
+        payload = json.loads(send.call_args.kwargs['input'])
         self.assertEqual(payload['sha'], self.api.draft['head'])
         self.assertEqual(payload['merge_method'], 'squash')
         message = payload['commit_title'] + '\n\n' + payload['commit_message']
@@ -172,14 +174,16 @@ class MergeTests(unittest.TestCase):
         self.assertEqual(message.count('Signed-off-by:'), 1)
 
     def test_refuses_github_merge_denials(self):
+        api = squash.GitHub(self.api.repository, self.api.token)
         for code in (403, 405, 409):
             with self.subTest(code=code):
-                error = HTTPError('https://api.github.com', code, 'refused', {}, None)
-                with patch.object(merge, 'urlopen', side_effect=error), self.assertRaises(ValueError):
-                    merge.merge_message(self.api, 98, self.api.draft)
-        with patch.object(merge, 'urlopen', return_value=io.BytesIO(b'{"merged": false}')):
+                error = subprocess.CalledProcessError(1, ['gh'], stderr=f'HTTP {code}')
+                with patch.object(squash.subprocess, 'run', side_effect=error), self.assertRaises(ValueError):
+                    merge.merge_message(api, 98, self.api.draft)
+        with patch.object(squash.subprocess, 'run') as send:
+            send.return_value.stdout = '{"merged": false}'
             with self.assertRaises(ValueError):
-                merge.merge_message(self.api, 98, self.api.draft)
+                merge.merge_message(api, 98, self.api.draft)
 
 
 if __name__ == '__main__':
