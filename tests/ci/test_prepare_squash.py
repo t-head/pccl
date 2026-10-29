@@ -50,11 +50,12 @@ class GitHubFixture:
             return copy.deepcopy(self.comments)
         return copy.deepcopy(self.files if path.endswith('/files') else self.commits)
 
-    def write_comment(self, path, body, update=False):
-        self.writes.append((path, body, update))
-        comment = {'id': 123, 'html_url': 'https://github.com/t-head/pccl/pull/98#issuecomment-123',
+    def write_comment(self, path, body):
+        self.writes.append((path, body))
+        comment_id = max([122] + [item['id'] for item in self.comments]) + 1
+        comment = {'id': comment_id, 'html_url': f'https://github.com/t-head/pccl/pull/98#issuecomment-{comment_id}',
                    'body': body, 'user': {'login': 'github-actions[bot]', 'type': 'Bot'}}
-        self.comments = [comment]
+        self.comments.append(comment)
         return copy.deepcopy(comment)
 
     def delete_comment(self, comment_id):
@@ -301,17 +302,40 @@ class SquashTests(unittest.TestCase):
                 self.assertNotIn('test-token', str(error.exception))
                 self.assertLess(len(str(error.exception)), 550)
 
-    def test_publishes_one_visible_comment_and_updates_in_place(self):
+    def test_new_preview_is_last_and_old_preview_is_removed(self):
         draft = self.generate()
         squash.publish(self.api, draft, 98, '101')
-        self.assertFalse(self.api.writes[0][2])
         self.assertNotIn('<details', self.api.comments[0]['body'])
         self.assertIn(squash.html.escape(draft['message']), self.api.comments[0]['body'])
         squash.publish(self.api, draft, 98, '101')
         self.assertEqual(len(self.api.writes), 1)
+        discussion = [{'id': 456, 'body': 'Human discussion', 'user': {'login': 'author', 'type': 'User'}},
+                      {'id': 457, 'body': 'AI review', 'user': {'login': 'github-actions[bot]', 'type': 'Bot'}}]
+        self.api.comments.extend(discussion)
         squash.publish(self.api, draft, 98, '102')
-        self.assertEqual(self.api.writes[-1][0], '/repos/t-head/pccl/issues/comments/123')
-        self.assertTrue(self.api.writes[-1][2])
+        self.assertEqual(self.api.writes[-2][0], '/repos/t-head/pccl/issues/98/comments')
+        self.assertEqual(self.api.writes[-1], ('DELETE', 123))
+        self.assertEqual(self.api.comments[:-1], discussion)
+        self.assertEqual(self.api.comments[-1]['body'], squash.comment_body(draft, '102'))
+
+    def test_failed_publication_preserves_old_preview_and_cleanup_can_retry(self):
+        draft = self.generate()
+        squash.publish(self.api, draft, 98, '101')
+        with patch.object(self.api, 'write_comment', side_effect=ValueError('publish failed')):
+            with self.assertRaisesRegex(ValueError, 'publish failed'):
+                squash.publish(self.api, draft, 98, '102')
+        self.assertEqual(len(self.api.comments), 1)
+        self.assertEqual(self.api.comments[0]['body'], squash.comment_body(draft, '101'))
+        with patch.object(self.api, 'delete_comment', side_effect=ValueError('cleanup failed')):
+            with self.assertRaisesRegex(ValueError, 'cleanup failed'):
+                squash.publish(self.api, draft, 98, '102')
+        self.assertEqual(len(self.api.comments), 2)
+        with self.assertRaisesRegex(ValueError, 'newer workflow'):
+            squash.publish(self.api, draft, 98, '101')
+        with patch.object(self.api, 'write_comment', side_effect=AssertionError('Already published')):
+            squash.publish(self.api, draft, 98, '102')
+        self.assertEqual(len(self.api.comments), 1)
+        self.assertEqual(self.api.comments[0]['body'], squash.comment_body(draft, '102'))
 
     def test_comment_preserves_the_exact_refs_and_dco(self):
         draft = self.generate()
@@ -333,7 +357,7 @@ class SquashTests(unittest.TestCase):
         self.api.comments = [{'id': 10, 'body': squash.comment_body(draft, '200'),
                               'user': {'login': 'contributor', 'type': 'User'}}]
         squash.publish(self.api, draft, 98, '101')
-        self.assertFalse(self.api.writes[0][2])
+        self.assertEqual([item['id'] for item in self.api.comments], [10, 123])
 
     def test_comment_rejects_stale_inputs_before_writing(self):
         draft = self.generate()

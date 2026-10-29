@@ -74,9 +74,9 @@ Use squash and merge. For a PR with two or more commits, prepare an AI draft wit
 
 - Check the message against the complete PR diff, including compatibility impact and limitations. The bot comment is a suggestion, not an approval or a merge command.
 - Run `python3 .github/scripts/prepare_squash.py --verify /path/to/proposal.json` with `GITHUB_TOKEN` available before presenting the message for confirmation. Changed inputs require a fresh draft.
-- The draft preserves and deduplicates original issue references and signing identities, and uses the same validator as PR commits. Format validation does not prove the summary is accurate.
+- AI drafts the title and body. Code preserves and deduplicates original issue references and signing identities, then uses the same validator as PR commits. Format validation does not prove the summary is accurate.
 - Same-repository PR updates prepare the message automatically. For fork PRs or a fresh draft, run the workflow from `main` after it is merged. Large or incomplete diffs require manual preparation.
-- The bot updates one visible comment. If the PR is reduced to one commit, it removes that comment, leaving historical Actions runs and artifacts intact.
+- Each new draft is posted at the end of the conversation and replaces old previews. Retrying the same publication does not post it twice. Single-commit PRs remove the preview; historical Actions runs and artifacts remain available.
 - After the merge workflow is on `main`, a human with repository Write, Maintain or Admin access can comment exactly `/merge` to confirm the displayed multi-commit message and request squash merging. Actions handles the command; no separate bot account or @mention is needed. PR or draft changes require a fresh message and command.
 - The command checks current reviews and required checks without waiting or bypassing branch rules. On failure, complete the missing requirements and send `/merge` again. Single-commit PRs use their original message through the web button or the CLI command below. The web Squash and merge button remains available for every PR.
 

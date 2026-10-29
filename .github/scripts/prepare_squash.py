@@ -37,15 +37,21 @@ class GitHub:
             raise ValueError('A GitHub repository and token are required')
         self.repository, self.token = repository, token
 
-    def get(self, path):
-        request = Request('https://api.github.com' + path, headers={
-            'Authorization': 'Bearer ' + self.token,
-            'Accept': 'application/vnd.github+json', 'X-GitHub-Api-Version': '2022-11-28'})
+    def _request(self, path, method='GET', payload=None):
+        request = Request('https://api.github.com' + path, method=method,
+                          data=json.dumps(payload).encode() if payload is not None else None,
+                          headers={'Authorization': 'Bearer ' + self.token,
+                                   'Accept': 'application/vnd.github+json',
+                                   'Content-Type': 'application/json',
+                                   'X-GitHub-Api-Version': '2022-11-28'})
         try:
             with urlopen(request, timeout=30) as response:
-                return json.load(response)
+                return None if response.status == 204 else json.load(response)
         except HTTPError as error:
-            raise ValueError(f'GitHub returned HTTP {error.code}; no message was published') from None
+            raise ValueError(f'GitHub {method} returned HTTP {error.code}') from None
+
+    def get(self, path):
+        return self._request(path)
 
     def pages(self, path):
         result = []
@@ -58,36 +64,16 @@ class GitHub:
                 return result
         raise ValueError('GitHub list is too large; prepare the message manually')
 
-    def write_comment(self, path, body, update=False):
-        suffix = r'/issues/comments/[1-9][0-9]*' if update else r'/issues/[1-9][0-9]*/comments'
+    def write_comment(self, path, body):
+        suffix = r'/issues/[1-9][0-9]*/comments'
         if not re.fullmatch(re.escape('/repos/' + self.repository) + suffix, path):
             raise ValueError('Only PR comment writes are supported')
-        request = Request('https://api.github.com' + path,
-                          data=json.dumps({'body': body}).encode(),
-                          headers={'Authorization': 'Bearer ' + self.token,
-                                   'Accept': 'application/vnd.github+json',
-                                   'Content-Type': 'application/json',
-                                   'X-GitHub-Api-Version': '2022-11-28'},
-                          method='PATCH' if update else 'POST')
-        try:
-            with urlopen(request, timeout=30) as response:
-                return json.load(response)
-        except HTTPError as error:
-            raise ValueError(f'Could not publish the comment: HTTP {error.code}') from None
+        return self._request(path, 'POST', {'body': body})
 
     def delete_comment(self, comment_id):
         if type(comment_id) is not int or comment_id <= 0:
             raise ValueError('Invalid comment ID')
-        request = Request(
-            f'https://api.github.com/repos/{self.repository}/issues/comments/{comment_id}',
-            headers={'Authorization': 'Bearer ' + self.token,
-                     'Accept': 'application/vnd.github+json',
-                     'X-GitHub-Api-Version': '2022-11-28'}, method='DELETE')
-        try:
-            with urlopen(request, timeout=30):
-                pass
-        except HTTPError as error:
-            raise ValueError(f'Could not remove the old preview: HTTP {error.code}') from None
+        self._request(f'/repos/{self.repository}/issues/comments/{comment_id}', 'DELETE')
 
 
 def policy(api, revision):
@@ -359,24 +345,24 @@ def publish(api, draft, expected_pr, run_id):
     comments = [item for item in api.pages(path)
                 if item['user']['login'] == 'github-actions[bot]' and item['user']['type'] == 'Bot'
                 and item.get('body', '').startswith(COMMENT_MARKER + '\n')]
-    if len(comments) > 1:
-        raise ValueError('Multiple draft comments found; keep one before publishing')
-    existing = comments[0] if comments else None
-    if existing:
-        previous_run = re.search(r'<!-- run: ([1-9][0-9]*) -->', existing['body'])
+    for comment in comments:
+        previous_run = re.search(r'<!-- run: ([1-9][0-9]*) -->', comment['body'])
         if previous_run and int(previous_run[1]) > int(run_id):
             raise ValueError('A newer workflow has already published its draft')
     # Re-read the complete PR after locating the comment and before any write.
     if verify(api, draft) == 1:
-        if existing:
-            api.delete_comment(existing['id'])
+        for comment in comments:
+            api.delete_comment(comment['id'])
         return None
     body = comment_body(draft, run_id)
-    if existing:
-        if existing['body'] == body:
-            return existing['html_url']
-        path = f"/repos/{api.repository}/issues/comments/{existing['id']}"
-    return api.write_comment(path, body, update=existing is not None)['html_url']
+    current = next((comment for comment in comments if comment['body'] == body), None)
+    # A new comment appears at the end of the conversation. Create it before
+    # removing old previews so a failed publish leaves the previous draft intact.
+    current = current or api.write_comment(path, body)
+    for comment in comments:
+        if comment['id'] != current['id']:
+            api.delete_comment(comment['id'])
+    return current['html_url']
 
 
 def write_output(draft, directory):
