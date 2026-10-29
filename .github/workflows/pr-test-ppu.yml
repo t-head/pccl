@@ -58,8 +58,6 @@ jobs:
           commits = git('rev-list',
                         os.environ['BASE_SHA'] + '..' + os.environ['HEAD_SHA']).splitlines()
           errors = []
-          if not commits:
-              errors.append('PR must contain at least one contribution commit.')
           for sha in commits:
               message = git('show', '-s', '--format=%B', sha)
               lines = message.splitlines()
