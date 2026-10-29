@@ -170,6 +170,12 @@ Required GitHub tool calls (tool name and arguments):
 
 def copilot_response(output, data):
     events = [json.loads(line) for line in output.splitlines() if line.strip()]
+    answers = [event['data']['content'] for event in events
+               if event.get('type') == 'assistant.message' and not event['data'].get('toolRequests')
+               and event['data'].get('content', '').strip()]
+    title, separator, body = (answers[-1] if answers else '').strip().partition('\n\n')
+    if title.startswith('ERROR:'):
+        raise ValueError('Copilot could not prepare a complete message: ' + title[:500])
     calls = {event['data']['toolCallId']: event['data'] for event in events
              if event.get('type') == 'tool.execution_start'}
     completed = [calls[event['data']['toolCallId']] for event in events
@@ -179,13 +185,11 @@ def copilot_response(output, data):
         if not any(call['toolName'] == 'github-mcp-server-' + tool and
                    all(call.get('arguments', {}).get(key) == value for key, value in arguments.items())
                    for call in completed):
-            raise ValueError('Copilot did not complete a required read: ' + tool + ' ' + json.dumps(arguments))
-    answers = [event['data']['content'] for event in events
-               if event.get('type') == 'assistant.message' and not event['data'].get('toolRequests')]
-    title, separator, body = (answers[-1] if answers else '').strip().partition('\n\n')
-    if not separator or title.startswith('ERROR:'):
-        detail = title[:500] if title.startswith('ERROR:') else 'Expected a title, blank line and body'
-        raise ValueError('Copilot could not prepare a complete message: ' + detail)
+            observed = [(call['toolName'], call.get('arguments')) for call in completed]
+            raise ValueError('Copilot did not complete a required read: ' + tool + ' ' + json.dumps(arguments) +
+                             '; completed reads: ' + json.dumps(observed)[:1000])
+    if not separator:
+        raise ValueError('Copilot must return a title, blank line and body')
     print('Copilot read the PR, diff and pinned message rules successfully.', file=sys.stderr)
     return {'title': title, 'body': body}
 
