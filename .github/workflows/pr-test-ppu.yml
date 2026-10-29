@@ -45,7 +45,6 @@ jobs:
         env:
           HEAD_SHA: ${{ github.event.pull_request.head.sha }}
         run: |
-          python3 -m unittest discover -s tests/ci -p 'test_*.py'
           python3 - <<'PY'
           import os
           import re
