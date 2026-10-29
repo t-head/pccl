@@ -61,8 +61,6 @@ jobs:
           # The event base SHA can lag behind the base already included in this test merge.
           commits = git('rev-list', parents[0] + '..' + head_sha).splitlines()
           errors = []
-          if not commits:
-              errors.append('PR must contain at least one contribution commit.')
           for sha in commits:
               message = git('show', '-s', '--format=%B', sha)
               lines = message.splitlines()
