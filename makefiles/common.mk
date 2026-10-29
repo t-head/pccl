@@ -35,7 +35,8 @@ HGGC_PATCH = $(shell echo $(HGGC_VERSION) | cut -d "." -f 3 | sed 's/[^0-9].*//'
 HGGC_PATCH := $(if $(HGGC_PATCH),$(HGGC_PATCH),0)
 $(info HGGC_VERSION ${HGGC_MAJOR}.${HGGC_MINOR}.${HGGC_PATCH})
 
-PCCL_HGGC_VERSION := $(shell expr $(HGGC_MAJOR) \* 10000 + $(HGGC_MINOR) \* 100 + $(HGGC_PATCH) 2>/dev/null || echo 0)
+# expr prints 0 but exits with status 1 for the unknown-version fallback.
+PCCL_HGGC_VERSION := $(or $(shell expr $(HGGC_MAJOR) \* 10000 + $(HGGC_MINOR) \* 100 + $(HGGC_PATCH) 2>/dev/null),0)
 HGGC_HAS_OKI := $(shell test "$(PCCL_HGGC_VERSION)" -ge 20200 2>/dev/null && echo 1 || echo 0)
 
 PPU_LIB ?= $(PPU_SDK)/lib
