@@ -207,6 +207,7 @@ def ask_copilot(data):
                 '--log-level', 'error', '--log-dir', directory], cwd=directory,
                 capture_output=True, text=True, timeout=remaining,
                 env={'PATH': os.environ.get('PATH', ''), 'GITHUB_TOKEN': os.environ['GITHUB_TOKEN'],
+                     'COPILOT_LARGE_OUTPUT_THRESHOLD_BYTES': '120000',
                      'COPILOT_HOME': directory, 'COPILOT_AUTO_UPDATE': 'false', 'CI': 'true', 'NO_COLOR': '1'})
             if result.returncode == 0:
                 return copilot_response(result.stdout, data)
