@@ -21,7 +21,9 @@ jobs:
       contents: write
       pull-requests: write
       issues: read
-      actions: read
+      checks: read
+      statuses: read
+      actions: write # Dispatch main CI after a GITHUB_TOKEN merge.
     steps:
       # issue_comment uses the default branch; never check out or execute the PR head.
       - uses: actions/checkout@d23441a48e516b6c34aea4fa41551a30e30af803 # v6

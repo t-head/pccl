@@ -1,6 +1,6 @@
 # SPDX-License-Identifier: Apache-2.0
 # Copyright (c) 2026 T-Head (Shanghai) Semiconductor Co., Ltd. All rights reserved.
-"""Check contribution commits and final squash messages with the same rules."""
+"""Share message-format checks; validate original commit DCO in PR CI."""
 
 import os
 import re
@@ -22,7 +22,7 @@ def trailers(message):
     return git('interpret-trailers', '--parse', '--no-divider', message=message).splitlines()
 
 
-def validate_message(message, author):
+def validate_message(message):
     lines = message.splitlines()
     errors = []
     if not lines or not lines[0].strip():
@@ -31,13 +31,18 @@ def validate_message(message, author):
         errors.append('second line must be blank')
     if not ISSUE_REFERENCE.search('\n'.join(lines[1:])):
         errors.append('missing issue reference in commit body')
+    return errors
+
+
+def validate_dco(message, author):
+    """Check source-commit sign-offs in the dedicated PR check."""
     signoffs = [match.groups() for line in trailers(message)
                 if (match := re.fullmatch('Signed-off-by: ' + IDENTITY, line))]
     if not signoffs:
-        errors.append('missing valid Signed-off-by trailer')
-    elif tuple(author) not in signoffs:
-        errors.append('Signed-off-by name and email must match the commit author')
-    return errors
+        return ['missing valid Signed-off-by trailer']
+    if tuple(author) not in signoffs:
+        return ['Signed-off-by name and email must match the commit author']
+    return []
 
 
 def check_range(base, head):
@@ -49,7 +54,8 @@ def check_range(base, head):
     for sha in commits:
         message = git('show', '-s', '--format=%B', sha)
         author = git('show', '-s', '--format=%an%x00%ae', sha).rstrip('\n').split('\0')
-        errors.extend(f'{sha[:12]}: {error}' for error in validate_message(message, author))
+        errors.extend(f'{sha[:12]}: {error}' for error in
+                      validate_message(message) + validate_dco(message, author))
         if message.splitlines() and len(message.splitlines()[0]) > 50:
             print(f'::notice::{sha[:12]}: title exceeds the recommended 50 characters; consider shortening it')
     for error in errors:

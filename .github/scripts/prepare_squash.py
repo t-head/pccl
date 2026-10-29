@@ -95,8 +95,7 @@ def snapshot(api, number):
         raise ValueError('Incomplete PR commits; prepare the message manually')
     return {'repository': api.repository, 'number': number, 'version': version(pr), 'head': pr['head']['sha'],
             'base': pr['base']['sha'], 'target': pr['base']['ref'], 'file_count': pr['changed_files'],
-            'commits': [{'sha': commit['sha'], 'message': commit['commit']['message'],
-                         'author': [commit['commit']['author']['name'], commit['commit']['author']['email']]}
+            'commits': [{'sha': commit['sha'], 'message': commit['commit']['message']}
                         for commit in commits]}
 
 
@@ -172,7 +171,7 @@ def ask_copilot(data):
 def metadata(data):
     references, preserved = [], []
     for commit in data['commits']:
-        errors = validate_message(commit['message'], commit['author'])
+        errors = validate_message(commit['message'])
         if errors:
             raise ValueError(f"Commit {commit['sha'][:12]}: " + '; '.join(errors))
         for match in REFERENCE.finditer(commit['message']):
@@ -233,10 +232,10 @@ def final_message(proposal, data):
     text = title + '\n\n' + body
     references, preserved = metadata(data)
     message = text + '\n\n' + '\n'.join(references) + '\n\n' + '\n'.join(preserved) + '\n'
-    for author in {tuple(commit['author']) for commit in data['commits']}:
-        errors = validate_message(message, author)
-        if errors:
-            raise ValueError('Final message validation failed: ' + '; '.join(errors))
+    # Preserve existing sign-offs; DCO validation belongs to the PR CI check.
+    errors = validate_message(message)
+    if errors:
+        raise ValueError('Final message validation failed: ' + '; '.join(errors))
     return message
 
 
