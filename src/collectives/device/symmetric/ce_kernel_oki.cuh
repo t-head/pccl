@@ -78,10 +78,11 @@ static __device__ __inline__ void okiReduceDmaCmd(const struct pcclCeOkiReduceAr
   int eltSize = args.eltSize;
   int loopCnt = (int)args.loopCnt;
   uint64_t* rank0RemoteFenceAddrs = args.rank0RemoteFenceAddrs;
-  uint64_t okiBaseStep = args.okiBaseStep;
+  auto* sync = (struct ncclCeGridSyncMem*)args.gridSyncPtr;
+  uint64_t okiBaseStep = sync->okiStep + 1;
   uint64_t* tailPtr = args.tailPtr;
   uint64_t* headPtr = args.headPtr;
-  uint64_t ceReduceStepBase = (uint64_t)args.reduceStepBase;
+  uint64_t ceReduceStepBase = sync->reduceStep;
   int stride4G = (int)args.stride4G;
   bool broadcast = args.broadcast != 0;
 
@@ -205,25 +206,20 @@ static __device__ __inline__ void okiReduceDmaCmd(const struct pcclCeOkiReduceAr
   }
 }
 
-// okiMemcpyBatchAsync: performs batched async DMA copy with dependency management.
+// okiMemcpyBatchAsync: submits batched DMA after the caller-stream entry barrier.
 //
 // Parallel decomposition: one warp per QP group, one lane per die within the group.
 // A warp owns its queues exclusively and walks every op assigned to its group, so
 // ltOkiReserveWqeSlots is never contended and the trailing CQ fence is genuinely the
 // last WQE on the ring. Sharing a ring between warps would break both properties.
 //
-// Flow per queue:
-//   1. One WaitFenceWqe on the dependency fence (queue head, once).
-//   2. For each op in this group: DMA copy WQEs (+ that op's remote ICN fence).
-//   3. One FenceWqe to the local CQ (queue tail, once). Since WQEs on a ring retire in
-//      order, the CQ reaching this value means every op in the group has landed, which is
-//      what okiBatchSynchronize polls for.
+// Each queue receives its copies and optional ICN fences followed by one CQ fence.
+// The next kernel polls that fence before advancing the shared device epoch.
 template<int DIE_NUM>
 __global__ void okiMemcpyBatchAsync(
     struct ncclCeCollKernelLaunchArgs args, // use struct to prevent compiler opt array to pointer.
     ltOkiQP_t* qps,
-    uint64_t* dependencyFenceAddr,
-    uint64_t step,
+    uint64_t* stepDev,
     int myRank,
     int stride4G,
     int numQpGroups
@@ -238,26 +234,24 @@ __global__ void okiMemcpyBatchAsync(
     int qid = okiQpGroupToQid(group, laneId, DIE_NUM);
     ltOkiQP_t qp = qps[qid];
     volatile uint64_t* cqAddr = ltOkiQPGetCQ(qp);  // completion queue address
-    uint64_t finalStep = step + 1;
+    uint64_t finalStep = *stepDev + 1;
 
     uint32_t wqeNeeded = 0;
     int myOpCount = 0;
     for (int opId = 0; opId < args.nOps; opId++) {
       if (okiOpToQpGroup(opId, numQpGroups) != group) continue;
       if (args.sizes[opId] == 0) continue;
-      wqeNeeded += 2 * calcDmaSegmentCount(args.sizes[opId] / DIE_NUM);
+      wqeNeeded += okiChunkCopyWqeCount<DIE_NUM>(
+          args.sizes[opId], laneId, args.targets[opId] == myRank, /*withIcnFence=*/true);
       myOpCount++;
     }
 
     if (myOpCount > 0) {
-      wqeNeeded += 2;  // head dependency wait fence + tail CQ fence
+      wqeNeeded += 1;  // tail CQ fence, including a die with no payload
       uint32_t skip;
       uint32_t wqeBase = ltOkiReserveWqeSlots(qp, wqeNeeded, skip);
 
-      // Step 1: wait on the dependency fence so no DMA starts before all ranks arrived.
-      ltOkiQPWriteWaitFenceWqe(qp, (uint64_t)dependencyFenceAddr, finalStep, 0, 0);
-
-      // Step 2: issue every op assigned to this group, in a deterministic order.
+      // Issue every op assigned to this group, in a deterministic order.
       for (int opId = 0; opId < args.nOps; opId++) {
         if (okiOpToQpGroup(opId, numQpGroups) != group) continue;
         size_t size = args.sizes[opId];
@@ -304,40 +298,37 @@ __global__ void okiBatchSynchronize(
     struct ncclCeCollKernelLaunchArgs args, // use struct to prevent compiler opt array to pointer.
     ltOkiQP_t* qps,
     int myRank,
-    uint64_t pollValue,
+    uint64_t* stepDev,
     int numQpGroups
 ) {
+  uint64_t pollValue = *stepDev + 1;
   int tid = threadIdx.x;
-  int group = tid / WARP_SIZE;     // warp index = QP group
-  int laneId = tid % WARP_SIZE;    // lane index = die index
-  if (group >= numQpGroups || laneId >= DIE_NUM) return;
-
-  // A queue only carries a fence if the submit kernel found work for this group.
-  bool hasWork = false;
-  for (int opId = 0; opId < args.nOps; opId++) {
-    if (okiOpToQpGroup(opId, numQpGroups) != group) continue;
-    if (args.sizes[opId] == 0) continue;
-    // The submit kernel splits each op across dies; a die with no share writes no WQE.
-    ssize_t size = args.sizes[opId];
-    ssize_t splitSize = size / DIE_NUM;
-    ssize_t remainSize = size - laneId * splitSize;
-    if (laneId != DIE_NUM - 1) remainSize = (remainSize > splitSize) ? splitSize : remainSize;
-    if (remainSize > 0) { hasWork = true; break; }
+  int group = tid / WARP_SIZE;
+  int laneId = tid % WARP_SIZE;
+  if (group < numQpGroups && laneId < DIE_NUM) {
+    // Match submission: even a die with no payload receives the group's CQ fence.
+    bool hasWork = false;
+    for (int opId = 0; opId < args.nOps; opId++) {
+      if (okiOpToQpGroup(opId, numQpGroups) == group && args.sizes[opId] > 0) {
+        hasWork = true;
+        break;
+      }
+    }
+    if (hasWork) {
+      ltOkiQP_t qp = qps[okiQpGroupToQid(group, laneId, DIE_NUM)];
+      ltOkiPollCQ(ltOkiQPGetCQ(qp), pollValue);
+    }
   }
-
-  if (hasWork) {
-    ltOkiQP_t qp = qps[okiQpGroupToQid(group, laneId, DIE_NUM)];
-    uint64_t* cq = ltOkiQPGetCQ(qp);
-    ltOkiPollCQ(cq, pollValue);  // poll until completion value is observed
-  }
+  // Idle lanes must join: no old-epoch reader or pending CQ may outlive advancement.
+  __syncthreads();
+  if (tid == 0) *stepDev = pollValue;
 }
 
 template
 __global__ void okiMemcpyBatchAsync<1>(
     struct ncclCeCollKernelLaunchArgs args,
     ltOkiQP_t* qps,
-    uint64_t* dependencyFenceAddr,
-    uint64_t step,
+    uint64_t* stepDev,
     int myRank,
     int stride4G,
     int numQpGroups
@@ -346,8 +337,7 @@ template
 __global__ void okiMemcpyBatchAsync<2>(
     struct ncclCeCollKernelLaunchArgs args,
     ltOkiQP_t* qps,
-    uint64_t* dependencyFenceAddr,
-    uint64_t step,
+    uint64_t* stepDev,
     int myRank,
     int stride4G,
     int numQpGroups
@@ -358,7 +348,7 @@ __global__ void okiBatchSynchronize<1>(
     struct ncclCeCollKernelLaunchArgs args, // use struct to prevent compiler opt array to pointer.
     ltOkiQP_t* qps,
     int myRank,
-    uint64_t pollValue,
+    uint64_t* stepDev,
     int numQpGroups
 );
 
@@ -367,7 +357,7 @@ __global__ void okiBatchSynchronize<2>(
     struct ncclCeCollKernelLaunchArgs args, // use struct to prevent compiler opt array to pointer.
     ltOkiQP_t* qps,
     int myRank,
-    uint64_t pollValue,
+    uint64_t* stepDev,
     int numQpGroups
 );
 

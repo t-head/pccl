@@ -430,23 +430,18 @@ ncclResult_t pcclP2pDmaBuildPlan(struct pcclComm* comm, struct ncclKernelPlan* p
 #if PCCL_HGGC_VERSION >= PCCL_HGGC_DRIVER_VERSION(2, 2, 0)
 static ncclResult_t p2pDmaLaunchOki(struct pcclComm* comm, struct pcclP2pDmaPlanArgs* pa, hggcStream_t stream) {
   ltOkiQP_t* qps = comm->okiQps;
-  // The fence value must be drawn from comm->ceOkiStep at launch time, not at
-  // plan-build time: all plans of a group are built before any is launched,
-  // and the OKI collectives bump the counter only when they launch, so a
-  // build-time capture could alias a fence value still in use by another plan.
-  uint64_t step = comm->ceOkiStep + 1;
-  void* pargs[] = { &pa->devArgs, &qps, &step };
+  // Symmetric window registration initializes CE storage before P2P admission.
+  // Share the execution-time CQ epoch with OKI reduce graph replays.
+  auto* sync = (struct ncclCeGridSyncMem*)ncclSymDevBase_getGridSyncBase(
+      (struct ncclSymDevBase*)comm->ceColl.ceSyncBase, comm->nRanks);
+  uint64_t* stepDev = &sync->okiStep;
+  void* pargs[] = { &pa->devArgs, &qps, &stepDev };
   struct dispatchStrategyExAD launchConfig = {1, 1, 1, -2, /*cooperative=*/1};
   dim3 grid = {1, 1, 1};
   dim3 block = {(uint32_t)pa->nThreads, 1, 1};
   void* roundFn = pa->nDies > 1 ? (void*)pcclP2pDmaOkiRound<2> : (void*)pcclP2pDmaOkiRound<1>;
   // The kernel publishes receive offsets before waiting on peers.
   LAUNCH_KERNEL(roundFn, grid, block, pargs, (ssize_t)0, stream, 1, launchConfig);
-  // Shared with the OKI collectives: this comm has one physical CQ per QP,
-  // and the fence value stored there is a plain software counter, not a
-  // hardware one -- two independently-incrementing step spaces on the same
-  // QP would corrupt each other's completion checks.
-  comm->ceOkiStep += 1;
   return ncclSuccess;
 }
 #endif
