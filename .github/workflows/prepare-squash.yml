@@ -67,6 +67,9 @@ jobs:
     needs: draft
     runs-on: ubuntu-24.04
     timeout-minutes: 5
+    concurrency:
+      group: squash-message-publish-${{ github.event.pull_request.number || inputs.pr_number }}
+      queue: max
     permissions:
       contents: read
       pull-requests: write

@@ -326,6 +326,13 @@ def verify(api, draft):
     if draft['message'] != final_message(draft['proposal'], data):
         raise ValueError('Draft message or preserved metadata changed')
     verify_issues(api, metadata(data)[0])
+    current = pull_request(api, data['number'])
+    if (any(current.get(key) != data.get(key) for key in ('title', 'body')) or
+            current['draft'] or current['commits'] != len(data['commits']) or
+            current['changed_files'] != len(data['files']) or
+            current['head']['sha'] != data['head'] or current['base']['sha'] != data['base'] or
+            current['base']['ref'] != data['target']):
+        raise ValueError('PR inputs changed during verification; generate a fresh draft')
     return len(data['commits'])
 
 
@@ -337,7 +344,9 @@ def comment_body(draft, run_id):
             '### Suggested squash commit message\n\n'
             f"For commit `{draft['head'][:12]}`.\n\n"
             f"<pre>{html.escape(draft['message'])}</pre>\n\n"
-            'Review and confirm the final text before merging.\n\n'
+            'Review this message, then comment `/merge` to request squash merging '
+            'when required reviews and checks pass. Available after the merge workflow '
+            'is on `main`; the web Squash and merge button remains available.\n\n'
             f'[View generation record]({run_url})\n')
 
 
