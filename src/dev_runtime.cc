@@ -946,6 +946,19 @@ fail:
   return ret;
 }
 
+static ncclResult_t checkDevApiVersion(unsigned int magic, unsigned int version) {
+  if (magic != PCCL_API_MAGIC && magic != NCCL_API_MAGIC) {
+    WARN("Invalid device API initialization magic 0x%x", magic);
+    return ncclInvalidUsage;
+  }
+  unsigned int minimumVersion = magic == PCCL_API_MAGIC ? PCCL_VERSION(2, 2, 0) : NCCL_VERSION(2, 30, 4);
+  if (version < minimumVersion) {
+    WARN("Unsupported device API version %u (minimum %u)", version, minimumVersion);
+    return ncclInvalidUsage;
+  }
+  return ncclSuccess;
+}
+
 static ncclResult_t deepCopyDevCommRequirements(
     struct ncclDevCommRequirements const* src,
     struct ncclDevCommRequirements** dst
@@ -957,9 +970,15 @@ static ncclResult_t deepCopyDevCommRequirements(
   NCCLCHECK(ncclCalloc(dst, 1));
   **dst = NCCL_DEV_COMM_REQUIREMENTS_INITIALIZER;
 
-  // Copy the entire struct now and update linked lists later.  Because of backwards compatibility, the source may
-  // actually be smaller than the type would imply.
-  memcpy(*dst, src, src->size);
+  // Preserve defaults for omitted fields without exceeding the destination.
+  memcpy(*dst, src, std::min(src->size, sizeof(**dst)));
+  if (src->magic == NCCL_API_MAGIC) {
+    (*dst)->magic = PCCL_API_MAGIC;
+    (*dst)->version = PCCL_VERSION_CODE;
+  }
+  // Keep caller-owned lists out of cleanup paths, including allocation failures.
+  (*dst)->resourceRequirementsList = nullptr;
+  (*dst)->teamRequirementsList = nullptr;
 
   dstRes = &(*dst)->resourceRequirementsList;
   for (struct ncclDevResourceRequirements* rr = src->resourceRequirementsList; rr != nullptr; rr = rr->next) {
@@ -967,6 +986,10 @@ static ncclResult_t deepCopyDevCommRequirements(
     (*dstRes)->bufferSize = rr->bufferSize;
     (*dstRes)->bufferAlign = rr->bufferAlign;
     (*dstRes)->outBufferHandle = rr->outBufferHandle;
+    (*dstRes)->ginSignalCount = rr->ginSignalCount;
+    (*dstRes)->ginCounterCount = rr->ginCounterCount;
+    (*dstRes)->outGinSignalStart = rr->outGinSignalStart;
+    (*dstRes)->outGinCounterStart = rr->outGinCounterStart;
     dstRes = &(*dstRes)->next;
   }
 
@@ -1391,11 +1414,7 @@ ncclResult_t pcclCommQueryProperties(ncclComm_t comm, ncclCommProperties_t* prop
   NCCLCHECK(PtrCheck(props, __func__, "props"));
 
   NCCLCHECK(ncclCommEnsureReady(comm));
-
-  if (props->magic != PCCL_API_MAGIC) {
-    WARN("Cannot get communicator properties: pcclCommProperties_t argument must be initialized via PCCL_COMM_PROPERTIES_INITIALIZER");
-    return ncclInvalidUsage;
-  }
+  NCCLCHECK(checkDevApiVersion(props->magic, props->version));
 
   props->rank = comm->rank;
   props->nRanks = comm->nRanks;
@@ -1416,16 +1435,13 @@ ncclResult_t pcclCommQueryProperties(ncclComm_t comm, ncclCommProperties_t* prop
 }
 
 NCCL_API(ncclResult_t, pcclDevCommCreate, ncclComm_t comm, pcclDevCommRequirements_t const* reqs, pcclDevComm_t* outDevComm);
-ncclResult_t ncclDevCommCreate(
+ncclResult_t pcclDevCommCreate(
     ncclComm_t comm, struct ncclDevCommRequirements const* reqs,
     struct ncclDevComm* outDevComm
   ) {
   NCCLCHECK(CommCheck(comm, __func__, "comm"));
   NCCLCHECK(PtrCheck(reqs, __func__, "reqs"));
-  if (reqs->magic != PCCL_API_MAGIC) {
-    WARN("Cannot create device communicator: pcclDevCommRequirements_t argument must be initialized via PCCL_DEV_COMM_REQUIREMENTS_INITIALIZER");
-    return ncclInvalidUsage;
-  }
+  NCCLCHECK(checkDevApiVersion(reqs->magic, reqs->version));
 
   ncclResult_t ret = ncclSuccess;
   int saveDev;
@@ -1463,11 +1479,12 @@ fail:
 }
 
 NCCL_API(ncclResult_t, pcclDevCommDestroy, ncclComm_t comm, pcclDevComm_t const* devComm);
-ncclResult_t ncclDevCommDestroy(
+ncclResult_t pcclDevCommDestroy(
     struct pcclComm* comm, struct ncclDevComm const* devComm
   ) {
   NCCLCHECK(CommCheck(comm, __func__, "comm"));
   NCCLCHECK(PtrCheck(devComm, __func__, "devComm"));
+  NCCLCHECK(checkDevApiVersion(devComm->magic, devComm->version));
   int saveDev;
   ncclResult_t ret = ncclSuccess;
 
