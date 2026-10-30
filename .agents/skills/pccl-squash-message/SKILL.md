@@ -28,11 +28,10 @@ starting `ERROR:` with the reason. Do not return a partial message.
 
 ## Write the complete message
 
-- Write in English: an imperative title, preferably at most 50 characters,
-  a blank line, then 1–3 short bullets or a short paragraph explaining the problem,
-  final solution and material limitations. Include compatibility impact and
-  migration when relevant. Keep the explanatory body within 90 words and wrap
-  it near 72 columns.
+Follow the Commit Messages and Signed Commits sections of `CONTRIBUTING.md`
+read at the expected base SHA, without adding stricter formatting rules.
+Summarize the complete final diff rather than the intermediate revisions.
+
 - Preserve original issue references, including every target in lists and full
   URLs. Keep their existing Refs/closing intent; do not turn a reference into a
   closing request. Copy reference clauses without unrelated historical prose.
@@ -40,8 +39,6 @@ starting `ERROR:` with the reason. Do not return a partial message.
   exact duplicates, retaining first occurrence order. Deduplicate identical
   references as well. Do not infer identities from logins, add the bot's identity,
   or invent a reference, signature or certification. Never reflow these lines.
-- Put references before signing trailers and compare them with the original
-  commits. Do not claim tests, deployment or approval without evidence.
-- Return only the complete plain-text message: no JSON, explanation, Markdown
-  headings, emphasis, code fences or backticks, including markup copied from the
-  PR. Write commands such as /merge literally. Do not include the word `codex`.
+- Compare the preserved references and signing trailers with all original commits.
+- Return only the complete commit message as plain text, without JSON,
+  surrounding code fences or commentary.
