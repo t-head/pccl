@@ -21,7 +21,9 @@ struct ncclTransport* ncclTransports[NTRANSPORTS + 1] = {
 };
 
 template <int type>
-static ncclResult_t selectTransport(ncclComm_t comm, struct ncclTopoGraph* graph, struct ncclPeerInfo* myInfo, struct ncclPeerInfo* peerInfo, struct ncclConnect* connect, int channelId, int peer, int connIndex) {
+static ncclResult_t selectTransport(ncclComm_t comm, struct ncclTopoGraph* graph, struct ncclConnect* connect, int channelId, int peer, int connIndex, int* transportType) {
+  struct ncclPeerInfo* myInfo = comm->peerInfo + comm->rank;
+  struct ncclPeerInfo* peerInfo = comm->peerInfo + peer;
   struct ncclConnector* connector = (type == 1) ? comm->channels[channelId].peers[peer]->send + connIndex :
                                     comm->channels[channelId].peers[peer]->recv + connIndex;
   for (int t=0; t<NTRANSPORTS; t++) {
@@ -32,6 +34,7 @@ static ncclResult_t selectTransport(ncclComm_t comm, struct ncclTopoGraph* graph
     if (ret) {
       connector->transportComm = transportComm;
       NCCLCHECK(transportComm->setup(comm, graph, myInfo, peerInfo, connect, connector, channelId, connIndex));
+      if (transportType) *transportType = t;
       return ncclSuccess;
     }
   }
@@ -115,7 +118,12 @@ ncclResult_t ncclTransportCheckP2pType(ncclComm_t comm, bool* localP2pSupport, b
         struct ncclPeerInfo* ipeerInfo = &comm->peerInfo[ipeer];
         struct ncclPeerInfo* jpeerInfo = &comm->peerInfo[jpeer];
         int idx = ipeer * comm->nRanks + jpeer;
-        NCCLCHECKGOTO(ncclTopoCheckP2p(comm, comm->topo, ipeerInfo->rank, jpeerInfo->rank, &canConnectFlags[idx], NULL, NULL), res, end);
+        int intermediateRank = -1;
+        NCCLCHECKGOTO(ncclTopoCheckP2p(comm, comm->topo, ipeerInfo->rank, jpeerInfo->rank, &canConnectFlags[idx], NULL, &intermediateRank), res, end);
+        // Software relays do not provide direct access to registered peer buffers.
+        if (intermediateRank != -1) canConnectFlags[idx] = 0;
+        // localRankToRank need not have the same order as the global rank scan.
+        canConnectFlags[jpeer * comm->nRanks + ipeer] = canConnectFlags[idx];
         if (!canConnectFlags[idx] && globalSuportFlag == true) {
           globalSuportFlag = false;
         }
@@ -150,7 +158,7 @@ end:
 
 ncclResult_t ncclTransportP2pSetup(ncclComm_t comm, struct ncclTopoGraph* graph, int connIndex) {
   ncclResult_t ret = ncclSuccess;
-  struct ncclConnect** data; // Store intermediate send/recvData structs for connect
+  struct ncclConnect** data = NULL; // Store intermediate send/recvData structs for connect
   struct ncclConnect** recvData = NULL; // Points to entries inside data for given recv connection within a channel
   struct ncclConnect** sendData = NULL; // Points to entries inside data for given send connection within a channel
   int done = 0;
@@ -161,11 +169,12 @@ ncclResult_t ncclTransportP2pSetup(ncclComm_t comm, struct ncclTopoGraph* graph,
   timeLast = timeStart;
   bool timeReported = false;
 
-  NCCLCHECK(ncclCalloc(&data, maxPeers));
+  NCCLCHECKGOTO(ncclCalloc(&data, maxPeers), ret, fail);
   NCCLCHECKGOTO(ncclCalloc(&recvData, maxPeers), ret, fail);
   NCCLCHECKGOTO(ncclCalloc(&sendData, maxPeers), ret, fail);
 
   NCCLCHECKGOTO(ncclStrongStreamAcquireUncaptured(&comm->sharedRes->hostStream), ret, fail);
+  NCCLCHECKGOTO(ncclStrongStreamAcquire(ncclCudaGraphNone(), &comm->sharedRes->deviceStream), ret, fail);
 
   for (int i=1; i<comm->nRanks; i++) {
     int bootstrapTag = (i<<8) + (graph ? graph->id+1 : 0);
@@ -188,13 +197,13 @@ ncclResult_t ncclTransportP2pSetup(ncclComm_t comm, struct ncclTopoGraph* graph,
     int sendChannels = 0, recvChannels = 0;
     for (int c=0; c<MAXCHANNELS; c++) {
       if (recvMask & (1UL<<c)) {
-        NCCLCHECKGOTO(selectTransport<0>(comm, graph, comm->peerInfo+comm->rank, comm->peerInfo+recvPeer, recvData[p]+recvChannels++, c, recvPeer, connIndex), ret, fail);
+        NCCLCHECKGOTO(selectTransport<0>(comm, graph, recvData[p]+recvChannels++, c, recvPeer, connIndex, NULL), ret, fail);
       }
     }
     sendData[p] = recvData[p]+recvChannels;
     for (int c=0; c<MAXCHANNELS; c++) {
       if (sendMask & (1UL<<c)) {
-        NCCLCHECKGOTO(selectTransport<1>(comm, graph, comm->peerInfo+comm->rank, comm->peerInfo+sendPeer, sendData[p]+sendChannels++, c, sendPeer, connIndex), ret, fail);
+        NCCLCHECKGOTO(selectTransport<1>(comm, graph, sendData[p]+sendChannels++, c, sendPeer, connIndex, NULL), ret, fail);
       }
     }
 
@@ -267,14 +276,14 @@ ncclResult_t ncclTransportP2pSetup(ncclComm_t comm, struct ncclTopoGraph* graph,
             }
           }
         }
-        if (ncclParamReportConnectProgress() && comm->rank == 0) {
+        if (ncclParamReportConnectProgress() && comm->rank == 0 && done > 0) {
           struct timeval now;
           gettimeofday(&now, NULL);
           if (((now.tv_sec - timeLast.tv_sec)*1.0 + (now.tv_usec-timeLast.tv_usec)*1e-6) > 1) {
             float elapsed = (now.tv_sec - timeStart.tv_sec)*1.0 + (now.tv_usec-timeStart.tv_usec)*1e-6;
-            float remaining = elapsed*(comm->nRanks-i)/i;
+            float remaining = elapsed * (comm->nRanks - done) / done;
             INFO(NCCL_INIT, "P2p connect: %g%% Elapsed %d:%02d Remaining %d:%02d",
-                i*100.0/comm->nRanks, ((int)elapsed)/60, ((int)elapsed)%60, ((int)remaining)/60, ((int)remaining)%60);
+                done * 100.0/comm->nRanks, ((int)elapsed)/60, ((int)elapsed)%60, ((int)remaining)/60, ((int)remaining)%60);
             timeReported = true;
             timeLast = now; // struct copy;
           }
@@ -318,8 +327,10 @@ ncclResult_t ncclTransportP2pSetup(ncclComm_t comm, struct ncclTopoGraph* graph,
   }
 
 exit:
-  for(int i=0; i<maxPeers; ++i){
-    NCCLCHECK(ncclFree(data[i]));
+  if (data) {
+    for(int i = 0; i < maxPeers; i++){
+      NCCLCHECK(ncclFree(data[i]));
+    }
   }
   NCCLCHECK(ncclFree(data));
   NCCLCHECK(ncclFree(sendData));
@@ -327,6 +338,7 @@ exit:
 
   NCCLCHECK(ncclStrongStreamWaitStream(ncclCudaGraphNone(), &comm->sharedRes->deviceStream, &comm->sharedRes->hostStream));
   NCCLCHECK(ncclStrongStreamRelease(ncclCudaGraphNone(), &comm->sharedRes->hostStream));
+  NCCLCHECK(ncclStrongStreamRelease(ncclCudaGraphNone(), &comm->sharedRes->deviceStream));
   return ret;
 fail:
   goto exit;

@@ -31,11 +31,12 @@ struct ncclP2pRequest {
 struct p2pConnectInfo {
   int rank;
   int read;
-  struct ncclP2pBuff p2pBuff;
+  // CE and device-buffer descriptors are exclusive and must fit CONNECT_SIZE.
+  union {
+    struct ncclP2pBuff p2pBuff;
+    ncclShmIpcDesc_t desc;
+  };
   int minPathNum;
-  // Use by CE memcpy
-  char shmName[7];
-  int shmSize;
 };
 static_assert(sizeof(struct p2pConnectInfo) <= CONNECT_SIZE, "p2pConnectInfo is too large");
 
@@ -56,8 +57,7 @@ struct p2pShmProxyInfo {
   // Shared memory between proxy and receiving GPU
   struct p2pShm* shm;
   struct p2pShm* devShm;
-  char shmName[7];
-  int shmSize;
+  ncclShmIpcDesc_t desc;
 
   // Intermediate step for sender
   struct ncclRecvMem* ceRecvMem;
@@ -90,7 +90,7 @@ struct p2pResources {
   struct p2pShmProxyInfo proxyInfo;
   struct p2pShm* shm;
   struct p2pShm* devShm;
-  int shmSize;
+  ncclShmIpcDesc_t desc;
 };
 
 // hgMem API support
@@ -127,6 +127,14 @@ ncclResult_t p2pCanConnect(int* ret, ncclComm_t comm, struct ncclTopoSystem* top
   int intermediateRank;
   NCCLCHECK(ncclTopoCheckP2p(comm, topo, info1->rank, info2->rank, ret, NULL, &intermediateRank));
   if (*ret == 0) return ncclSuccess;
+
+  // Check if NET would work better
+  int useNet = 0;
+  NCCLCHECK(ncclTopoCheckNet(comm->topo, info1->rank, info2->rank, &useNet));
+  if (useNet) {
+    *ret = 0;
+    return ncclSuccess;
+  }
 
   if (info1->hostHash != comm->peerInfo[comm->rank].hostHash ||
       info1->hostHash != info2->hostHash) {
@@ -428,8 +436,7 @@ ncclResult_t p2pSendSetup(ncclComm_t comm, struct ncclTopoGraph* graph, struct n
   NCCLCHECK(ncclProxyConnect(comm, TRANSPORT_P2P, 1, info->rank, &send->proxyConn));
   if (usingMemcpy()) {
     NCCLCHECK(ncclProxyCallBlocking(comm, &send->proxyConn, ncclProxyMsgSetup, NULL, 0, &resources->proxyInfo, sizeof(struct p2pShmProxyInfo)));
-    info->shmSize = resources->proxyInfo.shmSize;
-    memcpy(info->shmName, resources->proxyInfo.shmName, sizeof(info->shmName));
+    memcpy(&info->desc, &resources->proxyInfo.desc, sizeof(ncclShmIpcDesc_t));
   } else {
     NCCLCHECK(ncclProxyCallBlocking(comm, &send->proxyConn, ncclProxyMsgSetup, &req, sizeof(struct ncclP2pRequest), &info->p2pBuff, sizeof(struct ncclP2pBuff)));
     NCCLCHECK(p2pMap(comm, myInfo, comm->peerInfo+info->rank, info, (void**)&resources->sendDevMem, &resources->sendMemIpc));
@@ -533,13 +540,7 @@ ncclResult_t p2pRecvConnect(ncclComm_t comm, struct ncclConnect* connectInfo, in
   struct ncclSendMem* remDevMem = NULL;
 
   if (usingMemcpy()) {
-    char shmPath[PATH_MAX];
-    sprintf(shmPath, "/dev/shm/pccl-%s", info->shmName);
-    TRACE(NCCL_SHM,"Open shmName %s shmSize %d", shmPath, info->shmSize);
-    resources->shmSize = info->shmSize;
-    NCCLCHECK(ncclShmOpen(shmPath, info->shmSize, (void**)&resources->shm, (void**)&resources->devShm, 0));
-    // Remove the file to ensure proper clean-up
-    NCCLCHECK(ncclShmUnlink(shmPath));
+    NCCLCHECK(ncclShmImportShareableBuffer(comm, info->rank, &info->desc, (void**)&resources->shm, (void**)&resources->devShm, &resources->desc));
 
     recv->conn.tail = &resources->devShm->recvMem.tail;
     recv->conn.head = &resources->devShm->sendMem.head;
@@ -622,7 +623,7 @@ ncclResult_t p2pRecvFree(struct ncclConnector* recv) {
       if (resources->sendMemIpc) HGGCCHECK(hggcIpcCloseMemHandle(resources->sendMemIpc));
       if (resources->recvMemIpc) HGGCCHECK(hggcIpcCloseMemHandle(resources->recvMemIpc));
       if (usingMemcpy()) {
-        NCCLCHECK(ncclShmClose(resources->shm, resources->devShm, resources->shmSize));
+        NCCLCHECK(ncclShmIpcClose(&resources->desc));
       }
     }
     NCCLCHECK(ncclFree(resources));
@@ -633,17 +634,15 @@ ncclResult_t p2pRecvFree(struct ncclConnector* recv) {
 static ncclResult_t p2pSendProxySetup(struct ncclProxyConnection* connection, struct ncclProxyState* proxyState, void* reqBuff, int reqSize, void* respBuff, int respSize, int* done) {
   if (usingMemcpy()) {
     struct p2pShmProxyInfo* proxyInfo;
+    size_t shmSize;
+
     NCCLCHECK(ncclCalloc(&proxyInfo, 1));
     connection->transportResources = proxyInfo;
 
     NCCLCHECK(ncclHggcCalloc(&proxyInfo->ceDevBuff, proxyState->buffSizes[NCCL_PROTO_SIMPLE], proxyState->pDevMemUsed, proxyState->memManager));
 
-    char shmPath[PATH_MAX];
-    shmPath[0] = '\0';
-    proxyInfo->shmSize = sizeof(struct ncclSendMem) + sizeof(struct ncclRecvMem);
-    NCCLCHECK(ncclShmOpen(shmPath, proxyInfo->shmSize, (void**)&proxyInfo->shm, (void**)&proxyInfo->devShm, 1));
-    TRACE(NCCL_SHM,"Opened shmName %s shmSize %d", shmPath, proxyInfo->shmSize);
-    memcpy(proxyInfo->shmName, shmPath+sizeof("/dev/shm/pccl-")-1, sizeof(proxyInfo->shmName));
+    shmSize = sizeof(struct ncclSendMem) + sizeof(struct ncclRecvMem);
+    NCCLCHECK(ncclShmAllocateShareableBuffer(shmSize, false, &proxyInfo->desc, (void**)&proxyInfo->shm, (void**)&proxyInfo->devShm));
 
     NCCLCHECK(ncclHggcHostCalloc(&proxyInfo->ceRecvMem, 1, proxyState->pPinnedMemUsed));
 
@@ -712,7 +711,7 @@ static ncclResult_t p2pSendProxyFree(struct ncclProxyConnection* connection, str
   if (usingMemcpy()) {
     struct p2pShmProxyInfo* proxyInfo = (struct p2pShmProxyInfo*)connection->transportResources;
     if (proxyInfo) {
-      NCCLCHECK(ncclShmClose(proxyInfo->shm, proxyInfo->devShm, proxyInfo->shmSize));
+      NCCLCHECK(ncclShmIpcClose(&proxyInfo->desc));
       NCCLCHECK(ncclHggcHostFree(proxyInfo->ceRecvMem));
       NCCLCHECK(ncclHggcFree(proxyInfo->ceDevBuff, MEM_NORMAL, proxyState->memManager));
       HGGCCHECK(hggcStreamDestroy(proxyInfo->stream));
@@ -942,19 +941,22 @@ static ncclResult_t ipcRegisterBuffer(ncclComm_t comm, const void* userbuff, siz
     }
 
     if (*regBufFlag) {
-      if (needUpdate) {
-        /*hggcStream_t hostStream, deviceStream;*/
-        NCCLCHECKGOTO(ncclStrongStreamAcquireUncaptured(&comm->sharedRes->hostStream), ret, fail);
-        if (regRecord->regIpcAddrs.devPeerRmtAddrs == NULL) {
-          NCCLCHECKGOTO(ncclHggcCallocAsync(&regRecord->regIpcAddrs.devPeerRmtAddrs, comm->localRanks, NULL, comm->sharedRes->hostStream.hggcStream, comm->memManager), ret, fail);
-        }
-        NCCLCHECKGOTO(ncclHggcMemcpyAsync(regRecord->regIpcAddrs.devPeerRmtAddrs, regRecord->regIpcAddrs.hostPeerRmtAddrs, comm->localRanks, comm->sharedRes->hostStream.hggcStream), ret, fail);
-        NCCLCHECKGOTO(ncclStrongStreamWaitStream(ncclCudaGraphNone(), &comm->sharedRes->deviceStream, &comm->sharedRes->hostStream), ret, fail);
-        NCCLCHECKGOTO(ncclStrongStreamRelease(ncclCudaGraphNone(), &comm->sharedRes->hostStream), ret, fail);
-      }
       if (type == NCCL_IPC_COLLECTIVE) {
+        // for collective, store registered remote buffers into dev memory for future reference
+        if (regRecord->regIpcAddrs.devPeerRmtAddrs == NULL || needUpdate) {
+          NCCLCHECKGOTO(ncclStrongStreamAcquireUncaptured(&comm->sharedRes->hostStream), ret, fail);
+          NCCLCHECKGOTO(ncclStrongStreamAcquire(ncclCudaGraphNone(), &comm->sharedRes->deviceStream), ret, fail);
+          if (regRecord->regIpcAddrs.devPeerRmtAddrs == NULL)
+            NCCLCHECKGOTO(ncclHggcCallocAsync(&regRecord->regIpcAddrs.devPeerRmtAddrs, comm->localRanks, NULL, comm->sharedRes->hostStream.hggcStream, comm->memManager), ret, fail);
+          if (needUpdate)
+            NCCLCHECKGOTO(ncclHggcMemcpyAsync(regRecord->regIpcAddrs.devPeerRmtAddrs, regRecord->regIpcAddrs.hostPeerRmtAddrs, comm->localRanks, comm->sharedRes->hostStream.hggcStream), ret, fail);
+          NCCLCHECKGOTO(ncclStrongStreamWaitStream(ncclCudaGraphNone(), &comm->sharedRes->deviceStream, &comm->sharedRes->hostStream), ret, fail);
+          NCCLCHECKGOTO(ncclStrongStreamRelease(ncclCudaGraphNone(), &comm->sharedRes->hostStream), ret, fail);
+          NCCLCHECKGOTO(ncclStrongStreamRelease(ncclCudaGraphNone(), &comm->sharedRes->deviceStream), ret, fail);
+        }
         peerRmtAddrs = regRecord->regIpcAddrs.devPeerRmtAddrs;
       } else {
+        assert(nPeers == 1);
         // p2p always returns remote addr here since remote buffer addr is passed in ncclDevWorkP2p struct
         peerRmtAddrs = (uintptr_t*)regRecord->regIpcAddrs.hostPeerRmtAddrs[peerLocalRank];
       }
