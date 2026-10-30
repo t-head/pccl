@@ -69,7 +69,8 @@ def load_draft(api, number, draft_comment):
             run['repository']['full_name'] != api.repository or
             run['status'] != 'completed' or run['conclusion'] != 'success' or
             run['event'] not in {'pull_request', 'workflow_dispatch'} or
-            (run['event'] == 'pull_request' and run['head_repository']['full_name'] != api.repository) or
+            (run['event'] == 'pull_request' and
+             (run['head_repository']['full_name'] != api.repository or run['head_sha'] != draft['head'])) or
             (run['event'] == 'workflow_dispatch' and run['head_branch'] != 'main')):
         raise ValueError('The draft must come from a successful message preparation workflow')
     return draft
