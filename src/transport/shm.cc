@@ -10,6 +10,8 @@
 #include "shm.h"
 #include "transport.h"
 
+#define SHM_PATH_MAX 128
+
 struct shmConnectInfo {
   char shmName[7];
   int shmSize;
@@ -158,6 +160,41 @@ ncclResult_t shmRecvFree(struct ncclConnector* recv) {
   NCCLCHECK(ncclShmClose(resources->hostMem, resources->devHostMem, resources->shmSize));
   NCCLCHECK(ncclShmClose(resources->remHostMem, resources->devRemHostMem, resources->remShmSize));
   NCCLCHECK(ncclFree(resources));
+  return ncclSuccess;
+}
+
+ncclResult_t ncclShmAllocateShareableBuffer(size_t size, bool legacy, ncclShmIpcDesc_t *desc, void **hptr, void **dptr) {
+  if (desc == NULL || hptr == NULL) {
+    ERROR("Invalid argument desc %p, hptr %p", desc, hptr);
+    return ncclInvalidArgument;
+  }
+  char shmPath[SHM_PATH_MAX] = { '\0' };
+  desc->shmli.shmSize = size;
+  NCCLCHECK(ncclShmOpen(shmPath, sizeof(shmPath), size, hptr, dptr, 1, &desc->shmli.handle));
+  memcpy(desc->shmli.shmSuffix, shmPath + sizeof("/dev/shm/pccl-") - 1, sizeof(desc->shmli.shmSuffix));
+  desc->legacy = true;
+  INFO(NCCL_SHM, "MMAP allocated shareable host buffer %s size %zi ptr %p", shmPath, size, *hptr);
+  return ncclSuccess;
+}
+
+ncclResult_t ncclShmImportShareableBuffer(ncclComm_t comm, int proxyRank, ncclShmIpcDesc_t *desc, void **hptr, void **dptr, ncclShmIpcDesc_t *descOut) {
+  if (comm == NULL || desc == NULL || hptr == NULL || descOut == NULL) {
+    ERROR("Invalid argument comm %p, desc %p, hptr %p, descOut %p", comm, desc, hptr, descOut);
+    return ncclInvalidArgument;
+  }
+  char shmPath[SHM_PATH_MAX];
+  snprintf(shmPath, sizeof(shmPath), "/dev/shm/pccl-%s", desc->shmli.shmSuffix);
+  NCCLCHECK(ncclShmOpen(shmPath, sizeof(shmPath), desc->shmli.shmSize, hptr, dptr, -1, &descOut->shmli.handle));
+  descOut->legacy = true;
+  INFO(NCCL_SHM, "MMAP imported shareable host buffer %s size %zi ptr %p", shmPath, desc->shmli.shmSize, *hptr);
+  return ncclSuccess;
+}
+
+ncclResult_t ncclShmIpcClose(ncclShmIpcDesc_t *desc) {
+  if (desc) {
+    NCCLCHECK(ncclShmClose(desc->shmli.handle));
+  }
+
   return ncclSuccess;
 }
 
