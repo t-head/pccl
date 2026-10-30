@@ -129,8 +129,6 @@ Reference at least one open issue in the PR description to satisfy the organizat
 1. Consider rebasing onto the latest target branch before submitting. Being behind alone does not block submission; resolve conflicts and address relevant integration issues before merging.
 2. Set up the T-Head SAIL SDK and run `./build.sh` as described in [README.md](README.md) to ensure a clean build with no warnings. Use [pccl-tests](https://github.com/t-head/pccl-tests) for relevant functional and performance validation.
 
-Use squash and merge when merging a pull request.
-
 ### Commit Messages
 
 Write concise English messages that describe the complete change.
