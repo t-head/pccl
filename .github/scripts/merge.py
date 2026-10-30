@@ -8,6 +8,7 @@ import json
 import os
 from pathlib import Path
 import re
+import subprocess
 import sys
 
 import commit_message_squash as squash
@@ -49,11 +50,13 @@ def preview(api, number, request):
 
 
 def load_draft(api, number, draft_comment):
-    body = draft_comment['body']
-    message = re.search(r'<pre>(.*?)</pre>', body, re.S)
+    body = draft_comment['body'].replace('\r\n', '\n')
+    message = re.search(r'<pre>([^<]*)</pre>', body)
     if not message:
-        raise ValueError('The preview has no complete message; generate it again')
+        raise ValueError('The preview has no complete plain-text message; generate it again')
     draft = {**squash.snapshot(api, number), 'message': html.unescape(message[1])}
+    # Quotes and equivalent HTML entities may differ after a plain-text edit.
+    body = body[:message.start(1)] + html.escape(draft['message']) + body[message.end(1):]
     if (draft['target'] != 'main' or draft['commit_count'] < 2 or
             body != squash.comment_body(draft)):
         raise ValueError('The preview does not match this PR version; generate it again')
@@ -62,9 +65,27 @@ def load_draft(api, number, draft_comment):
 
 def merge_message(api, number, draft):
     title, body = squash.split_message(draft['message'])
-    result = api.request(f'/repos/{api.repository}/pulls/{number}/merge', 'PUT',
-                         {'sha': draft['head'], 'merge_method': 'squash',
-                          'commit_title': title, 'commit_message': body})
+    try:
+        result = api.request(f'/repos/{api.repository}/pulls/{number}/merge', 'PUT',
+                             {'sha': draft['head'], 'merge_method': 'squash',
+                              'commit_title': title, 'commit_message': body})
+    except (subprocess.TimeoutExpired, ValueError) as error:
+        error_detail(api, error)
+        # A failed response does not prove the server rejected the merge.
+        try:
+            pr = api.request(f'/repos/{api.repository}/pulls/{number}')
+            if (pr['merged'] is True and pr['head']['sha'] == draft['head'] and
+                    pr['base']['ref'] == draft['target'] and
+                    pr['base']['repo']['full_name'] == api.repository):
+                commit = api.request(f"/repos/{api.repository}/commits/{pr['merge_commit_sha']}")
+                if (len(commit['parents']) == 1 and
+                        commit['commit']['message'].rstrip('\n') == title + '\n\n' + body):
+                    return pr['merge_commit_sha']
+        except Exception as verification_error:
+            error_detail(api, verification_error)
+        raise ValueError('Merge result is unconfirmed. Check the PR before retrying; '
+                         'if it merged, run pr-test-ppu.yml on main manually. '
+                         'See the workflow logs for the request error.') from None
     if result.get('merged') is not True:
         raise ValueError('GitHub did not merge the PR; check its current state')
     return result['sha']
@@ -101,8 +122,8 @@ def main():
         status = 0
     except Exception as error:
         detail = error_detail(api, error)
-        result = 'Could not merge: ' + (detail if isinstance(error, ValueError)
-                                      else 'Verification failed; see the merge workflow logs')
+        result = 'Merge workflow stopped: ' + (detail if isinstance(error, ValueError)
+                                             else 'Verification failed; see the merge workflow logs')
         status = 1
     else:
         # GITHUB_TOKEN merges do not trigger push workflows. Explicit dispatch

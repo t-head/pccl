@@ -118,7 +118,7 @@ def preview_comments(api, number):
     pages = api.request(f'/repos/{api.repository}/issues/{number}/comments?per_page=100', paginate=True)
     return [item for page in pages for item in page
             if item['user']['login'] == 'github-actions[bot]' and item['user']['type'] == 'Bot'
-            and item.get('body', '').startswith(COMMENT_MARKER + '\n')]
+            and item.get('body', '').replace('\r\n', '\n').startswith(COMMENT_MARKER + '\n')]
 
 
 def comment_body(draft):

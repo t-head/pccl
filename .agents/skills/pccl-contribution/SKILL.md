@@ -100,6 +100,9 @@ Incomplete reads require a new run or manual preparation.
    command; after an API rejection, satisfy the requirements and send `/merge` again.
    The human confirms the displayed message; the script does not authenticate AI
    provenance. Message edits after the command invalidate it.
+   A failed merge response triggers a read-only check of the resulting commit before
+   requesting main CI. If the result remains unconfirmed, inspect the PR before
+   retrying and run main CI manually if it merged.
 
 4. The web Squash and merge button remains available. For an authorized CLI merge,
    recheck the confirmed inputs and use `gh pr merge --squash --match-head-commit <sha>
