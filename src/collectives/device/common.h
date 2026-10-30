@@ -233,13 +233,13 @@ class RunWorkColl {
   __device__ void run(struct ncclDevWorkColl* work) {}
 };
 
-template <ncclFunc_t FUNCTION, int ALGO, int PROTO, class REDOP, typename T, int UNROLL>
+template <ncclFunc_t FUNCTION, int ALGO, int PROTO, class REDOP, typename T, int UNROLL, bool NET_POLL = false>
 class RunWorkP2p {
   public:
   __device__ void run(struct ncclDevWorkP2p* work) {}
 };
 
-template <ncclFunc_t FUNCTION, int ALGO, int PROTO, class REDOP, typename T, int UNROLL>
+template <ncclFunc_t FUNCTION, int ALGO, int PROTO, class REDOP, typename T, int UNROLL, bool NET_POLL = false>
 class RunWorkBatch {
   public:
   __device__ __forceinline__ void run(void* args) {
@@ -277,7 +277,7 @@ class RunWorkBatch {
       }
     } else {
       ncclDevWorkP2p* work = (ncclDevWorkP2p*)pShmem->workStorage;
-      RunWorkP2p<FUNCTION, ALGO, PROTO, REDOP, T, UNROLL>().run(work);
+      RunWorkP2p<FUNCTION, ALGO, PROTO, REDOP, T, UNROLL, NET_POLL>().run(work);
     }
   }
 };
@@ -367,11 +367,11 @@ __device__ __forceinline__ void kernelExecStateMonitor(ncclShmemData* pShmem, in
 #ifndef NO_TSM
 extern __shared__ struct ncclShmemData pcclShmem;
 #endif
-template <ncclFunc_t FUNCTION, int ALGO, int PROTO, class REDOP, typename T, int UNROLL, int FINDEX>
+template <ncclFunc_t FUNCTION, int ALGO, int PROTO, class REDOP, typename T, int UNROLL, int FINDEX, bool NET_POLL = false>
 __device__ void ncclKernelMain(struct ncclDevKernelArgs const* args)  {
   int tid = threadIdx.x;
   int tn = blockDim.x;
-  auto f = RunWorkBatch<FUNCTION, ALGO, PROTO, REDOP, T, UNROLL>();
+  auto f = RunWorkBatch<FUNCTION, ALGO, PROTO, REDOP, T, UNROLL, NET_POLL>();
 
 #ifdef NO_TSM
   ncclShmemData* pShmem = getShmemPtr(args->comm);
@@ -433,6 +433,7 @@ __device__ void ncclKernelMain(struct ncclDevKernelArgs const* args)  {
     profiler(pShmem, START);
     if (pShmem->funcId == (unsigned)FINDEX) {
       f.run(pShmem);
+
     } else {
       pcclFuncs[pShmem->funcId](pShmem);
     }
@@ -557,7 +558,7 @@ __device__ void NCCL_FUNC_NAME(func, algo, proto, devredop, type)(void* args) { 
 // Copy primitives only define one function for copy
 #define IMPL_COLL_C(func) IMPL_COLL3(func, Sum, int8_t, ncclInt8);
 
-// Point-to-point primitives only have one function/kernel.
+// Only Simple supports NET polling; the other P2P protocols require ICN.
 #define IMPL_COLL_P(func) \
   IMPL_COLL_FUNC(func, RING, SIMPLE, Sum, int8_t); \
   IMPL_COLL_KERN(func, RING, SIMPLE, Sum, int8_t, 0); \

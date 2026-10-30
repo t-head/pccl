@@ -91,10 +91,10 @@ struct ProtoSimpleBulkAR {
 };
 
 // The primitives class. Specialized per protocol in the other headers.
-template<typename T, typename FUNC, typename Proto, int NRECV, int NSEND, int DIRECT, int PrimitivesWithoutDirect>
+template<typename T, typename FUNC, typename Proto, int NRECV, int NSEND, int DIRECT, int PrimitivesWithoutDirect, bool NET_POLL = false>
 class Primitives;
 
-template <typename T, int NRECV, int NSEND, class FUNC, int UNROLL, int SLICESPERCHUNK, int SLICESTEPS, int DIRECT, typename Proto, class RealPrimitives, int P2P>
+template <typename T, int NRECV, int NSEND, class FUNC, int UNROLL, int SLICESPERCHUNK, int SLICESTEPS, int DIRECT, typename Proto, class RealPrimitives, int P2P, bool NET_POLL = false>
 class PrimitivesSimpleBase;
 
 // Used by LL & LL128 to implement direct members in the naive way.
