@@ -39,7 +39,7 @@ def command(api, event):
 def preview(api, number, request):
     comments = squash.preview_comments(api, number)
     if len(comments) != 1:
-        raise ValueError('One displayed AI draft is required; run Commit message squash first')
+        raise ValueError('One displayed AI draft is required; run pccl checkin with pr_number first')
     draft_comment = comments[0]
     # Equal timestamps are ambiguous at GitHub's second-level precision.
     if (datetime.fromisoformat(draft_comment['updated_at'].replace('Z', '+00:00')) >=
