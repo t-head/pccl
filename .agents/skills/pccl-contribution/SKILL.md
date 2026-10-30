@@ -1,6 +1,6 @@
 ---
 name: pccl-contribution
-description: Prepare PCCL issues, commits, and PRs, handle review feedback, and perform authorized updates or merges. Use for contribution work, not general Git questions or unrelated coding.
+description: Prepare PCCL issues, commits and PRs, address review feedback, and carry out authorized pushes and squash merges.
 ---
 
 # PCCL Contribution Workflow
@@ -70,20 +70,42 @@ When changing only the message, keep committed content unchanged. Do not rewrite
 
 ## Merge
 
-Use squash and merge. For a PR with two or more commits, prepare an AI draft with **Prepare squash commit** and review its complete message in the PR comment. For a single-commit PR, use its original message and preserve signing metadata; no AI draft is needed.
+Use squash and merge. Single-commit PRs keep their original message and signing
+metadata, with no AI preview; use the web button or CLI below.
 
-- Check the message against the complete PR diff, including compatibility impact and limitations. The bot comment is a suggestion, not an approval or a merge command.
-- The preview carries its PR version and generation record. `/merge` reads the displayed message directly and verifies it against the current PR. Changed inputs require a fresh draft.
-- One Copilot session follows [pccl-squash-message](../pccl-squash-message/SKILL.md) to read the complete PR and generate the entire message, including original references and signing trailers. Scripts check the PR version and publish the returned text unchanged. AI preservation is not a code-level guarantee: review the summary, references and signatures against the original commits before `/merge`. Existing PR CI checks original commit messages and DCO, not the final squash message or its author; no duplicate validator is added.
-- Same-repository PR updates prepare the message automatically. For fork PRs or a fresh draft, run the workflow from `main` after it is merged. Large or incomplete diffs require manual preparation.
-- Each new draft is posted at the end of the conversation and replaces old previews. Retrying the same publication does not post it twice. Single-commit PRs remove the preview; Actions logs remain available.
-- After the merge workflow is on `main`, a human with repository Write, Maintain or Admin access can comment exactly `/merge` to confirm the displayed multi-commit message and request squash merging. Actions handles the command; no separate bot account or @mention is needed. PR or draft changes require a fresh message and command.
-- The command verifies the caller and preview, then sends the displayed message and expected HEAD to GitHub's merge API. GitHub decides whether reviews, required checks and other branch rules allow merging; the script does not duplicate those policies or wait for them. Keep required rules enabled and the workflow token out of bypass exceptions. If GitHub rejects the request, complete the missing requirements and send `/merge` again. Single-commit PRs use their original message through the web button or the CLI command below. The web Squash and merge button remains available for every PR.
+For multi-commit PRs, **Prepare squash commit** runs
+[pccl-squash-message](../pccl-squash-message/SKILL.md) in one read-only Copilot session.
+Same-repository updates run it automatically; use a manual run from `main` for forks or
+a fresh draft. Each new preview shows the full returned text at the end of the
+conversation and replaces old previews. Incomplete reads require a new run or manual
+preparation.
 
-1. Present the final repository/PR, target, HEAD SHA, method, title/message, CI and approvals, unresolved discussions, and validation limits. For squash, verify final authorship/sign-offs and preserve authorized trailers and issue intent.
-2. Obtain explicit human approval for this merge. Push permission, passing CI, or a request to finish the PR is insufficient. Reuse approval only while HEAD, target, method, and message remain unchanged.
-3. Recheck immediately before merging; unmet checks or approvals block it. Do not bypass protection or enable auto-merge without explicit authorization.
-4. Use the exact confirmed title and body with `gh pr merge --squash --match-head-commit <sha> --subject <title> --body-file <body-file>`. Do not append another sign-off or substitute GitHub’s concatenated default. Verify and report the resulting commit and merge method.
+1. Present the repository/PR, target, HEAD, message, CI and approvals, unresolved
+   discussions and validation limits. Check the summary against the final diff and the
+   references, authorship and signing trailers against original commits. AI copying and
+   deduplication have no code-level guarantee; original-commit DCO checks do not
+   validate the final squash message or author.
+
+2. Obtain explicit human approval to merge. For a multi-commit PR, a human with Write,
+   Maintain or Admin access can confirm the displayed message by commenting exactly
+   `/merge`. This becomes available when the workflow is on `main`. Approve alone, push
+   permission or passing CI does not authorize merging.
+   Reuse approval only while HEAD, target and message are unchanged.
+
+3. `/merge` verifies the command author, preview and current PR, then sends the
+   displayed text and expected HEAD to GitHub's merge API. GitHub enforces reviews,
+   required CI and branch rules; the script does not wait or duplicate these policies.
+   Keep the token out of bypass exceptions. Changed inputs require a fresh preview and
+   command; after an API rejection, satisfy the requirements and send `/merge` again.
+   The preview hash detects accidental edits, not AI provenance: the human confirms the
+   displayed text.
+
+4. The web Squash and merge button remains available. For an authorized CLI merge,
+   recheck the confirmed inputs and use `gh pr merge --squash --match-head-commit <sha>
+   --subject <title> --body-file <body-file>`. Preserve the confirmed message without
+   adding sign-offs or substituting GitHub's default. Do not bypass protection or enable
+   auto-merge without explicit authorization. Verify and report the resulting commit and
+   merge method.
 
 ## References
 

@@ -21,7 +21,7 @@ def command(api, event):
             type(number) is not int or number <= 0 or
             type(expected['id']) is not int or expected['id'] <= 0):
         raise ValueError('Expected a new /merge comment on a pull request')
-    comment = api.get(f"/repos/{api.repository}/issues/comments/{expected['id']}")
+    comment = api.request(f"/repos/{api.repository}/issues/comments/{expected['id']}")
     if (comment['user']['type'] != 'User' or comment['user']['id'] != expected['user']['id'] or
             comment['body'] != '/merge' or comment['body'] != expected['body'] or
             comment['created_at'] != comment['updated_at'] or
@@ -31,16 +31,13 @@ def command(api, event):
     login = comment['user']['login']
     if not re.fullmatch(r'[A-Za-z0-9][A-Za-z0-9-]{0,38}', login):
         raise ValueError('Invalid command author')
-    permission = api.get(f'/repos/{api.repository}/collaborators/{login}/permission')
+    permission = api.request(f'/repos/{api.repository}/collaborators/{login}/permission')
     if permission['permission'] not in {'write', 'admin'}:
         raise ValueError('The command author needs repository Write, Maintain or Admin access')
-    return comment
 
 
 def preview(api, number, request):
-    comments = [item for item in api.pages(f'/repos/{api.repository}/issues/{number}/comments')
-                if item['user']['login'] == 'github-actions[bot]' and item['user']['type'] == 'Bot'
-                and item.get('body', '').startswith(squash.COMMENT_MARKER + '\n')]
+    comments = squash.preview_comments(api, number)
     if len(comments) != 1:
         raise ValueError('One displayed AI draft is required; run Prepare squash commit first')
     draft_comment = comments[0]
@@ -64,7 +61,7 @@ def load_draft(api, number, draft_comment):
     if (draft.get('number') != number or draft.get('repository') != api.repository or
             draft.get('commit_count', 0) < 2 or body != squash.comment_body(draft, run_id)):
         raise ValueError('The preview does not match this PR draft')
-    run = api.get(f'/repos/{api.repository}/actions/runs/{run_id}')
+    run = api.request(f'/repos/{api.repository}/actions/runs/{run_id}')
     if (run['path'] != '.github/workflows/prepare-squash.yml' or
             run['repository']['full_name'] != api.repository or
             run['status'] != 'completed' or run['conclusion'] != 'success' or
@@ -72,7 +69,7 @@ def load_draft(api, number, draft_comment):
             (run['event'] == 'pull_request' and
              (run['head_repository']['full_name'] != api.repository or run['head_sha'] != draft['head'])) or
             (run['event'] == 'workflow_dispatch' and run['head_branch'] != 'main')):
-        raise ValueError('The draft must come from a successful message preparation workflow')
+        raise ValueError('The preview must reference a successful message preparation workflow')
     return draft
 
 
@@ -87,15 +84,15 @@ def merge_message(api, number, draft):
 
 
 def merge_request(api, event):
-    request = command(api, event)
     number = event['issue']['number']
-    draft_comment = preview(api, number, request)
+    draft_comment = preview(api, number, event['comment'])
     draft = load_draft(api, number, draft_comment)
     if draft['target'] != 'main':
         raise ValueError('Only PRs targeting main can be merged')
-    # Recheck mutable input before writing; GitHub atomically checks HEAD and branch rules.
+    # Authorize the unchanged command near the write. Publishing shares this
+    # job's concurrency group, so re-read the selected preview by ID.
     command(api, event)
-    current_comment = preview(api, number, request)
+    current_comment = api.request(f"/repos/{api.repository}/issues/comments/{draft_comment['id']}")
     if any(current_comment[key] != draft_comment[key] for key in ('id', 'body', 'updated_at')):
         raise ValueError('The displayed draft changed; review it and send /merge again')
     squash.verify(api, draft)
@@ -136,7 +133,8 @@ def main():
             status = 1
     print(result)
     try:
-        api.write_comment(f"/repos/{api.repository}/issues/{event['issue']['number']}/comments", result)
+        api.request(f"/repos/{api.repository}/issues/{event['issue']['number']}/comments",
+                    'POST', {'body': result})
     except Exception as error:
         error_detail(api, error)
         print('Could not publish the result comment; check the PR and workflow logs.', file=sys.stderr)
