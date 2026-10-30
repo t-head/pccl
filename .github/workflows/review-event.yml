@@ -1,0 +1,17 @@
+name: PCCL review trigger
+run-name: "Review update for PR #${{ github.event.pull_request.number }}"
+
+on:
+  pull_request_review:
+    types: [submitted, edited, dismissed]
+
+permissions: {}
+
+jobs:
+  notify:
+    name: Refresh Maintainer approval
+    runs-on: ubuntu-24.04
+    timeout-minutes: 1
+    steps:
+      # Fork reviews have a read-only token. The trusted workflow_run handler rechecks via API.
+      - run: echo "Review changed; the reviewer-routing workflow will refresh approval."
