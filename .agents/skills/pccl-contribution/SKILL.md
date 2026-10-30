@@ -1,6 +1,6 @@
 ---
 name: pccl-contribution
-description: Prepare PCCL issues, commits, and PRs, handle review feedback, and perform authorized updates or merges. Use for contribution work, not general Git questions or unrelated coding.
+description: Prepare PCCL issues, commits and PRs, address review feedback, and carry out authorized pushes and squash merges.
 ---
 
 # PCCL Contribution Workflow
@@ -55,8 +55,8 @@ When changing only the message, keep committed content unchanged. Do not rewrite
 ## Push and PR
 
 1. Confirm the repository, working branch, and target; fetch the actual target.
-2. Keep one contribution commit, preserving its contents, authorship, and sign-offs. Review the full target-to-head diff.
-3. If HEAD lacks the latest target tip, automatically rebase before pushing. Require a clean worktree and verified target; abort and report conflicts.
+2. Preserve authorship and authorized sign-offs. Review the full target-to-head diff.
+3. Rebase when needed to resolve conflicts or integrate relevant target changes. Do not rewrite reviewed commits merely because the target advanced. Require a clean worktree before rebasing; abort and report unresolved conflicts.
 4. Verify the remote branch tip. For rewrites, use `--force-with-lease=<ref>:<expected-sha>`; stop on unexpected changes. Never push directly to protected targets.
 5. Use the PR template and English text covering the final change, actual validation, limitations, and a relevant open issue. Apply authorized edits and read them back.
 6. Check CI and reviews for the current HEAD. Report pending or failed checks separately; an AI gate passing does not prove a completed review.
@@ -70,10 +70,46 @@ When changing only the message, keep committed content unchanged. Do not rewrite
 
 ## Merge
 
-1. Present the final repository/PR, target, HEAD SHA, method, title/message, CI and approvals, unresolved discussions, and validation limits. For squash, verify final authorship/sign-offs and preserve authorized trailers and issue intent.
-2. Obtain explicit human approval for this merge. Push permission, passing CI, or a request to finish the PR is insufficient. Reuse approval only while HEAD, target, method, and message remain unchanged.
-3. Recheck immediately before merging; unmet checks or approvals block it. Do not bypass protection or enable auto-merge without explicit authorization.
-4. Guard the expected HEAD when supported. Verify and report the resulting commit and merge method.
+Single-commit PRs keep their original message and signing
+metadata, with no AI preview; use the web button or CLI below.
+
+For multi-commit PRs, **Generate commit message** in **pccl checkin** runs
+[pccl-squash-message](../pccl-squash-message/SKILL.md) in one read-only Copilot session.
+Same-repository updates run it automatically. For forks or a fresh draft, run
+**pccl checkin** from `main` with `pr_number`; omit it for normal CI.
+Publishing checks the PR version, posts the complete message at the
+conversation end, then deletes old previews. Retrying follows the same steps.
+Incomplete reads require a new run or manual preparation.
+
+1. Present the repository/PR, target, HEAD, message, CI and approvals, unresolved
+   discussions and validation limits. Check the summary against the final diff and the
+   references, authorship and signing trailers against original commits. AI copying and
+   deduplication have no code-level guarantee; original-commit DCO checks do not
+   validate the final squash message or author.
+
+2. Obtain explicit human approval to merge. For a multi-commit PR, a human with Write,
+   Maintain or Admin access can confirm the displayed message by commenting exactly
+   `/merge`. This becomes available when the workflow is on `main`. Approve alone, push
+   permission or passing CI does not authorize merging.
+   Reuse approval only while HEAD, target and message are unchanged.
+
+3. `/merge` verifies the command author, preview and current PR, then sends the
+   displayed text and expected HEAD to GitHub's merge API. GitHub enforces reviews,
+   required CI and branch rules; the script does not wait or duplicate these policies.
+   Keep the token out of bypass exceptions. Changed inputs require a fresh preview and
+   command; after an API rejection, satisfy the requirements and send `/merge` again.
+   The human confirms the displayed message; the script does not authenticate AI
+   provenance. Message edits after the command invalidate it.
+   A failed merge response triggers a read-only check of the resulting commit before
+   requesting main CI. If the result remains unconfirmed, inspect the PR before
+   retrying and run main CI manually if it merged.
+
+4. The web Squash and merge button remains available. For an authorized CLI merge,
+   recheck the confirmed inputs and use `gh pr merge --squash --match-head-commit <sha>
+   --subject <title> --body-file <body-file>`. Preserve the confirmed message without
+   adding sign-offs or substituting GitHub's default. Do not bypass protection or enable
+   auto-merge without explicit authorization. Verify and report the resulting commit and
+   merge method.
 
 ## References
 

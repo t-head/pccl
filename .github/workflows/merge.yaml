@@ -1,0 +1,34 @@
+name: Merge
+run-name: "Merge PR #${{ github.event.issue.number }}"
+
+on:
+  issue_comment:
+    types: [created]
+
+permissions: {}
+
+jobs:
+  merge:
+    if: >-
+      github.repository == 't-head/pccl' && github.event.issue.pull_request &&
+      github.event.comment.user.type == 'User' && github.event.comment.body == '/merge'
+    runs-on: ubuntu-24.04
+    timeout-minutes: 5
+    concurrency:
+      group: squash-message-publish-${{ github.event.issue.number }}
+      queue: max
+    permissions:
+      contents: write
+      pull-requests: write
+      issues: read
+      actions: write # Dispatch main CI after a GITHUB_TOKEN merge.
+    steps:
+      # issue_comment uses the default branch; never check out or execute the PR head.
+      - uses: actions/checkout@d23441a48e516b6c34aea4fa41551a30e30af803 # v6
+        with:
+          persist-credentials: false
+      - name: Verify the command and draft, then request squash merging
+        env:
+          GITHUB_TOKEN: ${{ github.token }}
+          PYTHONUTF8: '1'
+        run: python3 .github/scripts/merge.py
