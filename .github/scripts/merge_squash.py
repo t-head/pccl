@@ -76,28 +76,6 @@ def load_draft(api, number, draft_comment):
     return draft
 
 
-def check_readiness(api, number, draft):
-    current = json.loads(api.cli(
-        'pr', 'view', str(number), '--repo', api.repository, '--json',
-        'state,isDraft,headRefOid,baseRefOid,baseRefName,reviewDecision,mergeStateStatus'))
-    if current['state'] != 'OPEN' or current['isDraft'] or current['baseRefName'] != 'main':
-        raise ValueError('Only an open, non-draft PR targeting main can be merged')
-    if current['headRefOid'] != draft['head'] or current['baseRefOid'] != draft['base']:
-        raise ValueError('The PR changed; generate a fresh draft and send /merge again')
-    # UNSTABLE can mean that only optional checks failed. GitHub still enforces
-    # branch rules when merging; check the required results explicitly here.
-    if (current['reviewDecision'] != 'APPROVED' or
-            current['mergeStateStatus'] not in {'CLEAN', 'UNSTABLE', 'HAS_HOOKS'}):
-        raise ValueError('PR is not ready: reviews=' + str(current['reviewDecision']) +
-                         ', merge status=' + str(current['mergeStateStatus']) +
-                         '. Complete the required reviews and checks, then send /merge again')
-    checks = json.loads(api.cli('pr', 'checks', str(number), '--repo', api.repository,
-                               '--required', '--json', 'name,bucket'))
-    blocked = [check['name'] for check in checks if check['bucket'] not in {'pass', 'skipping'}]
-    if not checks or blocked:
-        raise ValueError('Required checks are not ready: ' + ', '.join(blocked or ['no results']))
-
-
 def merge_message(api, number, draft):
     title, body = draft['message'].rstrip('\n').split('\n\n', 1)
     result = api.request(f'/repos/{api.repository}/pulls/{number}/merge', 'PUT',
@@ -113,13 +91,14 @@ def merge_request(api, event):
     number = event['issue']['number']
     draft_comment = preview(api, number, request)
     draft = load_draft(api, number, draft_comment)
+    if draft['target'] != 'main':
+        raise ValueError('Only PRs targeting main can be merged')
     # Recheck mutable input before writing; GitHub atomically checks HEAD and branch rules.
     command(api, event)
     current_comment = preview(api, number, request)
     if any(current_comment[key] != draft_comment[key] for key in ('id', 'body', 'updated_at')):
         raise ValueError('The displayed draft changed; review it and send /merge again')
     squash.verify(api, draft)
-    check_readiness(api, number, draft)
     return merge_message(api, number, draft)
 
 

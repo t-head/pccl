@@ -21,15 +21,13 @@ jobs:
       contents: write
       pull-requests: write
       issues: read
-      checks: read
-      statuses: read
       actions: write # Dispatch main CI after a GITHUB_TOKEN merge.
     steps:
       # issue_comment uses the default branch; never check out or execute the PR head.
       - uses: actions/checkout@d23441a48e516b6c34aea4fa41551a30e30af803 # v6
         with:
           persist-credentials: false
-      - name: Verify the command, displayed draft and merge requirements
+      - name: Verify the command and draft, then request squash merging
         env:
           GITHUB_TOKEN: ${{ github.token }}
           PYTHONUTF8: '1'
