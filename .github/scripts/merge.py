@@ -10,7 +10,7 @@ from pathlib import Path
 import re
 import sys
 
-import prepare_squash as squash
+import commit_message_squash as squash
 
 
 def command(api, event):
@@ -39,7 +39,7 @@ def command(api, event):
 def preview(api, number, request):
     comments = squash.preview_comments(api, number)
     if len(comments) != 1:
-        raise ValueError('One displayed AI draft is required; run Prepare squash commit first')
+        raise ValueError('One displayed AI draft is required; run Commit message squash first')
     draft_comment = comments[0]
     # Equal timestamps are ambiguous at GitHub's second-level precision.
     if (datetime.fromisoformat(draft_comment['updated_at'].replace('Z', '+00:00')) >=

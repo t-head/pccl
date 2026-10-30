@@ -1,4 +1,4 @@
-name: Merge confirmed squash message
+name: Merge
 run-name: "Merge PR #${{ github.event.issue.number }}"
 
 on:
@@ -31,4 +31,4 @@ jobs:
         env:
           GITHUB_TOKEN: ${{ github.token }}
           PYTHONUTF8: '1'
-        run: python3 .github/scripts/merge_squash.py
+        run: python3 .github/scripts/merge.py
