@@ -33,7 +33,7 @@ parser.add_argument('--use_sdk', default=True, action='store_true', help="Accept
 parser.add_argument('--bypass_mode', default=0, type=int, help="Enable bypass operations, 0: no bypass, 1: load bypass, 2: store bypass, 3: both load/store bypass, 4: net bypass.", choices=[0, 1, 2, 3, 4])
 parser.add_argument('--ppu_archs', default='ppu_10,ppu_15', type=str, help="Set ppu archs.")
 parser.add_argument('--hggcrt_version', default=12, type=int, help="HGGC runtime version.")
-parser.add_argument('--disable_tests', default=False, action='store_true', help="Disable tests.")
+parser.add_argument('--enable_tests', default=False, action='store_true', help="Enable tests.")
 parser.add_argument('--no_tsm', default=False, action='store_true', help="Not using TSM to implement kernels.")
 parser.add_argument('--no_hgtx', default=False, action='store_true', help="Disable hgtx when compiling.")
 parser.add_argument('--no_ext_kernel', default=False, action='store_true', help="Skip building ext-kernel, ext-tuner, and ext-profiler plugins.")
@@ -91,15 +91,15 @@ function build_dir
 
     if [[ $BYPASS_MODE -ne 0 ]]; then
         if [[ $(( $BYPASS_MODE & 1 )) -ne 0 ]]; then
-            echo "load operation bypas"
+            echo "load operation bypass"
             build_cmd_str="${build_cmd_str} LOAD_BYPASS=1"
         fi
         if [[ $(( $BYPASS_MODE & 2 )) -ne 0 ]]; then
-            echo "store operation bypas"
+            echo "store operation bypass"
             build_cmd_str="${build_cmd_str} STORE_BYPASS=1"
         fi
         if [[ $(( $BYPASS_MODE & 4 )) -ne 0 ]]; then
-            echo "network bypas"
+            echo "network bypass"
             build_cmd_str="${build_cmd_str} NET_BYPASS=1"
         fi
     fi
@@ -132,8 +132,8 @@ function build_dir
         ppu_option_=$(sed "s/ /;/g" <<< ${PPU_OPTION})
         build_cmd_str="${build_cmd_str} PPU_OPTION=${ppu_option_}"
     fi
-    if [[ $DISABLE_TESTS ]]; then
-        build_cmd_str="${build_cmd_str} DISABLE_TESTS=1"
+    if [[ $ENABLE_TESTS ]]; then
+        build_cmd_str="${build_cmd_str} DISABLE_TESTS=0"
     fi
     if [[ ${NO_HGTX}  ]]; then
         build_cmd_str="${build_cmd_str} HGTX=0"

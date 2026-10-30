@@ -6,8 +6,8 @@
 // See LICENSE.txt for more license information
 //*************************************************************************
 
-#include "include/argparse.hpp"
-#include "include/file_compare.h"
+#include "argparse.hpp"
+#include "file_compare.h"
 #include "pccl_internal.h"
 #include "topo.h"
 #include "net.h"
@@ -16,6 +16,9 @@
 #include <fcntl.h>
 #include <string.h>
 #include <gtest/gtest.h>
+#include <unistd.h>
+#include <libgen.h>
+#include <linux/limits.h>
 
 enum AlgoMode {
   ALGO_AUTO = 0,
@@ -48,29 +51,39 @@ TEST(testClass, testName) { \
 std::string globalTopoAndRefDir;
 
 struct graphSearchTestArgs : public argparse::Args {
-  std::string &root= kwarg("r", "root dir for topo file and reference graph").set_default("./topo_and_reference_graph/");
+  std::string &root= kwarg("r,root", "root dir for topo file and reference graph").set_default("");
   bool &verbose = flag("v,verbose", "A flag to toggle verbose").set_default(false);
-  bool &pxn = flag("p,pxn", "A flag to control pxn enable or disable").set_default(false);
+  bool &pxn = flag("p,pxn", "Enable PXN (cross-NIC communication) tests").set_default(false);
 };
+
+std::string getTopoDir() {
+  char exePath[PATH_MAX];
+  ssize_t len = readlink("/proc/self/exe", exePath, sizeof(exePath) - 1);
+  if (len != -1) {
+    exePath[len] = '\0';
+    return std::string(dirname(exePath)) + "/../topo_and_reference_graph/";
+  }
+  return "./topo_and_reference_graph/";
+}
 
 ncclResult_t setEnvs(const char *topoFile, const char *graphFile) {
   if (topoFile != NULL) {
-    setenv("NCCL_TOPO_FILE", topoFile, 1);
-    INFO(NCCL_INIT, "Override NCCL_TOPO_FILE by %s", topoFile);
+    setenv("PCCL_TOPO_FILE", topoFile, 1);
+    INFO(NCCL_INIT, "Override PCCL_TOPO_FILE by %s", topoFile);
   }
 
   if (graphFile != NULL) {
-    setenv("NCCL_GRAPH_DUMP_FILE", graphFile, 1);
-    INFO(NCCL_INIT, "Override NCCL_GRAPH_DUMP_FILE by %s", graphFile);
+    setenv("PCCL_GRAPH_DUMP_FILE", graphFile, 1);
+    INFO(NCCL_INIT, "Override PCCL_GRAPH_DUMP_FILE by %s", graphFile);
   }
 
   setenv("PCCL_IGNORE_TOPO_DETECTION", "1", 1);
 
-  char *xmlTopoFile = getenv("NCCL_TOPO_FILE");
+  char *xmlTopoFile = getenv("PCCL_TOPO_FILE");
   if (xmlTopoFile) {
-    INFO(NCCL_INIT, "NCCL_TOPO_FILE set by environment to %s", xmlTopoFile);
+    INFO(NCCL_INIT, "PCCL_TOPO_FILE set by environment to %s", xmlTopoFile);
   } else {
-    ERROR("Error, no NCCL_TOPO_FILE set");
+    ERROR("Error, no PCCL_TOPO_FILE set");
     return ncclInvalidArgument;
   }
   return ncclSuccess;
@@ -116,7 +129,7 @@ ncclResult_t testGraphSearch(std::vector<int> ppuList, const char *topoFile, con
   bool isAlgoSpecified = algoMode == ALGO_SPECIFIED;
   NCCLCHECK(xmlAlloc(&xml, NCCL_TOPO_XML_MAX_NODES));
 
-  char *xmlTopoFile = getenv("NCCL_TOPO_FILE");
+  char *xmlTopoFile = getenv("PCCL_TOPO_FILE");
   NCCLCHECK(ncclTopoGetXmlFromFile(xmlTopoFile, xml));
 
   struct ncclXmlNode* cpuNode = NULL;
@@ -290,17 +303,23 @@ int main(int argc, char **argv) {
   ::testing::InitGoogleTest(&argc, argv);
   auto args = argparse::parse<graphSearchTestArgs>(argc, argv);
   if (args.verbose) {
-    setenv("NCCL_DEBUG", "TRACE", 1);
-    setenv("NCCL_DEBUG_SUBSYS", "ALL", 1);
+    setenv("PCCL_DEBUG", "TRACE", 1);
+    setenv("PCCL_DEBUG_SUBSYS", "ALL", 1);
   }
 
   // overwrite default enable setting
   if (!args.pxn) {
-    setenv("NCCL_PXN_DISABLE", "1", 1);
+    setenv("PCCL_PXN_DISABLE", "1", 1);
     setenv("PCCL_DISABLE_ADJUST_SYSTEM", "0", 1);
     setenv("PCCL_GRAPH_SEARCH_START_INTER_TYPE", std::to_string(PATH_PIX).c_str(), 1);
   }
 
-  globalTopoAndRefDir = args.root;
+  // Auto-detect topo directory if not specified by user
+  if (args.root.empty()) {
+    globalTopoAndRefDir = getTopoDir();
+  } else {
+    globalTopoAndRefDir = args.root;
+  }
+
   return RUN_ALL_TESTS();
 }
