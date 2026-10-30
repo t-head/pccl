@@ -76,9 +76,9 @@ metadata, with no AI preview; use the web button or CLI below.
 For multi-commit PRs, **Prepare squash commit** runs
 [pccl-squash-message](../pccl-squash-message/SKILL.md) in one read-only Copilot session.
 Same-repository updates run it automatically; use a manual run from `main` for forks or
-a fresh draft. Each new preview shows the full returned text at the end of the
-conversation and replaces old previews. Incomplete reads require a new run or manual
-preparation.
+a fresh draft. Publishing checks the PR version, posts the complete message at the
+conversation end, then deletes old previews. Retrying follows the same steps.
+Incomplete reads require a new run or manual preparation.
 
 1. Present the repository/PR, target, HEAD, message, CI and approvals, unresolved
    discussions and validation limits. Check the summary against the final diff and the
@@ -97,8 +97,8 @@ preparation.
    required CI and branch rules; the script does not wait or duplicate these policies.
    Keep the token out of bypass exceptions. Changed inputs require a fresh preview and
    command; after an API rejection, satisfy the requirements and send `/merge` again.
-   The preview hash detects accidental edits, not AI provenance: the human confirms the
-   displayed text.
+   The human confirms the displayed message; the script does not authenticate AI
+   provenance. Message edits after the command invalidate it.
 
 4. The web Squash and merge button remains available. For an authorized CLI merge,
    recheck the confirmed inputs and use `gh pr merge --squash --match-head-commit <sha>
