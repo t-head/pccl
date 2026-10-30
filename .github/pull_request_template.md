@@ -2,7 +2,7 @@
 
 <!-- PR title: use a clear summary; a type prefix such as feat:, fix:, or docs: is recommended but not required. -->
 
-<!-- Append commits during development and review; squash into one commit when merging. -->
+<!-- Use squash and merge when merging this PR. -->
 
 ## Description
 
