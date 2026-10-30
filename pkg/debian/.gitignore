@@ -3,5 +3,5 @@
 /*.substvars
 /tmp/
 /files
-/libnccl1/
-/libnccl-dev/
+/libpccl1/
+/libpccl-dev/

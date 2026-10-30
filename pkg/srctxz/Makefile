@@ -22,11 +22,11 @@ PKG_ARCH       := $(shell uname -m)
 prep: $(TXZTARGETS)
 
 build: prep
-	$(MAKE) -C ../../src clean
+	(cd ../..; bash ./build.sh --use_sdk)
 	@printf "Building source tar.xz package\n"
 	(cd $(BUILDDIR); bash srctxz/create_srctxz.sh)
 	mkdir -p $(PKGDIR)
-	mv $(BUILDDIR)/../../nccl-src*.txz $(PKGDIR)
+	mv $(BUILDDIR)/../../pccl-src*.txz $(PKGDIR)
 
 clean:
 	rm -Rf $(TXZPREPDIR) $(PKGDIR)
@@ -34,9 +34,9 @@ clean:
 $(TXZPREPDIR)/% : %.in
 	@printf "Generating %-35s > %s\n" $< $@
 	mkdir -p $(TXZPREPDIR)
-	sed -e "s/\$${nccl:Major}/$(NCCL_MAJOR)/g" \
-	    -e "s/\$${nccl:Minor}/$(NCCL_MINOR)/g" \
-	    -e "s/\$${nccl:Patch}/$(NCCL_PATCH)/g" \
-	    -e "s/\$${nccl:Suffix}/$(NCCL_SUFFIX)/g" \
+	sed -e "s/\$${pccl:Major}/$(PCCL_MAJOR)/g" \
+	    -e "s/\$${pccl:Minor}/$(PCCL_MINOR)/g" \
+	    -e "s/\$${pccl:Patch}/$(PCCL_PATCH)/g" \
+	    -e "s/\$${pccl:Suffix}/$(PCCL_SUFFIX)/g" \
 	    -e "s/\$${pkg:Revision}/$(PKG_REVISION)/g" \
 	    $< > $@

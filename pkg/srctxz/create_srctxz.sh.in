@@ -11,7 +11,7 @@
 # To run from $BUILDDIR/
 
 cd ..
-NCCLDIR=`basename $PWD`
+PCCLDIR=`basename $PWD`
 
 echo "Checking for unclean directory ..."
 git clean -x -i
@@ -24,15 +24,15 @@ if [ "`git status -s | wc -l`" != "0" ]; then
 fi
 
 cd ..
-NCCL_MAJOR=${nccl:Major}
-NCCL_MINOR=${nccl:Minor}
-NCCL_PATCH=${nccl:Patch}
-NCCL_SUFFIX=${nccl:Suffix}
-NCCL_BUILD=${pkg:Revision}
+PCCL_MAJOR=${pccl:Major}
+PCCL_MINOR=${pccl:Minor}
+PCCL_PATCH=${pccl:Patch}
+PCCL_SUFFIX=${pccl:Suffix}
+PCCL_BUILD=${pkg:Revision}
 
-NCCLNAME="nccl-src_${NCCL_MAJOR}.${NCCL_MINOR}.${NCCL_PATCH}${NCCL_SUFFIX}-${NCCL_BUILD}"
+PCCLNAME="pccl-src_${PCCL_MAJOR}.${PCCL_MINOR}.${PCCL_PATCH}${PCCL_SUFFIX}-${PCCL_BUILD}"
 
 tar --exclude build \
     --exclude ".git*" \
     --exclude pkg/srctxz \
-    --transform "s/^$NCCLDIR/$NCCLNAME/" -Jcf $NCCLNAME.txz --owner=0 --group=0 $NCCLDIR
+    --transform "s/^$PCCLDIR/$PCCLNAME/" -Jcf $PCCLNAME.txz --owner=0 --group=0 $PCCLDIR
