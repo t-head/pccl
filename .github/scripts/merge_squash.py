@@ -50,31 +50,18 @@ def preview(api, number, request):
 
 def load_draft(api, number, draft_comment):
     body = draft_comment['body']
-    run_match = re.search(r'^<!-- run: ([1-9][0-9]*) -->$', body, re.M)
-    context = re.search(r'^<!-- draft: (\{[^\n]*\}) -->$', body, re.M)
     message = re.search(r'<pre>(.*?)</pre>', body, re.S)
-    if not all((run_match, context, message)):
-        raise ValueError('The preview has no complete draft record; generate it again')
-    draft = json.loads(context[1])
-    draft['message'] = html.unescape(message[1])
-    run_id = run_match[1]
-    if (draft.get('number') != number or draft.get('repository') != api.repository or
-            draft.get('commit_count', 0) < 2 or body != squash.comment_body(draft, run_id)):
-        raise ValueError('The preview does not match this PR draft')
-    run = api.request(f'/repos/{api.repository}/actions/runs/{run_id}')
-    if (run['path'] != '.github/workflows/prepare-squash.yml' or
-            run['repository']['full_name'] != api.repository or
-            run['status'] != 'completed' or run['conclusion'] != 'success' or
-            run['event'] not in {'pull_request', 'workflow_dispatch'} or
-            (run['event'] == 'pull_request' and
-             (run['head_repository']['full_name'] != api.repository or run['head_sha'] != draft['head'])) or
-            (run['event'] == 'workflow_dispatch' and run['head_branch'] != 'main')):
-        raise ValueError('The preview must reference a successful message preparation workflow')
+    if not message:
+        raise ValueError('The preview has no complete message; generate it again')
+    draft = {**squash.snapshot(api, number), 'message': html.unescape(message[1])}
+    if (draft['target'] != 'main' or draft['commit_count'] < 2 or
+            body != squash.comment_body(draft)):
+        raise ValueError('The preview does not match this PR version; generate it again')
     return draft
 
 
 def merge_message(api, number, draft):
-    title, body = draft['message'].rstrip('\n').split('\n\n', 1)
+    title, body = squash.split_message(draft['message'])
     result = api.request(f'/repos/{api.repository}/pulls/{number}/merge', 'PUT',
                          {'sha': draft['head'], 'merge_method': 'squash',
                           'commit_title': title, 'commit_message': body})
@@ -86,16 +73,13 @@ def merge_message(api, number, draft):
 def merge_request(api, event):
     number = event['issue']['number']
     draft_comment = preview(api, number, event['comment'])
-    draft = load_draft(api, number, draft_comment)
-    if draft['target'] != 'main':
-        raise ValueError('Only PRs targeting main can be merged')
     # Authorize the unchanged command near the write. Publishing shares this
     # job's concurrency group, so re-read the selected preview by ID.
     command(api, event)
     current_comment = api.request(f"/repos/{api.repository}/issues/comments/{draft_comment['id']}")
     if any(current_comment[key] != draft_comment[key] for key in ('id', 'body', 'updated_at')):
         raise ValueError('The displayed draft changed; review it and send /merge again')
-    squash.verify(api, draft)
+    draft = load_draft(api, number, current_comment)
     return merge_message(api, number, draft)
 
 

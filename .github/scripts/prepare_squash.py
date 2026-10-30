@@ -52,8 +52,8 @@ def snapshot(api, number):
     pr = api.request(f'/repos/{api.repository}/pulls/{number}')
     if pr['state'] != 'open' or pr['draft'] or pr['base']['repo']['full_name'] != api.repository:
         raise ValueError('Expected an open, non-draft PR in this repository')
-    version = [pr[key] for key in ('title', 'body', 'commits', 'changed_files')] + [
-        pr['head']['sha'], pr['base']['sha'], pr['base']['ref']]
+    version = [api.repository, number, pr['title'], pr['body'], pr['commits'],
+               pr['changed_files'], pr['head']['sha'], pr['base']['sha'], pr['base']['ref']]
     return {'repository': api.repository, 'number': number, 'input_digest': digest(version),
             'head': pr['head']['sha'],
             'base': pr['base']['sha'], 'target': pr['base']['ref'], 'file_count': pr['changed_files'],
@@ -61,6 +61,13 @@ def snapshot(api, number):
 
 
 # Read-only AI generation
+
+def split_message(message):
+    title, separator, body = message.rstrip('\n').partition('\n\n')
+    if not separator or '\n' in title or not title.strip() or not body.strip():
+        raise ValueError('Expected a title, blank line and body')
+    return title, body
+
 
 def copilot_response(output):
     events = [json.loads(line) for line in output.splitlines() if line.strip()]
@@ -70,9 +77,7 @@ def copilot_response(output):
     message = (answers[-1] if answers else '').strip()
     if message.startswith('ERROR:'):
         raise ValueError('Copilot could not prepare a complete message: ' + message[:500])
-    title, separator, body = message.partition('\n\n')
-    if not separator or '\n' in title or not title.strip() or not body.strip():
-        raise ValueError('Copilot must return a title, blank line and body')
+    split_message(message)
     return message + '\n'
 
 
@@ -98,34 +103,13 @@ def ask_copilot(data):
         return copilot_response(result.stdout)
 
 
-# Prepare a draft and recheck it before publishing or merging
+# Prepare a draft; publishing checks that its input version is still current.
 
 def generate(api, number, ask=ask_copilot):
     data = snapshot(api, number)
     # One commit already has its final message; only remove any old preview.
     message = ask(data) if data['commit_count'] > 1 else None
-    # The PR may change while the model is running.
-    if data != snapshot(api, number):
-        raise ValueError('PR inputs changed during generation; run again')
-    return {**data, 'message': message, 'message_digest': digest(message)}
-
-
-def verify(api, draft):
-    """Reject stale or altered drafts before any comment or merge write."""
-    if draft['repository'] != api.repository:
-        raise ValueError('Draft repository does not match')
-    data = snapshot(api, draft['number'])
-    if any(draft.get(key) != value for key, value in data.items()):
-        raise ValueError('PR inputs changed; generate a fresh draft')
-    if data['commit_count'] == 1:
-        if draft['message'] is not None:
-            raise ValueError('A single-commit PR must not publish an AI draft')
-    elif not isinstance(draft['message'], str) or not draft['message'].strip():
-        raise ValueError('A multi-commit PR requires a message')
-    # This detects accidental edits, not authenticated AI output.
-    if draft.get('message_digest') != digest(draft['message']):
-        raise ValueError('The displayed message changed; generate a fresh draft')
-    return data['commit_count']
+    return {**data, 'message': message}
 
 
 # Conversation preview and old-preview cleanup
@@ -137,48 +121,29 @@ def preview_comments(api, number):
             and item.get('body', '').startswith(COMMENT_MARKER + '\n')]
 
 
-def comment_body(draft, run_id):
-    if not re.fullmatch(r'[1-9][0-9]*', str(run_id)):
-        raise ValueError('Invalid workflow run ID')
-    run_url = f"https://github.com/{draft['repository']}/actions/runs/{run_id}"
-    # Keep verification data with the displayed message. Escape HTML delimiters
-    # so model text cannot end this hidden comment or alter the visible preview.
-    context = json.dumps({key: value for key, value in draft.items() if key != 'message'},
-                         ensure_ascii=True, separators=(',', ':'))
-    context = context.replace('<', '\\u003c').replace('>', '\\u003e')
-    return (f'{COMMENT_MARKER}\n<!-- run: {run_id} -->\n<!-- draft: {context} -->\n'
+def comment_body(draft):
+    return (f"{COMMENT_MARKER}\n<!-- version: {draft['input_digest']} -->\n"
             '### Suggested squash commit message\n\n'
             f"For commit `{draft['head'][:12]}`.\n\n"
             f"<pre>{html.escape(draft['message'])}</pre>\n\n"
-            'Review this message, then comment `/merge` to request squash merging '
-            'when required reviews and checks pass. Available after the merge workflow '
-            'is on `main`; the web Squash and merge button remains available.\n\n'
-            f'[View generation record]({run_url})\n')
+            'Review this message, then comment `/merge` to request squash merging. '
+            'Available after the merge workflow is on `main`; '
+            'the web Squash and merge button remains available.\n')
 
 
-def publish(api, draft, expected_pr, run_id):
-    if type(expected_pr) is not int or expected_pr <= 0 or draft['number'] != expected_pr:
-        raise ValueError('Draft does not match the workflow PR')
-    if not re.fullmatch(r'[1-9][0-9]*', str(run_id)):
-        raise ValueError('Invalid workflow run ID')
+def publish(api, draft, expected_pr):
     comments = preview_comments(api, expected_pr)
+    data = snapshot(api, expected_pr)
+    if any(draft.get(key) != value for key, value in data.items()):
+        raise ValueError('PR inputs changed; generate a fresh draft')
+    published = None
+    if data['commit_count'] > 1:
+        # Always publish at the conversation end before removing old previews.
+        published = api.request(f'/repos/{api.repository}/issues/{expected_pr}/comments',
+                                'POST', {'body': comment_body(draft)})
     for comment in comments:
-        previous_run = re.search(r'<!-- run: ([1-9][0-9]*) -->', comment['body'])
-        if previous_run and int(previous_run[1]) > int(run_id):
-            raise ValueError('A newer workflow has already published its draft')
-    # Re-read the complete PR after locating the comment and before any write.
-    current = None
-    if verify(api, draft) > 1:
-        body = comment_body(draft, run_id)
-        current = next((comment for comment in comments if comment['body'] == body), None)
-        # Publish at the conversation end before removing old previews. Reuse
-        # an identical comment when retrying an interrupted cleanup.
-        current = current or api.request(f'/repos/{api.repository}/issues/{expected_pr}/comments',
-                                         'POST', {'body': body})
-    for comment in comments:
-        if current is None or comment['id'] != current['id']:
-            api.request(f"/repos/{api.repository}/issues/comments/{comment['id']}", 'DELETE')
-    return current['html_url'] if current else None
+        api.request(f"/repos/{api.repository}/issues/comments/{comment['id']}", 'DELETE')
+    return published['html_url'] if published else None
 
 
 # Command-line entry point
@@ -193,8 +158,7 @@ def main():
     args = parser.parse_args()
     api = GitHub(args.repository, os.environ.get('GITHUB_TOKEN', ''))
     if args.publish:
-        url = publish(api, json.loads(os.environ['SQUASH_DRAFT']), args.expected_pr,
-                      os.environ.get('GITHUB_RUN_ID', ''))
+        url = publish(api, json.loads(os.environ['SQUASH_DRAFT']), args.expected_pr)
         print('Published squash message: ' + url if url else
               'Single-commit PR: no AI draft comment; any previous preview was removed.')
     else:
