@@ -79,7 +79,11 @@ static ncclResult_t expectedProxyResponseEnqueue(struct ncclProxyState* state, v
   ex->opId = opId;
 
   // Pre-alloc response buffer
-  ex->respBuff = malloc(respSize);
+  ncclResult_t ret = ncclCalloc(&ex->respBuff, respSize);
+  if (ret != ncclSuccess) {
+    ncclFree(ex);
+    return ret;
+  }
   ex->respSize = respSize;
   ex->res      = ncclInternalError;
   ex->done     = false;
@@ -1214,31 +1218,53 @@ static ncclResult_t ncclProxyGetConnection(struct ncclProxyConnectionPool* pool,
 }
 
 static ncclResult_t proxyFree(struct ncclProxyConnection* connection, struct ncclProxyState* proxyState) {
+  ncclResult_t ret = ncclSuccess;
+  ncclResult_t tmpRet = ncclSuccess;
+  if (connection->pidfdExportFd != -1) {
+    int fd = connection->pidfdExportFd;
+    connection->pidfdExportFd = -1;
+    if (close(fd) != 0) {
+      ERROR("close failed: %s", strerror(errno));
+      ret = ncclSystemError;
+    }
+  }
+  if (connection->pidfdImportFd != -1) {
+    int fd = connection->pidfdImportFd;
+    connection->pidfdImportFd = -1;
+    if (close(fd) != 0) {
+      ERROR("close failed: %s", strerror(errno));
+      if (ret == ncclSuccess) ret = ncclSystemError;
+    }
+  }
   if (connection->send) {
     if (ncclTransports[connection->transport]->send.proxyFree) {
-      NCCLCHECK(ncclTransports[connection->transport]->send.proxyFree(connection, proxyState));
+      NCCLVERIFY(tmpRet = ncclTransports[connection->transport]->send.proxyFree(connection, proxyState));
     }
   } else {
     if (ncclTransports[connection->transport]->recv.proxyFree) {
-      NCCLCHECK(ncclTransports[connection->transport]->recv.proxyFree(connection, proxyState));
+      NCCLVERIFY(tmpRet = ncclTransports[connection->transport]->recv.proxyFree(connection, proxyState));
     }
   }
-  return ncclSuccess;
+  if (ret == ncclSuccess) ret = tmpRet;
+  return ret;
 }
 
 static ncclResult_t ncclProxyFreeConnections(struct ncclProxyConnectionPool* pool, struct ncclProxyState* proxyState) {
+  ncclResult_t ret = ncclSuccess;
   for (int b=0; b<pool->banks; b++) {
     int max = b == pool->banks-1 ? pool->offset : NCCL_PROXY_CONN_POOL_SIZE;
     for (int i=0; i<max; i++) {
       ncclProxyConnection *connection = pool->pools[b]+i;
       if (connection->state != connUninitialized) {
-        NCCLCHECK(proxyFree(connection, proxyState));
+        ncclResult_t tmpRet;
+        NCCLVERIFY(tmpRet = proxyFree(connection, proxyState));
+        if (ret == ncclSuccess) ret = tmpRet;
       }
     }
     NCCLCHECK(ncclFree(pool->pools[b]));
   }
   NCCLCHECK(ncclFree(pool->pools));
-  return ncclSuccess;
+  return ret;
 }
 
 #include "transport.h"
@@ -1315,9 +1341,12 @@ ncclResult_t ncclProxyConnect(ncclComm_t comm, int transport, int send, int prox
 }
 
 // UDS support
-ncclResult_t ncclProxyCallBlockingUDS(ncclComm_t comm, struct ncclProxyConnector* proxyConn, int type, void* reqBuff, int reqSize, void* respBuff, int respSize, int* reqFd, int *respFd) {
+ncclResult_t ncclProxyCallBlockingUDS(ncclComm_t comm, struct ncclProxyConnector* proxyConn, int type,
+    void* reqBuff, int reqSize, void* respBuff, int respSize, int* reqFd, int* respFd, bool* reqSent) {
   ncclResult_t res = ncclSuccess;
   struct ncclIpcSocket ipcSock = { 0 };
+  ncclIpcHdr hdr;
+  *reqSent = false;
   void *opId;
   NCCLCHECK(getRandomData(&opId, sizeof(opId)));
   int reqFdtmp = -1;
@@ -1330,7 +1359,7 @@ ncclResult_t ncclProxyCallBlockingUDS(ncclComm_t comm, struct ncclProxyConnector
        comm, rank, proxyConn->tpRank, pidHash, reqSize, respSize, respFd, opId);
 
   // cuMem: Create a UDS socket to receive the response
-  NCCLCHECK(ncclIpcSocketInit(&ipcSock, rank, (uint64_t)opId, comm->abortFlag));
+  NCCLCHECKGOTO(ncclIpcSocketInit(&ipcSock, rank, (uint64_t)opId, comm->abortFlag), res, error);
 
   if (reqFd) {
     reqFdtmp = *reqFd;
@@ -1339,7 +1368,6 @@ ncclResult_t ncclProxyCallBlockingUDS(ncclComm_t comm, struct ncclProxyConnector
     NCCLCHECK(ncclIpcSocketGetFd(&ipcSock, &reqFdtmp));
   }
 
-  ncclIpcHdr hdr;
   memset(&hdr, '\0', sizeof(hdr));
   hdr.type = type;
   hdr.rank = rank;
@@ -1354,6 +1382,7 @@ ncclResult_t ncclProxyCallBlockingUDS(ncclComm_t comm, struct ncclProxyConnector
   }
   memcpy(&hdr.data, reqBuff, reqSize);
   NCCLCHECKGOTO(ncclIpcSocketSendMsg(&ipcSock, &hdr, sizeof(hdr), reqFdtmp, proxyConn->tpRank, pidHash), res, error);
+  *reqSent = true;
   NCCLCHECKGOTO(ncclIpcSocketRecvMsg(&ipcSock, respBuff, respSize, respFd), res, error);
   NCCLCHECKGOTO(ncclIpcSocketClose(&ipcSock), res, error);
 
@@ -1368,21 +1397,48 @@ error:
   return res;
 }
 
+PCCL_PARAM(IpcUsePidfd, "IPC_USE_PIDFD", 0);
+
 // hgMem API support
-// The response is sent out-of-band using ncclIpcSocket for this specific command
 ncclResult_t ncclProxyClientGetFdBlocking(ncclComm_t comm, int proxyRank, void *handle, int* convertedFd) {
   ncclResult_t ret = ncclSuccess;
-  // Request the allocation of a UDS fd for the handle
+  int fd = -1;
+  bool reqSent = false;
+  int usePidfd = pcclParamIpcUsePidfd();
+  struct pcclPidfdInfo info;
   if (comm->gproxyConn[proxyRank].initialized == false) {
     NCCLCHECKGOTO(ncclProxyConnect(comm, TRANSPORT_P2P, 1, proxyRank, &comm->gproxyConn[proxyRank]), ret, error);
   }
-  NCCLCHECKGOTO(ncclProxyCallBlockingUDS(comm, &comm->gproxyConn[proxyRank], ncclProxyMsgGetFd, handle, sizeof(HGmemGenericAllocationHandle), NULL, 0, NULL, convertedFd), ret, error);
+  NOWARN(ret = ncclProxyCallBlockingUDS(comm, &comm->gproxyConn[proxyRank], ncclProxyMsgGetFd,
+    handle, sizeof(HGmemGenericAllocationHandle), NULL, 0, NULL, convertedFd, &reqSent),
+    usePidfd ? NCCL_PROXY : ncclDebugNoWarn);
+  if (ret == ncclSuccess) {
+    VERBOSE(NCCL_PROXY, "UDS: ClientGetFd handle 0x%lx tpRank %d returned fd %d sameProcess %d",
+      *(uint64_t*)handle, comm->topParentRanks[proxyRank], *convertedFd, comm->gproxyConn[proxyRank].sameProcess);
+    return ret;
+  }
+  // Try pidfd only if the UDS request has not been sent.
+  if (!usePidfd || reqSent || ret != ncclSystemError ||
+      __atomic_load_n(comm->abortFlag, __ATOMIC_ACQUIRE)) goto error;
 
-  // Receive converted fd over UDS
-  VERBOSE(NCCL_PROXY, "UDS: ClientGetFd handle 0x%lx tpRank %d returned fd %d sameProcess %d", *(uint64_t*)handle, comm->topParentRanks[proxyRank], *convertedFd, comm->gproxyConn[proxyRank].sameProcess);
-  return ret;
+  INFO(NCCL_PROXY, "UDS unavailable for tpRank %d, trying pidfd", comm->topParentRanks[proxyRank]);
+  NCCLCHECKGOTO(ncclProxyCallBlocking(comm, &comm->gproxyConn[proxyRank], ncclProxyMsgGetFd,
+    handle, sizeof(HGmemGenericAllocationHandle), &info, sizeof(info)), ret, error);
+  ret = pcclPidfdGetFd(&info, &fd);
+  // Confirm the export remained alive until pidfd_getfd completed before importing it.
+  NCCLCHECKIGNORE(ncclProxyCallBlocking(comm, &comm->gproxyConn[proxyRank], pcclProxyMsgCloseFd,
+    NULL, 0, NULL, 0), ret);
+  if (ret != ncclSuccess) goto error;
+  if (fd == -1) {
+    ret = ncclSystemError;
+    goto error;
+  }
+  *convertedFd = fd;
+  INFO(NCCL_PROXY, "pidfd: ClientGetFd tpRank %d returned fd %d", comm->topParentRanks[proxyRank], fd);
+  return ncclSuccess;
 
 error:
+  if (fd != -1) (void)close(fd);
   ERROR("pcclProxyClientGetFd call to tpRank %d handle 0x%lx failed : %d", comm->topParentRanks[proxyRank], *(uint64_t*)handle, ret);
   return ret;
 }
@@ -1390,17 +1446,32 @@ error:
 
 ncclResult_t ncclProxyClientQueryFdBlocking(ncclComm_t comm, struct ncclProxyConnector* proxyConn, int localFd, int* rmtFd) {
   ncclResult_t ret = ncclSuccess;
-  NCCLCHECKGOTO(ncclProxyCallBlockingUDS(comm, proxyConn, ncclProxyMsgQueryFd, NULL, 0, (void*)rmtFd, sizeof(int), &localFd, NULL), ret, fail);
-exit:
-  // We have now received the converted fd over UDS
-  INFO(NCCL_PROXY, "UDS: ClientQueryFd localFd %d tpRank %d remote fd %d sameProcess %d", localFd, proxyConn->tpRank, *rmtFd, proxyConn->sameProcess);
-  return ret;
+  bool reqSent = false;
+  int usePidfd = pcclParamIpcUsePidfd();
+  struct pcclPidfdInfo fdInfo;
+  *rmtFd = -1;
+  NOWARN(ret = ncclProxyCallBlockingUDS(comm, proxyConn, ncclProxyMsgQueryFd,
+    NULL, 0, rmtFd, sizeof(int), &localFd, NULL, &reqSent), usePidfd ? NCCL_PROXY : ncclDebugNoWarn);
+  if (ret == ncclSuccess) {
+    INFO(NCCL_PROXY, "UDS: ClientQueryFd localFd %d tpRank %d remote fd %d sameProcess %d",
+      localFd, proxyConn->tpRank, *rmtFd, proxyConn->sameProcess);
+    return ret;
+  }
+  if (!usePidfd || reqSent || ret != ncclSystemError ||
+      __atomic_load_n(comm->abortFlag, __ATOMIC_ACQUIRE)) goto fail;
+
+  INFO(NCCL_PROXY, "UDS unavailable for tpRank %d, using pidfd for registration", proxyConn->tpRank);
+  pcclPidfdGetInfo(localFd, &fdInfo);
+  NCCLCHECKGOTO(ncclProxyCallBlocking(comm, proxyConn, ncclProxyMsgQueryFd,
+    &fdInfo, sizeof(fdInfo), rmtFd, sizeof(int)), ret, fail);
+  return ncclSuccess;
 fail:
   ERROR("pcclProxyClientQueryFdBlocking call to tpRank %d localFd %d failed : %d", proxyConn->tpRank, localFd, ret);
-  goto exit;
+  return ret;
 }
 
-const char* ncclProxyMsgTypeStr[] = { "Unknown", "Init", "SharedInit", "Setup", "Connect", "Start", "Close", "Abort", "Stop", "GetFd", "QueryFd", "Register", "Deregister" };
+const char* ncclProxyMsgTypeStr[] = { "Unknown", "Init", "SharedInit", "Setup", "Connect", "Start", "Close", "Abort",
+  "Stop", "GetFd", "QueryFd", "Register", "Deregister", "CloseFd" };
 ncclResult_t ncclProxyCallAsync(ncclComm_t comm, struct ncclProxyConnector* proxyConn, int type, void* reqBuff, int reqSize, int respSize, void* opId) {
   struct ncclSocket* sock;
   ncclResult_t ret = ncclSuccess;
@@ -1409,6 +1480,9 @@ ncclResult_t ncclProxyCallAsync(ncclComm_t comm, struct ncclProxyConnector* prox
   if (sharedProxyState->peerSocks == NULL) return ncclInternalError;
 
   sock = sharedProxyState->peerSocks + proxyConn->tpLocalRank;
+
+  // Add proxyOp to expected response queue
+  NCCLCHECK(expectedProxyResponseEnqueue(sharedProxyState, opId, respSize));
 
   NCCLCHECKGOTO(ncclSocketSend(sock, &type, sizeof(int)), ret, error);
   NCCLCHECKGOTO(ncclSocketSend(sock, &proxyConn->connection, sizeof(void*)), ret, error);
@@ -1419,11 +1493,9 @@ ncclResult_t ncclProxyCallAsync(ncclComm_t comm, struct ncclProxyConnector* prox
   // Send opId to proxy
   NCCLCHECKGOTO(ncclSocketSend(sock, &opId, sizeof(opId)), ret, error);
 
-  // Add proxyOp to expected response queue
-  NCCLCHECK(expectedProxyResponseEnqueue(sharedProxyState, opId, respSize));
-
   return ncclSuccess;
 error:
+  NCCLCHECKIGNORE(expectedProxyResponseRemove(sharedProxyState, opId), ret);
   ERROR("Proxy Call to rank %d failed (%s)", comm->localRankToRank[proxyConn->tpLocalRank], ncclProxyMsgTypeStr[type]);
   return ret;
 }
@@ -1499,7 +1571,8 @@ ncclResult_t ncclPollProxyResponse(ncclComm_t comm, struct ncclProxyConnector* p
 ncclResult_t ncclProxyCallBlocking(ncclComm_t comm, struct ncclProxyConnector* proxyConn, int type, void* reqBuff, int reqSize, void* respBuff, int respSize) {
   // Alloc some memory to act as a handle
   ncclResult_t res = ncclSuccess;
-  void* opId = malloc(1);
+  void* opId = NULL;
+  NCCLCHECK(ncclCalloc(&opId, 1));
 
   NCCLCHECKGOTO(ncclProxyCallAsync(comm, proxyConn, type, reqBuff, reqSize, respSize, opId), res, fail);
 
@@ -1587,6 +1660,8 @@ static ncclResult_t proxyConnInit(struct ncclProxyLocalPeer* peer, struct ncclPr
   NCCLCHECK(ncclProxyNewConnection(connectionPool, &id));
   NCCLCHECK(ncclProxyGetConnection(connectionPool, id, connection));
 
+  (*connection)->pidfdExportFd = -1;
+  (*connection)->pidfdImportFd = -1;
   (*connection)->sock = &peer->sock;
   (*connection)->transport = req->transport;
   (*connection)->send = req->send;
@@ -1642,6 +1717,36 @@ error:
   return ret;
 }
 
+static ncclResult_t proxyGetFdPidfd(struct ncclProxyConnection* connection, void* reqBuff, int reqSize,
+    void* respBuff, int respSize) {
+  if (reqSize != sizeof(HGmemGenericAllocationHandle) || respSize != sizeof(struct pcclPidfdInfo)) {
+    return ncclInternalError;
+  }
+  if (connection->pidfdExportFd != -1) return ncclInternalError;
+  HGmemGenericAllocationHandle handle = *(HGmemGenericAllocationHandle*)reqBuff;
+  // Keep the exported FD until the requester acknowledges pidfd_getfd completion.
+  HGCHECK(hgMemExportToShareableHandle(&connection->pidfdExportFd, handle, HG_MEM_HANDLE_TYPE_POSIX_FILE_DESCRIPTOR, 0));
+  pcclPidfdGetInfo(connection->pidfdExportFd, (struct pcclPidfdInfo*)respBuff);
+  return ncclSuccess;
+}
+
+static ncclResult_t proxyCloseFdPidfd(struct ncclProxyConnection* connection) {
+  int fd = connection->pidfdExportFd;
+  connection->pidfdExportFd = -1;
+  SYSCHECK(close(fd), "close");
+  return ncclSuccess;
+}
+
+static ncclResult_t proxyQueryFdPidfd(struct ncclProxyConnection* connection, void* reqBuff, int reqSize,
+    void* respBuff, int respSize) {
+  if (reqSize != sizeof(struct pcclPidfdInfo) || respSize != sizeof(int)) return ncclInternalError;
+  if (connection->pidfdImportFd != -1) return ncclInternalError;
+  NCCLCHECK(pcclPidfdGetFd((struct pcclPidfdInfo*)reqBuff, &connection->pidfdImportFd));
+  if (connection->pidfdImportFd == -1) return ncclSystemError;
+  *(int*)respBuff = connection->pidfdImportFd;
+  return ncclSuccess;
+}
+
 static ncclResult_t proxyProgressAsync(struct ncclProxyAsyncOp* op, struct ncclProxyState* proxyState, int* asyncOpCount, struct ncclProxyLocalPeer* peer, struct ncclProxyConnectionPool* connectionPool) {
   int done = 1;
   ncclResult_t res = ncclInternalError;
@@ -1659,6 +1764,14 @@ static ncclResult_t proxyProgressAsync(struct ncclProxyAsyncOp* op, struct ncclP
   } else if (op->type == ncclProxyMsgInit) {
     TRACE(NCCL_PROXY, "proxyProgressAsync::ncclProxyMsgInit opId=%p op.reqBuff=%p", op->opId, op->reqBuff);
     res = proxyConnInit(peer, connectionPool, proxyState, (ncclProxyInitReq*) op->reqBuff, (ncclProxyInitResp*) op->respBuff, &op->connection);
+  } else if (op->type == ncclProxyMsgGetFd) {
+    res = proxyGetFdPidfd(op->connection, op->reqBuff, op->reqSize, op->respBuff, op->respSize);
+  } else if (op->type == ncclProxyMsgQueryFd) {
+    res = proxyQueryFdPidfd(op->connection, op->reqBuff, op->reqSize, op->respBuff, op->respSize);
+  } else if (op->type == pcclProxyMsgCloseFd) {
+    // A close error does not invalidate the FD already acquired by the requester.
+    NCCLVERIFY(proxyCloseFdPidfd(op->connection));
+    res = ncclSuccess;
   } else if (op->type == ncclProxyMsgRegister) {
     TRACE(NCCL_PROXY, "proxyProgressAsync::ncclProxyMsgRegister opId=%p op.reqBuff=%p, op->reqSize=%d, op->respSize=%d", op->opId, op->reqBuff, op->reqSize, op->respSize);
     res = op->connection->tcomm->proxyRegister(op->connection, proxyState, op->reqBuff, op->reqSize, op->respBuff, op->respSize, &done);
@@ -1738,6 +1851,8 @@ static bool proxyMatchOpType(int type) {
     case ncclProxyMsgSetup:
     case ncclProxyMsgConnect:
     case ncclProxyMsgGetFd:
+    case ncclProxyMsgQueryFd:
+    case pcclProxyMsgCloseFd:
     case ncclProxyMsgRegister:
     case ncclProxyMsgDeregister:
       return true;
@@ -1775,16 +1890,17 @@ void* ncclProxyService(void* _args) {
     pollfds[s].events = POLLHUP|POLLIN;
   }
 
-  if (ncclSocketGetFd(proxyState->listenSock, &pollfds[NCCL_MAX_PROXY_CONNECTIONS].fd) != ncclSuccess) {
-    WARN("[Proxy Service] Get listenSock fd fails\n");
-    return NULL;
-  };
-  pollfds[NCCL_MAX_PROXY_CONNECTIONS].events = POLLIN;
-
   int maxnpeers = 0;
   int npeers = 0;
   int stop = PROXY_RUNNING;
   int asyncOpCount = 0;
+  bool serviceFailed = false;
+  if (ncclSocketGetFd(proxyState->listenSock, &pollfds[NCCL_MAX_PROXY_CONNECTIONS].fd) != ncclSuccess) {
+    WARN("[Proxy Service] Get listenSock fd fails\n");
+    goto fail;
+  };
+  pollfds[NCCL_MAX_PROXY_CONNECTIONS].events = POLLIN;
+
   while (stop == PROXY_RUNNING || npeers > 0) {
     if (__atomic_load_n(proxyState->abortFlag, __ATOMIC_ACQUIRE) != 0) stop = PROXY_ABORT;
     /* never let proxy service thread blocks in poll, or it cannot receive abortFlag. */
@@ -1795,26 +1911,26 @@ void* ncclProxyService(void* _args) {
     } while (ret < 0 && errno == EINTR);
     if (ret < 0) {
       ERROR("[Proxy Service] Poll failed: %s", strerror(errno));
-      return NULL;
+      goto fail;
     }
     if (pollfds[NCCL_MAX_PROXY_CONNECTIONS].revents) {
       int s = 0;
       while (s < NCCL_MAX_PROXY_CONNECTIONS && peers[s].sock.fd != -1) s++;
       if (s == NCCL_MAX_PROXY_CONNECTIONS) {
         ERROR("[Proxy service] Too many connections (%d max)", NCCL_MAX_PROXY_CONNECTIONS);
-        return NULL;
+        goto fail;
       }
       if (maxnpeers < s+1) maxnpeers = s+1;
       if (ncclSocketInit(&peers[s].sock) != ncclSuccess) {
         WARN("[Service thread] Initialize peers[%d].sock fails\n", s);
-        return NULL;
+        goto fail;
       }
       if (ncclSocketAccept(&peers[s].sock, proxyState->listenSock) != ncclSuccess) {
         WARN("[Service thread] Accept failed %s", strerror(errno));
       } else {
         if (ncclSocketGetFd(&peers[s].sock, &pollfds[s].fd) != ncclSuccess) {
           WARN("[Service thread] Get peers[%d].sock fd fails\n", s);
-          return NULL;
+          goto fail;
         }
         npeers++;
         peers[s].tpLocalRank = -1;
@@ -1881,8 +1997,23 @@ void* ncclProxyService(void* _args) {
       if (closeConn) {
         ncclSocketClose(sock);
 
-        if (op != nullptr) {
-          asyncProxyOpDequeue(peer, op);
+        for (int b=0; b<connectionPool.banks; b++) {
+          int count = b == connectionPool.banks-1 ? connectionPool.offset : NCCL_PROXY_CONN_POOL_SIZE;
+          for (int i=0; i<count; i++) {
+            struct ncclProxyConnection* connection = connectionPool.pools[b]+i;
+            if (connection->state != connUninitialized && connection->sock == sock) {
+              if (connection->pidfdImportFd != -1) {
+                int fd = connection->pidfdImportFd;
+                connection->pidfdImportFd = -1;
+                if (close(fd) != 0) WARN("close failed: %s", strerror(errno));
+              }
+              if (connection->pidfdExportFd != -1) NCCLVERIFY(proxyCloseFdPidfd(connection));
+            }
+          }
+        }
+
+        while (peer->asyncOps != nullptr) {
+          asyncProxyOpDequeue(peer, peer->asyncOps);
           asyncOpCount--;
         }
         pollfds[s].fd = -1;
@@ -1890,15 +2021,31 @@ void* ncclProxyService(void* _args) {
       }
     }
   }
+  goto exit;
+fail:
+  serviceFailed = true;
+  __atomic_store_n(&proxyState->asyncResult, ncclSystemError, __ATOMIC_RELEASE);
+exit:
+  for (int s=0; s<maxnpeers; s++) {
+    ncclSocketClose(&peers[s].sock);
+  }
+  ncclSocketClose(proxyState->listenSock);
+  if (serviceFailed) {
+    // Communicator teardown synchronizes device work before setting stop.
+    while (!__atomic_load_n(&proxyState->stop, __ATOMIC_ACQUIRE)) sched_yield();
+  }
   // Wait for all operations to complete and stop progress thread before freeing any resource
   if (ncclProxyProgressDestroy(proxyState) != ncclSuccess) {
     ERROR("[Proxy Service] proxyDestroy failed");
   }
   for (int s=0; s<maxnpeers; s++) {
-    if (peers[s].sock.fd != -1) close(peers[s].sock.fd);
+    while (peers[s].asyncOps != nullptr) {
+      asyncProxyOpDequeue(peers+s, peers[s].asyncOps);
+    }
   }
-  ncclProxyFreeConnections(&connectionPool, proxyState);
-  close(proxyState->listenSock->fd);
+  if (ncclProxyFreeConnections(&connectionPool, proxyState) != ncclSuccess) {
+    ERROR("[Proxy Service] connection cleanup failed");
+  }
   ncclFree(proxyState->listenSock);
   proxyOpsFree(proxyState);
   return NULL;
@@ -1956,7 +2103,7 @@ void* ncclProxyServiceUDS(void* _args) {
     } while (ret < 0 && errno == EINTR);
     if (ret < 0) {
       WARN("[Proxy Service UDS] Poll failed: %s", strerror(errno));
-      return NULL;
+      goto exit;
     }
 
     // Check for stop/abort
@@ -1968,6 +2115,7 @@ void* ncclProxyServiceUDS(void* _args) {
     }
   }
 
+exit:
   (void)ncclIpcSocketClose(&proxyState->ipcSock);
   INFO(NCCL_PROXY, "[Proxy Service UDS] exit: stop %d abortFlag %d", proxyState->stop, *proxyState->abortFlag);
   return NULL;
@@ -1988,7 +2136,17 @@ ncclResult_t ncclProxyInit(ncclComm_t comm, struct ncclSocket* sock, union ncclS
   comm->proxyState->peerAddressesUDS = peerAddressesUDS;
 
   // UDS support
-  NCCLCHECK(ncclIpcSocketInit(&comm->proxyState->ipcSock, comm->rank, peerAddressesUDS[comm->rank], comm->abortFlag));
+  ncclResult_t ret;
+  int usePidfd = pcclParamIpcUsePidfd();
+  NOWARN(ret = ncclIpcSocketInit(&comm->proxyState->ipcSock, comm->rank,
+    peerAddressesUDS[comm->rank], comm->abortFlag), usePidfd ? NCCL_PROXY : ncclDebugNoWarn);
+  if (ret == ncclSystemError && usePidfd) {
+    NCCLCHECK(ncclIpcSocketClose(&comm->proxyState->ipcSock));
+    comm->proxyState->ipcSock.fd = -1;
+    INFO(NCCL_PROXY, "UDS service unavailable for rank %d, using pidfd for FD exchange", comm->rank);
+  } else {
+    NCCLCHECK(ret);
+  }
   return ncclSuccess;
 }
 
@@ -2019,9 +2177,11 @@ ncclResult_t ncclProxyCreate(ncclComm_t comm) {
     ncclSetThreadName(comm->proxyState->thread, "PCCL Service %2d", comm->hggcDev);
 
     // UDS support
-    INFO(NCCL_PROXY, "UDS: Creating service thread comm %p rank %d", comm, comm->rank);
-    PTHREADCHECK(pthread_create(&comm->proxyState->threadUDS, NULL, ncclProxyServiceUDS, comm->proxyState), "pthread_create");
-    ncclSetThreadName(comm->proxyState->threadUDS, "PCCL UDS Service %2d", comm->hggcDev);
+    if (comm->proxyState->ipcSock.fd != -1) {
+      INFO(NCCL_PROXY, "UDS: Creating service thread comm %p rank %d", comm, comm->rank);
+      PTHREADCHECK(pthread_create(&comm->proxyState->threadUDS, NULL, ncclProxyServiceUDS, comm->proxyState), "pthread_create");
+      ncclSetThreadName(comm->proxyState->threadUDS, "PCCL UDS Service %2d", comm->hggcDev);
+    }
   }
   return ncclSuccess;
 }

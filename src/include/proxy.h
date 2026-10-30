@@ -341,6 +341,8 @@ struct ncclProxyConnection {
   struct ncclProxyArgs **proxyAppendPtr;
   void* transportResources;
   proxyConnectState state;
+  int pidfdExportFd;
+  int pidfdImportFd;
 };
 
 typedef ncclResult_t (*threadFunc_t)(struct ncclProxyArgs*);
@@ -365,10 +367,11 @@ enum ncclProxyMsgType {
   ncclProxyMsgClose = 6,
   ncclProxyMsgAbort = 7,
   ncclProxyMsgStop = 8,
-  ncclProxyMsgGetFd = 9, // cuMem API support (UDS)
-  ncclProxyMsgQueryFd = 10, // cuMem API support (UDS)
+  ncclProxyMsgGetFd = 9, // cuMem API support
+  ncclProxyMsgQueryFd = 10, // cuMem API support
   ncclProxyMsgRegister = 11 ,
-  ncclProxyMsgDeregister = 12
+  ncclProxyMsgDeregister = 12,
+  pcclProxyMsgCloseFd = 13
 };
 
 // This function is called by a client of the proxy that needs to invoke any of the non-progress proxyOp types

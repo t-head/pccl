@@ -8,12 +8,14 @@
 
 #include "ipcsocket.h"
 #include "utils.h"
+#include "param.h"
+#include <sys/stat.h>
+#include <sys/syscall.h>
 #include <stdlib.h>
 #include <string.h>
 #include <errno.h>
 
-// Enable Linux abstract socket naming
-#define USE_ABSTRACT_SOCKET
+NCCL_PARAM(IpcUseAbstractSocket, "IPC_USE_ABSTRACT_SOCKET", 1);
 
 #define NCCL_IPC_SOCKNAME_STR "/tmp/pccl-socket-%d-%lx"
 
@@ -46,16 +48,12 @@ ncclResult_t ncclIpcSocketInit(ncclIpcSocket *handle, int rank, uint64_t hash, v
     close(fd);
     return ncclInternalError;
   }
-#ifndef USE_ABSTRACT_SOCKET
-  unlink(temp);
-#endif
+  if (!ncclParamIpcUseAbstractSocket()) unlink(temp);
 
   TRACE(NCCL_INIT, "UDS: Creating socket %s", temp);
 
   strncpy(cliaddr.sun_path, temp, len);
-#ifdef USE_ABSTRACT_SOCKET
-  cliaddr.sun_path[0] = '\0'; // Linux abstract socket trick
-#endif
+  if (ncclParamIpcUseAbstractSocket()) cliaddr.sun_path[0] = '\0'; // Linux abstract socket trick
   if (bind(fd, (struct sockaddr *)&cliaddr, sizeof(cliaddr)) < 0) {
     ERROR("UDS: Binding to socket %s failed : %s (%d)", temp, strerror(errno), errno);
     close(fd);
@@ -92,11 +90,9 @@ ncclResult_t ncclIpcSocketClose(ncclIpcSocket *handle) {
   if (handle->fd <= 0) {
     return ncclSuccess;
   }
-#ifndef USE_ABSTRACT_SOCKET
-  if (handle->socketName[0] != '\0') {
+  if (!ncclParamIpcUseAbstractSocket() && handle->socketName[0] != '\0') {
     unlink(handle->socketName);
   }
-#endif
   close(handle->fd);
 
   return ncclSuccess;
@@ -185,9 +181,7 @@ ncclResult_t ncclIpcSocketSendMsg(ncclIpcSocket *handle, void *hdr, int hdrLen, 
   }
   (void) strncpy(cliaddr.sun_path, temp, len);
 
-#ifdef USE_ABSTRACT_SOCKET
-  cliaddr.sun_path[0] = '\0'; // Linux abstract socket trick
-#endif
+  if (ncclParamIpcUseAbstractSocket()) cliaddr.sun_path[0] = '\0'; // Linux abstract socket trick
 
   TRACE(NCCL_INIT, "UDS: Sending hdr %p len %d fd %d to UDS socket %s", hdr, hdrLen, sendFd, temp);
 
@@ -231,4 +225,46 @@ ncclResult_t ncclIpcSocketSendMsg(ncclIpcSocket *handle, void *hdr, int hdrLen, 
 
 ncclResult_t ncclIpcSocketSendFd(ncclIpcSocket *handle, const int sendFd, int rank, uint64_t hash) {
   return ncclIpcSocketSendMsg(handle, NULL, 0, sendFd, rank, hash);
+}
+
+static uint64_t pcclGetPidNamespace() {
+  struct stat st;
+  if (stat("/proc/self/ns/pid", &st) != 0) return 0;
+  return st.st_ino;
+}
+
+void pcclPidfdGetInfo(int fd, struct pcclPidfdInfo* info) {
+  info->pid = getpid();
+  info->fd = fd;
+  info->pidNamespace = pcclGetPidNamespace();
+}
+
+ncclResult_t pcclPidfdGetFd(struct pcclPidfdInfo* info, int* fd) {
+  *fd = -1;
+#if defined(SYS_pidfd_open) && defined(SYS_pidfd_getfd)
+  // PIDs exchanged over the proxy socket belong to the sender's PID namespace.
+  if (info->pidNamespace == 0 || info->pidNamespace != pcclGetPidNamespace()) {
+    INFO(NCCL_PROXY, "pidfd: PID namespaces differ or are unavailable");
+    return ncclSuccess;
+  }
+  int pidFd = syscall(SYS_pidfd_open, info->pid, 0);
+  if (pidFd == -1) {
+    INFO(NCCL_PROXY, "pidfd_open(%d) failed: %s", info->pid, strerror(errno));
+    return ncclSuccess;
+  }
+  *fd = syscall(SYS_pidfd_getfd, pidFd, info->fd, 0);
+  if (*fd == -1) {
+    INFO(NCCL_PROXY, "pidfd_getfd(%d, %d) failed: %s", info->pid, info->fd, strerror(errno));
+  }
+  ncclResult_t ret = ncclSuccess;
+  SYSCHECKGOTO(close(pidFd), "close", ret, fail);
+  return ncclSuccess;
+fail:
+  if (*fd != -1) (void)close(*fd);
+  *fd = -1;
+  return ret;
+#else
+  INFO(NCCL_PROXY, "pidfd syscalls unavailable at build time");
+#endif
+  return ncclSuccess;
 }
