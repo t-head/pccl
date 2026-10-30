@@ -73,7 +73,7 @@ When changing only the message, keep committed content unchanged. Do not rewrite
 Use squash and merge. Single-commit PRs keep their original message and signing
 metadata, with no AI preview; use the web button or CLI below.
 
-For multi-commit PRs, **Prepare squash commit** runs
+For multi-commit PRs, **Commit message squash** runs
 [pccl-squash-message](../pccl-squash-message/SKILL.md) in one read-only Copilot session.
 Same-repository updates run it automatically; use a manual run from `main` for forks or
 a fresh draft. Publishing checks the PR version, posts the complete message at the

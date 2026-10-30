@@ -1,6 +1,6 @@
 # SPDX-License-Identifier: Apache-2.0
 # Copyright (c) 2026 T-Head (Shanghai) Semiconductor Co., Ltd. All rights reserved.
-"""Draft a squash message and publish its preview to the PR."""
+"""Generate and publish a combined commit message for a multi-commit PR."""
 
 import argparse
 import hashlib

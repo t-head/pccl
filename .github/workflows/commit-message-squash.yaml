@@ -1,5 +1,5 @@
-name: Prepare squash commit
-run-name: "Prepare squash message for PR #${{ github.event.pull_request.number || inputs.pr_number }}"
+name: Commit message squash
+run-name: "Squash commit messages for PR #${{ github.event.pull_request.number || inputs.pr_number }}"
 
 on:
   pull_request:
@@ -20,7 +20,7 @@ concurrency:
 
 jobs:
   draft:
-    name: Draft squash message
+    name: Generate commit message
     # Fork PRs use a maintainer-triggered run from main with trusted workflow code.
     if: >-
       github.repository == 't-head/pccl' && (
@@ -56,11 +56,11 @@ jobs:
           PR_NUMBER: ${{ github.event.pull_request.number || inputs.pr_number }}
           PYTHONUTF8: '1'
         run: |
-          draft=$(python3 .github/scripts/prepare_squash.py --pr "$PR_NUMBER")
+          draft=$(python3 .github/scripts/commit_message_squash.py --pr "$PR_NUMBER")
           echo "draft=$draft" >> "$GITHUB_OUTPUT"
 
   comment:
-    name: Show draft in PR conversation
+    name: Publish commit message
     needs: draft
     runs-on: ubuntu-24.04
     timeout-minutes: 5
@@ -82,5 +82,5 @@ jobs:
           PR_NUMBER: ${{ github.event.pull_request.number || inputs.pr_number }}
           PYTHONUTF8: '1'
         run: >-
-          python3 .github/scripts/prepare_squash.py
+          python3 .github/scripts/commit_message_squash.py
           --publish --expected-pr "$PR_NUMBER"
