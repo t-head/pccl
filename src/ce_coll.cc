@@ -171,7 +171,11 @@ bool ncclCeImplemented(ncclFunc_t coll, int/*ncclRedOp_t*/ red, ncclDataType_t t
 }
 
 bool ncclCeAvailable(ncclComm_t comm, ncclFunc_t coll, int/*ncclRedOp_t*/ red, ncclDataType_t ty, size_t count, ncclSymRegType_t winRegType, const void* recvbuff) {
-  if (!ncclCeImplemented(coll, red, ty, comm->okiSupport)) {
+  bool okiSupport = false;
+#if PCCL_HGGC_VERSION >= PCCL_HGGC_DRIVER_VERSION(2, 2, 0)
+  okiSupport = comm->okiSupport;
+#endif
+  if (!ncclCeImplemented(coll, red, ty, okiSupport)) {
     TRACE(NCCL_TUNING, "Skipping CE collective: not implemented");
     return false;
   }
@@ -258,6 +262,7 @@ ncclResult_t ncclCeInit(ncclComm_t comm) {
   cec->symDevComm.rank = comm->localRank;
 
   HGGCCHECKGOTO(hggcMemset(cec->ceSyncBase, 0, ceDevBaseSize), ret, fail);
+#if PCCL_HGGC_VERSION >= PCCL_HGGC_DRIVER_VERSION(2, 2, 0)
   // The CE reduce family's waitValue semantics are waitValue = 1 + iter - pcclCeReduceMaxSect,
   // with the first iter == pcclCeReduceMaxSect. The tail/head arrays must be pre-seeded
   // along with reduceStep so the first GEQ wait passes; otherwise the collective deadlocks.
@@ -273,6 +278,7 @@ ncclResult_t ncclCeInit(ncclComm_t comm) {
         (struct ncclSymDevBase*)cec->ceSyncBase, comm->nRanks);
     HGGCCHECKGOTO(hggcMemcpy(&sync->reduceStep, ceArStepInitMem, sizeof(uint64_t), hggcMemcpyHostToDevice), ret, fail);
   }
+#endif
   cec->initialized = true;
 
 exit:
