@@ -55,7 +55,7 @@ When changing only the message, keep committed content unchanged. Do not rewrite
 ## Push and PR
 
 1. Confirm the repository, working branch, and target; fetch the actual target.
-2. Allow follow-up commits during development and review without a count limit. Preserve authorship and authorized sign-offs. Review the full target-to-head diff.
+2. Preserve authorship and authorized sign-offs. Review the full target-to-head diff.
 3. Rebase when needed to resolve conflicts or integrate relevant target changes. Do not rewrite reviewed commits merely because the target advanced. Require a clean worktree before rebasing; abort and report unresolved conflicts.
 4. Verify the remote branch tip. For rewrites, use `--force-with-lease=<ref>:<expected-sha>`; stop on unexpected changes. Never push directly to protected targets.
 5. Use the PR template and English text covering the final change, actual validation, limitations, and a relevant open issue. Apply authorized edits and read them back.
