@@ -28,54 +28,30 @@ class GitHub:
             raise ValueError('A GitHub repository and token are required')
         self.repository, self.token = repository, token
 
-    def request(self, path, method='GET', payload=None):
-        args = ['api', path, '--method', method]
+    def request(self, path, method='GET', payload=None, *, paginate=False):
+        args = ['gh', 'api', path, '--method', method]
         if payload is not None:
             args += ['--input', '-']
-        output = self.cli(*args, input=json.dumps(payload) if payload is not None else None)
-        return json.loads(output) if output.strip() else None
-
-    def cli(self, *args, input=None):
+        if paginate:
+            args += ['--paginate', '--slurp']
         try:
-            return subprocess.run(
-                ['gh', *args], input=input, text=True, capture_output=True, timeout=60, check=True,
+            output = subprocess.run(
+                args, input=json.dumps(payload) if payload is not None else None,
+                text=True, capture_output=True, timeout=60, check=True,
                 env={**os.environ, 'GH_TOKEN': self.token, 'GH_HOST': 'github.com'}).stdout
         except subprocess.CalledProcessError as error:
             detail = error.stderr.replace(self.token, '[redacted]').strip()[:500]
             raise ValueError('GitHub command failed: ' + detail) from None
-
-    def get(self, path):
-        return self.request(path)
-
-    def pages(self, path):
-        pages = json.loads(self.cli('api', path + '?per_page=100', '--paginate', '--slurp'))
-        return [item for page in pages for item in page]
-
-    def write_comment(self, path, body):
-        suffix = r'/issues/[1-9][0-9]*/comments'
-        if not re.fullmatch(re.escape('/repos/' + self.repository) + suffix, path):
-            raise ValueError('Only PR comment writes are supported')
-        return self.request(path, 'POST', {'body': body})
-
-    def delete_comment(self, comment_id):
-        if type(comment_id) is not int or comment_id <= 0:
-            raise ValueError('Invalid comment ID')
-        self.request(f'/repos/{self.repository}/issues/comments/{comment_id}', 'DELETE')
-
-
-def pull_request(api, number):
-    if type(number) is not int or number <= 0:
-        raise ValueError('PR number must be a positive integer')
-    path = f'/repos/{api.repository}/pulls/{number}'
-    pr = api.get(path)
-    if pr['state'] != 'open' or pr['draft'] or pr['base']['repo']['full_name'] != api.repository:
-        raise ValueError('Expected an open, non-draft PR in this repository')
-    return pr
+        return json.loads(output) if output.strip() else None
 
 
 def snapshot(api, number):
     """Bind the message to all PR inputs that can affect its content."""
-    pr = pull_request(api, number)
+    if type(number) is not int or number <= 0:
+        raise ValueError('PR number must be a positive integer')
+    pr = api.request(f'/repos/{api.repository}/pulls/{number}')
+    if pr['state'] != 'open' or pr['draft'] or pr['base']['repo']['full_name'] != api.repository:
+        raise ValueError('Expected an open, non-draft PR in this repository')
     version = [pr[key] for key in ('title', 'body', 'commits', 'changed_files')] + [
         pr['head']['sha'], pr['base']['sha'], pr['base']['ref']]
     return {'repository': api.repository, 'number': number, 'input_digest': digest(version),
@@ -146,12 +122,20 @@ def verify(api, draft):
             raise ValueError('A single-commit PR must not publish an AI draft')
     elif not isinstance(draft['message'], str) or not draft['message'].strip():
         raise ValueError('A multi-commit PR requires a message')
+    # This detects accidental edits, not authenticated AI output.
     if draft.get('message_digest') != digest(draft['message']):
         raise ValueError('The displayed message changed; generate a fresh draft')
     return data['commit_count']
 
 
 # Conversation preview and old-preview cleanup
+
+def preview_comments(api, number):
+    pages = api.request(f'/repos/{api.repository}/issues/{number}/comments?per_page=100', paginate=True)
+    return [item for page in pages for item in page
+            if item['user']['login'] == 'github-actions[bot]' and item['user']['type'] == 'Bot'
+            and item.get('body', '').startswith(COMMENT_MARKER + '\n')]
+
 
 def comment_body(draft, run_id):
     if not re.fullmatch(r'[1-9][0-9]*', str(run_id)):
@@ -177,28 +161,24 @@ def publish(api, draft, expected_pr, run_id):
         raise ValueError('Draft does not match the workflow PR')
     if not re.fullmatch(r'[1-9][0-9]*', str(run_id)):
         raise ValueError('Invalid workflow run ID')
-    path = f'/repos/{api.repository}/issues/{expected_pr}/comments'
-    comments = [item for item in api.pages(path)
-                if item['user']['login'] == 'github-actions[bot]' and item['user']['type'] == 'Bot'
-                and item.get('body', '').startswith(COMMENT_MARKER + '\n')]
+    comments = preview_comments(api, expected_pr)
     for comment in comments:
         previous_run = re.search(r'<!-- run: ([1-9][0-9]*) -->', comment['body'])
         if previous_run and int(previous_run[1]) > int(run_id):
             raise ValueError('A newer workflow has already published its draft')
     # Re-read the complete PR after locating the comment and before any write.
-    if verify(api, draft) == 1:
-        for comment in comments:
-            api.delete_comment(comment['id'])
-        return None
-    body = comment_body(draft, run_id)
-    current = next((comment for comment in comments if comment['body'] == body), None)
-    # A new comment appears at the end of the conversation. Create it before
-    # removing old previews so a failed publish leaves the previous draft intact.
-    current = current or api.write_comment(path, body)
+    current = None
+    if verify(api, draft) > 1:
+        body = comment_body(draft, run_id)
+        current = next((comment for comment in comments if comment['body'] == body), None)
+        # Publish at the conversation end before removing old previews. Reuse
+        # an identical comment when retrying an interrupted cleanup.
+        current = current or api.request(f'/repos/{api.repository}/issues/{expected_pr}/comments',
+                                         'POST', {'body': body})
     for comment in comments:
-        if comment['id'] != current['id']:
-            api.delete_comment(comment['id'])
-    return current['html_url']
+        if current is None or comment['id'] != current['id']:
+            api.request(f"/repos/{api.repository}/issues/comments/{comment['id']}", 'DELETE')
+    return current['html_url'] if current else None
 
 
 # Command-line entry point
