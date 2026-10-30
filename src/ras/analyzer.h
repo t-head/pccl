@@ -14,8 +14,18 @@
 #include "ras_wire.h"
 
 int analyzerFormatReport(FILE* fp, const struct rasCollComms* blob, int nLegTimeouts,
-                     int singleCategory);
+                     int singleCategory, const char* title = nullptr);
 int analyzerFormatSummary(FILE* fp, const struct rasCollComms* blob);
+
+int analyzerConnTypeFromString(const char* s, int peer);
+
+// True when S is a valid -T/--time argument ("YYYYMMDD-HHMMSS" or a shorter
+// prefix)
+bool analyzerTimeArgValid(const char* s);
+
+int analyzerFormatReportFromCommDumps(FILE* fp, const char* dir, int round = 1,
+                                      const char* timeStr = nullptr,
+                                      int* outFilesParsed = nullptr);
 
 int analyzerDumpData(const char* dir, const void* blob, int nBlobBytes, int nLegTimeouts);
 struct rasCollComms* analyzerLoadData(FILE* fp, int* outBlobBytes, int* outLegTimeouts);

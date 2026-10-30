@@ -38,12 +38,6 @@
 // Caller must hold ncclCommsMutex.                                          //
 ///////////////////////////////////////////////////////////////////////////////
 
-static int countPopulatedChannels(ncclComm_t comm) {
-  int n = 0;
-  for (int c = 0; c < MAXCHANNELS; c++) if (comm->channels[c].id >= 0) n++;
-  return n;
-}
-
 static int countConnectedPeers(struct ncclChannel* channel, int nRanks) {
   int n = 0;
   if (channel->peers == nullptr) return 0;
@@ -142,13 +136,24 @@ size_t rasDiagSnapshotInto(char* buf, size_t bufLen, ncclComm_t comm) {
   struct rasDiagRankHeader* rh = (struct rasDiagRankHeader*)buf;
   rh->wireVersion = RAS_DIAG_WIRE_VERSION;
   rh->commRank = comm->rank;
-  rh->nChannels = countPopulatedChannels(comm);
+  rh->nChannels = 0;
+  rh->totalBytes = 0;
   char* cursor = buf + sizeof(*rh);
+  // Peers can connect between the size scan and the writes, so re-check the
+  // remaining room for every record.
+  auto reserveRecord = [&](size_t bytes) {
+    if (bytes <= bufLen - (size_t)(cursor - buf)) return true;
+    rh->nChannels = 0;
+    rh->totalBytes = 0;
+    WARN("RAS diag: snapshot buffer overflow, discarding rank snapshot");
+    return false;
+  };
 
   for (int c = 0; c < MAXCHANNELS; c++) {
     struct ncclChannel* channel = &comm->channels[c];
     if (channel->id < 0) continue;
 
+    if (!reserveRecord(sizeof(struct rasDiagChannel))) return 0;
     struct rasDiagChannel* dc = (struct rasDiagChannel*)cursor;
     populateDiagChannel(dc, comm, c);
     bool valid = false;
@@ -166,6 +171,7 @@ size_t rasDiagSnapshotInto(char* buf, size_t bufLen, ncclComm_t comm) {
         if (hostPeer == nullptr) continue;
         for (int c0 = 0; c0 < NCCL_MAX_CONNS; c0++) {
           if (hostPeer->send[c0].connected == 1) {
+            if (!reserveRecord(sizeof(struct rasDiagPeer))) return 0;
             struct rasDiagPeer* dp = (struct rasDiagPeer*)cursor;
             cursor += sizeof(*dp);
             dp->peerRank = p;
@@ -179,6 +185,7 @@ size_t rasDiagSnapshotInto(char* buf, size_t bufLen, ncclComm_t comm) {
             nPeerEntries++;
           }
           if (hostPeer->recv[c0].connected == 1) {
+            if (!reserveRecord(sizeof(struct rasDiagPeer))) return 0;
             struct rasDiagPeer* dp = (struct rasDiagPeer*)cursor;
             cursor += sizeof(*dp);
             dp->peerRank = p;
@@ -195,6 +202,7 @@ size_t rasDiagSnapshotInto(char* buf, size_t bufLen, ncclComm_t comm) {
       }
     }
     dc->nPeerEntries = nPeerEntries;
+    rh->nChannels++;
   }
 
   size_t written = (size_t)(cursor - buf);
@@ -214,6 +222,8 @@ struct rasDiagCollectorEntry {
   size_t capacity;
   size_t cursor;
   struct rasDiagChannel* currentChannel;
+  bool overflowed;
+  bool finalized;
 };
 
 struct rasDiagCollectorImpl {
@@ -232,7 +242,9 @@ static void rasDiagInitRankDiagHeader(void* ctx, ncclComm_t comm) {
   auto* rh = (struct rasDiagRankHeader*)e.scratch;
   rh->wireVersion = RAS_DIAG_WIRE_VERSION;
   rh->commRank = comm->rank;
-  rh->nChannels = comm->nChannels;
+  // The count must grow only on a successfully emitted record; a separate
+  // channel scan can drift from what is actually written.
+  rh->nChannels = 0;
   rh->totalBytes = (uint32_t)sizeof(*rh);
   e.cursor = sizeof(*rh);
   e.currentChannel = nullptr;
@@ -247,8 +259,12 @@ static void rasDiagCollectChannelState(void* ctx, ncclComm_t comm, int channelId
   auto it = impl->entries.find(comm);
   if (it == impl->entries.end()) return;
   rasDiagCollectorEntry& e = it->second;
-  if (e.scratch == nullptr) return;
-  if (e.cursor + sizeof(struct rasDiagChannel) > e.capacity) { e.currentChannel = nullptr; return; }
+  if (e.scratch == nullptr || e.overflowed || e.finalized) return;
+  if (sizeof(struct rasDiagChannel) > e.capacity - e.cursor) {
+    e.overflowed = true;
+    e.currentChannel = nullptr;
+    return;
+  }
   auto* dc = (struct rasDiagChannel*)(e.scratch + e.cursor);
   e.cursor += sizeof(*dc);
   populateDiagChannel(dc, comm, channelId);
@@ -257,6 +273,7 @@ static void rasDiagCollectChannelState(void* ctx, ncclComm_t comm, int channelId
   dc->devCompletedKernelIdx = devCompletedKernelIdx;
   dc->devCompletedKernelIdxValid = devCompletedKernelIdxValid ? 1 : 0;
   e.currentChannel = dc;
+  ((struct rasDiagRankHeader*)e.scratch)->nChannels++;
 }
 
 static void rasDiagCollectPeerConn(void* ctx, ncclComm_t comm, int /*channelId*/, int peerRank,
@@ -267,8 +284,12 @@ static void rasDiagCollectPeerConn(void* ctx, ncclComm_t comm, int /*channelId*/
   auto it = impl->entries.find(comm);
   if (it == impl->entries.end()) return;
   rasDiagCollectorEntry& e = it->second;
-  if (e.currentChannel == nullptr) return;
-  if (e.cursor + sizeof(struct rasDiagPeer) > e.capacity) return;
+  if (e.currentChannel == nullptr || e.overflowed || e.finalized) return;
+  if (sizeof(struct rasDiagPeer) > e.capacity - e.cursor) {
+    e.overflowed = true;
+    e.currentChannel = nullptr;
+    return;
+  }
   auto* dp = (struct rasDiagPeer*)(e.scratch + e.cursor);
   e.cursor += sizeof(*dp);
   dp->peerRank = peerRank;
@@ -290,7 +311,14 @@ static void rasDiagFinalizeRankDiagHeader(void* ctx, ncclComm_t comm) {
   rasDiagCollectorEntry& e = it->second;
   if (e.scratch == nullptr) return;
   auto* rh = (struct rasDiagRankHeader*)e.scratch;
+  if (e.overflowed) {
+    rh->nChannels = 0;
+    rh->totalBytes = 0;
+    WARN("RAS diag: collector buffer overflow, discarding rank snapshot");
+    return;
+  }
   rh->totalBytes = (uint32_t)e.cursor;
+  e.finalized = true;
 }
 }  // anon namespace
 
@@ -315,7 +343,7 @@ const char* rasDiagCollectorGet(struct pcclCommDiagCollector* collector,
   auto it = impl->entries.find(comm);
   if (it == impl->entries.end()) return nullptr;
   const rasDiagCollectorEntry& e = it->second;
-  if (e.scratch == nullptr || e.cursor == 0) return nullptr;
+  if (e.scratch == nullptr || e.overflowed || !e.finalized) return nullptr;
   if (pBytes != nullptr) *pBytes = e.cursor;
   return e.scratch;
 }

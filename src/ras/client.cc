@@ -37,6 +37,8 @@ static bool abortFlag = false;
 static uint32_t dump = false;
 static bool analyzeFlag = false;
 static const char* offlineDir = nullptr;
+static int offlineRound = 1;
+static const char* offlineTime = nullptr;
 static int sock = -1;
 
 static void printUsage(const char* argv0) {
@@ -58,8 +60,14 @@ static void printUsage(const char* argv0) {
           "  -q, --quit          abort pccl job\n"
           "  -a, --analyze       Run the online hang analyzer and print the summary\n"
           "                      (text format only, no files written).\n"
-          "  -O, --offline=DIR   Load diag blob(s) from DIR and run offline analysis\n"
-          "                      (no RAS server needed)\n"
+          "  -O, --offline=DIR   Load diag blob(s) (*_diag_*.bin) and/or per-rank comm-dump\n"
+          "                      text log(s) (pccl_comm_dump*.txt) from DIR and run offline\n"
+          "                      analysis (no RAS server needed)\n"
+          "  -R, --round=N       With -O: analyze the Nth-newest comm-dump round per rank\n"
+          "                      (1 = newest, default).  Ignored for diag blobs.\n"
+          "  -T, --time=TIME     With -O: select each rank's comm-dump closest in time to\n"
+          "                      TIME (YYYYMMDD-HHMMSS; shorter prefixes OK, e.g.\n"
+          "                      20260729-1527).  Overrides --round.  Ignored for blobs.\n"
           "  -v, --verbose       Increase the verbosity level of the RAS output\n"
           "      --help          Print this help and exit\n"
           "      --version       Print the version number and exit\n", argv0);
@@ -78,13 +86,15 @@ static void parseArgs(int argc, char** argv) {
     {"quit",         no_argument, NULL, 'q'},
     {"analyze",      no_argument, NULL, 'a'},
     {"offline",      required_argument, NULL, 'O'},
+    {"round",        required_argument, NULL, 'R'},
+    {"time",         required_argument, NULL, 'T'},
     {"verbose",      no_argument, NULL, 'v'},
     {"version",      no_argument, NULL, 'r'},
     {0}
   };
 
   char* endPtr = nullptr;
-  while ((c = getopt_long(argc, argv, "f:h:p:t:d:q:vaO:", longOpts, &optIdx)) != -1) {
+  while ((c = getopt_long(argc, argv, "f:h:p:t:d:q:vaO:R:T:", longOpts, &optIdx)) != -1) {
     switch (c) {
       case 'f':
         format = optarg;
@@ -128,6 +138,25 @@ static void parseArgs(int argc, char** argv) {
         break;
       case 'O':
         offlineDir = optarg;
+        break;
+      case 'R': {
+        endPtr = nullptr;
+        errno = 0;
+        long roundVal = strtol(optarg, &endPtr, 10);
+        if (errno == ERANGE || roundVal < 1 || roundVal > INT_MAX ||
+            !endPtr || *endPtr != '\0') {
+          fprintf(stderr, "Invalid round: %s (must be an integer >= 1)\n", optarg);
+          exit(1);
+        }
+        offlineRound = (int)roundVal;
+        break;
+      }
+      case 'T':
+        if (!analyzerTimeArgValid(optarg)) {
+          fprintf(stderr, "Invalid time: %s (expected YYYYMMDD-HHMMSS or a shorter prefix)\n", optarg);
+          exit(1);
+        }
+        offlineTime = optarg;
         break;
       case 'e':
         printUsage(argv[0]);
@@ -440,11 +469,30 @@ static int runOfflineAnalysis(const char* dir) {
   }
   closedir(dp);
 
-  if (nAnalyzed == 0) {
-    fprintf(stderr, "No valid *_diag_*.bin files found in %s\n", dir);
+  int nCommDumpFiles = 0;
+  int nCommDumps = analyzerFormatReportFromCommDumps(stdout, dir, offlineRound, offlineTime,
+                                                    &nCommDumpFiles);
+  if (nCommDumps < 0) {
     return 1;
   }
-  fprintf(stdout, "\nOffline analysis complete: %d blob(s) processed.\n", nAnalyzed);
+
+  if (nAnalyzed == 0 && nCommDumps == 0) {
+    if (nCommDumpFiles > 0) {
+      // Files were found and parsed, but the round/time selection matched
+      // nothing (details and per-comm warnings were printed above).
+      if (offlineTime != nullptr)
+        fprintf(stderr, "%d comm-dump file(s) parsed in %s, but none matched --time %s; nothing analyzed\n",
+                nCommDumpFiles, dir, offlineTime);
+      else
+        fprintf(stderr, "%d comm-dump file(s) parsed in %s, but none matched --round %d; nothing analyzed\n",
+                nCommDumpFiles, dir, offlineRound);
+    } else {
+      fprintf(stderr, "No valid *_diag_*.bin or comm-dump .txt files found in %s\n", dir);
+    }
+    return 1;
+  }
+  fprintf(stdout, "\nOffline analysis complete: %d blob(s) and %d comm-dump group(s) processed.\n",
+          nAnalyzed, nCommDumps);
   return 0;
 }
 

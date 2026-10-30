@@ -13,6 +13,7 @@
 #include "transport.h"
 #include "pccl_internal.h"
 #include "comm_dumper.h"
+#include "ras/ras_wire.h"
 
 #define PCCL_DUMP_VERSION_MAJOR 0x02
 #define PCCL_DUMP_VERSION_MINOR 0x01
@@ -31,10 +32,9 @@ const char* pcclCommDumpMaskStr[] = {"DUMP_ROUGH", "DUMP_RAW", "DUMP_BUFFER", "D
 // file pipe control: second priority
 pcclCommDumpMaskType globalPcclCommDumpMask = (pcclCommDumpMaskType)(DUMP_ROUGH);
 
-const char* ncclConnTypeStr[] = {"CONN_NORMAL", "CONN_ICN", "CONN_PCIE", "CONN_SHM", "CONN_GDRDMA", "CONN_RDMA", "CONN_SOCKET", "CONN_NET_EXT", "CONN_NUM"};
 const char* getConnTypeStr(int peer, ncclConn_t type) {
   if (peer<0 || (int)type<CONN_NORMAL || (int)type>=CONN_NUM) return "NONE";
-  else return ncclConnTypeStr[type];
+  else return rasConnTypeStr[type];
 }
 
 const char* indentLevelStr[] = {"", "  ", "    ", "      ", "        "};
@@ -244,6 +244,10 @@ ncclResult_t dumpPeerInfoToFile(FILE* file, int peer, struct ncclChannelPeer* ho
                                 pcclCommDiagCollector* collector, ncclComm_t collectorComm, int collectorChannelId) {
   hggcEitInterface& hggcEit = hggcEitInterface::getInstance();
   uint64_t constZero = 0;
+  if (hostPeer == nullptr || devPeer == nullptr) {
+    fprintf(file, "%suninitialized peer %d, no valid peers head&tail.\n", getIndentStr(indentLevel), peer);
+    return ncclSuccess;
+  }
   for (int c = 0; c < NCCL_MAX_CONNS; c++) {
     struct ncclConnector *sendConn = &hostPeer->send[c];
     struct ncclConnector *recvConn = &hostPeer->recv[c];
@@ -330,10 +334,14 @@ static ncclResult_t dumpChannelToFile(ncclComm_t comm, int channelId, int nRanks
   if (hggcEit.checkExtTable()) {
     uint64_t currentDevIndex;
     // hangReported is the same field (hostDevIndexLevel1) regardless of level.
+    // Always print the read outcome (including a successful zero) so the
+    // offline parser can tell "no self-reported hang" from a failed read.
     if (hggcEit.wrapHggcMemDump(&currentDevIndex, (HGdeviceptr)(channel->hostDevIndexLevel1), sizeof(uint64_t)) == hggcSuccess) {
       hangReportedIdx = currentDevIndex;
       hangReportedValid = true;
-      if (currentDevIndex > 0) fprintf(file, " lastTimeoutKernelIndex:%lu", currentDevIndex);
+      fprintf(file, " lastTimeoutKernelIndex:%lu", currentDevIndex);
+    } else {
+      fprintf(file, " unknownTimeoutKernelIndex");
     }
     if (stateMonitorLevel == 1) {
       if (hggcEit.wrapHggcMemDump(&currentDevIndex, (HGdeviceptr)(channel->devIndexLevel1), sizeof(uint64_t)) == hggcSuccess) {
@@ -363,8 +371,14 @@ static ncclResult_t dumpChannelToFile(ncclComm_t comm, int channelId, int nRanks
   if (unknown) fprintf(file, " unknownDevIndex");
   fprintf(file, "\n");
 
-  NCCLVERIFY(dumpRingToFile(file, &channel->ring, indentLevel));
-  NCCLVERIFY(dumpTreeToFile(file, &channel->tree, indentLevel));
+  // Aligned with populateDiagChannel's hasRing precondition: channels beyond
+  // comm->nChannels (FC clones via a raw struct memcpy in connect.cc) and
+  // channels whose ring is not up yet (abort during init) both carry a
+  // zeroed/copied ring the online snapshot never reports.
+  if (channelId < comm->nChannels && channel->ring.userRanks != nullptr) {
+    NCCLVERIFY(dumpRingToFile(file, &channel->ring, indentLevel));
+    NCCLVERIFY(dumpTreeToFile(file, &channel->tree, indentLevel));
+  }
 
   // Fire collectChannelState BEFORE the peer loop so collectors that anchor per-channel
   // state (e.g. a "current rasDiagChannel" pointer) are positioned correctly when
@@ -376,10 +390,16 @@ static ncclResult_t dumpChannelToFile(ncclComm_t comm, int channelId, int nRanks
   }
 
   if (hggcEit.checkExtTable()) {
-    fprintf(file, "%speers: \n", indentStr);
-    for (int p=0; p<nRanks; p++) {
-      NCCLVERIFY(dumpPeerInfoToFile(file, p, channel->peers[p], channel->devPeersHostPtr[p], indentLevel+1,
-                                     collector, comm, channelId));
+    if (channel->peers == nullptr || channel->devPeersHostPtr == nullptr) {
+      // Same init race as the per-peer null check: the channel exists but its
+      // peer arrays are not up yet (abort dump during initChannel).
+      fprintf(file, "%suninitialized channel, no valid peers head&tail.\n", indentStr);
+    } else {
+      fprintf(file, "%speers: \n", indentStr);
+      for (int p=0; p<nRanks; p++) {
+        NCCLVERIFY(dumpPeerInfoToFile(file, p, channel->peers[p], channel->devPeersHostPtr[p], indentLevel+1,
+                                       collector, comm, channelId));
+      }
     }
   } else {
     fprintf(file, "invalid hggc eit, no valid peers head&tail.\n");
@@ -408,7 +428,11 @@ static ncclResult_t dumpRoughComm(ncclComm_t comm, char* commDumpRoughFile, pccl
   if (collector && collector->initRankDiagHeader) collector->initRankDiagHeader(collector->ctx, comm);
 
   fprintf(roughDumpFile, "%stotalKernelNum:%lu ", indentStr, comm->kernelNum);
-  for (int c=0; c<comm->nChannels; c++) {
+  // Match the online diag snapshot (rasDiagSnapshotInto): P2P may initialize
+  // channels beyond comm->nChannels (ncclTopoComputeP2pChannels), so dump
+  // every initialized channel instead of only the coll ones.
+  for (int c=0; c<MAXCHANNELS; c++) {
+    if (comm->channels[c].id < 0) continue;
     NCCLVERIFY(dumpChannelToFile(comm, c, comm->nRanks, stateMonitorLevel, roughDumpFile, indentLevel+1, collector));
   }
 

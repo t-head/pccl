@@ -699,8 +699,6 @@ static ncclResult_t commAlloc(ncclComm_t comm, ncclComm_t parentComm, int ndev, 
   NCCLCHECK(ncclCalloc(&comm->connectSend, comm->nRanks));
   NCCLCHECK(ncclCalloc(&comm->connectRecv, comm->nRanks));
 
-  // Mark channels as non initialized.
-  for (int c=0; c<MAXCHANNELS; c++) comm->channels[c].id = -1;
   ncclIntruQueueConstruct(&comm->suspendTaskQueue);
   ncclIntruQueueConstruct(&comm->resumeTaskQueue);
 
@@ -2303,6 +2301,7 @@ static ncclResult_t ncclCommInitRankDev(ncclComm_t* newcomm, int nranks, int nId
   }
 
   NCCLCHECKGOTO(ncclCalloc(&comm, 1), res, fail);
+  for (int c = 0; c < MAXCHANNELS; c++) comm->channels[c].id = -1;
   NCCLCHECKGOTO(ncclCalloc(&comm->abortFlag, 1), res, fail);
   NCCLCHECKGOTO(ncclHggcHostCalloc((uint32_t**)&comm->abortFlagDev, 1, &(comm->pinnedMemUsed)), res, fail);
   // set up comm state and abortFlag only
@@ -2938,6 +2937,7 @@ static ncclResult_t ncclCommInitChildComm(ncclComm_t comm, ncclComm_t* newcomm, 
     INFO(NCCL_INIT, "Rank %d has color with PCCL_SPLIT_NOCOLOR, not creating a new communicator", comm->rank);
   } else {
     NCCLCHECKGOTO(ncclCalloc(&childComm, 1), res, fail);
+    for (int c = 0; c < MAXCHANNELS; c++) childComm->channels[c].id = -1;
 
     // Set the shareResource field, this is used throughout the init and must be reset every time.
     // Never share resources if the parent communicator has been revoked.
@@ -3119,6 +3119,7 @@ ncclResult_t pcclCommGrow(ncclComm_t comm, int nRanks, const ncclUniqueId* uniqu
   }
 
   NCCLCHECKGOTO(ncclCalloc(&newComm, 1), res, fail);
+  for (int c = 0; c < MAXCHANNELS; c++) newComm->channels[c].id = -1;
 
   NCCLCHECKGOTO(ncclCalloc(&newComm->abortFlag, 1), res, fail);
   NCCLCHECKGOTO(ncclHggcHostCalloc((uint32_t**)&newComm->abortFlagDev, 1, &(newComm->pinnedMemUsed)), res, fail);
