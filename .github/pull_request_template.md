@@ -2,8 +2,6 @@
 
 <!-- PR title: use a clear summary; a type prefix such as feat:, fix:, or docs: is recommended but not required. -->
 
-<!-- Use squash and merge when merging this PR. -->
-
 ## Description
 
 <!-- Clearly describe what the PR does and why -->

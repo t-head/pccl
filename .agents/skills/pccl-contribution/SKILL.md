@@ -70,7 +70,7 @@ When changing only the message, keep committed content unchanged. Do not rewrite
 
 ## Merge
 
-Use squash and merge. Single-commit PRs keep their original message and signing
+Single-commit PRs keep their original message and signing
 metadata, with no AI preview; use the web button or CLI below.
 
 For multi-commit PRs, **Generate commit message** in **pccl checkin** runs
