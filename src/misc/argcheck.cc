@@ -171,6 +171,9 @@ ncclResult_t ArgsCheck(struct ncclInfo* info) {
   if (info->comm->checkPointers) {
     if (info->coll == ncclFuncSend || info->coll == ncclFuncRecv) {
       NCCLCHECK(HggcPtrCheck(info->recvbuff, info->comm, "buff", info->opName));
+    } else if (info->coll == ncclFuncPutSignal || info->coll == ncclFuncSignal || info->coll == ncclFuncWaitSignal) {
+      // One-sided RMA ops name the remote destination through peerWin.
+      INFO(NCCL_COLL, "%s : skipping sendbuff/recvbuff pointer check (one-sided RMA uses peerWin)", info->opName);
     } else {
       // Check hggc device pointers
       if (info->coll != ncclFuncBroadcast || info->comm->rank == info->root) {
