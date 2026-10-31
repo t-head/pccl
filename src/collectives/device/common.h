@@ -560,9 +560,9 @@ __device__ void NCCL_FUNC_NAME(func, algo, proto, devredop, type)(void* args) { 
 // Point-to-point primitives only have one function/kernel.
 #define IMPL_COLL_P(func) \
   IMPL_COLL_FUNC(func, RING, SIMPLE, Sum, int8_t); \
-  IMPL_COLL_KERN(func, RING, SIMPLE, Sum, int8_t, 0); \
+  IMPL_COLL_KERN(func, RING, SIMPLE, Sum, int8_t, FUNC_INDEX_P2P_SIMPLE); \
   IMPL_COLL_FUNC(func, RING, SIMPLE_BULK, Sum, int8_t); \
-  IMPL_COLL_KERN(func, RING, SIMPLE_BULK, Sum, int8_t, 0); \
+  IMPL_COLL_KERN(func, RING, SIMPLE_BULK, Sum, int8_t, FUNC_INDEX_P2P_SIMPLE_BULK); \
   IMPL_COLL_FUNC(func, RING, SIGNAL, Sum, int8_t); \
   IMPL_COLL_KERN(func, RING, SIGNAL, Sum, int8_t, 0); \
   IMPL_COLL_FUNC(func, RING, SIGNAL_BULK, Sum, int8_t); \
