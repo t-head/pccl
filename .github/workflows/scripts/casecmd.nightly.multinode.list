@@ -1,0 +1,4 @@
+# Allocate a separate node group per transport without falling back to single-node execution.
+bash run_multinode_test.sh socket
+bash run_multinode_test.sh gdr
+bash run_multinode_test.sh non_gdr
