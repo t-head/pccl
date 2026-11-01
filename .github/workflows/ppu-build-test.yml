@@ -1,0 +1,496 @@
+name: pccl build and test
+
+on:
+  workflow_call:
+    inputs:
+      test_suite:
+        description: Test suite, either pr or nightly
+        type: string
+        default: pr
+      nnodes:
+        description: JSON array of node counts for nightly multinode tests; single-node tests are unaffected
+        type: string
+        default: '[2]'
+      timeout_minutes:
+        description: Timeout in minutes for each PPU build or test task
+        type: number
+        default: 300
+      debug_build_run_id:
+        description: Existing build run for manual two-node smoke debugging only
+        type: string
+        default: ''
+      debug_build_attempt:
+        description: Attempt containing the successful build to reuse
+        type: string
+        default: '1'
+
+permissions:
+  contents: read
+
+jobs:
+  prepare:
+    name: Prepare Test Matrix
+    runs-on: k8s-runner-group-cpu-thead
+    container:
+      image: ghcr.io/actions/actions-runner:latest
+    permissions:
+      contents: read
+      actions: read
+    outputs:
+      matrix: ${{ steps.set-matrix.outputs.matrix }}
+      job_timeout: ${{ steps.set-matrix.outputs.job_timeout }}
+      debug_reuse: ${{ steps.set-matrix.outputs.debug_reuse }}
+      build_key: ${{ steps.set-matrix.outputs.build_key }}
+      build_sha256: ${{ steps.set-matrix.outputs.build_sha256 }}
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          fetch-depth: 0
+          path: pccl
+      - id: set-matrix
+        name: Generate test matrix
+        env:
+          TEST_SUITE: ${{ inputs.test_suite }}
+          TEST_NNODES: ${{ inputs.nnodes }}
+          TEST_TIMEOUT: ${{ inputs.timeout_minutes }}
+          DEBUG_BUILD_RUN_ID: ${{ inputs.debug_build_run_id }}
+          DEBUG_BUILD_ATTEMPT: ${{ inputs.debug_build_attempt }}
+          GH_TOKEN: ${{ github.token }}
+        run: |
+          python3 <<'PYEOF' >> "$GITHUB_OUTPUT"
+          import hashlib
+          import json
+          import os
+          from pathlib import Path
+          import re
+          import shlex
+          import subprocess
+          from urllib.request import Request, urlopen
+
+          suite = os.environ['TEST_SUITE']
+          if suite not in ('pr', 'nightly'):
+              raise SystemExit('test_suite must be pr or nightly')
+          nodes = json.loads(os.environ['TEST_NNODES'])
+          timeout = int(os.environ['TEST_TIMEOUT'])
+          if (not isinstance(nodes, list) or not nodes
+                  or any(type(n) is not int or not 2 <= n <= 16 for n in nodes)
+                  or len(set(nodes)) != len(nodes)):
+              raise SystemExit('nnodes must be a nonempty JSON array of distinct integers from 2 to 16')
+          if not 1 <= timeout <= 1200:
+              raise SystemExit('timeout_minutes must be 1-1200')
+          root = Path('pccl/.github/workflows/scripts')
+          lists = [('casecmd.list', 0)] if suite == 'pr' else [
+              ('casecmd.nightly.list', 0), *[('casecmd.nightly.multinode.list', n) for n in nodes]]
+          entries = []
+          seen = set()
+          for filename, nnodes in lists:
+              count = 0
+              for number, line in enumerate((root / filename).read_text().splitlines(), 1):
+                  parts = shlex.split(line, comments=True)
+                  if not parts:
+                      continue
+                  if (len(parts) != (3 if nnodes else 2) or parts[0] != 'bash'
+                          or not re.fullmatch(r'run_[A-Za-z0-9_]+_test\.sh', parts[1])
+                          or not (root / parts[1]).is_file()):
+                      raise SystemExit(f'{filename}:{number}: Invalid test command')
+                  args = parts[2] if nnodes else ''
+                  if nnodes and (parts[1] != 'run_multinode_test.sh'
+                                 or args not in ('mnnvl', 'socket', 'gdr', 'non_gdr')):
+                      raise SystemExit(f'{filename}:{number}: Invalid multinode test configuration')
+                  test_id = parts[1] + (f'-{args}-{nnodes}nodes' if nnodes else '')
+                  if test_id in seen:
+                      raise SystemExit(f'{filename}:{number}: Duplicate test {test_id}')
+                  seen.add(test_id)
+                  entries.append({'test_script': parts[1], 'test_args': args,
+                                  'test_id': test_id, 'nnodes': nnodes})
+                  count += 1
+              if not count:
+                  raise SystemExit(f'{filename}: Test list must not be empty')
+          if suite == 'pr':
+              smoke = 'run_multinode_smoke_test.sh'
+              if not (root / smoke).is_file() or smoke in seen:
+                  raise SystemExit('Missing or duplicate two-node smoke test')
+              for transport in ('mnnvl', 'rdma'):
+                  entries.append({'test_script': smoke, 'test_args': transport,
+                                  'test_id': f'{smoke}-{transport}', 'nnodes': 2})
+          debug_run = os.environ.get('DEBUG_BUILD_RUN_ID', '')
+          debug_attempt = os.environ.get('DEBUG_BUILD_ATTEMPT', '1')
+          build_key = f"{os.environ.get('GITHUB_RUN_ID', '')}/{os.environ.get('GITHUB_RUN_ATTEMPT', '')}"
+          checksum = ''
+          if debug_run:
+              if suite != 'pr' or os.environ.get('GITHUB_EVENT_NAME') != 'workflow_dispatch':
+                  raise SystemExit('Build reuse is restricted to manually dispatched PR-suite smoke debugging')
+              if not all(re.fullmatch(r'[1-9][0-9]{0,19}', value) for value in (debug_run, debug_attempt)):
+                  raise SystemExit('Debug build run and attempt must be positive integer IDs')
+              repository = os.environ['GITHUB_REPOSITORY']
+              api = f"{os.environ['GITHUB_API_URL']}/repos/{repository}/actions/runs/{debug_run}/attempts/{debug_attempt}"
+
+              def get_json(url):
+                  request = Request(url, headers={'Authorization': f"Bearer {os.environ['GH_TOKEN']}",
+                                                  'Accept': 'application/vnd.github+json'})
+                  with urlopen(request, timeout=30) as response:
+                      return json.load(response)
+
+              run = get_json(api)
+              if (str(run['id']) != debug_run or str(run['run_attempt']) != debug_attempt
+                      or run['head_repository']['full_name'] != repository
+                      or run['event'] not in ('workflow_dispatch', 'push', 'schedule')
+                      or run['path'] not in ('.github/workflows/pr-test-ppu.yml',
+                                             '.github/workflows/nightly-test-ppu.yml')):
+                  raise SystemExit('Unsupported build source: select a trusted build from this repository')
+              jobs = []
+              page = 1
+              while True:
+                  batch = get_json(f'{api}/jobs?per_page=100&page={page}')['jobs']
+                  jobs.extend(batch)
+                  if len(batch) < 100:
+                      break
+                  page += 1
+              if not any(job['name'].endswith('/ Build (ubuntu24_hggcrt13)')
+                         and job['conclusion'] == 'success' for job in jobs):
+                  raise SystemExit('Selected attempt has no successful standard build')
+              source_sha = run['head_sha']
+              if not re.fullmatch(r'[0-9a-f]{40}', source_sha):
+                  raise SystemExit('Invalid build source SHA')
+              subprocess.run(['git', '-C', 'pccl', 'fetch', '--no-tags', 'origin', source_sha], check=True)
+              unchanged = subprocess.run(['git', '-C', 'pccl', 'diff', '--quiet', source_sha, 'HEAD', '--',
+                                          '.', ':(exclude).github/workflows'], check=False)
+              build_scripts = subprocess.run(['git', '-C', 'pccl', 'diff', '--quiet', source_sha, 'HEAD', '--',
+                                               '.github/workflows/scripts/build.sh',
+                                               '.github/workflows/scripts/pccl_build.sh'], check=False)
+              if unchanged.returncode or build_scripts.returncode:
+                  raise SystemExit('PCCL source or build scripts changed; run a fresh build')
+              build_key = f'{debug_run}/{debug_attempt}'
+              directory = Path('/wl_nas/devops/pccl-ci') / build_key / 'build_output'
+              info = json.loads((directory / 'env_info.json').read_text())
+              if (info['config_name'] != 'ubuntu24_hggcrt13' or info['docker_image'] !=
+                      'download.t-head.cn/docker_release/ppu:sdk2.2.0-hggcrt3-ubuntu24.04-py312-20261005'):
+                  raise SystemExit('Build environment does not match the test image/configuration')
+              digest = hashlib.sha256()
+              with (directory / 'output_hggcrt13.tar.gz').open('rb') as archive:
+                  for chunk in iter(lambda: archive.read(1024 * 1024), b''):
+                      digest.update(chunk)
+              checksum = digest.hexdigest()
+              entries = [entry for entry in entries if entry['test_script'] == smoke]
+              with open(os.environ['GITHUB_STEP_SUMMARY'], 'a') as summary:
+                  summary.write(f'## Debug only: reused build {build_key}\n\n'
+                                f'Build source: `{source_sha}`; scripts: `{os.environ["GITHUB_SHA"]}`.\n\n'
+                                f'Archive SHA-256: `{checksum}`.\n\n'
+                                'Only two-node MNNVL/RDMA smokes run; this is not full CI validation.\n')
+          print('debug_reuse=' + ('true' if debug_run else 'false'))
+          print('build_key=' + build_key)
+          print('build_sha256=' + checksum)
+          print('matrix=' + json.dumps({'include': entries}))
+          print(f'job_timeout={timeout + 60}')
+          PYEOF
+
+  build:
+    name: Build (ubuntu24_hggcrt13)
+    needs: [prepare]
+    if: needs.prepare.outputs.debug_reuse != 'true'
+    runs-on: k8s-runner-group-cpu-thead
+    container:
+      image: ghcr.io/actions/actions-runner:latest
+    timeout-minutes: ${{ fromJSON(needs.prepare.outputs.job_timeout) }}
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          fetch-depth: 0
+          path: pccl
+      - uses: actions/checkout@v4
+        with:
+          repository: t-head/pccl-tests
+          ref: main
+          path: pccl-tests
+      - name: Build on PPU
+        id: ppu-build
+        uses: t-head/ppu-scheduler-action@main
+        with:
+          image: download.t-head.cn/docker_release/ppu:sdk2.2.0-hggcrt3-ubuntu24.04-py312-20261005
+          nnodes: 0
+          nproc_per_node: 8
+          node_selector: "board-type=ZW-M890P"
+          namespace: ppu-sched
+          timeout_minutes: ${{ inputs.timeout_minutes }}
+          command: |
+            cd /workspace/source
+            set -e
+            # Fix: image bakes in PIP_INDEX_URL pointing to unreachable internal server
+            unset PIP_INDEX_URL 2>/dev/null || true
+            # Fix: image bakes in git insteadOf redirecting github.com to unreachable internal gerrit
+            git config --global --unset-all url.https://ai-gerrit.eng.t-head.cn/Public/Github/.insteadOf 2>/dev/null || true
+            # git checks repo ownership strictly inside containers.
+            git config --global --add safe.directory /workspace/source
+            git config --global --add safe.directory '*'
+
+            echo "######################### $(date +%Y%m%d%H%M%S) Build pccl ##########################"
+            export source_home=/workspace/source
+            export build_output=/workspace/source/output_hggcrt13
+            mkdir -p $build_output
+            export PCCL_BUILD_K8S=1
+            bash pccl/.github/workflows/scripts/build.sh
+
+            echo "######################### $(date +%Y%m%d%H%M%S) Archive build output ##########################"
+            NAS_BUILD_DIR="/mnt/wl_nas/devops/pccl-ci/${{ github.run_id }}/${{ github.run_attempt }}/build_output"
+            mkdir -p "$NAS_BUILD_DIR"
+            tar -czf "$NAS_BUILD_DIR/output_hggcrt13.tar.gz" -C /workspace/source output_hggcrt13
+
+            echo "######################### $(date +%Y%m%d%H%M%S) Record environment ##########################"
+            python3 <<'PYEOF' > /workspace/source/output_hggcrt13/env_info.json
+            import json
+            import os
+            import shutil
+            import subprocess
+            import sys
+
+            def command_output(command):
+                executable = command[0]
+                if not shutil.which(executable):
+                    return "not found"
+                result = subprocess.run(command, text=True, capture_output=True, check=False)
+                return (result.stdout or result.stderr).strip()
+
+            info = {
+                "docker_image": "download.t-head.cn/docker_release/ppu:sdk2.2.0-hggcrt3-ubuntu24.04-py312-20261005",
+                "config_name": "ubuntu24_hggcrt13",
+                "python_version": sys.version,
+                "ppu_sdk": os.environ.get("PPU_SDK", ""),
+                "ppu_home": os.environ.get("PPU_HOME", ""),
+                "hggcc_version": command_output(["hggcc", "--version"]),
+                "hggcrt_version": command_output(["hggcrt", "--version"]),
+            }
+            print(json.dumps(info, indent=2, sort_keys=True))
+            PYEOF
+            cp /workspace/source/output_hggcrt13/env_info.json "$NAS_BUILD_DIR/"
+          cleanup_policy: on_success
+
+  test:
+    name: Test (${{ matrix.test_id }}, ZW-890P)
+    needs: [prepare, build]
+    if: >-
+      !cancelled() && needs.prepare.result == 'success' &&
+      (needs.build.result == 'success' ||
+       (needs.prepare.outputs.debug_reuse == 'true' && needs.build.result == 'skipped'))
+    runs-on: k8s-runner-group-cpu-thead
+    container:
+      image: ghcr.io/actions/actions-runner:latest
+    timeout-minutes: ${{ fromJSON(needs.prepare.outputs.job_timeout) }}
+    strategy:
+      fail-fast: false
+      max-parallel: ${{ inputs.test_suite == 'nightly' && 4 || 256 }}
+      matrix: ${{ fromJson(needs.prepare.outputs.matrix) }}
+    steps:
+      - uses: actions/checkout@v4
+        if: needs.prepare.outputs.debug_reuse == 'true'
+        with:
+          path: pccl
+          persist-credentials: false
+      - name: Run test on PPU
+        id: ppu-test
+        uses: t-head/ppu-scheduler-action@main
+        with:
+          image: download.t-head.cn/docker_release/ppu:sdk2.2.0-hggcrt3-ubuntu24.04-py312-20261005
+          nnodes: ${{ matrix.nnodes }}
+          nproc_per_node: 8
+          node_selector: "board-type=ZW-M890P"
+          namespace: ppu-sched
+          container_options: |
+            privileged: ${{ (matrix.nnodes == 2 && matrix.test_script == 'run_multinode_smoke_test.sh') ||
+              (matrix.nnodes >= 2 && matrix.test_script == 'run_multinode_test.sh') }}
+            host_ipc: ${{ (matrix.nnodes == 2 && matrix.test_script == 'run_multinode_smoke_test.sh') ||
+              (matrix.nnodes >= 2 && matrix.test_script == 'run_multinode_test.sh') }}
+            host_network: ${{ (matrix.nnodes == 2 && matrix.test_script == 'run_multinode_smoke_test.sh') ||
+              (matrix.nnodes >= 2 && matrix.test_script == 'run_multinode_test.sh') }}
+          timeout_minutes: ${{ inputs.timeout_minutes }}
+          command: |
+            cd /workspace/source
+            set -eo pipefail
+            unset PIP_INDEX_URL 2>/dev/null || true
+            git config --global --unset-all url.https://ai-gerrit.eng.t-head.cn/Public/Github/.insteadOf 2>/dev/null || true
+            git config --global --add safe.directory /workspace/source
+            git config --global --add safe.directory '*'
+
+            echo "######################### $(date +%Y%m%d%H%M%S) Restore build output ##########################"
+            NAS_BUILD_DIR="/mnt/wl_nas/devops/pccl-ci/${{ needs.prepare.outputs.build_key }}/build_output"
+            if [ '${{ needs.prepare.outputs.debug_reuse }}' = true ]; then
+              echo "Debug only: reusing build ${{ needs.prepare.outputs.build_key }}; no compilation"
+              printf '%s  %s\n' '${{ needs.prepare.outputs.build_sha256 }}' "$NAS_BUILD_DIR/output_hggcrt13.tar.gz" | sha256sum --check
+            fi
+            mkdir -p /workspace/source
+            tar -xzf "$NAS_BUILD_DIR/output_hggcrt13.tar.gz" -C /workspace/source
+            if [ '${{ needs.prepare.outputs.debug_reuse }}' = true ]; then
+              cp pccl/.github/workflows/scripts/{run_multinode_smoke_test.sh,setup_test_env.sh,pr-ut-runner.py} output_hggcrt13/
+            fi
+
+            echo "######################### $(date +%Y%m%d%H%M%S) Run ${{ matrix.test_script }} ##########################"
+            cd /workspace/source/output_hggcrt13
+            export TEST_ROOT=$(pwd)
+            source /usr/local/PPU_SDK/envsetup.sh
+            python3 -m pip install junit-xml filelock==3.20.0 || true
+
+            echo "bash ${{ matrix.test_script }} ${{ matrix.test_args }}" > /tmp/single_case.list
+            set +e
+            python3 /workspace/source/output_hggcrt13/pr-ut-runner.py \
+              --suite-name "pccl ${{ inputs.test_suite == 'pr' && 'PR' || 'Nightly' }} Tests (node ${NODE_RANK:-0})" \
+              --caselist /tmp/single_case.list \
+              --build-dir /workspace/source/output_hggcrt13 2>&1 | tee test-output.log
+            TEST_EXIT_CODE=$?
+            set -e
+
+            NAS_RESULT_DIR="/mnt/wl_nas/devops/pccl-ci/${{ github.run_id }}/${{ github.run_attempt }}/results/${{ matrix.test_id }}/node-${NODE_RANK:-0}"
+            mkdir -p "$NAS_RESULT_DIR"
+            cp test-results.xml test-output.log "$NAS_RESULT_DIR/"
+            exit "$TEST_EXIT_CODE"
+          cleanup_policy: on_success
+
+  build-test-notsm:
+    name: Build & Test (ubuntu24_notsm, ZW-890P)
+    needs: [prepare]
+    if: needs.prepare.outputs.debug_reuse != 'true'
+    runs-on: k8s-runner-group-cpu-thead
+    container:
+      image: ghcr.io/actions/actions-runner:latest
+    timeout-minutes: ${{ fromJSON(needs.prepare.outputs.job_timeout) }}
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          fetch-depth: 0
+          path: pccl
+      - uses: actions/checkout@v4
+        with:
+          repository: t-head/pccl-tests
+          ref: main
+          path: pccl-tests
+      - name: Build and Test on PPU (notsm)
+        id: ppu-test-notsm
+        uses: t-head/ppu-scheduler-action@main
+        with:
+          image: download.t-head.cn/docker_release/ppu:sdk2.2.0-hggcrt3-ubuntu24.04-py312-20261005
+          nnodes: 0
+          nproc_per_node: 8
+          node_selector: "board-type=ZW-M890P"
+          namespace: ppu-sched
+          timeout_minutes: ${{ inputs.timeout_minutes }}
+          command: |
+            cd /workspace/source
+            set -e
+            unset PIP_INDEX_URL 2>/dev/null || true
+            git config --global --unset-all url.https://ai-gerrit.eng.t-head.cn/Public/Github/.insteadOf 2>/dev/null || true
+            git config --global --add safe.directory /workspace/source
+            git config --global --add safe.directory '*'
+
+            echo "######################### $(date +%Y%m%d%H%M%S) Build pccl (notsm) ##########################"
+            export source_home=/workspace/source
+            export build_output=/workspace/source/output_notsm
+            mkdir -p $build_output
+            bash pccl/.github/workflows/scripts/notsm_build.sh
+
+            echo "######################### $(date +%Y%m%d%H%M%S) Run notsm common test ##########################"
+            cd /workspace/source/output_notsm
+            export TEST_ROOT=$(pwd)
+            source /usr/local/PPU_SDK/envsetup.sh
+            python3 -m pip install junit-xml filelock==3.20.0 || true
+
+            echo "bash run_common_test.sh" > /tmp/single_case.list
+            set +e
+            python3 /workspace/source/output_notsm/pr-ut-runner.py \
+              --suite-name "pccl ${{ inputs.test_suite == 'pr' && 'PR' || 'Nightly' }} Tests (notsm)" \
+              --caselist /tmp/single_case.list \
+              --build-dir /workspace/source/output_notsm
+            TEST_EXIT_CODE=$?
+            set -e
+
+            NAS_RESULT_DIR="/mnt/wl_nas/devops/pccl-ci/${{ github.run_id }}/${{ github.run_attempt }}/results/notsm_run_common_test"
+            mkdir -p "$NAS_RESULT_DIR"
+            cp test-results.xml "$NAS_RESULT_DIR/" 2>/dev/null || true
+            exit "$TEST_EXIT_CODE"
+          cleanup_policy: on_success
+
+  summary:
+    name: Test Summary
+    needs: [prepare, build, test, build-test-notsm]
+    if: always()
+    runs-on: k8s-runner-group-cpu-thead
+    container:
+      image: ghcr.io/actions/actions-runner:latest
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          fetch-depth: 0
+          path: pccl
+      - name: Display test summary
+        env:
+          TEST_MATRIX: ${{ needs.prepare.outputs.matrix }}
+          DEBUG_REUSE: ${{ needs.prepare.outputs.debug_reuse }}
+          NAS_RESULT_DIR: /wl_nas/devops/pccl-ci/${{ github.run_id }}/${{ github.run_attempt }}/results
+        run: |
+          python3 <<'PYEOF'
+          import json
+          import os
+          from pathlib import Path
+          import subprocess
+          import xml.etree.ElementTree as ET
+
+          root = Path(os.environ['NAS_RESULT_DIR'])
+          entries = json.loads(os.environ['TEST_MATRIX'])['include']
+          reports = [root / entry['test_id'] / f'node-{rank}' / 'test-results.xml'
+                     for entry in entries for rank in range(max(1, entry['nnodes']))]
+          if os.environ.get('DEBUG_REUSE') != 'true':
+              reports.append(root / 'notsm_run_common_test' / 'test-results.xml')
+          missing = [str(path) for path in reports if not path.is_file()]
+          available = []
+          invalid = []
+          for path in reports:
+              if not path.is_file():
+                  continue
+              try:
+                  report = ET.parse(path).getroot()
+                  cases = report.findall('.//testcase')
+                  if not cases or int(report.get('tests', '0')) != len(cases):
+                      raise ValueError('Empty or inconsistent test count')
+                  counts = [int(node.get(key, '0')) for node in report.iter()
+                            for key in ('failures', 'errors', 'skipped')]
+                  available.append(str(path))
+                  if any(node.tag in ('failure', 'error', 'skipped') for node in report.iter()) or any(counts):
+                      raise ValueError('Failed, errored or skipped test')
+              except (ET.ParseError, ValueError) as error:
+                  invalid.append(str(path))
+                  print(f'::error::Invalid test report {path}: {error}')
+          if available:
+              subprocess.run(['python3', 'pccl/.github/workflows/scripts/display-test-summary.py',
+                              *available], check=True)
+          for path in missing:
+              print(f'::error::Missing test report: {path}')
+          if missing or invalid or not entries:
+              raise SystemExit(1)
+          PYEOF
+
+  tests-gate:
+    name: Build and Test Gate
+    needs: [prepare, build, test, build-test-notsm, summary]
+    if: always()
+    runs-on: ubuntu-24.04
+    timeout-minutes: 5
+    permissions: {}
+    steps:
+      - name: Require every build and test job to succeed
+        env:
+          JOB_RESULTS: ${{ toJSON(needs) }}
+          DEBUG_REUSE: ${{ needs.prepare.outputs.debug_reuse }}
+        run: |
+          python3 - <<'PY'
+          import json
+          import os
+          import sys
+
+          results = json.loads(os.environ['JOB_RESULTS'])
+          reused = os.environ.get('DEBUG_REUSE') == 'true'
+          expected = {name: 'skipped' if reused and name in ('build', 'build-test-notsm') else 'success'
+                      for name in results}
+          failed = [name for name, job in results.items() if job['result'] != expected[name]]
+          if reused:
+              print('Debug-only gate: reused build; full CI was not run')
+          for name in failed:
+              print(f"::error::{name}: {results[name]['result']}")
+          sys.exit(bool(failed))
+          PY

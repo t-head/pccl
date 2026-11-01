@@ -1,0 +1,26 @@
+name: pccl nightly
+
+on:
+  push:
+    branches:
+      - ci/nightly-shared-tests
+  schedule:
+    - cron: '0 14 * * *' # 22:00 Asia/Shanghai
+  workflow_dispatch:
+
+permissions:
+  contents: read
+  actions: read
+
+concurrency:
+  group: ci-pccl-nightly-${{ github.ref }}
+  cancel-in-progress: true
+
+jobs:
+  build-test:
+    name: PPU Nightly Regression
+    uses: ./.github/workflows/ppu-build-test.yml
+    with:
+      test_suite: nightly
+      nnodes: '[2, 8, 16]'
+      timeout_minutes: 600

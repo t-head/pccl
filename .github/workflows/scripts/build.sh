@@ -77,6 +77,11 @@ echo "######################### $(date +%Y%m%d%H%M%S) Build pccl-tests #########
 cd ${source_home}/pccl-tests
 bash build.sh --use_mpi
 
+# Native K8s uses the non-MPI WORLD_SIZE/RANK path and requires separate build artifacts.
+if [ "${PCCL_BUILD_K8S:-0}" = "1" ]; then
+    BUILDDIR="${PCCL_TESTS_DIR}/build-k8s" MPI=0 bash build.sh
+fi
+
 echo "######################### $(date +%Y%m%d%H%M%S) Collect final output ##########################"
 mv ${source_home}/pccl ${build_output}
 mv ${source_home}/pccl-tests ${build_output}

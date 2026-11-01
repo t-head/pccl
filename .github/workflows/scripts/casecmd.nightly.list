@@ -1,0 +1,11 @@
+# Retain PR coverage and add profiling and extended eight-PPU regression tests.
+# Multinode cases are listed separately to avoid allocating extra nodes for single-node tests.
+bash run_common_test.sh
+bash run_register_test.sh
+bash run_memcpy_test.sh
+bash run_nonblocking_test.sh
+bash run_copyengine_test.sh
+bash run_customAllreduce_test.sh
+bash run_lsa_test.sh
+bash run_acu_test.sh
+bash run_nightly_test.sh
