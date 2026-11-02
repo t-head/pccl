@@ -1,14 +1,14 @@
 {
   "classification": {
     "base_sha": "b4c46ba921d6e206f685229d94403260a69e03fd",
-    "head_sha": "278cb3d47e98300e02beda1aeafafa031c532364",
-    "input_fingerprint": "7742c82996ed434f29fcb461e06f39ee9bf40a54b1c397121d77f45fcf2ca6fb",
+    "head_sha": "7131cb5bfe0b6a6b863f02a0022c4e06c4364663",
+    "input_fingerprint": "705991106723412ff230fcdab7e0036809d441457e27d4faae68bb92c08c1161",
     "pr_number": 98,
     "proposal": {
       "modules": [
         "workflow"
       ],
-      "reason": "Main change adds and wires contribution/review automation: AI squash-message generation/publishing and authorized `/merge` squash-merge flow, plus related reviewer-automation, contribution-policy, template, and workflow trigger/gate/concurrency updates to support that process rather than changing core test execution behavior."
+      "reason": "Main change is contribution/review automation: new `/merge` command workflow, multi-commit squash-message generation/publishing, and related reviewer-routing/contribution-rule updates. The `pr-test-ppu.yml` edits are supporting trigger/gate/concurrency wiring for message-only vs normal PR runs rather than an independent change to core test execution behavior."
     }
   },
   "reviewers": {
