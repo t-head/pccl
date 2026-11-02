@@ -1,6 +1,6 @@
 # SPDX-License-Identifier: Apache-2.0
 # Copyright (c) 2026 T-Head (Shanghai) Semiconductor Co., Ltd. All rights reserved.
-"""Merge the displayed squash message after an authorized /merge comment."""
+"""Squash-merge a PR after an authorized /merge comment."""
 
 from datetime import datetime
 import html
@@ -60,6 +60,8 @@ def load_draft(api, number, draft_comment):
     if (draft['target'] != 'main' or draft['commit_count'] < 2 or
             body != squash.comment_body(draft)):
         raise ValueError('The preview does not match this PR version; generate it again')
+    if squash.with_pr_number(draft['message'], number) != draft['message']:
+        raise ValueError(f'The preview title must end with (#{number}); update it and send /merge again')
     return draft
 
 
@@ -93,9 +95,11 @@ def merge_message(api, number, draft):
 
 def merge_request(api, event):
     number = event['issue']['number']
+    data = squash.snapshot(api, number)
+    if data['target'] != 'main' or data['commit_count'] < 2:
+        raise ValueError('/merge supports only multi-commit PRs targeting main; '
+                         'for a single commit, use the web Squash and merge button')
     draft_comment = preview(api, number, event['comment'])
-    # Authorize the unchanged command near the write. Publishing shares this
-    # job's concurrency group, so re-read the selected preview by ID.
     command(api, event)
     current_comment = api.request(f"/repos/{api.repository}/issues/comments/{draft_comment['id']}")
     if any(current_comment[key] != draft_comment[key] for key in ('id', 'body', 'updated_at')):

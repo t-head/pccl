@@ -1,38 +1,42 @@
 # GitHub workflows
 
-Opening or updating a ready PR starts checkin and module review independently.
+CI and module review run independently. PRs targeting `main` must pass both PCCL checks.
+
+1. [PCCL Tests Gate](#pccl-tests-gate) summarizes contribution checks, builds and PPU tests.
+2. [PCCL Review Gate](#pccl-review-gate) checks Maintainer approvals for the affected modules.
+
+## PCCL Tests Gate
+
+| File | Purpose |
+| --- | --- |
+| [pr-test-ppu.yml](workflows/pr-test-ppu.yml) | Run contribution checks, AI and human review, builds and PPU tests; report `PCCL Tests Gate`. |
+| [workflows/scripts/](workflows/scripts/) | Build and test helpers for PCCL and `pccl-tests`. |
+| [casecmd.list](workflows/scripts/casecmd.list) | Define the PPU test matrix. |
+
+## PCCL Review Gate
+
+| File | Purpose |
+| --- | --- |
+| [reviewer-routing.yml](workflows/reviewer-routing.yml) | Classify affected modules and invite Reviewers and Maintainers. |
+| [maintainer-approval.yml](workflows/maintainer-approval.yml) | Refresh `PCCL Review Gate` from module approval results. |
+| [review-event.yml](workflows/review-event.yml) | Notify the approval workflow when a Review changes. |
+| [Classification Skill](skills/pccl-review-assignment/SKILL.md) | Define the module classification criteria. |
+| [modules.json](skills/pccl-review-assignment/modules.json) | Define module scopes, Reviewers and Maintainers. |
+| [review_automation.py](scripts/review_automation.py) | Classify modules, select Reviewers, and send invitations and notifications. |
+| [reviewer_state.py](scripts/reviewer_state.py) | Store classification, assignments and rotation on `workflow/review`. |
+| [reviewer_api.py](scripts/reviewer_api.py) | Provide GitHub API helpers. |
+| [maintainer_approval.py](scripts/maintainer_approval.py) | Evaluate module Maintainer approvals for the current PR version. |
+
+---
 
 ```mermaid
 flowchart TD
-    PR[PR opened or updated] --> P[Contribution prechecks]
-    P --> H[AI review and eligible human approval]
-    H --> T["PPU tests · PCCL Tests Gate"]
-    PR --> C[Classify affected modules]
-    C --> I[Invite reviewers and Maintainers]
-    C --> A["Applicable Maintainers approve · PCCL Review Gate"]
-    T --> M[Both required checks pass]
+    PR[PR ready for review or updated] --> P[Secret scan and commit checks]
+    P --> H[AI and human review]
+    H --> T["Build and PPU tests · PCCL Tests Gate"]
+    PR --> C[Identify affected modules]
+    C --> I[Invite Reviewers and Maintainers]
+    C --> A["Check Maintainer approvals · PCCL Review Gate"]
+    T --> M[Required on main]
     A --> M
 ```
-
-[Checkin](workflows/pr-test-ppu.yml) accepts an approval from an eligible reviewer with repository
-write access and runs the [PPU test matrix](workflows/scripts/casecmd.list). `PCCL Tests Gate`
-summarizes the CI results.
-
-[Reviewer routing](workflows/reviewer-routing.yml) uses the [module classification skill](skills/pccl-review-assignment/SKILL.md)
-to identify affected modules. It rotates reviewers per module and invites each selected reviewer
-and applicable Maintainer once. The `workflow/review` branch stores the classification and assigned
-IDs so retries reuse the same people. Limit writes to trusted automation and authorized maintainers.
-
-To retry classification, run **Recommend PCCL reviewers** on `main` with the PR number.
-If the diff is too large, binary or incomplete, routing reports the problem and sends no invitations.
-
-[Module approval](workflows/maintainer-approval.yml) publishes `PCCL Review Gate` when all applicable
-module Maintainers have approved the current commit. A Lead Maintainer approval covers every module,
-including when AI cannot classify the diff. A Maintainer author is exempt for their own module.
-An approval still counts if the invitation failed. Review submissions, edits and dismissals refresh
-the gate through a read-only [review notification](workflows/review-event.yml), including for fork PRs.
-
-Keep `PCCL Tests Gate` required. Once `PCCL Review Gate` has succeeded on a real PR after deployment,
-add it to the target branch's required checks. The PR must carry the deployed review notification
-so that withdrawing an approval refreshes the gate. Sync it to release branches. To replace the
-notification itself, deploy its successor at a new path before retiring the original.

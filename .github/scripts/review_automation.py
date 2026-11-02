@@ -13,6 +13,7 @@ import sys
 import tempfile
 import time
 
+from copilot_cli import final_response
 import reviewer_api
 import reviewer_state
 
@@ -160,16 +161,7 @@ def ask_copilot(prompt):
             delay = min(5 * (attempt + 1), max(0, deadline - time.monotonic()))
             print(f"Model catalog timed out; retry {attempt + 1}/2 in {delay:g}s", file=sys.stderr)
             time.sleep(delay)
-    # The echoed input is not a response; CLI 1.0.100 can mis-escape that event.
-    messages = [json.loads(line) for line in result.stdout.splitlines()
-                if line.strip() and not line.startswith('{"type":"user.message",')]
-    if any(item.get("type") == "tool.execution_start" for item in messages):
-        raise ValueError("Classification must not execute tools")
-    replies = [item["data"]["content"] for item in messages
-               if item.get("type") == "assistant.message" and item.get("data", {}).get("content")]
-    if not replies:
-        raise ValueError("Copilot did not return a classification")
-    return replies[-1]
+    return final_response(result.stdout)
 
 
 def classification_summary(pr, proposal):

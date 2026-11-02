@@ -12,6 +12,8 @@ import re
 import subprocess
 import tempfile
 
+from copilot_cli import final_response
+
 COMMENT_MARKER = '<!-- pccl-squash-message -->'
 SKILL = Path(__file__).resolve().parents[2] / '.agents/skills/pccl-squash-message/SKILL.md'
 
@@ -63,18 +65,20 @@ def snapshot(api, number):
 # Read-only AI generation
 
 def split_message(message):
-    title, separator, body = message.rstrip('\n').partition('\n\n')
-    if not separator or '\n' in title or not title.strip() or not body.strip():
+    parts = re.fullmatch(r'([^\r\n]+)\r?\n\r?\n(.+)', message.rstrip('\r\n'), re.DOTALL)
+    if not parts or not parts[1].strip() or not parts[2].strip():
         raise ValueError('Expected a title, blank line and body')
-    return title, body
+    return parts[1], parts[2]
+
+
+def with_pr_number(message, number):
+    title, _ = split_message(message)
+    suffix = f' (#{number})'
+    return message if title.endswith(suffix) else title + suffix + message[len(title):]
 
 
 def copilot_response(output):
-    events = [json.loads(line) for line in output.splitlines() if line.strip()]
-    answers = [event['data']['content'] for event in events
-               if event.get('type') == 'assistant.message' and not event['data'].get('toolRequests')
-               and event['data'].get('content', '').strip()]
-    message = (answers[-1] if answers else '').strip()
+    message = final_response(output, allow_tools=True).strip()
     if message.startswith('ERROR:'):
         raise ValueError('Copilot could not prepare a complete message: ' + message[:500])
     split_message(message)
@@ -107,8 +111,9 @@ def ask_copilot(data):
 
 def generate(api, number, ask=ask_copilot):
     data = snapshot(api, number)
-    # One commit already has its final message; only remove any old preview.
-    message = ask(data) if data['commit_count'] > 1 else None
+    message = None
+    if data['target'] == 'main' and data['commit_count'] > 1:
+        message = with_pr_number(ask(data), number)
     return {**data, 'message': message}
 
 
@@ -137,7 +142,7 @@ def publish(api, draft, expected_pr):
     if any(draft.get(key) != value for key, value in data.items()):
         raise ValueError('PR inputs changed; generate a fresh draft')
     published = None
-    if data['commit_count'] > 1:
+    if data['target'] == 'main' and data['commit_count'] > 1:
         # Always publish at the conversation end before removing old previews.
         published = api.request(f'/repos/{api.repository}/issues/{expected_pr}/comments',
                                 'POST', {'body': comment_body(draft)})
@@ -160,7 +165,7 @@ def main():
     if args.publish:
         url = publish(api, json.loads(os.environ['SQUASH_DRAFT']), args.expected_pr)
         print('Published squash message: ' + url if url else
-              'Single-commit PR: no AI draft comment; any previous preview was removed.')
+              'No commit message preview needed; any previous preview was removed.')
     else:
         print(json.dumps(generate(api, args.pr), ensure_ascii=True))
 
