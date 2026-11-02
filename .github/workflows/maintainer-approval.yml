@@ -1,0 +1,33 @@
+name: Refresh PCCL review gate
+run-name: "${{ github.event.workflow_run.display_title }}"
+
+on:
+  workflow_run:
+    workflows: [Recommend PCCL reviewers, PCCL review trigger]
+    types: [completed]
+
+permissions: {}
+
+# Both sources use the same PR title. Each refresh reads the latest verdicts.
+concurrency:
+  group: maintainer-approval-${{ github.event.workflow_run.display_title }}
+  cancel-in-progress: false
+
+jobs:
+  approval:
+    if: github.repository == 't-head/pccl'
+    runs-on: ubuntu-24.04
+    timeout-minutes: 5
+    permissions:
+      contents: read
+      pull-requests: read
+      statuses: write
+    steps:
+      - uses: actions/checkout@d23441a48e516b6c34aea4fa41551a30e30af803 # v6
+        with:
+          ref: ${{ github.sha }}
+          persist-credentials: false
+      - name: Verify current module Maintainer approvals
+        env:
+          GITHUB_TOKEN: ${{ github.token }}
+        run: python3 .github/scripts/maintainer_approval.py
