@@ -93,7 +93,6 @@ jobs:
           repository: t-head/pccl-tests
           ref: release/v2.2.1
           path: pccl-tests
-          token: ${{ secrets.PAT_FOR_CHECKOUT }}
       - name: Build on PPU
         id: ppu-build
         uses: t-head/ppu-scheduler-action@main
@@ -230,7 +229,6 @@ jobs:
           repository: t-head/pccl-tests
           ref: release/v2.2.1
           path: pccl-tests
-          token: ${{ secrets.PAT_FOR_CHECKOUT }}
       - name: Build and Test on PPU (notsm)
         id: ppu-test-notsm
         uses: t-head/ppu-scheduler-action@main

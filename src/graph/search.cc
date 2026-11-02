@@ -15,6 +15,7 @@
 #include <math.h>
 
 NCCL_PARAM(CrossNic, "CROSS_NIC", 2);
+PCCL_PARAM(GraphSearchBalancedTreeRemainingBw, "GRAPH_SEARCH_BALANCED_TREE_REMAINING_BW", 1);
 
 ncclResult_t ncclTopoCheckCrossNicSupport(bool* supported) {
   *supported = (ncclParamCrossNic() != 0);
@@ -278,6 +279,13 @@ ncclResult_t ncclTopoSearchNextGpuSort(struct ncclTopoSystem* system, struct ncc
     scores[count].startIndex = i;
     scores[count].intraNhops = paths[g].count;
     scores[count].intraWidth = paths[g].width;
+    if (pcclParamGraphSearchBalancedTreeRemainingBw() != 0 &&
+	      graph->pattern == NCCL_TOPO_PATTERN_BALANCED_TREE &&
+	      graph->typeIntra == PATH_NVL && paths[g].type == PATH_NVL) {
+      for (int l=0; l<paths[g].count; l++) {
+        scores[count].intraWidth = std::min(scores[count].intraWidth, (int)paths[g].list[l]->width);
+      }
+    }
     if (netPaths) {
       scores[count].interNhops = netPaths[g].count;
       scores[count].interPciWidth = gpuPciWidth(system->nodes[GPU].nodes+g);

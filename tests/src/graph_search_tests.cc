@@ -283,8 +283,11 @@ TEST_CASE(graphSearchTestWithPXN, PXN8PPUs890L4CX7, "./8PPU1.5_4CX7_2PIXPPUsPerN
 // 890P + SNIC
 TEST_CASE(graphSearchTestWithPXN, PXB8PPUs890P4SNIC, "./8PPU1.5_4SNIC_2PXBPPUsPerNET_OAM_8Links_PXN/", "graph.xml", TWO_NODES, ALGO_AUTO, 0,1,2,3,4,5,6,7)
 
+// 16PPU 4EIC
+TEST_EIC_CASE(graphSearchTestWithPXN, PXN16PPUs4EIC, "./16PPU1.1_4EIC_7Links_PXN/", "graph.xml", TWO_NODES, ALGO_AUTO, 0,1,2,3,4,5,6,7,8,9,10,11,12,13,14,15)
+
 // 16PPU 4EIC under RUND
-TEST_EIC_CASE(graphSearchTestWithPXN, PXN16PPUs4EICRUND, "./16PPU1.1_4EIC_7Links_RUND_PXN/", "graph.xml", TWO_NODES, ALGO_SPECIFIED, 0,1,2,3,4,5,6,7,8,9,10,11,12,13,14,15)
+TEST_EIC_CASE(graphSearchTestWithPXN, PXN16PPUs4EICRUND, "./16PPU1.1_4EIC_7Links_RUND_PXN/", "graph.xml", TWO_NODES, ALGO_AUTO, 0,1,2,3,4,5,6,7,8,9,10,11,12,13,14,15)
 
 int main(int argc, char **argv) {
   ::testing::InitGoogleTest(&argc, argv);
