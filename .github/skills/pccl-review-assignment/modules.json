@@ -203,7 +203,7 @@
     },
     "workflow": {
       "name": "Contribution and review workflows",
-      "description": "Contribution guidance, issue/PR templates, review rules, reviewer automation and its tests; excludes test-execution pipelines.",
+      "description": "Contribution guidance, issue/PR templates, review rules, reviewer routing, commit-message and merge automation, and their tests; includes supporting Actions triggers, gates and concurrency that preserve normal test behavior.",
       "maintainer": {"login": "honganlxh", "id": 335730053},
       "reviewers": [
         {"login": "honganlxh", "id": 335730053},
@@ -212,7 +212,7 @@
     },
     "ci": {
       "name": "Open-source test workflows",
-      "description": "Test selection, CI execution, test gates, runners and result reporting; excludes contribution and reviewer automation.",
+      "description": "Normal test selection, execution, runners, result reporting and pass/fail criteria; excludes contribution, review and merge automation and supporting Actions wiring that leaves normal test behavior unchanged.",
       "maintainer": {"login": "xuyinxin-xyx", "id": 333302477},
       "reviewers": [
         {"login": "xuyinxin-xyx", "id": 333302477}
