@@ -1,0 +1,19 @@
+{
+  "classification": {
+    "base_sha": "b4c46ba921d6e206f685229d94403260a69e03fd",
+    "head_sha": "052c72d2fcc5f85e6089a7544add5ffbd25f61b7",
+    "input_fingerprint": "efd8b8e3c0a81b58cf48e774a8225b1eaf7419b258553ccb00eda30c580cf707",
+    "pr_number": 98,
+    "proposal": {
+      "modules": [
+        "workflow",
+        "ci"
+      ],
+      "reason": "Primary change is contribution/review automation: new `/merge` command handling, squash-message generation/publishing, Copilot CLI helper/install reuse, and updated contribution guidance/PR template. Add `ci` because `pr-test-ppu.yml` now materially changes CI triggering, concurrency grouping, job gating, and required-check behavior (message-only runs vs full test gate), which is a substantive test-workflow policy change."
+    }
+  },
+  "reviewers": {
+    "ci": 333302477,
+    "workflow": 333277982
+  }
+}
