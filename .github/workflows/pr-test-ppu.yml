@@ -93,7 +93,7 @@ jobs:
           sys.exit(bool(errors))
           PY
 
-  # Stage 2: AI code review runs in parallel with prepare.
+  # Stage 2: AI code review and reviewer invitations follow contribution prechecks.
   # The review gate should verify the current PR head and the team's resolution
   # policy; the presence of an earlier Copilot review is not sufficient.
   ai-code-review:
@@ -103,10 +103,48 @@ jobs:
     uses: t-head/.github/.github/workflows/ai-code-review.yml@main
     secrets: inherit
 
+  # Routing on main publishes this status after it sends the invitations for this tested merge.
+  invitations:
+    name: Wait for reviewer invitations
+    needs: [precheck, commit-checks]
+    if: github.event_name == 'pull_request'
+    runs-on: ubuntu-24.04
+    timeout-minutes: 21
+    permissions:
+      pull-requests: read
+      statuses: read
+    steps:
+      - name: Read invitation status
+        env:
+          GH_TOKEN: ${{ github.token }}
+          PR_NUMBER: ${{ github.event.pull_request.number }}
+        shell: bash
+        run: |
+          set -euo pipefail
+          for ((attempt = 0; attempt < 60; attempt++)); do
+            merge=$(gh api "repos/$GITHUB_REPOSITORY/pulls/$PR_NUMBER" \
+              --jq 'if .state == "open" and (.draft | not) then .merge_commit_sha // "" else "closed" end')
+            if [[ -n "$merge" && "$merge" != "$GITHUB_SHA" ]]; then
+              echo "::error::The tested merge changed. Update or reopen the PR to start a fresh checkin."
+              exit 1
+            fi
+            if [[ "$merge" == "$GITHUB_SHA" ]]; then
+              state=$(gh api --paginate --slurp "repos/$GITHUB_REPOSITORY/commits/$GITHUB_SHA/statuses?per_page=100" \
+                --jq '[.[][] | select(.context == "PCCL Reviewer Invitations" and .creator.login == "github-actions[bot]")][0].state // "pending"')
+              case "$state" in
+                success) exit 0 ;;
+                error|failure) echo "::error::Rerun reviewer routing, then re-run failed checkin jobs."; exit 1 ;;
+              esac
+            fi
+            sleep 20
+          done
+          echo "::error::Reviewer invitations timed out. Check reviewer routing for this PR."
+          exit 1
+
   # Stage 3: Human approval gate before running the expensive PPU CI.
   human-review:
     name: Human Review Gate
-    needs: [prepare, ai-code-review]
+    needs: [prepare, ai-code-review, invitations]
     if: github.event_name == 'pull_request'
     uses: t-head/.github/.github/workflows/human-review.yml@main
     secrets: inherit
@@ -375,6 +413,7 @@ jobs:
       - precheck          # Secret scan
       - commit-checks     # Commit message and DCO
       - ai-code-review    # AI review
+      - invitations       # Reviewer invitations for the tested merge
       - human-review      # Human approval
       - prepare           # Test matrix generation
       - build             # Build for the test matrix
@@ -420,7 +459,7 @@ jobs:
           exit 1
 
       - name: Reject skipped jobs on pull requests
-        # Outside PRs, the four PR-only checks and the test matrix may be skipped.
+        # Outside PRs, the PR-only checks and the test matrix may be skipped.
         if: >-
           always() && github.event_name == 'pull_request' &&
           contains(needs.*.result, 'skipped')
