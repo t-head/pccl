@@ -30,7 +30,7 @@ prep : $(RPMTARGETS)
 	$(MAKE) -C ../.. lic BUILDDIR=$(BUILDDIR)
 
 build : prep
-	$(MAKE) -C ../.. src.build BUILDDIR=$(BUILDDIR)
+	(cd ../..; bash ./build.sh --use_sdk)
 	$(MAKE) -C ../txz build BUILDDIR=$(BUILDDIR)
 	@printf "Building Redhat package\n"
 	mkdir -p $(PKGDIR)
@@ -38,7 +38,7 @@ build : prep
                  --define "_rpmdir $(PKGDIR)" \
                  --define "_builddir $(PKGDIR)/build/" \
                  --define "_buildrootdir $(PKGDIR)/buildroot/" \
-                 -bb $(BUILDDIR)/redhat/nccl.spec
+                 -bb $(BUILDDIR)/redhat/pccl.spec
 
 clean:
 	rm -Rf $(RPMPREPDIR) $(PKGDIR)
@@ -46,12 +46,12 @@ clean:
 $(RPMPREPDIR)/% : %.in
 	@printf "Generating %-35s > %s\n" $< $@
 	mkdir -p $(RPMPREPDIR)
-	sed -e "s/\$${nccl:Major}/$(NCCL_MAJOR)/g" \
-	    -e "s/\$${nccl:Minor}/$(NCCL_MINOR)/g" \
-	    -e "s/\$${nccl:Patch}/$(NCCL_PATCH)/g" \
-	    -e "s/\$${nccl:Suffix}/$(NCCL_SUFFIX)/g" \
-	    -e "s/\$${cuda:Major}/$(CUDA_MAJOR)/g" \
-	    -e "s/\$${cuda:Minor}/$(CUDA_MINOR)/g" \
+	sed -e "s/\$${pccl:Major}/$(PCCL_MAJOR)/g" \
+	    -e "s/\$${pccl:Minor}/$(PCCL_MINOR)/g" \
+	    -e "s/\$${pccl:Patch}/$(PCCL_PATCH)/g" \
+	    -e "s/\$${pccl:Suffix}/$(PCCL_SUFFIX)/g" \
+	    -e "s/\$${hggc:Major}/$(HGGC_MAJOR)/g" \
+	    -e "s/\$${hggc:Minor}/$(HGGC_MINOR)/g" \
 	    -e "s/\$${pkg:Revision}/$(PKG_REVISION)/g" \
 	    -e "s/\$${pkg:Timestamp}/$(PKG_TIMESTAMP)/g" \
 	    -e "s/\$${pkg:Arch}/$(PKG_ARCH)/g" \

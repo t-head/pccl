@@ -1,0 +1,2 @@
+lib/libpccl.so.${pccl:Major} /usr/lib/${pkg:MultiArch}
+lib/libpccl.so.${pccl:Major}.${pccl:Minor}.${pccl:Patch} /usr/lib/${pkg:MultiArch}

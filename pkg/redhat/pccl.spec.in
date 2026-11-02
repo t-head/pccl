@@ -1,0 +1,84 @@
+Name:           libpccl
+Version:        ${pccl:Major}.${pccl:Minor}.${pccl:Patch}${pccl:Suffix}
+Release:        ${pkg:Revision}+hggc${hggc:Major}.${hggc:Minor}
+Summary:        PPU Collective Communication Library (PCCL) Runtime
+
+Group:          Development/Libraries
+License:        BSD-3-Clause AND Apache-2.0
+URL:            https://developer.t-head.cn/docs_center/doc_detail/index.html?projectId=35
+Source0:        pccl_${pccl:Major}.${pccl:Minor}.${pccl:Patch}${pccl:Suffix}-${pkg:Revision}+hggc${hggc:Major}.${hggc:Minor}_${pkg:Arch}.txz
+Prereq:         /sbin/ldconfig
+
+%description
+PCCL (pronounced "Pickle") is the PPU Collective Communication Library,
+providing high-performance collective and point-to-point communication for
+PPU accelerators. It supports all-reduce, all-gather, reduce-scatter, reduce,
+broadcast, all-to-all, gather, scatter, and send/receive operations for
+distributed deep learning and HPC workloads.
+It has been optimized to achieve high bandwidth on Zhenwu PPU hardware using
+PCIe, ICNLink, ICNSwitch, as well as RDMA networks or TCP/IP sockets.
+
+%package devel
+Summary:        PPU Collective Communication Library (PCCL) Development Files
+Group:          Development/Libraries
+%description devel
+PCCL development files including headers and symbolic links for development.
+
+%package static
+Summary:        PPU Collective Communication Library (PCCL) Static Library
+Group:          Development/Libraries
+%description static
+PCCL static library for static linking.
+
+%define debug_package %{nil}
+
+%prep
+%setup -n pccl_${pccl:Major}.${pccl:Minor}.${pccl:Patch}${pccl:Suffix}-${pkg:Revision}+hggc${hggc:Major}.${hggc:Minor}_${pkg:Arch} -q
+
+%build
+
+%install
+rm -rf $RPM_BUILD_ROOT
+install -m 755 -d $RPM_BUILD_ROOT
+install -m 755 -d $RPM_BUILD_ROOT/%{_libdir}
+install -m 755 lib/libpccl.so.${pccl:Major}.${pccl:Minor}.${pccl:Patch} $RPM_BUILD_ROOT/%{_libdir}
+ln -s libpccl.so.${pccl:Major}.${pccl:Minor}.${pccl:Patch} $RPM_BUILD_ROOT/%{_libdir}/libpccl.so.${pccl:Major}
+
+# devel
+install -m 755 -d $RPM_BUILD_ROOT/%{_bindir}
+install -m 755 -d $RPM_BUILD_ROOT/%{_includedir}
+cp -a include/* $RPM_BUILD_ROOT/%{_includedir}/
+install -m 755 bin/pcclras $RPM_BUILD_ROOT/%{_bindir}
+ln -s libpccl.so.${pccl:Major} $RPM_BUILD_ROOT/%{_libdir}/libpccl.so
+
+# static
+install -m 644 lib/libpccl_static.a $RPM_BUILD_ROOT/%{_libdir}
+
+%post -p /sbin/ldconfig
+%postun -p /sbin/ldconfig
+
+%post devel -p /sbin/ldconfig
+%postun devel -p /sbin/ldconfig
+
+%clean
+rm -rf $RPM_BUILD_ROOT
+
+%files devel
+%doc LICENSE.txt
+%defattr(-,root,root,-)
+%{_bindir}/pcclras
+%{_includedir}/*
+%{_libdir}/libpccl.so
+
+%files static
+%doc LICENSE.txt
+%defattr(-,root,root,-)
+%{_libdir}/libpccl_static.a
+
+%files
+%doc LICENSE.txt
+%defattr(-,root,root,-)
+%{_libdir}/libpccl.so.${pccl:Major}
+%{_libdir}/libpccl.so.${pccl:Major}.${pccl:Minor}.${pccl:Patch}
+
+%changelog
