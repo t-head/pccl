@@ -296,7 +296,10 @@ ncclResult_t ncclTopoTuneModel(ncclComm_t comm, int minCompCap, int maxCompCap, 
 
   struct ncclTopoGraph* graphs[NCCL_NUM_ALGORITHMS] = { treeGraph, ringGraph, collNetGraph, fcGraph, treeGraph };
   int intraHw[NCCL_NUM_ALGORITHMS], hw[NCCL_NUM_ALGORITHMS];
-  for (int a=0; a<NCCL_NUM_ALGORITHMS; a++) intraHw[a] = graphs[a]->typeIntra == LINK_NVL ? NCCL_HW_NVLINK : NCCL_HW_PCI;
+  for (int a=0; a<NCCL_NUM_ALGORITHMS; a++) {
+    int typeIntra = graphs[a]->typeIntra;
+    intraHw[a] = (typeIntra == PATH_NVL || typeIntra == PATH_NVB) ? NCCL_HW_NVLINK : NCCL_HW_PCI;
+  }
   for (int a=0; a<NCCL_NUM_ALGORITHMS; a++) hw[a] = nNodes == 1 ? intraHw[a] : NCCL_HW_NET;
 
   for (int coll=0; coll<NCCL_NUM_FUNCTIONS; coll++) {
