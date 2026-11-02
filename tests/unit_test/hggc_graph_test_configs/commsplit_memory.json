@@ -1,0 +1,160 @@
+{
+    "testConfigs" :{
+        "test1" : {
+            "graph": false,
+            "comm": 0,
+            "streams" : ["s1", "s2"],
+            "buffs" : ["A", "B", "C", "A1"],
+            "inits" : [
+                ["compute", "init", "33554432", "float", "s1", "A"],
+                ["compute", "init", "33554432", "float", "s1", "A1"]
+            ],
+            "kernels" :  [
+                ["pccl", "allreduce", "33554432", "float", "s1", "A", "B"],
+                ["pccl", "allreduce", "33554432", "float", "s1", "B", "B"],
+                ["pccl", "groupStart"],
+                ["pccl", "alltoall", "33554432", "float", "s1", "B", "C"],
+                ["pccl", "groupEnd"],
+                ["pccl", "groupStart"],
+                ["pccl", "alltoall", "33554432", "float", "s1", "C", "B"],
+                ["pccl", "groupEnd"]
+            ]
+        },
+        "test2" : {
+            "graph": false,
+            "comm": 1,
+            "streams" : ["s1", "s2"],
+            "buffs" : ["A", "B", "C"],
+            "inits" : [
+                ["compute", "init", "33554432", "float", "s1", "A"]
+            ],
+            "kernels" : [
+                ["pccl", "allreduce", "33554432", "float", "s1", "A", "B"],
+                ["pccl", "allreduce", "33554432", "float", "s1", "B", "B"],
+                ["pccl", "groupStart"],
+                ["pccl", "alltoall", "33554432", "float", "s1", "B", "C"],
+                ["pccl", "groupEnd"],
+                ["pccl", "groupStart"],
+                ["pccl", "alltoall", "33554432", "float", "s1", "C", "B"],
+                ["pccl", "groupEnd"]
+            ]
+        },
+        "test3" : {
+            "graph": false,
+            "comm": 2,
+            "streams" : ["s1", "s2"],
+            "buffs" : ["A", "B", "C"],
+            "inits" : [
+                ["compute", "init", "33554432", "float", "s1", "A"]
+            ],
+            "kernels" : [
+                ["pccl", "allreduce", "33554432", "float", "s1", "A", "B"],
+                ["pccl", "allreduce", "33554432", "float", "s1", "B", "B"],
+                ["pccl", "groupStart"],
+                ["pccl", "alltoall", "33554432", "float", "s1", "B", "C"],
+                ["pccl", "groupEnd"],
+                ["pccl", "groupStart"],
+                ["pccl", "alltoall", "33554432", "float", "s1", "C", "B"],
+                ["pccl", "groupEnd"]
+            ]
+        },
+        "test4" : {
+            "graph": false,
+            "comm": 3,
+            "streams" : ["s1", "s2"],
+            "buffs" : ["A", "B", "C"],
+            "inits" : [
+                ["compute", "init", "33554432", "float", "s1", "A"]
+            ],
+            "kernels" : [
+                ["pccl", "allreduce", "33554432", "float", "s1", "A", "B"],
+                ["pccl", "allreduce", "33554432", "float", "s1", "B", "B"],
+                ["pccl", "groupStart"],
+                ["pccl", "alltoall", "33554432", "float", "s1", "B", "C"],
+                ["pccl", "groupEnd"],
+                ["pccl", "groupStart"],
+                ["pccl", "alltoall", "33554432", "float", "s1", "C", "B"],
+                ["pccl", "groupEnd"]
+            ]
+        },
+        "test5" : {
+            "graph": false,
+            "comm": 4,
+            "streams" : ["s1", "s2"],
+            "buffs" : ["A", "B", "C"],
+            "inits" : [
+                ["compute", "init", "33554432", "float", "s1", "A"]
+            ],
+            "kernels" : [
+                ["pccl", "allreduce", "33554432", "float", "s1", "A", "B"],
+                ["pccl", "allreduce", "33554432", "float", "s1", "B", "B"],
+                ["pccl", "groupStart"],
+                ["pccl", "alltoall", "33554432", "float", "s1", "B", "C"],
+                ["pccl", "groupEnd"],
+                ["pccl", "groupStart"],
+                ["pccl", "alltoall", "33554432", "float", "s1", "C", "B"],
+                ["pccl", "groupEnd"]
+            ]
+        },
+        "test6" : {
+            "graph": false,
+            "comm": 5,
+            "streams" : ["s1", "s2"],
+            "buffs" : ["A", "B", "C"],
+            "inits" : [
+                ["compute", "init", "33554432", "float", "s1", "A"]
+            ],
+            "kernels" : [
+                ["pccl", "allreduce", "33554432", "float", "s1", "A", "B"],
+                ["pccl", "allreduce", "33554432", "float", "s1", "B", "B"],
+                ["pccl", "groupStart"],
+                ["pccl", "alltoall", "33554432", "float", "s1", "B", "C"],
+                ["pccl", "groupEnd"],
+                ["pccl", "groupStart"],
+                ["pccl", "alltoall", "33554432", "float", "s1", "C", "B"],
+                ["pccl", "groupEnd"]
+            ]
+        },
+        "test7" : {
+            "graph": false,
+            "comm": 6,
+            "streams" : ["s1", "s2"],
+            "buffs" : ["A", "B", "C"],
+            "inits" : [
+                ["compute", "init", "33554432", "float", "s1", "A"]
+            ],
+            "kernels" : [
+                ["pccl", "allreduce", "33554432", "float", "s1", "A", "B"],
+                ["pccl", "allreduce", "33554432", "float", "s1", "B", "B"],
+                ["pccl", "groupStart"],
+                ["pccl", "alltoall", "33554432", "float", "s1", "B", "C"],
+                ["pccl", "groupEnd"],
+                ["pccl", "groupStart"],
+                ["pccl", "alltoall", "33554432", "float", "s1", "C", "B"],
+                ["pccl", "groupEnd"]
+            ]
+        },
+        "test8" : {
+            "graph": false,
+            "comm": 7,
+            "streams" : ["s1", "s2"],
+            "buffs" : ["A", "B", "C"],
+            "inits" : [
+                ["compute", "init", "33554432", "float", "s1", "A"]
+            ],
+            "kernels" : [
+                ["pccl", "allreduce", "33554432", "float", "s1", "A", "B"],
+                ["pccl", "allreduce", "33554432", "float", "s1", "B", "B"],
+                ["pccl", "groupStart"],
+                ["pccl", "alltoall", "33554432", "float", "s1", "B", "C"],
+                ["pccl", "groupEnd"],
+                ["pccl", "groupStart"],
+                ["pccl", "alltoall", "33554432", "float", "s1", "C", "B"],
+                ["pccl", "groupEnd"]
+            ]
+        }
+    },
+    "outbuffs" : ["B"],
+    "order": ["test1", "test2", "test3"],
+    "compareTests": []
+}

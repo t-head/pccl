@@ -43,6 +43,7 @@ Common options:
 --ppu_archs ARCHS  Target PPU architectures (default: ppu_10,ppu_15)
 --cpu_num N        Number of parallel build jobs (default: auto)
 --examples         Also build examples after building the library
+--enable_tests     Also build test suites (graph_search_test, unit_test)
 ```
 
 The build places `libpccl.so` in `build/lib/` and public headers in `build/include/`.

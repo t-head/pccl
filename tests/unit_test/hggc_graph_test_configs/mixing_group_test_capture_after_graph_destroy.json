@@ -1,0 +1,46 @@
+{
+    "testConfigs" :{
+        "test1" : {
+            "graph": true,
+            "streams" : ["s1", "s2"],
+            "buffs" : ["A", "B", "C", "A1"],
+            "inits" : [
+                ["compute", "init", "33554432", "float", "s1", "A"],
+                ["compute", "init", "33554432", "float", "s1", "A1"]
+            ],
+            "kernels" :  [
+                ["compute", "inc", "33554432", "float", "s1", "A"],
+                ["pccl", "groupStart"],
+                ["pccl", "allreduce", "33554432", "float", "s1", "A", "B"],
+                ["pccl", "groupEnd"],
+                ["pccl", "groupStart"],
+                ["pccl", "allreduce", "33554432", "float", "s1", "A", "B"],
+                ["pccl", "allreduce", "33554432", "float", "s1", "A1", "C"],
+                ["pccl", "groupEnd"],
+                ["compute", "inc", "33554432", "float", "s1", "B"],
+                ["pccl", "allreduce", "33554432", "float", "s1", "B", "B"]
+            ],
+            "iters": 0
+        },
+        "test2" : {
+            "graph": true,
+            "streams" : ["s1", "s2"],
+            "buffs" : ["A", "B", "C"],
+            "inits" : [
+                ["compute", "init", "33554432", "float", "s1", "A"]
+            ],
+            "kernels" : [
+                ["compute", "inc", "33554432", "float", "s1", "A"],
+                ["pccl", "allreduce", "33554432", "float", "s1", "A", "B"],
+                ["pccl", "allreduce", "33554432", "float", "s1", "B", "C"],
+                ["pccl", "allreduce", "33554432", "float", "s1", "A", "B"],
+                ["pccl", "allreduce", "33554432", "float", "s1", "B", "C"],
+                ["compute", "inc", "33554432", "float", "s1", "B"],
+                ["pccl", "allreduce", "33554432", "float", "s1", "B", "B"]
+            ]
+        }
+    },
+    "outbuffs" : [],
+    "order": ["test1", "test2"],
+    "compareTests": ["test1", "test2"]
+}
