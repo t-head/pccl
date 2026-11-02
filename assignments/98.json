@@ -8,7 +8,7 @@
       "modules": [
         "workflow"
       ],
-      "reason": "Main change is contribution/review automation: new `/merge` command workflow, multi-commit squash-message generation/publishing, and related reviewer-routing/contribution-rule updates. The `pr-test-ppu.yml` edits are supporting trigger/gate/concurrency wiring for message-only vs normal PR runs rather than an independent change to core test execution behavior."
+      "reason": "Primary change is contribution/review automation: new `/merge` command flow, squash-message generation/publishing, reviewer-routing CLI sharing, and policy updates in skills/templates/contributing docs. The `pr-test-ppu.yml` edits are supporting workflow wiring (triggers/concurrency/conditional gating) to enable message-only and merge paths while preserving normal test execution behavior, so no separate `ci` module is independently substantive."
     }
   },
   "reviewers": {
