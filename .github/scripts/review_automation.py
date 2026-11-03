@@ -211,9 +211,9 @@ def invite(api, pr, recommendation, roster, skill):
     requested.update(current_approvals(fresh, api.pages(f"/pulls/{number}/reviews")))
     new_users = sorted(roles_by_user.keys() - requested, key=api.login)
     logins = [api.login(user_id) for user_id in new_users]
+    # Refresh existing notices even when everyone has already been invited.
+    notify_reviewers(api, number, new_users, roles_by_user)
     if new_users:
-        # Notify first so a failed comment remains retryable; markers prevent repeated mentions.
-        notify_reviewers(api, number, new_users, roles_by_user)
         api.request("POST", f"/pulls/{number}/requested_reviewers", {"reviewers": logins})
     return (f"### Reviewer invitations · PR #{number}\n\n"
             f"New requests: {', '.join(logins) or 'none'}.\n")
@@ -248,28 +248,40 @@ def module_maintainer(roster, module, author):
 
 
 def notify_reviewers(api, number, new_users, roles_by_user):
-    """A saved account-ID marker prevents repeated mentions after an invitation failure."""
+    """Keep module notices current and retain account IDs for retry deduplication."""
     notified = set()
     for comment in api.pages(f"/issues/{number}/comments"):
         if (comment["user"].get("login") != "github-actions[bot]" or
                 comment["user"].get("type") != "Bot"):
             continue
-        marker = re.match(r"<!-- pccl-review-notice:([0-9]+(?:,[0-9]+)*) -->\n",
-                          comment.get("body") or "")
+        existing_body = (comment.get("body") or "").replace("\r\n", "\n")
+        marker = re.match(r"<!-- pccl-review-notice:([0-9]+(?:,[0-9]+)*) -->\n", existing_body)
         if marker:
-            notified.update(int(user_id) for user_id in marker[1].split(","))
+            recipients = [int(user_id) for user_id in marker[1].split(",")]
+            notified.update(recipients)
+            body = review_notice_body(api, recipients, roles_by_user)
+            if body != existing_body:
+                api.request("PATCH", f"/issues/comments/{comment['id']}", {"body": body})
     recipients = [user_id for user_id in new_users if user_id not in notified]
-    if not recipients:
-        return
+    if recipients:
+        api.request("POST", f"/issues/{number}/comments",
+                    {"body": review_notice_body(api, recipients, roles_by_user)})
+
+
+def review_notice_body(api, recipients, roles_by_user):
+    """Render current assignments while preserving the notice's original recipients."""
     lines = []
     for user_id in recipients:
         assignments = [f"**{' and '.join(roles)}** for the **{module}** module"
-                       for module, roles in roles_by_user[user_id].items()]
+                       for module, roles in roles_by_user.get(user_id, {}).items()]
+        if not assignments:
+            continue
         description = (", ".join(assignments[:-1]) + " and " + assignments[-1]
                        if len(assignments) > 1 else assignments[0])
         lines.append(f"@{api.login(user_id)}, please review as {description}.")
     marker = "<!-- pccl-review-notice:" + ",".join(str(user_id) for user_id in recipients) + " -->\n"
-    api.request("POST", f"/issues/{number}/comments", {"body": marker + "\n" + "\n\n".join(lines) + "\n"})
+    body = "\n\n".join(lines) or "No current module assignments remain for the reviewers in this notice."
+    return marker + "\n" + body + "\n"
 
 
 # Review history
