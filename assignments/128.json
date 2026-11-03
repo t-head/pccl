@@ -8,7 +8,7 @@
       "modules": [
         "ci"
       ],
-      "reason": "PR test workflow execution is changed by replacing the PPU job runner action (`ppu-scheduler-action` to `ci-infra/cluster-run`) in `.github/workflows/pr-test-ppu.yml`, which is CI runner/orchestration scope."
+      "reason": "Replaces the action used by PR PPU test workflow jobs (`pr-test-ppu.yml`) with `ci-infra/cluster-run`, which is a CI execution/runners change and not a source/runtime module change."
     }
   },
   "reviewers": {
