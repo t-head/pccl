@@ -1,14 +1,14 @@
 {
   "classification": {
     "base_sha": "b4c46ba921d6e206f685229d94403260a69e03fd",
-    "head_sha": "8368a56459bdfae7930bed101810b844c102ef95",
-    "input_fingerprint": "49d44e1f0a2444bf5174b97c945d4ad7db00203075d9d0e46d628e7b95421873",
+    "head_sha": "2825a07904d6fb2a84e0e769647778ed3aa921ea",
+    "input_fingerprint": "40ced813b88a988f4388b3f03e0d65468f42f7e7988d17c9b6e8fb41f609381f",
     "pr_number": 98,
     "proposal": {
       "modules": [
         "workflow"
       ],
-      "reason": "Main change is contribution/review automation: add squash-message generation/publication and human `/merge` handling, remove single-commit contribution restriction, and update reviewer-routing/checkin workflow wiring and guidance without changing core test execution logic."
+      "reason": "Main change adds and wires contribution/review automation: multi-commit squash-message generation/publishing, authorized `/merge` handling, shared Copilot installer/response parsing, and related workflow/skill/template/docs updates. CI job edits are gating/trigger plumbing for this automation path (including metadata-only/message-only runs), not an independent change to normal test execution policy."
     }
   },
   "reviewers": {
