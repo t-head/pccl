@@ -131,9 +131,7 @@ def comment_body(draft):
             '### Suggested squash commit message\n\n'
             f"For commit `{draft['head'][:12]}`.\n\n"
             f"<pre>{html.escape(draft['message'])}</pre>\n\n"
-            'Review this message, then comment `/merge` to request squash merging. '
-            'Available after the merge workflow is on `main`; '
-            'the web Squash and merge button remains available.\n')
+            "Review this message and use it in GitHub's Squash and merge dialog.\n")
 
 
 def publish(api, draft, expected_pr):

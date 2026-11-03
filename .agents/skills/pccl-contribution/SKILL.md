@@ -75,10 +75,6 @@ When changing only the message, keep committed content unchanged. Do not rewrite
 3. Recheck immediately before merging; unmet checks or approvals block it. Do not bypass protection or enable auto-merge without explicit authorization.
 4. Guard the expected HEAD when supported. Verify and report the resulting commit and merge method.
 
-For multi-commit PRs targeting `main`, a human with Write, Maintain or Admin access
-may instead comment exactly `/merge` after reviewing the current complete squash
-commit message preview. For single-commit PRs, use the web Squash and merge button.
-
 ## References
 
 - [CONTRIBUTING.md](../../../CONTRIBUTING.md): contribution, commit message, issue, and DCO policy.
