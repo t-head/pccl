@@ -2,13 +2,13 @@
   "classification": {
     "base_sha": "b4c46ba921d6e206f685229d94403260a69e03fd",
     "head_sha": "3d5613783e80255be9a62ee08bc02c7342f35071",
-    "input_fingerprint": "2d2d0aeed0dfcfc56f14885269d20bdb27a05b1c1afa4f377592e0e05ca4bec9",
+    "input_fingerprint": "3bfd80349bb7564cda8224f519fd7699ea9585d213e310ab110a4f252eaf1a69",
     "pr_number": 98,
     "proposal": {
       "modules": [
         "workflow"
       ],
-      "reason": "Main change is contribution/review automation: removes single-commit PR policy, adds multi-commit squash-message generation/publication flow, updates reviewer-routing automation/shared Copilot install helper, and revises related workflow/docs/templates/module-scope guidance. CI test execution itself is not substantively changed."
+      "reason": "Primary change is contribution/review automation: removing single-commit PR policy, adding Copilot-based multi-commit squash-message generation/publication, updating reviewer-notice refresh/invite dedup logic, centralizing Copilot install/response parsing, and moving workflow documentation/template/rules to match the new process. CI test execution itself is not substantively changed beyond workflow wiring for message-only or metadata-only runs."
     }
   },
   "reviewers": {
