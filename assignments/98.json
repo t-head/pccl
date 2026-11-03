@@ -2,13 +2,13 @@
   "classification": {
     "base_sha": "b4c46ba921d6e206f685229d94403260a69e03fd",
     "head_sha": "c82a95d9a86079c06e9736ea1d5a3e61fdd43e79",
-    "input_fingerprint": "42732311cde7db42b938006940fec75b5a382e1b8b4c724f442b14d4666f26f8",
+    "input_fingerprint": "162f68de1e1913b8e65a433eb167ed0a5c4b857f6a8fe4024de355b9dbecd74e",
     "pr_number": 98,
     "proposal": {
       "modules": [
         "workflow"
       ],
-      "reason": "Main change is contribution/review automation: remove one-commit PR policy, add multi-commit squash-message generation/publication, refactor Copilot install/response parsing, update reviewer-routing notifications, and move/update workflow guidance/templates. The pr-test-ppu YAML edits are supporting workflow triggers/gates/concurrency for this automation path rather than substantive normal test-execution behavior."
+      "reason": "Main change is contribution/review automation: multi-commit PR policy, squash-message generation/publication, reviewer-routing script refactors, and workflow/contribution docs/templates updates. CI file edits are supporting trigger/gating wiring for this automation rather than independent test-execution behavior changes."
     }
   },
   "reviewers": {
