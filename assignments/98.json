@@ -1,14 +1,14 @@
 {
   "classification": {
     "base_sha": "b4c46ba921d6e206f685229d94403260a69e03fd",
-    "head_sha": "0a43aad72a8056c05beffacae786311cca20ca0b",
-    "input_fingerprint": "cd203c4ae24351e3979a472d356f81b5aa01edd233bc0a764b078a7ea55cd4cd",
+    "head_sha": "ec051cf8cdb1d4abeae25fc44e666d5d34138656",
+    "input_fingerprint": "29f897dd2e3c8c79afc40af07d6e501dcd9b5d5f25a931d8fa998051d7aa3824",
     "pr_number": 98,
     "proposal": {
       "modules": [
         "workflow"
       ],
-      "reason": "Main change is contribution/review automation: adding multi-commit squash-message preview generation and publication, introducing authorized /merge workflow validation, removing one-commit policy text/checks, and updating reviewer-routing/Copilot helper wiring; CI test execution behavior is only mechanically gated around these workflow features, not substantively changed."
+      "reason": "Main change is contribution/review automation: remove single-commit PR policy, add multi-commit squash-message preview generation/publication, and update related workflow guidance/templates; CI test execution behavior itself is not substantively changed."
     }
   },
   "reviewers": {
