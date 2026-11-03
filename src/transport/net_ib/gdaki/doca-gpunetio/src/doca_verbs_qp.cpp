@@ -254,7 +254,8 @@ bool is_X2err_attrs_valid(int attr_mask) {
 bool is_rst2init_attrs_valid(int attr_mask, uint32_t qp_type) {
     int required_attr = rst2init_requested_attr[qp_type];
     int valid_attr =
-        required_attr | DOCA_VERBS_QP_ATTR_CURRENT_STATE | DOCA_VERBS_QP_ATTR_NEXT_STATE;
+        required_attr | DOCA_VERBS_QP_ATTR_CURRENT_STATE | DOCA_VERBS_QP_ATTR_NEXT_STATE |
+        DOCA_VERBS_QP_ATTR_LAG_TX_PORT_AFFINITY;
 
     if (attr_mask & ~(valid_attr)) {
         DOCA_LOG(LOG_ERR, "attr_mask contains invalid bit attr_masks (attr_mask=%d)", attr_mask);
@@ -793,6 +794,19 @@ doca_error_t doca_verbs_qp::rst2init(struct doca_verbs_qp_attr &verbs_qp_attr,
     if (verbs_qp_attr.allow_remote_atomic > DOCA_VERBS_QP_ATOMIC_MODE_NONE) {
         DEVX_SET(qpc, qpc, rae, 1);
         DEVX_SET(qpc, qpc, atomic_mode, verbs_qp_attr.allow_remote_atomic);
+    }
+
+    if (attr_mask & DOCA_VERBS_QP_ATTR_LAG_TX_PORT_AFFINITY) {
+        if (verbs_qp_attr.lag_tx_port_affinity > 0 &&
+            !m_verbs_device_attr->m_is_lag_tx_port_affinity_supported) {
+            DOCA_LOG(LOG_ERR, "lag_tx_port_affinity is not supported by the device");
+            return DOCA_ERROR_NOT_SUPPORTED;
+        }
+        if (verbs_qp_attr.lag_tx_port_affinity > m_verbs_device_attr->m_num_lag_ports) {
+            DOCA_LOG(LOG_ERR, "The specified lag_tx_port_affinity is out of range");
+            return DOCA_ERROR_INVALID_VALUE;
+        }
+        DEVX_SET(qpc, qpc, lag_tx_port_affinity, verbs_qp_attr.lag_tx_port_affinity);
     }
 
     auto ret =
@@ -2254,6 +2268,16 @@ uint32_t doca_verbs_qp_attr_get_dest_qp_num(const struct doca_verbs_qp_attr *ver
     }
 
     return verbs_qp_attr->dest_qp_num;
+}
+
+doca_error_t doca_verbs_qp_attr_set_lag_tx_port_affinity(struct doca_verbs_qp_attr *verbs_qp_attr,
+                                                        uint8_t lag_tx_port_affinity) {
+    if (verbs_qp_attr == nullptr) {
+        DOCA_LOG(LOG_ERR, "Failed to set lag_tx_port_affinity: parameter verbs_qp_attr is NULL");
+        return DOCA_ERROR_INVALID_VALUE;
+    }
+    verbs_qp_attr->lag_tx_port_affinity = lag_tx_port_affinity;
+    return DOCA_SUCCESS;
 }
 
 doca_error_t doca_verbs_qp_attr_set_allow_remote_write(struct doca_verbs_qp_attr *verbs_qp_attr,
