@@ -1,0 +1,17 @@
+{
+  "classification": {
+    "base_sha": "b4c46ba921d6e206f685229d94403260a69e03fd",
+    "head_sha": "4556d2752ebfbad2508944568d0191e01ed92907",
+    "input_fingerprint": "ccb1a5b28c9b2640a0afc3658aaae2696ae4ef806ab1926f4d7903963eff770a",
+    "pr_number": 128,
+    "proposal": {
+      "modules": [
+        "ci"
+      ],
+      "reason": "Updates open-source test workflow execution in .github/workflows/pr-test-ppu.yml by replacing the PPU job runner action (ppu-scheduler-action -> ci-infra/cluster-run) in build/test jobs; this is CI runner orchestration, not contribution/reviewer automation."
+    }
+  },
+  "reviewers": {
+    "ci": 333302477
+  }
+}
