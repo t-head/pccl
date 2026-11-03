@@ -87,6 +87,40 @@ ncclResult_t wrap_mlx5dv_query_device(struct ibv_context *ctx_in, struct mlx5dv_
   MLX5DV_INT_CHECK_RET_ERRNO(mlx5dvSymbols, mlx5dv_internal_query_device, mlx5dv_internal_query_device(ctx_in, attrs_out), 0, "mlx5dv_query_device");
 }
 
+ncclResult_t wrap_mlx5dv_query_lag_ports(struct ibv_context *context, uint8_t *num_lag_ports) {
+  *num_lag_ports = 0;
+  if (mlx5dvSymbols.mlx5dv_internal_query_device == NULL) return ncclInvalidUsage;
+  struct mlx5dv_context attrs = {};
+  attrs.comp_mask = MLX5DV_CONTEXT_MASK_NUM_LAG_PORTS;
+  int ret = mlx5dvSymbols.mlx5dv_internal_query_device(context, &attrs);
+  if (ret == EOPNOTSUPP || ret == ENOSYS) return ncclInvalidUsage;
+  if (ret != 0) {
+    WARN("NET/MLX5: LAG capability query failed: %s", strerror(ret));
+    return ncclSystemError;
+  }
+  if (!(attrs.comp_mask & MLX5DV_CONTEXT_MASK_NUM_LAG_PORTS)) return ncclInvalidUsage;
+  *num_lag_ports = attrs.num_lag_ports;
+  return ncclSuccess;
+}
+
+ncclResult_t wrap_mlx5dv_query_qp_lag_port(struct ibv_qp *qp, uint8_t *port_num, uint8_t *active_port_num) {
+  if (mlx5dvSymbols.mlx5dv_internal_query_qp_lag_port == NULL) return ncclInvalidUsage;
+  int ret = mlx5dvSymbols.mlx5dv_internal_query_qp_lag_port(qp, port_num, active_port_num);
+  if (ret == 0) return ncclSuccess;
+  if (ret == EOPNOTSUPP || ret == ENOSYS) return ncclInvalidUsage;
+  WARN("NET/MLX5: mlx5dv_query_qp_lag_port failed: %s", strerror(ret));
+  return ncclSystemError;
+}
+
+ncclResult_t wrap_mlx5dv_modify_qp_lag_port(struct ibv_qp *qp, uint8_t port_num) {
+  if (mlx5dvSymbols.mlx5dv_internal_modify_qp_lag_port == NULL) return ncclInvalidUsage;
+  int ret = mlx5dvSymbols.mlx5dv_internal_modify_qp_lag_port(qp, port_num);
+  if (ret == 0) return ncclSuccess;
+  if (ret == EOPNOTSUPP || ret == ENOSYS) return ncclInvalidUsage;
+  WARN("NET/MLX5: mlx5dv_modify_qp_lag_port failed: %s", strerror(ret));
+  return ncclSystemError;
+}
+
 struct ibv_qp *wrap_mlx5dv_create_qp(struct ibv_context *context, struct ibv_qp_init_attr_ex *qp_attr, struct mlx5dv_qp_init_attr *mlx5_qp_attr) {
   if (mlx5dvSymbols.mlx5dv_internal_create_qp == NULL) {
     return 0;
