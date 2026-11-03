@@ -8,7 +8,7 @@
       "modules": [
         "gin"
       ],
-      "reason": "Main substantive change is in GDAKI GIN host backend QP setup: it expands per-context peer exchange storage and reorders remote-vs-self-loop main QP connection sequencing to balance LAG member affinity. This is GIN-specific RDMA/backend connection behavior, with no separate policy/protocol change in other modules."
+      "reason": "The diff makes a substantive change to GIN-specific GDAKI connection initialization: resizing per-context peer exchange storage and reordering main/self-loop QP connection sequencing to balance LAG member affinity. This is a GIN backend behavior change, not a separate shared network/transport policy change."
     }
   },
   "reviewers": {
