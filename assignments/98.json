@@ -1,14 +1,14 @@
 {
   "classification": {
     "base_sha": "b4c46ba921d6e206f685229d94403260a69e03fd",
-    "head_sha": "acc5d7945c2c970bdd1f1a0cea200c12693752b8",
-    "input_fingerprint": "6f77a48ce11128f45d170de6c467369ce38ab794e86abab80a268f01a6e34c8b",
+    "head_sha": "1383a9d512ae58f7fccb9a41c82559d47d5fef55",
+    "input_fingerprint": "72256892a500876b1369084a5b575dd3917f0c01334e6b20bbb27773acee10a5",
     "pr_number": 98,
     "proposal": {
       "modules": [
         "workflow"
       ],
-      "reason": "The substantive change is to contribution/review automation: adding authorized `/merge` handling, multi-commit squash-message generation/publication, shared Copilot installer/response parsing for reviewer tooling, and updating PR/review policies and templates. CI workflow edits are supporting Actions wiring for this automation (trigger/concurrency/gating paths) rather than independent changes to normal test selection/execution criteria."
+      "reason": "Main change adds contribution/review automation: multi-commit squash-message generation, publication, and authorized `/merge` handling, plus related contribution-skill/template/docs updates and workflow wiring to support that process. CI-file edits are primarily gating/trigger plumbing for this automation rather than an independent change to test selection/execution policy."
     }
   },
   "reviewers": {
