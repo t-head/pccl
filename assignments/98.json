@@ -1,14 +1,15 @@
 {
   "classification": {
     "base_sha": "b4c46ba921d6e206f685229d94403260a69e03fd",
-    "head_sha": "c36dbcdbf0d3fce3026a4c432efb049d8db18fb2",
-    "input_fingerprint": "a061977dc6ac89cef4bb278effe3ee9adbf6ddcb448c24bfba91f8d237b1710c",
+    "head_sha": "187095b7f8d5cfe7fa9398bc7e94dba2c82501f6",
+    "input_fingerprint": "b5cceef8f72d42b351dd6331a2392a377675666660e716418ccca0b531dd2996",
     "pr_number": 98,
     "proposal": {
       "modules": [
-        "workflow"
+        "workflow",
+        "ci"
       ],
-      "reason": "Main change adds contribution/review automation: multi-commit squash-message generation and publication, authorized `/merge` handling, and related GitHub Actions/scripts/skills/docs updates. CI test execution logic is not independently changed in scope (the workflow edits mainly wire automation paths and preserve normal test behavior)."
+      "reason": "Primary change is reviewer/contribution automation: generating and publishing squash commit-message previews, adding authorized `/merge` handling, updating review/contribution skills/templates/docs, and wiring related GitHub Actions/scripts. `ci` is additionally needed because `pr-test-ppu.yml` changes independently alter CI orchestration behavior (new edited/manual metadata paths, concurrency grouping, and when `PCCL Tests Gate` is emitted) beyond purely mechanical caller updates."
     }
   },
   "reviewers": {
