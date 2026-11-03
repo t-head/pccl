@@ -2,13 +2,13 @@
   "classification": {
     "base_sha": "b4c46ba921d6e206f685229d94403260a69e03fd",
     "head_sha": "c36dbcdbf0d3fce3026a4c432efb049d8db18fb2",
-    "input_fingerprint": "90199343925fd08af3b39b1032834b70d32e27f230fd3764e8424bedbc402fb3",
+    "input_fingerprint": "a061977dc6ac89cef4bb278effe3ee9adbf6ddcb448c24bfba91f8d237b1710c",
     "pr_number": 98,
     "proposal": {
       "modules": [
         "workflow"
       ],
-      "reason": "Main change adds contribution/review automation: multi-commit squash-message generation/publication, authorized `/merge` handling, and related GitHub Actions/scripts/skills updates; CI execution logic is only adjusted as supporting wiring to avoid unnecessary test runs, not an independent test-system change."
+      "reason": "Main change adds contribution/review automation: multi-commit squash-message generation and publication, authorized `/merge` handling, and related GitHub Actions/scripts/skills/docs updates. CI test execution logic is not independently changed in scope (the workflow edits mainly wire automation paths and preserve normal test behavior)."
     }
   },
   "reviewers": {
