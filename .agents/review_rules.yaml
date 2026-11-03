@@ -170,7 +170,7 @@ rules:
     items:
       - "Files containing NVIDIA copyrights must preserve existing copyright and license notices. Code derived from NCCL <2.29.7 generally uses BSD-3-Clause, while code derived from NCCL >=2.29.7 generally uses Apache-2.0; the license actually applicable to each file takes precedence."
       - "Modified files containing NVIDIA copyrights must add the T-Head modification notice in the form `SPDX-FileCopyrightText: Modifications Copyright (c) YYYY-2026 T-Head (Shanghai) Semiconductor Co., Ltd. All rights reserved.`, using the actual modification years."
-      - "Original PCCL source code and scripts must add the established T-Head Apache-2.0 license header. Ordinary documents and simple configuration files do not universally require headers, but must preserve existing third-party notices and follow applicable licenses. Do not require inventing upstream notices merely because an upstream file has no header."
+      - "Original PCCL source code, other than project-owned automation scripts, must add the established T-Head Apache-2.0 license header. Do not add per-file copyright or license headers to those automation scripts. Ordinary documents and simple configuration files do not universally require headers. Preserve existing third-party notices and follow applicable licenses; do not invent upstream notices."
 
   - category: "Code Style and Readability"
     items:
