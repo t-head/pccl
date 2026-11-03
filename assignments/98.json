@@ -2,13 +2,13 @@
   "classification": {
     "base_sha": "b4c46ba921d6e206f685229d94403260a69e03fd",
     "head_sha": "8368a56459bdfae7930bed101810b844c102ef95",
-    "input_fingerprint": "bb9534365310b034ae2ab9282104fe8e6e650693e123628c9448348c2ddb83e9",
+    "input_fingerprint": "49d44e1f0a2444bf5174b97c945d4ad7db00203075d9d0e46d628e7b95421873",
     "pr_number": 98,
     "proposal": {
       "modules": [
         "workflow"
       ],
-      "reason": "Main change is contribution/review automation: new `/merge` command workflow, multi-commit squash-message generation/publishing, reviewer-routing Copilot installer/parsing refactor, and related governance/docs/template updates. CI YAML edits are supporting workflow wiring (triggers/concurrency/gating for message-only runs) rather than independent test-system behavior changes."
+      "reason": "Main change is contribution/review automation: add squash-message generation/publication and human `/merge` handling, remove single-commit contribution restriction, and update reviewer-routing/checkin workflow wiring and guidance without changing core test execution logic."
     }
   },
   "reviewers": {
