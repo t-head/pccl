@@ -1,14 +1,14 @@
 {
   "classification": {
     "base_sha": "b4c46ba921d6e206f685229d94403260a69e03fd",
-    "head_sha": "ec051cf8cdb1d4abeae25fc44e666d5d34138656",
-    "input_fingerprint": "29f897dd2e3c8c79afc40af07d6e501dcd9b5d5f25a931d8fa998051d7aa3824",
+    "head_sha": "b0a4c5ac0c4847d2ec466fb51e5f84386b258352",
+    "input_fingerprint": "7e6a02d0d20eb4057d75c0a70b2b54e3e3e2d32be09702ed77fc13fe9ce3b682",
     "pr_number": 98,
     "proposal": {
       "modules": [
         "workflow"
       ],
-      "reason": "Main change is contribution/review automation: remove single-commit PR policy, add multi-commit squash-message preview generation/publication, and update related workflow guidance/templates; CI test execution behavior itself is not substantively changed."
+      "reason": "The main substantive change is to contribution/review automation: removing single-commit PR policy, adding multi-commit squash-message generation/publication, and wiring that flow into GitHub Actions and reviewer tooling (shared Copilot install/response parsing, routing notifications, and related guidance/template/docs updates). CI test execution itself is not materially changed in its own right."
     }
   },
   "reviewers": {
