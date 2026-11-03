@@ -1,14 +1,15 @@
 {
   "classification": {
     "base_sha": "b4c46ba921d6e206f685229d94403260a69e03fd",
-    "head_sha": "7131cb5bfe0b6a6b863f02a0022c4e06c4364663",
-    "input_fingerprint": "705991106723412ff230fcdab7e0036809d441457e27d4faae68bb92c08c1161",
+    "head_sha": "f634593ece7fffbf5a71e411e284e5763961e199",
+    "input_fingerprint": "98b56a647ae0fe58077ef0c06d4422df08ce3cb416288a03b28fdeddf22e072e",
     "pr_number": 98,
     "proposal": {
       "modules": [
-        "workflow"
+        "workflow",
+        "ci"
       ],
-      "reason": "Primary change is contribution/review automation: new `/merge` command flow, squash-message generation/publishing, reviewer-routing CLI sharing, and policy updates in skills/templates/contributing docs. The `pr-test-ppu.yml` edits are supporting workflow wiring (triggers/concurrency/conditional gating) to enable message-only and merge paths while preserving normal test execution behavior, so no separate `ci` module is independently substantive."
+      "reason": "Primary change is contribution/review automation: new `/merge`-driven squash-merge workflow, multi-commit squash-message generation/publication, shared Copilot automation scripts, and related contribution/review guidance updates. `ci` is also needed because `pr-test-ppu.yml` substantially changes CI triggering/selection and required-check reporting logic (edited/manual `pr_number` paths, job gating, concurrency, and when test jobs and gates run), which affects test-execution workflow behavior."
     }
   },
   "reviewers": {
