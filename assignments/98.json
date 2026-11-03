@@ -1,14 +1,14 @@
 {
   "classification": {
     "base_sha": "b4c46ba921d6e206f685229d94403260a69e03fd",
-    "head_sha": "bdaa9c8cf40a28c15c29054127e2833340fdf35e",
-    "input_fingerprint": "a1d1e6c1861e24196a19cf7de2735ef442dfab0d3358775fda970458329ebc56",
+    "head_sha": "c82a95d9a86079c06e9736ea1d5a3e61fdd43e79",
+    "input_fingerprint": "42732311cde7db42b938006940fec75b5a382e1b8b4c724f442b14d4666f26f8",
     "pr_number": 98,
     "proposal": {
       "modules": [
         "workflow"
       ],
-      "reason": "Primary change is contribution/review automation: it removes the single-commit PR policy, adds Copilot-driven multi-commit squash-message preview generation/publication, refactors shared Copilot install/response parsing for routing, and updates workflow/docs/templates/module-scope definitions. CI test execution itself is not substantively changed beyond automation wiring for these workflow behaviors."
+      "reason": "Main change is contribution/review automation: remove one-commit PR policy, add multi-commit squash-message generation/publication, refactor Copilot install/response parsing, update reviewer-routing notifications, and move/update workflow guidance/templates. The pr-test-ppu YAML edits are supporting workflow triggers/gates/concurrency for this automation path rather than substantive normal test-execution behavior."
     }
   },
   "reviewers": {
