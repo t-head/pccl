@@ -193,10 +193,13 @@ def invite(api, pr, recommendation, roster, skill):
         record["reviewers"] = select_reviewers(active, roster["modules"], previous["reviewers"], latest, author)
     finally:
         reviewer_state.save_review_state(api, number, previous, record, latest, revision)
-    modules_by_user = {}
+    roles_by_user = {}
     for module in active:
-        for user_id in {record["reviewers"][module], module_maintainer(roster, module, author)} - {None}:
-            modules_by_user.setdefault(user_id, []).append(module)
+        roles = ((record["reviewers"][module], "Reviewer"),
+                 (module_maintainer(roster, module, author), "Maintainer"))
+        for user_id, role in roles:
+            if user_id is not None:
+                roles_by_user.setdefault(user_id, {}).setdefault(module, []).append(role)
 
     # A submitted review or manual removal must not cause a repeat invitation.
     history = api.pages(f"/issues/{number}/timeline")
@@ -208,11 +211,11 @@ def invite(api, pr, recommendation, roster, skill):
         raise ValueError("PR changed before invitation; rerun classification")
     requested.update(user["id"] for user in fresh["requested_reviewers"])
     requested.update(current_approvals(fresh, api.pages(f"/pulls/{number}/reviews")))
-    new_users = sorted(modules_by_user.keys() - requested, key=api.login)
+    new_users = sorted(roles_by_user.keys() - requested, key=api.login)
     logins = [api.login(user_id) for user_id in new_users]
     if new_users:
         # Notify first so a failed comment remains retryable; markers prevent repeated mentions.
-        notify_reviewers(api, number, new_users, modules_by_user)
+        notify_reviewers(api, number, new_users, roles_by_user)
         api.request("POST", f"/pulls/{number}/requested_reviewers", {"reviewers": logins})
     return (f"### Reviewer invitations · PR #{number}\n\n"
             f"New requests: {', '.join(logins) or 'none'}.\n")
@@ -246,7 +249,7 @@ def module_maintainer(roster, module, author):
     return None if maintainer == author else maintainer
 
 
-def notify_reviewers(api, number, new_users, modules_by_user):
+def notify_reviewers(api, number, new_users, roles_by_user):
     """A saved account-ID marker prevents repeated mentions after an invitation failure."""
     notified = set()
     for comment in api.pages(f"/issues/{number}/comments"):
@@ -262,10 +265,11 @@ def notify_reviewers(api, number, new_users, modules_by_user):
         return
     lines = []
     for user_id in recipients:
-        modules = [f"**{module}**" for module in modules_by_user[user_id]]
-        names = ", ".join(modules[:-1]) + " and " + modules[-1] if len(modules) > 1 else modules[0]
-        noun = "modules" if len(modules) > 1 else "module"
-        lines.append(f"@{api.login(user_id)}, please review the changes affecting the {names} {noun}.")
+        assignments = [f"**{' and '.join(roles)}** for the **{module}** module"
+                       for module, roles in roles_by_user[user_id].items()]
+        description = (", ".join(assignments[:-1]) + " and " + assignments[-1]
+                       if len(assignments) > 1 else assignments[0])
+        lines.append(f"@{api.login(user_id)}, please review as {description}.")
     marker = "<!-- pccl-review-notice:" + ",".join(str(user_id) for user_id in recipients) + " -->\n"
     api.request("POST", f"/issues/{number}/comments", {"body": marker + "\n" + "\n\n".join(lines) + "\n"})
 
