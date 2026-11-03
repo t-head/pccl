@@ -2,13 +2,14 @@
   "classification": {
     "base_sha": "b4c46ba921d6e206f685229d94403260a69e03fd",
     "head_sha": "2825a07904d6fb2a84e0e769647778ed3aa921ea",
-    "input_fingerprint": "40ced813b88a988f4388b3f03e0d65468f42f7e7988d17c9b6e8fb41f609381f",
+    "input_fingerprint": "b85a2d6864554d5627fee1eefd72d5841a9bc59bb84f716ca680954ff6d492f6",
     "pr_number": 98,
     "proposal": {
       "modules": [
-        "workflow"
+        "workflow",
+        "ci"
       ],
-      "reason": "Main change adds and wires contribution/review automation: multi-commit squash-message generation/publishing, authorized `/merge` handling, shared Copilot installer/response parsing, and related workflow/skill/template/docs updates. CI job edits are gating/trigger plumbing for this automation path (including metadata-only/message-only runs), not an independent change to normal test execution policy."
+      "reason": "Main change is contribution/review automation: new squash-message generation/publishing, authorized `/merge` handling, shared Copilot helper/install wiring, and related workflow/docs/template updates. It also makes substantive CI pipeline changes in `pr-test-ppu.yml` (event triggers, concurrency, commit-check policy, and required-check/gate execution conditions), which require `ci` review."
     }
   },
   "reviewers": {
