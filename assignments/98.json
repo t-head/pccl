@@ -2,13 +2,13 @@
   "classification": {
     "base_sha": "b4c46ba921d6e206f685229d94403260a69e03fd",
     "head_sha": "0a43aad72a8056c05beffacae786311cca20ca0b",
-    "input_fingerprint": "6bf6d450d21c80e7ae96bce40a06f75d8a13fe5338bf4e407c15f6afa68879f0",
+    "input_fingerprint": "cd203c4ae24351e3979a472d356f81b5aa01edd233bc0a764b078a7ea55cd4cd",
     "pr_number": 98,
     "proposal": {
       "modules": [
         "workflow"
       ],
-      "reason": "Main change is contribution/review automation: generating and publishing squash-message previews, validating authorized `/merge` requests, and updating related GitHub workflow wiring, routing helpers, and contribution guidance. The CI-file edits primarily support this workflow behavior rather than introducing an independent test-execution pipeline change."
+      "reason": "Main change is contribution/review automation: adding multi-commit squash-message preview generation and publication, introducing authorized /merge workflow validation, removing one-commit policy text/checks, and updating reviewer-routing/Copilot helper wiring; CI test execution behavior is only mechanically gated around these workflow features, not substantively changed."
     }
   },
   "reviewers": {
