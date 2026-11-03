@@ -1,0 +1,17 @@
+{
+  "classification": {
+    "base_sha": "b4c46ba921d6e206f685229d94403260a69e03fd",
+    "head_sha": "dc31105730bad7621f396fe99bf705d006201ba1",
+    "input_fingerprint": "848d589fa07f1c03f20c04fc4b05f144de64de76833e489edd83614441ff9250",
+    "pr_number": 133,
+    "proposal": {
+      "modules": [
+        "transport"
+      ],
+      "reason": "Makes the UDS naming mode for IPC file-descriptor exchange runtime-selectable (abstract namespace vs filesystem path), which is a transport connection/setup behavior for rank-to-rank P2P/SHM paths; no independent substantive changes to other modules."
+    }
+  },
+  "reviewers": {
+    "transport": 341341178
+  }
+}
