@@ -8,7 +8,7 @@
       "modules": [
         "workflow"
       ],
-      "reason": "The substantive changes are in contribution/review automation: allowing multi-commit PRs, generating and publishing squash-message previews, updating reviewer-routing notices/invites, and adjusting maintainer-approval/routing logic plus related templates and workflow documentation. CI test execution itself (test matrix/runners/results behavior) is not independently changed."
+      "reason": "Main change is to contribution/review automation: it removes the single-commit PR policy, adds multi-commit squash-message preview generation/publishing, updates reviewer-routing notice refresh/invitation behavior, and adjusts related workflow triggers/concurrency and guidance/templates. These are workflow-governance and reviewer/merge-automation changes rather than substantive CI test-execution behavior."
     }
   },
   "reviewers": {
