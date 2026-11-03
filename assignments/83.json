@@ -1,0 +1,19 @@
+{
+  "classification": {
+    "base_sha": "b4c46ba921d6e206f685229d94403260a69e03fd",
+    "head_sha": "2c44241f4819c80b1e998f7878db20908998f08d",
+    "input_fingerprint": "2e0f5374030d217439c9dd8ccab5b72c3a70e7cd238ecada4052d74e142e8132",
+    "pr_number": 83,
+    "proposal": {
+      "modules": [
+        "transport",
+        "network"
+      ],
+      "reason": "Main change is in P2P transport FD exchange: runtime-selectable abstract/filesystem UDS plus pidfd fallback for GetFd/QueryFd and related P2P registration flow. Add network because proxy protocol/message handling, proxy service-thread behavior, and cross-rank FD lifetime/cleanup logic in proxy progress are independently and substantively changed."
+    }
+  },
+  "reviewers": {
+    "network": 341355176,
+    "transport": 341355176
+  }
+}
