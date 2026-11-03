@@ -1,14 +1,14 @@
 {
   "classification": {
     "base_sha": "b4c46ba921d6e206f685229d94403260a69e03fd",
-    "head_sha": "6ab7e6ad086bac37427d962e94986a714b6ed45d",
-    "input_fingerprint": "83ae88d3854edb5718749b17ae93eeb82179617dec0b4331158992e62ee623d3",
+    "head_sha": "0a43aad72a8056c05beffacae786311cca20ca0b",
+    "input_fingerprint": "6bf6d450d21c80e7ae96bce40a06f75d8a13fe5338bf4e407c15f6afa68879f0",
     "pr_number": 98,
     "proposal": {
       "modules": [
         "workflow"
       ],
-      "reason": "Main change is contribution/review automation: add squash-message generation and publication jobs, reuse Copilot install/response parsing, allow authorized /merge flow support, and update contribution rules/docs/templates and reviewer-routing wiring. CI test execution itself (matrix, runners, pass/fail criteria) is not substantively changed."
+      "reason": "Main change is contribution/review automation: generating and publishing squash-message previews, validating authorized `/merge` requests, and updating related GitHub workflow wiring, routing helpers, and contribution guidance. The CI-file edits primarily support this workflow behavior rather than introducing an independent test-execution pipeline change."
     }
   },
   "reviewers": {
