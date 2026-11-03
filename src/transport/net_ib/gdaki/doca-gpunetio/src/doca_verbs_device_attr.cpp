@@ -141,6 +141,9 @@ void doca_verbs_device_attr::query_caps(struct ibv_context *ibv_ctx) {
         DEVX_GET(query_hca_cap_out, out, capability.cmd_hca_cap.dp_ordering_ooo_all_rc);
     m_is_rts2rts_qp_dscp_supported =
         DEVX_GET(query_hca_cap_out, out, capability.cmd_hca_cap.rts2rts_qp_dscp);
+    m_is_lag_tx_port_affinity_supported =
+        DEVX_GET(query_hca_cap_out, out, capability.cmd_hca_cap.lag_tx_port_affinity);
+    m_num_lag_ports = DEVX_GET(query_hca_cap_out, out, capability.cmd_hca_cap.num_lag_ports);
     m_max_sq_desc_size = DEVX_GET(query_hca_cap_out, out, capability.cmd_hca_cap.max_wqe_sz_sq);
     m_max_rq_desc_size = DEVX_GET(query_hca_cap_out, out, capability.cmd_hca_cap.max_wqe_sz_rq);
     m_max_send_wqebb = 1 << DEVX_GET(query_hca_cap_out, out, capability.cmd_hca_cap.log_max_qp_sz);
@@ -306,4 +309,14 @@ uint8_t doca_verbs_device_attr_get_max_qp_init_rd_atom(
 uint8_t doca_verbs_device_attr_get_max_qp_rd_atom(
     const struct doca_verbs_device_attr *verbs_device_attr) {
     return verbs_device_attr->m_max_qp_rd_atom;
+}
+
+uint8_t doca_verbs_device_attr_get_lag_tx_port_affinity(
+    const struct doca_verbs_device_attr *verbs_device_attr) {
+    return verbs_device_attr->m_is_lag_tx_port_affinity_supported;
+}
+
+uint8_t doca_verbs_device_attr_get_num_lag_ports(
+    const struct doca_verbs_device_attr *verbs_device_attr) {
+    return verbs_device_attr->m_num_lag_ports;
 }
