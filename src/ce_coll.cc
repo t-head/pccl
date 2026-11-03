@@ -9,6 +9,7 @@
 #include "pccl_internal.h"
 #include "param.h"
 #include "comm.h"
+#include "transport.h"
 #include "register.h"
 #include "cudawrap.h"
 #include "graph/topo.h"
@@ -24,6 +25,19 @@
 #include "hgtx.h"
 
 #define CE_COLL_DMA_MIN_SIZE 128*1024
+// ArgsCheck normalizes AllGather to int8, so its internal count is input bytes per rank.
+// A negative threshold disables automatic CE selection; ZERO remains explicit.
+PCCL_PARAM(SymCeThreshold, "SYM_CE_THRESHOLD", 8 * 1024 * 1024);
+// One user override, with separate cached defaults for the measured rank counts.
+// Reuse the parameter loader so both prefixes and PCCL_NO_CACHE keep working.
+static PCCL_PARAM(SymCeThreshold2RanksInPlace, "SYM_CE_THRESHOLD", 12 * 1024 * 1024);
+static PCCL_PARAM(SymCeThreshold4Ranks, "SYM_CE_THRESHOLD", 4 * 1024 * 1024);
+static PCCL_PARAM(SymCeThreshold8Ranks, "SYM_CE_THRESHOLD", 1024 * 1024);
+static PCCL_PARAM(SymCeThreshold16Ranks, "SYM_CE_THRESHOLD", 512 * 1024);
+// Graph replay needs larger messages and an even split across CE partitions.
+static constexpr int64_t ceAllGatherGraphThreshold = 16 * 1024 * 1024;
+static PCCL_PARAM(SymCeThresholdGraph, "SYM_CE_THRESHOLD", ceAllGatherGraphThreshold);
+static PCCL_PARAM(SymCeThresholdKernelDefault, "SYM_CE_THRESHOLD", -1);
 PCCL_PARAM(CeAg2StageMinSize, "CE_AG_2STAGE_MIN_SIZE", 0);
 PCCL_PARAM(CeCollOneStream, "CE_COLL_ONE_STREAM", 0);
 PCCL_PARAM(CeAg2StageOptMinSize, "CE_AG_2STAGE_OPT_MIN_SIZE", 0);
@@ -31,13 +45,60 @@ PCCL_PARAM(CeEnableAr, "CE_ENABLE_AR", 0);
 PCCL_PARAM(CeEnableRs, "CE_ENABLE_RS", 0);
 PCCL_PARAM(CeOkiEnableAg, "CE_OKI_ENABLE_AG", 0);
 PCCL_PARAM(CeDieByRank, "CE_DIE_BY_RANK", 1);
+// The same override applies to both defaults, including PCCL_NO_CACHE and NCCL_.
+static PCCL_PARAM(CeDieByRankGraphAllGather, "CE_DIE_BY_RANK", 0);
 
 static constexpr bool ceOkiAllGatherSupported = false;
+
+static int64_t pcclCeAllGatherThreshold(ncclComm_t comm, bool inPlace) {
+  // Two-rank in-place CE wins above 24 MiB output in both eager and graph mode.
+  // Out-of-place keeps the kernel default. Explicit overrides apply to both.
+  if (comm->nRanks == 2) {
+    return inPlace ? pcclParamSymCeThreshold2RanksInPlace() : pcclParamSymCeThresholdKernelDefault();
+  }
+  // With even CE partitions, graph replay wins above 64/128/256 MiB output
+  // for four/eight/sixteen ranks. Keep the strict input-byte comparison below.
+  if ((comm->nRanks == 4 || comm->nRanks == 8 || comm->nRanks == 16) &&
+      ncclCudaGraphValid(comm->planner.capturingGraph)) {
+    return pcclParamSymCeThresholdGraph();
+  }
+  if (comm->nRanks == 4) return pcclParamSymCeThreshold4Ranks();
+  if (comm->nRanks == 8) return pcclParamSymCeThreshold8Ranks();
+  if (comm->nRanks == 16) return pcclParamSymCeThreshold16Ranks();
+  // Keep all unmeasured rank counts on kernels by default; explicit overrides still apply.
+  return pcclParamSymCeThresholdKernelDefault();
+}
+
+bool pcclCeAutoAllGatherSupported(ncclComm_t comm) {
+  // Provision resources independently of the mutable selection threshold.
+  return comm->symmetricSupport && comm->nNodes == 1 && comm->ceAutoAllGatherEligible;
+}
+
+bool pcclCeShouldUseCollective(ncclComm_t comm, ncclFunc_t coll, size_t count,
+                             bool ceAvailable, bool hasSysmemSegment, bool inPlace) {
+  if (!ceAvailable || hasSysmemSegment) return false;
+  if (comm->config.CTAPolicy & PCCL_CTA_POLICY_ZERO) return true;
+  // This API has no per-call algorithm selection. The communicator eligibility
+  // excludes explicit algorithm/symmetric kernel choices before considering automatic CE.
+  if (coll != ncclFuncAllGather || !pcclCeAutoAllGatherSupported(comm)) return false;
+  int64_t threshold = pcclCeAllGatherThreshold(comm, inPlace);
+  return threshold >= 0 && count > static_cast<uint64_t>(threshold);
+}
 
 bool ncclCeOkiRequested() {
   return pcclParamCeEnableAr() == 1 ||
          pcclParamCeEnableRs() == 1 ||
          (ceOkiAllGatherSupported && pcclParamCeOkiEnableAg() == 1);
+}
+
+bool pcclOkiArchSupported(ncclComm_t comm) {
+  if (comm->compCap < 89 || comm->peerInfo == nullptr) return false;
+  // All ranks must agree before either CE reductions or P2P DMA can use OKI.
+  // peerInfo contains the capabilities exchanged by initTransportsRank.
+  for (int r = 0; r < comm->nRanks; r++) {
+    if (comm->peerInfo[r].hggcCompCap < 89) return false;
+  }
+  return true;
 }
 
 // Machine types that support two-stage topology optimization for CE allgather
@@ -373,10 +434,10 @@ void splitSize(ssize_t totalSize, int round, int numRounds, ssize_t* size) {
 }
 
 // Collectives that build one op per target rank with a symmetric target set, so
-// the distance-keyed die assignment below stays balanced on both the sending and
+// the distance-keyed partition assignment below stays balanced on both the sending and
 // the receiving side. Scatter and Gather have a single sender resp. receiver, so
 // only that side has anything to balance, and that side is the bottleneck.
-static inline bool ceDieByRankApplies(ncclFunc_t coll) {
+static inline bool ceRankPartitionApplies(ncclFunc_t coll) {
   switch (coll) {
   case ncclFuncAllGather:
   case ncclFuncAlltoAll:
@@ -388,43 +449,61 @@ static inline bool ceDieByRankApplies(ncclFunc_t coll) {
   }
 }
 
-// Die and DMA queue assignment for a batch op targeting `targetRank`.
+// Partition and queue assignment for a batch op targeting `targetRank`.
 //
-// Default: the transfer is split evenly across all dies, queue picked by target rank.
+// Default: the transfer is split evenly across all partitions, queue picked by target rank.
 //
-// dieByRank: the transfer stays whole on a single die, which halves the number of
-// DMA ops. The die is keyed on the rank distance (targetRank - myRank) mod nRanks,
+// byRank: the transfer stays whole on a single partition, which reduces the number of
+// DMA ops. The partition is keyed on the rank distance (targetRank - myRank) mod nRanks,
 // not on targetRank: a receiver sees exactly the same set of distances that a
-// sender does, so egress and ingress balance across dies at the same time. Keying
-// on the target instead makes every sender reach a given peer on the same die,
-// which starves that peer's other die.
+// sender does, so egress and ingress balance across partitions at the same time. Keying
+// on the target instead makes every sender reach a given peer on the same partition,
+// which starves that peer's other partition.
 //
-// nRanks-1 need not divide by the die count. The leftover distances, and the local
-// copy, keep the even split, which is what makes each rank's ingress land on both
-// dies in exactly equal parts.
-static inline void ceAssignDie(bool dieByRank, int myRank, int targetRank, int nRanks,
-                               int* dieBegin, int* dieEnd, int* queue) {
-  if (dieByRank) {
-    int splitDist = (nRanks - 1) % ppuDiesNum;
+// nRanks-1 need not divide by the partition count. The leftover distances, and the local
+// copy, keep the even split, which is what makes each rank's ingress land on all
+// partitions in exactly equal parts.
+static inline void ceAssignPartition(bool byRank, int myRank, int targetRank, int nRanks, int dividenNum,
+                                     int* partBegin, int* partEnd, int* queue) {
+  if (byRank) {
+    int splitDist = (nRanks - 1) % dividenNum;
     int dist = (targetRank - myRank + nRanks) % nRanks;
     if (dist > splitDist) {
       int idx = dist - splitDist - 1;
-      *dieBegin = idx % ppuDiesNum;
-      *dieEnd = *dieBegin + 1;
-      *queue = (idx / ppuDiesNum) % HG_DMA_RING_PER_DIE;
+      *partBegin = idx % dividenNum;
+      *partEnd = *partBegin + 1;
+      *queue = idx / dividenNum;
       return;
     }
     // Queues of the split ops start above the ones the whole ops occupy.
-    int wholePerDie = (nRanks - 1 - splitDist) / ppuDiesNum;
-    *dieBegin = 0;
-    *dieEnd = ppuDiesNum;
-    *queue = (wholePerDie + dist) % HG_DMA_RING_PER_DIE;
+    int wholePerPartition = (nRanks - 1 - splitDist) / dividenNum;
+    *partBegin = 0;
+    *partEnd = dividenNum;
+    *queue = wholePerPartition + dist;
     return;
   }
 
-  *dieBegin = 0;
-  *dieEnd = ppuDiesNum;
-  *queue = targetRank % HG_DMA_RING_PER_DIE;
+  *partBegin = 0;
+  *partEnd = dividenNum;
+  *queue = targetRank;
+}
+
+static inline bool pcclCeUseRankPartition(ncclComm_t comm, const struct ncclCeCollArgs* args, int dividenNum) {
+  // Large graph AllGather copies run faster when each transfer uses every
+  // partition. Eager and smaller calls keep rank partitioning to reduce DMA ops.
+  bool splitGraphAllGather = args->func == ncclFuncAllGather &&
+      (comm->nRanks == 4 || comm->nRanks == 8 || comm->nRanks == 16) &&
+      ncclCudaGraphValid(comm->planner.capturingGraph) &&
+      args->nElts * args->eltSize > static_cast<size_t>(ceAllGatherGraphThreshold);
+  int64_t byRankParam = splitGraphAllGather ? pcclParamCeDieByRankGraphAllGather() : pcclParamCeDieByRank();
+  bool byRank = dividenNum > 1 && comm->icnRmtType == PCCL_ICNLINK_SWITCH &&
+                ceRankPartitionApplies(args->func) && byRankParam != 0;
+  // Keep the same partition in the multi-stream and divided batch paths.
+  if (comm->nRanks == 64 && (args->func == ncclFuncAllGather || args->func == ncclFuncAlltoAll)) {
+    ssize_t size = args->nElts * args->eltSize;
+    if (size < 512 * 1024 && size > 128 * 1024) byRank = false;
+  }
+  return byRank;
 }
 
 static ncclResult_t pcclCeLaunchBatchOpsMultiStream(ncclComm_t comm, struct ncclCeCollArgs* args,
@@ -442,17 +521,7 @@ static ncclResult_t pcclCeLaunchBatchOpsMultiStream(ncclComm_t comm, struct nccl
     return ncclSuccess;
   }
 
-  dieByRank = ppuDiesNum > 1 && comm->icnRmtType == PCCL_ICNLINK_SWITCH &&
-              ceDieByRankApplies(args->func) && pcclParamCeDieByRank() != 0;
-  // Tailored to 64 ranks for a smoother curve.
-  if (comm->nRanks == 64) {
-    if (args->func == ncclFuncAllGather || args->func == ncclFuncAlltoAll) {
-      ssize_t size = args->nElts * args->eltSize;
-      if (size < 512 * 1024 && size > 128 * 1024) {
-        dieByRank = 0;
-      }
-    }
-  }
+  dieByRank = pcclCeUseRankPartition(comm, args, ppuDiesNum);
 
   // Check if we are in a HGGC graph capture
   HGGCCHECKGOTO(hggcEventRecord(comm->ceSyncEvent, stream), ret, fail);
@@ -460,13 +529,13 @@ static ncclResult_t pcclCeLaunchBatchOpsMultiStream(ncclComm_t comm, struct nccl
     for (int i = 0; i < params->numOps; i++) {
       ssize_t offset = 0;
       int32_t targetRank = params->targets[i];
-      ceAssignDie(dieByRank, comm->rank, targetRank, comm->nRanks, &dieBegin, &dieEnd, &queue);
+      ceAssignPartition(dieByRank, comm->rank, targetRank, comm->nRanks, ppuDiesNum, &dieBegin, &dieEnd, &queue);
       // A single die in the range means this op is carried whole; otherwise it
       // still takes one contiguous slab per die.
       bool whole = (dieEnd - dieBegin) == 1;
       for (int dieId = dieBegin; dieId < dieEnd; dieId++) {
         ssize_t size = 0;
-        int streamId = queue * ppuDiesNum + dieId;
+        int streamId = (queue % HG_DMA_RING_PER_DIE) * ppuDiesNum + dieId;
         if (whole) {
           size = params->sizes[i];
         } else {
@@ -487,9 +556,9 @@ static ncclResult_t pcclCeLaunchBatchOpsMultiStream(ncclComm_t comm, struct nccl
     }
     for (int i = 0; i < params->numOps; i++) {
       int32_t targetRank = params->targets[i];
-      ceAssignDie(dieByRank, comm->rank, targetRank, comm->nRanks, &dieBegin, &dieEnd, &queue);
+      ceAssignPartition(dieByRank, comm->rank, targetRank, comm->nRanks, ppuDiesNum, &dieBegin, &dieEnd, &queue);
       for (int dieId = dieBegin; dieId < dieEnd; dieId++) {
-        int streamId = queue * ppuDiesNum + dieId;
+        int streamId = (queue % HG_DMA_RING_PER_DIE) * ppuDiesNum + dieId;
         HGGCCHECKGOTO(hggcStreamWaitEvent(stream, comm->ceEvents[streamId]), ret, fail);
       }
     }
@@ -503,88 +572,111 @@ fail:
   goto exit;
 }
 
-// single P2p stream per die.
-static ncclResult_t launchBatchOpsWithSingleP2pStream(ncclComm_t comm, const struct ncclCeBatchOpsParams* params, hggcStream_t stream) {
-  HGGCCHECK(hggcEventRecord(comm->ceSyncEvent, stream));
-  for (int local = 0; local < 2; local++) {
-    for (int dieId = 0; dieId < ppuDiesNum; dieId++) {
-      int streamId = (local % HG_DMA_RING_PER_DIE) * ppuDiesNum + dieId;
-      HGGCCHECK(hggcStreamWaitEvent(comm->ceStreams[streamId], comm->ceSyncEvent));
-    }
+static ncclResult_t pcclCeSubmitCopyBatch(void** dsts, void** srcs, size_t* sizes, size_t numOps,
+                                        bool useBatchApi, hggcStream_t stream) {
+#if PCCL_HGGC_VERSION >= PCCL_HGGC_DRIVER_VERSION(2, 2, 0)
+  if (useBatchApi) {
+    hggcMemcpyAttributes attr = {};
+    attr.srcAccessOrder = hggcMemcpySrcAccessOrderStream;
+    attr.flags = hggcMemcpyFlagPreferOverlapWithCompute;
+    size_t attrIndex = 0;
+    // The API consumes host descriptors during submission; source/destination
+    // device buffers remain owned by the collective until stream completion.
+#if HGGCRT_VERSION >= 13000
+    HGGCCHECK(hggcMemcpyBatchAsync(dsts, srcs, sizes, numOps, &attr, &attrIndex, 1, stream));
+#else
+    HGGCCHECK(hggcMemcpyBatchAsync(dsts, srcs, sizes, numOps, &attr, &attrIndex, 1, nullptr, stream));
+#endif
+    return ncclSuccess;
   }
-
-  for (int i = 0; i < params->numOps; i++) {
-    ssize_t offset = 0;
-    int local = (params->targets[i] == comm->rank) ? 1 : 0;
-    for (int dieId = 0; dieId < ppuDiesNum; dieId++) {
-      ssize_t size = 0;
-      int streamId = (local % HG_DMA_RING_PER_DIE) * ppuDiesNum + dieId;
-      splitSize(params->sizes[i], dieId, ppuDiesNum, &size);
-      if (size >= 0) {
-        HGGCCHECK(hggcMemcpyAsync(
-          (void*)((uintptr_t)params->dsts[i] + offset),
-          (void*)((uintptr_t)params->srcs[i] + offset),
-          size,
-          hggcMemcpyDeviceToDevice,
-          comm->ceStreams[streamId]));
-      }
-      offset += size;
-    }
-  }
-  for (int local = 0; local < 2; local++) {
-    for (int dieId = 0; dieId < ppuDiesNum; dieId++) {
-      int streamId = (local % HG_DMA_RING_PER_DIE) * ppuDiesNum + dieId;
-      HGGCCHECK(hggcEventRecord(comm->ceEvents[streamId], comm->ceStreams[streamId]));
-      HGGCCHECK(hggcStreamWaitEvent(stream, comm->ceEvents[streamId]));
-    }
+#else
+  (void)useBatchApi;
+#endif
+  // Batch memcpy is unavailable during graph capture and on older drivers.
+  for (size_t i = 0; i < numOps; i++) {
+    HGGCCHECK(hggcMemcpyAsync(dsts[i], srcs[i], sizes[i], hggcMemcpyDeviceToDevice, stream));
   }
   return ncclSuccess;
 }
 
 ncclResult_t ncclCeLaunchBatchOps(ncclComm_t comm, struct ncclCeCollArgs* args,
-                                  struct ncclCeBatchOpsParams* params, hggcStream_t stream) {
+                                const struct ncclCeBatchOpsParams* params, hggcStream_t stream, int dividenNum) {
   ncclResult_t ret = ncclSuccess;
-  uint32_t driverVersion;
   void* ceBatchHandle = NULL;
+  bool useBatchApi = false;
+  bool byRank = pcclCeUseRankPartition(comm, args, dividenNum);
 
-  // Start CE batch profiling
+  if (params->numOps == 0) return ncclSuccess;
+  // Streams are arranged as [remote partitions][local partitions]. Single-rank
+  // communicators only need the local group. Validate before submitting work.
+  if (dividenNum < 1 || dividenNum > comm->ceStreamsNum / (comm->nRanks > 1 ? 2 : 1)) {
+    return ncclInvalidArgument;
+  }
+
   NCCLCHECK(ncclProfilerStartCeBatchEvent(comm, args, params, stream, &ceBatchHandle));
 
-  // Check if there are any operations to perform
-  if (params->numOps == 0) {
-    return ncclSuccess;
-  }
-
-  // Check if we are in a HGGC graph capture
-  bool capturing = ncclCudaGraphValid(comm->planner.capturingGraph);
-
-  NCCLCHECKGOTO(ncclHggcDriverVersion(&driverVersion), ret, fail);
-
-  //--------------Graph capture--------------
-  // hggcMemcpyBatchAsync is not supported during HGGC graph capture
-  if (capturing) {
-    NCCLCHECKGOTO(launchBatchOpsWithSingleP2pStream(comm, params, stream), ret, fail);
-  }
-  //--------------No graph capture--------------
-  else {
-    if (PCCL_HGGC_VERSION >= PCCL_HGGC_DRIVER_VERSION(2, 2, 0) && driverVersion >= PCCL_SYSTEM_DRIVER_VERSION(6, 0, 0)) {
 #if PCCL_HGGC_VERSION >= PCCL_HGGC_DRIVER_VERSION(2, 2, 0)
-      params->attrs[0] = {};
-      params->attrs[0].srcAccessOrder = hggcMemcpySrcAccessOrderStream;
-      params->attrs[0].flags = hggcMemcpyFlagPreferOverlapWithCompute;
-      params->attrIdxs[0] = 0;
-      params->numAttrs = 1;
-
-#if HGGCRT_VERSION >= 13000
-      HGGCCHECKGOTO(hggcMemcpyBatchAsync(params->dsts, params->srcs, params->sizes, params->numOps, params->attrs, params->attrIdxs, params->numAttrs, stream),
-                    ret, fail);
-#else
-      HGGCCHECKGOTO(hggcMemcpyBatchAsync(params->dsts, params->srcs, params->sizes, params->numOps, params->attrs, params->attrIdxs, params->numAttrs, nullptr, stream),
-                    ret, fail);
+  if (!ncclCudaGraphValid(comm->planner.capturingGraph)) {
+    uint32_t driverVersion;
+    NCCLCHECKGOTO(ncclHggcDriverVersion(&driverVersion), ret, fail);
+    useBatchApi = driverVersion >= PCCL_HGGC_DRIVER_VERSION(6, 0, 0);
+  }
 #endif
-  #endif
-    } else {
-      NCCLCHECKGOTO(launchBatchOpsWithSingleP2pStream(comm, params, stream), ret, fail);
+
+  // Fork once, then submit local and remote copies on independent stream groups.
+  // dividenNum controls both the data partition count and streams per group;
+  // the caller configures how these stream slots map to hardware channels.
+  HGGCCHECKGOTO(hggcEventRecord(comm->ceSyncEvent, stream), ret, fail);
+  // Start local copies first without adding a dependency on their completion.
+  for (int local = 1; local >= 0; local--) {
+    for (int part = 0; part < dividenNum; part++) {
+      // A one-rank communicator has no remote group.
+      int streamId = (local && comm->nRanks > 1 ? dividenNum : 0) + part;
+      // Bounded host scratch avoids allocations on the submission path. Flush
+      // full batches on the same stream if a caller supplies more descriptors.
+      void* srcs[NCCL_MAX_LOCAL_RANKS];
+      void* dsts[NCCL_MAX_LOCAL_RANKS];
+      size_t sizes[NCCL_MAX_LOCAL_RANKS];
+      size_t numOps = 0;
+      bool active = false;
+      for (size_t i = 0; i < params->numOps; i++) {
+        if ((params->targets[i] == comm->rank) != (local != 0)) continue;
+        int partBegin, partEnd, queue;
+        ceAssignPartition(byRank, comm->rank, params->targets[i], comm->nRanks, dividenNum,
+                          &partBegin, &partEnd, &queue);
+        if (part < partBegin || part >= partEnd) continue;
+
+        ssize_t size = params->sizes[i];
+        size_t offset = 0;
+        if (partEnd - partBegin > 1) {
+          ssize_t stride;
+          splitSize(params->sizes[i], 0, dividenNum, &stride);
+          splitSize(params->sizes[i], part, dividenNum, &size);
+          if (size <= 0) continue;
+          offset = (size_t)part * stride;
+        }
+        if (size <= 0) continue;
+        if (!active) {
+          HGGCCHECKGOTO(hggcStreamWaitEvent(comm->ceStreams[streamId], comm->ceSyncEvent), ret, fail);
+          active = true;
+        }
+        srcs[numOps] = (void*)((uintptr_t)params->srcs[i] + offset);
+        dsts[numOps] = (void*)((uintptr_t)params->dsts[i] + offset);
+        sizes[numOps++] = size;
+        if (numOps == NCCL_MAX_LOCAL_RANKS) {
+          NCCLCHECKGOTO(pcclCeSubmitCopyBatch(dsts, srcs, sizes, numOps, useBatchApi,
+                                           comm->ceStreams[streamId]), ret, fail);
+          numOps = 0;
+        }
+      }
+      if (numOps != 0) {
+        NCCLCHECKGOTO(pcclCeSubmitCopyBatch(dsts, srcs, sizes, numOps, useBatchApi,
+                                         comm->ceStreams[streamId]), ret, fail);
+      }
+      if (active) {
+        HGGCCHECKGOTO(hggcEventRecord(comm->ceEvents[streamId], comm->ceStreams[streamId]), ret, fail);
+        HGGCCHECKGOTO(hggcStreamWaitEvent(stream, comm->ceEvents[streamId]), ret, fail);
+      }
     }
   }
 
@@ -598,11 +690,14 @@ fail:
 
 ncclResult_t pcclCeLaunchBatchOpsImpl(ncclComm_t comm, struct ncclCeCollArgs* args,
                                       struct ncclCeBatchOpsParams* params, hggcStream_t stream) {
-  if (pcclParamCeCollOneStream() > 0) {
-    return ncclCeLaunchBatchOps(comm, args, params, stream);
-  } else {
-    return pcclCeLaunchBatchOpsMultiStream(comm, args, params, stream);
+  // SM89 always separates local and remote copies, including graph capture.
+  // init.cc maps each stream group across the dies: with two dies, dividenNum=2
+  // selects remote channels 0/8 and local channels 1/9.
+  if (comm->compCap == 89 || pcclParamCeCollOneStream() > 0) {
+    int dividenNum = ppuDiesNum;
+    return ncclCeLaunchBatchOps(comm, args, params, stream, dividenNum);
   }
+  return pcclCeLaunchBatchOpsMultiStream(comm, args, params, stream);
 }
 
 ncclResult_t ncclCeAllGather(ncclComm_t comm, struct ncclCeCollArgs* args, hggcStream_t stream) {

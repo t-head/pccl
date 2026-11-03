@@ -416,6 +416,8 @@ struct pcclComm {
   int hgmlDev; // my HGML device index
   int compCap; // compute capability of the PPU
   int minCompCap, maxCompCap; // min/max compute capability in the communicator
+  // All-rank agreement on SM89+, ICNS presence and no explicit algorithm/kernel selection.
+  bool ceAutoAllGatherEligible;
   PPU_TYPE ppuType; // PPU model type
   pcclICNRemoteDeviceType_t icnRmtType; // ICN remote device type
   int64_t busId;   // my PCI bus ID in int format

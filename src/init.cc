@@ -1227,6 +1227,7 @@ static ncclResult_t initTransportsRank(ncclComm_t comm, ncclComm_t parent, uint6
     int nChannels;
     int nGraphChannels;
     int p2pnChannelsPerPeer;
+    int ceAutoAllGatherEligible;
     struct graphInfo graphInfo[NCCL_ALGO_COLLNET + 1];
     struct ncclTopoRanks topoRanks;
   } ;
@@ -1449,8 +1450,18 @@ static ncclResult_t initTransportsRank(ncclComm_t comm, ncclComm_t parent, uint6
 
   allGather3Data[rank].nChannels = comm->nChannels;
   allGather3Data[rank].nGraphChannels = comm->nGraphChannels;
+  allGather3Data[rank].ceAutoAllGatherEligible =
+      minCompCap >= 89 && algoStr == nullptr &&
+      pcclGetEnvWithDualPrefix("PCCL_SYM_KERNEL") == nullptr && pcclParamSymKernelId() < 0 &&
+      comm->icnRmtType == PCCL_ICNLINK_SWITCH;
 
   NCCLCHECKGOTO(bootstrapAllGather(comm->bootstrap, allGather3Data, sizeof(*allGather3Data)), res, fail);
+
+  // All ranks must agree before any collective can switch between CE and kernels.
+  comm->ceAutoAllGatherEligible = true;
+  for (int r = 0; r < nranks; r++) {
+    comm->ceAutoAllGatherEligible &= allGather3Data[r].ceAutoAllGatherEligible != 0;
+  }
 
   // Determine nNodes, firstRanks, ...
   NCCLCHECKGOTO(ncclCalloc(&nodesFirstRank, nranks), res, fail);
@@ -1734,7 +1745,11 @@ static ncclResult_t initTransportsRank(ncclComm_t comm, ncclComm_t parent, uint6
   }
   comm->symmetricSupport = ncclParamWinEnable() && ncclCuMemEnable() &&
       (comm->globalGinSupport != NCCL_GIN_CONNECTION_NONE || (comm->localP2pSupport && ncclDevrIsOneLsaTeam(comm)));
-  if (ncclCeSupported(comm)) {
+  // Automatic AllGather needs the same streams/events and strategy resources as
+  // explicit ZERO policy. Keep OKI and P2P DMA on their existing ZERO-only gate.
+  INFO(NCCL_INIT, "CE AllGather auto support %d minCompCap %d architecture / ICNS / algorithm eligibility %d",
+       pcclCeAutoAllGatherSupported(comm), minCompCap, comm->ceAutoAllGatherEligible);
+  if (ncclCeSupported(comm) || pcclCeAutoAllGatherSupported(comm)) {
     int p2pRingNeededPerDie = std::min(comm->nRanks, HG_DMA_RING_PER_DIE);
     int num = p2pRingNeededPerDie * ppuDiesNum;
     comm->ceStreamsNum = num;
@@ -1964,7 +1979,9 @@ static ncclResult_t ncclCommInitRankFunc(struct ncclAsyncJob* job_) {
     NCCLCHECKGOTO(ncclSystemDriverVersion(&systemDriverVersion), res, fail);
     if (ncclCeSupported(comm) && (ncclCeOkiRequested() || pcclParamP2pDmaEnable())) {
       // support user compile install kmd version check for 0xffffffff
-      if (systemDriverVersion < PCCL_MIN_KMD_VERSION_FOR_OKI) {
+      if (!pcclOkiArchSupported(comm)) {
+        INFO(NCCL_INIT, "disable OKI: all ranks must have SM89 or newer PPUs.");
+      } else if (systemDriverVersion < PCCL_MIN_KMD_VERSION_FOR_OKI) {
         INFO(NCCL_INIT, "disable OKI as system driver version smaller than %x(%x).", PCCL_MIN_KMD_VERSION_FOR_OKI, systemDriverVersion);
       } else if (comm->nRanks < 2) {
         // OKI needs at least one remote QP group.

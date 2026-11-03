@@ -2276,13 +2276,21 @@ static ncclResult_t taskAppend(ncclComm_t comm, struct ncclInfo* info) {
     struct ncclDevrWindow* recvWin;
     ncclDevrFindWindow(comm, info->sendbuff, &sendWin);
     ncclDevrFindWindow(comm, info->recvbuff, &recvWin);
-    // Append CE collective task if CE is supported and requested by user
+    // Join first: it resets the planner and opens the scope used by stream tracking.
+    // Capture state is needed before selecting the default kernel/CE path.
+    ncclGroupCommJoin(comm, ncclGroupTaskTypeCollective);
+    NCCLCHECK(ncclPlannerSetCapturingGraph(comm, info));
+    // Prefer explicit ZERO policy, then eligible large AllGather CE tasks.
     ncclSymRegType_t winRegType;
     NCCLCHECK(ncclGetSymRegType(sendWin, recvWin, &winRegType));
     bool ceAvailable = ncclCeAvailable(comm, info->coll, info->op, info->datatype, info->count, winRegType, info->recvbuff);
     bool hasSysmemSegment = ncclDevrWindowHasSysmemSegment(sendWin) || ncclDevrWindowHasSysmemSegment(recvWin);
 
-    if ((comm->config.CTAPolicy & PCCL_CTA_POLICY_ZERO) && ceAvailable && !hasSysmemSegment) {
+    // AllGather count is normalized to bytes. In-place input is this rank's
+    // output slice, not necessarily the start of the receive buffer.
+    bool inPlace = info->coll == ncclFuncAllGather &&
+                   info->sendbuff == (char*)info->recvbuff + comm->rank * info->count;
+    if (pcclCeShouldUseCollective(comm, info->coll, info->count, ceAvailable, hasSysmemSegment, inPlace)) {
       NCCLCHECK(ceCollTaskAppend(comm, info, sendWin, recvWin, opDev));
     } else {
       if (info->coll == ncclFuncAlltoAll) {
