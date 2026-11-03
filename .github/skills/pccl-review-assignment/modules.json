@@ -42,7 +42,7 @@
     },
     "transport": {
       "name": "Transport build and connect",
-      "description": "Choose, initialize and connect transports between ranks, including P2P and SHM.",
+      "description": "Generic transport selection and rank connection setup, including P2P and SHM. Network-specific setup and data transfer belong to network.",
       "maintainer": {"login": "ck-milo", "id": 341349555},
       "reviewers": [
         {"login": "xiangzhixyc", "id": 341355176},
@@ -51,8 +51,8 @@
       ]
     },
     "tuning": {
-      "name": "Algorithm and protocol selection",
-      "description": "Built-in tuning models, algorithm/protocol decisions and selection thresholds.",
+      "name": "Built-in collective tuning",
+      "description": "Built-in bandwidth/latency models and algorithm/protocol tuning, such as src/graph/tuning.cc. Path-specific thresholds or kernel/CE choices for symmetric-memory collectives belong to symmetric.",
       "maintainer": {"login": "honganlxh", "id": 335730053},
       "reviewers": [
         {"login": "ck-milo", "id": 341349555},
@@ -70,7 +70,7 @@
     },
     "memory": {
       "name": "Memory management",
-      "description": "Memory allocation, registration, mapping, ownership and release.",
+      "description": "General memory allocation, registration, mapping, ownership and release. Device API windows, device communicators and LSA semantics belong to device-api.",
       "maintainer": {"login": "honglei-lu", "id": 340104201},
       "reviewers": [
         {"login": "ctt284373", "id": 340404662},
@@ -79,7 +79,7 @@
     },
     "enqueue": {
       "name": "Runtime kernel planning and enqueue",
-      "description": "Host-side work planning, enqueue, streams, groups and graph capture; excludes dispatch strategy and rank scheduling.",
+      "description": "Shared host-side work planning, enqueue, streams, groups and graph capture. Hardware launch policy belongs to dispatch, rank scheduling to scheduling, and symmetric-specific planning to symmetric.",
       "maintainer": {"login": "ctt284373", "id": 340404662},
       "reviewers": [
         {"login": "ck-milo", "id": 341349555},
@@ -88,7 +88,7 @@
     },
     "dispatch": {
       "name": "Kernel dispatch and CE masks",
-      "description": "Kernel dispatch strategy and copy-engine mask selection.",
+      "description": "Hardware kernel launch strategy and copy-engine mask selection. Built-in algorithm/protocol tuning belongs to tuning, and symmetric kernel/CE path selection to symmetric.",
       "maintainer": {"login": "honganlxh", "id": 335730053},
       "reviewers": [
         {"login": "ck-milo", "id": 341349555},
@@ -119,7 +119,7 @@
     },
     "scheduling": {
       "name": "AlltoAll and P2P scheduling",
-      "description": "Host scheduling, batching, rank pairing and ordering for AlltoAll and P2P.",
+      "description": "Host-side AlltoAll/P2P rank pairing, communication rounds, batching and ordering. CE/DMA transfer partitioning belongs to copy-engine, and symmetric task planning to symmetric.",
       "maintainer": {"login": "honganlxh", "id": 335730053},
       "reviewers": [
         {"login": "levilee-lwl", "id": 340491409},
@@ -155,8 +155,8 @@
       ]
     },
     "symmetric": {
-      "name": "Symmetric-memory kernels",
-      "description": "Symmetric-memory-based collective kernels and their synchronization.",
+      "name": "Symmetric-memory collectives",
+      "description": "Symmetric-memory collective planning, kernels and synchronization, including host-side eligibility, kernel/CE path selection and thresholds within this path. Independently changed CE/DMA transfer execution belongs to copy-engine.",
       "maintainer": {"login": "snowdrift-zw", "id": 341341178},
       "reviewers": [
         {"login": "ck-milo", "id": 341349555},
@@ -166,7 +166,7 @@
     },
     "copy-engine": {
       "name": "Copy-engine operations",
-      "description": "Collective or P2P operations implemented through copy engines and DMA.",
+      "description": "Copy-engine/DMA execution of collective and P2P operations, including transfer batching, partitioning, queues, streams and synchronization. Kernel/CE path selection and thresholds for symmetric-memory collectives belong to symmetric.",
       "maintainer": {"login": "ck-milo", "id": 341349555},
       "reviewers": [
         {"login": "snowdrift-zw", "id": 341341178},
