@@ -1,14 +1,14 @@
 {
   "classification": {
     "base_sha": "b4c46ba921d6e206f685229d94403260a69e03fd",
-    "head_sha": "24e5bb099104698b6d1b50f678a97ff2ddfdd4fa",
-    "input_fingerprint": "a08882b912ef971a6ad499ae25fc19a088353784c1e84e31d0eb5b4ba9869e82",
+    "head_sha": "5078b9eee2d4b7ce5c35512ee53ed25922a0a385",
+    "input_fingerprint": "944323af76c31be5277793f3da20e7b560c1c8c30ca1961dba2542ee3cd0e2de",
     "pr_number": 130,
     "proposal": {
       "modules": [
         "gin"
       ],
-      "reason": "The substantive change is in GDAKI GIN host backend connection setup: it stores per-context remote exchange data and reorders main-QP connection to peer-first/context-second before self-loop QPs to balance LAG member usage. This is GIN-specific RDMA backend behavior, not a separate shared-network policy or other module change."
+      "reason": "Main substantive change is in GDAKI GIN host backend QP setup: it expands per-context peer exchange storage and reorders remote-vs-self-loop main QP connection sequencing to balance LAG member affinity. This is GIN-specific RDMA/backend connection behavior, with no separate policy/protocol change in other modules."
     }
   },
   "reviewers": {
