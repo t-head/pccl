@@ -233,7 +233,7 @@ jobs:
           path: pccl-tests
       - name: Build on PPU
         id: ppu-build
-        uses: t-head/ppu-scheduler-action@main
+        uses: t-head/ci-infra/cluster-run@main
         with:
           image: download.t-head.cn/docker_release/ppu:sdk2.2.0-hggcrt3-ubuntu24.04-py312-20261005
           nnodes: 0
@@ -306,7 +306,7 @@ jobs:
     steps:
       - name: Run test on PPU
         id: ppu-test
-        uses: t-head/ppu-scheduler-action@main
+        uses: t-head/ci-infra/cluster-run@main
         with:
           image: download.t-head.cn/docker_release/ppu:sdk2.2.0-hggcrt3-ubuntu24.04-py312-20261005
           nnodes: 0
@@ -373,7 +373,7 @@ jobs:
           path: pccl-tests
       - name: Build and Test on PPU (notsm)
         id: ppu-test-notsm
-        uses: t-head/ppu-scheduler-action@main
+        uses: t-head/ci-infra/cluster-run@main
         with:
           image: download.t-head.cn/docker_release/ppu:sdk2.2.0-hggcrt3-ubuntu24.04-py312-20261005
           nnodes: 0
