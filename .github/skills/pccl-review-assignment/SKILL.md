@@ -20,6 +20,8 @@ Use the supplied module catalog and complete PR diff to identify the main module
 
 - Start with the module responsible for the main functional change. Use only
   module IDs and scope definitions from the supplied catalog.
+- Treat `key_files` as non-exhaustive examples, not ownership rules. Classify by
+  changed behavior; a path match alone must not select a module.
 - Add other modules only for independently substantive changes needing their
   expertise. Match changed implementations to the most specific catalog scopes,
   regardless of file location; do not absorb a distinct specialty into a broader
