@@ -1,14 +1,14 @@
 {
   "classification": {
     "base_sha": "efd03872bf111f668835eafd9fc40bc5ecae337d",
-    "head_sha": "622d11ba56a4c4dfab9472f17be64834cfa5d460",
-    "input_fingerprint": "4a060dbd16138d2f768765f4ec87dd150f088bf17d5b4e5985385698f5722897",
+    "head_sha": "d32bc93168534c173702fd47ca6c02dd1fd4cad4",
+    "input_fingerprint": "bf61d54e97969d75e488ef3219acfe2894d09174a4cf6ac535d724f0b3a7dc64",
     "pr_number": 135,
     "proposal": {
       "modules": [
         "workflow"
       ],
-      "reason": "PR changes review-classification policy and automation: module catalog scope text updates, new key_files metadata requirements/validation in reviewer automation, and passing key_files into classification inputs/fingerprints. These are contribution/review workflow changes, not CI test execution behavior."
+      "reason": "Main change is review/merge automation policy: module-classification catalog/schema updates in review_automation and modules.json (including key_files handling) plus splitting commit-message preview into its own GitHub workflow and wiring CI triggers/gates to keep required test checks behavior stable."
     }
   },
   "reviewers": {
