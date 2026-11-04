@@ -1,17 +1,18 @@
 {
   "classification": {
-    "base_sha": "efd03872bf111f668835eafd9fc40bc5ecae337d",
-    "head_sha": "f522e0f721f64480e9396d065f207ab3a6f29362",
-    "input_fingerprint": "d528cee8e08fbafb94eea19aca9e1b370366d0801e9fc5161a76812d0d2e373f",
+    "base_sha": "5f8a1be5e27b99ea44e2dc8d0d09f95ea6d8880f",
+    "head_sha": "0bcbfb19890178cfe340c07d6ed36de566a8f11c",
+    "input_fingerprint": "5676cf6c8ef10f7a90b5682fd8883757838144fcbc3d69116d7910cf512c1f28",
     "pr_number": 118,
     "proposal": {
       "modules": [
-        "dispatch"
+        "kernels"
       ],
-      "reason": "Updates P2P SendRecv kernel specialization IDs to use the canonical function-index constants, changing how kernel specializations match the device dispatch path (specialized vs function-table fallback) without introducing separate substantive changes in other modules."
+      "reason": "Updates device-kernel specialization ID mapping for P2P SendRecv (SIMPLE/SIMPLE_BULK) to match existing function-index constants, changing device-side function ID/specialization routing behavior."
     }
   },
   "reviewers": {
-    "dispatch": 341349555
+    "dispatch": 341349555,
+    "kernels": 341355176
   }
 }
