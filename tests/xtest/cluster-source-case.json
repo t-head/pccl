@@ -1,0 +1,98 @@
+{
+  "bundle_sha256": "ca0902b970ccf1861a567e9ee22933275f35e113db7933a6481e73bcfb6d30ea",
+  "case": {
+    "source": {
+      "case": "test_op_all_reduce_perf_algo_Auto_proto_Auto_redop_sum_ranks_16_datatype_float_datasize_32MB_iters_10_threads_1_process_8_nnodes2_autodetect_rdma_gdr",
+      "case_sha256": "e44f16c484cc9c438b575de7cf66ce87f5cf605a5d81912656a8a41ac7a15f44",
+      "plan": "pccl_shm_register_test_multi_node2_plan",
+      "plan_sha256": "04166c8225a8e38205eafcd345b3dea76fa1117a9321f8cbf7802604f7fbb7bc",
+      "suite": "register_test_shm_multi_nodes2_suite",
+      "suite_sha256": "dfde5f81a688a7c64e77f93436fe3ad946c59effa6ea10d8dde499b46691279b"
+    },
+    "source_id": "85c5f4c54d09838365780b00f3848be80f3e5eb33c3efd091cb8e808e0e73c33",
+    "spec": {
+      "argv": [
+        "{python}",
+        "{test_root}/run_test.py",
+        "--op",
+        "all_reduce_perf",
+        "--algo",
+        "Auto",
+        "--proto",
+        "Auto",
+        "--redop",
+        "sum",
+        "--data-type",
+        "float",
+        "--data-size",
+        "32MB",
+        "--iters",
+        "10",
+        "--ranks",
+        "16",
+        "--nnodes",
+        "2",
+        "--nprocs",
+        "8",
+        "--threads",
+        "1",
+        "--register",
+        "1",
+        "--auto-detect",
+        "--cross-node",
+        "gdr",
+        "--timeout",
+        "300",
+        "--launch-mode",
+        "normal",
+        "--mpi-options={mpi_options}",
+        "--process-group",
+        "normal"
+      ],
+      "build_profile": "standard",
+      "cards_per_node": 8,
+      "checks": [
+        "exit_code"
+      ],
+      "devices_per_thread": 1,
+      "env": {},
+      "group": "source_register_cluster",
+      "legacy_source": "pccl_test_suites:85c5f4c54d09838365780b00",
+      "nodes": 2,
+      "parameters": {
+        "algo": "Auto",
+        "auto_detect": true,
+        "data_sizes": [
+          "32MB"
+        ],
+        "dtype": "float",
+        "iters": 10,
+        "op": "all_reduce_perf",
+        "proto": "Auto",
+        "ranks": 16,
+        "redop": "sum",
+        "register": 1,
+        "transport": "gdr"
+      },
+      "processes_per_node": 8,
+      "test_type": "functional",
+      "threads_per_process": 1,
+      "tier": "sanity",
+      "timeout": 300
+    }
+  },
+  "coverage": {
+    "execution_count": 1,
+    "scope": "two-node-source-register-cluster-trial",
+    "source_case_count": 1
+  },
+  "schema_version": 1,
+  "source": {
+    "declared_framework_version": "0.12.0",
+    "exporter_runtime_version": "0.12.0",
+    "exporter_sha256": "78a4ef77a3d2aeb852d3cec68040f11242d570a293936b150f65b3dad8b7c807",
+    "repository": "pccl_test_suites",
+    "revision": "3f43d59c424693e08c21d027b89858f75241cddc",
+    "selection_sha256": "1d690a3164e1c32bcb445b870428ad03c6e6a4b1630ba05e71778fa6d8a20973"
+  }
+}

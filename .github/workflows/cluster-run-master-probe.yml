@@ -1,0 +1,43 @@
+name: cluster-run master runtime probe
+
+on:
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+jobs:
+  probe:
+    runs-on: k8s-runner-group-cpu-thead
+    container:
+      image: ghcr.io/actions/actions-runner:latest
+    timeout-minutes: 30
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          persist-credentials: false
+      - name: Validate master runtime without PCCL or xtest
+        uses: t-head/ci-infra/cluster-run@feat/master-launch-mode
+        with:
+          launch_mode: master
+          image: download.t-head.cn/docker_release/ppu:sdk2.2.0-hggcrt3-ubuntu24.04-py312-20261005
+          nnodes: 2
+          nproc_per_node: 8
+          node_selector: board-type=ZW-M890P
+          namespace: ppu-sched
+          timeout_minutes: 20
+          setup_command: |
+            set -euo pipefail
+            test "$WORLD_SIZE" -eq 2
+            source /usr/local/PPU_SDK/envsetup.sh
+          command: |
+            set -euo pipefail
+            test "$NODE_RANK" -eq 0
+            test "$NNODES" -eq 2
+            test "$(wc -l < "$CLUSTER_HOSTS_FILE")" -eq 2
+            for rank in 0 1; do
+              host=$(jq -r --argjson rank "$rank" '.[$rank].host' "$CLUSTER_NODES_FILE")
+              cluster-exec "$host" /bin/bash -c \
+                'test "$WORLD_SIZE" -eq 2; test "$NODE_RANK" -eq "$1"' probe "$rank"
+            done
+            echo 'cluster-run master runtime probe passed'
