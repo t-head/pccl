@@ -1,16 +1,11 @@
-name: pccl checkin
+name: PCCL CI
 
 # Triggers: manual / PR / push
 on:
   workflow_dispatch:                                       # manual trigger (web/API)
-    inputs:
-      pr_number:
-        description: PR number to prepare only its squash message; omit to run CI
-        required: false
-        type: number
   pull_request:
     branches: [main, 'release/**']
-    types: [opened, synchronize, reopened, ready_for_review, edited]
+    types: [opened, synchronize, reopened, ready_for_review]
   push:
     branches: [main]                                       # run again after merge
 
@@ -21,26 +16,21 @@ permissions:
   statuses: read
 
 concurrency:
-  # Message-only runs must not cancel the PR's CI or post-merge main CI.
-  group: >-
-    ${{ (github.event.action == 'edited' || inputs.pr_number) &&
-        format('squash-message-{0}', github.event.pull_request.number || inputs.pr_number) ||
-        format('ci-pccl-{0}', github.event.pull_request.number || github.ref) }}
+  group: ci-pccl-${{ github.event.pull_request.number || github.ref }}
   cancel-in-progress: true                 # new runs cancel outdated ones
 
 # Configure required checks in the target branch ruleset to enforce merge gates.
 # Defining this workflow alone does not prevent merging.
 jobs:
   # Stage 1: Secret scan precheck (org-level reusable workflow).
-  # PR metadata edits only refresh the squash message.
   precheck:
     name: Pre-check (Secret Scan)
-    if: github.event_name == 'pull_request' && github.event.action != 'edited'
+    if: github.event_name == 'pull_request'
     uses: t-head/.github/.github/workflows/user-precheck.yml@main
 
   commit-checks:
     name: Pre-check (Commit Message & DCO)
-    if: github.event_name == 'pull_request' && github.event.action != 'edited'
+    if: github.event_name == 'pull_request'
     permissions:
       contents: read
     runs-on: ubuntu-latest
@@ -109,67 +99,6 @@ jobs:
     uses: t-head/.github/.github/workflows/ai-code-review.yml@main
     secrets: inherit
 
-  # Message preparation is independent of review and the required test gate.
-  squash-message:
-    name: Generate commit message
-    # Fork PRs use a maintainer-triggered run from main with trusted workflow code.
-    if: >-
-      github.repository == 't-head/pccl' && (
-        (github.event_name == 'pull_request' && !github.event.pull_request.draft &&
-         github.event.pull_request.head.repo.full_name == github.repository) ||
-        (github.event_name == 'workflow_dispatch' && inputs.pr_number && github.ref == 'refs/heads/main'))
-    runs-on: ubuntu-24.04
-    timeout-minutes: 10
-    outputs:
-      draft: ${{ steps.prepare.outputs.draft }}
-    permissions:
-      contents: read
-      pull-requests: read
-      issues: read
-      copilot-requests: write
-    steps:
-      - uses: actions/checkout@d23441a48e516b6c34aea4fa41551a30e30af803 # v6
-        with:
-          persist-credentials: false
-      - name: Prepare standalone Copilot CLI
-        run: bash .github/scripts/install_copilot.sh
-      - name: Prepare a draft for multiple commits
-        id: prepare
-        env:
-          GITHUB_TOKEN: ${{ github.token }}
-          COPILOT_CLI: ${{ runner.temp }}/copilot/bin/copilot
-          PR_NUMBER: ${{ github.event.pull_request.number || inputs.pr_number }}
-          PYTHONUTF8: '1'
-        run: |
-          draft=$(python3 .github/scripts/commit_message_squash.py --pr "$PR_NUMBER")
-          echo "draft=$draft" >> "$GITHUB_OUTPUT"
-
-  publish-squash-message:
-    name: Publish commit message
-    needs: squash-message
-    runs-on: ubuntu-24.04
-    timeout-minutes: 5
-    concurrency:
-      group: squash-message-publish-${{ github.event.pull_request.number || inputs.pr_number }}
-      queue: max
-    permissions:
-      contents: read
-      pull-requests: write
-      issues: read
-    steps:
-      - uses: actions/checkout@d23441a48e516b6c34aea4fa41551a30e30af803 # v6
-        with:
-          persist-credentials: false
-      - name: Show the full message for multiple commits or remove an old preview
-        env:
-          GITHUB_TOKEN: ${{ github.token }}
-          SQUASH_DRAFT: ${{ needs.squash-message.outputs.draft }}
-          PR_NUMBER: ${{ github.event.pull_request.number || inputs.pr_number }}
-          PYTHONUTF8: '1'
-        run: >-
-          python3 .github/scripts/commit_message_squash.py
-          --publish --expected-pr "$PR_NUMBER"
-
   # Stage 3: Human approval gate before running the expensive PPU CI.
   human-review:
     name: Human Review Gate
@@ -183,7 +112,7 @@ jobs:
     name: Prepare Test Matrix
     needs: [precheck, commit-checks]
     if: >-
-      always() && !inputs.pr_number && github.event.action != 'edited' &&
+      always() &&
       (needs.precheck.result == 'success' || needs.precheck.result == 'skipped') &&
       (needs.commit-checks.result == 'success' || needs.commit-checks.result == 'skipped')
     runs-on: k8s-runner-group-cpu-thead
@@ -353,7 +282,7 @@ jobs:
     name: Build & Test (ubuntu24_notsm, ZW-890P)
     needs: [precheck, commit-checks, human-review]
     if: >-
-      always() && !inputs.pr_number && github.event.action != 'edited' &&
+      always() &&
       (needs.precheck.result == 'success' || needs.precheck.result == 'skipped') &&
       (needs.commit-checks.result == 'success' || needs.commit-checks.result == 'skipped') &&
       (needs.human-review.result == 'success' || (github.event_name != 'pull_request' && needs.human-review.result == 'skipped'))
@@ -421,7 +350,7 @@ jobs:
     name: Test Summary
     needs: [precheck, commit-checks, test, build-test-notsm]
     if: >-
-      always() && !inputs.pr_number && github.event.action != 'edited' &&
+      always() &&
       (github.event_name != 'pull_request' || (needs.precheck.result == 'success' && needs.commit-checks.result == 'success'))
     runs-on: k8s-runner-group-cpu-thead
     container:
@@ -440,9 +369,8 @@ jobs:
             echo "No test-results.xml found at ${NAS_RESULT_DIR}"
           fi
 
-  # Message-only runs must not report a skipped required check as successful.
   tests-gate:
-    name: ${{ (github.event.action == 'edited' || inputs.pr_number) && 'Tests not requested' || 'PCCL Tests Gate' }}
+    name: PCCL Tests Gate
     # Add each new required job ID here. If it must also succeed outside PRs, add it to
     # "Require build and test jobs to succeed" below.
     # New entries in scripts/casecmd.list are already covered by the test job.
@@ -457,7 +385,7 @@ jobs:
       - test              # Every test from scripts/casecmd.list
       - build-test-notsm  # Additional build/test configuration
       - summary           # Test report generation
-    if: always() && !inputs.pr_number && github.event.action != 'edited'
+    if: always()
     runs-on: ubuntu-24.04
     timeout-minutes: 5
     permissions: {}
