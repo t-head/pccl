@@ -34,7 +34,7 @@ PCCL_PARAM(NoMemset, "NO_MEMSET", 0);
 PCCL_PARAM(SingleHostCrossNodeTest, "SINGLE_HOST_CROSS_NODE_TEST", 0);
 PCCL_PARAM(ChannelShuffle, "CHANNEL_SHUFFLE", 0);
 
-int ncclParamNoMemsetFlag;
+int pcclParamNoMemsetFlag;
 int ncclParamSingleHostCrossNodeTestFlag;
 int ncclParamChannelShuffleFlag;
 int useMemcpy;

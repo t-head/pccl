@@ -188,6 +188,7 @@ ncclResult_t p2pCanConnect(int* ret, ncclComm_t comm, struct ncclTopoSystem* top
     TRACE(P2P,"IPC: %016lx %016lx %016lx %016lx", devIpc[4], devIpc[5], devIpc[6], devIpc[7]); \
   } while (0)
 
+extern int pcclParamNoMemsetFlag;
 // hgMem API support
 ncclResult_t ncclP2pAllocateShareableBuffer(size_t size, int refcount, ncclIpcDesc *ipcDesc, void **ptr, uint64_t* pDevMemUsed, int memMode, int peerRank, struct ncclMemManager* manager, ncclMemType_t memType) {
   if (ncclCuMemEnable() && (memMode == MEM_NORMAL)) {
@@ -197,7 +198,7 @@ ncclResult_t ncclP2pAllocateShareableBuffer(size_t size, int refcount, ncclIpcDe
 
     struct ncclMemManager* trackManager = manager;
     NCCLCHECK(ncclHgMemAlloc(ptr, &handle, type, size, pDevMemUsed, nullptr, memMode, trackManager, memType));
-    NCCLCHECK(ncclHggcMemset(*ptr, 0, size));
+    if (pcclParamNoMemsetFlag == 0) NCCLCHECK(ncclHggcMemset(*ptr, 0, size));
     if (type == HG_MEM_HANDLE_TYPE_POSIX_FILE_DESCRIPTOR) {
       // Return the native hgMem handle for later Export/Import via UDS
       memcpy(&ipcDesc->hgDesc.data, &handle, sizeof(handle));
