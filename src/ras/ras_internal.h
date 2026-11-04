@@ -39,6 +39,7 @@ typedef enum {
   // Broadcast operations above this line; collective operations below (1000 is the demarcation line).
   RAS_COLL_CONNS = 1001, // Collect data about all RAS connections.
   RAS_COLL_COMMS = 1002, // Collect data about all communicators.
+  RAS_COLL_DIAG = 1003, // Gather per-peer passive diagnostics payloads to the requester.
 } rasCollectiveType;
 
 // Flags for rasCollRequest::comms.flags.
@@ -96,6 +97,10 @@ struct rasCollRequest {
       // (see struct rasCollCommsMissingRank later).
       struct rasCommId skipMissingRanksComms[0]; // Variable length, sorted.
     } comms;
+    struct {
+      bool hasCommFilter;
+      struct rasCommId commFilter;
+    } diag;
   };
 };
 
@@ -182,6 +187,8 @@ static inline size_t rasCollDataLength(rasCollectiveType type) {
       return offsetof(struct rasCollRequest, conns) + sizeof(data->conns);
     case RAS_COLL_COMMS:
       return offsetof(struct rasCollRequest, comms) + sizeof(data->comms);
+    case RAS_COLL_DIAG:
+      return offsetof(struct rasCollRequest, diag) + sizeof(data->diag);
     case RAS_MSG_NONE:
       return 0;
   };
@@ -443,6 +450,8 @@ typedef enum {
   RAS_CLIENT_INIT = 2,
   RAS_CLIENT_CONNS = 3,
   RAS_CLIENT_COMMS = 4,
+  RAS_CLIENT_DIAG_INIT = 5,
+  RAS_CLIENT_DIAG_FINI = 6,
   RAS_CLIENT_FINISHED = 99
 } rasClientStatus;
 
@@ -452,6 +461,8 @@ typedef enum {
   RAS_OUTPUT_TEXT = 0,    // Default human-readable format.
   RAS_OUTPUT_JSON = 1     // JSON format (always verbose).
 } rasOutputFormat;
+
+struct rasDiagnosticsClientState;
 
 // Describes a RAS client.
 struct rasClient {
@@ -486,6 +497,7 @@ struct rasClient {
 
   // State stored during asynchronous operations such as collectives.
   struct rasCollective* coll;
+  struct rasDiagnosticsClientState* diagnostics;
 };
 
 struct rasNcclComm {
@@ -580,6 +592,7 @@ ncclResult_t rasMsgHandleCollReq(struct rasMsg* msg, struct rasSocket* sock);
 ncclResult_t rasMsgHandleCollResp(struct rasMsg* msg, struct rasSocket* sock);
 void rasCollsPurgeConn(struct rasConnection* conn);
 void rasCollFree(struct rasCollective* coll);
+void rasCollRecordHistory(const struct rasCollective* coll);
 void rasCollsHandleTimeouts(int64_t now, int64_t* nextWakeup);
 void rasCollectivesTerminate();
 

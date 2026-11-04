@@ -16,6 +16,7 @@
 #include "utils.h"
 #include "ras_internal.h"
 #include "analyzer.h"
+#include "diagnostics.h"
 
 // Outlier count above which we don't print individual details about each of them.
 #define RAS_CLIENT_DETAIL_THRESHOLD 10
@@ -117,7 +118,8 @@ static ncclResult_t getNewClientEntry(struct rasClient** pClient);
 static void rasClientEnqueueMsg(struct rasClient* client, char* msg, size_t msgLen);
 static void rasClientTerminate(struct rasClient* client);
 
-static ncclResult_t rasClientRun(struct rasClient* client);
+static ncclResult_t rasClientRun(struct rasClient* client, bool* closed = nullptr);
+static ncclResult_t rasClientRunDiagInit(struct rasClient* client);
 static ncclResult_t rasClientRunInit(struct rasClient* client);
 static ncclResult_t rasClientRunConns(struct rasClient* client);
 static ncclResult_t rasClientRunComms(struct rasClient* client);
@@ -271,9 +273,18 @@ static void rasClientEnqueueMsg(struct rasClient* client, char* msg, size_t msgL
 
 // Terminates a connection with a RAS client.
 static void rasClientTerminate(struct rasClient* client) {
-  (void)close(client->sock);
-  rasPfds[client->pfd].fd = -1;
-  rasPfds[client->pfd].events = rasPfds[client->pfd].revents = 0;
+  rasDiagnosticsCancelTarget(client);
+  rasDiagnosticsClientCleanup(client);
+  if (client->coll) {
+    rasCollRecordHistory(client->coll);
+    rasCollFree(client->coll);
+    client->coll = nullptr;
+  }
+  if (client->sock != -1) (void)close(client->sock);
+  if (client->pfd != -1) {
+    rasPfds[client->pfd].fd = -1;
+    rasPfds[client->pfd].events = rasPfds[client->pfd].revents = 0;
+  }
   while (struct rasMsgMeta* meta = ncclIntruQueueTryDequeue(&client->sendQ)) {
     free(meta);
   }
@@ -287,6 +298,47 @@ static void rasClientTerminate(struct rasClient* client) {
   if (client->next)
     client->next->prev = client->prev;
   free(client);
+}
+
+// Allocates and enqueues a text response, optionally appending a newline.
+static ncclResult_t rasClientEnqueueText(struct rasClient* client, const char* text, bool appendNewline) {
+  char* msg;
+  size_t textLen = strlen(text);
+  size_t msgLen = textLen + (appendNewline ? 1 : 0);
+
+  NCCLCHECK(rasClientAllocMsg(&msg, msgLen));
+  memcpy(msg, text, textLen);
+  if (appendNewline) msg[textLen] = '\n';
+  rasClientEnqueueMsg(client, msg, msgLen);
+  return ncclSuccess;
+}
+
+// Enqueues exactly the bytes in line; callers include '\n' when the protocol response needs one.
+static ncclResult_t rasClientEnqueueString(struct rasClient* client, const char* line) {
+  return rasClientEnqueueText(client, line, /*appendNewline*/false);
+}
+
+// Enqueues one diagnostics summary line, adding the protocol newline.
+static ncclResult_t rasClientEnqueueLine(struct rasClient* client, const char* line) {
+  return rasClientEnqueueText(client, line, /*appendNewline*/true);
+}
+
+static ncclResult_t rasClientDiagnosticsEmit(void* target, const char* line) {
+  struct rasClient* client = (struct rasClient*)target;
+  char formatted[2048];
+
+  if (client == nullptr) return ncclSuccess;
+  NCCLCHECK(rasDiagnosticsFormatLine(formatted, sizeof(formatted), line));
+  NCCLCHECK(rasClientEnqueueLine(client, formatted));
+  return ncclSuccess;
+}
+
+static ncclResult_t rasClientDiagnosticsFinish(void* target, ncclResult_t result) {
+  if (result != ncclSuccess) {
+    snprintf(rasLine, sizeof(rasLine), "ERROR: diagnostics summary failed (%d)", result);
+    NCCLCHECK(rasClientDiagnosticsEmit(target, rasLine));
+  }
+  return ncclSuccess;
 }
 
 
@@ -316,6 +368,13 @@ exit:
 // Handles a ready client FD from the main event loop.
 void rasClientEventLoop(struct rasClient* client, int pollIdx) {
   bool closed = false;
+
+  // poll reports errors and hangups even when no events are requested.
+  if (client->status == RAS_CLIENT_DIAG_FINI &&
+      (rasPfds[pollIdx].revents & (POLLERR | POLLHUP | POLLNVAL))) {
+    rasClientTerminate(client);
+    return;
+  }
 
   if (client->status == RAS_CLIENT_CONNECTED) {
     char* cmd;
@@ -417,7 +476,7 @@ void rasClientEventLoop(struct rasClient* client, int pollIdx) {
           client->status = RAS_CLIENT_INIT;
           client->analyzeFlag = 1;
           client->dumpLevel = dumpLevel;
-          (void)rasClientRun(client);
+          (void)rasClientRun(client, &closed);
         }
       } else if  (strncasecmp(cmd, "abort", strlen("abort")) == 0) {
         struct rasCollRequest bCast;
@@ -435,11 +494,32 @@ void rasClientEventLoop(struct rasClient* client, int pollIdx) {
         rasClientEnqueueMsg(client, msg, msgLen);
       } else if (strncasecmp(cmd, "status", strlen("status")) == 0) {
         client->status = RAS_CLIENT_INIT;
-        (void)rasClientRun(client);
+        (void)rasClientRun(client, &closed);
       } else if (strncasecmp(cmd, "verbose status", strlen("verbose status")) == 0) {
         client->status = RAS_CLIENT_INIT;
         client->verbose = 1;
-        (void)rasClientRun(client);
+        (void)rasClientRun(client, &closed);
+      } else if (strcasecmp(cmd, "diagnostics") == 0) {
+        if (client->outputFormat != RAS_OUTPUT_TEXT) {
+          strcpy(rasLine, "ERROR: diagnostics only supports text output\n");
+          if (rasClientEnqueueString(client, rasLine) != ncclSuccess) {
+            rasClientTerminate(client);
+            return;
+          }
+          client->status = RAS_CLIENT_FINISHED;
+        } else if (rasDiagnosticsInProgress()) {
+          strcpy(rasLine, "BUSY: diagnostics already in progress\n");
+          if (rasClientEnqueueString(client, rasLine) != ncclSuccess) {
+            rasClientTerminate(client);
+            return;
+          }
+          client->status = RAS_CLIENT_FINISHED;
+        } else {
+          // Stop reading commands, but preserve the write side for the diagnostics response.
+          rasPfds[client->pfd].events &= ~POLLIN;
+          client->status = RAS_CLIENT_DIAG_INIT;
+          (void)rasClientRun(client, &closed);
+        }
       } else {
         snprintf(rasLine, sizeof(rasLine), "ERROR: Unknown command %s\n", cmd);
         msgLen = strlen(rasLine);
@@ -449,8 +529,14 @@ void rasClientEventLoop(struct rasClient* client, int pollIdx) {
         memcpy(msg, rasLine, msgLen);
         rasClientEnqueueMsg(client, msg, msgLen);
       }
+      if (closed) {
+        // rasClientRun() has already invoked rasClientTerminate().
+        return;
+      }
 
       cmd = cmdEnd+1;
+      if (client->status != RAS_CLIENT_CONNECTED)
+        break;
     } // while newline found
 
     if (cmd == client->recvBuffer) {
@@ -515,8 +601,9 @@ void rasClientEventLoop(struct rasClient* client, int pollIdx) {
 // There are multiple asynchronous aspects of it (getting the data on connections and on communicators), so the
 // function may exit early and needs to be reinvoked when the asynchronous responses arrive or the timeout expires.
 // The state tracking the progress of such operations is kept in the rasClient.
-static ncclResult_t rasClientRun(struct rasClient* client) {
+static ncclResult_t rasClientRun(struct rasClient* client, bool* closed) {
   ncclResult_t ret = ncclSuccess;
+  if (closed) *closed = false;
 
   switch (client->status) {
     case RAS_CLIENT_INIT:
@@ -540,12 +627,49 @@ static ncclResult_t rasClientRun(struct rasClient* client) {
       NCCLCHECKGOTO(rasClientRunComms(client), ret, exit);
       client->status = RAS_CLIENT_FINISHED;
       break;
+    case RAS_CLIENT_DIAG_INIT:
+      NCCLCHECKGOTO(rasClientRunDiagInit(client), ret, exit);
+      if (ret == ncclInProgress) {
+        ret = ncclSuccess;
+        break;
+      }
+      // Fall through for a gather which completed locally.
+    case RAS_CLIENT_DIAG_FINI:
+      NCCLCHECKGOTO(rasDiagnosticsResume(client), ret, exit);
+      client->status = RAS_CLIENT_FINISHED;
+      break;
     default:
       WARN("Invalid client status %d", client->status);
       ret = ncclInternalError;
       goto exit;
   }
 exit:
+  if (ret != ncclSuccess) client->status = RAS_CLIENT_FINISHED;
+  if (client->status == RAS_CLIENT_FINISHED &&
+      ncclIntruQueueHead(&client->sendQ) == nullptr) {
+    rasClientTerminate(client);
+    if (closed) *closed = true;
+  }
+  return ret;
+}
+
+static ncclResult_t rasClientRunDiagInit(struct rasClient* client) {
+  ncclResult_t ret = ncclSuccess;
+
+  if (client->diagnostics == nullptr) {
+    struct rasDiagnosticsContext ctx;
+    struct rasDiagnosticsReporter reporter = {rasClientDiagnosticsEmit, rasClientDiagnosticsFinish, client};
+
+    ret = rasDiagnosticsContextInit(&ctx, nullptr);
+    if (ret == ncclSuccess) ret = rasDiagnosticsClientInit(client, &ctx, &reporter);
+  }
+  if (ret == ncclSuccess) ret = rasDiagnosticsStart(client);
+
+  if (ret != ncclSuccess && ret != ncclInProgress) {
+    snprintf(rasLine, sizeof(rasLine), "ERROR: diagnostics failed to start (%d)\n", ret);
+    ncclResult_t enqueueRet = rasClientEnqueueString(client, rasLine);
+    if (enqueueRet != ncclSuccess) ret = enqueueRet;
+  }
   return ret;
 }
 
