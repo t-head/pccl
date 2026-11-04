@@ -1,0 +1,170 @@
+name: source-derived single-node sanity
+
+on:
+  push:
+    branches: [ci/xtest-single-node-validation]
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+concurrency:
+  group: source-sanity-single-node-${{ github.ref }}
+  cancel-in-progress: false
+
+jobs:
+  prepare:
+    name: Standard-library contracts and single-node manifest (no hardware)
+    runs-on: ubuntu-24.04
+    timeout-minutes: 20
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          persist-credentials: false
+      - uses: actions/checkout@v4
+        with:
+          repository: t-head/pccl-tests
+          ref: 394556512e87259e9ffa25225632c46b0a0bbcd5
+          path: public-runner
+          persist-credentials: false
+      - uses: actions/setup-python@v5
+        with:
+          python-version: '3.12'
+      - name: Create an empty Python environment without pip
+        run: python -m venv --without-pip "$RUNNER_TEMP/prepare-env"
+      - name: Test and generate the manifest without network access
+        run: |
+          sudo unshare --net --setgid="$(id -g)" --setuid="$(id -u)" \
+            env HOME="$HOME" PREPARE_PYTHON="$RUNNER_TEMP/prepare-env/bin/python" \
+            PCCL_TESTS_ROOT="$GITHUB_WORKSPACE/public-runner" \
+            PCCL_REVISION="$GITHUB_SHA" RUN_ID="$GITHUB_RUN_ID" RUN_ATTEMPT="$GITHUB_RUN_ATTEMPT" \
+            BUNDLE_DIR="$RUNNER_TEMP/sanity" \
+            bash --noprofile --norc -e -o pipefail -c '
+              "$PREPARE_PYTHON" -S -B -m unittest discover -s tests/xtest -p "test_manifest.py" -v
+              "$PREPARE_PYTHON" -S -B -m unittest discover -s tests/xtest -p "test_metrics.py" -v
+              "$PREPARE_PYTHON" -S -B -m unittest discover -s tests/xtest -p "test_command.py" -v
+              "$PREPARE_PYTHON" -S -B -m unittest discover -s tests/xtest -p "test_execute.py" -v
+              "$PREPARE_PYTHON" -S -B -m unittest discover -s tests/xtest -p "test_single_node_ci.py" -v
+              "$PREPARE_PYTHON" -S -B -m unittest discover -s tests/xtest -p "test_coverage_map.py" -v
+              "$PREPARE_PYTHON" -S -B -m unittest discover -s tests/xtest -p "test_prepare.py" -v
+              "$PREPARE_PYTHON" -I -S -B .github/workflows/scripts/test_migration_contract.py \
+                --pccl-tests "$PCCL_TESTS_ROOT"
+              "$PREPARE_PYTHON" -S -B tests/xtest/manifest.py --suite pr --single-node \
+                --pccl-revision "$PCCL_REVISION" --pccl-tests "$PCCL_TESTS_ROOT" \
+                --run-id "$RUN_ID" --run-attempt "$RUN_ATTEMPT" --output "$BUNDLE_DIR"
+            '
+      - uses: actions/upload-artifact@v4
+        with:
+          name: single-node-sanity-manifest
+          path: ${{ runner.temp }}/sanity/manifest.json
+          if-no-files-found: error
+      - name: Record preparation-only scope
+        run: |
+          printf '%s\n' \
+            '## Source-derived manifest' \
+            'Validated 9 labeled pccl_test_suites Cases and expanded the standard/no-TSM build matrix to 18 executions.' \
+            'Preparation used no pip, xtest, mmengine, network access, PPU allocation, or benchmark execution.' \
+            'Source revision: bbbeb207dd7f28980b55336660da0b47866e47aa.' \
+            >> "$GITHUB_STEP_SUMMARY"
+
+  sanity:
+    name: Source sanity (${{ matrix.profile }})
+    needs: prepare
+    if: github.repository == 't-head/pccl' && github.ref == 'refs/heads/ci/xtest-single-node-validation'
+    runs-on: k8s-runner-group-cpu-thead
+    container:
+      image: ghcr.io/actions/actions-runner:latest
+    timeout-minutes: 360
+    strategy:
+      fail-fast: false
+      max-parallel: 1
+      matrix:
+        include:
+          - profile: standard
+            build_script: build.sh
+          - profile: notsm
+            build_script: notsm_build.sh
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          path: pccl
+          persist-credentials: false
+      - uses: actions/checkout@v4
+        with:
+          repository: t-head/pccl-tests
+          ref: 394556512e87259e9ffa25225632c46b0a0bbcd5
+          path: pccl-tests
+          persist-credentials: false
+      - uses: actions/download-artifact@v4
+        with:
+          name: single-node-sanity-manifest
+          path: sanity-manifest
+      - name: Check staging storage without changing shared permissions
+        run: test -d /wl_nas/devops && test -w /wl_nas/devops
+      - name: Build and execute source-derived single-node cases
+        uses: t-head/ppu-scheduler-action@aac83e464f2a3fcbddddc60c8016021c996092a6
+        with:
+          image: download.t-head.cn/docker_release/ppu:sdk2.2.0-hggcrt3-ubuntu24.04-py312-20261005
+          nnodes: 0
+          nproc_per_node: 8
+          node_selector: board-type=ZW-M890P
+          namespace: ppu-sched
+          timeout_minutes: 300
+          cleanup_policy: always
+          command: |
+            set -euo pipefail
+            cd /workspace/source
+            export source_home=/workspace/source
+            export build_output=/workspace/source/output_${{ matrix.profile }}
+            RESULT_ROOT=/mnt/wl_nas/devops/pccl-source-sanity/${{ github.run_id }}/${{ github.run_attempt }}
+            mkdir -p "$RESULT_ROOT"
+            unset PIP_INDEX_URL PIP_EXTRA_INDEX_URL 2>/dev/null || true
+            git config --global --unset-all url.https://ai-gerrit.eng.t-head.cn/Public/Github/.insteadOf 2>/dev/null || true
+            git config --global --add safe.directory /workspace/source
+            git config --global --add safe.directory '*'
+
+            python3 -m venv /workspace/pccl-source-env
+            /workspace/pccl-source-env/bin/python -m pip install --disable-pip-version-check \
+              -r pccl/tests/xtest/requirements.txt
+            /workspace/pccl-source-env/bin/python -m pip check
+
+            bash pccl/.github/workflows/scripts/${{ matrix.build_script }} \
+              2>&1 | tee "$RESULT_ROOT/build-${{ matrix.profile }}.log"
+            source /usr/local/PPU_SDK/envsetup.sh
+            export LD_LIBRARY_PATH="$build_output/lib:${LD_LIBRARY_PATH:-}"
+            /workspace/pccl-source-env/bin/python "$build_output/pccl/tests/xtest/single_node_ci.py" run \
+              --manifest /workspace/source/sanity-manifest/manifest.json \
+              --profile '${{ matrix.profile }}' --test-root "$build_output" \
+              --output "$RESULT_ROOT/${{ matrix.profile }}"
+
+  summary:
+    name: Source sanity result gate
+    needs: [prepare, sanity]
+    if: always() && needs.prepare.result == 'success'
+    runs-on: k8s-runner-group-cpu-thead
+    container:
+      image: ghcr.io/actions/actions-runner:latest
+    timeout-minutes: 10
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          persist-credentials: false
+      - uses: actions/download-artifact@v4
+        with:
+          name: single-node-sanity-manifest
+          path: sanity-manifest
+      - name: Reconcile every source Case and execution record
+        run: |
+          python3 -B tests/xtest/single_node_ci.py summary \
+            --manifest sanity-manifest/manifest.json \
+            --results /wl_nas/devops/pccl-source-sanity/${{ github.run_id }}/${{ github.run_attempt }} \
+            --output public-results
+      - uses: actions/upload-artifact@v4
+        if: always()
+        with:
+          name: single-node-source-sanity-results
+          path: public-results/
+          if-no-files-found: error
+      - name: Require the complete build and execution matrix
+        if: always() && needs.sanity.result != 'success'
+        run: exit 1

@@ -1,0 +1,154 @@
+name: source-derived cluster-run MPI trial
+
+on:
+  push:
+    branches: [ci/xtest-cluster-run-validation]
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+concurrency:
+  group: source-cluster-run-${{ github.ref }}
+  cancel-in-progress: false
+
+jobs:
+  prepare:
+    name: Prepare reviewed two-node manifest (no hardware)
+    runs-on: ubuntu-24.04
+    timeout-minutes: 10
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          persist-credentials: false
+      - uses: actions/checkout@v4
+        with:
+          repository: t-head/pccl-tests
+          ref: 394556512e87259e9ffa25225632c46b0a0bbcd5
+          path: public-runner
+          persist-credentials: false
+      - uses: actions/setup-python@v5
+        with:
+          python-version: '3.12'
+      - name: Validate the source export and create its manifest
+        run: |
+          python3 -S -B -m unittest discover -s tests/xtest -p 'test_cluster_ci.py' -v
+          python3 -S -B tests/xtest/cluster_ci.py prepare \
+            --pccl-revision "$GITHUB_SHA" --pccl-tests public-runner \
+            --output "$RUNNER_TEMP/cluster-manifest"
+        env:
+          PCCL_TESTS_ROOT: ${{ github.workspace }}/public-runner
+      - uses: actions/upload-artifact@v4
+        with:
+          name: cluster-run-source-manifest
+          path: ${{ runner.temp }}/cluster-manifest/manifest.json
+          if-no-files-found: error
+
+  cluster:
+    name: Two-node M890P MPI through cluster-run master mode
+    needs: prepare
+    if: github.repository == 't-head/pccl' && github.ref == 'refs/heads/ci/xtest-cluster-run-validation'
+    runs-on: k8s-runner-group-cpu-thead
+    container:
+      image: ghcr.io/actions/actions-runner:latest
+    timeout-minutes: 240
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          path: pccl
+          persist-credentials: false
+      - uses: actions/checkout@v4
+        with:
+          repository: t-head/pccl-tests
+          ref: 394556512e87259e9ffa25225632c46b0a0bbcd5
+          path: pccl-tests
+          persist-credentials: false
+      - uses: actions/download-artifact@v4
+        with:
+          name: cluster-run-source-manifest
+          path: cluster-manifest
+      - name: Check staging storage without changing shared permissions
+        run: test -d /wl_nas/devops && test -w /wl_nas/devops
+      - name: Run the reviewed MPI Case from worker-0
+        uses: t-head/ci-infra/cluster-run@feat/master-launch-mode
+        with:
+          launch_mode: master
+          image: download.t-head.cn/docker_release/ppu:sdk2.2.0-hggcrt3-ubuntu24.04-py312-20261005
+          nnodes: 2
+          nproc_per_node: 8
+          node_selector: board-type=ZW-M890P
+          namespace: ppu-sched
+          timeout_minutes: 210
+          cleanup_policy: always
+          setup_command: |
+            set -euo pipefail
+            source /usr/local/PPU_SDK/envsetup.sh
+          command: |
+            set -euo pipefail
+            cd "$SOURCE_DIR"
+            RUN_ROOT=/mnt/wl_nas/devops/pccl-cluster-run/${{ github.run_id }}/${{ github.run_attempt }}
+            RESULT_ROOT="$RUN_ROOT/results"
+            export source_home="$SOURCE_DIR"
+            export build_output="$RUN_ROOT/output_cluster"
+            umask 022
+            install -d -m 0755 /mnt/wl_nas/devops/pccl-cluster-run "$RUN_ROOT" "$RESULT_ROOT"
+            make_results_readable() {
+              chmod a+rx /mnt/wl_nas/devops/pccl-cluster-run 2>/dev/null || true
+              chmod -R a+rX "$RUN_ROOT" 2>/dev/null || true
+            }
+            trap make_results_readable EXIT
+            unset PIP_INDEX_URL PIP_EXTRA_INDEX_URL 2>/dev/null || true
+            git config --global --unset-all url.https://ai-gerrit.eng.t-head.cn/Public/Github/.insteadOf 2>/dev/null || true
+            git config --global --add safe.directory "$SOURCE_DIR"
+            git config --global --add safe.directory '*'
+            python3 -m venv /workspace/pccl-cluster-env
+            /workspace/pccl-cluster-env/bin/python -m pip install --disable-pip-version-check \
+              -r pccl/tests/xtest/requirements.txt
+            /workspace/pccl-cluster-env/bin/python -m pip check
+            bash pccl/.github/workflows/scripts/build.sh
+            source /usr/local/PPU_SDK/envsetup.sh
+            export LD_LIBRARY_PATH="$build_output/lib:${LD_LIBRARY_PATH:-}"
+            cp "$CLUSTER_HOSTS_FILE" "$build_output/hosts.cfg"
+            test "$(wc -l < "$build_output/hosts.cfg")" -eq 2
+            /workspace/pccl-cluster-env/bin/python \
+              "$build_output/pccl/tests/xtest/cluster_ci.py" run \
+              --manifest "$SOURCE_DIR/cluster-manifest/manifest.json" \
+              --test-root "$build_output" --output "$RESULT_ROOT/standard"
+      - name: Print sanitized MPI diagnostics
+        if: always()
+        run: |
+          python3 -B pccl/tests/xtest/cluster_ci.py diagnose \
+            --results /wl_nas/devops/pccl-cluster-run/${{ github.run_id }}/${{ github.run_attempt }}/results/standard \
+            --output /tmp/unused
+
+  summary:
+    name: Two-node cluster-run result gate
+    needs: [prepare, cluster]
+    if: always() && needs.prepare.result == 'success'
+    runs-on: k8s-runner-group-cpu-thead
+    container:
+      image: ghcr.io/actions/actions-runner:latest
+    timeout-minutes: 10
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          persist-credentials: false
+      - uses: actions/download-artifact@v4
+        with:
+          name: cluster-run-source-manifest
+          path: cluster-manifest
+      - name: Reconcile the MPI execution evidence
+        run: |
+          python3 -B tests/xtest/cluster_ci.py summary \
+            --manifest cluster-manifest/manifest.json \
+            --results /wl_nas/devops/pccl-cluster-run/${{ github.run_id }}/${{ github.run_attempt }}/results/standard \
+            --output public-results
+      - uses: actions/upload-artifact@v4
+        if: always()
+        with:
+          name: cluster-run-source-results
+          path: public-results/
+          if-no-files-found: error
+      - name: Require the cluster-run action job
+        if: always() && needs.cluster.result != 'success'
+        run: exit 1

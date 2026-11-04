@@ -1,0 +1,757 @@
+{
+  "bundle_sha256": "abcb4edbb918deda0428f33c93cce14d6b74ddddc9d185a0ef704dca5a1d0078",
+  "cases": [
+    {
+      "profiles": [
+        "notsm",
+        "standard"
+      ],
+      "source": {
+        "case": "test_op_alltoall_perf_algo_Auto_proto_Auto_datatype_float_datasize_32MB_iters_10_ranks_2_nproc_2_threads_1",
+        "case_sha256": "4ee479a7c3e6bc3eee3ca065643be72c341dadec043a589948db31fb9f118fdb",
+        "plan": "pccl_shm_register_test_single_node1_plan",
+        "plan_sha256": "752a6bedda5fcc337cf671adce8fa1152e52ab6d55e4aba893e2feb441677591",
+        "suite": "register_test_shm_single_node_suite",
+        "suite_sha256": "a332a5968249a164af3afbb8bdca0abcbff3e9694ca596f9391f96cb635700c2"
+      },
+      "source_id": "217cef1305a99b45c3a3c7924cea38f1e242b3da69cd05c9c0c61dd60b250ec6",
+      "spec": {
+        "argv": [
+          "{python}",
+          "{test_root}/run_test.py",
+          "--op",
+          "alltoall_perf",
+          "--algo",
+          "Auto",
+          "--proto",
+          "Auto",
+          "--data-type",
+          "float",
+          "--data-size",
+          "32MB",
+          "--iters",
+          "10",
+          "--ranks",
+          "2",
+          "--nnodes",
+          "1",
+          "--nprocs",
+          "2",
+          "--threads",
+          "1",
+          "--register",
+          "1",
+          "--auto-detect",
+          "--timeout",
+          "300",
+          "--launch-mode",
+          "normal",
+          "--mpi-options={mpi_options}",
+          "--process-group",
+          "normal"
+        ],
+        "cards_per_node": 8,
+        "checks": [
+          "exit_code"
+        ],
+        "devices_per_thread": 1,
+        "env": {},
+        "group": "source_register",
+        "legacy_source": "pccl_test_suites:217cef1305a99b45c3a3c792",
+        "nodes": 1,
+        "parameters": {
+          "algo": "Auto",
+          "auto_detect": true,
+          "data_sizes": [
+            "32MB"
+          ],
+          "dtype": "float",
+          "iters": 10,
+          "op": "alltoall_perf",
+          "proto": "Auto",
+          "ranks": 2,
+          "redop": "sum",
+          "register": 1
+        },
+        "processes_per_node": 2,
+        "test_type": "functional",
+        "threads_per_process": 1,
+        "tier": "sanity",
+        "timeout": 300
+      }
+    },
+    {
+      "profiles": [
+        "notsm",
+        "standard"
+      ],
+      "source": {
+        "case": "test_op_all_reduce_perf_algo_Auto_proto_Auto_datatype_float_datasize_32MB_iters_10_ranks_2_nproc_2_threads_1",
+        "case_sha256": "05556844e0910812d7a96df28dccb30091617cda05a1b30d7bd1a0a5ba31b785",
+        "plan": "pccl_shm_register_test_single_node1_plan",
+        "plan_sha256": "752a6bedda5fcc337cf671adce8fa1152e52ab6d55e4aba893e2feb441677591",
+        "suite": "register_test_shm_single_node_suite",
+        "suite_sha256": "a332a5968249a164af3afbb8bdca0abcbff3e9694ca596f9391f96cb635700c2"
+      },
+      "source_id": "2a30962992ce9b850308a8fdda373867af01a17ae61e1b0ce47e94f59e35ee87",
+      "spec": {
+        "argv": [
+          "{python}",
+          "{test_root}/run_test.py",
+          "--op",
+          "all_reduce_perf",
+          "--algo",
+          "Auto",
+          "--proto",
+          "Auto",
+          "--data-type",
+          "float",
+          "--data-size",
+          "32MB",
+          "--iters",
+          "10",
+          "--ranks",
+          "2",
+          "--nnodes",
+          "1",
+          "--nprocs",
+          "2",
+          "--threads",
+          "1",
+          "--register",
+          "1",
+          "--auto-detect",
+          "--timeout",
+          "300",
+          "--launch-mode",
+          "normal",
+          "--mpi-options={mpi_options}",
+          "--process-group",
+          "normal"
+        ],
+        "cards_per_node": 8,
+        "checks": [
+          "exit_code"
+        ],
+        "devices_per_thread": 1,
+        "env": {},
+        "group": "source_register",
+        "legacy_source": "pccl_test_suites:2a30962992ce9b850308a8fd",
+        "nodes": 1,
+        "parameters": {
+          "algo": "Auto",
+          "auto_detect": true,
+          "data_sizes": [
+            "32MB"
+          ],
+          "dtype": "float",
+          "iters": 10,
+          "op": "all_reduce_perf",
+          "proto": "Auto",
+          "ranks": 2,
+          "redop": "sum",
+          "register": 1
+        },
+        "processes_per_node": 2,
+        "test_type": "functional",
+        "threads_per_process": 1,
+        "tier": "sanity",
+        "timeout": 300
+      }
+    },
+    {
+      "profiles": [
+        "notsm",
+        "standard"
+      ],
+      "source": {
+        "case": "test_op_gather_perf_algo_Ring_proto_Simple_datatype_int8_datasize_32MB_iters_10_ranks_2_devices_0_1",
+        "case_sha256": "2cfb0f696f38f85339ea9ae14de0f40d57652a26cb846f8e858119f6625874eb",
+        "plan": "pccl_shm_register_test_single_node1_plan",
+        "plan_sha256": "752a6bedda5fcc337cf671adce8fa1152e52ab6d55e4aba893e2feb441677591",
+        "suite": "register_test_shm_single_node_suite",
+        "suite_sha256": "a332a5968249a164af3afbb8bdca0abcbff3e9694ca596f9391f96cb635700c2"
+      },
+      "source_id": "3200d8a310332689f623cf9a657392489467caa564de4db3338181ed93d696cb",
+      "spec": {
+        "argv": [
+          "{python}",
+          "{test_root}/run_test.py",
+          "--op",
+          "gather_perf",
+          "--algo",
+          "Ring",
+          "--proto",
+          "Simple",
+          "--data-type",
+          "int8",
+          "--data-size",
+          "32MB",
+          "--iters",
+          "10",
+          "--ranks",
+          "2",
+          "--nnodes",
+          "1",
+          "--nprocs",
+          "1",
+          "--threads",
+          "1",
+          "--devices",
+          "0,1",
+          "--register",
+          "1",
+          "--auto-detect",
+          "--timeout",
+          "300",
+          "--launch-mode",
+          "normal",
+          "--mpi-options={mpi_options}",
+          "--process-group",
+          "normal"
+        ],
+        "cards_per_node": 8,
+        "checks": [
+          "exit_code"
+        ],
+        "devices_per_thread": 2,
+        "env": {},
+        "group": "source_register",
+        "legacy_source": "pccl_test_suites:3200d8a310332689f623cf9a",
+        "nodes": 1,
+        "parameters": {
+          "algo": "Ring",
+          "auto_detect": true,
+          "data_sizes": [
+            "32MB"
+          ],
+          "devices": "0,1",
+          "dtype": "int8",
+          "iters": 10,
+          "op": "gather_perf",
+          "proto": "Simple",
+          "ranks": 2,
+          "redop": "sum",
+          "register": 1
+        },
+        "processes_per_node": 1,
+        "test_type": "functional",
+        "threads_per_process": 1,
+        "tier": "sanity",
+        "timeout": 300
+      }
+    },
+    {
+      "profiles": [
+        "notsm",
+        "standard"
+      ],
+      "source": {
+        "case": "test_op_all_reduce_perf_algo_Auto_proto_Auto_datatype_float_datasize_32MB_iters_10_ranks_2_nproc_1_threads_2",
+        "case_sha256": "25b1a5556fb2b14809cd24a99a617e3d0e4de5ba1edab1f0d9320d4dd892e5d6",
+        "plan": "pccl_shm_register_test_single_node1_plan",
+        "plan_sha256": "752a6bedda5fcc337cf671adce8fa1152e52ab6d55e4aba893e2feb441677591",
+        "suite": "register_test_shm_single_node_suite",
+        "suite_sha256": "a332a5968249a164af3afbb8bdca0abcbff3e9694ca596f9391f96cb635700c2"
+      },
+      "source_id": "42a1e2277825997cae3cf3098818d26346779be244df5cfd86c441ff496451e0",
+      "spec": {
+        "argv": [
+          "{python}",
+          "{test_root}/run_test.py",
+          "--op",
+          "all_reduce_perf",
+          "--algo",
+          "Auto",
+          "--proto",
+          "Auto",
+          "--data-type",
+          "float",
+          "--data-size",
+          "32MB",
+          "--iters",
+          "10",
+          "--ranks",
+          "2",
+          "--nnodes",
+          "1",
+          "--nprocs",
+          "1",
+          "--threads",
+          "2",
+          "--register",
+          "1",
+          "--auto-detect",
+          "--timeout",
+          "300",
+          "--launch-mode",
+          "normal",
+          "--mpi-options={mpi_options}",
+          "--process-group",
+          "normal"
+        ],
+        "cards_per_node": 8,
+        "checks": [
+          "exit_code"
+        ],
+        "devices_per_thread": 1,
+        "env": {},
+        "group": "source_register",
+        "legacy_source": "pccl_test_suites:42a1e2277825997cae3cf309",
+        "nodes": 1,
+        "parameters": {
+          "algo": "Auto",
+          "auto_detect": true,
+          "data_sizes": [
+            "32MB"
+          ],
+          "dtype": "float",
+          "iters": 10,
+          "op": "all_reduce_perf",
+          "proto": "Auto",
+          "ranks": 2,
+          "redop": "sum",
+          "register": 1
+        },
+        "processes_per_node": 1,
+        "test_type": "functional",
+        "threads_per_process": 2,
+        "tier": "sanity",
+        "timeout": 300
+      }
+    },
+    {
+      "profiles": [
+        "notsm",
+        "standard"
+      ],
+      "source": {
+        "case": "test_op_all_gather_perf_algo_Auto_proto_Auto_datatype_float_datasize_32MB_iters_10_ranks_2_nproc_2_threads_1",
+        "case_sha256": "b080f654d5b16df3809a01ea65478b8599ceb21de74a45cf577b999d4a6ed77a",
+        "plan": "pccl_shm_register_test_single_node1_plan",
+        "plan_sha256": "752a6bedda5fcc337cf671adce8fa1152e52ab6d55e4aba893e2feb441677591",
+        "suite": "register_test_shm_single_node_suite",
+        "suite_sha256": "a332a5968249a164af3afbb8bdca0abcbff3e9694ca596f9391f96cb635700c2"
+      },
+      "source_id": "89e53ce4e9dc7b28360f3750f0c85685497490dbdf16b3da2e87b6552a5ccc95",
+      "spec": {
+        "argv": [
+          "{python}",
+          "{test_root}/run_test.py",
+          "--op",
+          "all_gather_perf",
+          "--algo",
+          "Auto",
+          "--proto",
+          "Auto",
+          "--data-type",
+          "float",
+          "--data-size",
+          "32MB",
+          "--iters",
+          "10",
+          "--ranks",
+          "2",
+          "--nnodes",
+          "1",
+          "--nprocs",
+          "2",
+          "--threads",
+          "1",
+          "--register",
+          "1",
+          "--auto-detect",
+          "--timeout",
+          "300",
+          "--launch-mode",
+          "normal",
+          "--mpi-options={mpi_options}",
+          "--process-group",
+          "normal"
+        ],
+        "cards_per_node": 8,
+        "checks": [
+          "exit_code"
+        ],
+        "devices_per_thread": 1,
+        "env": {},
+        "group": "source_register",
+        "legacy_source": "pccl_test_suites:89e53ce4e9dc7b28360f3750",
+        "nodes": 1,
+        "parameters": {
+          "algo": "Auto",
+          "auto_detect": true,
+          "data_sizes": [
+            "32MB"
+          ],
+          "dtype": "float",
+          "iters": 10,
+          "op": "all_gather_perf",
+          "proto": "Auto",
+          "ranks": 2,
+          "redop": "sum",
+          "register": 1
+        },
+        "processes_per_node": 2,
+        "test_type": "functional",
+        "threads_per_process": 1,
+        "tier": "sanity",
+        "timeout": 300
+      }
+    },
+    {
+      "profiles": [
+        "notsm",
+        "standard"
+      ],
+      "source": {
+        "case": "test_op_all_gather_perf_algo_Auto_proto_Auto_datatype_float_datasize_32MB_iters_10_ranks_2_nproc_1_threads_2",
+        "case_sha256": "5357322e5a99235593e6615e18492cc9a4d18d1ed3e4202e8f40564da6e243ea",
+        "plan": "pccl_shm_register_test_single_node1_plan",
+        "plan_sha256": "752a6bedda5fcc337cf671adce8fa1152e52ab6d55e4aba893e2feb441677591",
+        "suite": "register_test_shm_single_node_suite",
+        "suite_sha256": "a332a5968249a164af3afbb8bdca0abcbff3e9694ca596f9391f96cb635700c2"
+      },
+      "source_id": "904915dd5de1a252e258a868353fb070e790d7ff9c2e05efa1816073336cf00f",
+      "spec": {
+        "argv": [
+          "{python}",
+          "{test_root}/run_test.py",
+          "--op",
+          "all_gather_perf",
+          "--algo",
+          "Auto",
+          "--proto",
+          "Auto",
+          "--data-type",
+          "float",
+          "--data-size",
+          "32MB",
+          "--iters",
+          "10",
+          "--ranks",
+          "2",
+          "--nnodes",
+          "1",
+          "--nprocs",
+          "1",
+          "--threads",
+          "2",
+          "--register",
+          "1",
+          "--auto-detect",
+          "--timeout",
+          "300",
+          "--launch-mode",
+          "normal",
+          "--mpi-options={mpi_options}",
+          "--process-group",
+          "normal"
+        ],
+        "cards_per_node": 8,
+        "checks": [
+          "exit_code"
+        ],
+        "devices_per_thread": 1,
+        "env": {},
+        "group": "source_register",
+        "legacy_source": "pccl_test_suites:904915dd5de1a252e258a868",
+        "nodes": 1,
+        "parameters": {
+          "algo": "Auto",
+          "auto_detect": true,
+          "data_sizes": [
+            "32MB"
+          ],
+          "dtype": "float",
+          "iters": 10,
+          "op": "all_gather_perf",
+          "proto": "Auto",
+          "ranks": 2,
+          "redop": "sum",
+          "register": 1
+        },
+        "processes_per_node": 1,
+        "test_type": "functional",
+        "threads_per_process": 2,
+        "tier": "sanity",
+        "timeout": 300
+      }
+    },
+    {
+      "profiles": [
+        "notsm",
+        "standard"
+      ],
+      "source": {
+        "case": "test_op_sendrecv_perf_algo_Ring_proto_Simple_datatype_int8_datasize_32MB_iters_10_ranks_2_devices_0_1",
+        "case_sha256": "c7797d9f989428961a8ecf2fbf4e79a89de3cfcce499111fc5f4640e13da957e",
+        "plan": "pccl_shm_register_test_single_node1_plan",
+        "plan_sha256": "752a6bedda5fcc337cf671adce8fa1152e52ab6d55e4aba893e2feb441677591",
+        "suite": "register_test_shm_single_node_suite",
+        "suite_sha256": "a332a5968249a164af3afbb8bdca0abcbff3e9694ca596f9391f96cb635700c2"
+      },
+      "source_id": "b888992c2ce2f6fe571867f291a102baefd3d79ebd0b8b504e8ccf35cb2701f3",
+      "spec": {
+        "argv": [
+          "{python}",
+          "{test_root}/run_test.py",
+          "--op",
+          "sendrecv_perf",
+          "--algo",
+          "Ring",
+          "--proto",
+          "Simple",
+          "--data-type",
+          "int8",
+          "--data-size",
+          "32MB",
+          "--iters",
+          "10",
+          "--ranks",
+          "2",
+          "--nnodes",
+          "1",
+          "--nprocs",
+          "1",
+          "--threads",
+          "1",
+          "--devices",
+          "0,1",
+          "--register",
+          "1",
+          "--auto-detect",
+          "--timeout",
+          "300",
+          "--launch-mode",
+          "normal",
+          "--mpi-options={mpi_options}",
+          "--process-group",
+          "normal"
+        ],
+        "cards_per_node": 8,
+        "checks": [
+          "exit_code"
+        ],
+        "devices_per_thread": 2,
+        "env": {},
+        "group": "source_register",
+        "legacy_source": "pccl_test_suites:b888992c2ce2f6fe571867f2",
+        "nodes": 1,
+        "parameters": {
+          "algo": "Ring",
+          "auto_detect": true,
+          "data_sizes": [
+            "32MB"
+          ],
+          "devices": "0,1",
+          "dtype": "int8",
+          "iters": 10,
+          "op": "sendrecv_perf",
+          "proto": "Simple",
+          "ranks": 2,
+          "redop": "sum",
+          "register": 1
+        },
+        "processes_per_node": 1,
+        "test_type": "functional",
+        "threads_per_process": 1,
+        "tier": "sanity",
+        "timeout": 300
+      }
+    },
+    {
+      "profiles": [
+        "notsm",
+        "standard"
+      ],
+      "source": {
+        "case": "test_op_scatter_perf_algo_Ring_proto_Simple_datatype_int8_datasize_32MB_iters_10_ranks_2_devices_0_1",
+        "case_sha256": "3332464a674c701c77c92508d1d248c654b64660f8b25d0edbc5d8628121f191",
+        "plan": "pccl_shm_register_test_single_node1_plan",
+        "plan_sha256": "752a6bedda5fcc337cf671adce8fa1152e52ab6d55e4aba893e2feb441677591",
+        "suite": "register_test_shm_single_node_suite",
+        "suite_sha256": "a332a5968249a164af3afbb8bdca0abcbff3e9694ca596f9391f96cb635700c2"
+      },
+      "source_id": "c13ed6fa5a85fee212f912bc0d9fdc7768da655433c1b5e84cc4a7487031f505",
+      "spec": {
+        "argv": [
+          "{python}",
+          "{test_root}/run_test.py",
+          "--op",
+          "scatter_perf",
+          "--algo",
+          "Ring",
+          "--proto",
+          "Simple",
+          "--data-type",
+          "int8",
+          "--data-size",
+          "32MB",
+          "--iters",
+          "10",
+          "--ranks",
+          "2",
+          "--nnodes",
+          "1",
+          "--nprocs",
+          "1",
+          "--threads",
+          "1",
+          "--devices",
+          "0,1",
+          "--register",
+          "1",
+          "--auto-detect",
+          "--timeout",
+          "300",
+          "--launch-mode",
+          "normal",
+          "--mpi-options={mpi_options}",
+          "--process-group",
+          "normal"
+        ],
+        "cards_per_node": 8,
+        "checks": [
+          "exit_code"
+        ],
+        "devices_per_thread": 2,
+        "env": {},
+        "group": "source_register",
+        "legacy_source": "pccl_test_suites:c13ed6fa5a85fee212f912bc",
+        "nodes": 1,
+        "parameters": {
+          "algo": "Ring",
+          "auto_detect": true,
+          "data_sizes": [
+            "32MB"
+          ],
+          "devices": "0,1",
+          "dtype": "int8",
+          "iters": 10,
+          "op": "scatter_perf",
+          "proto": "Simple",
+          "ranks": 2,
+          "redop": "sum",
+          "register": 1
+        },
+        "processes_per_node": 1,
+        "test_type": "functional",
+        "threads_per_process": 1,
+        "tier": "sanity",
+        "timeout": 300
+      }
+    },
+    {
+      "profiles": [
+        "notsm",
+        "standard"
+      ],
+      "source": {
+        "case": "test_op_alltoall_perf_algo_Auto_proto_Auto_datatype_float_datasize_32MB_iters_10_ranks_2_nproc_1_threads_2",
+        "case_sha256": "0e9a7887f3da9050a2e2db04421aabbd79a85cebadc28ed433747296556a537a",
+        "plan": "pccl_shm_register_test_single_node1_plan",
+        "plan_sha256": "752a6bedda5fcc337cf671adce8fa1152e52ab6d55e4aba893e2feb441677591",
+        "suite": "register_test_shm_single_node_suite",
+        "suite_sha256": "a332a5968249a164af3afbb8bdca0abcbff3e9694ca596f9391f96cb635700c2"
+      },
+      "source_id": "e9d4188737b5d025bb9a03658ce6baae81b3d351a009cbea7841d1facc90a835",
+      "spec": {
+        "argv": [
+          "{python}",
+          "{test_root}/run_test.py",
+          "--op",
+          "alltoall_perf",
+          "--algo",
+          "Auto",
+          "--proto",
+          "Auto",
+          "--data-type",
+          "float",
+          "--data-size",
+          "32MB",
+          "--iters",
+          "10",
+          "--ranks",
+          "2",
+          "--nnodes",
+          "1",
+          "--nprocs",
+          "1",
+          "--threads",
+          "2",
+          "--register",
+          "1",
+          "--auto-detect",
+          "--timeout",
+          "300",
+          "--launch-mode",
+          "normal",
+          "--mpi-options={mpi_options}",
+          "--process-group",
+          "normal"
+        ],
+        "cards_per_node": 8,
+        "checks": [
+          "exit_code"
+        ],
+        "devices_per_thread": 1,
+        "env": {},
+        "group": "source_register",
+        "legacy_source": "pccl_test_suites:e9d4188737b5d025bb9a0365",
+        "nodes": 1,
+        "parameters": {
+          "algo": "Auto",
+          "auto_detect": true,
+          "data_sizes": [
+            "32MB"
+          ],
+          "dtype": "float",
+          "iters": 10,
+          "op": "alltoall_perf",
+          "proto": "Auto",
+          "ranks": 2,
+          "redop": "sum",
+          "register": 1
+        },
+        "processes_per_node": 1,
+        "test_type": "functional",
+        "threads_per_process": 2,
+        "tier": "sanity",
+        "timeout": 300
+      }
+    }
+  ],
+  "coverage": {
+    "execution_count": 18,
+    "profiles": {
+      "notsm": 9,
+      "standard": 9
+    },
+    "scope": "single-node-source-register-sanity",
+    "source_case_count": 9
+  },
+  "schema_version": 1,
+  "selections": {
+    "sanity": [
+      "217cef1305a99b45c3a3c7924cea38f1e242b3da69cd05c9c0c61dd60b250ec6",
+      "2a30962992ce9b850308a8fdda373867af01a17ae61e1b0ce47e94f59e35ee87",
+      "3200d8a310332689f623cf9a657392489467caa564de4db3338181ed93d696cb",
+      "42a1e2277825997cae3cf3098818d26346779be244df5cfd86c441ff496451e0",
+      "89e53ce4e9dc7b28360f3750f0c85685497490dbdf16b3da2e87b6552a5ccc95",
+      "904915dd5de1a252e258a868353fb070e790d7ff9c2e05efa1816073336cf00f",
+      "b888992c2ce2f6fe571867f291a102baefd3d79ebd0b8b504e8ccf35cb2701f3",
+      "c13ed6fa5a85fee212f912bc0d9fdc7768da655433c1b5e84cc4a7487031f505",
+      "e9d4188737b5d025bb9a03658ce6baae81b3d351a009cbea7841d1facc90a835"
+    ]
+  },
+  "source": {
+    "content_sha256": "7fca04e1fb6856632994252550a92b61a47324b85a4d0d389007be4a0070e5a0",
+    "declared_framework_version": "0.12.0",
+    "exporter_runtime_version": "0.12.0",
+    "exporter_sha256": "ea39d086b8f0b68536fb67f42966ffd97fade02307bc6dee155d0648fdf359c7",
+    "repository": "pccl_test_suites",
+    "revision": "bbbeb207dd7f28980b55336660da0b47866e47aa",
+    "selection_sha256": "939067d8b0a7ef8a814d6434c1071adc5161d44a44fdc0ede3aef6184eb2a748"
+  }
+}
