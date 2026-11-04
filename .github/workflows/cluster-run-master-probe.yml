@@ -50,15 +50,31 @@ jobs:
             done
             mpi_prefix=$(dirname "$(dirname "$(readlink -f "$(command -v mpirun)")")")
             test -x "$mpi_prefix/bin/orted"
-            mpi_output=$(mpirun --allow-run-as-root \
+            awk '{print $0 " slots=8 max_slots=8"}' "$CLUSTER_HOSTS_FILE" > /tmp/mpi-hosts.cfg
+            test "$(wc -l < /tmp/mpi-hosts.cfg)" -eq 2
+            two_rank_log=/tmp/mpi-echo-2.log
+            timeout --signal=TERM --kill-after=5s 60s \
+              mpirun --allow-run-as-root \
+              -np 2 -npernode 1 \
+              --prefix "$mpi_prefix" \
+              -mca plm_rsh_agent cluster-ssh \
+              -mca orte_base_help_aggregate 0 \
+              -mca btl_tcp_if_include bond1 \
+              --hostfile /tmp/mpi-hosts.cfg \
+              -x LD_LIBRARY_PATH -x PATH \
+              /bin/echo test | tee "$two_rank_log"
+            test "$(grep -cx test "$two_rank_log")" -eq 2
+            echo 'cluster-run 2-rank MPI echo probe passed'
+            sixteen_rank_log=/tmp/mpi-echo-16.log
+            timeout --signal=TERM --kill-after=5s 60s \
+              mpirun --allow-run-as-root \
               -np 16 -npernode 8 \
               --prefix "$mpi_prefix" \
               -mca plm_rsh_agent cluster-ssh \
               -mca orte_base_help_aggregate 0 \
               -mca btl_tcp_if_include bond1 \
-              --hostfile "$CLUSTER_HOSTS_FILE" \
+              --hostfile /tmp/mpi-hosts.cfg \
               -x LD_LIBRARY_PATH -x PATH \
-              /bin/echo test)
-            printf '%s\n' "$mpi_output"
-            test "$(printf '%s\n' "$mpi_output" | grep -cx test)" -eq 16
+              /bin/echo test | tee "$sixteen_rank_log"
+            test "$(grep -cx test "$sixteen_rank_log")" -eq 16
             echo 'cluster-run 16-rank MPI echo probe passed'
