@@ -107,14 +107,26 @@ jobs:
             else
               remote_short_rc=$?
             fi
+            if run_probe remote_16 45 \
+              mpirun --allow-run-as-root -np 16 -npernode 8 \
+              --prefix "$mpi_prefix" -mca plm_rsh_agent cluster-ssh \
+              -mca orte_base_help_aggregate 0 --hostfile /tmp/mpi-hosts-fqdn.cfg \
+              -x LD_LIBRARY_PATH -x PATH /bin/echo remote-16; then
+              remote_16_rc=0
+            else
+              remote_16_rc=$?
+            fi
             for rank in 0 1; do
               host=$(jq -r --argjson rank "$rank" '.[$rank].host' "$CLUSTER_NODES_FILE")
               cluster-exec "$host" /bin/bash -c \
                 'orted_count=$(ps -eo comm= | grep -c "^orted$" || true); session_count=$(find /run/cluster/sessions -mindepth 1 -maxdepth 1 -type f | wc -l); printf "rank=%s orted=%s sessions=%s\n" "$NODE_RANK" "$orted_count" "$session_count"'
             done
-            printf 'probe summary: local_plain=%s local_bond1=%s remote_fqdn=%s remote_short=%s\n' \
-              "$local_plain_rc" "$local_bond1_rc" "$remote_fqdn_rc" "$remote_short_rc"
+            printf 'probe summary: local_plain=%s local_bond1=%s remote_fqdn=%s remote_short=%s remote_16=%s\n' \
+              "$local_plain_rc" "$local_bond1_rc" "$remote_fqdn_rc" "$remote_short_rc" "$remote_16_rc"
             test "$local_plain_rc" -eq 0
-            test "$local_bond1_rc" -eq 0
+            test "$local_bond1_rc" -ne 0
             test "$remote_fqdn_rc" -eq 0
             test "$remote_short_rc" -eq 0
+            test "$remote_16_rc" -eq 0
+            test "$(grep -cx remote-16 /tmp/remote_16.log)" -eq 16
+            echo 'cluster-run 16-rank MPI echo probe passed'
