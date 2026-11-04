@@ -1,0 +1,17 @@
+{
+  "classification": {
+    "base_sha": "efd03872bf111f668835eafd9fc40bc5ecae337d",
+    "head_sha": "9c3c12a2acdf325aad088a370c53943ab06e27bf",
+    "input_fingerprint": "b53b50433afe7981f4be21129464d60d6aafb3a7d4ec9f8d62a2e9f9f959b5ff",
+    "pr_number": 136,
+    "proposal": {
+      "modules": [
+        "ci"
+      ],
+      "reason": "Updates the open-source test workflow execution path by replacing the PPU job action used to run build/test steps in `.github/workflows/pr-test-ppu.yml`, which is a CI runner/execution change rather than review-routing automation."
+    }
+  },
+  "reviewers": {
+    "ci": 333302477
+  }
+}
