@@ -48,4 +48,17 @@ jobs:
               cluster-exec "$host" /bin/bash -c \
                 'test "$WORLD_SIZE" -eq 2; test "$NODE_RANK" -eq "$1"; test -d /dev/infiniband; set -- /dev/infiniband/*; test -e "$1"' probe "$rank"
             done
-            echo 'cluster-run master runtime probe passed'
+            mpi_prefix=$(dirname "$(dirname "$(readlink -f "$(command -v mpirun)")")")
+            test -x "$mpi_prefix/bin/orted"
+            mpi_output=$(mpirun --allow-run-as-root \
+              -np 16 -npernode 8 \
+              --prefix "$mpi_prefix" \
+              -mca plm_rsh_agent cluster-ssh \
+              -mca orte_base_help_aggregate 0 \
+              -mca btl_tcp_if_include bond1 \
+              --hostfile "$CLUSTER_HOSTS_FILE" \
+              -x LD_LIBRARY_PATH -x PATH \
+              /bin/echo test)
+            printf '%s\n' "$mpi_output"
+            test "$(printf '%s\n' "$mpi_output" | grep -cx test)" -eq 16
+            echo 'cluster-run 16-rank MPI echo probe passed'
