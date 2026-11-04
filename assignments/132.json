@@ -1,15 +1,15 @@
 {
   "classification": {
-    "base_sha": "efd03872bf111f668835eafd9fc40bc5ecae337d",
-    "head_sha": "2eed784021a21dd0602cedb65ae9f2a855bced75",
-    "input_fingerprint": "2440a2ca4f02c6fc2dac2904266902b3ca8e7367ec2405ec00ccc21ce8dfb9ee",
+    "base_sha": "5f8a1be5e27b99ea44e2dc8d0d09f95ea6d8880f",
+    "head_sha": "ffae9ae9e55ee9e2046157ccf33f84fe6d2c30c2",
+    "input_fingerprint": "65a8e953de2961da74afd0d36b2ed74edeef843c9c50082cc57a6b6d07b9865d",
     "pr_number": 132,
     "proposal": {
       "modules": [
         "symmetric",
         "copy-engine"
       ],
-      "reason": "Main change is symmetric-memory AllGather policy: new automatic CE-vs-kernel selection thresholds, in-place/graph/rank gating, and all-rank eligibility checks that control the symmetric path. Also requires copy-engine review because CE DMA execution was substantively refactored (partition assignment, local/remote stream grouping, batch submission path, driver/capture gating, and synchronization behavior)."
+      "reason": "Main change is symmetric-memory AllGather policy: new automatic CE-vs-kernel selection based on rank/graph/in-place thresholds and all-rank eligibility checks. Also requires copy-engine review because CE execution was substantively refactored (partition assignment, local/remote stream-group batch submission, memcpy-batch gating, and SM89/OKI-related CE/P2P DMA path conditions)."
     }
   },
   "reviewers": {
