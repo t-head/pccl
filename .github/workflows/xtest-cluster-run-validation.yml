@@ -112,12 +112,10 @@ jobs:
           cleanup_policy: always
           container_options: |
             privileged: true
-            host_network: true
           host_volumes: /dev/infiniband:/dev/infiniband
           setup_command: |
             set -euo pipefail
             source /usr/local/PPU_SDK/envsetup.sh
-            test -d /sys/class/net/bond1
             test -d /dev/infiniband
             set -- /dev/infiniband/*
             test -e "$1"

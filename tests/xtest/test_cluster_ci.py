@@ -109,6 +109,12 @@ class ClusterCiTests(unittest.TestCase):
     self.assertNotIn('sshd', workflow)
     self.assertIn('plm_rsh_agent', json.dumps(ci.MPI_OPTIONS))
     self.assertIn('cluster-ssh', ci.MPI_OPTIONS)
+    self.assertNotIn('btl_tcp_if_include', ci.MPI_OPTIONS)
+    self.assertNotIn('bond1', ci.MPI_OPTIONS)
+    self.assertIn('privileged: true', workflow)
+    self.assertIn('host_volumes: /dev/infiniband:/dev/infiniband', workflow)
+    self.assertNotIn('host_network: true', workflow)
+    self.assertNotIn('/sys/class/net/bond1', workflow)
     prepare = workflow.split('\n  cluster:', 1)[0]
     self.assertNotIn('cluster-run@', prepare)
     setup = workflow.split('setup_command: |', 1)[1].split('          command: |', 1)[0]

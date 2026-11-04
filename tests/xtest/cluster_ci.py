@@ -35,7 +35,6 @@ PRIVATE_MARKERS = (
 MPI_OPTIONS = [
   '-mca', 'plm_rsh_agent', 'cluster-ssh',
   '-mca', 'orte_base_help_aggregate', '0',
-  '-mca', 'btl_tcp_if_include', 'bond1',
   '-x', 'NCCL_NET_GDR_LEVEL=4',
   '--hostfile', 'hosts.cfg',
 ]
