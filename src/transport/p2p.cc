@@ -197,7 +197,6 @@ ncclResult_t ncclP2pAllocateShareableBuffer(size_t size, int refcount, ncclIpcDe
 
     struct ncclMemManager* trackManager = manager;
     NCCLCHECK(ncclHgMemAlloc(ptr, &handle, type, size, pDevMemUsed, nullptr, memMode, trackManager, memType));
-    NCCLCHECK(ncclHggcMemset(*ptr, 0, size));
     if (type == HG_MEM_HANDLE_TYPE_POSIX_FILE_DESCRIPTOR) {
       // Return the native hgMem handle for later Export/Import via UDS
       memcpy(&ipcDesc->hgDesc.data, &handle, sizeof(handle));
