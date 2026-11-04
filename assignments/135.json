@@ -1,14 +1,14 @@
 {
   "classification": {
     "base_sha": "efd03872bf111f668835eafd9fc40bc5ecae337d",
-    "head_sha": "33aee95d1630f94644191fe3f50dc314a9672a2a",
-    "input_fingerprint": "7b806b5133039a2794a688ed84f8e44b2846699a757e3a94fa6cf3392b75261c",
+    "head_sha": "622d11ba56a4c4dfab9472f17be64834cfa5d460",
+    "input_fingerprint": "4a060dbd16138d2f768765f4ec87dd150f088bf17d5b4e5985385698f5722897",
     "pr_number": 135,
     "proposal": {
       "modules": [
         "workflow"
       ],
-      "reason": "Changes are to review/classification automation: module-catalog schema now requires and validates key_files, catalog projection includes key_files for classifier input/fingerprints, and assignment skill/rules text is updated. The broad modules.json edits are scope-definition metadata for reviewer routing, not substantive runtime CI/build/kernel behavior changes."
+      "reason": "PR changes review-classification policy and automation: module catalog scope text updates, new key_files metadata requirements/validation in reviewer automation, and passing key_files into classification inputs/fingerprints. These are contribution/review workflow changes, not CI test execution behavior."
     }
   },
   "reviewers": {
