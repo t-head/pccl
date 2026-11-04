@@ -1,19 +1,20 @@
 {
   "classification": {
-    "base_sha": "b4c46ba921d6e206f685229d94403260a69e03fd",
-    "head_sha": "a592a4b675d5485bd2812f7d5adb1fdf8ad69483",
-    "input_fingerprint": "5d61f8a124943f0d4afc07667e0e699fb90cfc43fa92dd13ae81c57e8b26f371",
+    "base_sha": "efd03872bf111f668835eafd9fc40bc5ecae337d",
+    "head_sha": "2eed784021a21dd0602cedb65ae9f2a855bced75",
+    "input_fingerprint": "2440a2ca4f02c6fc2dac2904266902b3ca8e7367ec2405ec00ccc21ce8dfb9ee",
     "pr_number": 132,
     "proposal": {
       "modules": [
-        "tuning",
+        "symmetric",
         "copy-engine"
       ],
-      "reason": "Main change is in copy-engine behavior: CE AllGather path is reworked with new partition/queue assignment, split local/remote stream groups, and batch-copy submission/gating. It also introduces built-in threshold/eligibility logic that automatically chooses CE vs kernel for symmetric AllGather by rank, size, and graph-capture mode, which requires tuning review."
+      "reason": "Main change is symmetric-memory AllGather policy: new automatic CE-vs-kernel selection thresholds, in-place/graph/rank gating, and all-rank eligibility checks that control the symmetric path. Also requires copy-engine review because CE DMA execution was substantively refactored (partition assignment, local/remote stream grouping, batch submission path, driver/capture gating, and synchronization behavior)."
     }
   },
   "reviewers": {
     "copy-engine": 341341178,
+    "symmetric": 333277982,
     "tuning": 341751581
   }
 }
