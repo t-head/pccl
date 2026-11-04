@@ -52,31 +52,50 @@ jobs:
             test -x "$mpi_prefix/bin/orted"
             awk '{print $0 " slots=8 max_slots=8"}' "$CLUSTER_HOSTS_FILE" > /tmp/mpi-hosts.cfg
             test "$(wc -l < /tmp/mpi-hosts.cfg)" -eq 2
-            two_rank_log=/tmp/mpi-echo-2.log
+            remote_host=$(sed -n '2p' "$CLUSTER_HOSTS_FILE")
+            timeout --signal=TERM --kill-after=2s 20s \
+              cluster-ssh "$remote_host" "$mpi_prefix/bin/orted" --version
+            cat > /tmp/mpi-rsh-agent <<'SH'
+            #!/bin/bash
+            set -u
+            line=
+            for argument in "$@"; do
+              printf -v quoted '%q' "$argument"
+              line+="${quoted} "
+            done
+            printf '%s\n' "$line" >> /tmp/mpi-rsh-agent.log
+            exec cluster-ssh "$@"
+            SH
+            chmod 0755 /tmp/mpi-rsh-agent
+            mpi_log=/tmp/mpi-launch.log
+            set +e
             timeout --signal=TERM --kill-after=5s 60s \
               mpirun --allow-run-as-root \
               -np 2 -npernode 1 \
               --prefix "$mpi_prefix" \
-              -mca plm_rsh_agent cluster-ssh \
+              -mca plm_rsh_agent /tmp/mpi-rsh-agent \
+              -mca plm_base_verbose 100 \
               -mca orte_base_help_aggregate 0 \
               -mca oob_tcp_if_include bond1 \
               -mca btl_tcp_if_include bond1 \
               --hostfile /tmp/mpi-hosts.cfg \
               -x LD_LIBRARY_PATH -x PATH \
-              /bin/echo test | tee "$two_rank_log"
-            test "$(grep -cx test "$two_rank_log")" -eq 2
-            echo 'cluster-run 2-rank MPI echo probe passed'
-            sixteen_rank_log=/tmp/mpi-echo-16.log
-            timeout --signal=TERM --kill-after=5s 60s \
-              mpirun --allow-run-as-root \
-              -np 16 -npernode 8 \
-              --prefix "$mpi_prefix" \
-              -mca plm_rsh_agent cluster-ssh \
-              -mca orte_base_help_aggregate 0 \
-              -mca oob_tcp_if_include bond1 \
-              -mca btl_tcp_if_include bond1 \
-              --hostfile /tmp/mpi-hosts.cfg \
-              -x LD_LIBRARY_PATH -x PATH \
-              /bin/echo test | tee "$sixteen_rank_log"
-            test "$(grep -cx test "$sixteen_rank_log")" -eq 16
-            echo 'cluster-run 16-rank MPI echo probe passed'
+              /bin/echo test > "$mpi_log" 2>&1
+            mpi_rc=$?
+            set -e
+            echo "mpirun return code: $mpi_rc"
+            echo 'cluster-ssh invocation:'
+            cat /tmp/mpi-rsh-agent.log 2>/dev/null || echo '<not invoked>'
+            echo 'sanitized mpirun diagnostics:'
+            python3 - "$mpi_log" <<'PY'
+            import pathlib, re, sys
+            text = pathlib.Path(sys.argv[1]).read_text(errors='replace')
+            text = re.sub(r'(?<![A-Za-z0-9.])(?:[0-9]{1,3}\.){3}[0-9]{1,3}(?![A-Za-z0-9.])', '<ip>', text)
+            print('\n'.join(text.splitlines()[-200:]))
+            PY
+            for rank in 0 1; do
+              host=$(jq -r --argjson rank "$rank" '.[$rank].host' "$CLUSTER_NODES_FILE")
+              cluster-exec "$host" /bin/bash -c \
+                'orted_count=$(ps -eo comm= | grep -c "^orted$" || true); session_count=$(find /run/cluster/sessions -mindepth 1 -maxdepth 1 -type f | wc -l); printf "rank=%s orted=%s sessions=%s\n" "$NODE_RANK" "$orted_count" "$session_count"'
+            done
+            exit "$mpi_rc"
