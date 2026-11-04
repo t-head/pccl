@@ -1,0 +1,17 @@
+{
+  "classification": {
+    "base_sha": "efd03872bf111f668835eafd9fc40bc5ecae337d",
+    "head_sha": "f522e0f721f64480e9396d065f207ab3a6f29362",
+    "input_fingerprint": "d528cee8e08fbafb94eea19aca9e1b370366d0801e9fc5161a76812d0d2e373f",
+    "pr_number": 118,
+    "proposal": {
+      "modules": [
+        "dispatch"
+      ],
+      "reason": "Updates P2P SendRecv kernel specialization IDs to use the canonical function-index constants, changing how kernel specializations match the device dispatch path (specialized vs function-table fallback) without introducing separate substantive changes in other modules."
+    }
+  },
+  "reviewers": {
+    "dispatch": 341349555
+  }
+}
