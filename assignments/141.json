@@ -1,0 +1,17 @@
+{
+  "classification": {
+    "base_sha": "5f8a1be5e27b99ea44e2dc8d0d09f95ea6d8880f",
+    "head_sha": "c6a594aa6497ba90b66db7db100c5b3352e30077",
+    "input_fingerprint": "3b9d4eda5177b73b7b12c4c2d44ff44af7afc0790bda97a8733632078c7aaf28",
+    "pr_number": 141,
+    "proposal": {
+      "modules": [
+        "bootstrap"
+      ],
+      "reason": "Main functional change is in UDS socket handling used for control-plane rendezvous (abstract socket path copy and socket-init/send path behavior), with accompanying UDS error/log message updates; no independent build/CI/workflow or separate subsystem policy/protocol change is introduced."
+    }
+  },
+  "reviewers": {
+    "bootstrap": 340104201
+  }
+}
