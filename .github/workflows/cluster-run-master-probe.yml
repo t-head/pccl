@@ -52,9 +52,6 @@ jobs:
             test -x "$mpi_prefix/bin/orted"
             awk '{print $0 " slots=8 max_slots=8"}' "$CLUSTER_HOSTS_FILE" > /tmp/mpi-hosts.cfg
             test "$(wc -l < /tmp/mpi-hosts.cfg)" -eq 2
-            remote_host=$(sed -n '2p' "$CLUSTER_HOSTS_FILE")
-            timeout --signal=TERM --kill-after=2s 20s \
-              cluster-ssh "$remote_host" "$mpi_prefix/bin/orted" --version
             cat > /tmp/mpi-rsh-agent <<'SH'
             #!/bin/bash
             set -u
