@@ -1,14 +1,14 @@
 {
   "classification": {
     "base_sha": "efd03872bf111f668835eafd9fc40bc5ecae337d",
-    "head_sha": "0f71505c9a8936080905e3dad58260d32893e54c",
-    "input_fingerprint": "f9b530cc42c251945b27545c70b332bc2555859a63f4671e938c086664dc581a",
+    "head_sha": "58f1dd874dadcc5a8fca5c24926de755d20bd0e1",
+    "input_fingerprint": "80cf379e8dbb96e826b3c635de1ded96a0c249ca11dc0f86d671bd801d656b84",
     "pr_number": 136,
     "proposal": {
       "modules": [
         "ci"
       ],
-      "reason": "Updates the open-source test workflow to use a different GitHub Action for PPU build/test job execution, which is a CI runner/execution-path change rather than contribution/review routing."
+      "reason": "Updates the PR test workflow\u2019s PPU job execution action from `t-head/ppu-scheduler-action` to `t-head/ci-infra/cluster-run`, which is a substantive change to test workflow execution infrastructure (runner/orchestration) rather than review-routing automation."
     }
   },
   "reviewers": {
