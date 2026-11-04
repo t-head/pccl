@@ -1,8 +1,6 @@
 name: cluster-run RDMA status probe
 
 on:
-  push:
-    branches: [ci/xtest-cluster-run-mpi-retry]
   workflow_dispatch:
 
 permissions:
