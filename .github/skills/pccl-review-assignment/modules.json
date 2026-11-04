@@ -3,7 +3,8 @@
   "modules": {
     "build": {
       "name": "Build system",
-      "description": "Build definitions, compiler integration, build-time SDK setup and packaging; excludes CI orchestration.",
+      "description": "Build rules, compiler/linker options, SDK/toolchain setup, generated library artifacts and packaging. CI runner/test orchestration belongs to ci; build edits that only support another feature follow that feature.",
+      "key_files": ["Makefile", "makefiles/common.mk", "pkg/Makefile"],
       "maintainer": {"login": "levilee-lwl", "id": 340491409},
       "reviewers": [
         {"login": "xiangzhixyc", "id": 341355176},
@@ -13,7 +14,8 @@
     },
     "bootstrap": {
       "name": "Bootstrap",
-      "description": "Peer discovery, bootstrap sockets and initial rank exchange.",
+      "description": "Bootstrap control-plane discovery, unique IDs, root/peer rendezvous, sockets/UDS and rank metadata exchange. Collective/P2P data-plane transport belongs to transport or network.",
+      "key_files": ["src/bootstrap.cc", "src/include/bootstrap.h"],
       "maintainer": {"login": "ck-milo", "id": 341349555},
       "reviewers": [
         {"login": "honglei-lu", "id": 340104201},
@@ -22,7 +24,8 @@
     },
     "device-topology": {
       "name": "Device detection and path building",
-      "description": "Device and link discovery, topology representation and communication path construction; excludes ring/tree graph search.",
+      "description": "Discover devices, NICs and physical links, parse topology data, and compute reachability and communication paths. Logical ring/tree/channel graph construction belongs to graph-search.",
+      "key_files": ["src/graph/topo.cc", "src/graph/paths.cc", "src/graph/xml.cc"],
       "maintainer": {"login": "honganlxh", "id": 335730053},
       "reviewers": [
         {"login": "xiangzhixyc", "id": 341355176},
@@ -32,7 +35,8 @@
     },
     "graph-search": {
       "name": "Topology graph search",
-      "description": "Search for rings, trees and channel graphs over the detected topology.",
+      "description": "Construct and search logical ring, tree, CollNet and channel graphs over the detected topology, including graph rank ordering and connection. Physical topology/path discovery belongs to device-topology; algorithm cost models belong to tuning.",
+      "key_files": ["src/graph/search.cc", "src/graph/connect.cc"],
       "maintainer": {"login": "honganlxh", "id": 335730053},
       "reviewers": [
         {"login": "xiangzhixyc", "id": 341355176},
@@ -42,7 +46,8 @@
     },
     "transport": {
       "name": "Transport build and connect",
-      "description": "Generic transport selection and rank connection setup, including P2P and SHM. Network-specific setup and data transfer belong to network.",
+      "description": "Generic transport selection and rank connection management, including P2P/SHM setup, resources and cleanup. Network-specific backend setup, transfers and proxy progress belong to network.",
+      "key_files": ["src/transport.cc", "src/transport/p2p.cc", "src/transport/shm.cc"],
       "maintainer": {"login": "ck-milo", "id": 341349555},
       "reviewers": [
         {"login": "xiangzhixyc", "id": 341355176},
@@ -52,7 +57,8 @@
     },
     "tuning": {
       "name": "Built-in collective tuning",
-      "description": "Built-in bandwidth/latency models and algorithm/protocol tuning, such as src/graph/tuning.cc. Path-specific thresholds or kernel/CE choices for symmetric-memory collectives belong to symmetric.",
+      "description": "Built-in bandwidth/latency models, algorithm/protocol cost comparison and default model-based selection. Symmetric-specific kernel/CE choices and thresholds belong to symmetric; external tuner ABI/callbacks belong to tuner-plugin.",
+      "key_files": ["src/graph/tuning.cc", "src/enqueue.cc"],
       "maintainer": {"login": "honganlxh", "id": 335730053},
       "reviewers": [
         {"login": "ck-milo", "id": 341349555},
@@ -61,7 +67,8 @@
     },
     "communicator": {
       "name": "Communicator lifecycle",
-      "description": "Communicator split, shrink, revoke, resume, suspend and lifecycle management.",
+      "description": "Communicator creation, initialization state, split/shrink, abort/revoke, suspend/resume and destruction. Feature-specific setup or fields in shared initialization/communicator files follow the owning feature.",
+      "key_files": ["src/init.cc", "src/include/comm.h"],
       "maintainer": {"login": "OtoriEmu000", "id": 335834228},
       "reviewers": [
         {"login": "honganlxh", "id": 335730053},
@@ -70,7 +77,8 @@
     },
     "memory": {
       "name": "Memory management",
-      "description": "General memory allocation, registration, mapping, ownership and release. Device API windows, device communicators and LSA semantics belong to device-api.",
+      "description": "General host/device allocation, registration, mapping, import/export, pools, reference ownership and release. Device communicator/window/LSA API semantics belong to device-api.",
+      "key_files": ["src/allocator.cc", "src/mem_manager.cc", "src/register/register.cc"],
       "maintainer": {"login": "honglei-lu", "id": 340104201},
       "reviewers": [
         {"login": "ctt284373", "id": 340404662},
@@ -79,7 +87,8 @@
     },
     "enqueue": {
       "name": "Runtime kernel planning and enqueue",
-      "description": "Shared host-side work planning, enqueue, streams, groups and graph capture. Hardware launch policy belongs to dispatch, rank scheduling to scheduling, and symmetric-specific planning to symmetric.",
+      "description": "Shared host-side task queues, work batches, launch sequencing, streams, groups and graph capture/replay. Rank scheduling belongs to scheduling, CU/CE placement to dispatch, and symmetric-specific planning to symmetric.",
+      "key_files": ["src/enqueue.cc", "src/group.cc", "src/misc/strongstream.cc"],
       "maintainer": {"login": "ctt284373", "id": 340404662},
       "reviewers": [
         {"login": "ck-milo", "id": 341349555},
@@ -87,8 +96,9 @@
       ]
     },
     "dispatch": {
-      "name": "Kernel dispatch and CE masks",
-      "description": "Hardware kernel launch strategy and copy-engine mask selection. Built-in algorithm/protocol tuning belongs to tuning, and symmetric kernel/CE path selection to symmetric.",
+      "name": "CU/CE hardware dispatch",
+      "description": "CU/CE hardware resource masks, affinity and driver launch policies, including blocks per CU and batches per CE. Device-side function tables, IDs and specialization matching belong to kernels; built-in algorithm/protocol choice to tuning; symmetric kernel/CE path choice to symmetric.",
+      "key_files": ["src/misc/drv_extension.cc", "src/pccl_device/kernel_dispatch.cc"],
       "maintainer": {"login": "honganlxh", "id": 335730053},
       "reviewers": [
         {"login": "ck-milo", "id": 341349555},
@@ -99,7 +109,8 @@
     },
     "network": {
       "name": "Network transport, plugin and proxy",
-      "description": "Network backends, net-plugin interfaces, network transfers and proxy progress.",
+      "description": "Collective/P2P network data transport, network backends, net-plugin ABI/loading, connection resources and network proxy progress. Bootstrap rendezvous belongs to bootstrap; GIN-specific networking belongs to gin.",
+      "key_files": ["src/net.cc", "src/transport/net.cc", "src/proxy.cc"],
       "maintainer": {"login": "snowdrift-zw", "id": 341341178},
       "reviewers": [
         {"login": "xiangzhixyc", "id": 341355176},
@@ -108,7 +119,8 @@
     },
     "kernels": {
       "name": "Native operations and device kernels",
-      "description": "Built-in collective/P2P kernels, communication primitives and reductions; excludes extension, symmetric-memory and copy-engine kernels.",
+      "description": "Built-in collective/P2P device kernels, communication primitives and reductions, including device-side function-table routing, function IDs and specialization matching such as SendRecv. Host rank scheduling belongs to scheduling; CU/CE policies to dispatch; extension, symmetric-memory and CE kernels keep their own modules.",
+      "key_files": ["src/collectives/device/common.h", "src/collectives/device/sendrecv.h", "src/collectives/device/primitives.h"],
       "maintainer": {"login": "honganlxh", "id": 335730053},
       "reviewers": [
         {"login": "xiangzhixyc", "id": 341355176},
@@ -119,7 +131,8 @@
     },
     "scheduling": {
       "name": "AlltoAll and P2P scheduling",
-      "description": "Host-side AlltoAll/P2P rank pairing, communication rounds, batching and ordering. CE/DMA transfer partitioning belongs to copy-engine, and symmetric task planning to symmetric.",
+      "description": "Host-side AlltoAll/P2P rank pairing, send/receive rounds, ordering and rank-level batching. Device-side SendRecv execution belongs to kernels, CE/DMA transfer partitioning to copy-engine, and symmetric task planning to symmetric.",
+      "key_files": ["src/init.cc", "src/enqueue.cc"],
       "maintainer": {"login": "honganlxh", "id": 335730053},
       "reviewers": [
         {"login": "levilee-lwl", "id": 340491409},
@@ -129,7 +142,8 @@
     },
     "kernel-plugin": {
       "name": "Kernel plugin and extension kernels",
-      "description": "Extension-kernel interfaces, loading and externally supplied kernels.",
+      "description": "Extension-kernel ABI, discovery/loading, eligibility callbacks, workspace/lifecycle integration and plugin-provided execution. Native built-in device implementations belong to kernels.",
+      "key_files": ["src/misc/ext_kernel.cc", "src/include/ext_kernel_plugin.h"],
       "maintainer": {"login": "ck-milo", "id": 341349555},
       "reviewers": [
         {"login": "honganlxh", "id": 335730053},
@@ -138,7 +152,8 @@
     },
     "tuner-plugin": {
       "name": "Tuner plugin",
-      "description": "Tuner-plugin ABI, loading and external tuning implementations.",
+      "description": "External tuner ABI, loading/lifecycle, callbacks and integration of plugin-provided algorithm/protocol decisions. Built-in cost models and default tuning policy belong to tuning.",
+      "key_files": ["src/misc/tuner.cc", "src/include/pccl_tuner.h"],
       "maintainer": {"login": "ck-milo", "id": 341349555},
       "reviewers": [
         {"login": "honganlxh", "id": 335730053},
@@ -147,7 +162,8 @@
     },
     "profiler": {
       "name": "Profiler and plugin",
-      "description": "Profiling events, instrumentation, profiler plugins and inspector integration.",
+      "description": "Profiling event definitions, timing/trace instrumentation, profiler-plugin ABI/callbacks and inspector integration. Hang monitoring and failure diagnostics belong to ras.",
+      "key_files": ["src/include/profiler.h", "src/plugin/profiler.cc", "src/misc/asys_profiler.cc"],
       "maintainer": {"login": "levilee-lwl", "id": 340491409},
       "reviewers": [
         {"login": "ck-milo", "id": 341349555},
@@ -156,7 +172,8 @@
     },
     "symmetric": {
       "name": "Symmetric-memory collectives",
-      "description": "Symmetric-memory collective planning, kernels and synchronization, including host-side eligibility, kernel/CE path selection and thresholds within this path. Independently changed CE/DMA transfer execution belongs to copy-engine.",
+      "description": "Symmetric-memory collective kernels, eligibility, task planning, kernel/CE path selection, local thresholds and synchronization. Window/LSA API semantics belong to device-api; independent CE/DMA transfer execution belongs to copy-engine.",
+      "key_files": ["src/sym_kernels.cc", "src/scheduler/symmetric_sched.cc", "src/collectives/device/symmetric/kernel.cuh"],
       "maintainer": {"login": "snowdrift-zw", "id": 341341178},
       "reviewers": [
         {"login": "ck-milo", "id": 341349555},
@@ -166,7 +183,8 @@
     },
     "copy-engine": {
       "name": "Copy-engine operations",
-      "description": "Copy-engine/DMA execution of collective and P2P operations, including transfer batching, partitioning, queues, streams and synchronization. Kernel/CE path selection and thresholds for symmetric-memory collectives belong to symmetric.",
+      "description": "Collective/P2P execution through CE/DMA: batch submission, transfer partitioning, queues, streams and completion synchronization, including OKI and P2P DMA. Symmetric collective kernel/CE path selection and its thresholds belong to symmetric.",
+      "key_files": ["src/ce_coll.cc", "src/ce_coll_oki.cc", "src/p2p_dma.cc"],
       "maintainer": {"login": "ck-milo", "id": 341349555},
       "reviewers": [
         {"login": "snowdrift-zw", "id": 341341178},
@@ -175,7 +193,8 @@
     },
     "ras": {
       "name": "RAS and hang diagnostics",
-      "description": "RAS, hang monitoring, communicator dumps and related diagnostics.",
+      "description": "Health/error reporting, hang detection, communicator/work dumps and offline failure diagnosis. Diagnostic control traffic stays with ras; performance profiling events belong to profiler.",
+      "key_files": ["src/ras/monitor.cc", "src/ras/ras.cc", "src/misc/comm_dumper.cc"],
       "maintainer": {"login": "ck-milo", "id": 341349555},
       "reviewers": [
         {"login": "QingxunLy", "id": 341751581},
@@ -184,7 +203,8 @@
     },
     "device-api": {
       "name": "Device API and LSA",
-      "description": "Public device APIs, windows, local shared access and their implementation.",
+      "description": "Public device communicator, window and LSA APIs, their host/device implementation, pointer access, barriers and local bulk operations. GIN networking APIs belong to gin and CU/CE dispatch configuration to dispatch.",
+      "key_files": ["src/dev_runtime.cc", "src/include/pccl_device/comm.h", "src/include/pccl_device/lsa_bulk.h"],
       "maintainer": {"login": "wensuyang", "id": 333277982},
       "reviewers": [
         {"login": "snowdrift-zw", "id": 341341178},
@@ -193,7 +213,8 @@
     },
     "gin": {
       "name": "GIN",
-      "description": "GPU/PPU-initiated networking, GIN APIs, plugins and GIN-specific RDMA backends; shared networking belongs to network.",
+      "description": "Device-initiated networking APIs, GIN connections/progress, registration, plugins and GIN-specific RDMA backends. Shared host-driven network transport belongs to network; generic device communicator/window/LSA semantics belong to device-api.",
+      "key_files": ["src/gin/gin_host.cc", "src/plugin/gin.cc", "src/include/pccl_device/gin.h"],
       "maintainer": {"login": "snowdrift-zw", "id": 341341178},
       "reviewers": [
         {"login": "wensuyang", "id": 333277982},
@@ -203,7 +224,8 @@
     },
     "workflow": {
       "name": "Contribution and review workflows",
-      "description": "Contribution guidance, issue/PR templates, review rules, reviewer routing, commit-message and merge automation, and their tests; includes supporting Actions triggers, gates and concurrency that preserve normal test behavior.",
+      "description": "Contribution and review/merge policy, issue/PR templates, reviewer assignment/approval, commit validation and squash-message automation, including supporting Actions wiring. Normal test execution and pass/fail criteria belong to ci.",
+      "key_files": ["CONTRIBUTING.md", ".github/scripts/review_automation.py", ".github/workflows/reviewer-routing.yml"],
       "maintainer": {"login": "honganlxh", "id": 335730053},
       "reviewers": [
         {"login": "honganlxh", "id": 335730053},
@@ -212,7 +234,8 @@
     },
     "ci": {
       "name": "Open-source test workflows",
-      "description": "Normal test selection, execution, runners, result reporting and pass/fail criteria; excludes contribution, review and merge automation and supporting Actions wiring that leaves normal test behavior unchanged.",
+      "description": "Normal CI build/test selection, matrices, runners/environments, execution, result reporting and test pass/fail aggregation. Contribution/review policy belongs to workflow; compiler/build definitions and packaging belong to build.",
+      "key_files": [".github/workflows/pr-test-ppu.yml", ".github/workflows/scripts/pr-ut-runner.py", ".github/workflows/scripts/casecmd.list"],
       "maintainer": {"login": "xuyinxin-xyx", "id": 333302477},
       "reviewers": [
         {"login": "xuyinxin-xyx", "id": 333302477}
@@ -221,7 +244,8 @@
     },
     "other": {
       "name": "Other changes",
-      "description": "Changes outside the listed modules; explain the uncovered behavior explicitly.",
+      "description": "Functionality outside the catalog, general utilities without a dedicated module, or changes that remain ambiguous after reading the complete diff. Explain the uncovered behavior or uncertainty; a shared or unlisted file alone is not a reason to use other.",
+      "key_files": [],
       "maintainer": {"login": "lishusen2026", "id": 340101345},
       "reviewers": [
         {"login": "lishusen2026", "id": 340101345},

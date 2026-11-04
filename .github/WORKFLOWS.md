@@ -11,7 +11,7 @@ PPU tests. `PCCL Tests Gate` reports the results of the required jobs.
 
 | File | Purpose |
 | --- | --- |
-| [pr-test-ppu.yml](workflows/pr-test-ppu.yml) | Run checkin and publish `PCCL Tests Gate`. |
+| [pr-test-ppu.yml](workflows/pr-test-ppu.yml) | Run `PCCL CI` and publish `PCCL Tests Gate`. |
 | [workflows/scripts/](workflows/scripts/) | Build and test PCCL with the external test suite. |
 | [casecmd.list](workflows/scripts/casecmd.list) | Define the PPU test matrix. |
 
@@ -21,8 +21,11 @@ Multi-commit PRs targeting `main` receive a proposed squash commit message.
 Publishing a fresh preview places the message at the end of the conversation and removes
 older previews. The preview supplies the message for GitHub's **Squash and merge** dialog.
 
+For fork PRs, a Maintainer runs `PCCL Commit Message Preview` from `main` with `pr_number`.
+
 | File | Purpose |
 | --- | --- |
+| [commit-message.yml](workflows/commit-message.yml) | Run `PCCL Commit Message Preview` independently of CI. |
 | [commit_message_squash.py](scripts/commit_message_squash.py) | Generate and publish the message and remove older previews. |
 | [Squash message Skill](../.agents/skills/pccl-squash-message/SKILL.md) | Define how to summarize changes and preserve references and signing trailers. |
 | [install_copilot.sh](scripts/install_copilot.sh) | Install Copilot CLI for message generation and module classification. |

@@ -32,13 +32,17 @@ def load_config():
         raise ValueError("Configure the Lead Maintainer and module roster in modules.json")
     roster = {"lead_maintainer": account_id(source["lead_maintainer"]), "modules": {}}
     for module, entry in source["modules"].items():
-        required = {"name", "description", "maintainer", "reviewers"}
+        required = {"name", "description", "key_files", "maintainer", "reviewers"}
         if (not re.fullmatch(r"[a-z][a-z0-9-]*", module) or not isinstance(entry, dict) or
                 not required <= set(entry) or set(entry) - required - {"author_review_exemption"}):
             raise ValueError("Invalid module configuration")
         if any(not isinstance(entry[key], str) or not entry[key].strip()
                for key in ("name", "description")):
             raise ValueError("Module names and descriptions must be nonempty text")
+        key_files = entry["key_files"]
+        if (not isinstance(key_files, list) or
+                any(not isinstance(path, str) or not path.strip() for path in key_files)):
+            raise ValueError(f"Key files must be a list of nonempty paths for module {module}")
         candidates = entry["reviewers"]
         if not isinstance(candidates, list) or not candidates:
             raise ValueError(f"Invalid Reviewer list for module {module}")
@@ -63,8 +67,8 @@ def account_id(account):
 
 
 def module_catalog(roster):
-    """Classification needs module descriptions, not the personnel assignments."""
-    return {module: {key: entry[key] for key in ("name", "description")}
+    """Send module scopes and key-file examples without personnel assignments."""
+    return {module: {key: entry[key] for key in ("name", "description", "key_files")}
             for module, entry in roster["modules"].items()}
 
 
