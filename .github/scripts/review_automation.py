@@ -1,5 +1,3 @@
-# SPDX-License-Identifier: Apache-2.0
-# Copyright (c) 2026 T-Head (Shanghai) Semiconductor Co., Ltd. All rights reserved.
 """Classify pull requests and invite reviewers for the affected modules."""
 
 import hashlib
@@ -13,6 +11,7 @@ import sys
 import tempfile
 import time
 
+from copilot_cli import final_response
 import reviewer_api
 import reviewer_state
 
@@ -160,16 +159,7 @@ def ask_copilot(prompt):
             delay = min(5 * (attempt + 1), max(0, deadline - time.monotonic()))
             print(f"Model catalog timed out; retry {attempt + 1}/2 in {delay:g}s", file=sys.stderr)
             time.sleep(delay)
-    # The echoed input is not a response; CLI 1.0.100 can mis-escape that event.
-    messages = [json.loads(line) for line in result.stdout.splitlines()
-                if line.strip() and not line.startswith('{"type":"user.message",')]
-    if any(item.get("type") == "tool.execution_start" for item in messages):
-        raise ValueError("Classification must not execute tools")
-    replies = [item["data"]["content"] for item in messages
-               if item.get("type") == "assistant.message" and item.get("data", {}).get("content")]
-    if not replies:
-        raise ValueError("Copilot did not return a classification")
-    return replies[-1]
+    return final_response(result.stdout)
 
 
 def classification_summary(pr, proposal):
@@ -201,10 +191,13 @@ def invite(api, pr, recommendation, roster, skill):
         record["reviewers"] = select_reviewers(active, roster["modules"], previous["reviewers"], latest, author)
     finally:
         reviewer_state.save_review_state(api, number, previous, record, latest, revision)
-    modules_by_user = {}
+    roles_by_user = {}
     for module in active:
-        for user_id in {record["reviewers"][module], module_maintainer(roster, module, author)} - {None}:
-            modules_by_user.setdefault(user_id, []).append(module)
+        roles = ((record["reviewers"][module], "Reviewer"),
+                 (module_maintainer(roster, module, author), "Maintainer"))
+        for user_id, role in roles:
+            if user_id is not None:
+                roles_by_user.setdefault(user_id, {}).setdefault(module, []).append(role)
 
     # A submitted review or manual removal must not cause a repeat invitation.
     history = api.pages(f"/issues/{number}/timeline")
@@ -216,11 +209,11 @@ def invite(api, pr, recommendation, roster, skill):
         raise ValueError("PR changed before invitation; rerun classification")
     requested.update(user["id"] for user in fresh["requested_reviewers"])
     requested.update(current_approvals(fresh, api.pages(f"/pulls/{number}/reviews")))
-    new_users = sorted(modules_by_user.keys() - requested, key=api.login)
+    new_users = sorted(roles_by_user.keys() - requested, key=api.login)
     logins = [api.login(user_id) for user_id in new_users]
+    # Refresh existing notices even when everyone has already been invited.
+    notify_reviewers(api, number, new_users, roles_by_user)
     if new_users:
-        # Notify first so a failed comment remains retryable; markers prevent repeated mentions.
-        notify_reviewers(api, number, new_users, modules_by_user)
         api.request("POST", f"/pulls/{number}/requested_reviewers", {"reviewers": logins})
     return (f"### Reviewer invitations · PR #{number}\n\n"
             f"New requests: {', '.join(logins) or 'none'}.\n")
@@ -254,28 +247,41 @@ def module_maintainer(roster, module, author):
     return None if maintainer == author else maintainer
 
 
-def notify_reviewers(api, number, new_users, modules_by_user):
-    """A saved account-ID marker prevents repeated mentions after an invitation failure."""
+def notify_reviewers(api, number, new_users, roles_by_user):
+    """Keep module notices current and retain account IDs for retry deduplication."""
     notified = set()
     for comment in api.pages(f"/issues/{number}/comments"):
         if (comment["user"].get("login") != "github-actions[bot]" or
                 comment["user"].get("type") != "Bot"):
             continue
-        marker = re.match(r"<!-- pccl-review-notice:([0-9]+(?:,[0-9]+)*) -->\n",
-                          comment.get("body") or "")
+        existing_body = (comment.get("body") or "").replace("\r\n", "\n")
+        marker = re.match(r"<!-- pccl-review-notice:([0-9]+(?:,[0-9]+)*) -->\n", existing_body)
         if marker:
-            notified.update(int(user_id) for user_id in marker[1].split(","))
+            recipients = [int(user_id) for user_id in marker[1].split(",")]
+            notified.update(recipients)
+            body = review_notice_body(api, recipients, roles_by_user)
+            if body != existing_body:
+                api.request("PATCH", f"/issues/comments/{comment['id']}", {"body": body})
     recipients = [user_id for user_id in new_users if user_id not in notified]
-    if not recipients:
-        return
+    if recipients:
+        api.request("POST", f"/issues/{number}/comments",
+                    {"body": review_notice_body(api, recipients, roles_by_user)})
+
+
+def review_notice_body(api, recipients, roles_by_user):
+    """Render current assignments while preserving the notice's original recipients."""
     lines = []
     for user_id in recipients:
-        modules = [f"**{module}**" for module in modules_by_user[user_id]]
-        names = ", ".join(modules[:-1]) + " and " + modules[-1] if len(modules) > 1 else modules[0]
-        noun = "modules" if len(modules) > 1 else "module"
-        lines.append(f"@{api.login(user_id)}, please review the changes affecting the {names} {noun}.")
+        assignments = [f"**{' and '.join(roles)}** for the **{module}** module"
+                       for module, roles in roles_by_user.get(user_id, {}).items()]
+        if not assignments:
+            continue
+        description = (", ".join(assignments[:-1]) + " and " + assignments[-1]
+                       if len(assignments) > 1 else assignments[0])
+        lines.append(f"@{api.login(user_id)}, please review as {description}.")
     marker = "<!-- pccl-review-notice:" + ",".join(str(user_id) for user_id in recipients) + " -->\n"
-    api.request("POST", f"/issues/{number}/comments", {"body": marker + "\n" + "\n\n".join(lines) + "\n"})
+    body = "\n\n".join(lines) or "No current module assignments remain for the reviewers in this notice."
+    return marker + "\n" + body + "\n"
 
 
 # Review history

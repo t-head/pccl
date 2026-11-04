@@ -2,8 +2,6 @@
 
 <!-- PR title: use a clear summary; a type prefix such as feat:, fix:, or docs: is recommended but not required. -->
 
-<!-- Keep exactly one contribution commit in this PR; squash follow-up commits before pushing. -->
-
 ## Description
 
 <!-- Clearly describe what the PR does and why -->

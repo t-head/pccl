@@ -1,5 +1,3 @@
-# SPDX-License-Identifier: Apache-2.0
-# Copyright (c) 2026 T-Head (Shanghai) Semiconductor Co., Ltd. All rights reserved.
 """Refresh the module Maintainer check when routing finishes or a review changes."""
 
 import json
@@ -8,7 +6,6 @@ from pathlib import Path
 import re
 import subprocess
 import sys
-import time
 
 import review_automation as routing
 import reviewer_api
@@ -37,14 +34,6 @@ def publish_status(api, sha, state, description):
     api.request("POST", f"/statuses/{sha}", {
         "context": CHECK, "state": state, "description": description,
         "target_url": f"https://github.com/{api.repository}/actions/runs/{os.environ['GITHUB_RUN_ID']}"})
-
-
-def verify_test_merge(api, pr, sha):
-    if pr.get("mergeable") is not True:
-        raise ValueError("No current test merge; resolve conflicts or rerun after GitHub computes mergeability")
-    commit = api.request("GET", f"/git/commits/{sha}")
-    if [parent["sha"] for parent in commit["parents"]] != [pr["base"]["sha"], pr["head"]["sha"]]:
-        raise ValueError("Test merge parents do not match the current base and head; rerun the workflow")
 
 
 def verify_review_trigger(api, sha):
@@ -80,21 +69,14 @@ def module_approval(api, pr, roster, skill, classification, approvals):
 
 
 def refresh(api, number):
-    # A review event may arrive while GitHub is calculating the test merge.
-    for attempt in range(6):
-        pr = api.request("GET", f"/pulls/{number}")
-        if (pr["state"] != "open" or pr["draft"] or pr["base"]["repo"]["full_name"] != api.repository or
-                (pr["base"]["ref"] != routing.WORKFLOW_BRANCH and not pr["base"]["ref"].startswith("release/"))):
-            return
-        if pr["mergeable"] is not None or attempt == 5:
-            break
-        time.sleep(2)
-    sha = pr.get("merge_commit_sha")
-    if not sha or sha in {pr["head"]["sha"], pr["base"]["sha"]}:
-        raise ValueError("GitHub has not provided a test merge for this PR")
+    pr = api.request("GET", f"/pulls/{number}")
+    if (pr["state"] != "open" or pr["draft"] or pr["base"]["repo"]["full_name"] != api.repository or
+            (pr["base"]["ref"] != routing.WORKFLOW_BRANCH and not pr["base"]["ref"].startswith("release/"))):
+        return
+    # Match PCCL Tests Gate: a status on the test merge makes GitHub require checks there instead.
+    sha = pr["head"]["sha"]
     publish_status(api, sha, "pending", "Checking module Maintainer approvals")
     try:
-        verify_test_merge(api, pr, sha)
         roster, skill = routing.load_config()
         approved = routing.current_approvals(pr, api.pages(f"/pulls/{number}/reviews"))
         classification = None
@@ -105,14 +87,8 @@ def refresh(api, number):
             ready, reason = module_approval(api, pr, roster, skill, classification, approved)
         if ready:
             verify_review_trigger(api, sha)
-            # A commit status is shared by every PR using that SHA. Fail closed on a possible collision.
-            for other in api.pages("/pulls?state=open"):
-                if (other["number"] != number and other["head"]["sha"] == pr["head"]["sha"] and
-                        other["base"]["sha"] == pr["base"]["sha"] and other.get("merge_commit_sha") in {None, sha}):
-                    raise ValueError("Another PR may share this test merge. Separate the PRs and rerun routing")
             fresh = api.request("GET", f"/pulls/{number}")
             if (routing.pr_snapshot_key(fresh) != routing.pr_snapshot_key(pr) or
-                    fresh.get("merge_commit_sha") != sha or fresh["mergeable"] is not True or
                     (classification is not None and saved_classification(api, number) != classification) or
                     routing.current_approvals(fresh, api.pages(f"/pulls/{number}/reviews")) != approved):
                 raise ValueError("PR or approvals changed during verification. Rerun the approval check")
