@@ -48,9 +48,10 @@ ncclResult_t ncclIpcSocketInit(ncclIpcSocket *handle, int rank, uint64_t hash, v
   }
   if (!ncclParamIpcUseAbstractSocket()) unlink(temp);
 
-  TRACE(NCCL_INIT, "UDS: Creating socket %s", temp);
+  TRACE(NCCL_INIT|NCCL_P2P, "UDS: Creating socket %s%s", temp,
+        ncclParamIpcUseAbstractSocket() ? " (abstract)" : "");
 
-  strncpy(cliaddr.sun_path, temp, len);
+  strcpy(cliaddr.sun_path, temp);
   if (ncclParamIpcUseAbstractSocket()) cliaddr.sun_path[0] = '\0'; // Linux abstract socket trick
   if (bind(fd, (struct sockaddr *)&cliaddr, sizeof(cliaddr)) < 0) {
     ERROR("UDS: Binding to socket %s failed : %s (%d)", temp, strerror(errno), errno);
@@ -74,7 +75,7 @@ ncclResult_t ncclIpcSocketInit(ncclIpcSocket *handle, int rank, uint64_t hash, v
 
 ncclResult_t ncclIpcSocketGetFd(struct ncclIpcSocket* handle, int* fd) {
   if (handle == NULL) {
-    ERROR("pcclSocketGetFd: pass NULL socket");
+    ERROR("pcclIpcSocketGetFd: pass NULL socket");
     return ncclInvalidArgument;
   }
   if (fd) *fd = handle->fd;
@@ -177,7 +178,7 @@ ncclResult_t ncclIpcSocketSendMsg(ncclIpcSocket *handle, void *hdr, int hdrLen, 
     ERROR("UDS: Cannot connect to provided name for socket. Name too large");
     return ncclInternalError;
   }
-  (void) strncpy(cliaddr.sun_path, temp, len);
+  strcpy(cliaddr.sun_path, temp);
 
   if (ncclParamIpcUseAbstractSocket()) cliaddr.sun_path[0] = '\0'; // Linux abstract socket trick
 
