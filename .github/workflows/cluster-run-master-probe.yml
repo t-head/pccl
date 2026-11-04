@@ -57,18 +57,6 @@ jobs:
               timeout --signal=TERM --kill-after=2s 5s getent hosts "$host" >/dev/null
               echo "resolved $host"
             done < "$CLUSTER_HOSTS_FILE"
-            cat > /tmp/mpi-rsh-agent <<'SH'
-            #!/bin/bash
-            set -u
-            line=
-            for argument in "$@"; do
-              printf -v quoted '%q' "$argument"
-              line+="${quoted} "
-            done
-            printf '%s\n' "$line" >> /tmp/mpi-rsh-agent.log
-            exec cluster-ssh "$@"
-            SH
-            chmod 0755 /tmp/mpi-rsh-agent
             run_probe() {
               label=$1
               seconds=$2
@@ -101,30 +89,24 @@ jobs:
             else
               local_bond1_rc=$?
             fi
-            : > /tmp/mpi-rsh-agent.log
             if run_probe remote_fqdn 30 \
               mpirun --allow-run-as-root -np 2 -npernode 1 \
-              --prefix "$mpi_prefix" -mca plm_rsh_agent /tmp/mpi-rsh-agent \
+              --prefix "$mpi_prefix" -mca plm_rsh_agent cluster-ssh \
               -mca orte_base_help_aggregate 0 --hostfile /tmp/mpi-hosts-fqdn.cfg \
               -x LD_LIBRARY_PATH -x PATH /bin/echo remote-fqdn; then
               remote_fqdn_rc=0
             else
               remote_fqdn_rc=$?
             fi
-            echo 'FQDN cluster-ssh invocation:'
-            cat /tmp/mpi-rsh-agent.log 2>/dev/null || echo '<not invoked>'
-            : > /tmp/mpi-rsh-agent.log
             if run_probe remote_short 30 \
               mpirun --allow-run-as-root -np 2 -npernode 1 \
-              --prefix "$mpi_prefix" -mca plm_rsh_agent /tmp/mpi-rsh-agent \
+              --prefix "$mpi_prefix" -mca plm_rsh_agent cluster-ssh \
               -mca orte_base_help_aggregate 0 --hostfile /tmp/mpi-hosts-short.cfg \
               -x LD_LIBRARY_PATH -x PATH /bin/echo remote-short; then
               remote_short_rc=0
             else
               remote_short_rc=$?
             fi
-            echo 'short-host cluster-ssh invocation:'
-            cat /tmp/mpi-rsh-agent.log 2>/dev/null || echo '<not invoked>'
             for rank in 0 1; do
               host=$(jq -r --argjson rank "$rank" '.[$rank].host' "$CLUSTER_NODES_FILE")
               cluster-exec "$host" /bin/bash -c \
