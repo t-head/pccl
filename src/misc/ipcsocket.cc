@@ -8,12 +8,12 @@
 
 #include "ipcsocket.h"
 #include "utils.h"
+#include "param.h"
 #include <stdlib.h>
 #include <string.h>
 #include <errno.h>
 
-// Enable Linux abstract socket naming
-#define USE_ABSTRACT_SOCKET
+NCCL_PARAM(IpcUseAbstractSocket, "IPC_USE_ABSTRACT_SOCKET", 1);
 
 #define NCCL_IPC_SOCKNAME_STR "/tmp/pccl-socket-%d-%lx"
 
@@ -46,16 +46,12 @@ ncclResult_t ncclIpcSocketInit(ncclIpcSocket *handle, int rank, uint64_t hash, v
     close(fd);
     return ncclInternalError;
   }
-#ifndef USE_ABSTRACT_SOCKET
-  unlink(temp);
-#endif
+  if (!ncclParamIpcUseAbstractSocket()) unlink(temp);
 
   TRACE(NCCL_INIT, "UDS: Creating socket %s", temp);
 
   strncpy(cliaddr.sun_path, temp, len);
-#ifdef USE_ABSTRACT_SOCKET
-  cliaddr.sun_path[0] = '\0'; // Linux abstract socket trick
-#endif
+  if (ncclParamIpcUseAbstractSocket()) cliaddr.sun_path[0] = '\0'; // Linux abstract socket trick
   if (bind(fd, (struct sockaddr *)&cliaddr, sizeof(cliaddr)) < 0) {
     ERROR("UDS: Binding to socket %s failed : %s (%d)", temp, strerror(errno), errno);
     close(fd);
@@ -92,11 +88,9 @@ ncclResult_t ncclIpcSocketClose(ncclIpcSocket *handle) {
   if (handle->fd <= 0) {
     return ncclSuccess;
   }
-#ifndef USE_ABSTRACT_SOCKET
-  if (handle->socketName[0] != '\0') {
+  if (!ncclParamIpcUseAbstractSocket() && handle->socketName[0] != '\0') {
     unlink(handle->socketName);
   }
-#endif
   close(handle->fd);
 
   return ncclSuccess;
@@ -185,9 +179,7 @@ ncclResult_t ncclIpcSocketSendMsg(ncclIpcSocket *handle, void *hdr, int hdrLen, 
   }
   (void) strncpy(cliaddr.sun_path, temp, len);
 
-#ifdef USE_ABSTRACT_SOCKET
-  cliaddr.sun_path[0] = '\0'; // Linux abstract socket trick
-#endif
+  if (ncclParamIpcUseAbstractSocket()) cliaddr.sun_path[0] = '\0'; // Linux abstract socket trick
 
   TRACE(NCCL_INIT, "UDS: Sending hdr %p len %d fd %d to UDS socket %s", hdr, hdrLen, sendFd, temp);
 
