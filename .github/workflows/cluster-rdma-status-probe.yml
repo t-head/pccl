@@ -1,0 +1,95 @@
+name: cluster-run RDMA status probe
+
+on:
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+jobs:
+  probe:
+    runs-on: k8s-runner-group-cpu-thead
+    container:
+      image: ghcr.io/actions/actions-runner:latest
+    timeout-minutes: 20
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          persist-credentials: false
+      - name: Inspect RDMA devices and peer-memory driver on both workers
+        uses: t-head/ci-infra/cluster-run@feat/master-launch-mode
+        with:
+          launch_mode: master
+          image: download.t-head.cn/docker_release/ppu:sdk2.2.0-hggcrt3-ubuntu24.04-py312-20261005
+          nnodes: 2
+          nproc_per_node: 1
+          node_selector: board-type=ZW-M890P
+          namespace: ppu-sched
+          timeout_minutes: 15
+          container_options: |
+            privileged: true
+          host_volumes: /dev/infiniband:/dev/infiniband
+          setup_command: |
+            set -euo pipefail
+            source /usr/local/PPU_SDK/envsetup.sh
+            test -d /dev/infiniband
+            test -d /sys/class/infiniband
+          command: |
+            set -euo pipefail
+            test "$NODE_RANK" -eq 0
+            for rank in 0 1; do
+              host=$(jq -r --argjson rank "$rank" '.[$rank].host' "$CLUSTER_NODES_FILE")
+              echo "::group::RDMA status worker-$rank"
+              cluster-exec "$host" /bin/bash -c '
+                set -euo pipefail
+                echo "node_rank=$NODE_RANK"
+                echo "kernel=$(uname -r)"
+                echo "[device nodes]"
+                found=0
+                for path in /dev/infiniband/*; do
+                  [ -e "$path" ] || continue
+                  found=1
+                  printf "%s type=" "$(basename "$path")"
+                  stat -c "%F mode=%a major_minor=%t:%T" "$path"
+                done
+                [ "$found" -eq 1 ] || echo "<none>"
+                echo "[infiniband devices]"
+                for device in /sys/class/infiniband/*; do
+                  [ -e "$device" ] || continue
+                  name=$(basename "$device")
+                  driver=$(basename "$(readlink -f "$device/device/driver" 2>/dev/null || echo unknown)")
+                  echo "device=$name driver=$driver"
+                  for port in "$device"/ports/*; do
+                    [ -e "$port" ] || continue
+                    number=$(basename "$port")
+                    state=$(cat "$port/state" 2>/dev/null || echo unavailable)
+                    physical=$(cat "$port/phys_state" 2>/dev/null || echo unavailable)
+                    layer=$(cat "$port/link_layer" 2>/dev/null || echo unavailable)
+                    rate=$(cat "$port/rate" 2>/dev/null || echo unavailable)
+                    echo "  port=$number state=$state physical_state=$physical link_layer=$layer rate=$rate"
+                  done
+                done
+                echo "[rdma link]"
+                if command -v rdma >/dev/null 2>&1; then rdma link show; else echo "rdma tool unavailable"; fi
+                echo "[core modules]"
+                grep -E "^(alixpu_peermem|nvidia_peermem|ib_core|ib_uverbs|rdma_cm|mlx5_core|mlx5_ib) " /proc/modules || true
+                echo "[alixpu_peermem]"
+                if [ -d /sys/module/alixpu_peermem ]; then
+                  echo "loaded=yes"
+                  if [ -r /sys/module/alixpu_peermem/refcnt ]; then echo "refcnt=$(cat /sys/module/alixpu_peermem/refcnt)"; fi
+                  if [ -r /sys/module/alixpu_peermem/taint ]; then echo "taint=$(cat /sys/module/alixpu_peermem/taint)"; fi
+                else
+                  echo "loaded=no"
+                fi
+                if command -v modinfo >/dev/null 2>&1; then
+                  modinfo -F filename alixpu_peermem 2>/dev/null | sed "s#^#filename=#" || true
+                  modinfo -F version alixpu_peermem 2>/dev/null | sed "s#^#version=#" || true
+                  modinfo -F vermagic alixpu_peermem 2>/dev/null | sed "s#^#vermagic=#" || true
+                  modinfo -F depends alixpu_peermem 2>/dev/null | sed "s#^#depends=#" || true
+                else
+                  echo "modinfo unavailable"
+                fi
+              '
+              echo "::endgroup::"
+            done
+            echo 'two-node RDMA status probe completed'
