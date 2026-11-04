@@ -1,14 +1,14 @@
 {
   "classification": {
-    "base_sha": "b4c46ba921d6e206f685229d94403260a69e03fd",
-    "head_sha": "5078b9eee2d4b7ce5c35512ee53ed25922a0a385",
-    "input_fingerprint": "944323af76c31be5277793f3da20e7b560c1c8c30ca1961dba2542ee3cd0e2de",
+    "base_sha": "5f8a1be5e27b99ea44e2dc8d0d09f95ea6d8880f",
+    "head_sha": "b614e50be81d8398e5b74ff798922d539d5af855",
+    "input_fingerprint": "6a7cc792f56d74f669c8773a79b8b1aed82bb06915f376fde0952f6cfe975818",
     "pr_number": 130,
     "proposal": {
       "modules": [
         "gin"
       ],
-      "reason": "The diff makes a substantive change to GIN-specific GDAKI connection initialization: resizing per-context peer exchange storage and reordering main/self-loop QP connection sequencing to balance LAG member affinity. This is a GIN backend behavior change, not a separate shared network/transport policy change."
+      "reason": "Main functional change is in GIN: LAG-aware QP affinity and context setup logic for both GDAKI and PROXY P2P paths (including allowing positive requested send depth) to balance traffic across LAG members. The mlx5 symbol/wrapper and DOCA attribute updates are supporting plumbing for this same GIN behavior, not a separate independent module change."
     }
   },
   "reviewers": {
