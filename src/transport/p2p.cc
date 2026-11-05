@@ -845,7 +845,7 @@ static ncclResult_t ipcRegisterBuffer(ncclComm_t comm, const void* userbuff, siz
       } else {
         // Register buffer with peerLocalRank
         struct ncclProxyConnector* proxyConn = NULL;
-        struct p2pIpcExpInfo ipcInfo;
+        struct p2pIpcExpInfo ipcInfo = {};
 
         if (baseAddr == NULL) {
           HGCHECKGOTO(hgMemGetAddressRange((HGdeviceptr*)&baseAddr, &sizeAlignedPhy, (HGdeviceptr)userbuff), ret, fail);
@@ -1093,6 +1093,10 @@ static ncclResult_t p2pProxyRegister(struct ncclProxyConnection* connection, str
     } else {
       if (ncclHgMemHandleType == HG_MEM_HANDLE_TYPE_POSIX_FILE_DESCRIPTOR) {
         HGCHECKGOTO(hgMemImportFromShareableHandle(&handle, (void*)(uintptr_t)ipcExpInfo->impFd, ncclHgMemHandleType), ret, fail);
+        if (ipcExpInfo->impFd != -1 && ipcExpInfo->impFd == connection->pidfdImportFd) {
+          connection->pidfdImportFd = -1;
+          INFO(NCCL_REG, "pidfd: Register imported fd %d", ipcExpInfo->impFd);
+        }
         SYSCHECKGOTO(close(ipcExpInfo->impFd), "close", ret, fail);
       } else {
         HGCHECKGOTO(hgMemImportFromShareableHandle(&handle, (void*)&ipcExpInfo->ipcDesc.hgDesc, ncclHgMemHandleType), ret, fail);
