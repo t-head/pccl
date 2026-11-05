@@ -1,16 +1,15 @@
 {
   "classification": {
     "base_sha": "a04b88e02c3a5b955ba0847eca2bc3d19cbf4829",
-    "head_sha": "b1bc9c8aaf7025aa115d38961fd5c2f3a8996470",
-    "input_fingerprint": "8fbf24c65aaf1c3b7057a058bfbc511ea926fa3ca8ca36e56475e28cfd4edc2f",
+    "head_sha": "8d1cea780bd8b42620c009f22dd522fab6144bd0",
+    "input_fingerprint": "728c3f61b6a56bd8c79a13e38f8f8339411878d951fb8dbb413fda0bf1a69a5f",
     "pr_number": 142,
     "proposal": {
       "modules": [
         "transport",
-        "memory",
-        "network"
+        "memory"
       ],
-      "reason": "Main change is in P2P IPC transport registration: it now registers/maps full multi-segment physical allocations, batches FD conversion, tracks per-segment imports, and hardens deregistration/teardown paths. Add memory because allocation/free and registration-lifecycle semantics changed (segment-aware hgMem/hggc free helpers and deregister callback draining to prevent stale reused-address mappings). Add network because proxy-side FD/query and proxy connection handle-queue lifecycle were substantively extended in shared proxy infrastructure, not just caller wiring."
+      "reason": "Main change is in P2P transport IPC registration: it now registers/maps full multi-segment physical allocations, batches FD conversion, tracks per-connection imported handles, and hardens proxy-side deregistration/cleanup. Memory is also required because allocation/free and registration-lifecycle paths were substantively changed to carry segment counts, free multi-segment mappings safely, and drain callbacks before local deregistration to prevent stale mapping reuse."
     }
   },
   "reviewers": {
