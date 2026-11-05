@@ -2,6 +2,7 @@
 # SPDX-License-Identifier: Apache-2.0
 
 import argparse
+import json
 import math
 from pathlib import Path
 import re
@@ -10,7 +11,8 @@ import sys
 
 from catalog import cases, performance_cases
 from command import check_command
-from execute import execution_provenance, read_jsonl, run_shard, verified_metrics, write_json
+from execute import (execution_provenance, read_jsonl, run_shard, verified_metrics, verified_runtime,
+                     verify_lifecycle, write_json)
 from manifest import case_key, digest, load_manifest, read_json, validate_selection
 from metrics import summarize_metrics, write_metrics
 
@@ -31,22 +33,35 @@ def selection(path):
     return manifest
 
 
-def run(manifest_path, profile, test_root, output):
+def matrix(manifest_path):
     manifest = selection(manifest_path)
+    include = []
+    for shard in manifest['shards']:
+        runtime = shard.get('runtime')
+        resource = shard.get('resource')
+        if not runtime or not resource or resource['nodes'] != 1:
+            raise ValueError('Matrix requires explicit single-node Suite resources')
+        include.append(dict(shard_id=shard['shard_id'], profile=shard['build_profile'],
+                            build_script='build.sh' if shard['build_profile'] == 'standard' else 'notsm_build.sh',
+                            image=runtime['image'], node_selector=runtime['node_selector'],
+                            nnodes=0, nproc_per_node=resource['cards_per_node']))
+    return {'include': include}
+
+
+def run(manifest_path, profile, test_root, output, shard_id):
+    manifest = selection(manifest_path)
+    selected = [shard for shard in manifest['shards']
+                if shard['build_profile'] == profile and shard['shard_id'] == shard_id]
+    if len(selected) != 1:
+        raise ValueError('Select exactly one resource batch for this allocation')
     root = Path(test_root).resolve()
     binary = root / 'pccl-tests' / 'build'
     linked = subprocess.run(['ldd', str(binary / 'all_reduce_perf')], capture_output=True, text=True, check=True)
     libraries = re.findall(r'lib(?:pccl|nccl)\.so[^\s]*\s+=>\s+(\S+)', linked.stdout)
     if not libraries or any(Path(path).resolve().parent != (root / 'lib').resolve() for path in libraries):
         raise ValueError('Benchmark is not linked to the freshly built PCCL library')
-    selected = [shard for shard in manifest['shards'] if shard['build_profile'] == profile]
-    if not selected:
-        raise ValueError('No shards for the requested build profile')
-    Path(output).mkdir(parents=True, exist_ok=False)
-    for shard in selected:
-        if run_shard(manifest_path, shard['shard_id'], root, binary, Path(output) / shard['shard_id'], []):
-            return 1
-    return 0
+    Path(output).mkdir(parents=True, exist_ok=True)
+    return run_shard(manifest_path, shard_id, root, binary, Path(output) / shard_id, [])
 
 
 def summarize(manifest_path, results, output):
@@ -73,6 +88,11 @@ def summarize(manifest_path, results, output):
                     or execution['executor_sha256'] != source_hash
                     or not re.fullmatch(r'3\.[0-9]+\.[0-9]+', execution['executor_python_version'])):
                 raise ValueError('Shard evidence does not match this manifest and executor')
+            shard_runtime = verified_runtime(directory, index)
+            if shard.get('suite_runs'):
+                if index.get('lifecycle_error') != '':
+                    raise ValueError('Suite lifecycle did not complete cleanly')
+                verify_lifecycle(directory, shard, shard_runtime)
             inputs = {**manifest['inputs'], **execution}
             executions[shard['shard_id']] = execution
             valid_shard = True
@@ -94,7 +114,14 @@ def summarize(manifest_path, results, output):
                             or result['legacy_source'] != row['spec']['legacy_source']
                             or digest(read_json(case_dir / 'result.json')) != digest(result)):
                         raise ValueError('Case result is incomplete or inconsistent')
-                    runtime = dict(result_dir=str(case_dir), inputs=inputs, case_key=key, command_log_ref=log_ref)
+                    if 'execution' in row['spec']:
+                        context = {name: row['spec']['execution'][name]
+                                   for name in ('plan_id', 'suite_id', 'case_id', 'suite_run_id')}
+                        if result.get('source_context') != context:
+                            raise ValueError('Case result lost its Plan/Suite context')
+                    runtime = dict(shard_runtime, result_dir=str(case_dir), inputs=inputs,
+                                   execution_result_dir=str(Path(shard_runtime['result_dir']) / key / 'attempt-1'),
+                                   case_key=key, command_log_ref=log_ref)
                     check_command(row['spec'], runtime, read_json(case_dir / 'command-process.json'))
                     if row['spec']['test_type'] == 'performance':
                         if (result['data_status'] != 'VALID'
@@ -104,8 +131,11 @@ def summarize(manifest_path, results, output):
                     passed = True
                 except (OSError, ValueError, KeyError, TypeError, AttributeError, OverflowError):
                     pass
+            context = row['spec'].get('execution', {})
             published.append(dict(case_key=key, build_profile=shard['build_profile'],
-                                  test_type=row['spec']['test_type'], status='PASSED' if passed else 'FAILED'))
+                                  test_type=row['spec']['test_type'], status='PASSED' if passed else 'FAILED',
+                                  source_context={name: context[name] for name in
+                                                  ('plan_id', 'suite_id', 'case_id', 'suite_run_id') if name in context}))
     target = Path(output)
     target.mkdir(parents=True, exist_ok=False)
     passed = sum(row['status'] == 'PASSED' for row in published)
@@ -128,17 +158,23 @@ def summarize(manifest_path, results, output):
 
 def main():
     parser = argparse.ArgumentParser()
-    parser.add_argument('operation', choices=('run', 'summary'))
+    parser.add_argument('operation', choices=('run', 'summary', 'matrix'))
     parser.add_argument('--manifest', type=Path, required=True)
-    parser.add_argument('--output', type=Path, required=True)
+    parser.add_argument('--output', type=Path)
     parser.add_argument('--profile', choices=('standard', 'notsm'))
+    parser.add_argument('--shard')
     parser.add_argument('--test-root', type=Path)
     parser.add_argument('--results', type=Path)
     args = parser.parse_args()
+    if args.operation == 'matrix':
+        print(json.dumps(matrix(args.manifest)))
+        return 0
+    if args.output is None:
+        parser.error('run and summary require --output')
     if args.operation == 'run':
-        if args.profile is None or args.test_root is None:
-            parser.error('run requires --profile and --test-root')
-        return run(args.manifest, args.profile, args.test_root, args.output)
+        if args.profile is None or args.test_root is None or args.shard is None:
+            parser.error('run requires --profile, --shard and --test-root')
+        return run(args.manifest, args.profile, args.test_root, args.output, args.shard)
     if args.results is None:
         parser.error('summary requires --results')
     return summarize(args.manifest, args.results, args.output)

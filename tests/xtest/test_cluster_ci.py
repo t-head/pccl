@@ -5,13 +5,16 @@ import copy
 import json
 import os
 from pathlib import Path
+import shutil
+import sys
 import tempfile
 import unittest
 from unittest import mock
 
 import cluster_ci as ci
-from execute import execution_provenance, write_json
+from execute import run_shard, write_json
 from manifest import build_manifest, case_key, digest, write_bundle
+from test_single_node_ci import public_runner_fixture, rewrite_case_runtime, rewrite_hook_runtime
 
 
 ROOT = Path(__file__).resolve().parents[2]
@@ -28,28 +31,17 @@ class ClusterCiTests(unittest.TestCase):
     write_bundle(self.manifest, self.root / 'manifest')
     self.path = self.root / 'manifest/manifest.json'
 
-  def write_results(self):
+  def write_results(self, inherited=None):
     shard = self.manifest['shards'][0]
-    row = shard['cases'][0]
-    key = row['case_key']
-    case = self.root / 'results' / key / 'attempt-1'
-    case.mkdir(parents=True)
-    log_ref = f'{key}/attempt-1/command.log'
-    result = {
-      'case_key': key, 'attempt': 1, 'status': 'PASSED', 'returncode': 0, 'error': '',
-      'duration': 0.01, 'legacy_source': row['spec']['legacy_source'], 'command_log': log_ref,
-    }
-    (case / 'command.log').write_text('synthetic two-node command completed\n')
-    write_json(case / 'command-process.json', {'active': False, 'state': 'finished', 'return_code': 0})
-    write_json(case / 'result.json', result)
-    (self.root / 'results/results.jsonl').write_text(json.dumps(result) + '\n')
-    write_json(self.root / 'results/index.json', {
-      'shard_id': shard['shard_id'], 'expected': [key], 'completed': [key], 'failures': 0,
-      'cancelled': False, 'artifact_error': '',
-      'selection_sha256': self.manifest['selection_sha256'],
-      'execution': execution_provenance(),
-    })
-    write_json(self.root / 'results/manifest.json', self.manifest)
+    build = self.root / 'synthetic-build'
+    public_runner_fixture(build, self.runner)
+    (build / 'hosts.cfg').write_text('worker-a\nworker-b\n')
+    environment = {key: value for key, value in os.environ.items()
+                   if not key.startswith(('PCCL_', 'NCCL_', 'HGGC_', 'OMPI_', 'UCX_'))}
+    environment.update(inherited or {})
+    with mock.patch.dict(os.environ, environment, clear=True):
+      self.assertEqual(run_shard(self.path, shard['shard_id'], build, build, self.root / 'results',
+                                 ['--hostfile', str(build / 'hosts.cfg')]), 0)
 
   def test_source_export_and_manifest_are_exactly_one_two_node_case(self):
     spec, source = ci.load_case()
@@ -73,7 +65,7 @@ class ClusterCiTests(unittest.TestCase):
       ci.selection(path / 'manifest.json')
 
     catalog = json.loads(ci.CATALOG.read_text())
-    catalog['case']['spec']['parameters']['ranks'] = 8
+    catalog['executions'][0]['spec']['parameters']['ranks'] = 8
     catalog['bundle_sha256'] = digest({key: value for key, value in catalog.items()
                                        if key != 'bundle_sha256'})
     changed_catalog = self.root / 'cluster-source-case.json'
@@ -84,12 +76,65 @@ class ClusterCiTests(unittest.TestCase):
   def test_complete_result_gate_requires_execution_evidence(self):
     self.write_results()
     output = self.root / 'public'
+    verify = ci.verify_lifecycle
+    with self.assertRaisesRegex(ValueError, 'trusted execution runtime'):
+      verify(self.root / 'results', self.manifest['shards'][0])
+    with mock.patch.object(ci, 'verify_lifecycle', side_effect=lambda directory, shard, runtime: verify(directory, shard)):
+      self.assertEqual(ci.summarize(self.path, self.root / 'results', self.root / 'without-runtime'), 1)
     self.assertEqual(ci.summarize(self.path, self.root / 'results', output), 0)
     summary = json.loads((output / 'summary.json').read_text())
     self.assertEqual((summary['expected'], summary['passed'], summary['complete']), (1, 1, True))
     process = next((self.root / 'results').rglob('command-process.json'))
     write_json(process, {'active': False, 'state': 'failed', 'return_code': 0})
     self.assertEqual(ci.summarize(self.path, self.root / 'results', self.root / 'failed'), 1)
+
+  def test_relocated_summary_needs_no_build_hostfile_or_local_runtime(self):
+    self.write_results()
+    relocated = self.root / 'downloaded'
+    (self.root / 'results').rename(relocated)
+    shutil.rmtree(self.root / 'synthetic-build')
+    verifier = {**ci.execution_provenance(), 'executor_python_version': '3.12.0'}
+    with mock.patch.dict(os.environ, {'PATH': '/summary/bin', 'UCX_TLS': 'summary-only'}, clear=True), \
+            mock.patch.object(sys, 'executable', '/summary/python3'), \
+            mock.patch.object(ci, 'execution_provenance', return_value=verifier):
+      self.assertEqual(ci.summarize(self.path, relocated, self.root / 'public'), 0)
+
+  def test_hook_runtime_tampering_fails_summary_after_rehash(self):
+    self.write_results()
+    shard = self.manifest['shards'][0]
+    for field, value in (('test_root', '/different/root'), ('binary_dir', '/different/bin'),
+                         ('result_dir', '/different/results'), ('mpi_options', ['--hostfile', 'different']),
+                         ('python', '/different/python3'), ('inherited_environment', {'PATH': '/different/bin'})):
+      with self.subTest(field=field):
+        directory = self.root / f'hook-{field}'
+        shutil.copytree(self.root / 'results', directory)
+        rewrite_hook_runtime(directory, shard, field, value)
+        self.assertEqual(ci.summarize(self.path, directory, self.root / f'public-{field}'), 1)
+
+  def test_case_runtime_cannot_disagree_with_shard_after_rehash(self):
+    self.write_results({'UCX_TLS': 'original'})
+    row = self.manifest['shards'][0]['cases'][0]
+    shutil.rmtree(self.root / 'synthetic-build')
+    for field in ('python', 'inherited_environment', 'binary_dir', 'runner_build_directory',
+                  'result_dir', 'benchmark', 'launcher'):
+      with self.subTest(field=field):
+        directory = self.root / f'case-{field}'
+        shutil.copytree(self.root / 'results', directory)
+        rewrite_case_runtime(directory / row['case_key'] / 'attempt-1', row['spec'], field)
+        self.assertEqual(ci.summarize(self.path, directory, self.root / f'public-{field}'), 1)
+
+  def test_missing_or_unlinked_shard_runtime_fails_summary(self):
+    self.write_results()
+    directory = self.root / 'results'
+    path = directory / 'shard-runtime.json'
+    original = path.read_bytes()
+    path.unlink()
+    self.assertEqual(ci.summarize(self.path, directory, self.root / 'missing'), 1)
+    path.write_bytes(original)
+    index = ci.read_json(directory / 'index.json')
+    index['runtime_sha256'] = '0' * 64
+    write_json(directory / 'index.json', index)
+    self.assertEqual(ci.summarize(self.path, directory, self.root / 'unlinked'), 1)
 
   def test_workflow_uses_requested_master_action_and_no_direct_ssh_bootstrap(self):
     workflow = (ROOT / '.github/workflows/xtest-cluster-run-validation.yml').read_text()
@@ -103,7 +148,19 @@ class ClusterCiTests(unittest.TestCase):
     self.assertNotIn('ppu-scheduler-action@', workflow)
     self.assertNotIn('ssh-keygen', workflow)
     self.assertNotIn('sshd', workflow)
-    self.assertNotIn('plm_rsh_agent', json.dumps(ci.MPI_OPTIONS))
+    self.assertIn('plm_rsh_agent', json.dumps(ci.MPI_OPTIONS))
+    self.assertIn('cluster-ssh', ci.MPI_OPTIONS)
+    self.assertNotIn('btl_tcp_if_include', ci.MPI_OPTIONS)
+    self.assertNotIn('bond1', ci.MPI_OPTIONS)
+    self.assertIn('privileged: true', workflow)
+    self.assertIn('host_volumes: /dev/infiniband:/dev/infiniband', workflow)
+    self.assertNotIn('host_network: true', workflow)
+    self.assertNotIn('/sys/class/net/bond1', workflow)
+    self.assertIn('filelock-3.20.0-py3-none-any.whl', workflow)
+    self.assertIn('--no-index --find-links', workflow)
+    self.assertIn('cluster-run-build-deps', workflow)
+    self.assertIn('libboost-program-options-dev', workflow)
+    self.assertIn('pull_request:', workflow.split('\n  cluster:', 1)[0])
     prepare = workflow.split('\n  cluster:', 1)[0]
     self.assertNotIn('cluster-run@', prepare)
     setup = workflow.split('setup_command: |', 1)[1].split('          command: |', 1)[0]

@@ -26,6 +26,25 @@ def fixture_spec(index=0):
                 timeout=5, checks=['exit_code'], legacy_source=f'fixture:{index}', parameters={'index': index})
 
 
+def source_spec(index=0, plan='plan', suite='suite', reuse=False):
+    spec = fixture_spec(index)
+    parents = {'plan_id': digest(plan), 'suite_id': digest(suite)}
+    spec['execution'] = {
+        **parents, 'case_id': digest(index), 'suite_run_id': digest(parents),
+        'source_command': f'python3 run_test.py --index {index}',
+        'mpi': {'options': [], 'exports': ['PATH', 'LD_LIBRARY_PATH', 'UMD_PLATFORM_TYPE']},
+        'resource': {'nodes': 1, 'cards_per_node': 8, 'labels': ['board'], 'topology': 'topo'},
+        'environment': {'env_file_sha256': digest('env'), 'setup_sha256': None,
+                        'teardown_sha256': None, 'omitted': [],
+                        'path_bindings': {'PATH': 'sdk-and-build', 'LD_LIBRARY_PATH': 'sdk-and-build'}},
+        'lifecycle': {'setup': [], 'teardown': [], 'reuse': reuse},
+        'runtime': {'image': 'public/image:1', 'node_selector': 'board-type=test',
+                    'container_options': [], 'mounts': [], 'initialization': 'pccl-source-build-v1'},
+    }
+    spec['env'] = {'UMD_PLATFORM_TYPE': '1'}
+    return spec
+
+
 def performance_specs(tier='sanity'):
     result = []
     for sample in range(3):
@@ -51,6 +70,126 @@ def performance_specs(tier='sanity'):
 
 
 class ManifestTests(unittest.TestCase):
+    def test_suite_is_atomic_even_when_many_shards_are_requested(self):
+        specs = [source_spec(index) for index in range(12)]
+        result = build_manifest(specs, {}, shards_per_pool=8)
+        self.assertEqual(len(result['shards']), 1)
+        self.assertEqual(len(result['shards'][0]['suite_runs']), 1)
+        self.assertEqual(len(result['shards'][0]['suite_runs'][0]['case_keys']), 12)
+        validate_manifest(result)
+
+    def test_compatible_suites_only_share_resources_with_explicit_reuse(self):
+        for reuse, count in ((False, 2), (True, 1)):
+            specs = [source_spec(0, suite='a', reuse=reuse), source_spec(0, suite='b', reuse=reuse)]
+            result = build_manifest(specs, {})
+            self.assertEqual(result['case_count'], 2)
+            self.assertEqual(len(result['shards']), count)
+            self.assertEqual(sum(len(shard['suite_runs']) for shard in result['shards']), 2)
+            self.assertNotEqual(case_key(specs[0]), case_key(specs[1]))
+            self.assertEqual(result, build_manifest(list(reversed(specs)), {}))
+            validate_manifest(result)
+
+    def test_performance_suites_never_automatically_share_an_allocation(self):
+        specs = []
+        for suite in ('measurement-a', 'measurement-b'):
+            for spec in performance_specs():
+                spec['execution'] = source_spec(suite=suite, reuse=True)['execution']
+                specs.append(spec)
+        result = build_manifest(specs, {}, shards_per_pool=8)
+        self.assertEqual(len(result['shards']), 2)
+        self.assertTrue(all(len(shard['cases']) == 3 for shard in result['shards']))
+        self.assertTrue(all(len(shard['suite_runs']) == 1 for shard in result['shards']))
+        validate_manifest(result)
+
+    def test_environment_container_topology_and_initialization_isolate_suites(self):
+        for path, value in ((('env', 'UMD_PLATFORM_TYPE'), '2'),
+                            (('execution', 'runtime', 'image'), 'public/image:2'),
+                            (('execution', 'resource', 'topology'), 'other'),
+                            (('execution', 'environment', 'setup_sha256'), digest('new-setup')),
+                            (('execution', 'lifecycle', 'setup'), [['{python}', '-c', 'print(1)']])):
+            specs = [source_spec(0, suite='a', reuse=True), source_spec(0, suite='b', reuse=True)]
+            target = specs[1]
+            for part in path[:-1]:
+                target = target[part]
+            target[path[-1]] = value
+            with self.subTest(path=path):
+                self.assertEqual(len(build_manifest(specs, {})['shards']), 2)
+        specs = [source_spec(0), source_spec(1)]
+        specs[1]['execution']['resource']['topology'] = 'other'
+        with self.assertRaisesRegex(ValueError, 'Suite execution'):
+            build_manifest(specs, {})
+
+    def test_shared_definitions_keep_all_plan_suite_case_executions(self):
+        from catalog import validate_bundle
+
+        plans, suites, definitions, executions = {}, {}, {}, []
+        for plan, suite in (('plan-a', 'suite-a'), ('plan-b', 'suite-a'), ('plan-a', 'suite-b')):
+            spec = source_spec(0, plan=plan, suite=suite)
+            spec.pop('build_profile')
+            context = spec['execution']
+            plan_id, suite_id, case_id = (context[name] for name in ('plan_id', 'suite_id', 'case_id'))
+            plans.setdefault(plan_id, dict(id=plan_id, name=plan, sha256=digest(plan), suite_ids=[]))
+            if suite_id not in plans[plan_id]['suite_ids']:
+                plans[plan_id]['suite_ids'].append(suite_id)
+            suites[suite_id] = dict(id=suite_id, name=suite, sha256=digest(suite), case_ids=[case_id])
+            definitions[case_id] = dict(id=case_id, name='case', sha256=digest('case'),
+                                        command=context['source_command'])
+            spec['legacy_source'] = 'pccl_test_suites:' + case_id[:24]
+            executions.append(dict(id=digest([plan, suite, spec]), plan_id=plan_id, suite_id=suite_id,
+                                   case_id=case_id, profiles=['standard'], spec=spec))
+        bundle = dict(schema_version=2,
+                      source=dict(repository='pccl_test_suites', revision='a' * 40,
+                                  declared_framework_version='0.12.0', exporter_runtime_version='0.12.0',
+                                  content_sha256='b' * 64, exporter_sha256='c' * 64, selection_sha256='d' * 64),
+                      plans=list(plans.values()), suites=list(suites.values()), cases=list(definitions.values()),
+                      executions=executions, selections={'sanity': [row['id'] for row in executions]},
+                      coverage=dict(scope='fixture', profiles={'standard': 3}, execution_count=3,
+                                    source_case_count=1, plan_count=2, suite_count=2, context_count=3))
+        bundle['bundle_sha256'] = digest(bundle)
+        validate_bundle(bundle, 'fixture')
+        expanded = [{**row['spec'], 'build_profile': 'standard'} for row in executions]
+        manifest = build_manifest(expanded, {})
+        self.assertEqual(manifest['case_count'], 3)
+        self.assertEqual(len(manifest['shards']), 3)
+        missing = copy.deepcopy(bundle)
+        removed = missing['executions'].pop(0)
+        missing['selections']['sanity'].remove(removed['id'])
+        missing['coverage'].update(profiles={'standard': 2}, execution_count=2, context_count=2)
+        missing['bundle_sha256'] = digest({key: value for key, value in missing.items()
+                                          if key != 'bundle_sha256'})
+        with self.assertRaisesRegex(ValueError, 'missing execution contexts'):
+            validate_bundle(missing, 'fixture')
+
+    def test_resolved_source_context_rejects_dangling_and_unsupported_fields(self):
+        for patch in ({'suite_run_id': '0' * 64}, {'unexpected': True},
+                      {'mpi': {'options': ['{unknown}'], 'exports': []}},
+                      {'lifecycle': {'setup': [['sh', '{secret}']], 'teardown': [], 'reuse': False}}):
+            spec = source_spec()
+            spec['execution'].update(patch)
+            with self.subTest(patch=patch), self.assertRaises(ValueError):
+                build_manifest([spec], {})
+
+    def test_source_diagnostic_bindings_match_performance_environment(self):
+        spec = performance_specs()[0]
+        spec['execution'] = source_spec()['execution']
+        bindings = spec['execution']['environment']['path_bindings']
+        bindings.update({name: spec['env'][name] for name in ('PCCL_DEBUG_FILE', 'NCCL_DEBUG_FILE')})
+        validate_manifest(build_manifest([spec], {}))
+        for name, value in (('NCCL_DEBUG_FILE', 'library.%h.%p.log'),
+                            ('PCCL_DEBUG_FILE', '/tmp/library.%h.%p.log'), ('UNKNOWN_PATH', 'other')):
+            changed = copy.deepcopy(spec)
+            changed['execution']['environment']['path_bindings'][name] = value
+            with self.subTest(name=name), self.assertRaises(ValueError):
+                build_manifest([changed], {})
+        functional = source_spec()
+        functional['execution']['environment']['path_bindings'] = dict(bindings)
+        with self.assertRaisesRegex(ValueError, 'Diagnostic path bindings require'):
+            build_manifest([functional], {})
+        changed = copy.deepcopy(spec)
+        changed['env']['PCCL_DEBUG_FILE'] = 'library.%h.%p.log'
+        with self.assertRaisesRegex(ValueError, 'Diagnostic path bindings differ'):
+            build_manifest([changed], {})
+
     def test_empty_duplicate_and_unsupported_cases_fail(self):
         for records in ([], [fixture_spec(), fixture_spec()]):
             with self.assertRaises(ValueError):
@@ -266,23 +405,37 @@ class ManifestTests(unittest.TestCase):
             self.assertEqual(blocked.read_text(), 'not a directory')
 
     def test_full_catalog_selection(self):
-        from catalog import cases, load_catalog
+        from catalog import available_test_types, cases, load_catalog, performance_cases
 
         bundle = load_catalog()
-        sanity = cases()
-        self.assertEqual(bundle['coverage']['source_case_count'], 9)
-        self.assertEqual(bundle['coverage']['execution_count'], 18)
-        self.assertEqual(len(sanity), 18)
-        self.assertEqual(sum(spec['build_profile'] == 'notsm' for spec in sanity), 9)
-        self.assertEqual(sum(spec['build_profile'] == 'standard' for spec in sanity), 9)
-        self.assertTrue(all(spec['nodes'] == 1 and spec['checks'] == ['exit_code'] for spec in sanity))
-        with self.assertRaises(ValueError):
-            cases('nightly')
+        sanity, performance = cases(), performance_cases()
+        self.assertEqual(bundle['coverage']['scope'], 'single-node-source-sanity')
+        self.assertEqual(bundle['coverage']['source_case_count'], 71)
+        self.assertEqual(bundle['coverage']['execution_count'], 108)
+        self.assertEqual(bundle['coverage']['profiles'], {'standard': 71, 'notsm': 37})
+        self.assertEqual(available_test_types(), ['functional', 'performance'])
+        self.assertEqual((len(sanity), len(performance)), (105, 3))
+        self.assertEqual(sum(spec['build_profile'] == 'notsm' for spec in sanity), 37)
+        self.assertEqual(sum(spec['build_profile'] == 'standard' for spec in sanity), 68)
+        self.assertTrue(all(spec['test_type'] == 'functional' for spec in sanity))
+        self.assertTrue(all(spec['test_type'] == 'performance' and spec['build_profile'] == 'standard'
+                            for spec in performance))
+        self.assertTrue(all(spec['nodes'] == 1 and 'exit_code' in spec['checks']
+                            for spec in sanity + performance))
+        self.assertEqual(len({case_key(spec) for spec in sanity + performance}), 108)
+        self.assertEqual(len({spec['execution']['case_id'] for spec in sanity + performance}), 71)
+        self.assertEqual({spec['performance']['sample_index'] for spec in performance}, {0, 1, 2})
+        self.assertEqual(len({spec['execution']['case_id'] for spec in performance}), 3)
+        self.assertEqual(len({measurement_identity(spec) for spec in performance}), 1)
+        for select in (cases, performance_cases):
+            with self.assertRaises(ValueError):
+                select('nightly')
         with self.assertRaises(ValueError):
             cases(debug=True)
-        saved = copy.deepcopy(sanity)
-        sanity[0]['env']['FIXTURE_ONLY'] = '1'
-        self.assertEqual(cases(), saved)
+        for select, records in ((cases, sanity), (performance_cases, performance)):
+            saved = copy.deepcopy(records)
+            records[0]['env']['FIXTURE_ONLY'] = '1'
+            self.assertEqual(select(), saved)
 
     def _single_node_cli_command(self, output):
         public_root = os.environ.get('PCCL_TESTS_ROOT')
@@ -296,10 +449,10 @@ class ManifestTests(unittest.TestCase):
                 '--pccl-tests', str(public_root), '--run-id', '1', '--output', str(output)]
 
     def test_single_node_cli_preserves_all_single_node_sanity_cases(self):
-        from catalog import cases
+        from catalog import EXPECTED_SOURCE_REVISION, EXPECTED_BUNDLE_SHA256, cases, performance_cases
 
         with tempfile.TemporaryDirectory() as temp:
-            for types in ([], ['functional']):
+            for types in ([], ['functional'], ['performance'], ['functional', 'performance']):
                 with self.subTest(test_types=types):
                     output = Path(temp) / ('-'.join(types) or 'all')
                     command = self._single_node_cli_command(output)
@@ -324,28 +477,25 @@ class ManifestTests(unittest.TestCase):
                     self.assertEqual(inputs['node_counts'], [2, 8, 16])
                     self.assertEqual(inputs['shards_per_pool'], 1)
                     self.assertEqual(inputs['timings_sha256'], digest({}))
-                    self.assertEqual(inputs['source_catalog_source']['revision'],
-                                     'bbbeb207dd7f28980b55336660da0b47866e47aa')
-                    self.assertEqual(inputs['source_catalog_bundle_sha256'],
-                                     'abcb4edbb918deda0428f33c93cce14d6b74ddddc9d185a0ef704dca5a1d0078')
-                    self.assertEqual(manifest['case_count'], 18)
+                    self.assertEqual(inputs['source_catalog_source']['revision'], EXPECTED_SOURCE_REVISION)
+                    self.assertEqual(inputs['source_catalog_bundle_sha256'], EXPECTED_BUNDLE_SHA256)
+                    selected_types = types or ['functional', 'performance']
+                    self.assertEqual(inputs['test_types'], selected_types)
+                    self.assertEqual(manifest['case_count'], sum(
+                        {'functional': 105, 'performance': 3}[kind] for kind in selected_types))
                     self.assertEqual(sorted(path.name for path in output.iterdir()), ['manifest.json'])
                     matrix = json.loads(run.stdout)
                     self.assertEqual(matrix['include'], [
                         {key: shard[key] for key in ('shard_id', 'nodes', 'build_profile', 'test_type')}
                         for shard in manifest['shards']])
                     rows = [row for shard in manifest['shards'] for row in shard['cases']]
-                    expected = cases()
+                    expected = [spec for spec in cases() + performance_cases()
+                                if spec['test_type'] in selected_types]
                     self.assertEqual({row['case_key']: row['spec'] for row in rows},
                                      {case_key(spec): spec for spec in expected})
                     self.assertTrue(all(row['spec']['nodes'] == 1 for row in rows))
                     validate_selection(manifest, copy.deepcopy(inputs))
                     self.assertEqual(load_manifest(output / 'manifest.json', expected_inputs=inputs), manifest)
-            performance_output = Path(temp) / 'performance'
-            command = self._single_node_cli_command(performance_output) + ['--test-types', 'performance']
-            run = subprocess.run(command, capture_output=True, text=True, timeout=30)
-            self.assertNotEqual(run.returncode, 0)
-            self.assertFalse((performance_output / 'manifest.json').exists())
             debug_output = Path(temp) / 'debug'
             command = self._single_node_cli_command(debug_output) + ['--debug']
             run = subprocess.run(command, capture_output=True, text=True, timeout=30)
@@ -381,7 +531,7 @@ class ManifestTests(unittest.TestCase):
             validate_selection(original, expected_inputs)
             specs = [copy.deepcopy(row['spec']) for shard in original['shards'] for row in shard['cases']]
             replacement = copy.deepcopy(specs)
-            replacement[0]['env']['UCX_FIXTURE_ONLY'] = '1'
+            replacement[0]['timeout'] += 1
             moved = copy.deepcopy(specs)
             moved[0]['legacy_source'] = 'synthetic:moved'
             self.assertNotEqual(case_key(replacement[0]), case_key(specs[0]))
@@ -529,6 +679,24 @@ class ManifestTests(unittest.TestCase):
                 self.assertNotEqual(measurement_identity(other), expected)
         self.assertTrue(all(spec['tier'] == 'nightly' for spec in performance_specs('nightly')))
 
+    def test_measurement_identity_excludes_native_case_id_but_retains_source_context(self):
+        specs = performance_specs()
+        for sample, spec in enumerate(specs):
+            spec['execution'] = source_spec()['execution']
+            spec['execution']['case_id'] = digest(sample)
+        before = copy.deepcopy(specs)
+        expected = measurement_identity(specs[0])
+        self.assertEqual(len({case_key(spec) for spec in specs}), 3)
+        self.assertEqual({measurement_identity(spec) for spec in specs}, {expected})
+        self.assertEqual(specs, before)
+        for field, value in (('plan_id', digest('other-plan')), ('suite_id', digest('other-suite')),
+                             ('suite_run_id', digest('other-run')), ('source_command', 'different command'),
+                             ('mpi', {'options': ['--oversubscribe'], 'exports': []})):
+            changed = copy.deepcopy(specs[0])
+            changed['execution'][field] = value
+            with self.subTest(field=field):
+                self.assertNotEqual(measurement_identity(changed), expected)
+
     def test_performance_samples_are_atomic_for_two_or_fourteen_shards(self):
         specs = performance_specs()
         timings = {case_key(spec): index + 1 for index, spec in enumerate(specs)}
@@ -626,20 +794,92 @@ class ManifestTests(unittest.TestCase):
                         load_manifest(path)
 
     def test_source_catalog_commands_are_discovered_and_profile_expanded(self):
-        from catalog import cases, load_catalog
+        from catalog import cases, load_catalog, performance_cases
 
+        # These nine native definitions predate the coverage expansion. Their identities
+        # and source hashes must survive, not merely an equivalent synthetic command.
+        original = {
+            '0db51deea804adb6a3d019394e718e55c35ec19e6851671706334188c6cfe5ef':
+                'c7797d9f989428961a8ecf2fbf4e79a89de3cfcce499111fc5f4640e13da957e',
+            '19035a0c32746db0ffc0368bfd2cd3d85c489ac2ced0956f10e8506e11b363ac':
+                '05556844e0910812d7a96df28dccb30091617cda05a1b30d7bd1a0a5ba31b785',
+            '1b8ad645dedd2f6cc0a39a2da2eae093cf2f7e4867903c4f8724ef2846b58d02':
+                '5357322e5a99235593e6615e18492cc9a4d18d1ed3e4202e8f40564da6e243ea',
+            '2c0df19e2a2317367521d366068bcd99b079efc12c45b4b7b344686f63d338f1':
+                '25b1a5556fb2b14809cd24a99a617e3d0e4de5ba1edab1f0d9320d4dd892e5d6',
+            '2db93f48602d163a751256c930b5a7d5e1c2c0f1b0b05181b1c420ab4c73f9fa':
+                '4ee479a7c3e6bc3eee3ca065643be72c341dadec043a589948db31fb9f118fdb',
+            '7629b3a15935d3e2281c594d01b583c51662d61375256b9c7528541c12d7b2f8':
+                'b080f654d5b16df3809a01ea65478b8599ceb21de74a45cf577b999d4a6ed77a',
+            '88fc6b809e8e1071a0f6bc941063d0ce1f335513d5ea6f09f79a0b62fd8830e7':
+                '2cfb0f696f38f85339ea9ae14de0f40d57652a26cb846f8e858119f6625874eb',
+            'c91f5390c82212652d2c1082e6c12698383c814c502cf47a4a6cf62756d47fe6':
+                '0e9a7887f3da9050a2e2db04421aabbd79a85cebadc28ed433747296556a537a',
+            'f033bd5bafd9d77d66c676655d7bdae3520ce0dcbe39d63ff7babf3af4257f3c':
+                '3332464a674c701c77c92508d1d248c654b64660f8b25d0edbc5d8628121f191',
+        }
         bundle = load_catalog()
-        self.assertEqual(len(bundle['cases']), 9)
-        self.assertEqual(len(cases()), 18)
-        self.assertTrue(all(row['profiles'] == ['notsm', 'standard'] for row in bundle['cases']))
-        for spec in cases():
+        definitions = {row['id']: row for row in bundle['cases']}
+        specs = cases() + performance_cases()
+        self.assertEqual(len(definitions), 71)
+        self.assertEqual({identity: definitions[identity]['sha256'] for identity in original}, original)
+        self.assertEqual(len(specs), 108)
+        new_functional = {spec['execution']['case_id'] for spec in cases()} - original.keys()
+        self.assertEqual(len(new_functional), 59)
+        preserved = [spec for spec in specs if spec['execution']['case_id'] in original]
+        self.assertEqual(len(preserved), 18)
+        self.assertEqual(sum('devices' in spec['parameters'] for spec in preserved), 6)
+        for identity in original:
+            self.assertEqual({spec['build_profile'] for spec in preserved
+                              if spec['execution']['case_id'] == identity}, {'standard', 'notsm'})
+        for spec in preserved:
             self.assertEqual(spec['group'], 'source_register')
-            self.assertEqual(spec['argv'][:2], ['{python}', '{test_root}/run_test.py'])
-            self.assertIn('--nprocs', spec['argv'])
-            self.assertNotIn('--nproc', spec['argv'])
             self.assertEqual(spec['parameters']['register'], 1)
+            self.assertEqual(spec['timeout'], 7200)
             self.assertEqual(spec['checks'], ['exit_code'])
+        for spec in specs:
+            context = spec['execution']
+            self.assertEqual(context['source_command'], definitions[context['case_id']]['command'])
             self.assertTrue(spec['legacy_source'].startswith('pccl_test_suites:'))
+            if '{test_root}/run_test.py' in spec['argv']:
+                self.assertEqual(spec['argv'][:2], ['{python}', '{test_root}/run_test.py'])
+                self.assertIn('--nprocs', spec['argv'])
+                self.assertNotIn('--nproc', spec['argv'])
+            else:
+                self.assertIn('{binary_dir}/' + spec['parameters']['op'], spec['argv'])
+
+    def test_native_performance_samples_keep_distinct_cases_in_one_atomic_measurement(self):
+        from catalog import performance_cases
+
+        specs = performance_cases()
+        self.assertEqual(len(specs), 3)
+        for count in (2, 14):
+            manifest = build_manifest(specs, {}, shards_per_pool=count)
+            self.assertEqual(len(manifest['shards']), 1)
+            rows = manifest['shards'][0]['cases']
+            self.assertEqual(len({row['spec']['execution']['case_id'] for row in rows}), 3)
+            self.assertEqual(len({row['case_key'] for row in rows}), 3)
+            self.assertEqual(len({row['measurement_identity'] for row in rows}), 1)
+            validate_manifest(manifest)
+
+    def test_source_graph_references_and_contexts_are_independently_validated(self):
+        from catalog import CATALOG, validate_bundle
+
+        original = json.loads(CATALOG.read_text())
+        validate_bundle(original, original['coverage']['scope'])
+        for name, mutate in (
+            ('dangling-suite', lambda b: b['plans'][0]['suite_ids'].append('f' * 64)),
+            ('dangling-case', lambda b: b['suites'][0]['case_ids'].append('e' * 64)),
+            ('duplicate-definition', lambda b: b['cases'].append(copy.deepcopy(b['cases'][0]))),
+            ('wrong-command', lambda b: b['cases'][0].__setitem__('command', 'python3 other.py')),
+            ('wrong-parent', lambda b: b['executions'][0].__setitem__('plan_id', 'd' * 64)),
+            ('duplicate-context', lambda b: b['executions'].append({**copy.deepcopy(b['executions'][0]), 'id': 'c' * 64})),
+        ):
+            changed = copy.deepcopy(original)
+            mutate(changed)
+            changed['bundle_sha256'] = digest({key: value for key, value in changed.items() if key != 'bundle_sha256'})
+            with self.subTest(name=name), self.assertRaises(ValueError):
+                validate_bundle(changed, original['coverage']['scope'])
 
     def test_source_catalog_cannot_be_rehashed_or_leak_private_fields(self):
         from catalog import CATALOG, load_catalog
@@ -648,9 +888,9 @@ class ManifestTests(unittest.TestCase):
         with tempfile.TemporaryDirectory() as temp:
             path = Path(temp) / 'source-catalog.json'
             for name, mutate in (
-                ('command', lambda value: value['cases'][0]['spec']['argv'].append('--unsupported')),
+                ('command', lambda value: value['executions'][0]['spec']['argv'].append('--unsupported')),
                 ('source', lambda value: value['source'].__setitem__('revision', '0' * 40)),
-                ('private', lambda value: value['cases'][0]['spec'].__setitem__(
+                ('private', lambda value: value['executions'][0]['spec'].__setitem__(
                     'legacy_source', 'comm-internal-testbox/private')),
             ):
                 with self.subTest(change=name):

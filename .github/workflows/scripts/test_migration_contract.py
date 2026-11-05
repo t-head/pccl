@@ -27,6 +27,10 @@ HASHES = {
     'run_test_config.py': 'd58194c5c210ebaabe1ed42d7c2ced924c5dde22081285c22516e1ccdf611b1a',
 }
 ENV = {'PATH': '/usr/bin:/bin'}
+LEGACY_CATALOG_SHA256 = '0099b6661c757fdb2e8a0419333912a2400a5c46d5edd0fe47c6f3af587853be'
+# Canonical {legacy_case_key: legacy_spec} for the original 96 single-node sanity
+# executions. This pins the diagnostic's expected data without importing old code.
+LEGACY_SPECS_SHA256 = '1d042858c61069a0db6cbd2dcb45c8eb6989a77e38e851673477a6065fbcee20'
 
 
 def load_public(root):
@@ -95,57 +99,116 @@ class RunnerContract(unittest.TestCase):
             self.assertTrue(cases, f'Empty CaseList is not success: {argv}')
         return args, cases
 
-    def case_identity(self, argv):
-        args, cases = self.parse(argv)
-        self.assertEqual(len(cases), 1)
-        case = cases[0]
-        fields = vars(case).copy()
-        self.runner.apply_env_args_rule(args)
-        self.runner.apply_env_case_rule(args, case)
-        with redirect_stdout(io.StringIO()) as output:
-            key, command = self.runner.cmd_rule(args, case)
-        self.assertEqual(output.getvalue().splitlines(), [key, command])
-        self.assertEqual(shlex.split(command).count(case.op), 1)
-        return json.dumps(fields, sort_keys=True), args
+    def runner_contract(self, argv):
+        # The runner mutates both Case objects and the environment. Isolate each
+        # parse/cmd_rule call so a previous Case cannot make the next one pass.
+        with mock.patch.dict(os.environ, ENV, clear=True):
+            args, cases = self.parse(argv)
+            self.assertEqual(len(cases), 1)
+            case = cases[0]
+            fields = json.dumps(vars(case), sort_keys=True)
+            self.runner.apply_env_args_rule(args)
+            self.runner.apply_env_case_rule(args, case)
+            with redirect_stdout(io.StringIO()) as output:
+                key, command = self.runner.cmd_rule(args, case)
+            self.assertEqual(output.getvalue().splitlines(), [key, command])
+            tokens = shlex.split(command)
+            self.assertEqual(tokens.count(case.op), 1)
+        return fields, args, tokens
 
-    def measurement_identity(self, identity):
-        fields = json.loads(identity)
-        for name in ('nprocs', 'threads'):
-            fields.pop(name)
-        return json.dumps(fields, sort_keys=True)
+    def runner_argv(self, spec):
+        self.assertEqual(spec['argv'][:2], ['{python}', '{test_root}/run_test.py'])
+        return [arg.replace('{mpi_options}', '') for arg in spec['argv'][2:]]
 
-    def test_source_cases_match_reviewed_register_commands(self):
-        exact_expected = {self.case_identity(argv)[0]
-                          for argv in shell_calls(SCRIPTS / 'run_register_test.sh', 14, 19)}
-        near_expected = {self.measurement_identity(self.case_identity(argv)[0])
-                         for argv in shell_calls(SCRIPTS / 'run_register_test.sh', 22, 27)}
-        exact_seen, near_seen, profiles = set(), set(), Counter()
+    def benchmark_argv(self, argv, op):
+        positions = [index for index, token in enumerate(argv) if Path(token).name == op]
+        self.assertEqual(len(positions), 1, argv)
+        tail = argv[positions[0] + 1:]
+        self.assertFalse(any(re.search(r'[$`;&|<>()\n]', token) for token in tail), argv)
+        return [op, *tail]
+
+    def test_source_cases_match_all_reviewed_register_layouts_exactly(self):
+        expected = {self.runner_contract(argv)[0]
+                    for argv in shell_calls(SCRIPTS / 'run_register_test.sh', 14, 27)}
+        self.assertEqual(len(expected), 14)
+        standard, notsm, devices = set(), set(), set()
         for source in self.catalog.cases():
-            argv = [arg.replace('{mpi_options}', '') for arg in source['argv'][2:]]
-            identity, args = self.case_identity(argv)
-            if 'devices' in source['parameters']:
-                self.assertNotIn(identity, exact_expected)
-                measurement = self.measurement_identity(identity)
-                self.assertIn(measurement, near_expected)
-                pair = (measurement, source['build_profile'])
-                self.assertNotIn(pair, near_seen)
-                near_seen.add(pair)
-                self.assertEqual(args.devices, '0,1')
-            else:
-                self.assertIn(identity, exact_expected)
-                pair = (identity, source['build_profile'])
-                self.assertNotIn(pair, exact_seen)
-                exact_seen.add(pair)
-                self.assertEqual(args.devices, '')
-            profiles[source['build_profile']] += 1
+            if (source['parameters'].get('register') != 1
+                    or '{test_root}/run_test.py' not in source['argv']):
+                continue
+            identity, args, _ = self.runner_contract(self.runner_argv(source))
             self.assertEqual(args.launch_mode, 'normal')
             self.assertEqual(args.process_group, 'normal')
             self.assertEqual(args.register, 1)
-        self.assertEqual(len(exact_expected), 6)
-        self.assertEqual(len(near_expected), 3)
-        self.assertEqual(len({identity for identity, _ in exact_seen}), 6)
-        self.assertEqual(len({identity for identity, _ in near_seen}), 3)
-        self.assertEqual(profiles, Counter(standard=9, notsm=9))
+            if args.devices:
+                # Retain the three device-list Cases as extras. They must NOT
+                # substitute for the six missing process/thread layouts.
+                self.assertEqual(args.devices, '0,1')
+                self.assertNotIn(identity, expected)
+                pair = (identity, source['build_profile'])
+                self.assertNotIn(pair, devices)
+                devices.add(pair)
+            else:
+                self.assertIn(identity, expected)
+                seen = standard if source['build_profile'] == 'standard' else notsm
+                self.assertNotIn(identity, seen)
+                seen.add(identity)
+        self.assertEqual(standard, expected)
+        original_six = {self.runner_contract(argv)[0]
+                        for argv in shell_calls(SCRIPTS / 'run_register_test.sh', 14, 19)}
+        self.assertEqual(notsm, original_six)
+        self.assertEqual(len(devices), 6)
+        self.assertEqual(Counter(profile for _, profile in devices), Counter(standard=3, notsm=3))
+        self.assertEqual({identity for identity, profile in devices if profile == 'standard'},
+                         {identity for identity, profile in devices if profile == 'notsm'})
+
+    def test_all_historical_sanity_contracts_match_selected_native_cases(self):
+        report_path = SCRIPTS.parents[2] / 'tests/xtest/sanity-coverage.json'
+        report = json.loads(report_path.read_text())
+        bundle = self.catalog.load_catalog()
+        self.assertEqual(report['schema_version'], 1)
+        self.assertEqual(report['bundle_sha256'], self.catalog.digest(
+            {key: value for key, value in report.items() if key != 'bundle_sha256'}))
+        self.assertEqual(report['inputs']['legacy_catalog_sha256'], LEGACY_CATALOG_SHA256)
+        self.assertEqual(report['inputs']['source_bundle_sha256'], bundle['bundle_sha256'])
+        self.assertEqual(report['inputs']['source'], bundle['source'])
+        self.assertEqual(report['summary'], dict(expected=96, matched=96, missing=0, ambiguous=0,
+                                                 selected_executions=108))
+        rows = report['cases']
+        self.assertEqual(len(rows), 96)
+        historical = {row['legacy_case_key']: row['legacy_spec'] for row in rows}
+        self.assertEqual(len(historical), 96)
+        self.assertEqual(self.catalog.digest(historical), LEGACY_SPECS_SHA256)
+        selected = {(row['id'], profile): {**row['spec'], 'build_profile': profile}
+                    for row in bundle['executions'] for profile in row['profiles']}
+        matched, counts = set(), Counter()
+        for row in rows:
+            legacy = row['legacy_spec']
+            with self.subTest(legacy_case_key=row['legacy_case_key']):
+                self.assertEqual(len(row['selected']), 1)
+                target, = row['selected']
+                reference = (target['execution_id'], target['build_profile'])
+                self.assertNotIn(reference, matched)
+                matched.add(reference)
+                native = selected[reference]
+                self.assertEqual(native['execution']['case_id'], target['case_id'])
+                self.assertEqual(native['build_profile'], legacy['build_profile'])
+                self.assertEqual(native['test_type'], legacy['test_type'])
+                if '{test_root}/run_test.py' in legacy['argv']:
+                    old_fields, old_args, old_command = self.runner_contract(self.runner_argv(legacy))
+                    fields, args, command = self.runner_contract(self.runner_argv(native))
+                    self.assertEqual(fields, old_fields)
+                    self.assertEqual(vars(args), vars(old_args))
+                    self.assertEqual(command, old_command)
+                    counts['runner'] += 1
+                else:
+                    op = legacy['parameters']['op']
+                    self.assertEqual(self.benchmark_argv(native['argv'], op),
+                                     self.benchmark_argv(legacy['argv'], op))
+                    counts['direct'] += 1
+        self.assertEqual(counts, Counter(runner=77, direct=19))
+        self.assertEqual(len(matched), 96)
+        self.assertEqual(len(set(selected) - matched), 12)
 
     def test_default_and_invalid_layout_contracts(self):
         args, _ = self.parse([])
@@ -156,13 +219,35 @@ class RunnerContract(unittest.TestCase):
                 _, cases = self.parse(argv, allow_empty=True)
                 self.assertEqual(cases, [])
 
-    def test_catalog_has_no_framework_or_private_runner_dependency(self):
-        self.assertEqual(len(self.catalog.cases()), 18)
-        for spec in self.catalog.cases():
-            self.assertEqual(spec['argv'][:2], ['{python}', '{test_root}/run_test.py'])
-            self.assertNotIn('--nproc', spec['argv'])
-            self.assertIn('--nprocs', spec['argv'])
-            self.assertTrue(spec['legacy_source'].startswith('pccl_test_suites:'))
+    def test_every_selected_runner_is_nonempty_and_direct_source_argv_is_preserved(self):
+        specs = self.catalog.cases() + self.catalog.performance_cases()
+        self.assertEqual(len(specs), 108)
+        counts, profiles = Counter(), Counter()
+        for spec in specs:
+            with self.subTest(case_id=spec['execution']['case_id'], profile=spec['build_profile']):
+                self.assertTrue(spec['legacy_source'].startswith('pccl_test_suites:'))
+                profiles[spec['build_profile']] += 1
+                if '{test_root}/run_test.py' in spec['argv']:
+                    self.assertNotIn('--nproc', spec['argv'])
+                    self.assertIn('--nprocs', spec['argv'])
+                    identity, args, _ = self.runner_contract(self.runner_argv(spec))
+                    fields = json.loads(identity)
+                    self.assertEqual(fields['op'], spec['parameters']['op'])
+                    self.assertEqual(fields['ranks'], spec['parameters']['ranks'])
+                    self.assertEqual(fields['nprocs'], spec['processes_per_node'])
+                    self.assertEqual(fields['threads'], spec['threads_per_process'])
+                    self.assertEqual(fields['nnodes'], spec['nodes'])
+                    self.assertEqual(fields['ranks'], fields['nnodes'] * fields['nprocs']
+                                     * fields['threads'] * spec['devices_per_thread'])
+                    self.assertEqual((args.launch_mode, args.process_group), ('normal', 'normal'))
+                    counts['runner'] += 1
+                else:
+                    op = spec['parameters']['op']
+                    source = shlex.split(spec['execution']['source_command'])
+                    self.assertEqual(self.benchmark_argv(spec['argv'], op), self.benchmark_argv(source, op))
+                    counts['direct'] += 1
+        self.assertEqual(counts, Counter(runner=89, direct=19))
+        self.assertEqual(profiles, Counter(standard=71, notsm=37))
 
 
 def main():

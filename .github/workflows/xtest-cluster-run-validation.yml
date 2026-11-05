@@ -1,6 +1,9 @@
 name: source-derived cluster-run MPI trial
 
 on:
+  pull_request:
+    branches: [main, 'release/**']
+    types: [opened, synchronize, reopened, ready_for_review]
   push:
     branches: [ci/xtest-cluster-run-validation]
   workflow_dispatch:
@@ -9,7 +12,7 @@ permissions:
   contents: read
 
 concurrency:
-  group: source-cluster-run-${{ github.ref }}
+  group: source-cluster-run-${{ github.event.pull_request.number || github.ref }}
   cancel-in-progress: false
 
 jobs:
@@ -36,6 +39,15 @@ jobs:
           python3 -S -B tests/xtest/cluster_ci.py prepare \
             --pccl-revision "$GITHUB_SHA" --pccl-tests public-runner \
             --output "$RUNNER_TEMP/cluster-manifest"
+          python3 -m pip download --disable-pip-version-check --only-binary=:all: --no-deps \
+            --dest "$RUNNER_TEMP/cluster-deps" filelock==3.20.0
+          printf '%s  %s\n' \
+            '339b4732ffda5cd79b13f4e2711a31b0365ce445d95d243bb996273d072546a2' \
+            "$RUNNER_TEMP/cluster-deps/filelock-3.20.0-py3-none-any.whl" | sha256sum --check -
+          mkdir -p "$RUNNER_TEMP/cluster-debs"
+          (cd "$RUNNER_TEMP/cluster-debs" && apt-get download \
+            libboost-program-options-dev libboost-program-options1.83-dev \
+            libboost-program-options1.83.0 libboost1.83-dev)
         env:
           PCCL_TESTS_ROOT: ${{ github.workspace }}/public-runner
       - uses: actions/upload-artifact@v4
@@ -43,11 +55,25 @@ jobs:
           name: cluster-run-source-manifest
           path: ${{ runner.temp }}/cluster-manifest/manifest.json
           if-no-files-found: error
+      - uses: actions/upload-artifact@v4
+        with:
+          name: cluster-run-python-deps
+          path: ${{ runner.temp }}/cluster-deps/
+          if-no-files-found: error
+      - uses: actions/upload-artifact@v4
+        with:
+          name: cluster-run-build-deps
+          path: ${{ runner.temp }}/cluster-debs/
+          if-no-files-found: error
 
   cluster:
     name: Two-node M890P MPI through cluster-run master mode
     needs: prepare
-    if: github.repository == 't-head/pccl' && github.ref == 'refs/heads/ci/xtest-cluster-run-validation'
+    if: >-
+      github.repository == 't-head/pccl' &&
+      ((github.event_name == 'pull_request' &&
+        github.event.pull_request.head.repo.full_name == github.repository) ||
+       github.ref == 'refs/heads/ci/xtest-cluster-run-validation')
     runs-on: k8s-runner-group-cpu-thead
     container:
       image: ghcr.io/actions/actions-runner:latest
@@ -67,6 +93,14 @@ jobs:
         with:
           name: cluster-run-source-manifest
           path: cluster-manifest
+      - uses: actions/download-artifact@v4
+        with:
+          name: cluster-run-python-deps
+          path: cluster-deps
+      - uses: actions/download-artifact@v4
+        with:
+          name: cluster-run-build-deps
+          path: cluster-debs
       - name: Check staging storage without changing shared permissions
         run: test -d /wl_nas/devops && test -w /wl_nas/devops
       - name: Run the reviewed MPI Case from worker-0
@@ -80,9 +114,15 @@ jobs:
           namespace: ppu-sched
           timeout_minutes: 210
           cleanup_policy: always
+          container_options: |
+            privileged: true
+          host_volumes: /dev/infiniband:/dev/infiniband
           setup_command: |
             set -euo pipefail
             source /usr/local/PPU_SDK/envsetup.sh
+            test -d /dev/infiniband
+            set -- /dev/infiniband/*
+            test -e "$1"
           command: |
             set -euo pipefail
             cd "$SOURCE_DIR"
@@ -97,15 +137,33 @@ jobs:
               chmod -R a+rX "$RUN_ROOT" 2>/dev/null || true
             }
             trap make_results_readable EXIT
-            unset PIP_INDEX_URL PIP_EXTRA_INDEX_URL 2>/dev/null || true
             git config --global --unset-all url.https://ai-gerrit.eng.t-head.cn/Public/Github/.insteadOf 2>/dev/null || true
             git config --global --add safe.directory "$SOURCE_DIR"
             git config --global --add safe.directory '*'
             python3 -m venv /workspace/pccl-cluster-env
             /workspace/pccl-cluster-env/bin/python -m pip install --disable-pip-version-check \
-              -r pccl/tests/xtest/requirements.txt
+              --no-index --find-links "$SOURCE_DIR/cluster-deps" -r pccl/tests/xtest/requirements.txt
             /workspace/pccl-cluster-env/bin/python -m pip check
-            bash pccl/.github/workflows/scripts/build.sh
+            if ! dpkg-query -W -f='${Status}' libboost-program-options-dev 2>/dev/null \
+                | grep -qx 'install ok installed'; then
+              dpkg -i "$SOURCE_DIR"/cluster-debs/*.deb
+            fi
+            mkdir -p /tmp/pccl-noapt
+            cat > /tmp/pccl-noapt/apt <<'SH'
+            #!/bin/sh
+            set -eu
+            case "$1" in
+              update) exit 0 ;;
+              install)
+                shift
+                [ "${1:-}" != -y ] || shift
+                for package in "$@"; do dpkg-query -W "$package" >/dev/null; done
+                exit 0 ;;
+              *) exec /usr/bin/apt "$@" ;;
+            esac
+            SH
+            chmod 0755 /tmp/pccl-noapt/apt
+            PATH="/tmp/pccl-noapt:$PATH" bash pccl/.github/workflows/scripts/build.sh
             source /usr/local/PPU_SDK/envsetup.sh
             export LD_LIBRARY_PATH="$build_output/lib:${LD_LIBRARY_PATH:-}"
             cp "$CLUSTER_HOSTS_FILE" "$build_output/hosts.cfg"
@@ -124,7 +182,7 @@ jobs:
   summary:
     name: Two-node cluster-run result gate
     needs: [prepare, cluster]
-    if: always() && needs.prepare.result == 'success'
+    if: always() && needs.prepare.result == 'success' && needs.cluster.result != 'skipped'
     runs-on: k8s-runner-group-cpu-thead
     container:
       image: ghcr.io/actions/actions-runner:latest

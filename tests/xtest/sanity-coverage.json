@@ -1,0 +1,7103 @@
+{
+  "bundle_sha256": "6cdc1502cd8b501743cd24705f15a6ca12bb5c8da16dff0aed7148cadbd96904",
+  "cases": [
+    {
+      "legacy_case_key": "common-0ae432ae1212fa0af1b2",
+      "legacy_spec": {
+        "argv": [
+          "{python}",
+          "{test_root}/run_test.py",
+          "--op",
+          "all_reduce_perf",
+          "--algo",
+          "Ring",
+          "--proto",
+          "Signal",
+          "--data-type",
+          "float",
+          "--data-size",
+          "512MB",
+          "--iters",
+          "10",
+          "--ranks",
+          "4",
+          "--nnodes",
+          "1",
+          "--nprocs",
+          "1",
+          "--threads",
+          "1",
+          "--devices",
+          "0,1,2,3",
+          "--auto-detect",
+          "--timeout",
+          "7200",
+          "--launch-mode",
+          "normal",
+          "--mpi-options={mpi_options}",
+          "--process-group",
+          "normal"
+        ],
+        "build_profile": "standard",
+        "cards_per_node": 8,
+        "checks": [
+          "exit_code"
+        ],
+        "devices_per_thread": 4,
+        "env": {
+          "NCCL_DEBUG": "INFO"
+        },
+        "group": "common",
+        "legacy_source": "run_common_test.sh:20",
+        "nodes": 1,
+        "parameters": {
+          "algo": "Ring",
+          "auto_detect": true,
+          "data_sizes": [
+            "512MB"
+          ],
+          "devices": "0,1,2,3",
+          "dtype": "float",
+          "iters": 10,
+          "op": "all_reduce_perf",
+          "proto": "Signal",
+          "ranks": 4
+        },
+        "processes_per_node": 1,
+        "test_type": "functional",
+        "threads_per_process": 1,
+        "tier": "sanity",
+        "timeout": 7200
+      },
+      "selected": [
+        {
+          "build_profile": "standard",
+          "case_id": "91738356cfbe054eb4e34dad008f5078060346c1379c5a407e483768f32e3b3c",
+          "execution_id": "959de984b3baf40833e2ea9542fab74fd4462ee110045ecd07e867a3eb3d3743"
+        }
+      ]
+    },
+    {
+      "legacy_case_key": "common-15b1a7924c132787bb48",
+      "legacy_spec": {
+        "argv": [
+          "{python}",
+          "{test_root}/run_test.py",
+          "--op",
+          "all_reduce_perf",
+          "--algo",
+          "Tree",
+          "--proto",
+          "SignalBulk",
+          "--data-type",
+          "half",
+          "--data-size",
+          "100.5MB",
+          "--iters",
+          "10",
+          "--ranks",
+          "4",
+          "--nnodes",
+          "1",
+          "--nprocs",
+          "1",
+          "--threads",
+          "1",
+          "--devices",
+          "0,1,2,3",
+          "--auto-detect",
+          "--timeout",
+          "7200",
+          "--launch-mode",
+          "normal",
+          "--mpi-options={mpi_options}",
+          "--process-group",
+          "normal"
+        ],
+        "build_profile": "notsm",
+        "cards_per_node": 8,
+        "checks": [
+          "exit_code"
+        ],
+        "devices_per_thread": 4,
+        "env": {
+          "NCCL_DEBUG": "INFO"
+        },
+        "group": "common",
+        "legacy_source": "run_common_test.sh:28",
+        "nodes": 1,
+        "parameters": {
+          "algo": "Tree",
+          "auto_detect": true,
+          "data_sizes": [
+            "100.5MB"
+          ],
+          "devices": "0,1,2,3",
+          "dtype": "half",
+          "iters": 10,
+          "op": "all_reduce_perf",
+          "proto": "SignalBulk",
+          "ranks": 4
+        },
+        "processes_per_node": 1,
+        "test_type": "functional",
+        "threads_per_process": 1,
+        "tier": "sanity",
+        "timeout": 7200
+      },
+      "selected": [
+        {
+          "build_profile": "notsm",
+          "case_id": "f6953136545d8066d2c2ecbd674aec199aa5b397f7bc735f1efa336f544f8057",
+          "execution_id": "e1ce08e114183652181e7bbc819c80ffb4105f3b90878a3ab4e6db01f6493be4"
+        }
+      ]
+    },
+    {
+      "legacy_case_key": "common-19dda7d143f393d1fdfb",
+      "legacy_spec": {
+        "argv": [
+          "{python}",
+          "{test_root}/run_test.py",
+          "--op",
+          "all_reduce_perf",
+          "--algo",
+          "Ring",
+          "--proto",
+          "Simple",
+          "--data-type",
+          "float",
+          "--data-size",
+          "512MB",
+          "--iters",
+          "10",
+          "--ranks",
+          "4",
+          "--nnodes",
+          "1",
+          "--nprocs",
+          "1",
+          "--threads",
+          "1",
+          "--devices",
+          "0,1,2,3",
+          "--auto-detect",
+          "--timeout",
+          "7200",
+          "--launch-mode",
+          "normal",
+          "--mpi-options={mpi_options}",
+          "--process-group",
+          "normal"
+        ],
+        "build_profile": "standard",
+        "cards_per_node": 8,
+        "checks": [
+          "exit_code"
+        ],
+        "devices_per_thread": 4,
+        "env": {
+          "NCCL_DEBUG": "INFO"
+        },
+        "group": "common",
+        "legacy_source": "run_common_test.sh:17",
+        "nodes": 1,
+        "parameters": {
+          "algo": "Ring",
+          "auto_detect": true,
+          "data_sizes": [
+            "512MB"
+          ],
+          "devices": "0,1,2,3",
+          "dtype": "float",
+          "iters": 10,
+          "op": "all_reduce_perf",
+          "proto": "Simple",
+          "ranks": 4
+        },
+        "processes_per_node": 1,
+        "test_type": "functional",
+        "threads_per_process": 1,
+        "tier": "sanity",
+        "timeout": 7200
+      },
+      "selected": [
+        {
+          "build_profile": "standard",
+          "case_id": "0b4a73cc3b331b296d565388894651610b0c55b66005c58ec9b6bdf32c637b91",
+          "execution_id": "f23182df67d5e4de554101620c65c6ddbb0d046b65197745b21e1eeedad09e0d"
+        }
+      ]
+    },
+    {
+      "legacy_case_key": "common-292d891d477c059a2da8",
+      "legacy_spec": {
+        "argv": [
+          "{python}",
+          "{test_root}/run_test.py",
+          "--op",
+          "reduce_perf",
+          "--algo",
+          "Ring",
+          "--proto",
+          "Simple",
+          "--data-type",
+          "half",
+          "--data-size",
+          "100.5MB",
+          "--iters",
+          "10",
+          "--ranks",
+          "4",
+          "--nnodes",
+          "1",
+          "--nprocs",
+          "1",
+          "--threads",
+          "1",
+          "--devices",
+          "0,1,2,3",
+          "--auto-detect",
+          "--timeout",
+          "7200",
+          "--launch-mode",
+          "normal",
+          "--mpi-options={mpi_options}",
+          "--process-group",
+          "normal"
+        ],
+        "build_profile": "standard",
+        "cards_per_node": 8,
+        "checks": [
+          "exit_code"
+        ],
+        "devices_per_thread": 4,
+        "env": {
+          "NCCL_DEBUG": "INFO"
+        },
+        "group": "common",
+        "legacy_source": "run_common_test.sh:35",
+        "nodes": 1,
+        "parameters": {
+          "algo": "Ring",
+          "auto_detect": true,
+          "data_sizes": [
+            "100.5MB"
+          ],
+          "devices": "0,1,2,3",
+          "dtype": "half",
+          "iters": 10,
+          "op": "reduce_perf",
+          "proto": "Simple",
+          "ranks": 4
+        },
+        "processes_per_node": 1,
+        "test_type": "functional",
+        "threads_per_process": 1,
+        "tier": "sanity",
+        "timeout": 7200
+      },
+      "selected": [
+        {
+          "build_profile": "standard",
+          "case_id": "74ccca18a1f6afebcd899dac8a43b3b14635e00f3b080bef55be66c8327f32b6",
+          "execution_id": "5ceb072eba7c33cfdc52cc30cf5b88f8a398d63a9118e8347b5df6808f833c88"
+        }
+      ]
+    },
+    {
+      "legacy_case_key": "common-2b76bd4f2a3775fedb9d",
+      "legacy_spec": {
+        "argv": [
+          "{python}",
+          "{test_root}/run_test.py",
+          "--op",
+          "all_reduce_perf",
+          "--algo",
+          "Tree",
+          "--proto",
+          "SimpleBulk",
+          "--data-type",
+          "float",
+          "--data-size",
+          "1.2GB",
+          "--iters",
+          "10",
+          "--ranks",
+          "4",
+          "--nnodes",
+          "1",
+          "--nprocs",
+          "1",
+          "--threads",
+          "1",
+          "--devices",
+          "0,1,2,3",
+          "--auto-detect",
+          "--timeout",
+          "7200",
+          "--launch-mode",
+          "normal",
+          "--mpi-options={mpi_options}",
+          "--process-group",
+          "normal"
+        ],
+        "build_profile": "standard",
+        "cards_per_node": 8,
+        "checks": [
+          "exit_code"
+        ],
+        "devices_per_thread": 4,
+        "env": {
+          "NCCL_DEBUG": "INFO"
+        },
+        "group": "common",
+        "legacy_source": "run_common_test.sh:26",
+        "nodes": 1,
+        "parameters": {
+          "algo": "Tree",
+          "auto_detect": true,
+          "data_sizes": [
+            "1.2GB"
+          ],
+          "devices": "0,1,2,3",
+          "dtype": "float",
+          "iters": 10,
+          "op": "all_reduce_perf",
+          "proto": "SimpleBulk",
+          "ranks": 4
+        },
+        "processes_per_node": 1,
+        "test_type": "functional",
+        "threads_per_process": 1,
+        "tier": "sanity",
+        "timeout": 7200
+      },
+      "selected": [
+        {
+          "build_profile": "standard",
+          "case_id": "92390ca6dfdea6c9c9869e7e3a8ce40d0013d4918fc944132683c906536d8fb4",
+          "execution_id": "01eeae56f6eedcf3a88140b26f801c005de730fb5d5808b0bc2d78f6d6529eff"
+        }
+      ]
+    },
+    {
+      "legacy_case_key": "common-2d2d7dee451e82bd2fa5",
+      "legacy_spec": {
+        "argv": [
+          "{python}",
+          "{test_root}/run_test.py",
+          "--op",
+          "reduce_scatter_perf",
+          "--algo",
+          "Ring",
+          "--proto",
+          "Simple",
+          "--data-type",
+          "half",
+          "--data-size",
+          "100.5MB",
+          "--iters",
+          "10",
+          "--ranks",
+          "4",
+          "--nnodes",
+          "1",
+          "--nprocs",
+          "1",
+          "--threads",
+          "1",
+          "--devices",
+          "0,1,2,3",
+          "--auto-detect",
+          "--timeout",
+          "7200",
+          "--launch-mode",
+          "normal",
+          "--mpi-options={mpi_options}",
+          "--process-group",
+          "normal"
+        ],
+        "build_profile": "notsm",
+        "cards_per_node": 8,
+        "checks": [
+          "exit_code"
+        ],
+        "devices_per_thread": 4,
+        "env": {
+          "NCCL_DEBUG": "INFO"
+        },
+        "group": "common",
+        "legacy_source": "run_common_test.sh:38",
+        "nodes": 1,
+        "parameters": {
+          "algo": "Ring",
+          "auto_detect": true,
+          "data_sizes": [
+            "100.5MB"
+          ],
+          "devices": "0,1,2,3",
+          "dtype": "half",
+          "iters": 10,
+          "op": "reduce_scatter_perf",
+          "proto": "Simple",
+          "ranks": 4
+        },
+        "processes_per_node": 1,
+        "test_type": "functional",
+        "threads_per_process": 1,
+        "tier": "sanity",
+        "timeout": 7200
+      },
+      "selected": [
+        {
+          "build_profile": "notsm",
+          "case_id": "ff2539f072a295209dd35b399a6c9f8bfcd5d63c6182d4b04df0d50ccbea7eca",
+          "execution_id": "e65ee14a403ee86032f4092b3fc10773b0adf830e980ad0e245baba7579ab198"
+        }
+      ]
+    },
+    {
+      "legacy_case_key": "common-2e626ab570f76ad68ec2",
+      "legacy_spec": {
+        "argv": [
+          "{python}",
+          "{test_root}/run_test.py",
+          "--op",
+          "reduce_scatter_perf",
+          "--algo",
+          "Ring",
+          "--proto",
+          "LL128",
+          "--data-type",
+          "float",
+          "--data-size",
+          "100.5MB",
+          "--iters",
+          "10",
+          "--ranks",
+          "4",
+          "--nnodes",
+          "1",
+          "--nprocs",
+          "1",
+          "--threads",
+          "1",
+          "--devices",
+          "0,1,2,3",
+          "--auto-detect",
+          "--timeout",
+          "7200",
+          "--launch-mode",
+          "normal",
+          "--mpi-options={mpi_options}",
+          "--process-group",
+          "normal"
+        ],
+        "build_profile": "notsm",
+        "cards_per_node": 8,
+        "checks": [
+          "exit_code"
+        ],
+        "devices_per_thread": 4,
+        "env": {
+          "NCCL_DEBUG": "INFO"
+        },
+        "group": "common",
+        "legacy_source": "run_common_test.sh:37",
+        "nodes": 1,
+        "parameters": {
+          "algo": "Ring",
+          "auto_detect": true,
+          "data_sizes": [
+            "100.5MB"
+          ],
+          "devices": "0,1,2,3",
+          "dtype": "float",
+          "iters": 10,
+          "op": "reduce_scatter_perf",
+          "proto": "LL128",
+          "ranks": 4
+        },
+        "processes_per_node": 1,
+        "test_type": "functional",
+        "threads_per_process": 1,
+        "tier": "sanity",
+        "timeout": 7200
+      },
+      "selected": [
+        {
+          "build_profile": "notsm",
+          "case_id": "64940d3daab4d42d2b4f9aa0d571606c2dafc1942790fa32678388f0a94df7e9",
+          "execution_id": "9a9671ab8985311d2b3835fa342e7be91e8abf01fb69d18945d5d3f55416a2eb"
+        }
+      ]
+    },
+    {
+      "legacy_case_key": "common-2ee9357747e6a9135c72",
+      "legacy_spec": {
+        "argv": [
+          "{python}",
+          "{test_root}/run_test.py",
+          "--op",
+          "reduce_scatter_perf",
+          "--algo",
+          "Ring",
+          "--proto",
+          "Simple",
+          "--data-type",
+          "half",
+          "--data-size",
+          "100.5MB",
+          "--iters",
+          "10",
+          "--ranks",
+          "4",
+          "--nnodes",
+          "1",
+          "--nprocs",
+          "1",
+          "--threads",
+          "1",
+          "--devices",
+          "0,1,2,3",
+          "--auto-detect",
+          "--timeout",
+          "7200",
+          "--launch-mode",
+          "normal",
+          "--mpi-options={mpi_options}",
+          "--process-group",
+          "normal"
+        ],
+        "build_profile": "standard",
+        "cards_per_node": 8,
+        "checks": [
+          "exit_code"
+        ],
+        "devices_per_thread": 4,
+        "env": {
+          "NCCL_DEBUG": "INFO"
+        },
+        "group": "common",
+        "legacy_source": "run_common_test.sh:38",
+        "nodes": 1,
+        "parameters": {
+          "algo": "Ring",
+          "auto_detect": true,
+          "data_sizes": [
+            "100.5MB"
+          ],
+          "devices": "0,1,2,3",
+          "dtype": "half",
+          "iters": 10,
+          "op": "reduce_scatter_perf",
+          "proto": "Simple",
+          "ranks": 4
+        },
+        "processes_per_node": 1,
+        "test_type": "functional",
+        "threads_per_process": 1,
+        "tier": "sanity",
+        "timeout": 7200
+      },
+      "selected": [
+        {
+          "build_profile": "standard",
+          "case_id": "ff2539f072a295209dd35b399a6c9f8bfcd5d63c6182d4b04df0d50ccbea7eca",
+          "execution_id": "e65ee14a403ee86032f4092b3fc10773b0adf830e980ad0e245baba7579ab198"
+        }
+      ]
+    },
+    {
+      "legacy_case_key": "common-2f0e77a97b30ee51bd3e",
+      "legacy_spec": {
+        "argv": [
+          "{python}",
+          "{test_root}/run_test.py",
+          "--op",
+          "all_reduce_perf",
+          "--algo",
+          "Tree",
+          "--proto",
+          "Simple",
+          "--data-type",
+          "half",
+          "--data-size",
+          "100.5MB",
+          "--iters",
+          "10",
+          "--ranks",
+          "4",
+          "--nnodes",
+          "1",
+          "--nprocs",
+          "1",
+          "--threads",
+          "1",
+          "--devices",
+          "0,1,2,3",
+          "--auto-detect",
+          "--timeout",
+          "7200",
+          "--launch-mode",
+          "normal",
+          "--mpi-options={mpi_options}",
+          "--process-group",
+          "normal"
+        ],
+        "build_profile": "standard",
+        "cards_per_node": 8,
+        "checks": [
+          "exit_code"
+        ],
+        "devices_per_thread": 4,
+        "env": {
+          "NCCL_DEBUG": "INFO"
+        },
+        "group": "common",
+        "legacy_source": "run_common_test.sh:24",
+        "nodes": 1,
+        "parameters": {
+          "algo": "Tree",
+          "auto_detect": true,
+          "data_sizes": [
+            "100.5MB"
+          ],
+          "devices": "0,1,2,3",
+          "dtype": "half",
+          "iters": 10,
+          "op": "all_reduce_perf",
+          "proto": "Simple",
+          "ranks": 4
+        },
+        "processes_per_node": 1,
+        "test_type": "functional",
+        "threads_per_process": 1,
+        "tier": "sanity",
+        "timeout": 7200
+      },
+      "selected": [
+        {
+          "build_profile": "standard",
+          "case_id": "3c8f86e79830e30ba94c0b9b9db9babbe33351cdc60ad63907a343bda2790340",
+          "execution_id": "f400c9fdfd6ed5aaecc2c6d94a8f760ea3e32f20d659302b108bf031d3b34251"
+        }
+      ]
+    },
+    {
+      "legacy_case_key": "common-31c3dca93cf58612f799",
+      "legacy_spec": {
+        "argv": [
+          "{python}",
+          "{test_root}/run_test.py",
+          "--op",
+          "broadcast_perf",
+          "--algo",
+          "Ring",
+          "--proto",
+          "LL",
+          "--data-type",
+          "int8",
+          "--data-size",
+          "100.5MB",
+          "--iters",
+          "10",
+          "--ranks",
+          "4",
+          "--nnodes",
+          "1",
+          "--nprocs",
+          "1",
+          "--threads",
+          "1",
+          "--devices",
+          "0,1,2,3",
+          "--auto-detect",
+          "--timeout",
+          "7200",
+          "--launch-mode",
+          "normal",
+          "--mpi-options={mpi_options}",
+          "--process-group",
+          "normal"
+        ],
+        "build_profile": "notsm",
+        "cards_per_node": 8,
+        "checks": [
+          "exit_code"
+        ],
+        "devices_per_thread": 4,
+        "env": {
+          "NCCL_DEBUG": "INFO"
+        },
+        "group": "common",
+        "legacy_source": "run_common_test.sh:29",
+        "nodes": 1,
+        "parameters": {
+          "algo": "Ring",
+          "auto_detect": true,
+          "data_sizes": [
+            "100.5MB"
+          ],
+          "devices": "0,1,2,3",
+          "dtype": "int8",
+          "iters": 10,
+          "op": "broadcast_perf",
+          "proto": "LL",
+          "ranks": 4
+        },
+        "processes_per_node": 1,
+        "test_type": "functional",
+        "threads_per_process": 1,
+        "tier": "sanity",
+        "timeout": 7200
+      },
+      "selected": [
+        {
+          "build_profile": "notsm",
+          "case_id": "5140ce82236d1a6781f6bde707820ac15d0356148172afbbb4972e3758797f5e",
+          "execution_id": "741f8760d1c5fe7d21d84256730d0bed94354d3c288608ffeac19fc53fa10c8b"
+        }
+      ]
+    },
+    {
+      "legacy_case_key": "common-38c5a86baa6b4cfb699f",
+      "legacy_spec": {
+        "argv": [
+          "{python}",
+          "{test_root}/run_test.py",
+          "--op",
+          "broadcast_perf",
+          "--algo",
+          "Ring",
+          "--proto",
+          "Simple",
+          "--data-type",
+          "int8",
+          "--data-size",
+          "100.5MB",
+          "--iters",
+          "10",
+          "--ranks",
+          "4",
+          "--nnodes",
+          "1",
+          "--nprocs",
+          "1",
+          "--threads",
+          "1",
+          "--devices",
+          "0,1,2,3",
+          "--auto-detect",
+          "--timeout",
+          "7200",
+          "--launch-mode",
+          "normal",
+          "--mpi-options={mpi_options}",
+          "--process-group",
+          "normal"
+        ],
+        "build_profile": "standard",
+        "cards_per_node": 8,
+        "checks": [
+          "exit_code"
+        ],
+        "devices_per_thread": 4,
+        "env": {
+          "NCCL_DEBUG": "INFO"
+        },
+        "group": "common",
+        "legacy_source": "run_common_test.sh:31",
+        "nodes": 1,
+        "parameters": {
+          "algo": "Ring",
+          "auto_detect": true,
+          "data_sizes": [
+            "100.5MB"
+          ],
+          "devices": "0,1,2,3",
+          "dtype": "int8",
+          "iters": 10,
+          "op": "broadcast_perf",
+          "proto": "Simple",
+          "ranks": 4
+        },
+        "processes_per_node": 1,
+        "test_type": "functional",
+        "threads_per_process": 1,
+        "tier": "sanity",
+        "timeout": 7200
+      },
+      "selected": [
+        {
+          "build_profile": "standard",
+          "case_id": "5fa018f5f2e0087dd54a9d635dd9cbcd14b8c4e884b9a39fafe79c86eb4c51d7",
+          "execution_id": "a3f663da7192a1aff4cfb5d34fb150d5a89c71637d8db1d5dc6496be04f2d579"
+        }
+      ]
+    },
+    {
+      "legacy_case_key": "common-4024fb0843e7ac288d3c",
+      "legacy_spec": {
+        "argv": [
+          "{python}",
+          "{test_root}/run_test.py",
+          "--op",
+          "all_reduce_perf",
+          "--algo",
+          "Tree",
+          "--proto",
+          "SimpleBulk",
+          "--data-type",
+          "half",
+          "--data-size",
+          "100.5MB",
+          "--iters",
+          "10",
+          "--ranks",
+          "4",
+          "--nnodes",
+          "1",
+          "--nprocs",
+          "1",
+          "--threads",
+          "1",
+          "--devices",
+          "0,1,2,3",
+          "--auto-detect",
+          "--timeout",
+          "7200",
+          "--launch-mode",
+          "normal",
+          "--mpi-options={mpi_options}",
+          "--process-group",
+          "normal"
+        ],
+        "build_profile": "standard",
+        "cards_per_node": 8,
+        "checks": [
+          "exit_code"
+        ],
+        "devices_per_thread": 4,
+        "env": {
+          "NCCL_DEBUG": "INFO"
+        },
+        "group": "common",
+        "legacy_source": "run_common_test.sh:25",
+        "nodes": 1,
+        "parameters": {
+          "algo": "Tree",
+          "auto_detect": true,
+          "data_sizes": [
+            "100.5MB"
+          ],
+          "devices": "0,1,2,3",
+          "dtype": "half",
+          "iters": 10,
+          "op": "all_reduce_perf",
+          "proto": "SimpleBulk",
+          "ranks": 4
+        },
+        "processes_per_node": 1,
+        "test_type": "functional",
+        "threads_per_process": 1,
+        "tier": "sanity",
+        "timeout": 7200
+      },
+      "selected": [
+        {
+          "build_profile": "standard",
+          "case_id": "72f357475232edb862f54e7405dd71af35b3c8c2be318d5a6a1a63106afcbdc8",
+          "execution_id": "f7d3c4c38447b93122031b5c170bc9e5228683a984489a4fc287b8e255c50d02"
+        }
+      ]
+    },
+    {
+      "legacy_case_key": "common-45024ccf5a5ceef8fe42",
+      "legacy_spec": {
+        "argv": [
+          "{python}",
+          "{test_root}/run_test.py",
+          "--op",
+          "reduce_scatter_perf",
+          "--algo",
+          "Ring",
+          "--proto",
+          "LL",
+          "--data-type",
+          "half",
+          "--data-size",
+          "100.5MB",
+          "--iters",
+          "10",
+          "--ranks",
+          "4",
+          "--nnodes",
+          "1",
+          "--nprocs",
+          "1",
+          "--threads",
+          "1",
+          "--devices",
+          "0,1,2,3",
+          "--auto-detect",
+          "--timeout",
+          "7200",
+          "--launch-mode",
+          "normal",
+          "--mpi-options={mpi_options}",
+          "--process-group",
+          "normal"
+        ],
+        "build_profile": "standard",
+        "cards_per_node": 8,
+        "checks": [
+          "exit_code"
+        ],
+        "devices_per_thread": 4,
+        "env": {
+          "NCCL_DEBUG": "INFO"
+        },
+        "group": "common",
+        "legacy_source": "run_common_test.sh:36",
+        "nodes": 1,
+        "parameters": {
+          "algo": "Ring",
+          "auto_detect": true,
+          "data_sizes": [
+            "100.5MB"
+          ],
+          "devices": "0,1,2,3",
+          "dtype": "half",
+          "iters": 10,
+          "op": "reduce_scatter_perf",
+          "proto": "LL",
+          "ranks": 4
+        },
+        "processes_per_node": 1,
+        "test_type": "functional",
+        "threads_per_process": 1,
+        "tier": "sanity",
+        "timeout": 7200
+      },
+      "selected": [
+        {
+          "build_profile": "standard",
+          "case_id": "6d34e6e5980bcc300bd3ef60e28d5b7e28a8cd51ca3ce56709e37ae009c247a3",
+          "execution_id": "1fe909bb0c0a48bace701c2744099aa1cf712bca8fe56ae1ac0c77b744b96312"
+        }
+      ]
+    },
+    {
+      "legacy_case_key": "common-46f20e4e065ca9e017fa",
+      "legacy_spec": {
+        "argv": [
+          "{python}",
+          "{test_root}/run_test.py",
+          "--op",
+          "all_gather_perf",
+          "--algo",
+          "Ring",
+          "--proto",
+          "LL128",
+          "--data-type",
+          "int8",
+          "--data-size",
+          "100.5MB",
+          "--iters",
+          "10",
+          "--ranks",
+          "4",
+          "--nnodes",
+          "1",
+          "--nprocs",
+          "1",
+          "--threads",
+          "1",
+          "--devices",
+          "0,1,2,3",
+          "--auto-detect",
+          "--timeout",
+          "7200",
+          "--launch-mode",
+          "normal",
+          "--mpi-options={mpi_options}",
+          "--process-group",
+          "normal"
+        ],
+        "build_profile": "standard",
+        "cards_per_node": 8,
+        "checks": [
+          "exit_code"
+        ],
+        "devices_per_thread": 4,
+        "env": {
+          "NCCL_DEBUG": "INFO"
+        },
+        "group": "common",
+        "legacy_source": "run_common_test.sh:13",
+        "nodes": 1,
+        "parameters": {
+          "algo": "Ring",
+          "auto_detect": true,
+          "data_sizes": [
+            "100.5MB"
+          ],
+          "devices": "0,1,2,3",
+          "dtype": "int8",
+          "iters": 10,
+          "op": "all_gather_perf",
+          "proto": "LL128",
+          "ranks": 4
+        },
+        "processes_per_node": 1,
+        "test_type": "functional",
+        "threads_per_process": 1,
+        "tier": "sanity",
+        "timeout": 7200
+      },
+      "selected": [
+        {
+          "build_profile": "standard",
+          "case_id": "b0d29781116e05a2eaff53a49e6adbc3a8cf82e736d24e4d0c60a6673512645b",
+          "execution_id": "e8b98c952816e50d3ed72934dca1635b2e22f0de0995608215ef1e12cc0e1d4b"
+        }
+      ]
+    },
+    {
+      "legacy_case_key": "common-49589b2694839671f9f0",
+      "legacy_spec": {
+        "argv": [
+          "{python}",
+          "{test_root}/run_test.py",
+          "--op",
+          "alltoall_perf",
+          "--algo",
+          "Ring",
+          "--proto",
+          "Simple",
+          "--data-type",
+          "int8",
+          "--data-size",
+          "100.5MB",
+          "--iters",
+          "10",
+          "--ranks",
+          "4",
+          "--nnodes",
+          "1",
+          "--nprocs",
+          "1",
+          "--threads",
+          "1",
+          "--devices",
+          "0,1,2,3",
+          "--auto-detect",
+          "--timeout",
+          "7200",
+          "--launch-mode",
+          "normal",
+          "--mpi-options={mpi_options}",
+          "--process-group",
+          "normal"
+        ],
+        "build_profile": "notsm",
+        "cards_per_node": 8,
+        "checks": [
+          "exit_code"
+        ],
+        "devices_per_thread": 4,
+        "env": {
+          "NCCL_DEBUG": "INFO"
+        },
+        "group": "common",
+        "legacy_source": "run_common_test.sh:11",
+        "nodes": 1,
+        "parameters": {
+          "algo": "Ring",
+          "auto_detect": true,
+          "data_sizes": [
+            "100.5MB"
+          ],
+          "devices": "0,1,2,3",
+          "dtype": "int8",
+          "iters": 10,
+          "op": "alltoall_perf",
+          "proto": "Simple",
+          "ranks": 4
+        },
+        "processes_per_node": 1,
+        "test_type": "functional",
+        "threads_per_process": 1,
+        "tier": "sanity",
+        "timeout": 7200
+      },
+      "selected": [
+        {
+          "build_profile": "notsm",
+          "case_id": "9a224c3fde789ecf2bfd3c0a61bf95a192169ae32c7f27efd5380c07f0388b2d",
+          "execution_id": "2127a32ad4c5a831cdfe4bd7495dd932bfd903e29f08d338d5bf05d5f45df101"
+        }
+      ]
+    },
+    {
+      "legacy_case_key": "common-4a2bb23dc0f573279251",
+      "legacy_spec": {
+        "argv": [
+          "{python}",
+          "{test_root}/run_test.py",
+          "--op",
+          "alltoall_perf",
+          "--algo",
+          "Ring",
+          "--proto",
+          "Simple",
+          "--data-type",
+          "int8",
+          "--data-size",
+          "100.5MB",
+          "--iters",
+          "10",
+          "--ranks",
+          "4",
+          "--nnodes",
+          "1",
+          "--nprocs",
+          "1",
+          "--threads",
+          "1",
+          "--devices",
+          "0,1,2,3",
+          "--auto-detect",
+          "--timeout",
+          "7200",
+          "--launch-mode",
+          "normal",
+          "--mpi-options={mpi_options}",
+          "--process-group",
+          "normal"
+        ],
+        "build_profile": "standard",
+        "cards_per_node": 8,
+        "checks": [
+          "exit_code"
+        ],
+        "devices_per_thread": 4,
+        "env": {
+          "NCCL_DEBUG": "INFO"
+        },
+        "group": "common",
+        "legacy_source": "run_common_test.sh:11",
+        "nodes": 1,
+        "parameters": {
+          "algo": "Ring",
+          "auto_detect": true,
+          "data_sizes": [
+            "100.5MB"
+          ],
+          "devices": "0,1,2,3",
+          "dtype": "int8",
+          "iters": 10,
+          "op": "alltoall_perf",
+          "proto": "Simple",
+          "ranks": 4
+        },
+        "processes_per_node": 1,
+        "test_type": "functional",
+        "threads_per_process": 1,
+        "tier": "sanity",
+        "timeout": 7200
+      },
+      "selected": [
+        {
+          "build_profile": "standard",
+          "case_id": "9a224c3fde789ecf2bfd3c0a61bf95a192169ae32c7f27efd5380c07f0388b2d",
+          "execution_id": "2127a32ad4c5a831cdfe4bd7495dd932bfd903e29f08d338d5bf05d5f45df101"
+        }
+      ]
+    },
+    {
+      "legacy_case_key": "common-4f1443453e88562dd6a5",
+      "legacy_spec": {
+        "argv": [
+          "{python}",
+          "{test_root}/run_test.py",
+          "--op",
+          "all_reduce_perf",
+          "--algo",
+          "Ring",
+          "--proto",
+          "Simple",
+          "--data-type",
+          "float",
+          "--data-size",
+          "512MB",
+          "--iters",
+          "10",
+          "--ranks",
+          "4",
+          "--nnodes",
+          "1",
+          "--nprocs",
+          "1",
+          "--threads",
+          "1",
+          "--devices",
+          "0,1,2,3",
+          "--auto-detect",
+          "--timeout",
+          "7200",
+          "--launch-mode",
+          "normal",
+          "--mpi-options={mpi_options}",
+          "--process-group",
+          "normal"
+        ],
+        "build_profile": "notsm",
+        "cards_per_node": 8,
+        "checks": [
+          "exit_code"
+        ],
+        "devices_per_thread": 4,
+        "env": {
+          "NCCL_DEBUG": "INFO"
+        },
+        "group": "common",
+        "legacy_source": "run_common_test.sh:17",
+        "nodes": 1,
+        "parameters": {
+          "algo": "Ring",
+          "auto_detect": true,
+          "data_sizes": [
+            "512MB"
+          ],
+          "devices": "0,1,2,3",
+          "dtype": "float",
+          "iters": 10,
+          "op": "all_reduce_perf",
+          "proto": "Simple",
+          "ranks": 4
+        },
+        "processes_per_node": 1,
+        "test_type": "functional",
+        "threads_per_process": 1,
+        "tier": "sanity",
+        "timeout": 7200
+      },
+      "selected": [
+        {
+          "build_profile": "notsm",
+          "case_id": "0b4a73cc3b331b296d565388894651610b0c55b66005c58ec9b6bdf32c637b91",
+          "execution_id": "f23182df67d5e4de554101620c65c6ddbb0d046b65197745b21e1eeedad09e0d"
+        }
+      ]
+    },
+    {
+      "legacy_case_key": "common-5093e1b65f634fc527c6",
+      "legacy_spec": {
+        "argv": [
+          "{python}",
+          "{test_root}/run_test.py",
+          "--op",
+          "all_reduce_perf",
+          "--algo",
+          "Tree",
+          "--proto",
+          "SimpleBulk",
+          "--data-type",
+          "half",
+          "--data-size",
+          "100.5MB",
+          "--iters",
+          "10",
+          "--ranks",
+          "4",
+          "--nnodes",
+          "1",
+          "--nprocs",
+          "1",
+          "--threads",
+          "1",
+          "--devices",
+          "0,1,2,3",
+          "--auto-detect",
+          "--timeout",
+          "7200",
+          "--launch-mode",
+          "normal",
+          "--mpi-options={mpi_options}",
+          "--process-group",
+          "normal"
+        ],
+        "build_profile": "notsm",
+        "cards_per_node": 8,
+        "checks": [
+          "exit_code"
+        ],
+        "devices_per_thread": 4,
+        "env": {
+          "NCCL_DEBUG": "INFO"
+        },
+        "group": "common",
+        "legacy_source": "run_common_test.sh:25",
+        "nodes": 1,
+        "parameters": {
+          "algo": "Tree",
+          "auto_detect": true,
+          "data_sizes": [
+            "100.5MB"
+          ],
+          "devices": "0,1,2,3",
+          "dtype": "half",
+          "iters": 10,
+          "op": "all_reduce_perf",
+          "proto": "SimpleBulk",
+          "ranks": 4
+        },
+        "processes_per_node": 1,
+        "test_type": "functional",
+        "threads_per_process": 1,
+        "tier": "sanity",
+        "timeout": 7200
+      },
+      "selected": [
+        {
+          "build_profile": "notsm",
+          "case_id": "72f357475232edb862f54e7405dd71af35b3c8c2be318d5a6a1a63106afcbdc8",
+          "execution_id": "f7d3c4c38447b93122031b5c170bc9e5228683a984489a4fc287b8e255c50d02"
+        }
+      ]
+    },
+    {
+      "legacy_case_key": "common-50fef51e7346a0408bce",
+      "legacy_spec": {
+        "argv": [
+          "{python}",
+          "{test_root}/run_test.py",
+          "--op",
+          "all_reduce_perf",
+          "--algo",
+          "Tree",
+          "--proto",
+          "LL128",
+          "--data-type",
+          "half",
+          "--data-size",
+          "100.5MB",
+          "--iters",
+          "10",
+          "--ranks",
+          "4",
+          "--nnodes",
+          "1",
+          "--nprocs",
+          "1",
+          "--threads",
+          "1",
+          "--devices",
+          "0,1,2,3",
+          "--auto-detect",
+          "--timeout",
+          "7200",
+          "--launch-mode",
+          "normal",
+          "--mpi-options={mpi_options}",
+          "--process-group",
+          "normal"
+        ],
+        "build_profile": "standard",
+        "cards_per_node": 8,
+        "checks": [
+          "exit_code"
+        ],
+        "devices_per_thread": 4,
+        "env": {
+          "NCCL_DEBUG": "INFO"
+        },
+        "group": "common",
+        "legacy_source": "run_common_test.sh:23",
+        "nodes": 1,
+        "parameters": {
+          "algo": "Tree",
+          "auto_detect": true,
+          "data_sizes": [
+            "100.5MB"
+          ],
+          "devices": "0,1,2,3",
+          "dtype": "half",
+          "iters": 10,
+          "op": "all_reduce_perf",
+          "proto": "LL128",
+          "ranks": 4
+        },
+        "processes_per_node": 1,
+        "test_type": "functional",
+        "threads_per_process": 1,
+        "tier": "sanity",
+        "timeout": 7200
+      },
+      "selected": [
+        {
+          "build_profile": "standard",
+          "case_id": "a1756176c7cd340cd0e4a68f475a43c0f27034c48ac4dc4f12496f90850695f1",
+          "execution_id": "63fa9972211e2771964d32c3d307acd78af928125827102e4b58bac15efcd16d"
+        }
+      ]
+    },
+    {
+      "legacy_case_key": "common-527ad11659d1b76a0343",
+      "legacy_spec": {
+        "argv": [
+          "{python}",
+          "{test_root}/run_test.py",
+          "--op",
+          "reduce_perf",
+          "--algo",
+          "Ring",
+          "--proto",
+          "LL128",
+          "--data-type",
+          "half",
+          "--data-size",
+          "100.5MB",
+          "--iters",
+          "10",
+          "--ranks",
+          "4",
+          "--nnodes",
+          "1",
+          "--nprocs",
+          "1",
+          "--threads",
+          "1",
+          "--devices",
+          "0,1,2,3",
+          "--auto-detect",
+          "--timeout",
+          "7200",
+          "--launch-mode",
+          "normal",
+          "--mpi-options={mpi_options}",
+          "--process-group",
+          "normal"
+        ],
+        "build_profile": "standard",
+        "cards_per_node": 8,
+        "checks": [
+          "exit_code"
+        ],
+        "devices_per_thread": 4,
+        "env": {
+          "NCCL_DEBUG": "INFO"
+        },
+        "group": "common",
+        "legacy_source": "run_common_test.sh:34",
+        "nodes": 1,
+        "parameters": {
+          "algo": "Ring",
+          "auto_detect": true,
+          "data_sizes": [
+            "100.5MB"
+          ],
+          "devices": "0,1,2,3",
+          "dtype": "half",
+          "iters": 10,
+          "op": "reduce_perf",
+          "proto": "LL128",
+          "ranks": 4
+        },
+        "processes_per_node": 1,
+        "test_type": "functional",
+        "threads_per_process": 1,
+        "tier": "sanity",
+        "timeout": 7200
+      },
+      "selected": [
+        {
+          "build_profile": "standard",
+          "case_id": "9b5cb35a219f34db5730c556b0af8cfddde3ee44a490728ef7ddcfa27316dead",
+          "execution_id": "8063995fb7205d6e90b4ac1e22fbcfba562c4990678ae6a543acc273df10c2d7"
+        }
+      ]
+    },
+    {
+      "legacy_case_key": "common-564b242da7771d39df03",
+      "legacy_spec": {
+        "argv": [
+          "{python}",
+          "{test_root}/run_test.py",
+          "--op",
+          "all_gather_perf",
+          "--algo",
+          "Ring",
+          "--proto",
+          "Simple",
+          "--data-type",
+          "int8",
+          "--data-size",
+          "512MB",
+          "--iters",
+          "10",
+          "--ranks",
+          "4",
+          "--nnodes",
+          "1",
+          "--nprocs",
+          "1",
+          "--threads",
+          "1",
+          "--devices",
+          "0,1,2,3",
+          "--auto-detect",
+          "--timeout",
+          "7200",
+          "--launch-mode",
+          "normal",
+          "--mpi-options={mpi_options}",
+          "--process-group",
+          "normal"
+        ],
+        "build_profile": "standard",
+        "cards_per_node": 8,
+        "checks": [
+          "exit_code"
+        ],
+        "devices_per_thread": 4,
+        "env": {
+          "NCCL_DEBUG": "INFO"
+        },
+        "group": "common",
+        "legacy_source": "run_common_test.sh:14",
+        "nodes": 1,
+        "parameters": {
+          "algo": "Ring",
+          "auto_detect": true,
+          "data_sizes": [
+            "512MB"
+          ],
+          "devices": "0,1,2,3",
+          "dtype": "int8",
+          "iters": 10,
+          "op": "all_gather_perf",
+          "proto": "Simple",
+          "ranks": 4
+        },
+        "processes_per_node": 1,
+        "test_type": "functional",
+        "threads_per_process": 1,
+        "tier": "sanity",
+        "timeout": 7200
+      },
+      "selected": [
+        {
+          "build_profile": "standard",
+          "case_id": "0f17e1425b0d9f9974643249721fa5a0d44986b60d5b2dfcc640553d926944cc",
+          "execution_id": "54f07cd2d59cecf9eeeedc509bc85080e97a0f09050e1332e674c6e5946cc237"
+        }
+      ]
+    },
+    {
+      "legacy_case_key": "common-5ce211af072ce8464ee4",
+      "legacy_spec": {
+        "argv": [
+          "{python}",
+          "{test_root}/run_test.py",
+          "--op",
+          "all_reduce_perf",
+          "--algo",
+          "Tree",
+          "--proto",
+          "LL",
+          "--data-type",
+          "half",
+          "--data-size",
+          "100.5MB",
+          "--iters",
+          "10",
+          "--ranks",
+          "4",
+          "--nnodes",
+          "1",
+          "--nprocs",
+          "1",
+          "--threads",
+          "1",
+          "--devices",
+          "0,1,2,3",
+          "--auto-detect",
+          "--timeout",
+          "7200",
+          "--launch-mode",
+          "normal",
+          "--mpi-options={mpi_options}",
+          "--process-group",
+          "normal"
+        ],
+        "build_profile": "notsm",
+        "cards_per_node": 8,
+        "checks": [
+          "exit_code"
+        ],
+        "devices_per_thread": 4,
+        "env": {
+          "NCCL_DEBUG": "INFO"
+        },
+        "group": "common",
+        "legacy_source": "run_common_test.sh:22",
+        "nodes": 1,
+        "parameters": {
+          "algo": "Tree",
+          "auto_detect": true,
+          "data_sizes": [
+            "100.5MB"
+          ],
+          "devices": "0,1,2,3",
+          "dtype": "half",
+          "iters": 10,
+          "op": "all_reduce_perf",
+          "proto": "LL",
+          "ranks": 4
+        },
+        "processes_per_node": 1,
+        "test_type": "functional",
+        "threads_per_process": 1,
+        "tier": "sanity",
+        "timeout": 7200
+      },
+      "selected": [
+        {
+          "build_profile": "notsm",
+          "case_id": "7af8ddd5c4cc7d6d583b4a5c581775b8254315ca7bc9a23069df8f58508fdf60",
+          "execution_id": "8569ff7077840033df517739f1dc5018222c5cffc553ff6d4c741f4973d52c6b"
+        }
+      ]
+    },
+    {
+      "legacy_case_key": "common-5ec96a99439212a1dac9",
+      "legacy_spec": {
+        "argv": [
+          "{python}",
+          "{test_root}/run_test.py",
+          "--op",
+          "reduce_perf",
+          "--algo",
+          "Ring",
+          "--proto",
+          "LL",
+          "--data-type",
+          "half",
+          "--data-size",
+          "100.5MB",
+          "--iters",
+          "10",
+          "--ranks",
+          "4",
+          "--nnodes",
+          "1",
+          "--nprocs",
+          "1",
+          "--threads",
+          "1",
+          "--devices",
+          "0,1,2,3",
+          "--auto-detect",
+          "--timeout",
+          "7200",
+          "--launch-mode",
+          "normal",
+          "--mpi-options={mpi_options}",
+          "--process-group",
+          "normal"
+        ],
+        "build_profile": "notsm",
+        "cards_per_node": 8,
+        "checks": [
+          "exit_code"
+        ],
+        "devices_per_thread": 4,
+        "env": {
+          "NCCL_DEBUG": "INFO"
+        },
+        "group": "common",
+        "legacy_source": "run_common_test.sh:33",
+        "nodes": 1,
+        "parameters": {
+          "algo": "Ring",
+          "auto_detect": true,
+          "data_sizes": [
+            "100.5MB"
+          ],
+          "devices": "0,1,2,3",
+          "dtype": "half",
+          "iters": 10,
+          "op": "reduce_perf",
+          "proto": "LL",
+          "ranks": 4
+        },
+        "processes_per_node": 1,
+        "test_type": "functional",
+        "threads_per_process": 1,
+        "tier": "sanity",
+        "timeout": 7200
+      },
+      "selected": [
+        {
+          "build_profile": "notsm",
+          "case_id": "ab91fca04f34e3563fabff73f08957916e4264f9bdd911d609bfc5b11389fa5c",
+          "execution_id": "e87910d80b6418a39f0cdb466ad2a0b7148a91a66364a3c0dc8a3634b672595c"
+        }
+      ]
+    },
+    {
+      "legacy_case_key": "common-6576e76b80417f5bdfa8",
+      "legacy_spec": {
+        "argv": [
+          "{python}",
+          "{test_root}/run_test.py",
+          "--op",
+          "broadcast_perf",
+          "--algo",
+          "Ring",
+          "--proto",
+          "LL128",
+          "--data-type",
+          "int8",
+          "--data-size",
+          "100.5MB",
+          "--iters",
+          "10",
+          "--ranks",
+          "4",
+          "--nnodes",
+          "1",
+          "--nprocs",
+          "1",
+          "--threads",
+          "1",
+          "--devices",
+          "0,1,2,3",
+          "--auto-detect",
+          "--timeout",
+          "7200",
+          "--launch-mode",
+          "normal",
+          "--mpi-options={mpi_options}",
+          "--process-group",
+          "normal"
+        ],
+        "build_profile": "standard",
+        "cards_per_node": 8,
+        "checks": [
+          "exit_code"
+        ],
+        "devices_per_thread": 4,
+        "env": {
+          "NCCL_DEBUG": "INFO"
+        },
+        "group": "common",
+        "legacy_source": "run_common_test.sh:30",
+        "nodes": 1,
+        "parameters": {
+          "algo": "Ring",
+          "auto_detect": true,
+          "data_sizes": [
+            "100.5MB"
+          ],
+          "devices": "0,1,2,3",
+          "dtype": "int8",
+          "iters": 10,
+          "op": "broadcast_perf",
+          "proto": "LL128",
+          "ranks": 4
+        },
+        "processes_per_node": 1,
+        "test_type": "functional",
+        "threads_per_process": 1,
+        "tier": "sanity",
+        "timeout": 7200
+      },
+      "selected": [
+        {
+          "build_profile": "standard",
+          "case_id": "6c73c03a256e56dc35901f9e9e8d9fff3fe259ab3ad53f0c586271501cd544c6",
+          "execution_id": "027798caf074271f1562818bfa4261d0050074e082e58f54aefa6e04db6dd700"
+        }
+      ]
+    },
+    {
+      "legacy_case_key": "common-6d8af84cd79c30557478",
+      "legacy_spec": {
+        "argv": [
+          "{python}",
+          "{test_root}/run_test.py",
+          "--op",
+          "all_reduce_perf",
+          "--algo",
+          "Tree",
+          "--proto",
+          "Signal",
+          "--data-type",
+          "float",
+          "--data-size",
+          "512MB",
+          "--iters",
+          "10",
+          "--ranks",
+          "4",
+          "--nnodes",
+          "1",
+          "--nprocs",
+          "1",
+          "--threads",
+          "1",
+          "--devices",
+          "0,1,2,3",
+          "--auto-detect",
+          "--timeout",
+          "7200",
+          "--launch-mode",
+          "normal",
+          "--mpi-options={mpi_options}",
+          "--process-group",
+          "normal"
+        ],
+        "build_profile": "standard",
+        "cards_per_node": 8,
+        "checks": [
+          "exit_code"
+        ],
+        "devices_per_thread": 4,
+        "env": {
+          "NCCL_DEBUG": "INFO"
+        },
+        "group": "common",
+        "legacy_source": "run_common_test.sh:27",
+        "nodes": 1,
+        "parameters": {
+          "algo": "Tree",
+          "auto_detect": true,
+          "data_sizes": [
+            "512MB"
+          ],
+          "devices": "0,1,2,3",
+          "dtype": "float",
+          "iters": 10,
+          "op": "all_reduce_perf",
+          "proto": "Signal",
+          "ranks": 4
+        },
+        "processes_per_node": 1,
+        "test_type": "functional",
+        "threads_per_process": 1,
+        "tier": "sanity",
+        "timeout": 7200
+      },
+      "selected": [
+        {
+          "build_profile": "standard",
+          "case_id": "22daa0d53b698362a87c37b90d64600836370482a41792b58ac158b7b3086494",
+          "execution_id": "61dd2a6432ae8a608d7ad57fa10c8059483fabd5e30f3040ca261a68bb8f41ce"
+        }
+      ]
+    },
+    {
+      "legacy_case_key": "common-754f3402891bddf7ee7c",
+      "legacy_spec": {
+        "argv": [
+          "{python}",
+          "{test_root}/run_test.py",
+          "--op",
+          "all_reduce_perf",
+          "--algo",
+          "Ring",
+          "--proto",
+          "SimpleBulk",
+          "--data-type",
+          "float",
+          "--data-size",
+          "1.2GB",
+          "--iters",
+          "10",
+          "--ranks",
+          "4",
+          "--nnodes",
+          "1",
+          "--nprocs",
+          "1",
+          "--threads",
+          "1",
+          "--devices",
+          "0,1,2,3",
+          "--auto-detect",
+          "--timeout",
+          "7200",
+          "--launch-mode",
+          "normal",
+          "--mpi-options={mpi_options}",
+          "--process-group",
+          "normal"
+        ],
+        "build_profile": "notsm",
+        "cards_per_node": 8,
+        "checks": [
+          "exit_code"
+        ],
+        "devices_per_thread": 4,
+        "env": {
+          "NCCL_DEBUG": "INFO"
+        },
+        "group": "common",
+        "legacy_source": "run_common_test.sh:19",
+        "nodes": 1,
+        "parameters": {
+          "algo": "Ring",
+          "auto_detect": true,
+          "data_sizes": [
+            "1.2GB"
+          ],
+          "devices": "0,1,2,3",
+          "dtype": "float",
+          "iters": 10,
+          "op": "all_reduce_perf",
+          "proto": "SimpleBulk",
+          "ranks": 4
+        },
+        "processes_per_node": 1,
+        "test_type": "functional",
+        "threads_per_process": 1,
+        "tier": "sanity",
+        "timeout": 7200
+      },
+      "selected": [
+        {
+          "build_profile": "notsm",
+          "case_id": "1fece63801b4a93a5991be94dfea784a4428e4ae242fc8e2a5291ad802e1d2a5",
+          "execution_id": "e9ee05e1b2ca62604278542c8360545c51cca2d4eb091d6a9ddc7e4ff7a90033"
+        }
+      ]
+    },
+    {
+      "legacy_case_key": "common-7b9f664435f97cae2b36",
+      "legacy_spec": {
+        "argv": [
+          "{python}",
+          "{test_root}/run_test.py",
+          "--op",
+          "all_reduce_perf",
+          "--algo",
+          "Ring",
+          "--proto",
+          "SignalBulk",
+          "--data-type",
+          "half",
+          "--data-size",
+          "100.5MB",
+          "--iters",
+          "10",
+          "--ranks",
+          "4",
+          "--nnodes",
+          "1",
+          "--nprocs",
+          "1",
+          "--threads",
+          "1",
+          "--devices",
+          "0,1,2,3",
+          "--auto-detect",
+          "--timeout",
+          "7200",
+          "--launch-mode",
+          "normal",
+          "--mpi-options={mpi_options}",
+          "--process-group",
+          "normal"
+        ],
+        "build_profile": "notsm",
+        "cards_per_node": 8,
+        "checks": [
+          "exit_code"
+        ],
+        "devices_per_thread": 4,
+        "env": {
+          "NCCL_DEBUG": "INFO"
+        },
+        "group": "common",
+        "legacy_source": "run_common_test.sh:21",
+        "nodes": 1,
+        "parameters": {
+          "algo": "Ring",
+          "auto_detect": true,
+          "data_sizes": [
+            "100.5MB"
+          ],
+          "devices": "0,1,2,3",
+          "dtype": "half",
+          "iters": 10,
+          "op": "all_reduce_perf",
+          "proto": "SignalBulk",
+          "ranks": 4
+        },
+        "processes_per_node": 1,
+        "test_type": "functional",
+        "threads_per_process": 1,
+        "tier": "sanity",
+        "timeout": 7200
+      },
+      "selected": [
+        {
+          "build_profile": "notsm",
+          "case_id": "1a2af56ad2280560aa44252a0b2c18400d11bd864ac1e44897aec60465349a35",
+          "execution_id": "ac786189e4a9fcc5467a97921749706d5a422c9219bb61976f9c774079abaec8"
+        }
+      ]
+    },
+    {
+      "legacy_case_key": "common-8c11ff66387bb5d80d1a",
+      "legacy_spec": {
+        "argv": [
+          "{python}",
+          "{test_root}/run_test.py",
+          "--op",
+          "all_reduce_perf",
+          "--algo",
+          "Ring",
+          "--proto",
+          "SimpleBulk",
+          "--data-type",
+          "float",
+          "--data-size",
+          "100.5MB",
+          "--iters",
+          "10",
+          "--ranks",
+          "4",
+          "--nnodes",
+          "1",
+          "--nprocs",
+          "1",
+          "--threads",
+          "1",
+          "--devices",
+          "0,1,2,3",
+          "--auto-detect",
+          "--timeout",
+          "7200",
+          "--launch-mode",
+          "normal",
+          "--mpi-options={mpi_options}",
+          "--process-group",
+          "normal"
+        ],
+        "build_profile": "notsm",
+        "cards_per_node": 8,
+        "checks": [
+          "exit_code"
+        ],
+        "devices_per_thread": 4,
+        "env": {
+          "NCCL_DEBUG": "INFO"
+        },
+        "group": "common",
+        "legacy_source": "run_common_test.sh:18",
+        "nodes": 1,
+        "parameters": {
+          "algo": "Ring",
+          "auto_detect": true,
+          "data_sizes": [
+            "100.5MB"
+          ],
+          "devices": "0,1,2,3",
+          "dtype": "float",
+          "iters": 10,
+          "op": "all_reduce_perf",
+          "proto": "SimpleBulk",
+          "ranks": 4
+        },
+        "processes_per_node": 1,
+        "test_type": "functional",
+        "threads_per_process": 1,
+        "tier": "sanity",
+        "timeout": 7200
+      },
+      "selected": [
+        {
+          "build_profile": "notsm",
+          "case_id": "5d93463659887d6ee6c448dd3e5a43b63bb6678f42941e492811766b4339afc5",
+          "execution_id": "1a943484773ec0c6beb109f56e98ab26d56159e3697158083f461432e2f4c3c7"
+        }
+      ]
+    },
+    {
+      "legacy_case_key": "common-8e51c87542c437507168",
+      "legacy_spec": {
+        "argv": [
+          "{python}",
+          "{test_root}/run_test.py",
+          "--op",
+          "all_reduce_perf",
+          "--algo",
+          "Tree",
+          "--proto",
+          "LL",
+          "--data-type",
+          "half",
+          "--data-size",
+          "100.5MB",
+          "--iters",
+          "10",
+          "--ranks",
+          "4",
+          "--nnodes",
+          "1",
+          "--nprocs",
+          "1",
+          "--threads",
+          "1",
+          "--devices",
+          "0,1,2,3",
+          "--auto-detect",
+          "--timeout",
+          "7200",
+          "--launch-mode",
+          "normal",
+          "--mpi-options={mpi_options}",
+          "--process-group",
+          "normal"
+        ],
+        "build_profile": "standard",
+        "cards_per_node": 8,
+        "checks": [
+          "exit_code"
+        ],
+        "devices_per_thread": 4,
+        "env": {
+          "NCCL_DEBUG": "INFO"
+        },
+        "group": "common",
+        "legacy_source": "run_common_test.sh:22",
+        "nodes": 1,
+        "parameters": {
+          "algo": "Tree",
+          "auto_detect": true,
+          "data_sizes": [
+            "100.5MB"
+          ],
+          "devices": "0,1,2,3",
+          "dtype": "half",
+          "iters": 10,
+          "op": "all_reduce_perf",
+          "proto": "LL",
+          "ranks": 4
+        },
+        "processes_per_node": 1,
+        "test_type": "functional",
+        "threads_per_process": 1,
+        "tier": "sanity",
+        "timeout": 7200
+      },
+      "selected": [
+        {
+          "build_profile": "standard",
+          "case_id": "7af8ddd5c4cc7d6d583b4a5c581775b8254315ca7bc9a23069df8f58508fdf60",
+          "execution_id": "8569ff7077840033df517739f1dc5018222c5cffc553ff6d4c741f4973d52c6b"
+        }
+      ]
+    },
+    {
+      "legacy_case_key": "common-8f5a0c0866ed9da3adb0",
+      "legacy_spec": {
+        "argv": [
+          "{python}",
+          "{test_root}/run_test.py",
+          "--op",
+          "all_reduce_perf",
+          "--algo",
+          "Ring",
+          "--proto",
+          "LL128",
+          "--data-type",
+          "half",
+          "--data-size",
+          "1.2GB",
+          "--iters",
+          "10",
+          "--ranks",
+          "4",
+          "--nnodes",
+          "1",
+          "--nprocs",
+          "1",
+          "--threads",
+          "1",
+          "--devices",
+          "0,1,2,3",
+          "--auto-detect",
+          "--timeout",
+          "7200",
+          "--launch-mode",
+          "normal",
+          "--mpi-options={mpi_options}",
+          "--process-group",
+          "normal"
+        ],
+        "build_profile": "standard",
+        "cards_per_node": 8,
+        "checks": [
+          "exit_code"
+        ],
+        "devices_per_thread": 4,
+        "env": {
+          "NCCL_DEBUG": "INFO"
+        },
+        "group": "common",
+        "legacy_source": "run_common_test.sh:16",
+        "nodes": 1,
+        "parameters": {
+          "algo": "Ring",
+          "auto_detect": true,
+          "data_sizes": [
+            "1.2GB"
+          ],
+          "devices": "0,1,2,3",
+          "dtype": "half",
+          "iters": 10,
+          "op": "all_reduce_perf",
+          "proto": "LL128",
+          "ranks": 4
+        },
+        "processes_per_node": 1,
+        "test_type": "functional",
+        "threads_per_process": 1,
+        "tier": "sanity",
+        "timeout": 7200
+      },
+      "selected": [
+        {
+          "build_profile": "standard",
+          "case_id": "eb6ec94902e311c054f0f6703c42d8a8d552463282fe5b9500b35c98d8e11a11",
+          "execution_id": "b14c39f94ed581fa92dcdb60fd075f866edd10e24ac3d196a6597ad3fad23b9e"
+        }
+      ]
+    },
+    {
+      "legacy_case_key": "common-8f921dba5e4912559450",
+      "legacy_spec": {
+        "argv": [
+          "{python}",
+          "{test_root}/run_test.py",
+          "--op",
+          "all_reduce_perf",
+          "--algo",
+          "Ring",
+          "--proto",
+          "SignalBulk",
+          "--data-type",
+          "half",
+          "--data-size",
+          "100.5MB",
+          "--iters",
+          "10",
+          "--ranks",
+          "4",
+          "--nnodes",
+          "1",
+          "--nprocs",
+          "1",
+          "--threads",
+          "1",
+          "--devices",
+          "0,1,2,3",
+          "--auto-detect",
+          "--timeout",
+          "7200",
+          "--launch-mode",
+          "normal",
+          "--mpi-options={mpi_options}",
+          "--process-group",
+          "normal"
+        ],
+        "build_profile": "standard",
+        "cards_per_node": 8,
+        "checks": [
+          "exit_code"
+        ],
+        "devices_per_thread": 4,
+        "env": {
+          "NCCL_DEBUG": "INFO"
+        },
+        "group": "common",
+        "legacy_source": "run_common_test.sh:21",
+        "nodes": 1,
+        "parameters": {
+          "algo": "Ring",
+          "auto_detect": true,
+          "data_sizes": [
+            "100.5MB"
+          ],
+          "devices": "0,1,2,3",
+          "dtype": "half",
+          "iters": 10,
+          "op": "all_reduce_perf",
+          "proto": "SignalBulk",
+          "ranks": 4
+        },
+        "processes_per_node": 1,
+        "test_type": "functional",
+        "threads_per_process": 1,
+        "tier": "sanity",
+        "timeout": 7200
+      },
+      "selected": [
+        {
+          "build_profile": "standard",
+          "case_id": "1a2af56ad2280560aa44252a0b2c18400d11bd864ac1e44897aec60465349a35",
+          "execution_id": "ac786189e4a9fcc5467a97921749706d5a422c9219bb61976f9c774079abaec8"
+        }
+      ]
+    },
+    {
+      "legacy_case_key": "common-91db8dda6b8df8e7e0e2",
+      "legacy_spec": {
+        "argv": [
+          "{python}",
+          "{test_root}/run_test.py",
+          "--op",
+          "broadcast_perf",
+          "--algo",
+          "Ring",
+          "--proto",
+          "Simple",
+          "--data-type",
+          "int8",
+          "--data-size",
+          "100.5MB",
+          "--iters",
+          "10",
+          "--ranks",
+          "4",
+          "--nnodes",
+          "1",
+          "--nprocs",
+          "1",
+          "--threads",
+          "1",
+          "--devices",
+          "0,1,2,3",
+          "--auto-detect",
+          "--timeout",
+          "7200",
+          "--launch-mode",
+          "normal",
+          "--mpi-options={mpi_options}",
+          "--process-group",
+          "normal"
+        ],
+        "build_profile": "notsm",
+        "cards_per_node": 8,
+        "checks": [
+          "exit_code"
+        ],
+        "devices_per_thread": 4,
+        "env": {
+          "NCCL_DEBUG": "INFO"
+        },
+        "group": "common",
+        "legacy_source": "run_common_test.sh:31",
+        "nodes": 1,
+        "parameters": {
+          "algo": "Ring",
+          "auto_detect": true,
+          "data_sizes": [
+            "100.5MB"
+          ],
+          "devices": "0,1,2,3",
+          "dtype": "int8",
+          "iters": 10,
+          "op": "broadcast_perf",
+          "proto": "Simple",
+          "ranks": 4
+        },
+        "processes_per_node": 1,
+        "test_type": "functional",
+        "threads_per_process": 1,
+        "tier": "sanity",
+        "timeout": 7200
+      },
+      "selected": [
+        {
+          "build_profile": "notsm",
+          "case_id": "5fa018f5f2e0087dd54a9d635dd9cbcd14b8c4e884b9a39fafe79c86eb4c51d7",
+          "execution_id": "a3f663da7192a1aff4cfb5d34fb150d5a89c71637d8db1d5dc6496be04f2d579"
+        }
+      ]
+    },
+    {
+      "legacy_case_key": "common-92f29409fe2c5dbc93ab",
+      "legacy_spec": {
+        "argv": [
+          "{python}",
+          "{test_root}/run_test.py",
+          "--op",
+          "all_reduce_perf",
+          "--algo",
+          "Ring",
+          "--proto",
+          "LL",
+          "--data-type",
+          "float",
+          "--data-size",
+          "100.5MB",
+          "--iters",
+          "10",
+          "--ranks",
+          "4",
+          "--nnodes",
+          "1",
+          "--nprocs",
+          "1",
+          "--threads",
+          "1",
+          "--devices",
+          "0,1,2,3",
+          "--auto-detect",
+          "--timeout",
+          "7200",
+          "--launch-mode",
+          "normal",
+          "--mpi-options={mpi_options}",
+          "--process-group",
+          "normal"
+        ],
+        "build_profile": "notsm",
+        "cards_per_node": 8,
+        "checks": [
+          "exit_code"
+        ],
+        "devices_per_thread": 4,
+        "env": {
+          "NCCL_DEBUG": "INFO"
+        },
+        "group": "common",
+        "legacy_source": "run_common_test.sh:15",
+        "nodes": 1,
+        "parameters": {
+          "algo": "Ring",
+          "auto_detect": true,
+          "data_sizes": [
+            "100.5MB"
+          ],
+          "devices": "0,1,2,3",
+          "dtype": "float",
+          "iters": 10,
+          "op": "all_reduce_perf",
+          "proto": "LL",
+          "ranks": 4
+        },
+        "processes_per_node": 1,
+        "test_type": "functional",
+        "threads_per_process": 1,
+        "tier": "sanity",
+        "timeout": 7200
+      },
+      "selected": [
+        {
+          "build_profile": "notsm",
+          "case_id": "f0a3f19933d09d91ce887bcf837c92dc134ac91a91e5cb86b2341664afa313af",
+          "execution_id": "97afb2e8951952d3abcbfee836f847b687ef3ecef90be1c5730c409f1cd52fef"
+        }
+      ]
+    },
+    {
+      "legacy_case_key": "common-9b02a1d5660fb562d1c8",
+      "legacy_spec": {
+        "argv": [
+          "{python}",
+          "{test_root}/run_test.py",
+          "--op",
+          "reduce_scatter_perf",
+          "--algo",
+          "Ring",
+          "--proto",
+          "LL128",
+          "--data-type",
+          "float",
+          "--data-size",
+          "100.5MB",
+          "--iters",
+          "10",
+          "--ranks",
+          "4",
+          "--nnodes",
+          "1",
+          "--nprocs",
+          "1",
+          "--threads",
+          "1",
+          "--devices",
+          "0,1,2,3",
+          "--auto-detect",
+          "--timeout",
+          "7200",
+          "--launch-mode",
+          "normal",
+          "--mpi-options={mpi_options}",
+          "--process-group",
+          "normal"
+        ],
+        "build_profile": "standard",
+        "cards_per_node": 8,
+        "checks": [
+          "exit_code"
+        ],
+        "devices_per_thread": 4,
+        "env": {
+          "NCCL_DEBUG": "INFO"
+        },
+        "group": "common",
+        "legacy_source": "run_common_test.sh:37",
+        "nodes": 1,
+        "parameters": {
+          "algo": "Ring",
+          "auto_detect": true,
+          "data_sizes": [
+            "100.5MB"
+          ],
+          "devices": "0,1,2,3",
+          "dtype": "float",
+          "iters": 10,
+          "op": "reduce_scatter_perf",
+          "proto": "LL128",
+          "ranks": 4
+        },
+        "processes_per_node": 1,
+        "test_type": "functional",
+        "threads_per_process": 1,
+        "tier": "sanity",
+        "timeout": 7200
+      },
+      "selected": [
+        {
+          "build_profile": "standard",
+          "case_id": "64940d3daab4d42d2b4f9aa0d571606c2dafc1942790fa32678388f0a94df7e9",
+          "execution_id": "9a9671ab8985311d2b3835fa342e7be91e8abf01fb69d18945d5d3f55416a2eb"
+        }
+      ]
+    },
+    {
+      "legacy_case_key": "common-9b82ccdc64ef0b4f97cd",
+      "legacy_spec": {
+        "argv": [
+          "{python}",
+          "{test_root}/run_test.py",
+          "--op",
+          "reduce_perf",
+          "--algo",
+          "Ring",
+          "--proto",
+          "Simple",
+          "--data-type",
+          "half",
+          "--data-size",
+          "100.5MB",
+          "--iters",
+          "10",
+          "--ranks",
+          "4",
+          "--nnodes",
+          "1",
+          "--nprocs",
+          "1",
+          "--threads",
+          "1",
+          "--devices",
+          "0,1,2,3",
+          "--auto-detect",
+          "--timeout",
+          "7200",
+          "--launch-mode",
+          "normal",
+          "--mpi-options={mpi_options}",
+          "--process-group",
+          "normal"
+        ],
+        "build_profile": "notsm",
+        "cards_per_node": 8,
+        "checks": [
+          "exit_code"
+        ],
+        "devices_per_thread": 4,
+        "env": {
+          "NCCL_DEBUG": "INFO"
+        },
+        "group": "common",
+        "legacy_source": "run_common_test.sh:35",
+        "nodes": 1,
+        "parameters": {
+          "algo": "Ring",
+          "auto_detect": true,
+          "data_sizes": [
+            "100.5MB"
+          ],
+          "devices": "0,1,2,3",
+          "dtype": "half",
+          "iters": 10,
+          "op": "reduce_perf",
+          "proto": "Simple",
+          "ranks": 4
+        },
+        "processes_per_node": 1,
+        "test_type": "functional",
+        "threads_per_process": 1,
+        "tier": "sanity",
+        "timeout": 7200
+      },
+      "selected": [
+        {
+          "build_profile": "notsm",
+          "case_id": "74ccca18a1f6afebcd899dac8a43b3b14635e00f3b080bef55be66c8327f32b6",
+          "execution_id": "5ceb072eba7c33cfdc52cc30cf5b88f8a398d63a9118e8347b5df6808f833c88"
+        }
+      ]
+    },
+    {
+      "legacy_case_key": "common-9db65e6ee88cf7912312",
+      "legacy_spec": {
+        "argv": [
+          "{python}",
+          "{test_root}/run_test.py",
+          "--op",
+          "all_reduce_perf",
+          "--algo",
+          "Ring",
+          "--proto",
+          "SimpleBulk",
+          "--data-type",
+          "float",
+          "--data-size",
+          "100.5MB",
+          "--iters",
+          "10",
+          "--ranks",
+          "4",
+          "--nnodes",
+          "1",
+          "--nprocs",
+          "1",
+          "--threads",
+          "1",
+          "--devices",
+          "0,1,2,3",
+          "--auto-detect",
+          "--timeout",
+          "7200",
+          "--launch-mode",
+          "normal",
+          "--mpi-options={mpi_options}",
+          "--process-group",
+          "normal"
+        ],
+        "build_profile": "standard",
+        "cards_per_node": 8,
+        "checks": [
+          "exit_code"
+        ],
+        "devices_per_thread": 4,
+        "env": {
+          "NCCL_DEBUG": "INFO"
+        },
+        "group": "common",
+        "legacy_source": "run_common_test.sh:18",
+        "nodes": 1,
+        "parameters": {
+          "algo": "Ring",
+          "auto_detect": true,
+          "data_sizes": [
+            "100.5MB"
+          ],
+          "devices": "0,1,2,3",
+          "dtype": "float",
+          "iters": 10,
+          "op": "all_reduce_perf",
+          "proto": "SimpleBulk",
+          "ranks": 4
+        },
+        "processes_per_node": 1,
+        "test_type": "functional",
+        "threads_per_process": 1,
+        "tier": "sanity",
+        "timeout": 7200
+      },
+      "selected": [
+        {
+          "build_profile": "standard",
+          "case_id": "5d93463659887d6ee6c448dd3e5a43b63bb6678f42941e492811766b4339afc5",
+          "execution_id": "1a943484773ec0c6beb109f56e98ab26d56159e3697158083f461432e2f4c3c7"
+        }
+      ]
+    },
+    {
+      "legacy_case_key": "common-9eaec5575baa44641725",
+      "legacy_spec": {
+        "argv": [
+          "{python}",
+          "{test_root}/run_test.py",
+          "--op",
+          "all_reduce_perf",
+          "--algo",
+          "Tree",
+          "--proto",
+          "SimpleBulk",
+          "--data-type",
+          "float",
+          "--data-size",
+          "1.2GB",
+          "--iters",
+          "10",
+          "--ranks",
+          "4",
+          "--nnodes",
+          "1",
+          "--nprocs",
+          "1",
+          "--threads",
+          "1",
+          "--devices",
+          "0,1,2,3",
+          "--auto-detect",
+          "--timeout",
+          "7200",
+          "--launch-mode",
+          "normal",
+          "--mpi-options={mpi_options}",
+          "--process-group",
+          "normal"
+        ],
+        "build_profile": "notsm",
+        "cards_per_node": 8,
+        "checks": [
+          "exit_code"
+        ],
+        "devices_per_thread": 4,
+        "env": {
+          "NCCL_DEBUG": "INFO"
+        },
+        "group": "common",
+        "legacy_source": "run_common_test.sh:26",
+        "nodes": 1,
+        "parameters": {
+          "algo": "Tree",
+          "auto_detect": true,
+          "data_sizes": [
+            "1.2GB"
+          ],
+          "devices": "0,1,2,3",
+          "dtype": "float",
+          "iters": 10,
+          "op": "all_reduce_perf",
+          "proto": "SimpleBulk",
+          "ranks": 4
+        },
+        "processes_per_node": 1,
+        "test_type": "functional",
+        "threads_per_process": 1,
+        "tier": "sanity",
+        "timeout": 7200
+      },
+      "selected": [
+        {
+          "build_profile": "notsm",
+          "case_id": "92390ca6dfdea6c9c9869e7e3a8ce40d0013d4918fc944132683c906536d8fb4",
+          "execution_id": "01eeae56f6eedcf3a88140b26f801c005de730fb5d5808b0bc2d78f6d6529eff"
+        }
+      ]
+    },
+    {
+      "legacy_case_key": "common-9f6e9db2ab080bad496a",
+      "legacy_spec": {
+        "argv": [
+          "{python}",
+          "{test_root}/run_test.py",
+          "--op",
+          "all_reduce_perf",
+          "--algo",
+          "Ring",
+          "--proto",
+          "LL128",
+          "--data-type",
+          "half",
+          "--data-size",
+          "1.2GB",
+          "--iters",
+          "10",
+          "--ranks",
+          "4",
+          "--nnodes",
+          "1",
+          "--nprocs",
+          "1",
+          "--threads",
+          "1",
+          "--devices",
+          "0,1,2,3",
+          "--auto-detect",
+          "--timeout",
+          "7200",
+          "--launch-mode",
+          "normal",
+          "--mpi-options={mpi_options}",
+          "--process-group",
+          "normal"
+        ],
+        "build_profile": "notsm",
+        "cards_per_node": 8,
+        "checks": [
+          "exit_code"
+        ],
+        "devices_per_thread": 4,
+        "env": {
+          "NCCL_DEBUG": "INFO"
+        },
+        "group": "common",
+        "legacy_source": "run_common_test.sh:16",
+        "nodes": 1,
+        "parameters": {
+          "algo": "Ring",
+          "auto_detect": true,
+          "data_sizes": [
+            "1.2GB"
+          ],
+          "devices": "0,1,2,3",
+          "dtype": "half",
+          "iters": 10,
+          "op": "all_reduce_perf",
+          "proto": "LL128",
+          "ranks": 4
+        },
+        "processes_per_node": 1,
+        "test_type": "functional",
+        "threads_per_process": 1,
+        "tier": "sanity",
+        "timeout": 7200
+      },
+      "selected": [
+        {
+          "build_profile": "notsm",
+          "case_id": "eb6ec94902e311c054f0f6703c42d8a8d552463282fe5b9500b35c98d8e11a11",
+          "execution_id": "b14c39f94ed581fa92dcdb60fd075f866edd10e24ac3d196a6597ad3fad23b9e"
+        }
+      ]
+    },
+    {
+      "legacy_case_key": "common-a268ee4bee2d53da714f",
+      "legacy_spec": {
+        "argv": [
+          "{python}",
+          "{test_root}/run_test.py",
+          "--op",
+          "all_reduce_perf",
+          "--algo",
+          "Tree",
+          "--proto",
+          "LL128",
+          "--data-type",
+          "half",
+          "--data-size",
+          "100.5MB",
+          "--iters",
+          "10",
+          "--ranks",
+          "4",
+          "--nnodes",
+          "1",
+          "--nprocs",
+          "1",
+          "--threads",
+          "1",
+          "--devices",
+          "0,1,2,3",
+          "--auto-detect",
+          "--timeout",
+          "7200",
+          "--launch-mode",
+          "normal",
+          "--mpi-options={mpi_options}",
+          "--process-group",
+          "normal"
+        ],
+        "build_profile": "notsm",
+        "cards_per_node": 8,
+        "checks": [
+          "exit_code"
+        ],
+        "devices_per_thread": 4,
+        "env": {
+          "NCCL_DEBUG": "INFO"
+        },
+        "group": "common",
+        "legacy_source": "run_common_test.sh:23",
+        "nodes": 1,
+        "parameters": {
+          "algo": "Tree",
+          "auto_detect": true,
+          "data_sizes": [
+            "100.5MB"
+          ],
+          "devices": "0,1,2,3",
+          "dtype": "half",
+          "iters": 10,
+          "op": "all_reduce_perf",
+          "proto": "LL128",
+          "ranks": 4
+        },
+        "processes_per_node": 1,
+        "test_type": "functional",
+        "threads_per_process": 1,
+        "tier": "sanity",
+        "timeout": 7200
+      },
+      "selected": [
+        {
+          "build_profile": "notsm",
+          "case_id": "a1756176c7cd340cd0e4a68f475a43c0f27034c48ac4dc4f12496f90850695f1",
+          "execution_id": "63fa9972211e2771964d32c3d307acd78af928125827102e4b58bac15efcd16d"
+        }
+      ]
+    },
+    {
+      "legacy_case_key": "common-ae7d738ff12524f99dab",
+      "legacy_spec": {
+        "argv": [
+          "{python}",
+          "{test_root}/run_test.py",
+          "--op",
+          "all_gather_perf",
+          "--algo",
+          "Ring",
+          "--proto",
+          "LL",
+          "--data-type",
+          "int8",
+          "--data-size",
+          "32MB",
+          "--iters",
+          "10",
+          "--ranks",
+          "4",
+          "--nnodes",
+          "1",
+          "--nprocs",
+          "1",
+          "--threads",
+          "1",
+          "--devices",
+          "0,1,2,3",
+          "--auto-detect",
+          "--timeout",
+          "7200",
+          "--launch-mode",
+          "normal",
+          "--mpi-options={mpi_options}",
+          "--process-group",
+          "normal"
+        ],
+        "build_profile": "notsm",
+        "cards_per_node": 8,
+        "checks": [
+          "exit_code"
+        ],
+        "devices_per_thread": 4,
+        "env": {
+          "NCCL_DEBUG": "INFO"
+        },
+        "group": "common",
+        "legacy_source": "run_common_test.sh:12",
+        "nodes": 1,
+        "parameters": {
+          "algo": "Ring",
+          "auto_detect": true,
+          "data_sizes": [
+            "32MB"
+          ],
+          "devices": "0,1,2,3",
+          "dtype": "int8",
+          "iters": 10,
+          "op": "all_gather_perf",
+          "proto": "LL",
+          "ranks": 4
+        },
+        "processes_per_node": 1,
+        "test_type": "functional",
+        "threads_per_process": 1,
+        "tier": "sanity",
+        "timeout": 7200
+      },
+      "selected": [
+        {
+          "build_profile": "notsm",
+          "case_id": "14aa7846ed738693ee51bddbf1b3deb8205db8f0d8dd6316038978ff1d6b57d9",
+          "execution_id": "bb9df7fe9e3753ec5c92bec1243984b5182464ed14225f6c7309dd4b60281287"
+        }
+      ]
+    },
+    {
+      "legacy_case_key": "common-b6c3d9181d8ac96e863e",
+      "legacy_spec": {
+        "argv": [
+          "{python}",
+          "{test_root}/run_test.py",
+          "--op",
+          "all_reduce_perf",
+          "--algo",
+          "Ring",
+          "--proto",
+          "LL",
+          "--data-type",
+          "float",
+          "--data-size",
+          "100.5MB",
+          "--iters",
+          "10",
+          "--ranks",
+          "4",
+          "--nnodes",
+          "1",
+          "--nprocs",
+          "1",
+          "--threads",
+          "1",
+          "--devices",
+          "0,1,2,3",
+          "--auto-detect",
+          "--timeout",
+          "7200",
+          "--launch-mode",
+          "normal",
+          "--mpi-options={mpi_options}",
+          "--process-group",
+          "normal"
+        ],
+        "build_profile": "standard",
+        "cards_per_node": 8,
+        "checks": [
+          "exit_code"
+        ],
+        "devices_per_thread": 4,
+        "env": {
+          "NCCL_DEBUG": "INFO"
+        },
+        "group": "common",
+        "legacy_source": "run_common_test.sh:15",
+        "nodes": 1,
+        "parameters": {
+          "algo": "Ring",
+          "auto_detect": true,
+          "data_sizes": [
+            "100.5MB"
+          ],
+          "devices": "0,1,2,3",
+          "dtype": "float",
+          "iters": 10,
+          "op": "all_reduce_perf",
+          "proto": "LL",
+          "ranks": 4
+        },
+        "processes_per_node": 1,
+        "test_type": "functional",
+        "threads_per_process": 1,
+        "tier": "sanity",
+        "timeout": 7200
+      },
+      "selected": [
+        {
+          "build_profile": "standard",
+          "case_id": "f0a3f19933d09d91ce887bcf837c92dc134ac91a91e5cb86b2341664afa313af",
+          "execution_id": "97afb2e8951952d3abcbfee836f847b687ef3ecef90be1c5730c409f1cd52fef"
+        }
+      ]
+    },
+    {
+      "legacy_case_key": "common-b7c24e4f0a6b2897adb8",
+      "legacy_spec": {
+        "argv": [
+          "{python}",
+          "{test_root}/run_test.py",
+          "--op",
+          "reduce_scatter_perf",
+          "--algo",
+          "Ring",
+          "--proto",
+          "LL",
+          "--data-type",
+          "half",
+          "--data-size",
+          "100.5MB",
+          "--iters",
+          "10",
+          "--ranks",
+          "4",
+          "--nnodes",
+          "1",
+          "--nprocs",
+          "1",
+          "--threads",
+          "1",
+          "--devices",
+          "0,1,2,3",
+          "--auto-detect",
+          "--timeout",
+          "7200",
+          "--launch-mode",
+          "normal",
+          "--mpi-options={mpi_options}",
+          "--process-group",
+          "normal"
+        ],
+        "build_profile": "notsm",
+        "cards_per_node": 8,
+        "checks": [
+          "exit_code"
+        ],
+        "devices_per_thread": 4,
+        "env": {
+          "NCCL_DEBUG": "INFO"
+        },
+        "group": "common",
+        "legacy_source": "run_common_test.sh:36",
+        "nodes": 1,
+        "parameters": {
+          "algo": "Ring",
+          "auto_detect": true,
+          "data_sizes": [
+            "100.5MB"
+          ],
+          "devices": "0,1,2,3",
+          "dtype": "half",
+          "iters": 10,
+          "op": "reduce_scatter_perf",
+          "proto": "LL",
+          "ranks": 4
+        },
+        "processes_per_node": 1,
+        "test_type": "functional",
+        "threads_per_process": 1,
+        "tier": "sanity",
+        "timeout": 7200
+      },
+      "selected": [
+        {
+          "build_profile": "notsm",
+          "case_id": "6d34e6e5980bcc300bd3ef60e28d5b7e28a8cd51ca3ce56709e37ae009c247a3",
+          "execution_id": "1fe909bb0c0a48bace701c2744099aa1cf712bca8fe56ae1ac0c77b744b96312"
+        }
+      ]
+    },
+    {
+      "legacy_case_key": "common-ba19ffa4e210422bb644",
+      "legacy_spec": {
+        "argv": [
+          "{python}",
+          "{test_root}/run_test.py",
+          "--op",
+          "all_reduce_perf",
+          "--algo",
+          "Tree",
+          "--proto",
+          "Simple",
+          "--data-type",
+          "half",
+          "--data-size",
+          "100.5MB",
+          "--iters",
+          "10",
+          "--ranks",
+          "4",
+          "--nnodes",
+          "1",
+          "--nprocs",
+          "1",
+          "--threads",
+          "1",
+          "--devices",
+          "0,1,2,3",
+          "--auto-detect",
+          "--timeout",
+          "7200",
+          "--launch-mode",
+          "normal",
+          "--mpi-options={mpi_options}",
+          "--process-group",
+          "normal"
+        ],
+        "build_profile": "notsm",
+        "cards_per_node": 8,
+        "checks": [
+          "exit_code"
+        ],
+        "devices_per_thread": 4,
+        "env": {
+          "NCCL_DEBUG": "INFO"
+        },
+        "group": "common",
+        "legacy_source": "run_common_test.sh:24",
+        "nodes": 1,
+        "parameters": {
+          "algo": "Tree",
+          "auto_detect": true,
+          "data_sizes": [
+            "100.5MB"
+          ],
+          "devices": "0,1,2,3",
+          "dtype": "half",
+          "iters": 10,
+          "op": "all_reduce_perf",
+          "proto": "Simple",
+          "ranks": 4
+        },
+        "processes_per_node": 1,
+        "test_type": "functional",
+        "threads_per_process": 1,
+        "tier": "sanity",
+        "timeout": 7200
+      },
+      "selected": [
+        {
+          "build_profile": "notsm",
+          "case_id": "3c8f86e79830e30ba94c0b9b9db9babbe33351cdc60ad63907a343bda2790340",
+          "execution_id": "f400c9fdfd6ed5aaecc2c6d94a8f760ea3e32f20d659302b108bf031d3b34251"
+        }
+      ]
+    },
+    {
+      "legacy_case_key": "common-ba62638b5c8f7c663246",
+      "legacy_spec": {
+        "argv": [
+          "{python}",
+          "{test_root}/run_test.py",
+          "--op",
+          "all_reduce_perf",
+          "--algo",
+          "Ring",
+          "--proto",
+          "SimpleBulk",
+          "--data-type",
+          "float",
+          "--data-size",
+          "1.2GB",
+          "--iters",
+          "10",
+          "--ranks",
+          "4",
+          "--nnodes",
+          "1",
+          "--nprocs",
+          "1",
+          "--threads",
+          "1",
+          "--devices",
+          "0,1,2,3",
+          "--auto-detect",
+          "--timeout",
+          "7200",
+          "--launch-mode",
+          "normal",
+          "--mpi-options={mpi_options}",
+          "--process-group",
+          "normal"
+        ],
+        "build_profile": "standard",
+        "cards_per_node": 8,
+        "checks": [
+          "exit_code"
+        ],
+        "devices_per_thread": 4,
+        "env": {
+          "NCCL_DEBUG": "INFO"
+        },
+        "group": "common",
+        "legacy_source": "run_common_test.sh:19",
+        "nodes": 1,
+        "parameters": {
+          "algo": "Ring",
+          "auto_detect": true,
+          "data_sizes": [
+            "1.2GB"
+          ],
+          "devices": "0,1,2,3",
+          "dtype": "float",
+          "iters": 10,
+          "op": "all_reduce_perf",
+          "proto": "SimpleBulk",
+          "ranks": 4
+        },
+        "processes_per_node": 1,
+        "test_type": "functional",
+        "threads_per_process": 1,
+        "tier": "sanity",
+        "timeout": 7200
+      },
+      "selected": [
+        {
+          "build_profile": "standard",
+          "case_id": "1fece63801b4a93a5991be94dfea784a4428e4ae242fc8e2a5291ad802e1d2a5",
+          "execution_id": "e9ee05e1b2ca62604278542c8360545c51cca2d4eb091d6a9ddc7e4ff7a90033"
+        }
+      ]
+    },
+    {
+      "legacy_case_key": "common-bb06518ec807d148132f",
+      "legacy_spec": {
+        "argv": [
+          "{python}",
+          "{test_root}/run_test.py",
+          "--op",
+          "all_gather_perf",
+          "--algo",
+          "Ring",
+          "--proto",
+          "LL",
+          "--data-type",
+          "int8",
+          "--data-size",
+          "32MB",
+          "--iters",
+          "10",
+          "--ranks",
+          "4",
+          "--nnodes",
+          "1",
+          "--nprocs",
+          "1",
+          "--threads",
+          "1",
+          "--devices",
+          "0,1,2,3",
+          "--auto-detect",
+          "--timeout",
+          "7200",
+          "--launch-mode",
+          "normal",
+          "--mpi-options={mpi_options}",
+          "--process-group",
+          "normal"
+        ],
+        "build_profile": "standard",
+        "cards_per_node": 8,
+        "checks": [
+          "exit_code"
+        ],
+        "devices_per_thread": 4,
+        "env": {
+          "NCCL_DEBUG": "INFO"
+        },
+        "group": "common",
+        "legacy_source": "run_common_test.sh:12",
+        "nodes": 1,
+        "parameters": {
+          "algo": "Ring",
+          "auto_detect": true,
+          "data_sizes": [
+            "32MB"
+          ],
+          "devices": "0,1,2,3",
+          "dtype": "int8",
+          "iters": 10,
+          "op": "all_gather_perf",
+          "proto": "LL",
+          "ranks": 4
+        },
+        "processes_per_node": 1,
+        "test_type": "functional",
+        "threads_per_process": 1,
+        "tier": "sanity",
+        "timeout": 7200
+      },
+      "selected": [
+        {
+          "build_profile": "standard",
+          "case_id": "14aa7846ed738693ee51bddbf1b3deb8205db8f0d8dd6316038978ff1d6b57d9",
+          "execution_id": "bb9df7fe9e3753ec5c92bec1243984b5182464ed14225f6c7309dd4b60281287"
+        }
+      ]
+    },
+    {
+      "legacy_case_key": "common-bb3e54b7ca3e92c08bfd",
+      "legacy_spec": {
+        "argv": [
+          "{python}",
+          "{test_root}/run_test.py",
+          "--op",
+          "all_reduce_perf",
+          "--algo",
+          "Tree",
+          "--proto",
+          "SignalBulk",
+          "--data-type",
+          "half",
+          "--data-size",
+          "100.5MB",
+          "--iters",
+          "10",
+          "--ranks",
+          "4",
+          "--nnodes",
+          "1",
+          "--nprocs",
+          "1",
+          "--threads",
+          "1",
+          "--devices",
+          "0,1,2,3",
+          "--auto-detect",
+          "--timeout",
+          "7200",
+          "--launch-mode",
+          "normal",
+          "--mpi-options={mpi_options}",
+          "--process-group",
+          "normal"
+        ],
+        "build_profile": "standard",
+        "cards_per_node": 8,
+        "checks": [
+          "exit_code"
+        ],
+        "devices_per_thread": 4,
+        "env": {
+          "NCCL_DEBUG": "INFO"
+        },
+        "group": "common",
+        "legacy_source": "run_common_test.sh:28",
+        "nodes": 1,
+        "parameters": {
+          "algo": "Tree",
+          "auto_detect": true,
+          "data_sizes": [
+            "100.5MB"
+          ],
+          "devices": "0,1,2,3",
+          "dtype": "half",
+          "iters": 10,
+          "op": "all_reduce_perf",
+          "proto": "SignalBulk",
+          "ranks": 4
+        },
+        "processes_per_node": 1,
+        "test_type": "functional",
+        "threads_per_process": 1,
+        "tier": "sanity",
+        "timeout": 7200
+      },
+      "selected": [
+        {
+          "build_profile": "standard",
+          "case_id": "f6953136545d8066d2c2ecbd674aec199aa5b397f7bc735f1efa336f544f8057",
+          "execution_id": "e1ce08e114183652181e7bbc819c80ffb4105f3b90878a3ab4e6db01f6493be4"
+        }
+      ]
+    },
+    {
+      "legacy_case_key": "common-be6b1ee9a52c5bdfe863",
+      "legacy_spec": {
+        "argv": [
+          "{python}",
+          "{test_root}/run_test.py",
+          "--op",
+          "broadcast_perf",
+          "--algo",
+          "Ring",
+          "--proto",
+          "Simple",
+          "--data-type",
+          "int8",
+          "--data-size",
+          "1.2GB",
+          "--iters",
+          "10",
+          "--ranks",
+          "4",
+          "--nnodes",
+          "1",
+          "--nprocs",
+          "1",
+          "--threads",
+          "1",
+          "--devices",
+          "0,1,2,3",
+          "--auto-detect",
+          "--timeout",
+          "7200",
+          "--launch-mode",
+          "normal",
+          "--mpi-options={mpi_options}",
+          "--process-group",
+          "normal"
+        ],
+        "build_profile": "notsm",
+        "cards_per_node": 8,
+        "checks": [
+          "exit_code"
+        ],
+        "devices_per_thread": 4,
+        "env": {
+          "NCCL_DEBUG": "INFO"
+        },
+        "group": "common",
+        "legacy_source": "run_common_test.sh:32",
+        "nodes": 1,
+        "parameters": {
+          "algo": "Ring",
+          "auto_detect": true,
+          "data_sizes": [
+            "1.2GB"
+          ],
+          "devices": "0,1,2,3",
+          "dtype": "int8",
+          "iters": 10,
+          "op": "broadcast_perf",
+          "proto": "Simple",
+          "ranks": 4
+        },
+        "processes_per_node": 1,
+        "test_type": "functional",
+        "threads_per_process": 1,
+        "tier": "sanity",
+        "timeout": 7200
+      },
+      "selected": [
+        {
+          "build_profile": "notsm",
+          "case_id": "98816f61887b192c423ade25a6a8b1934cddbae69bb984cc141a0729ade0edc2",
+          "execution_id": "7788a482347072460f52c50c097124ae06a483aa5dacf263600ec91bf3950c02"
+        }
+      ]
+    },
+    {
+      "legacy_case_key": "common-c4134111532d6a039bbe",
+      "legacy_spec": {
+        "argv": [
+          "{python}",
+          "{test_root}/run_test.py",
+          "--op",
+          "broadcast_perf",
+          "--algo",
+          "Ring",
+          "--proto",
+          "LL128",
+          "--data-type",
+          "int8",
+          "--data-size",
+          "100.5MB",
+          "--iters",
+          "10",
+          "--ranks",
+          "4",
+          "--nnodes",
+          "1",
+          "--nprocs",
+          "1",
+          "--threads",
+          "1",
+          "--devices",
+          "0,1,2,3",
+          "--auto-detect",
+          "--timeout",
+          "7200",
+          "--launch-mode",
+          "normal",
+          "--mpi-options={mpi_options}",
+          "--process-group",
+          "normal"
+        ],
+        "build_profile": "notsm",
+        "cards_per_node": 8,
+        "checks": [
+          "exit_code"
+        ],
+        "devices_per_thread": 4,
+        "env": {
+          "NCCL_DEBUG": "INFO"
+        },
+        "group": "common",
+        "legacy_source": "run_common_test.sh:30",
+        "nodes": 1,
+        "parameters": {
+          "algo": "Ring",
+          "auto_detect": true,
+          "data_sizes": [
+            "100.5MB"
+          ],
+          "devices": "0,1,2,3",
+          "dtype": "int8",
+          "iters": 10,
+          "op": "broadcast_perf",
+          "proto": "LL128",
+          "ranks": 4
+        },
+        "processes_per_node": 1,
+        "test_type": "functional",
+        "threads_per_process": 1,
+        "tier": "sanity",
+        "timeout": 7200
+      },
+      "selected": [
+        {
+          "build_profile": "notsm",
+          "case_id": "6c73c03a256e56dc35901f9e9e8d9fff3fe259ab3ad53f0c586271501cd544c6",
+          "execution_id": "027798caf074271f1562818bfa4261d0050074e082e58f54aefa6e04db6dd700"
+        }
+      ]
+    },
+    {
+      "legacy_case_key": "common-d1bd7b14f49d28e0add1",
+      "legacy_spec": {
+        "argv": [
+          "{python}",
+          "{test_root}/run_test.py",
+          "--op",
+          "broadcast_perf",
+          "--algo",
+          "Ring",
+          "--proto",
+          "Simple",
+          "--data-type",
+          "int8",
+          "--data-size",
+          "1.2GB",
+          "--iters",
+          "10",
+          "--ranks",
+          "4",
+          "--nnodes",
+          "1",
+          "--nprocs",
+          "1",
+          "--threads",
+          "1",
+          "--devices",
+          "0,1,2,3",
+          "--auto-detect",
+          "--timeout",
+          "7200",
+          "--launch-mode",
+          "normal",
+          "--mpi-options={mpi_options}",
+          "--process-group",
+          "normal"
+        ],
+        "build_profile": "standard",
+        "cards_per_node": 8,
+        "checks": [
+          "exit_code"
+        ],
+        "devices_per_thread": 4,
+        "env": {
+          "NCCL_DEBUG": "INFO"
+        },
+        "group": "common",
+        "legacy_source": "run_common_test.sh:32",
+        "nodes": 1,
+        "parameters": {
+          "algo": "Ring",
+          "auto_detect": true,
+          "data_sizes": [
+            "1.2GB"
+          ],
+          "devices": "0,1,2,3",
+          "dtype": "int8",
+          "iters": 10,
+          "op": "broadcast_perf",
+          "proto": "Simple",
+          "ranks": 4
+        },
+        "processes_per_node": 1,
+        "test_type": "functional",
+        "threads_per_process": 1,
+        "tier": "sanity",
+        "timeout": 7200
+      },
+      "selected": [
+        {
+          "build_profile": "standard",
+          "case_id": "98816f61887b192c423ade25a6a8b1934cddbae69bb984cc141a0729ade0edc2",
+          "execution_id": "7788a482347072460f52c50c097124ae06a483aa5dacf263600ec91bf3950c02"
+        }
+      ]
+    },
+    {
+      "legacy_case_key": "common-de53d7df6f0cf7e380f5",
+      "legacy_spec": {
+        "argv": [
+          "{python}",
+          "{test_root}/run_test.py",
+          "--op",
+          "reduce_perf",
+          "--algo",
+          "Ring",
+          "--proto",
+          "LL",
+          "--data-type",
+          "half",
+          "--data-size",
+          "100.5MB",
+          "--iters",
+          "10",
+          "--ranks",
+          "4",
+          "--nnodes",
+          "1",
+          "--nprocs",
+          "1",
+          "--threads",
+          "1",
+          "--devices",
+          "0,1,2,3",
+          "--auto-detect",
+          "--timeout",
+          "7200",
+          "--launch-mode",
+          "normal",
+          "--mpi-options={mpi_options}",
+          "--process-group",
+          "normal"
+        ],
+        "build_profile": "standard",
+        "cards_per_node": 8,
+        "checks": [
+          "exit_code"
+        ],
+        "devices_per_thread": 4,
+        "env": {
+          "NCCL_DEBUG": "INFO"
+        },
+        "group": "common",
+        "legacy_source": "run_common_test.sh:33",
+        "nodes": 1,
+        "parameters": {
+          "algo": "Ring",
+          "auto_detect": true,
+          "data_sizes": [
+            "100.5MB"
+          ],
+          "devices": "0,1,2,3",
+          "dtype": "half",
+          "iters": 10,
+          "op": "reduce_perf",
+          "proto": "LL",
+          "ranks": 4
+        },
+        "processes_per_node": 1,
+        "test_type": "functional",
+        "threads_per_process": 1,
+        "tier": "sanity",
+        "timeout": 7200
+      },
+      "selected": [
+        {
+          "build_profile": "standard",
+          "case_id": "ab91fca04f34e3563fabff73f08957916e4264f9bdd911d609bfc5b11389fa5c",
+          "execution_id": "e87910d80b6418a39f0cdb466ad2a0b7148a91a66364a3c0dc8a3634b672595c"
+        }
+      ]
+    },
+    {
+      "legacy_case_key": "common-e0d16b9a11fb89476422",
+      "legacy_spec": {
+        "argv": [
+          "{python}",
+          "{test_root}/run_test.py",
+          "--op",
+          "all_reduce_perf",
+          "--algo",
+          "Ring",
+          "--proto",
+          "Signal",
+          "--data-type",
+          "float",
+          "--data-size",
+          "512MB",
+          "--iters",
+          "10",
+          "--ranks",
+          "4",
+          "--nnodes",
+          "1",
+          "--nprocs",
+          "1",
+          "--threads",
+          "1",
+          "--devices",
+          "0,1,2,3",
+          "--auto-detect",
+          "--timeout",
+          "7200",
+          "--launch-mode",
+          "normal",
+          "--mpi-options={mpi_options}",
+          "--process-group",
+          "normal"
+        ],
+        "build_profile": "notsm",
+        "cards_per_node": 8,
+        "checks": [
+          "exit_code"
+        ],
+        "devices_per_thread": 4,
+        "env": {
+          "NCCL_DEBUG": "INFO"
+        },
+        "group": "common",
+        "legacy_source": "run_common_test.sh:20",
+        "nodes": 1,
+        "parameters": {
+          "algo": "Ring",
+          "auto_detect": true,
+          "data_sizes": [
+            "512MB"
+          ],
+          "devices": "0,1,2,3",
+          "dtype": "float",
+          "iters": 10,
+          "op": "all_reduce_perf",
+          "proto": "Signal",
+          "ranks": 4
+        },
+        "processes_per_node": 1,
+        "test_type": "functional",
+        "threads_per_process": 1,
+        "tier": "sanity",
+        "timeout": 7200
+      },
+      "selected": [
+        {
+          "build_profile": "notsm",
+          "case_id": "91738356cfbe054eb4e34dad008f5078060346c1379c5a407e483768f32e3b3c",
+          "execution_id": "959de984b3baf40833e2ea9542fab74fd4462ee110045ecd07e867a3eb3d3743"
+        }
+      ]
+    },
+    {
+      "legacy_case_key": "common-e1f6a56527d30a280675",
+      "legacy_spec": {
+        "argv": [
+          "{python}",
+          "{test_root}/run_test.py",
+          "--op",
+          "reduce_perf",
+          "--algo",
+          "Ring",
+          "--proto",
+          "LL128",
+          "--data-type",
+          "half",
+          "--data-size",
+          "100.5MB",
+          "--iters",
+          "10",
+          "--ranks",
+          "4",
+          "--nnodes",
+          "1",
+          "--nprocs",
+          "1",
+          "--threads",
+          "1",
+          "--devices",
+          "0,1,2,3",
+          "--auto-detect",
+          "--timeout",
+          "7200",
+          "--launch-mode",
+          "normal",
+          "--mpi-options={mpi_options}",
+          "--process-group",
+          "normal"
+        ],
+        "build_profile": "notsm",
+        "cards_per_node": 8,
+        "checks": [
+          "exit_code"
+        ],
+        "devices_per_thread": 4,
+        "env": {
+          "NCCL_DEBUG": "INFO"
+        },
+        "group": "common",
+        "legacy_source": "run_common_test.sh:34",
+        "nodes": 1,
+        "parameters": {
+          "algo": "Ring",
+          "auto_detect": true,
+          "data_sizes": [
+            "100.5MB"
+          ],
+          "devices": "0,1,2,3",
+          "dtype": "half",
+          "iters": 10,
+          "op": "reduce_perf",
+          "proto": "LL128",
+          "ranks": 4
+        },
+        "processes_per_node": 1,
+        "test_type": "functional",
+        "threads_per_process": 1,
+        "tier": "sanity",
+        "timeout": 7200
+      },
+      "selected": [
+        {
+          "build_profile": "notsm",
+          "case_id": "9b5cb35a219f34db5730c556b0af8cfddde3ee44a490728ef7ddcfa27316dead",
+          "execution_id": "8063995fb7205d6e90b4ac1e22fbcfba562c4990678ae6a543acc273df10c2d7"
+        }
+      ]
+    },
+    {
+      "legacy_case_key": "common-e57bb76d09756e5a3eca",
+      "legacy_spec": {
+        "argv": [
+          "{python}",
+          "{test_root}/run_test.py",
+          "--op",
+          "all_reduce_perf",
+          "--algo",
+          "Tree",
+          "--proto",
+          "Signal",
+          "--data-type",
+          "float",
+          "--data-size",
+          "512MB",
+          "--iters",
+          "10",
+          "--ranks",
+          "4",
+          "--nnodes",
+          "1",
+          "--nprocs",
+          "1",
+          "--threads",
+          "1",
+          "--devices",
+          "0,1,2,3",
+          "--auto-detect",
+          "--timeout",
+          "7200",
+          "--launch-mode",
+          "normal",
+          "--mpi-options={mpi_options}",
+          "--process-group",
+          "normal"
+        ],
+        "build_profile": "notsm",
+        "cards_per_node": 8,
+        "checks": [
+          "exit_code"
+        ],
+        "devices_per_thread": 4,
+        "env": {
+          "NCCL_DEBUG": "INFO"
+        },
+        "group": "common",
+        "legacy_source": "run_common_test.sh:27",
+        "nodes": 1,
+        "parameters": {
+          "algo": "Tree",
+          "auto_detect": true,
+          "data_sizes": [
+            "512MB"
+          ],
+          "devices": "0,1,2,3",
+          "dtype": "float",
+          "iters": 10,
+          "op": "all_reduce_perf",
+          "proto": "Signal",
+          "ranks": 4
+        },
+        "processes_per_node": 1,
+        "test_type": "functional",
+        "threads_per_process": 1,
+        "tier": "sanity",
+        "timeout": 7200
+      },
+      "selected": [
+        {
+          "build_profile": "notsm",
+          "case_id": "22daa0d53b698362a87c37b90d64600836370482a41792b58ac158b7b3086494",
+          "execution_id": "61dd2a6432ae8a608d7ad57fa10c8059483fabd5e30f3040ca261a68bb8f41ce"
+        }
+      ]
+    },
+    {
+      "legacy_case_key": "common-e887a95294230f62daa2",
+      "legacy_spec": {
+        "argv": [
+          "{python}",
+          "{test_root}/run_test.py",
+          "--op",
+          "broadcast_perf",
+          "--algo",
+          "Ring",
+          "--proto",
+          "LL",
+          "--data-type",
+          "int8",
+          "--data-size",
+          "100.5MB",
+          "--iters",
+          "10",
+          "--ranks",
+          "4",
+          "--nnodes",
+          "1",
+          "--nprocs",
+          "1",
+          "--threads",
+          "1",
+          "--devices",
+          "0,1,2,3",
+          "--auto-detect",
+          "--timeout",
+          "7200",
+          "--launch-mode",
+          "normal",
+          "--mpi-options={mpi_options}",
+          "--process-group",
+          "normal"
+        ],
+        "build_profile": "standard",
+        "cards_per_node": 8,
+        "checks": [
+          "exit_code"
+        ],
+        "devices_per_thread": 4,
+        "env": {
+          "NCCL_DEBUG": "INFO"
+        },
+        "group": "common",
+        "legacy_source": "run_common_test.sh:29",
+        "nodes": 1,
+        "parameters": {
+          "algo": "Ring",
+          "auto_detect": true,
+          "data_sizes": [
+            "100.5MB"
+          ],
+          "devices": "0,1,2,3",
+          "dtype": "int8",
+          "iters": 10,
+          "op": "broadcast_perf",
+          "proto": "LL",
+          "ranks": 4
+        },
+        "processes_per_node": 1,
+        "test_type": "functional",
+        "threads_per_process": 1,
+        "tier": "sanity",
+        "timeout": 7200
+      },
+      "selected": [
+        {
+          "build_profile": "standard",
+          "case_id": "5140ce82236d1a6781f6bde707820ac15d0356148172afbbb4972e3758797f5e",
+          "execution_id": "741f8760d1c5fe7d21d84256730d0bed94354d3c288608ffeac19fc53fa10c8b"
+        }
+      ]
+    },
+    {
+      "legacy_case_key": "common-e9b3f8091c331ce1890d",
+      "legacy_spec": {
+        "argv": [
+          "{python}",
+          "{test_root}/run_test.py",
+          "--op",
+          "all_gather_perf",
+          "--algo",
+          "Ring",
+          "--proto",
+          "LL128",
+          "--data-type",
+          "int8",
+          "--data-size",
+          "100.5MB",
+          "--iters",
+          "10",
+          "--ranks",
+          "4",
+          "--nnodes",
+          "1",
+          "--nprocs",
+          "1",
+          "--threads",
+          "1",
+          "--devices",
+          "0,1,2,3",
+          "--auto-detect",
+          "--timeout",
+          "7200",
+          "--launch-mode",
+          "normal",
+          "--mpi-options={mpi_options}",
+          "--process-group",
+          "normal"
+        ],
+        "build_profile": "notsm",
+        "cards_per_node": 8,
+        "checks": [
+          "exit_code"
+        ],
+        "devices_per_thread": 4,
+        "env": {
+          "NCCL_DEBUG": "INFO"
+        },
+        "group": "common",
+        "legacy_source": "run_common_test.sh:13",
+        "nodes": 1,
+        "parameters": {
+          "algo": "Ring",
+          "auto_detect": true,
+          "data_sizes": [
+            "100.5MB"
+          ],
+          "devices": "0,1,2,3",
+          "dtype": "int8",
+          "iters": 10,
+          "op": "all_gather_perf",
+          "proto": "LL128",
+          "ranks": 4
+        },
+        "processes_per_node": 1,
+        "test_type": "functional",
+        "threads_per_process": 1,
+        "tier": "sanity",
+        "timeout": 7200
+      },
+      "selected": [
+        {
+          "build_profile": "notsm",
+          "case_id": "b0d29781116e05a2eaff53a49e6adbc3a8cf82e736d24e4d0c60a6673512645b",
+          "execution_id": "e8b98c952816e50d3ed72934dca1635b2e22f0de0995608215ef1e12cc0e1d4b"
+        }
+      ]
+    },
+    {
+      "legacy_case_key": "common-ea83c2173cc66db58247",
+      "legacy_spec": {
+        "argv": [
+          "{python}",
+          "{test_root}/run_test.py",
+          "--op",
+          "all_gather_perf",
+          "--algo",
+          "Ring",
+          "--proto",
+          "Simple",
+          "--data-type",
+          "int8",
+          "--data-size",
+          "512MB",
+          "--iters",
+          "10",
+          "--ranks",
+          "4",
+          "--nnodes",
+          "1",
+          "--nprocs",
+          "1",
+          "--threads",
+          "1",
+          "--devices",
+          "0,1,2,3",
+          "--auto-detect",
+          "--timeout",
+          "7200",
+          "--launch-mode",
+          "normal",
+          "--mpi-options={mpi_options}",
+          "--process-group",
+          "normal"
+        ],
+        "build_profile": "notsm",
+        "cards_per_node": 8,
+        "checks": [
+          "exit_code"
+        ],
+        "devices_per_thread": 4,
+        "env": {
+          "NCCL_DEBUG": "INFO"
+        },
+        "group": "common",
+        "legacy_source": "run_common_test.sh:14",
+        "nodes": 1,
+        "parameters": {
+          "algo": "Ring",
+          "auto_detect": true,
+          "data_sizes": [
+            "512MB"
+          ],
+          "devices": "0,1,2,3",
+          "dtype": "int8",
+          "iters": 10,
+          "op": "all_gather_perf",
+          "proto": "Simple",
+          "ranks": 4
+        },
+        "processes_per_node": 1,
+        "test_type": "functional",
+        "threads_per_process": 1,
+        "tier": "sanity",
+        "timeout": 7200
+      },
+      "selected": [
+        {
+          "build_profile": "notsm",
+          "case_id": "0f17e1425b0d9f9974643249721fa5a0d44986b60d5b2dfcc640553d926944cc",
+          "execution_id": "54f07cd2d59cecf9eeeedc509bc85080e97a0f09050e1332e674c6e5946cc237"
+        }
+      ]
+    },
+    {
+      "legacy_case_key": "copyengine-466364f0cc175856196c",
+      "legacy_spec": {
+        "argv": [
+          "mpirun",
+          "--allow-run-as-root",
+          "-np",
+          "2",
+          "{mpi_options}",
+          "-x",
+          "PCCL_CE_ENABLE_RS=1",
+          "-x",
+          "LD_LIBRARY_PATH",
+          "{binary_dir}/reduce_scatter_perf",
+          "-b",
+          "5110984",
+          "-e",
+          "1023M",
+          "-f",
+          "2",
+          "-x",
+          "2",
+          "-R",
+          "2"
+        ],
+        "build_profile": "standard",
+        "cards_per_node": 8,
+        "checks": [
+          "exit_code"
+        ],
+        "devices_per_thread": 1,
+        "env": {
+          "NCCL_DEBUG": "INFO",
+          "PCCL_CE_ENABLE_RS": "1"
+        },
+        "group": "copyengine",
+        "legacy_source": "run_copyengine_test.sh:16",
+        "nodes": 1,
+        "parameters": {
+          "cta_policy": 2,
+          "max_data_size": "1023M",
+          "min_data_size": "5110984",
+          "op": "reduce_scatter_perf",
+          "ranks": 2,
+          "register": 2,
+          "step_factor": 2
+        },
+        "processes_per_node": 2,
+        "test_type": "functional",
+        "threads_per_process": 1,
+        "tier": "sanity",
+        "timeout": 7200
+      },
+      "selected": [
+        {
+          "build_profile": "standard",
+          "case_id": "10f16d64bb0191aed97796cef31faa3f1ca0ab9d4328404c7b10e35afb64ddc2",
+          "execution_id": "9873dd889c9decf56a5c83bd2ce921f22f5bff2c47924282faa8048ab23f4315"
+        }
+      ]
+    },
+    {
+      "legacy_case_key": "copyengine-8144eea5c2e999f75634",
+      "legacy_spec": {
+        "argv": [
+          "mpirun",
+          "--allow-run-as-root",
+          "-np",
+          "2",
+          "{mpi_options}",
+          "-x",
+          "PCCL_CE_ENABLE_RS=1",
+          "-x",
+          "LD_LIBRARY_PATH",
+          "{binary_dir}/reduce_scatter_perf",
+          "-b",
+          "5110984",
+          "-e",
+          "1023M",
+          "-f",
+          "2",
+          "-x",
+          "2",
+          "-R",
+          "2",
+          "-o",
+          "avg"
+        ],
+        "build_profile": "standard",
+        "cards_per_node": 8,
+        "checks": [
+          "exit_code"
+        ],
+        "devices_per_thread": 1,
+        "env": {
+          "NCCL_DEBUG": "INFO",
+          "PCCL_CE_ENABLE_RS": "1"
+        },
+        "group": "copyengine",
+        "legacy_source": "run_copyengine_test.sh:17",
+        "nodes": 1,
+        "parameters": {
+          "cta_policy": 2,
+          "max_data_size": "1023M",
+          "min_data_size": "5110984",
+          "op": "reduce_scatter_perf",
+          "ranks": 2,
+          "redop": "avg",
+          "register": 2,
+          "step_factor": 2
+        },
+        "processes_per_node": 2,
+        "test_type": "functional",
+        "threads_per_process": 1,
+        "tier": "sanity",
+        "timeout": 7200
+      },
+      "selected": [
+        {
+          "build_profile": "standard",
+          "case_id": "d5586d54987e71470013b384f04ab4df3e1340b4750c680f2501e8903db77230",
+          "execution_id": "cf3d55264194d8748012513f51e382b76129001d5b11e611487ecf2aa582b413"
+        }
+      ]
+    },
+    {
+      "legacy_case_key": "copyengine-e9331f28869bb58cb4bb",
+      "legacy_spec": {
+        "argv": [
+          "mpirun",
+          "--allow-run-as-root",
+          "-np",
+          "2",
+          "{mpi_options}",
+          "-x",
+          "PCCL_CE_ENABLE_AR=1",
+          "-x",
+          "LD_LIBRARY_PATH",
+          "{binary_dir}/all_reduce_perf",
+          "-b",
+          "5111004",
+          "-e",
+          "1023M",
+          "-f",
+          "2",
+          "-x",
+          "2",
+          "-R",
+          "2"
+        ],
+        "build_profile": "standard",
+        "cards_per_node": 8,
+        "checks": [
+          "exit_code"
+        ],
+        "devices_per_thread": 1,
+        "env": {
+          "NCCL_DEBUG": "INFO",
+          "PCCL_CE_ENABLE_AR": "1"
+        },
+        "group": "copyengine",
+        "legacy_source": "run_copyengine_test.sh:11",
+        "nodes": 1,
+        "parameters": {
+          "cta_policy": 2,
+          "max_data_size": "1023M",
+          "min_data_size": "5111004",
+          "op": "all_reduce_perf",
+          "ranks": 2,
+          "register": 2,
+          "step_factor": 2
+        },
+        "processes_per_node": 2,
+        "test_type": "functional",
+        "threads_per_process": 1,
+        "tier": "sanity",
+        "timeout": 7200
+      },
+      "selected": [
+        {
+          "build_profile": "standard",
+          "case_id": "8c6a12c236a5a89a907e402ebfcc0ece6be41972cbab7c8acbe9ca96ee15521c",
+          "execution_id": "33e138b4bbea927a50e603b958596c98a3b51c23fa018b0187993d688fbc3422"
+        }
+      ]
+    },
+    {
+      "legacy_case_key": "copyengine-fc65c1ee0e36a4232aec",
+      "legacy_spec": {
+        "argv": [
+          "mpirun",
+          "--allow-run-as-root",
+          "-np",
+          "2",
+          "{mpi_options}",
+          "-x",
+          "PCCL_OKI_ENABLE=1",
+          "-x",
+          "PCCL_CE_ENABLE_AR=1",
+          "-x",
+          "LD_LIBRARY_PATH",
+          "{binary_dir}/all_reduce_perf",
+          "-b",
+          "5111004",
+          "-e",
+          "1023M",
+          "-f",
+          "2",
+          "-x",
+          "2",
+          "-R",
+          "2"
+        ],
+        "build_profile": "standard",
+        "cards_per_node": 8,
+        "checks": [
+          "exit_code"
+        ],
+        "devices_per_thread": 1,
+        "env": {
+          "NCCL_DEBUG": "INFO",
+          "PCCL_CE_ENABLE_AR": "1",
+          "PCCL_OKI_ENABLE": "1"
+        },
+        "group": "copyengine",
+        "legacy_source": "run_copyengine_test.sh:12",
+        "nodes": 1,
+        "parameters": {
+          "cta_policy": 2,
+          "max_data_size": "1023M",
+          "min_data_size": "5111004",
+          "op": "all_reduce_perf",
+          "ranks": 2,
+          "register": 2,
+          "step_factor": 2
+        },
+        "processes_per_node": 2,
+        "test_type": "functional",
+        "threads_per_process": 1,
+        "tier": "sanity",
+        "timeout": 7200
+      },
+      "selected": [
+        {
+          "build_profile": "standard",
+          "case_id": "386ba12d97b4e44494abaae822561110da474666ff3c0bd15e6e1a6e3caf6b6c",
+          "execution_id": "3c1094538615a783123e17e7f04b612faab68e2842d715cf1a3befa1ef919675"
+        }
+      ]
+    },
+    {
+      "legacy_case_key": "customAllreduce-1ae709e0ce37049c9039",
+      "legacy_spec": {
+        "argv": [
+          "mpirun",
+          "--allow-run-as-root",
+          "-mca",
+          "orte_base_help_aggregate",
+          "0",
+          "--mca",
+          "btl",
+          "^openib",
+          "-np",
+          "2",
+          "{mpi_options}",
+          "{binary_dir}/all_reduce_perf",
+          "-b",
+          "301K",
+          "-e",
+          "301K",
+          "-f",
+          "2",
+          "-d",
+          "half"
+        ],
+        "build_profile": "standard",
+        "cards_per_node": 8,
+        "checks": [
+          "exit_code"
+        ],
+        "devices_per_thread": 1,
+        "env": {
+          "NCCL_DEBUG": "INFO"
+        },
+        "group": "customAllreduce",
+        "legacy_source": "run_customAllreduce_test.sh:12",
+        "nodes": 1,
+        "parameters": {
+          "data_sizes": [
+            "301K"
+          ],
+          "dtype": "half",
+          "max_data_size": "301K",
+          "min_data_size": "301K",
+          "op": "all_reduce_perf",
+          "ranks": 2,
+          "step_factor": 2
+        },
+        "processes_per_node": 2,
+        "test_type": "functional",
+        "threads_per_process": 1,
+        "tier": "sanity",
+        "timeout": 7200
+      },
+      "selected": [
+        {
+          "build_profile": "standard",
+          "case_id": "a61315064832157bfedb0f1672442a785734f20ffbbfc4710b0e00136bd31a52",
+          "execution_id": "5bcb424672016ea56863b434c77223be9b03ca33976d808e314d673cad6ce25b"
+        }
+      ]
+    },
+    {
+      "legacy_case_key": "customAllreduce-9ef7a2223f8dbf2fc3f0",
+      "legacy_spec": {
+        "argv": [
+          "mpirun",
+          "--allow-run-as-root",
+          "-mca",
+          "orte_base_help_aggregate",
+          "0",
+          "--mca",
+          "btl",
+          "^openib",
+          "-np",
+          "2",
+          "{mpi_options}",
+          "{binary_dir}/all_reduce_perf",
+          "-b",
+          "33K",
+          "-e",
+          "33K",
+          "-f",
+          "2",
+          "-d",
+          "half"
+        ],
+        "build_profile": "standard",
+        "cards_per_node": 8,
+        "checks": [
+          "exit_code"
+        ],
+        "devices_per_thread": 1,
+        "env": {
+          "NCCL_DEBUG": "INFO"
+        },
+        "group": "customAllreduce",
+        "legacy_source": "run_customAllreduce_test.sh:11",
+        "nodes": 1,
+        "parameters": {
+          "data_sizes": [
+            "33K"
+          ],
+          "dtype": "half",
+          "max_data_size": "33K",
+          "min_data_size": "33K",
+          "op": "all_reduce_perf",
+          "ranks": 2,
+          "step_factor": 2
+        },
+        "processes_per_node": 2,
+        "test_type": "functional",
+        "threads_per_process": 1,
+        "tier": "sanity",
+        "timeout": 7200
+      },
+      "selected": [
+        {
+          "build_profile": "standard",
+          "case_id": "733926d2b44a7f7396822039b47af0e73f40c9819bb151721dcd042d0b7e6801",
+          "execution_id": "91c3f2a6eadd146c4c2557e20fc4e07650d9570daa3b6e676569472b865c6f9e"
+        }
+      ]
+    },
+    {
+      "legacy_case_key": "lsa-00aa69be9ccf2fa175ee",
+      "legacy_spec": {
+        "argv": [
+          "{binary_dir}/alltoall_perf",
+          "-b",
+          "8",
+          "-e",
+          "2G",
+          "-f",
+          "2",
+          "--elapsed_type",
+          "1",
+          "-R",
+          "2",
+          "-t",
+          "2",
+          "-g",
+          "1",
+          "-D",
+          "1",
+          "-V",
+          "16"
+        ],
+        "build_profile": "standard",
+        "cards_per_node": 8,
+        "checks": [
+          "exit_code"
+        ],
+        "devices_per_thread": 1,
+        "env": {
+          "NCCL_DEBUG": "INFO"
+        },
+        "group": "lsa",
+        "legacy_source": "run_lsa_test.sh:17",
+        "nodes": 1,
+        "parameters": {
+          "device_cta_count": 16,
+          "device_impl": 1,
+          "elapsed_type": 1,
+          "max_data_size": "2G",
+          "min_data_size": "8",
+          "op": "alltoall_perf",
+          "ranks": 2,
+          "register": 2,
+          "step_factor": 2
+        },
+        "processes_per_node": 1,
+        "test_type": "functional",
+        "threads_per_process": 2,
+        "tier": "sanity",
+        "timeout": 7200
+      },
+      "selected": [
+        {
+          "build_profile": "standard",
+          "case_id": "93da1f192c87b18c306821f187a53e4620cdae4744466f8a52657211020f2774",
+          "execution_id": "6ff023007b0a3f6f8ed78f842a498541a5b97524b26df29fb2a6c9209726263e"
+        }
+      ]
+    },
+    {
+      "legacy_case_key": "lsa-0590a6c9e54e12e60656",
+      "legacy_spec": {
+        "argv": [
+          "{binary_dir}/all_reduce_perf",
+          "-b",
+          "8",
+          "-e",
+          "2G",
+          "-f",
+          "2",
+          "--elapsed_type",
+          "1",
+          "-R",
+          "2",
+          "-t",
+          "2",
+          "-g",
+          "1",
+          "-D",
+          "0"
+        ],
+        "build_profile": "standard",
+        "cards_per_node": 8,
+        "checks": [
+          "exit_code"
+        ],
+        "devices_per_thread": 1,
+        "env": {
+          "NCCL_DEBUG": "INFO"
+        },
+        "group": "lsa",
+        "legacy_source": "run_lsa_test.sh:13",
+        "nodes": 1,
+        "parameters": {
+          "device_impl": 0,
+          "elapsed_type": 1,
+          "max_data_size": "2G",
+          "min_data_size": "8",
+          "op": "all_reduce_perf",
+          "ranks": 2,
+          "register": 2,
+          "step_factor": 2
+        },
+        "processes_per_node": 1,
+        "test_type": "functional",
+        "threads_per_process": 2,
+        "tier": "sanity",
+        "timeout": 7200
+      },
+      "selected": [
+        {
+          "build_profile": "standard",
+          "case_id": "7ab2e2ece5c8d774e0840a90d43b6cb153a1d74e4e646172c5a555e44e92f32e",
+          "execution_id": "d19af89629f3ef6569327d5d4f51c21a72d994289c224826f45f8c9fe36437df"
+        }
+      ]
+    },
+    {
+      "legacy_case_key": "lsa-903ccf136ec24643f82a",
+      "legacy_spec": {
+        "argv": [
+          "{binary_dir}/alltoall_perf",
+          "-b",
+          "8",
+          "-e",
+          "2G",
+          "-f",
+          "2",
+          "--elapsed_type",
+          "1",
+          "-R",
+          "2",
+          "-t",
+          "2",
+          "-g",
+          "1",
+          "-D",
+          "0"
+        ],
+        "build_profile": "standard",
+        "cards_per_node": 8,
+        "checks": [
+          "exit_code"
+        ],
+        "devices_per_thread": 1,
+        "env": {
+          "NCCL_DEBUG": "INFO"
+        },
+        "group": "lsa",
+        "legacy_source": "run_lsa_test.sh:14",
+        "nodes": 1,
+        "parameters": {
+          "device_impl": 0,
+          "elapsed_type": 1,
+          "max_data_size": "2G",
+          "min_data_size": "8",
+          "op": "alltoall_perf",
+          "ranks": 2,
+          "register": 2,
+          "step_factor": 2
+        },
+        "processes_per_node": 1,
+        "test_type": "functional",
+        "threads_per_process": 2,
+        "tier": "sanity",
+        "timeout": 7200
+      },
+      "selected": [
+        {
+          "build_profile": "standard",
+          "case_id": "9f86a723412a305f72ca60c8ff02f599a1b3eaa0253439e34339c0d7390eba7a",
+          "execution_id": "673b4f7c49cd59eb78131d07a76695dc1ea6f74eb59ff9c5193e73d96d91814c"
+        }
+      ]
+    },
+    {
+      "legacy_case_key": "lsa-9589b6f21a5058793b92",
+      "legacy_spec": {
+        "argv": [
+          "{binary_dir}/alltoall_perf",
+          "-b",
+          "8",
+          "-e",
+          "2G",
+          "-f",
+          "2",
+          "--elapsed_type",
+          "1",
+          "-R",
+          "2",
+          "-t",
+          "2",
+          "-g",
+          "1",
+          "-D",
+          "2",
+          "-V",
+          "16"
+        ],
+        "build_profile": "standard",
+        "cards_per_node": 8,
+        "checks": [
+          "exit_code"
+        ],
+        "devices_per_thread": 1,
+        "env": {
+          "NCCL_DEBUG": "INFO"
+        },
+        "group": "lsa",
+        "legacy_source": "run_lsa_test.sh:18",
+        "nodes": 1,
+        "parameters": {
+          "device_cta_count": 16,
+          "device_impl": 2,
+          "elapsed_type": 1,
+          "max_data_size": "2G",
+          "min_data_size": "8",
+          "op": "alltoall_perf",
+          "ranks": 2,
+          "register": 2,
+          "step_factor": 2
+        },
+        "processes_per_node": 1,
+        "test_type": "functional",
+        "threads_per_process": 2,
+        "tier": "sanity",
+        "timeout": 7200
+      },
+      "selected": [
+        {
+          "build_profile": "standard",
+          "case_id": "b2ee80a7fe79f501a0a79fee143dc36e2857911d52767cb911986c14a0bf573f",
+          "execution_id": "917b13fc0b4c8d7c9ea61d301ba57ad798fb439a6f46a5fb0cf374d7cc929212"
+        }
+      ]
+    },
+    {
+      "legacy_case_key": "lsa-dde55bc63ba85ced67c9",
+      "legacy_spec": {
+        "argv": [
+          "{binary_dir}/all_reduce_perf",
+          "-b",
+          "8",
+          "-e",
+          "2G",
+          "-f",
+          "2",
+          "--elapsed_type",
+          "1",
+          "-R",
+          "2",
+          "-t",
+          "2",
+          "-g",
+          "1",
+          "-D",
+          "2",
+          "-V",
+          "16"
+        ],
+        "build_profile": "standard",
+        "cards_per_node": 8,
+        "checks": [
+          "exit_code"
+        ],
+        "devices_per_thread": 1,
+        "env": {
+          "NCCL_DEBUG": "INFO"
+        },
+        "group": "lsa",
+        "legacy_source": "run_lsa_test.sh:16",
+        "nodes": 1,
+        "parameters": {
+          "device_cta_count": 16,
+          "device_impl": 2,
+          "elapsed_type": 1,
+          "max_data_size": "2G",
+          "min_data_size": "8",
+          "op": "all_reduce_perf",
+          "ranks": 2,
+          "register": 2,
+          "step_factor": 2
+        },
+        "processes_per_node": 1,
+        "test_type": "functional",
+        "threads_per_process": 2,
+        "tier": "sanity",
+        "timeout": 7200
+      },
+      "selected": [
+        {
+          "build_profile": "standard",
+          "case_id": "1e3f8cef001f0ca0562e1b7d0a57dd06a275b470869c5dec42b89c3eefd214d3",
+          "execution_id": "a01b94a385a77d70ffa9be692309bd57a748a72427189eea3bad528bd3e60fad"
+        }
+      ]
+    },
+    {
+      "legacy_case_key": "lsa-e2274cdce5d4e5f7ef21",
+      "legacy_spec": {
+        "argv": [
+          "{binary_dir}/all_reduce_perf",
+          "-b",
+          "8",
+          "-e",
+          "2G",
+          "-f",
+          "2",
+          "--elapsed_type",
+          "1",
+          "-R",
+          "2",
+          "-t",
+          "2",
+          "-g",
+          "1",
+          "-D",
+          "1",
+          "-V",
+          "16"
+        ],
+        "build_profile": "standard",
+        "cards_per_node": 8,
+        "checks": [
+          "exit_code"
+        ],
+        "devices_per_thread": 1,
+        "env": {
+          "NCCL_DEBUG": "INFO"
+        },
+        "group": "lsa",
+        "legacy_source": "run_lsa_test.sh:15",
+        "nodes": 1,
+        "parameters": {
+          "device_cta_count": 16,
+          "device_impl": 1,
+          "elapsed_type": 1,
+          "max_data_size": "2G",
+          "min_data_size": "8",
+          "op": "all_reduce_perf",
+          "ranks": 2,
+          "register": 2,
+          "step_factor": 2
+        },
+        "processes_per_node": 1,
+        "test_type": "functional",
+        "threads_per_process": 2,
+        "tier": "sanity",
+        "timeout": 7200
+      },
+      "selected": [
+        {
+          "build_profile": "standard",
+          "case_id": "f8c13eb7a805cdbcc5580fd8362d8f8037447d50aa8174d86f34adb8784019a4",
+          "execution_id": "c5ca8c6e8522099620a27bd8c69563cb125e4b4a831c0012378192d959b1d2b0"
+        }
+      ]
+    },
+    {
+      "legacy_case_key": "memcpy-0c838c0cb3374ba1f8de",
+      "legacy_spec": {
+        "argv": [
+          "{python}",
+          "{test_root}/run_test.py",
+          "--op",
+          "all_gather_perf",
+          "--algo",
+          "Auto",
+          "--proto",
+          "Auto",
+          "--data-type",
+          "float",
+          "--data-size",
+          "32MB",
+          "--iters",
+          "10",
+          "--ranks",
+          "2",
+          "--nnodes",
+          "1",
+          "--nprocs",
+          "1",
+          "--threads",
+          "2",
+          "--auto-detect",
+          "--timeout",
+          "7200",
+          "--launch-mode",
+          "normal",
+          "--mpi-options={mpi_options}",
+          "--process-group",
+          "normal"
+        ],
+        "build_profile": "standard",
+        "cards_per_node": 8,
+        "checks": [
+          "exit_code"
+        ],
+        "devices_per_thread": 1,
+        "env": {
+          "NCCL_DEBUG": "INFO",
+          "NCCL_P2P_USE_CUDA_MEMCPY": "1"
+        },
+        "group": "memcpy",
+        "legacy_source": "run_memcpy_test.sh:15",
+        "nodes": 1,
+        "parameters": {
+          "algo": "Auto",
+          "auto_detect": true,
+          "data_sizes": [
+            "32MB"
+          ],
+          "dtype": "float",
+          "iters": 10,
+          "op": "all_gather_perf",
+          "proto": "Auto",
+          "ranks": 2
+        },
+        "processes_per_node": 1,
+        "test_type": "functional",
+        "threads_per_process": 2,
+        "tier": "sanity",
+        "timeout": 7200
+      },
+      "selected": [
+        {
+          "build_profile": "standard",
+          "case_id": "72c0dd7f6bd6162ac6a7b73e9aa57b1cdb4d33a4a0b592911e2ba9b143dbc423",
+          "execution_id": "dc6fc94f304d13237e0db3e7a253447d7a32ab071da12a035468076a1b588d29"
+        }
+      ]
+    },
+    {
+      "legacy_case_key": "memcpy-307dbb584001536c53a0",
+      "legacy_spec": {
+        "argv": [
+          "{python}",
+          "{test_root}/run_test.py",
+          "--op",
+          "all_gather_perf",
+          "--algo",
+          "Auto",
+          "--proto",
+          "Auto",
+          "--data-type",
+          "float",
+          "--data-size",
+          "32MB",
+          "--iters",
+          "10",
+          "--ranks",
+          "2",
+          "--nnodes",
+          "1",
+          "--nprocs",
+          "2",
+          "--threads",
+          "1",
+          "--auto-detect",
+          "--timeout",
+          "7200",
+          "--launch-mode",
+          "normal",
+          "--mpi-options={mpi_options}",
+          "--process-group",
+          "normal"
+        ],
+        "build_profile": "standard",
+        "cards_per_node": 8,
+        "checks": [
+          "exit_code"
+        ],
+        "devices_per_thread": 1,
+        "env": {
+          "NCCL_DEBUG": "INFO",
+          "NCCL_P2P_USE_CUDA_MEMCPY": "1"
+        },
+        "group": "memcpy",
+        "legacy_source": "run_memcpy_test.sh:16",
+        "nodes": 1,
+        "parameters": {
+          "algo": "Auto",
+          "auto_detect": true,
+          "data_sizes": [
+            "32MB"
+          ],
+          "dtype": "float",
+          "iters": 10,
+          "op": "all_gather_perf",
+          "proto": "Auto",
+          "ranks": 2
+        },
+        "processes_per_node": 2,
+        "test_type": "functional",
+        "threads_per_process": 1,
+        "tier": "sanity",
+        "timeout": 7200
+      },
+      "selected": [
+        {
+          "build_profile": "standard",
+          "case_id": "df4bdabee5f0db8ca866c70548bf2f7f6bacded4073f13353eef6f1bce9aba23",
+          "execution_id": "202a71f1edf786dfd85bc09a7d805a70c60d270765f8d0892d18cbc6ec9e1c69"
+        }
+      ]
+    },
+    {
+      "legacy_case_key": "memcpy-4802d36bbcacb13d06da",
+      "legacy_spec": {
+        "argv": [
+          "{python}",
+          "{test_root}/run_test.py",
+          "--op",
+          "alltoall_perf",
+          "--algo",
+          "Auto",
+          "--proto",
+          "Auto",
+          "--data-type",
+          "float",
+          "--data-size",
+          "32MB",
+          "--iters",
+          "10",
+          "--ranks",
+          "2",
+          "--nnodes",
+          "1",
+          "--nprocs",
+          "2",
+          "--threads",
+          "1",
+          "--auto-detect",
+          "--timeout",
+          "7200",
+          "--launch-mode",
+          "normal",
+          "--mpi-options={mpi_options}",
+          "--process-group",
+          "normal"
+        ],
+        "build_profile": "standard",
+        "cards_per_node": 8,
+        "checks": [
+          "exit_code"
+        ],
+        "devices_per_thread": 1,
+        "env": {
+          "NCCL_DEBUG": "INFO",
+          "NCCL_P2P_USE_CUDA_MEMCPY": "1"
+        },
+        "group": "memcpy",
+        "legacy_source": "run_memcpy_test.sh:14",
+        "nodes": 1,
+        "parameters": {
+          "algo": "Auto",
+          "auto_detect": true,
+          "data_sizes": [
+            "32MB"
+          ],
+          "dtype": "float",
+          "iters": 10,
+          "op": "alltoall_perf",
+          "proto": "Auto",
+          "ranks": 2
+        },
+        "processes_per_node": 2,
+        "test_type": "functional",
+        "threads_per_process": 1,
+        "tier": "sanity",
+        "timeout": 7200
+      },
+      "selected": [
+        {
+          "build_profile": "standard",
+          "case_id": "ee9007f24bd92bf28bf40b9863065bbc35e0bcc6885221b6212fbd181e8ac9d4",
+          "execution_id": "b870e1c75b50cce01523b64847e488878382834f7202d9bdfc653fac4e8899c3"
+        }
+      ]
+    },
+    {
+      "legacy_case_key": "memcpy-9e6d5a8d0c6374bac7a4",
+      "legacy_spec": {
+        "argv": [
+          "{python}",
+          "{test_root}/run_test.py",
+          "--op",
+          "alltoall_perf",
+          "--algo",
+          "Auto",
+          "--proto",
+          "Auto",
+          "--data-type",
+          "float",
+          "--data-size",
+          "32MB",
+          "--iters",
+          "10",
+          "--ranks",
+          "2",
+          "--nnodes",
+          "1",
+          "--nprocs",
+          "1",
+          "--threads",
+          "2",
+          "--auto-detect",
+          "--timeout",
+          "7200",
+          "--launch-mode",
+          "normal",
+          "--mpi-options={mpi_options}",
+          "--process-group",
+          "normal"
+        ],
+        "build_profile": "standard",
+        "cards_per_node": 8,
+        "checks": [
+          "exit_code"
+        ],
+        "devices_per_thread": 1,
+        "env": {
+          "NCCL_DEBUG": "INFO",
+          "NCCL_P2P_USE_CUDA_MEMCPY": "1"
+        },
+        "group": "memcpy",
+        "legacy_source": "run_memcpy_test.sh:13",
+        "nodes": 1,
+        "parameters": {
+          "algo": "Auto",
+          "auto_detect": true,
+          "data_sizes": [
+            "32MB"
+          ],
+          "dtype": "float",
+          "iters": 10,
+          "op": "alltoall_perf",
+          "proto": "Auto",
+          "ranks": 2
+        },
+        "processes_per_node": 1,
+        "test_type": "functional",
+        "threads_per_process": 2,
+        "tier": "sanity",
+        "timeout": 7200
+      },
+      "selected": [
+        {
+          "build_profile": "standard",
+          "case_id": "68d83201b1dccd7a072cf31547f956b1ceed2891edf65469833c5ff7a5b5de32",
+          "execution_id": "f15e0b8cf1e2bbaefc406ae1b0afa9f5f9cc11b64ac6fa9c305a080458b94b50"
+        }
+      ]
+    },
+    {
+      "legacy_case_key": "nonblocking-1d69580edb34bf3a9046",
+      "legacy_spec": {
+        "argv": [
+          "{python}",
+          "{test_root}/run_test.py",
+          "--op",
+          "all_reduce_perf",
+          "--algo",
+          "Ring",
+          "--proto",
+          "LL",
+          "--data-type",
+          "float",
+          "--data-size",
+          "32MB",
+          "--iters",
+          "10",
+          "--ranks",
+          "2",
+          "--nnodes",
+          "1",
+          "--nprocs",
+          "1",
+          "--threads",
+          "2",
+          "--auto-detect",
+          "--non-blocking",
+          "--timeout",
+          "7200",
+          "--launch-mode",
+          "normal",
+          "--mpi-options={mpi_options}",
+          "--process-group",
+          "normal"
+        ],
+        "build_profile": "standard",
+        "cards_per_node": 8,
+        "checks": [
+          "exit_code"
+        ],
+        "devices_per_thread": 1,
+        "env": {
+          "NCCL_COMM_BLOCKING": "0",
+          "NCCL_DEBUG": "INFO"
+        },
+        "group": "nonblocking",
+        "legacy_source": "run_nonblocking_test.sh:34",
+        "nodes": 1,
+        "parameters": {
+          "algo": "Ring",
+          "auto_detect": true,
+          "data_sizes": [
+            "32MB"
+          ],
+          "dtype": "float",
+          "iters": 10,
+          "non_blocking": true,
+          "op": "all_reduce_perf",
+          "proto": "LL",
+          "ranks": 2
+        },
+        "processes_per_node": 1,
+        "test_type": "functional",
+        "threads_per_process": 2,
+        "tier": "sanity",
+        "timeout": 7200
+      },
+      "selected": [
+        {
+          "build_profile": "standard",
+          "case_id": "53a6513ef92c73ebb3812c8b9514dcee7c47324f75a8abf3b69dbd06dd848225",
+          "execution_id": "03e318f7628ce2a3663c6087ad1e97fb5c68358b3db5d39f939c18c9e30594ef"
+        }
+      ]
+    },
+    {
+      "legacy_case_key": "nonblocking-32184f8e415469a85dbe",
+      "legacy_spec": {
+        "argv": [
+          "{python}",
+          "{test_root}/run_test.py",
+          "--op",
+          "alltoall_perf",
+          "--algo",
+          "Ring",
+          "--proto",
+          "Auto",
+          "--data-type",
+          "int8",
+          "--data-size",
+          "32MB",
+          "--iters",
+          "10",
+          "--ranks",
+          "2",
+          "--nnodes",
+          "1",
+          "--nprocs",
+          "1",
+          "--threads",
+          "2",
+          "--auto-detect",
+          "--non-blocking",
+          "--timeout",
+          "7200",
+          "--launch-mode",
+          "normal",
+          "--mpi-options={mpi_options}",
+          "--process-group",
+          "normal"
+        ],
+        "build_profile": "standard",
+        "cards_per_node": 8,
+        "checks": [
+          "exit_code"
+        ],
+        "devices_per_thread": 1,
+        "env": {
+          "NCCL_COMM_BLOCKING": "0",
+          "NCCL_DEBUG": "INFO"
+        },
+        "group": "nonblocking",
+        "legacy_source": "run_nonblocking_test.sh:32",
+        "nodes": 1,
+        "parameters": {
+          "algo": "Ring",
+          "auto_detect": true,
+          "data_sizes": [
+            "32MB"
+          ],
+          "dtype": "int8",
+          "iters": 10,
+          "non_blocking": true,
+          "op": "alltoall_perf",
+          "proto": "Auto",
+          "ranks": 2
+        },
+        "processes_per_node": 1,
+        "test_type": "functional",
+        "threads_per_process": 2,
+        "tier": "sanity",
+        "timeout": 7200
+      },
+      "selected": [
+        {
+          "build_profile": "standard",
+          "case_id": "a7c10b765c3a775a746e2cb27f0115198057297dc0be6754a6d07d41dc2fd47e",
+          "execution_id": "af4099048a599c45ff221b89de08c9563b74afa46e8c733c998ec8c0b8398392"
+        }
+      ]
+    },
+    {
+      "legacy_case_key": "nonblocking-66877dff5834e4bf4999",
+      "legacy_spec": {
+        "argv": [
+          "{binary_dir}/alltoall_perf",
+          "-b",
+          "4",
+          "-e",
+          "1G",
+          "-f",
+          "2",
+          "-g",
+          "2",
+          "-R",
+          "0",
+          "--init_blocking",
+          "0",
+          "-c",
+          "1"
+        ],
+        "build_profile": "standard",
+        "cards_per_node": 8,
+        "checks": [
+          "exit_code",
+          "validation_summary"
+        ],
+        "devices_per_thread": 2,
+        "env": {
+          "NCCL_COMM_BLOCKING": "0",
+          "NCCL_DEBUG": "INFO"
+        },
+        "group": "nonblocking",
+        "legacy_source": "run_nonblocking_test.sh:19",
+        "nodes": 1,
+        "parameters": {
+          "check": 1,
+          "init_blocking": 0,
+          "max_data_size": "1G",
+          "min_data_size": "4",
+          "op": "alltoall_perf",
+          "ranks": 2,
+          "register": 0,
+          "step_factor": 2
+        },
+        "processes_per_node": 1,
+        "test_type": "functional",
+        "threads_per_process": 1,
+        "tier": "sanity",
+        "timeout": 7200
+      },
+      "selected": [
+        {
+          "build_profile": "standard",
+          "case_id": "cd0f52a47561102f165851ec0c1fc904ee8d6ca6e6ea569d4dc274e8f934b6e7",
+          "execution_id": "5846da94c96c21407b550108b42b5ab1401c5303f63ee8fba66cffabc3d0b86e"
+        }
+      ]
+    },
+    {
+      "legacy_case_key": "nonblocking-773fa6a3fac6eef20b4c",
+      "legacy_spec": {
+        "argv": [
+          "{python}",
+          "{test_root}/run_test.py",
+          "--op",
+          "all_reduce_perf",
+          "--algo",
+          "Ring",
+          "--proto",
+          "LL",
+          "--data-type",
+          "half",
+          "--data-size",
+          "32MB",
+          "--iters",
+          "10",
+          "--ranks",
+          "2",
+          "--nnodes",
+          "1",
+          "--nprocs",
+          "1",
+          "--threads",
+          "2",
+          "--auto-detect",
+          "--non-blocking",
+          "--timeout",
+          "7200",
+          "--launch-mode",
+          "normal",
+          "--mpi-options={mpi_options}",
+          "--process-group",
+          "normal"
+        ],
+        "build_profile": "standard",
+        "cards_per_node": 8,
+        "checks": [
+          "exit_code"
+        ],
+        "devices_per_thread": 1,
+        "env": {
+          "NCCL_COMM_BLOCKING": "0",
+          "NCCL_DEBUG": "INFO"
+        },
+        "group": "nonblocking",
+        "legacy_source": "run_nonblocking_test.sh:33",
+        "nodes": 1,
+        "parameters": {
+          "algo": "Ring",
+          "auto_detect": true,
+          "data_sizes": [
+            "32MB"
+          ],
+          "dtype": "half",
+          "iters": 10,
+          "non_blocking": true,
+          "op": "all_reduce_perf",
+          "proto": "LL",
+          "ranks": 2
+        },
+        "processes_per_node": 1,
+        "test_type": "functional",
+        "threads_per_process": 2,
+        "tier": "sanity",
+        "timeout": 7200
+      },
+      "selected": [
+        {
+          "build_profile": "standard",
+          "case_id": "dd278cb7ed1125586c2ac931806fb6a2e0fda370c234cd2610a2e97712de9dba",
+          "execution_id": "e5a9edf955c748c22a541fcd28f02cf7981f7f33b86d82087088af5a42c5d976"
+        }
+      ]
+    },
+    {
+      "legacy_case_key": "nonblocking-805fb18d172f92ee8ce4",
+      "legacy_spec": {
+        "argv": [
+          "{binary_dir}/all_reduce_perf",
+          "-b",
+          "4",
+          "-e",
+          "1G",
+          "-f",
+          "2",
+          "-g",
+          "2",
+          "-R",
+          "0",
+          "--init_blocking",
+          "0",
+          "-c",
+          "1"
+        ],
+        "build_profile": "standard",
+        "cards_per_node": 8,
+        "checks": [
+          "exit_code",
+          "validation_summary"
+        ],
+        "devices_per_thread": 2,
+        "env": {
+          "NCCL_COMM_BLOCKING": "0",
+          "NCCL_DEBUG": "INFO"
+        },
+        "group": "nonblocking",
+        "legacy_source": "run_nonblocking_test.sh:19",
+        "nodes": 1,
+        "parameters": {
+          "check": 1,
+          "init_blocking": 0,
+          "max_data_size": "1G",
+          "min_data_size": "4",
+          "op": "all_reduce_perf",
+          "ranks": 2,
+          "register": 0,
+          "step_factor": 2
+        },
+        "processes_per_node": 1,
+        "test_type": "functional",
+        "threads_per_process": 1,
+        "tier": "sanity",
+        "timeout": 7200
+      },
+      "selected": [
+        {
+          "build_profile": "standard",
+          "case_id": "03be2f0461679795a89fca82e13336b8ee3dc3e119a8f58fe8858e1cd4da9220",
+          "execution_id": "cbb6917a72a507e8c0ebbb054a2967b0d73fd6427203ae5fe0b06adbb4d13af4"
+        }
+      ]
+    },
+    {
+      "legacy_case_key": "perf_allreduce-58b4022deabdcbfaf28f",
+      "legacy_spec": {
+        "argv": [
+          "{binary_dir}/all_reduce_perf",
+          "-b",
+          "8388608",
+          "-e",
+          "8388608",
+          "-n",
+          "100",
+          "-w",
+          "5",
+          "-d",
+          "float",
+          "-o",
+          "sum",
+          "-t",
+          "2",
+          "-g",
+          "1",
+          "-c",
+          "1",
+          "-k",
+          "2",
+          "-a",
+          "2",
+          "--elapsed_type",
+          "0",
+          "--report_type",
+          "0",
+          "-N",
+          "1"
+        ],
+        "build_profile": "standard",
+        "cards_per_node": 8,
+        "checks": [
+          "exit_code",
+          "validation_summary",
+          "performance"
+        ],
+        "devices_per_thread": 1,
+        "env": {
+          "NCCL_ALGO": "Ring",
+          "NCCL_DEBUG": "INFO",
+          "NCCL_DEBUG_FILE": "{result_dir}/library.%h.%p.log",
+          "NCCL_PROTO": "Simple",
+          "PCCL_ALGO": "Ring",
+          "PCCL_DEBUG": "INFO",
+          "PCCL_DEBUG_FILE": "{result_dir}/library.%h.%p.log",
+          "PCCL_PROTO": "Simple"
+        },
+        "group": "perf_allreduce",
+        "legacy_source": "pccl-tests/src/common.cu:149-169",
+        "nodes": 1,
+        "parameters": {
+          "algo": "Ring",
+          "data_sizes": [
+            "8M"
+          ],
+          "dtype": "float",
+          "iters": 100,
+          "op": "all_reduce_perf",
+          "proto": "Simple",
+          "ranks": 2,
+          "redop": "sum",
+          "warmup": 5
+        },
+        "performance": {
+          "expected_sizes": [
+            8388608
+          ],
+          "rank_reduction": "MIN",
+          "sample_index": 0,
+          "time_kind": "cpu_time"
+        },
+        "processes_per_node": 1,
+        "test_type": "performance",
+        "threads_per_process": 2,
+        "tier": "sanity",
+        "timeout": 600
+      },
+      "selected": [
+        {
+          "build_profile": "standard",
+          "case_id": "a3ae5eef385e426bbb7d8c94be443da15a620b6494884801f78bea94118727df",
+          "execution_id": "d2c4ffa0e1b984c83ea3e538784eb5d88b0fd8e994fda8682d11e634180cede9"
+        }
+      ]
+    },
+    {
+      "legacy_case_key": "perf_allreduce-6404d3c0ab071a8776cd",
+      "legacy_spec": {
+        "argv": [
+          "{binary_dir}/all_reduce_perf",
+          "-b",
+          "8388608",
+          "-e",
+          "8388608",
+          "-n",
+          "100",
+          "-w",
+          "5",
+          "-d",
+          "float",
+          "-o",
+          "sum",
+          "-t",
+          "2",
+          "-g",
+          "1",
+          "-c",
+          "1",
+          "-k",
+          "2",
+          "-a",
+          "2",
+          "--elapsed_type",
+          "0",
+          "--report_type",
+          "0",
+          "-N",
+          "1"
+        ],
+        "build_profile": "standard",
+        "cards_per_node": 8,
+        "checks": [
+          "exit_code",
+          "validation_summary",
+          "performance"
+        ],
+        "devices_per_thread": 1,
+        "env": {
+          "NCCL_ALGO": "Ring",
+          "NCCL_DEBUG": "INFO",
+          "NCCL_DEBUG_FILE": "{result_dir}/library.%h.%p.log",
+          "NCCL_PROTO": "Simple",
+          "PCCL_ALGO": "Ring",
+          "PCCL_DEBUG": "INFO",
+          "PCCL_DEBUG_FILE": "{result_dir}/library.%h.%p.log",
+          "PCCL_PROTO": "Simple"
+        },
+        "group": "perf_allreduce",
+        "legacy_source": "pccl-tests/src/common.cu:149-169",
+        "nodes": 1,
+        "parameters": {
+          "algo": "Ring",
+          "data_sizes": [
+            "8M"
+          ],
+          "dtype": "float",
+          "iters": 100,
+          "op": "all_reduce_perf",
+          "proto": "Simple",
+          "ranks": 2,
+          "redop": "sum",
+          "warmup": 5
+        },
+        "performance": {
+          "expected_sizes": [
+            8388608
+          ],
+          "rank_reduction": "MIN",
+          "sample_index": 2,
+          "time_kind": "cpu_time"
+        },
+        "processes_per_node": 1,
+        "test_type": "performance",
+        "threads_per_process": 2,
+        "tier": "sanity",
+        "timeout": 600
+      },
+      "selected": [
+        {
+          "build_profile": "standard",
+          "case_id": "2e51b83b007c325b0628d9d0075a7f83d7944f715148f247927fd23b561f616f",
+          "execution_id": "a8f23b710d3de2ca97f2287716e9496e85ae87d72681362f3c48da11c7a29750"
+        }
+      ]
+    },
+    {
+      "legacy_case_key": "perf_allreduce-726218504abd26000a72",
+      "legacy_spec": {
+        "argv": [
+          "{binary_dir}/all_reduce_perf",
+          "-b",
+          "8388608",
+          "-e",
+          "8388608",
+          "-n",
+          "100",
+          "-w",
+          "5",
+          "-d",
+          "float",
+          "-o",
+          "sum",
+          "-t",
+          "2",
+          "-g",
+          "1",
+          "-c",
+          "1",
+          "-k",
+          "2",
+          "-a",
+          "2",
+          "--elapsed_type",
+          "0",
+          "--report_type",
+          "0",
+          "-N",
+          "1"
+        ],
+        "build_profile": "standard",
+        "cards_per_node": 8,
+        "checks": [
+          "exit_code",
+          "validation_summary",
+          "performance"
+        ],
+        "devices_per_thread": 1,
+        "env": {
+          "NCCL_ALGO": "Ring",
+          "NCCL_DEBUG": "INFO",
+          "NCCL_DEBUG_FILE": "{result_dir}/library.%h.%p.log",
+          "NCCL_PROTO": "Simple",
+          "PCCL_ALGO": "Ring",
+          "PCCL_DEBUG": "INFO",
+          "PCCL_DEBUG_FILE": "{result_dir}/library.%h.%p.log",
+          "PCCL_PROTO": "Simple"
+        },
+        "group": "perf_allreduce",
+        "legacy_source": "pccl-tests/src/common.cu:149-169",
+        "nodes": 1,
+        "parameters": {
+          "algo": "Ring",
+          "data_sizes": [
+            "8M"
+          ],
+          "dtype": "float",
+          "iters": 100,
+          "op": "all_reduce_perf",
+          "proto": "Simple",
+          "ranks": 2,
+          "redop": "sum",
+          "warmup": 5
+        },
+        "performance": {
+          "expected_sizes": [
+            8388608
+          ],
+          "rank_reduction": "MIN",
+          "sample_index": 1,
+          "time_kind": "cpu_time"
+        },
+        "processes_per_node": 1,
+        "test_type": "performance",
+        "threads_per_process": 2,
+        "tier": "sanity",
+        "timeout": 600
+      },
+      "selected": [
+        {
+          "build_profile": "standard",
+          "case_id": "f8ddbe2656a11b300d3bc4375a621e6be32c2ac48a22a6efca691468383948e7",
+          "execution_id": "9e6bfddbc10981751981f645202837aa3058befb7b11a85f520203b56194b6b4"
+        }
+      ]
+    },
+    {
+      "legacy_case_key": "register-03c0340767bb2db7857f",
+      "legacy_spec": {
+        "argv": [
+          "{python}",
+          "{test_root}/run_test.py",
+          "--op",
+          "sendrecv_perf",
+          "--algo",
+          "Ring",
+          "--proto",
+          "Simple",
+          "--data-type",
+          "int8",
+          "--data-size",
+          "32MB",
+          "--iters",
+          "10",
+          "--ranks",
+          "2",
+          "--nnodes",
+          "1",
+          "--nprocs",
+          "2",
+          "--threads",
+          "1",
+          "--register",
+          "1",
+          "--auto-detect",
+          "--timeout",
+          "7200",
+          "--launch-mode",
+          "normal",
+          "--mpi-options={mpi_options}",
+          "--process-group",
+          "normal"
+        ],
+        "build_profile": "standard",
+        "cards_per_node": 8,
+        "checks": [
+          "exit_code"
+        ],
+        "devices_per_thread": 1,
+        "env": {
+          "NCCL_DEBUG": "INFO"
+        },
+        "group": "register",
+        "legacy_source": "run_register_test.sh:27",
+        "nodes": 1,
+        "parameters": {
+          "algo": "Ring",
+          "auto_detect": true,
+          "data_sizes": [
+            "32MB"
+          ],
+          "dtype": "int8",
+          "iters": 10,
+          "op": "sendrecv_perf",
+          "proto": "Simple",
+          "ranks": 2,
+          "register": 1
+        },
+        "processes_per_node": 2,
+        "test_type": "functional",
+        "threads_per_process": 1,
+        "tier": "sanity",
+        "timeout": 7200
+      },
+      "selected": [
+        {
+          "build_profile": "standard",
+          "case_id": "ccdd6f5591b2816da22359588628fbfd543af66bf249fadfffb35a1c1df3844f",
+          "execution_id": "1c0d9d71fcd7a85224a6ac330340e71ec1a4a9a6d9206a2f8b186e5ac096444b"
+        }
+      ]
+    },
+    {
+      "legacy_case_key": "register-417b6d2672b8e7ffacfe",
+      "legacy_spec": {
+        "argv": [
+          "mpirun",
+          "--allow-run-as-root",
+          "-np",
+          "2",
+          "{mpi_options}",
+          "{binary_dir}/scatter_perf",
+          "-b",
+          "32",
+          "-e",
+          "1G",
+          "-f",
+          "2",
+          "-R",
+          "1",
+          "-d",
+          "half"
+        ],
+        "build_profile": "standard",
+        "cards_per_node": 8,
+        "checks": [
+          "exit_code"
+        ],
+        "devices_per_thread": 1,
+        "env": {
+          "NCCL_DEBUG": "INFO"
+        },
+        "group": "register",
+        "legacy_source": "run_register_test.sh:11",
+        "nodes": 1,
+        "parameters": {
+          "dtype": "half",
+          "max_data_size": "1G",
+          "min_data_size": "32",
+          "op": "scatter_perf",
+          "ranks": 2,
+          "register": 1,
+          "step_factor": 2
+        },
+        "processes_per_node": 2,
+        "test_type": "functional",
+        "threads_per_process": 1,
+        "tier": "sanity",
+        "timeout": 7200
+      },
+      "selected": [
+        {
+          "build_profile": "standard",
+          "case_id": "8574e1af61c933e36992fca8bce0dca256ad4f0b424fc191f3df6b17cdacb6d7",
+          "execution_id": "c5dc9c9666509e07b13a16baf0a50a039bfbca65f3c6c626fcc7888345cf2bc0"
+        }
+      ]
+    },
+    {
+      "legacy_case_key": "register-5e0a3861985e9e4781fd",
+      "legacy_spec": {
+        "argv": [
+          "{python}",
+          "{test_root}/run_test.py",
+          "--op",
+          "gather_perf",
+          "--algo",
+          "Ring",
+          "--proto",
+          "Simple",
+          "--data-type",
+          "int8",
+          "--data-size",
+          "32MB",
+          "--iters",
+          "10",
+          "--ranks",
+          "2",
+          "--nnodes",
+          "1",
+          "--nprocs",
+          "2",
+          "--threads",
+          "1",
+          "--register",
+          "1",
+          "--auto-detect",
+          "--timeout",
+          "7200",
+          "--launch-mode",
+          "normal",
+          "--mpi-options={mpi_options}",
+          "--process-group",
+          "normal"
+        ],
+        "build_profile": "standard",
+        "cards_per_node": 8,
+        "checks": [
+          "exit_code"
+        ],
+        "devices_per_thread": 1,
+        "env": {
+          "NCCL_DEBUG": "INFO"
+        },
+        "group": "register",
+        "legacy_source": "run_register_test.sh:23",
+        "nodes": 1,
+        "parameters": {
+          "algo": "Ring",
+          "auto_detect": true,
+          "data_sizes": [
+            "32MB"
+          ],
+          "dtype": "int8",
+          "iters": 10,
+          "op": "gather_perf",
+          "proto": "Simple",
+          "ranks": 2,
+          "register": 1
+        },
+        "processes_per_node": 2,
+        "test_type": "functional",
+        "threads_per_process": 1,
+        "tier": "sanity",
+        "timeout": 7200
+      },
+      "selected": [
+        {
+          "build_profile": "standard",
+          "case_id": "10238aa5c856024c1a4bd4d08b379687ab2dfdcb24f6e82a25922fc8ec39d802",
+          "execution_id": "a41ac28bfad59ed14b8bd3de50c2c7c42edb992d521abb25066c7de930daba83"
+        }
+      ]
+    },
+    {
+      "legacy_case_key": "register-760407868869cd5b1e3a",
+      "legacy_spec": {
+        "argv": [
+          "{python}",
+          "{test_root}/run_test.py",
+          "--op",
+          "hypercube_perf",
+          "--algo",
+          "Ring",
+          "--proto",
+          "Simple",
+          "--data-type",
+          "int8",
+          "--data-size",
+          "32MB",
+          "--iters",
+          "10",
+          "--ranks",
+          "2",
+          "--nnodes",
+          "1",
+          "--nprocs",
+          "2",
+          "--threads",
+          "1",
+          "--register",
+          "1",
+          "--auto-detect",
+          "--timeout",
+          "7200",
+          "--launch-mode",
+          "normal",
+          "--mpi-options={mpi_options}",
+          "--process-group",
+          "normal"
+        ],
+        "build_profile": "standard",
+        "cards_per_node": 8,
+        "checks": [
+          "exit_code"
+        ],
+        "devices_per_thread": 1,
+        "env": {
+          "NCCL_DEBUG": "INFO"
+        },
+        "group": "register",
+        "legacy_source": "run_register_test.sh:21",
+        "nodes": 1,
+        "parameters": {
+          "algo": "Ring",
+          "auto_detect": true,
+          "data_sizes": [
+            "32MB"
+          ],
+          "dtype": "int8",
+          "iters": 10,
+          "op": "hypercube_perf",
+          "proto": "Simple",
+          "ranks": 2,
+          "register": 1
+        },
+        "processes_per_node": 2,
+        "test_type": "functional",
+        "threads_per_process": 1,
+        "tier": "sanity",
+        "timeout": 7200
+      },
+      "selected": [
+        {
+          "build_profile": "standard",
+          "case_id": "ec1b12a5cb151fcf55b8e45d83686092a461065baa933f5a0f62ef1bae4108e2",
+          "execution_id": "9145fdc4a043b808d3aaf0212328555a17f0dc607ffde63ec81724c8421dfe89"
+        }
+      ]
+    },
+    {
+      "legacy_case_key": "register-8dae3e5a2714b4a88f5a",
+      "legacy_spec": {
+        "argv": [
+          "{python}",
+          "{test_root}/run_test.py",
+          "--op",
+          "all_gather_perf",
+          "--algo",
+          "Auto",
+          "--proto",
+          "Auto",
+          "--data-type",
+          "float",
+          "--data-size",
+          "32MB",
+          "--iters",
+          "10",
+          "--ranks",
+          "2",
+          "--nnodes",
+          "1",
+          "--nprocs",
+          "2",
+          "--threads",
+          "1",
+          "--register",
+          "1",
+          "--auto-detect",
+          "--timeout",
+          "7200",
+          "--launch-mode",
+          "normal",
+          "--mpi-options={mpi_options}",
+          "--process-group",
+          "normal"
+        ],
+        "build_profile": "standard",
+        "cards_per_node": 8,
+        "checks": [
+          "exit_code"
+        ],
+        "devices_per_thread": 1,
+        "env": {
+          "NCCL_DEBUG": "INFO"
+        },
+        "group": "register",
+        "legacy_source": "run_register_test.sh:17",
+        "nodes": 1,
+        "parameters": {
+          "algo": "Auto",
+          "auto_detect": true,
+          "data_sizes": [
+            "32MB"
+          ],
+          "dtype": "float",
+          "iters": 10,
+          "op": "all_gather_perf",
+          "proto": "Auto",
+          "ranks": 2,
+          "register": 1
+        },
+        "processes_per_node": 2,
+        "test_type": "functional",
+        "threads_per_process": 1,
+        "tier": "sanity",
+        "timeout": 7200
+      },
+      "selected": [
+        {
+          "build_profile": "standard",
+          "case_id": "7629b3a15935d3e2281c594d01b583c51662d61375256b9c7528541c12d7b2f8",
+          "execution_id": "cd0f26dab778800f36ad20a5d569b180e42d57b0d98d883a41d21dbcb990c411"
+        }
+      ]
+    },
+    {
+      "legacy_case_key": "register-8ef4927f22ff63559951",
+      "legacy_spec": {
+        "argv": [
+          "{python}",
+          "{test_root}/run_test.py",
+          "--op",
+          "all_reduce_perf",
+          "--algo",
+          "Auto",
+          "--proto",
+          "Auto",
+          "--data-type",
+          "float",
+          "--data-size",
+          "32MB",
+          "--iters",
+          "10",
+          "--ranks",
+          "2",
+          "--nnodes",
+          "1",
+          "--nprocs",
+          "1",
+          "--threads",
+          "2",
+          "--register",
+          "1",
+          "--auto-detect",
+          "--timeout",
+          "7200",
+          "--launch-mode",
+          "normal",
+          "--mpi-options={mpi_options}",
+          "--process-group",
+          "normal"
+        ],
+        "build_profile": "standard",
+        "cards_per_node": 8,
+        "checks": [
+          "exit_code"
+        ],
+        "devices_per_thread": 1,
+        "env": {
+          "NCCL_DEBUG": "INFO"
+        },
+        "group": "register",
+        "legacy_source": "run_register_test.sh:18",
+        "nodes": 1,
+        "parameters": {
+          "algo": "Auto",
+          "auto_detect": true,
+          "data_sizes": [
+            "32MB"
+          ],
+          "dtype": "float",
+          "iters": 10,
+          "op": "all_reduce_perf",
+          "proto": "Auto",
+          "ranks": 2,
+          "register": 1
+        },
+        "processes_per_node": 1,
+        "test_type": "functional",
+        "threads_per_process": 2,
+        "tier": "sanity",
+        "timeout": 7200
+      },
+      "selected": [
+        {
+          "build_profile": "standard",
+          "case_id": "2c0df19e2a2317367521d366068bcd99b079efc12c45b4b7b344686f63d338f1",
+          "execution_id": "65cf99257a7e40572d791927518d0424465bbed1f99320184d8f6612d117e114"
+        }
+      ]
+    },
+    {
+      "legacy_case_key": "register-acc5c0ce273ceab83099",
+      "legacy_spec": {
+        "argv": [
+          "{python}",
+          "{test_root}/run_test.py",
+          "--op",
+          "all_reduce_perf",
+          "--algo",
+          "Auto",
+          "--proto",
+          "Auto",
+          "--data-type",
+          "float",
+          "--data-size",
+          "32MB",
+          "--iters",
+          "10",
+          "--ranks",
+          "2",
+          "--nnodes",
+          "1",
+          "--nprocs",
+          "2",
+          "--threads",
+          "1",
+          "--register",
+          "1",
+          "--auto-detect",
+          "--timeout",
+          "7200",
+          "--launch-mode",
+          "normal",
+          "--mpi-options={mpi_options}",
+          "--process-group",
+          "normal"
+        ],
+        "build_profile": "standard",
+        "cards_per_node": 8,
+        "checks": [
+          "exit_code"
+        ],
+        "devices_per_thread": 1,
+        "env": {
+          "NCCL_DEBUG": "INFO"
+        },
+        "group": "register",
+        "legacy_source": "run_register_test.sh:19",
+        "nodes": 1,
+        "parameters": {
+          "algo": "Auto",
+          "auto_detect": true,
+          "data_sizes": [
+            "32MB"
+          ],
+          "dtype": "float",
+          "iters": 10,
+          "op": "all_reduce_perf",
+          "proto": "Auto",
+          "ranks": 2,
+          "register": 1
+        },
+        "processes_per_node": 2,
+        "test_type": "functional",
+        "threads_per_process": 1,
+        "tier": "sanity",
+        "timeout": 7200
+      },
+      "selected": [
+        {
+          "build_profile": "standard",
+          "case_id": "19035a0c32746db0ffc0368bfd2cd3d85c489ac2ced0956f10e8506e11b363ac",
+          "execution_id": "85ae8a10a47c9528a7411256dda0afc3faf6af5791be5fc813912ee2e63f32ec"
+        }
+      ]
+    },
+    {
+      "legacy_case_key": "register-b61d7f2f6586ae7f62dd",
+      "legacy_spec": {
+        "argv": [
+          "{python}",
+          "{test_root}/run_test.py",
+          "--op",
+          "all_gather_perf",
+          "--algo",
+          "Auto",
+          "--proto",
+          "Auto",
+          "--data-type",
+          "float",
+          "--data-size",
+          "32MB",
+          "--iters",
+          "10",
+          "--ranks",
+          "2",
+          "--nnodes",
+          "1",
+          "--nprocs",
+          "1",
+          "--threads",
+          "2",
+          "--register",
+          "1",
+          "--auto-detect",
+          "--timeout",
+          "7200",
+          "--launch-mode",
+          "normal",
+          "--mpi-options={mpi_options}",
+          "--process-group",
+          "normal"
+        ],
+        "build_profile": "standard",
+        "cards_per_node": 8,
+        "checks": [
+          "exit_code"
+        ],
+        "devices_per_thread": 1,
+        "env": {
+          "NCCL_DEBUG": "INFO"
+        },
+        "group": "register",
+        "legacy_source": "run_register_test.sh:16",
+        "nodes": 1,
+        "parameters": {
+          "algo": "Auto",
+          "auto_detect": true,
+          "data_sizes": [
+            "32MB"
+          ],
+          "dtype": "float",
+          "iters": 10,
+          "op": "all_gather_perf",
+          "proto": "Auto",
+          "ranks": 2,
+          "register": 1
+        },
+        "processes_per_node": 1,
+        "test_type": "functional",
+        "threads_per_process": 2,
+        "tier": "sanity",
+        "timeout": 7200
+      },
+      "selected": [
+        {
+          "build_profile": "standard",
+          "case_id": "1b8ad645dedd2f6cc0a39a2da2eae093cf2f7e4867903c4f8724ef2846b58d02",
+          "execution_id": "e0241d355039aa716c42dde171daf2fa2ce17c61cdbfa7bda18b3af7a1242042"
+        }
+      ]
+    },
+    {
+      "legacy_case_key": "register-b9d49b093bbc7ec6e8e9",
+      "legacy_spec": {
+        "argv": [
+          "{python}",
+          "{test_root}/run_test.py",
+          "--op",
+          "sendrecv_perf",
+          "--algo",
+          "Ring",
+          "--proto",
+          "Simple",
+          "--data-type",
+          "int8",
+          "--data-size",
+          "32MB",
+          "--iters",
+          "10",
+          "--ranks",
+          "2",
+          "--nnodes",
+          "1",
+          "--nprocs",
+          "1",
+          "--threads",
+          "2",
+          "--register",
+          "1",
+          "--auto-detect",
+          "--timeout",
+          "7200",
+          "--launch-mode",
+          "normal",
+          "--mpi-options={mpi_options}",
+          "--process-group",
+          "normal"
+        ],
+        "build_profile": "standard",
+        "cards_per_node": 8,
+        "checks": [
+          "exit_code"
+        ],
+        "devices_per_thread": 1,
+        "env": {
+          "NCCL_DEBUG": "INFO"
+        },
+        "group": "register",
+        "legacy_source": "run_register_test.sh:26",
+        "nodes": 1,
+        "parameters": {
+          "algo": "Ring",
+          "auto_detect": true,
+          "data_sizes": [
+            "32MB"
+          ],
+          "dtype": "int8",
+          "iters": 10,
+          "op": "sendrecv_perf",
+          "proto": "Simple",
+          "ranks": 2,
+          "register": 1
+        },
+        "processes_per_node": 1,
+        "test_type": "functional",
+        "threads_per_process": 2,
+        "tier": "sanity",
+        "timeout": 7200
+      },
+      "selected": [
+        {
+          "build_profile": "standard",
+          "case_id": "d3dd77ab3e6702ca887382cbdfc5d4f41fca4f1fb1d228cc1205e842436ecbdb",
+          "execution_id": "4c223a92a997edc2e1e1b672d0a7e537e04cf6717f7bc1e56ebd6d5c31743de2"
+        }
+      ]
+    },
+    {
+      "legacy_case_key": "register-cc6388c7e3ba5b691f5d",
+      "legacy_spec": {
+        "argv": [
+          "{python}",
+          "{test_root}/run_test.py",
+          "--op",
+          "alltoall_perf",
+          "--algo",
+          "Auto",
+          "--proto",
+          "Auto",
+          "--data-type",
+          "float",
+          "--data-size",
+          "32MB",
+          "--iters",
+          "10",
+          "--ranks",
+          "2",
+          "--nnodes",
+          "1",
+          "--nprocs",
+          "2",
+          "--threads",
+          "1",
+          "--register",
+          "1",
+          "--auto-detect",
+          "--timeout",
+          "7200",
+          "--launch-mode",
+          "normal",
+          "--mpi-options={mpi_options}",
+          "--process-group",
+          "normal"
+        ],
+        "build_profile": "standard",
+        "cards_per_node": 8,
+        "checks": [
+          "exit_code"
+        ],
+        "devices_per_thread": 1,
+        "env": {
+          "NCCL_DEBUG": "INFO"
+        },
+        "group": "register",
+        "legacy_source": "run_register_test.sh:15",
+        "nodes": 1,
+        "parameters": {
+          "algo": "Auto",
+          "auto_detect": true,
+          "data_sizes": [
+            "32MB"
+          ],
+          "dtype": "float",
+          "iters": 10,
+          "op": "alltoall_perf",
+          "proto": "Auto",
+          "ranks": 2,
+          "register": 1
+        },
+        "processes_per_node": 2,
+        "test_type": "functional",
+        "threads_per_process": 1,
+        "tier": "sanity",
+        "timeout": 7200
+      },
+      "selected": [
+        {
+          "build_profile": "standard",
+          "case_id": "2db93f48602d163a751256c930b5a7d5e1c2c0f1b0b05181b1c420ab4c73f9fa",
+          "execution_id": "24824ba2ba9667a86602975d4595b08fb2ecb843a13462e9bad5c263de78e3de"
+        }
+      ]
+    },
+    {
+      "legacy_case_key": "register-cf210eaa6d3ff4e1cca2",
+      "legacy_spec": {
+        "argv": [
+          "{python}",
+          "{test_root}/run_test.py",
+          "--op",
+          "scatter_perf",
+          "--algo",
+          "Ring",
+          "--proto",
+          "Simple",
+          "--data-type",
+          "int8",
+          "--data-size",
+          "32MB",
+          "--iters",
+          "10",
+          "--ranks",
+          "2",
+          "--nnodes",
+          "1",
+          "--nprocs",
+          "1",
+          "--threads",
+          "2",
+          "--register",
+          "1",
+          "--auto-detect",
+          "--timeout",
+          "7200",
+          "--launch-mode",
+          "normal",
+          "--mpi-options={mpi_options}",
+          "--process-group",
+          "normal"
+        ],
+        "build_profile": "standard",
+        "cards_per_node": 8,
+        "checks": [
+          "exit_code"
+        ],
+        "devices_per_thread": 1,
+        "env": {
+          "NCCL_DEBUG": "INFO"
+        },
+        "group": "register",
+        "legacy_source": "run_register_test.sh:24",
+        "nodes": 1,
+        "parameters": {
+          "algo": "Ring",
+          "auto_detect": true,
+          "data_sizes": [
+            "32MB"
+          ],
+          "dtype": "int8",
+          "iters": 10,
+          "op": "scatter_perf",
+          "proto": "Simple",
+          "ranks": 2,
+          "register": 1
+        },
+        "processes_per_node": 1,
+        "test_type": "functional",
+        "threads_per_process": 2,
+        "tier": "sanity",
+        "timeout": 7200
+      },
+      "selected": [
+        {
+          "build_profile": "standard",
+          "case_id": "b65b96719977a025ae86ae0a8376bdd2fcc8439d3d6d5fa6f4932d177ec136b7",
+          "execution_id": "bbd462432584b9723c772239bdaeed4d9755908ef43bcce737466fd176d4d282"
+        }
+      ]
+    },
+    {
+      "legacy_case_key": "register-d7bc3b7b649acb6443c3",
+      "legacy_spec": {
+        "argv": [
+          "mpirun",
+          "--allow-run-as-root",
+          "-np",
+          "2",
+          "{mpi_options}",
+          "{binary_dir}/gather_perf",
+          "-b",
+          "32",
+          "-e",
+          "1G",
+          "-f",
+          "2",
+          "-R",
+          "1",
+          "-d",
+          "half"
+        ],
+        "build_profile": "standard",
+        "cards_per_node": 8,
+        "checks": [
+          "exit_code"
+        ],
+        "devices_per_thread": 1,
+        "env": {
+          "NCCL_DEBUG": "INFO"
+        },
+        "group": "register",
+        "legacy_source": "run_register_test.sh:12",
+        "nodes": 1,
+        "parameters": {
+          "dtype": "half",
+          "max_data_size": "1G",
+          "min_data_size": "32",
+          "op": "gather_perf",
+          "ranks": 2,
+          "register": 1,
+          "step_factor": 2
+        },
+        "processes_per_node": 2,
+        "test_type": "functional",
+        "threads_per_process": 1,
+        "tier": "sanity",
+        "timeout": 7200
+      },
+      "selected": [
+        {
+          "build_profile": "standard",
+          "case_id": "3862edcf4fd432199bc132dbece6ec9e1565db2685a64a69cd4e1f27d4d24120",
+          "execution_id": "9d7b3277d06c598930aef02f40148c3aab62a22ff309b4d8a4564f4fe618a34b"
+        }
+      ]
+    },
+    {
+      "legacy_case_key": "register-e06c194ea39e6a2e7b25",
+      "legacy_spec": {
+        "argv": [
+          "{python}",
+          "{test_root}/run_test.py",
+          "--op",
+          "scatter_perf",
+          "--algo",
+          "Ring",
+          "--proto",
+          "Simple",
+          "--data-type",
+          "int8",
+          "--data-size",
+          "32MB",
+          "--iters",
+          "10",
+          "--ranks",
+          "2",
+          "--nnodes",
+          "1",
+          "--nprocs",
+          "2",
+          "--threads",
+          "1",
+          "--register",
+          "1",
+          "--auto-detect",
+          "--timeout",
+          "7200",
+          "--launch-mode",
+          "normal",
+          "--mpi-options={mpi_options}",
+          "--process-group",
+          "normal"
+        ],
+        "build_profile": "standard",
+        "cards_per_node": 8,
+        "checks": [
+          "exit_code"
+        ],
+        "devices_per_thread": 1,
+        "env": {
+          "NCCL_DEBUG": "INFO"
+        },
+        "group": "register",
+        "legacy_source": "run_register_test.sh:25",
+        "nodes": 1,
+        "parameters": {
+          "algo": "Ring",
+          "auto_detect": true,
+          "data_sizes": [
+            "32MB"
+          ],
+          "dtype": "int8",
+          "iters": 10,
+          "op": "scatter_perf",
+          "proto": "Simple",
+          "ranks": 2,
+          "register": 1
+        },
+        "processes_per_node": 2,
+        "test_type": "functional",
+        "threads_per_process": 1,
+        "tier": "sanity",
+        "timeout": 7200
+      },
+      "selected": [
+        {
+          "build_profile": "standard",
+          "case_id": "92002f1919b638b341a2fee499b755630b15c8851f29278bcedb61415830e2ab",
+          "execution_id": "9d20532257227479863af5ced4db85cc5ad6714f2c2f7c35b016258949f3e0e5"
+        }
+      ]
+    },
+    {
+      "legacy_case_key": "register-e79c41b1241fe882455a",
+      "legacy_spec": {
+        "argv": [
+          "{python}",
+          "{test_root}/run_test.py",
+          "--op",
+          "hypercube_perf",
+          "--algo",
+          "Ring",
+          "--proto",
+          "Simple",
+          "--data-type",
+          "int8",
+          "--data-size",
+          "32MB",
+          "--iters",
+          "10",
+          "--ranks",
+          "2",
+          "--nnodes",
+          "1",
+          "--nprocs",
+          "1",
+          "--threads",
+          "2",
+          "--register",
+          "1",
+          "--auto-detect",
+          "--timeout",
+          "7200",
+          "--launch-mode",
+          "normal",
+          "--mpi-options={mpi_options}",
+          "--process-group",
+          "normal"
+        ],
+        "build_profile": "standard",
+        "cards_per_node": 8,
+        "checks": [
+          "exit_code"
+        ],
+        "devices_per_thread": 1,
+        "env": {
+          "NCCL_DEBUG": "INFO"
+        },
+        "group": "register",
+        "legacy_source": "run_register_test.sh:20",
+        "nodes": 1,
+        "parameters": {
+          "algo": "Ring",
+          "auto_detect": true,
+          "data_sizes": [
+            "32MB"
+          ],
+          "dtype": "int8",
+          "iters": 10,
+          "op": "hypercube_perf",
+          "proto": "Simple",
+          "ranks": 2,
+          "register": 1
+        },
+        "processes_per_node": 1,
+        "test_type": "functional",
+        "threads_per_process": 2,
+        "tier": "sanity",
+        "timeout": 7200
+      },
+      "selected": [
+        {
+          "build_profile": "standard",
+          "case_id": "efa35eb020bb0e616bf5dfa02b256efebb0286df466e8f9096c839b349c0ba48",
+          "execution_id": "1b0dd45e79d81e6b94ca276eee2dcf013d2c841823e9fda965e18fbbfe19b398"
+        }
+      ]
+    },
+    {
+      "legacy_case_key": "register-e7c1f5f0c82d506411ff",
+      "legacy_spec": {
+        "argv": [
+          "{python}",
+          "{test_root}/run_test.py",
+          "--op",
+          "alltoall_perf",
+          "--algo",
+          "Auto",
+          "--proto",
+          "Auto",
+          "--data-type",
+          "float",
+          "--data-size",
+          "32MB",
+          "--iters",
+          "10",
+          "--ranks",
+          "2",
+          "--nnodes",
+          "1",
+          "--nprocs",
+          "1",
+          "--threads",
+          "2",
+          "--register",
+          "1",
+          "--auto-detect",
+          "--timeout",
+          "7200",
+          "--launch-mode",
+          "normal",
+          "--mpi-options={mpi_options}",
+          "--process-group",
+          "normal"
+        ],
+        "build_profile": "standard",
+        "cards_per_node": 8,
+        "checks": [
+          "exit_code"
+        ],
+        "devices_per_thread": 1,
+        "env": {
+          "NCCL_DEBUG": "INFO"
+        },
+        "group": "register",
+        "legacy_source": "run_register_test.sh:14",
+        "nodes": 1,
+        "parameters": {
+          "algo": "Auto",
+          "auto_detect": true,
+          "data_sizes": [
+            "32MB"
+          ],
+          "dtype": "float",
+          "iters": 10,
+          "op": "alltoall_perf",
+          "proto": "Auto",
+          "ranks": 2,
+          "register": 1
+        },
+        "processes_per_node": 1,
+        "test_type": "functional",
+        "threads_per_process": 2,
+        "tier": "sanity",
+        "timeout": 7200
+      },
+      "selected": [
+        {
+          "build_profile": "standard",
+          "case_id": "c91f5390c82212652d2c1082e6c12698383c814c502cf47a4a6cf62756d47fe6",
+          "execution_id": "ad75b6774a23c0ed64eb77e4e2272f3b953513153dd004be255f81b8b6837846"
+        }
+      ]
+    },
+    {
+      "legacy_case_key": "register-fc0cd04a7104c2e2b35e",
+      "legacy_spec": {
+        "argv": [
+          "{python}",
+          "{test_root}/run_test.py",
+          "--op",
+          "gather_perf",
+          "--algo",
+          "Ring",
+          "--proto",
+          "Simple",
+          "--data-type",
+          "int8",
+          "--data-size",
+          "32MB",
+          "--iters",
+          "10",
+          "--ranks",
+          "2",
+          "--nnodes",
+          "1",
+          "--nprocs",
+          "1",
+          "--threads",
+          "2",
+          "--register",
+          "1",
+          "--auto-detect",
+          "--timeout",
+          "7200",
+          "--launch-mode",
+          "normal",
+          "--mpi-options={mpi_options}",
+          "--process-group",
+          "normal"
+        ],
+        "build_profile": "standard",
+        "cards_per_node": 8,
+        "checks": [
+          "exit_code"
+        ],
+        "devices_per_thread": 1,
+        "env": {
+          "NCCL_DEBUG": "INFO"
+        },
+        "group": "register",
+        "legacy_source": "run_register_test.sh:22",
+        "nodes": 1,
+        "parameters": {
+          "algo": "Ring",
+          "auto_detect": true,
+          "data_sizes": [
+            "32MB"
+          ],
+          "dtype": "int8",
+          "iters": 10,
+          "op": "gather_perf",
+          "proto": "Simple",
+          "ranks": 2,
+          "register": 1
+        },
+        "processes_per_node": 1,
+        "test_type": "functional",
+        "threads_per_process": 2,
+        "tier": "sanity",
+        "timeout": 7200
+      },
+      "selected": [
+        {
+          "build_profile": "standard",
+          "case_id": "e9154533cf4ab1f579d5022f34f412c5a3721ae2d10b2ccd15b9897dc96499ac",
+          "execution_id": "d0ca8af75a359c32967a4f6d20e3e258ca5f2e4158371849379e371ae372d6f4"
+        }
+      ]
+    }
+  ],
+  "inputs": {
+    "legacy_catalog_sha256": "0099b6661c757fdb2e8a0419333912a2400a5c46d5edd0fe47c6f3af587853be",
+    "mapper_sha256": "f168acebd65323c39015df2196b4cb79b76ed675c5335fe17d255ff233e926f1",
+    "source": {
+      "content_sha256": "87c56106bf9b84c33f874548853c16430bb395f4380aea213d25b5364848da88",
+      "declared_framework_version": "0.12.0",
+      "exporter_runtime_version": "0.14.0",
+      "exporter_sha256": "36d5c7cd61b7aa9c15abd014bfa0f061f0f2a329420852bf0a705129a0c8c2d0",
+      "repository": "pccl_test_suites",
+      "revision": "455c1d2896fbcb88598b17e76ca5a137b5d5ab39",
+      "selection_sha256": "28884305663417b80b596adf123f4fd801dcd73f0e57a0dcaf0e36eb88519ee1"
+    },
+    "source_bundle_sha256": "649697dd1cc11d8148d47ffc586928744d6b01492af63e7b245123d876f66cb8"
+  },
+  "schema_version": 1,
+  "summary": {
+    "ambiguous": 0,
+    "expected": 96,
+    "matched": 96,
+    "missing": 0,
+    "selected_executions": 108
+  }
+}

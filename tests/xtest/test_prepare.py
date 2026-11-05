@@ -53,10 +53,15 @@ runpy.run_path(str(source), run_name='__main__')
             self.assertEqual(result.returncode, 0, result.stdout + result.stderr)
             self.assertEqual([path.name for path in (root / 'bundle').iterdir()], ['manifest.json'])
             manifest = json.loads((root / 'bundle/manifest.json').read_text())
-            self.assertEqual((manifest['schema_version'], manifest['case_count'], len(manifest['shards'])), (2, 18, 2))
+            self.assertEqual((manifest['schema_version'], manifest['case_count']), (2, 108))
+            expected = build_manifest(cases() + performance_cases(), manifest['inputs'])
+            self.assertEqual(manifest, expected)
+            self.assertEqual(manifest['inputs']['test_types'], ['functional', 'performance'])
             self.assertNotIn('xtest_version', manifest['inputs'])
             self.assertNotIn('case_path', json.dumps(manifest))
-            self.assertEqual(len(json.loads(result.stdout)['include']), 2)
+            self.assertEqual(json.loads(result.stdout)['include'], [
+                {key: shard[key] for key in ('shard_id', 'nodes', 'build_profile', 'test_type')}
+                for shard in expected['shards']])
 
     def test_execution_and_gate_without_framework_imports(self):
         from test_manifest import fixture_spec
@@ -70,7 +75,7 @@ runpy.run_path(str(source), run_name='__main__')
             write_bundle(manifest, root / 'command')
             specs = [spec for spec in cases() + performance_cases() if spec['nodes'] == 1]
             inputs = dict(test_suite='pr', single_node=True, debug_only=False,
-                          test_types=['functional'], node_counts=[2, 8, 16], shards_per_pool=1,
+                          test_types=['functional', 'performance'], node_counts=[2, 8, 16], shards_per_pool=1,
                           timings_sha256=digest({}), **source_inputs())
             write_bundle(build_manifest(specs, inputs), root / 'sanity')
             code = '''
@@ -96,7 +101,7 @@ from single_node_ci import selection, summarize
 manifest = load_manifest(root / 'command/manifest.json')
 assert run_shard(root / 'command/manifest.json', manifest['shards'][0]['shard_id'],
                  root, root, root / 'executed', []) == 0
-assert selection(root / 'sanity/manifest.json')['case_count'] == 18
+assert selection(root / 'sanity/manifest.json')['case_count'] == 108
 assert summarize(root / 'sanity/manifest.json', root / 'missing-results', root / 'summary') == 1
 assert not ({'xtest', 'mmengine', 'filelock'} & sys.modules.keys())
 '''
@@ -112,7 +117,7 @@ assert not ({'xtest', 'mmengine', 'filelock'} & sys.modules.keys())
     def test_workflow_separates_offline_preparation_from_hardware_execution(self):
         workflow = (ROOT / '.github/workflows/xtest-single-node-validation.yml').read_text()
         self.assertEqual(re.findall(r'^  ([a-z_]+):$', workflow, re.M),
-                         ['push', 'workflow_dispatch', 'prepare', 'sanity', 'summary'])
+                         ['pull_request', 'push', 'workflow_dispatch', 'prepare', 'sanity', 'summary'])
         prepare = workflow.split('\n  sanity:', 1)[0]
         self.assertIn('runs-on: ubuntu-24.04', prepare)
         self.assertIn('venv --without-pip', prepare)
@@ -125,8 +130,11 @@ assert not ({'xtest', 'mmengine', 'filelock'} & sys.modules.keys())
                       'test_migration_contract.py'):
             self.assertIn(suite, prepare)
         self.assertIn('ppu-scheduler-action@aac83e464f2a3fcbddddc60c8016021c996092a6', workflow)
-        self.assertIn('profile: standard', workflow)
-        self.assertIn('profile: notsm', workflow)
+        self.assertIn('fromJSON(needs.prepare.outputs.matrix)', workflow)
+        self.assertIn('single_node_ci.py matrix', prepare)
+        for field in ('image', 'nnodes', 'nproc_per_node', 'node_selector'):
+            self.assertIn(f'{field}: ${{{{ matrix.{field} }}}}', workflow)
+        self.assertIn("--shard '${{ matrix.shard_id }}'", workflow)
         self.assertIn('single_node_ci.py" run', workflow)
         self.assertIn('single_node_ci.py summary', workflow)
         self.assertNotIn('-m xtest', workflow)

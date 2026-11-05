@@ -14,17 +14,18 @@ import shutil
 import subprocess
 import sys
 
+from catalog import validate_bundle
 from command import check_command
-from execute import execution_provenance, read_jsonl, run_shard, write_json
+from execute import execution_provenance, read_jsonl, run_shard, verified_runtime, verify_lifecycle, write_json
 from manifest import (PCCL_TESTS_REVISION, RUNNER_HASHES, build_manifest, case_key, digest,
                       load_manifest, validate_spec, write_bundle)
 
 
 CATALOG = Path(__file__).with_name('cluster-source-case.json')
 ACTION_REF = 't-head/ci-infra/cluster-run@feat/master-launch-mode'
-EXPECTED_SOURCE_REVISION = '3f43d59c424693e08c21d027b89858f75241cddc'
-EXPECTED_EXPORTER_SHA256 = '78a4ef77a3d2aeb852d3cec68040f11242d570a293936b150f65b3dad8b7c807'
-EXPECTED_BUNDLE_SHA256 = 'ca0902b970ccf1861a567e9ee22933275f35e113db7933a6481e73bcfb6d30ea'
+EXPECTED_SOURCE_REVISION = '455c1d2896fbcb88598b17e76ca5a137b5d5ab39'
+EXPECTED_EXPORTER_SHA256 = '61bde8c2acc937c2ef39cc9cee091c8ab63da18a8b17d44f39b6c524436569a4'
+EXPECTED_BUNDLE_SHA256 = 'e1ac2a0d0fc3065efc51d3d2a5db30de1d1eefd50df1fc617196af2191608a7b'
 HEX40 = re.compile(r'[0-9a-f]{40}\Z')
 HEX64 = re.compile(r'[0-9a-f]{64}\Z')
 SAFE_NAME = re.compile(r'[A-Za-z0-9_.-]+\Z')
@@ -33,9 +34,8 @@ PRIVATE_MARKERS = (
   'UploadResult', 'work_root', 'setup_script', 'test/cases/', 'test/plans/', 'test/suites/',
 )
 MPI_OPTIONS = [
+  '-mca', 'plm_rsh_agent', 'cluster-ssh',
   '-mca', 'orte_base_help_aggregate', '0',
-  '-mca', 'btl_tcp_if_include', 'bond1',
-  '-x', 'NCCL_NET_GDR_LEVEL=4',
   '--hostfile', 'hosts.cfg',
 ]
 
@@ -67,7 +67,11 @@ def diagnostics(results):
     line = re.sub(r'(?i)\b(token|password|secret)=\S+', r'\1=<redacted>', line)
     lines.append(line[:1000])
   print('Cluster diagnostic (sanitized tail):')
-  print('\n'.join(lines[-120:]) if lines else '<empty command log>')
+  selected = lines[-120:] if lines else ['<empty command log>']
+  print('\n'.join(selected))
+  for line in selected[-40:]:
+    annotation = line.replace('%', '%25').replace('\r', '%0D').replace('\n', '%0A')
+    print(f'::notice title=Cluster diagnostic::{annotation}')
 
 
 def read_json(path):
@@ -91,55 +95,22 @@ def _hex(value, pattern):
 
 
 def load_case(path=None):
-  path = Path(path or CATALOG).resolve()
-  raw = path.read_text(encoding='utf-8')
-  if any(marker in raw for marker in PRIVATE_MARKERS):
-    raise ValueError('Cluster source export contains a forbidden private marker')
-  bundle = read_json(path)
-  if (not isinstance(bundle, dict)
-      or set(bundle) != {'schema_version', 'source', 'case', 'coverage', 'bundle_sha256'}
-      or bundle['schema_version'] != 1
-      or bundle['bundle_sha256'] != digest({key: value for key, value in bundle.items()
-                                           if key != 'bundle_sha256'})
-      or bundle['bundle_sha256'] != EXPECTED_BUNDLE_SHA256):
-    raise ValueError('Unsupported or corrupted cluster source export')
+  bundle = validate_bundle(read_json(Path(path or CATALOG)), 'two-node-source-register-cluster-trial')
   source = bundle['source']
-  if (not isinstance(source, dict)
-      or set(source) != {'repository', 'revision', 'declared_framework_version',
-                         'exporter_runtime_version', 'exporter_sha256', 'selection_sha256'}
-      or source['repository'] != 'pccl_test_suites'
+  if (bundle['bundle_sha256'] != EXPECTED_BUNDLE_SHA256
       or source['revision'] != EXPECTED_SOURCE_REVISION
-      or source['declared_framework_version'] != '0.12.0'
-      or source['exporter_runtime_version'] not in ('0.12.0', '0.14.0')
-      or source['exporter_sha256'] != EXPECTED_EXPORTER_SHA256
-      or not _hex(source['selection_sha256'], HEX64)):
+      or source['exporter_sha256'] != EXPECTED_EXPORTER_SHA256):
     raise ValueError('Cluster source identity is not the reviewed export')
-  row = bundle['case']
-  if (not isinstance(row, dict) or set(row) != {'source_id', 'source', 'spec'}
-      or not _hex(row['source_id'], HEX64)):
-    raise ValueError('Invalid cluster source Case record')
-  identity = row['source']
-  if (not isinstance(identity, dict)
-      or set(identity) != {'plan', 'suite', 'case', 'plan_sha256', 'suite_sha256', 'case_sha256'}
-      or any(not isinstance(identity[name], str) or not SAFE_NAME.fullmatch(identity[name])
-             for name in ('plan', 'suite', 'case'))
-      or any(not _hex(identity[name], HEX64)
-             for name in ('plan_sha256', 'suite_sha256', 'case_sha256'))):
-    raise ValueError('Invalid cluster source Plan/Suite/Case identity')
-  spec = row['spec']
+  if len(bundle['executions']) != 1 or bundle['executions'][0]['profiles'] != ['standard']:
+    raise ValueError('Cluster trial requires exactly one standard execution')
+  spec = {**copy.deepcopy(bundle['executions'][0]['spec']), 'build_profile': 'standard'}
   validate_spec(spec)
-  if (spec['build_profile'] != 'standard' or spec['tier'] != 'sanity'
-      or spec['test_type'] != 'functional' or spec['nodes'] != 2 or spec['cards_per_node'] != 8
-      or spec['processes_per_node'] != 8 or spec['threads_per_process'] != 1
-      or spec['devices_per_thread'] != 1 or spec['parameters'].get('ranks') != 16
-      or spec['parameters'].get('transport') != 'gdr' or spec['checks'] != ['exit_code']
-      or spec['legacy_source'] != f"pccl_test_suites:{row['source_id'][:24]}"
+  if (spec['nodes'] != 2 or spec['cards_per_node'] != 8 or spec['processes_per_node'] != 8
+      or spec['threads_per_process'] != 1 or spec['devices_per_thread'] != 1
+      or spec['parameters'].get('ranks') != 16 or spec['parameters'].get('transport') != 'gdr'
       or '--mpi-options={mpi_options}' not in spec['argv']):
     raise ValueError('Cluster source Case differs from the reviewed execution contract')
-  if bundle['coverage'] != {'scope': 'two-node-source-register-cluster-trial',
-                            'source_case_count': 1, 'execution_count': 1}:
-    raise ValueError('Cluster source coverage summary is inconsistent')
-  return copy.deepcopy(spec), copy.deepcopy(source)
+  return spec, copy.deepcopy(source)
 
 
 def _runner_identity(root):
@@ -233,8 +204,14 @@ def summarize(manifest_path, results, output):
         or index['cancelled'] is not False or index['artifact_error'] != ''
         or index['selection_sha256'] != manifest['selection_sha256']
         or digest(load_manifest(directory / 'manifest.json')) != digest(manifest)
-        or execution != execution_provenance()):
+        or set(execution) != {'executor_sha256', 'executor_python_version'}
+        or execution['executor_sha256'] != execution_provenance()['executor_sha256']
+        or not re.fullmatch(r'3\.[0-9]+\.[0-9]+', execution['executor_python_version'])):
       raise ValueError('Cluster shard evidence is incomplete or inconsistent')
+    shard_runtime = verified_runtime(directory, index)
+    if index.get('lifecycle_error') != '':
+      raise ValueError('Cluster Suite lifecycle did not complete cleanly')
+    verify_lifecycle(directory, shard, shard_runtime)
     key, row = next(iter(expected.items()))
     result = actual[key]
     case_dir = directory / key / 'attempt-1'
@@ -245,11 +222,16 @@ def summarize(manifest_path, results, output):
         or result['command_log'] != log_ref or result['legacy_source'] != row['spec']['legacy_source']
         or digest(read_json(case_dir / 'result.json')) != digest(result)):
       raise ValueError('Cluster Case result is incomplete or inconsistent')
-    runtime = dict(result_dir=str(case_dir), inputs={**manifest['inputs'], **execution},
+    context = {name: row['spec']['execution'][name]
+               for name in ('plan_id', 'suite_id', 'case_id', 'suite_run_id')}
+    if result.get('source_context') != context:
+      raise ValueError('Cluster result lost its source context')
+    runtime = dict(shard_runtime, result_dir=str(case_dir), inputs={**manifest['inputs'], **execution},
+                   execution_result_dir=str(Path(shard_runtime['result_dir']) / key / 'attempt-1'),
                    case_key=key, command_log_ref=log_ref)
     check_command(row['spec'], runtime, read_json(case_dir / 'command-process.json'))
     passed = 1
-  except (OSError, ValueError, KeyError, TypeError, AttributeError) as exception:
+  except (OSError, ValueError, KeyError, TypeError, AttributeError, OverflowError) as exception:
     error = type(exception).__name__
   if passed != 1:
     diagnostics(directory)

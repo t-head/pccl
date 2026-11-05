@@ -18,3 +18,11 @@ For source revision `bbbeb207dd7f28980b55336660da0b47866e47aa`, the map records:
 The source-side mapper records configuration load errors for diagnosis but
 does not treat invalid configurations as source matches. The production
 exporter remains fail-closed and will not publish a partial catalog.
+
+`sanity-coverage.json` records the subsequent native-source backfill. It binds
+all 96 historical entries to unique execution/profile pairs in the current
+export, comparing commands, environments, layouts, checks, and sample indices.
+The selection contains 71 source Case definitions and 108 executions (105
+functional and 3 performance), including 12 retained source/profile extras.
+Both coverage files are audit evidence, not execution inputs. This offline
+reconciliation does not establish hardware results or topology equivalence.

@@ -1,6 +1,9 @@
 name: source-derived single-node sanity
 
 on:
+  pull_request:
+    branches: [main, 'release/**']
+    types: [opened, synchronize, reopened, ready_for_review]
   push:
     branches: [ci/xtest-single-node-validation]
   workflow_dispatch:
@@ -9,7 +12,7 @@ permissions:
   contents: read
 
 concurrency:
-  group: source-sanity-single-node-${{ github.ref }}
+  group: source-sanity-single-node-${{ github.event.pull_request.number || github.ref }}
   cancel-in-progress: false
 
 jobs:
@@ -17,6 +20,8 @@ jobs:
     name: Standard-library contracts and single-node manifest (no hardware)
     runs-on: ubuntu-24.04
     timeout-minutes: 20
+    outputs:
+      matrix: ${{ steps.batches.outputs.matrix }}
     steps:
       - uses: actions/checkout@v4
         with:
@@ -58,19 +63,26 @@ jobs:
           name: single-node-sanity-manifest
           path: ${{ runner.temp }}/sanity/manifest.json
           if-no-files-found: error
-      - name: Record preparation-only scope
+      - name: Derive resource batches from the validated Suite contexts
+        id: batches
         run: |
+          matrix=$("$RUNNER_TEMP/prepare-env/bin/python" -S -B tests/xtest/single_node_ci.py matrix \
+            --manifest "$RUNNER_TEMP/sanity/manifest.json")
+          printf 'matrix=%s\n' "$matrix" >> "$GITHUB_OUTPUT"
           printf '%s\n' \
             '## Source-derived manifest' \
-            'Validated 9 labeled pccl_test_suites Cases and expanded the standard/no-TSM build matrix to 18 executions.' \
+            'Suite resources and container bindings determine each execution batch.' \
             'Preparation used no pip, xtest, mmengine, network access, PPU allocation, or benchmark execution.' \
-            'Source revision: bbbeb207dd7f28980b55336660da0b47866e47aa.' \
             >> "$GITHUB_STEP_SUMMARY"
 
   sanity:
-    name: Source sanity (${{ matrix.profile }})
+    name: Source sanity (${{ matrix.shard_id }})
     needs: prepare
-    if: github.repository == 't-head/pccl' && github.ref == 'refs/heads/ci/xtest-single-node-validation'
+    if: >-
+      github.repository == 't-head/pccl' &&
+      ((github.event_name == 'pull_request' &&
+        github.event.pull_request.head.repo.full_name == github.repository) ||
+       github.ref == 'refs/heads/ci/xtest-single-node-validation')
     runs-on: k8s-runner-group-cpu-thead
     container:
       image: ghcr.io/actions/actions-runner:latest
@@ -78,12 +90,7 @@ jobs:
     strategy:
       fail-fast: false
       max-parallel: 1
-      matrix:
-        include:
-          - profile: standard
-            build_script: build.sh
-          - profile: notsm
-            build_script: notsm_build.sh
+      matrix: ${{ fromJSON(needs.prepare.outputs.matrix) }}
     steps:
       - uses: actions/checkout@v4
         with:
@@ -104,10 +111,10 @@ jobs:
       - name: Build and execute source-derived single-node cases
         uses: t-head/ppu-scheduler-action@aac83e464f2a3fcbddddc60c8016021c996092a6
         with:
-          image: download.t-head.cn/docker_release/ppu:sdk2.2.0-hggcrt3-ubuntu24.04-py312-20261005
-          nnodes: 0
-          nproc_per_node: 8
-          node_selector: board-type=ZW-M890P
+          image: ${{ matrix.image }}
+          nnodes: ${{ matrix.nnodes }}
+          nproc_per_node: ${{ matrix.nproc_per_node }}
+          node_selector: ${{ matrix.node_selector }}
           namespace: ppu-sched
           timeout_minutes: 300
           cleanup_policy: always
@@ -129,18 +136,18 @@ jobs:
             /workspace/pccl-source-env/bin/python -m pip check
 
             bash pccl/.github/workflows/scripts/${{ matrix.build_script }} \
-              2>&1 | tee "$RESULT_ROOT/build-${{ matrix.profile }}.log"
+              2>&1 | tee "$RESULT_ROOT/build-${{ matrix.shard_id }}.log"
             source /usr/local/PPU_SDK/envsetup.sh
             export LD_LIBRARY_PATH="$build_output/lib:${LD_LIBRARY_PATH:-}"
             /workspace/pccl-source-env/bin/python "$build_output/pccl/tests/xtest/single_node_ci.py" run \
               --manifest /workspace/source/sanity-manifest/manifest.json \
-              --profile '${{ matrix.profile }}' --test-root "$build_output" \
+              --profile '${{ matrix.profile }}' --shard '${{ matrix.shard_id }}' --test-root "$build_output" \
               --output "$RESULT_ROOT/${{ matrix.profile }}"
 
   summary:
     name: Source sanity result gate
     needs: [prepare, sanity]
-    if: always() && needs.prepare.result == 'success'
+    if: always() && needs.prepare.result == 'success' && needs.sanity.result != 'skipped'
     runs-on: k8s-runner-group-cpu-thead
     container:
       image: ghcr.io/actions/actions-runner:latest
