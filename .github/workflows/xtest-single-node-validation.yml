@@ -236,7 +236,12 @@ jobs:
               -r pccl/tests/xtest/requirements.txt
             /workspace/pccl-source-env/bin/python -m pip check
             source /usr/local/PPU_SDK/envsetup.sh
+            # PCCL_PATH is exported by the internal build-system publish step and is read by
+            # neither pccl nor pccl-tests at the pinned revisions. Drop it so the inherited
+            # environment of a measured Case is exactly what the manifest declares.
+            unset PCCL_PATH
             export LD_LIBRARY_PATH="$build_output/lib:${LD_LIBRARY_PATH:-}"
+            env | grep -E '^(PCCL|NCCL|HGGC|OMPI|UCX|UMD)_' | sort > "$RESULT_ROOT/env-${{ matrix.profile }}.txt" || true
             for shard in ${{ matrix.shards }}; do
               echo "### Source sanity $shard"
               /workspace/pccl-source-env/bin/python "$build_output/pccl/tests/xtest/single_node_ci.py" run \

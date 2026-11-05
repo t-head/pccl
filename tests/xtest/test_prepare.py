@@ -156,6 +156,8 @@ assert not ({'xtest', 'mmengine', 'filelock'} & sys.modules.keys())
         self.assertIn('sha256sum', build_notsm)
         self.assertIn('tar -xzf', sanity)
         self.assertIn('sha256sum --check', sanity)
+        # Performance identity must not inherit the internal build-system publish path.
+        self.assertIn('unset PCCL_PATH', sanity)
         self.assertNotIn('build.sh', sanity)
         self.assertNotIn('notsm_build.sh', sanity)
         self.assertNotIn('-m xtest', workflow)
