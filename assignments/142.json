@@ -1,8 +1,8 @@
 {
   "classification": {
     "base_sha": "a04b88e02c3a5b955ba0847eca2bc3d19cbf4829",
-    "head_sha": "4b4f04a037ddd5cafb13b69f5df0d5d688fe774e",
-    "input_fingerprint": "c86b9b65bb664860652af68360c6c04dc163f7434e3d477b22e39164524b730a",
+    "head_sha": "6e8f6a541ffa6e3fdf7ff4a13d751b0ca7fa7f4b",
+    "input_fingerprint": "b5db62bbfa977b662774f4f1d972189c60c16e31ce01c80533d17fdf7d4353d3",
     "pr_number": 142,
     "proposal": {
       "modules": [
@@ -10,7 +10,7 @@
         "memory",
         "network"
       ],
-      "reason": "Main change is in P2P IPC registration/connect teardown flow (src/transport/p2p.cc), adding multi-segment export/import, segment-aware mapping, and deregistration cleanup for peer transport resources. Include memory because allocation/register/free semantics were changed for multi-segment ranges and ownership-safe deregistration (alloc/register helpers and register callbacks). Include network because proxy/UDS FD-transfer protocol and proxy-connection handle lifecycle were extended (batch FD query, tracked proxy handles, and cleanup paths) in shared proxy code."
+      "reason": "Main change is in P2P transport IPC registration: it now registers/maps full multi-segment physical ranges (with MULTI_SEGMENT_REGISTER), tracks segment metadata, and updates proxy register/deregister flows for segment-aware imports. Add memory for substantive allocation/mapping ownership changes (segment-aware ncclHgMemFree/ncclHgMemFreeAddr and deregistration callback ordering to prevent stale reused-address mappings). Add network for independently substantive proxy/UDS FD-transfer lifecycle changes (batch FD query, per-connection imported-handle tracking, and cleanup on partial-transfer/error paths)."
     }
   },
   "reviewers": {
