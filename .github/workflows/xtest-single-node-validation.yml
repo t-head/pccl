@@ -22,6 +22,10 @@ jobs:
     timeout-minutes: 20
     outputs:
       matrix: ${{ steps.batches.outputs.matrix }}
+      profiles: ${{ steps.batches.outputs.profiles }}
+      image: ${{ steps.batches.outputs.image }}
+      node_selector: ${{ steps.batches.outputs.node_selector }}
+      cards_per_node: ${{ steps.batches.outputs.cards_per_node }}
     steps:
       - uses: actions/checkout@v4
         with:
@@ -66,32 +70,28 @@ jobs:
       - name: Derive resource batches from the validated Suite contexts
         id: batches
         run: |
-          matrix=$("$RUNNER_TEMP/prepare-env/bin/python" -S -B tests/xtest/single_node_ci.py matrix \
+          shard_matrix=$("$RUNNER_TEMP/prepare-env/bin/python" -S -B tests/xtest/single_node_ci.py matrix \
             --manifest "$RUNNER_TEMP/sanity/manifest.json")
-          printf 'matrix=%s\n' "$matrix" >> "$GITHUB_OUTPUT"
+          profile_matrix=$(printf '%s' "$shard_matrix" | "$RUNNER_TEMP/prepare-env/bin/python" -c 'import json,sys; entries=json.load(sys.stdin)["include"]; groups={}; [groups.setdefault(e["profile"], []).append(e["shard_id"]) for e in entries]; print(json.dumps({"include": [{"profile": p, "shards": " ".join(sorted(s)), "nproc_per_node": next(e["nproc_per_node"] for e in entries if e["profile"] == p)} for p, s in sorted(groups.items())]}))')
+          profiles=$(printf '%s' "$shard_matrix" | "$RUNNER_TEMP/prepare-env/bin/python" -c 'import json,sys; print(json.dumps(sorted({e["profile"] for e in json.load(sys.stdin)["include"]})))')
+          image=$(printf '%s' "$shard_matrix" | "$RUNNER_TEMP/prepare-env/bin/python" -c 'import json,sys; print(json.load(sys.stdin)["include"][0]["image"])')
+          node_selector=$(printf '%s' "$shard_matrix" | "$RUNNER_TEMP/prepare-env/bin/python" -c 'import json,sys; print(json.load(sys.stdin)["include"][0]["node_selector"])')
+          cards_per_node=$(printf '%s' "$shard_matrix" | "$RUNNER_TEMP/prepare-env/bin/python" -c 'import json,sys; print(json.load(sys.stdin)["include"][0]["nproc_per_node"])')
+          printf 'matrix=%s\nprofiles=%s\nimage=%s\nnode_selector=%s\ncards_per_node=%s\n' "$profile_matrix" "$profiles" "$image" "$node_selector" "$cards_per_node" >> "$GITHUB_OUTPUT"
           printf '%s\n' \
             '## Source-derived manifest' \
             'Suite resources and container bindings determine each execution batch.' \
             'Preparation used no pip, xtest, mmengine, network access, PPU allocation, or benchmark execution.' \
             >> "$GITHUB_STEP_SUMMARY"
 
-  sanity:
-    name: Source sanity (${{ matrix.shard_id }})
+  build-standard:
+    name: Build standard (ubuntu24_hggcrt13)
     needs: prepare
-    if: >-
-      github.repository == 't-head/pccl' &&
-      ((github.event_name == 'pull_request' &&
-        github.event.pull_request.head.repo.full_name == github.repository) ||
-       github.event_name == 'workflow_dispatch' ||
-       github.ref == 'refs/heads/ci/xtest-single-node-validation')
+    if: contains(fromJSON(needs.prepare.outputs.profiles), 'standard')
     runs-on: k8s-runner-group-cpu-thead
     container:
       image: ghcr.io/actions/actions-runner:latest
     timeout-minutes: 360
-    strategy:
-      fail-fast: false
-      max-parallel: 1
-      matrix: ${{ fromJSON(needs.prepare.outputs.matrix) }}
     steps:
       - uses: actions/checkout@v4
         with:
@@ -103,19 +103,115 @@ jobs:
           ref: 394556512e87259e9ffa25225632c46b0a0bbcd5
           path: pccl-tests
           persist-credentials: false
+      - name: Build and archive standard output
+        uses: t-head/ppu-scheduler-action@aac83e464f2a3fcbddddc60c8016021c996092a6
+        with:
+          image: ${{ needs.prepare.outputs.image }}
+          nnodes: 0
+          nproc_per_node: ${{ needs.prepare.outputs.cards_per_node }}
+          node_selector: ${{ needs.prepare.outputs.node_selector }}
+          namespace: ppu-sched
+          timeout_minutes: 300
+          cleanup_policy: on_success
+          command: |
+            set -euo pipefail
+            cd /workspace/source
+            export source_home=/workspace/source
+            export build_output=/workspace/source/output_standard
+            mkdir -p "$build_output"
+            unset PIP_INDEX_URL PIP_EXTRA_INDEX_URL 2>/dev/null || true
+            git config --global --unset-all url.https://ai-gerrit.eng.t-head.cn/Public/Github/.insteadOf 2>/dev/null || true
+            git config --global --add safe.directory /workspace/source
+            git config --global --add safe.directory '*'
+            bash pccl/.github/workflows/scripts/build.sh
+            NAS_BUILD_DIR=/mnt/wl_nas/devops/pccl-source-sanity/${{ github.run_id }}/${{ github.run_attempt }}/build
+            mkdir -p "$NAS_BUILD_DIR"
+            tar -czf "$NAS_BUILD_DIR/output_standard.tar.gz" -C /workspace/source output_standard
+            sha256sum "$NAS_BUILD_DIR/output_standard.tar.gz" > "$NAS_BUILD_DIR/output_standard.tar.gz.sha256"
+
+  build-notsm:
+    name: Build notsm
+    needs: prepare
+    if: contains(fromJSON(needs.prepare.outputs.profiles), 'notsm')
+    runs-on: k8s-runner-group-cpu-thead
+    container:
+      image: ghcr.io/actions/actions-runner:latest
+    timeout-minutes: 360
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          path: pccl
+          persist-credentials: false
+      - uses: actions/checkout@v4
+        with:
+          repository: t-head/pccl-tests
+          ref: 394556512e87259e9ffa25225632c46b0a0bbcd5
+          path: pccl-tests
+          persist-credentials: false
+      - name: Build and archive notsm output
+        uses: t-head/ppu-scheduler-action@aac83e464f2a3fcbddddc60c8016021c996092a6
+        with:
+          image: ${{ needs.prepare.outputs.image }}
+          nnodes: 0
+          nproc_per_node: ${{ needs.prepare.outputs.cards_per_node }}
+          node_selector: ${{ needs.prepare.outputs.node_selector }}
+          namespace: ppu-sched
+          timeout_minutes: 300
+          cleanup_policy: on_success
+          command: |
+            set -euo pipefail
+            cd /workspace/source
+            export source_home=/workspace/source
+            export build_output=/workspace/source/output_notsm
+            mkdir -p "$build_output"
+            unset PIP_INDEX_URL PIP_EXTRA_INDEX_URL 2>/dev/null || true
+            git config --global --unset-all url.https://ai-gerrit.eng.t-head.cn/Public/Github/.insteadOf 2>/dev/null || true
+            git config --global --add safe.directory /workspace/source
+            git config --global --add safe.directory '*'
+            bash pccl/.github/workflows/scripts/notsm_build.sh
+            NAS_BUILD_DIR=/mnt/wl_nas/devops/pccl-source-sanity/${{ github.run_id }}/${{ github.run_attempt }}/build
+            mkdir -p "$NAS_BUILD_DIR"
+            tar -czf "$NAS_BUILD_DIR/output_notsm.tar.gz" -C /workspace/source output_notsm
+            sha256sum "$NAS_BUILD_DIR/output_notsm.tar.gz" > "$NAS_BUILD_DIR/output_notsm.tar.gz.sha256"
+
+  sanity:
+    name: Source sanity (${{ matrix.profile }})
+    needs: [prepare, build-standard, build-notsm]
+    if: >-
+      !cancelled() && needs.prepare.result == 'success' &&
+      (needs.build-standard.result == 'success' || needs.build-standard.result == 'skipped') &&
+      (needs.build-notsm.result == 'success' || needs.build-notsm.result == 'skipped') &&
+      github.repository == 't-head/pccl' &&
+      ((github.event_name == 'pull_request' &&
+        github.event.pull_request.head.repo.full_name == github.repository) ||
+       github.event_name == 'workflow_dispatch' ||
+       github.ref == 'refs/heads/ci/xtest-single-node-validation')
+    runs-on: k8s-runner-group-cpu-thead
+    container:
+      image: ghcr.io/actions/actions-runner:latest
+    timeout-minutes: 360
+    strategy:
+      fail-fast: false
+      max-parallel: 2
+      matrix: ${{ fromJSON(needs.prepare.outputs.matrix) }}
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          path: pccl
+          persist-credentials: false
       - uses: actions/download-artifact@v4
         with:
           name: single-node-sanity-manifest
           path: sanity-manifest
       - name: Check staging storage without changing shared permissions
         run: test -d /wl_nas/devops && test -w /wl_nas/devops
-      - name: Build and execute source-derived single-node cases
+      - name: Restore the shared build and execute source-derived cases
         uses: t-head/ppu-scheduler-action@aac83e464f2a3fcbddddc60c8016021c996092a6
         with:
-          image: ${{ matrix.image }}
-          nnodes: ${{ matrix.nnodes }}
+          image: ${{ needs.prepare.outputs.image }}
+          nnodes: 0
           nproc_per_node: ${{ matrix.nproc_per_node }}
-          node_selector: ${{ matrix.node_selector }}
+          node_selector: ${{ needs.prepare.outputs.node_selector }}
           namespace: ppu-sched
           timeout_minutes: 300
           cleanup_policy: always
@@ -125,30 +221,34 @@ jobs:
             export source_home=/workspace/source
             export build_output=/workspace/source/output_${{ matrix.profile }}
             RESULT_ROOT=/mnt/wl_nas/devops/pccl-source-sanity/${{ github.run_id }}/${{ github.run_attempt }}
+            NAS_BUILD_DIR="$RESULT_ROOT/build"
             mkdir -p "$RESULT_ROOT"
             unset PIP_INDEX_URL PIP_EXTRA_INDEX_URL 2>/dev/null || true
             git config --global --unset-all url.https://ai-gerrit.eng.t-head.cn/Public/Github/.insteadOf 2>/dev/null || true
             git config --global --add safe.directory /workspace/source
             git config --global --add safe.directory '*'
 
+            sha256sum --check "$NAS_BUILD_DIR/output_${{ matrix.profile }}.tar.gz.sha256"
+            tar -xzf "$NAS_BUILD_DIR/output_${{ matrix.profile }}.tar.gz" -C /workspace/source
+
             python3 -m venv /workspace/pccl-source-env
             /workspace/pccl-source-env/bin/python -m pip install --disable-pip-version-check \
               -r pccl/tests/xtest/requirements.txt
             /workspace/pccl-source-env/bin/python -m pip check
-
-            bash pccl/.github/workflows/scripts/${{ matrix.build_script }} \
-              2>&1 | tee "$RESULT_ROOT/build-${{ matrix.shard_id }}.log"
             source /usr/local/PPU_SDK/envsetup.sh
             export LD_LIBRARY_PATH="$build_output/lib:${LD_LIBRARY_PATH:-}"
-            /workspace/pccl-source-env/bin/python "$build_output/pccl/tests/xtest/single_node_ci.py" run \
-              --manifest /workspace/source/sanity-manifest/manifest.json \
-              --profile '${{ matrix.profile }}' --shard '${{ matrix.shard_id }}' --test-root "$build_output" \
-              --output "$RESULT_ROOT/${{ matrix.profile }}"
+            for shard in ${{ matrix.shards }}; do
+              echo "### Source sanity $shard"
+              /workspace/pccl-source-env/bin/python "$build_output/pccl/tests/xtest/single_node_ci.py" run \
+                --manifest /workspace/source/sanity-manifest/manifest.json \
+                --profile '${{ matrix.profile }}' --shard "$shard" --test-root "$build_output" \
+                --output "$RESULT_ROOT/${{ matrix.profile }}"
+            done
 
   summary:
     name: Source sanity result gate
-    needs: [prepare, sanity]
-    if: always() && needs.prepare.result == 'success' && needs.sanity.result != 'skipped'
+    needs: [prepare, build-standard, build-notsm, sanity]
+    if: always() && needs.prepare.result == 'success'
     runs-on: k8s-runner-group-cpu-thead
     container:
       image: ghcr.io/actions/actions-runner:latest
@@ -173,6 +273,22 @@ jobs:
           name: single-node-source-sanity-results
           path: public-results/
           if-no-files-found: error
-      - name: Require the complete build and execution matrix
-        if: always() && needs.sanity.result != 'success'
-        run: exit 1
+      - name: Require every expected build and test shard
+        if: always()
+        env:
+          NEEDS: ${{ toJSON(needs) }}
+        run: |
+          python3 - <<'PY'
+          import json
+          import os
+          import sys
+
+          needs = json.loads(os.environ['NEEDS'])
+          failed = {name: value['result'] for name, value in needs.items()
+                    if value['result'] not in ('success', 'skipped')}
+          if needs['sanity']['result'] != 'success':
+              failed['sanity'] = needs['sanity']['result']
+          for name, result in failed.items():
+              print(f'::error::{name}: {result}')
+          sys.exit(bool(failed))
+          PY

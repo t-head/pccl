@@ -13,8 +13,8 @@ from manifest import digest, read_json, validate_spec
 
 
 CATALOG = Path(__file__).with_name('source-catalog.json')
-EXPECTED_SOURCE_REVISION = '455c1d2896fbcb88598b17e76ca5a137b5d5ab39'
-EXPECTED_BUNDLE_SHA256 = '649697dd1cc11d8148d47ffc586928744d6b01492af63e7b245123d876f66cb8'
+EXPECTED_SOURCE_REVISION = 'e27acd364858f845eace0abb72466935070feb0e'
+EXPECTED_BUNDLE_SHA256 = 'f86c21880f872c8ebd3e0ea2985e55f8e03d5b58838a2fed4cd61fb9544d2510'
 EXPECTED_EXPORTER_SHA256 = '36d5c7cd61b7aa9c15abd014bfa0f061f0f2a329420852bf0a705129a0c8c2d0'
 HEX40 = re.compile(r'[0-9a-f]{40}\Z')
 HEX64 = re.compile(r'[0-9a-f]{64}\Z')

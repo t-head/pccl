@@ -101,9 +101,8 @@ class ManifestTests(unittest.TestCase):
         self.assertTrue(all(len(shard['suite_runs']) == 1 for shard in result['shards']))
         validate_manifest(result)
 
-    def test_environment_container_topology_and_initialization_isolate_suites(self):
-        for path, value in ((('env', 'UMD_PLATFORM_TYPE'), '2'),
-                            (('execution', 'runtime', 'image'), 'public/image:2'),
+    def test_container_topology_and_initialization_isolate_suites(self):
+        for path, value in ((('execution', 'runtime', 'image'), 'public/image:2'),
                             (('execution', 'resource', 'topology'), 'other'),
                             (('execution', 'environment', 'setup_sha256'), digest('new-setup')),
                             (('execution', 'lifecycle', 'setup'), [['{python}', '-c', 'print(1)']])):
@@ -114,6 +113,11 @@ class ManifestTests(unittest.TestCase):
             target[path[-1]] = value
             with self.subTest(path=path):
                 self.assertEqual(len(build_manifest(specs, {})['shards']), 2)
+        # Case environment is applied per command, so it must not split a
+        # compatible shared-lifecycle Suite allocation.
+        specs = [source_spec(0, suite='a', reuse=True), source_spec(0, suite='b', reuse=True)]
+        specs[1]['env']['UMD_PLATFORM_TYPE'] = '2'
+        self.assertEqual(len(build_manifest(specs, {})['shards']), 1)
         specs = [source_spec(0), source_spec(1)]
         specs[1]['execution']['resource']['topology'] = 'other'
         with self.assertRaisesRegex(ValueError, 'Suite execution'):

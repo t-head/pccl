@@ -23,9 +23,9 @@ from manifest import (PCCL_TESTS_REVISION, RUNNER_HASHES, build_manifest, case_k
 
 CATALOG = Path(__file__).with_name('cluster-source-case.json')
 ACTION_REF = 't-head/ci-infra/cluster-run@main'
-EXPECTED_SOURCE_REVISION = '455c1d2896fbcb88598b17e76ca5a137b5d5ab39'
+EXPECTED_SOURCE_REVISION = 'e27acd364858f845eace0abb72466935070feb0e'
 EXPECTED_EXPORTER_SHA256 = '61bde8c2acc937c2ef39cc9cee091c8ab63da18a8b17d44f39b6c524436569a4'
-EXPECTED_BUNDLE_SHA256 = 'e1ac2a0d0fc3065efc51d3d2a5db30de1d1eefd50df1fc617196af2191608a7b'
+EXPECTED_BUNDLE_SHA256 = 'a8e482e8e436eac1cf29382d1e53df6989d06ad2e9b30326a3109216d12b81bc'
 HEX40 = re.compile(r'[0-9a-f]{40}\Z')
 HEX64 = re.compile(r'[0-9a-f]{64}\Z')
 SAFE_NAME = re.compile(r'[A-Za-z0-9_.-]+\Z')

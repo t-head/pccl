@@ -1,5 +1,5 @@
 {
-  "bundle_sha256": "e1ac2a0d0fc3065efc51d3d2a5db30de1d1eefd50df1fc617196af2191608a7b",
+  "bundle_sha256": "a8e482e8e436eac1cf29382d1e53df6989d06ad2e9b30326a3109216d12b81bc",
   "cases": [
     {
       "command": "python3 run_test.py --op all_reduce_perf --algo Auto --proto Auto --redop sum --ranks 16 --data-type float --data-size 32MB --iters 10 --threads 1 --nprocs 8 --nnodes 2 --auto-detect --register 1 --mpi-options='-mca btl_tcp_if_include bond1 -x NCCL_NET_GDR_LEVEL=4 --hostfile ./hosts.cfg' --cross-node gdr",
@@ -187,7 +187,7 @@
     "exporter_runtime_version": "0.14.0",
     "exporter_sha256": "61bde8c2acc937c2ef39cc9cee091c8ab63da18a8b17d44f39b6c524436569a4",
     "repository": "pccl_test_suites",
-    "revision": "455c1d2896fbcb88598b17e76ca5a137b5d5ab39",
+    "revision": "e27acd364858f845eace0abb72466935070feb0e",
     "selection_sha256": "f47d56dc07291e5a939e3a196742348013d9629d2fe7bed84601c9465734c5f1"
   },
   "suites": [

@@ -131,8 +131,9 @@ def validate_execution(spec):
 
 def suite_compatibility(spec):
     execution = spec['execution']
+    # Case environment is applied per command. Only the Suite lifecycle and
+    # allocation environment constrain whether executions can share a shard.
     identity = {name: execution[name] for name in ('resource', 'runtime', 'environment', 'lifecycle')}
-    identity['env'] = spec['env']
     if not execution['lifecycle']['reuse'] or spec['test_type'] == 'performance':
         identity['suite_run_id'] = execution['suite_run_id']
     return digest(identity)

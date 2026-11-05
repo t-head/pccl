@@ -116,9 +116,13 @@ assert not ({'xtest', 'mmengine', 'filelock'} & sys.modules.keys())
 
     def test_workflow_separates_offline_preparation_from_hardware_execution(self):
         workflow = (ROOT / '.github/workflows/xtest-single-node-validation.yml').read_text()
-        self.assertEqual(re.findall(r'^  ([a-z_]+):$', workflow, re.M),
-                         ['pull_request', 'push', 'workflow_dispatch', 'prepare', 'sanity', 'summary'])
-        prepare = workflow.split('\n  sanity:', 1)[0]
+        self.assertEqual(re.findall(r'^  ([a-z_-]+):$', workflow, re.M),
+                         ['pull_request', 'push', 'workflow_dispatch', 'prepare',
+                          'build-standard', 'build-notsm', 'sanity', 'summary'])
+        prepare = workflow.split('\n  build-standard:', 1)[0]
+        build_standard = workflow.split('\n  build-standard:', 1)[1].split('\n  build-notsm:', 1)[0]
+        build_notsm = workflow.split('\n  build-notsm:', 1)[1].split('\n  sanity:', 1)[0]
+        sanity = workflow.split('\n  sanity:', 1)[1].split('\n  summary:', 1)[0]
         self.assertIn('runs-on: ubuntu-24.04', prepare)
         self.assertIn('venv --without-pip', prepare)
         self.assertIn('unshare --net', prepare)
@@ -132,11 +136,28 @@ assert not ({'xtest', 'mmengine', 'filelock'} & sys.modules.keys())
         self.assertIn('ppu-scheduler-action@aac83e464f2a3fcbddddc60c8016021c996092a6', workflow)
         self.assertIn('fromJSON(needs.prepare.outputs.matrix)', workflow)
         self.assertIn('single_node_ci.py matrix', prepare)
-        for field in ('image', 'nnodes', 'nproc_per_node', 'node_selector'):
-            self.assertIn(f'{field}: ${{{{ matrix.{field} }}}}', workflow)
-        self.assertIn("--shard '${{ matrix.shard_id }}'", workflow)
+        self.assertIn('image: ${{ needs.prepare.outputs.image }}', workflow)
+        self.assertIn('node_selector: ${{ needs.prepare.outputs.node_selector }}', workflow)
+        self.assertIn('nnodes: 0', workflow)
+        self.assertIn('cards_per_node', workflow)
+        self.assertIn('nproc_per_node: ${{ needs.prepare.outputs.cards_per_node }}', workflow)
+        self.assertIn('nproc_per_node: ${{ matrix.nproc_per_node }}', workflow)
+        self.assertIn('matrix.profile', workflow)
+        self.assertIn('matrix.shards', workflow)
+        self.assertIn('--shard "$shard"', workflow)
+        self.assertIn('max-parallel: 2', sanity)
         self.assertIn('single_node_ci.py" run', workflow)
         self.assertIn('single_node_ci.py summary', workflow)
+        self.assertIn('build.sh', build_standard)
+        self.assertIn('notsm_build.sh', build_notsm)
+        self.assertIn('tar -czf', build_standard)
+        self.assertIn('tar -czf', build_notsm)
+        self.assertIn('sha256sum', build_standard)
+        self.assertIn('sha256sum', build_notsm)
+        self.assertIn('tar -xzf', sanity)
+        self.assertIn('sha256sum --check', sanity)
+        self.assertNotIn('build.sh', sanity)
+        self.assertNotIn('notsm_build.sh', sanity)
         self.assertNotIn('-m xtest', workflow)
         self.assertNotIn('art-pub.eng.t-head.cn', workflow)
 
