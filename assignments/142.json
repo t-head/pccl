@@ -1,19 +1,21 @@
 {
   "classification": {
     "base_sha": "a04b88e02c3a5b955ba0847eca2bc3d19cbf4829",
-    "head_sha": "bb42824a35e7a31f0de095eda67f0a5db2331372",
-    "input_fingerprint": "9656d029104cf9bef7a326bfb0298da48b4a66e342092e9d69c7f67a15fa0006",
+    "head_sha": "bc771d93c1a610e7ba99ce2059f343411bd0daa2",
+    "input_fingerprint": "8b3cbbd4ddda5383b47f1a11e9d36a3e58b7ac2c5301f0358a3039ec3da243fd",
     "pr_number": 142,
     "proposal": {
       "modules": [
         "transport",
-        "memory"
+        "memory",
+        "network"
       ],
-      "reason": "Primary change is in P2P transport IPC registration: multi-segment export/import, per-segment FD query/transfer, proxy-side segment mapping, and teardown/cleanup ownership in src/transport/p2p.cc plus related proxy hooks. Memory is also required because registration-cache and lifetime semantics changed (segment-count propagation through free helpers, mapped-range unmap/free behavior, and pcclCommDeregister callback-drain before local deregistration) in src/include/alloc.h and src/register/register.cc."
+      "reason": "Main change is in P2P IPC registration/import in transport to support multi-segment physical allocations (full-range mapping, segment-aware registration/deregistration, and MULTI_SEGMENT_REGISTER control). Network is also required because proxy RPC/FD exchange and proxy-side handle queue lifecycle were substantively extended for batch segment FD handling and teardown. Memory is required because allocation/free and deregistration ownership semantics were changed to unmap/free multiple segments safely and to poll callbacks before deregistration to avoid stale mapping reuse."
     }
   },
   "reviewers": {
     "memory": 340404662,
+    "network": 341355176,
     "transport": 340104201
   }
 }
