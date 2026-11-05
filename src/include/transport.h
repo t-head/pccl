@@ -32,6 +32,8 @@ extern struct ncclTransport profilerTransport;
 
 extern struct ncclTransport* ncclTransports[];
 
+int64_t ncclParamMultiSegmentRegister();
+
 // Forward declarations
 struct ncclRing;
 struct ncclConnector;

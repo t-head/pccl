@@ -1,7 +1,7 @@
 /*************************************************************************
  * SPDX-FileCopyrightText: Copyright (c) 2016-2026 NVIDIA CORPORATION & AFFILIATES. All rights reserved.
  * SPDX-FileCopyrightText: Modifications Copyright (c) 2020-2026 T-Head (Shanghai) Semiconductor Co., Ltd. All rights reserved.
- * SPDX-License-Identifier: BSD-3-Clause
+ * SPDX-License-Identifier: BSD-3-Clause AND Apache-2.0
  *
  * See LICENSE.txt for more license information
  *************************************************************************/
@@ -1388,6 +1388,23 @@ error:
 }
 
 
+ncclResult_t ncclProxyClientBatchQueryFdBlocking(ncclComm_t comm, struct ncclProxyConnector* proxyConn,
+                                                 ncclIpcFd* localFds, ncclIpcFd* rmtFds, int numSegments) {
+  ncclResult_t ret = ncclSuccess;
+  for (int segment = 0; segment < numSegments; segment++) {
+    NCCLCHECKGOTO(ncclProxyCallBlockingUDS(comm, proxyConn, ncclProxyMsgQueryFd, NULL, 0, (void*)&rmtFds[segment],
+                                           sizeof(ncclIpcFd), &localFds[segment], NULL),
+                  ret, fail);
+    // We have now received the converted fd for a segment over UDS
+    INFO(NCCL_PROXY, "UDS: ClientQueryFdBatch localFd %lld tpRank %d remote fd %lld sameProcess %d segment %d",
+         (long long)localFds[segment], proxyConn->tpRank, (long long)rmtFds[segment], proxyConn->sameProcess, segment);
+  }
+exit:
+  return ret;
+fail:
+  goto exit;
+}
+
 ncclResult_t ncclProxyClientQueryFdBlocking(ncclComm_t comm, struct ncclProxyConnector* proxyConn, int localFd, int* rmtFd) {
   ncclResult_t ret = ncclSuccess;
   NCCLCHECKGOTO(ncclProxyCallBlockingUDS(comm, proxyConn, ncclProxyMsgQueryFd, NULL, 0, (void*)rmtFd, sizeof(int), &localFd, NULL), ret, fail);
@@ -1592,6 +1609,7 @@ static ncclResult_t proxyConnInit(struct ncclProxyLocalPeer* peer, struct ncclPr
   (*connection)->send = req->send;
   (*connection)->tpLocalRank = req->tpLocalRank;
   (*connection)->sameProcess = req->sameProcess;
+  ncclIntruQueueConstruct(&(*connection)->proxyMemHandleQueue);
   peer->tpLocalRank = req->tpLocalRank;
   peer->tpRank = req->tpRank;
 

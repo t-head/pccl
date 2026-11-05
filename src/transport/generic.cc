@@ -1,13 +1,15 @@
 /*************************************************************************
  * SPDX-FileCopyrightText: Copyright (c) 2015-2026 NVIDIA CORPORATION & AFFILIATES. All rights reserved.
  * SPDX-FileCopyrightText: Modifications Copyright (c) 2025-2026 T-Head (Shanghai) Semiconductor Co., Ltd. All rights reserved.
- * SPDX-License-Identifier: BSD-3-Clause
+ * SPDX-License-Identifier: BSD-3-Clause AND Apache-2.0
  *
  * See LICENSE.txt for more license information
  *************************************************************************/
 
 #include "comm.h"
 #include "transport.h"
+
+NCCL_PARAM(MultiSegmentRegister, "MULTI_SEGMENT_REGISTER", 1);
 
 ncclResult_t ncclTransportRingConnect(ncclComm_t comm) {
   ncclResult_t ret = ncclSuccess;

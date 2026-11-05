@@ -224,3 +224,7 @@ ncclResult_t ncclIpcSocketSendMsg(ncclIpcSocket *handle, void *hdr, int hdrLen, 
 ncclResult_t ncclIpcSocketSendFd(ncclIpcSocket *handle, const int sendFd, int rank, uint64_t hash) {
   return ncclIpcSocketSendMsg(handle, NULL, 0, sendFd, rank, hash);
 }
+
+int ncclIpcFdClose(ncclIpcFd fd) {
+  return close(fd);
+}
