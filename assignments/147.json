@@ -1,15 +1,15 @@
 {
   "classification": {
     "base_sha": "a04b88e02c3a5b955ba0847eca2bc3d19cbf4829",
-    "head_sha": "f33c04fd35b9d2f23349fbd2ad83c48a57d5223f",
-    "input_fingerprint": "f991b1770526f932cb8df420ffb53d3127569d1231d443e50c21699fa097f874",
+    "head_sha": "a07ee0a06de18ec0169e7aa2647cfde300017c5c",
+    "input_fingerprint": "b7548dab7df2bd7faafcae4039c9d546fd02f8a6298e95794c9405f2ce4b353f",
     "pr_number": 147,
     "proposal": {
       "modules": [
         "build",
         "ci"
       ],
-      "reason": "Primary change is new PCCL distribution build/packaging behavior: the tar-build scripts now install SDK/toolchain dependencies, run build.sh, and assemble versioned tarball artifacts (build). An additional module is needed because a new non-test GitHub Actions pipeline introduces matrix execution, runner/container setup, scheduling/dispatch triggers, and artifact merge/publication orchestration (ci)."
+      "reason": "Main change adds reproducible PPU tarball packaging logic (SDK/toolchain setup, build.sh invocation, and tarball assembly) in the two tar build scripts, which is owned by build. It also introduces a new scheduled/manual GitHub Actions matrix workflow with runner/container orchestration and artifact merge/publish flow, requiring ci review for workflow execution behavior."
     }
   },
   "reviewers": {
