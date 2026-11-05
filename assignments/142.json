@@ -1,8 +1,8 @@
 {
   "classification": {
     "base_sha": "a04b88e02c3a5b955ba0847eca2bc3d19cbf4829",
-    "head_sha": "0fca16844fc51d7ab4116a7d68e1e7def5e3becc",
-    "input_fingerprint": "1df14d2a39d28f95993fab3135d2b5138f5c65bb9ca8b82fd57aee15fd151ada",
+    "head_sha": "b1bc9c8aaf7025aa115d38961fd5c2f3a8996470",
+    "input_fingerprint": "8fbf24c65aaf1c3b7057a058bfbc511ea926fa3ca8ca36e56475e28cfd4edc2f",
     "pr_number": 142,
     "proposal": {
       "modules": [
@@ -10,7 +10,7 @@
         "memory",
         "network"
       ],
-      "reason": "Main change is in P2P transport IPC registration/deregistration to support multi-segment physical allocations (segment-wise export/import/map, offset-safe reuse, and teardown) in src/transport/p2p.cc. Add memory because allocation/free and registration-lifecycle semantics were updated for multi-segment HG mappings and deregistration callback ordering (src/include/alloc.h, src/register/register.cc). Add network because proxy/IPC FD exchange and proxy-side handle tracking/cleanup behavior changed (src/proxy.cc, src/include/proxy.h, src/include/ipcsocket.h)."
+      "reason": "Main change is in P2P IPC transport registration: it now registers/maps full multi-segment physical allocations, batches FD conversion, tracks per-segment imports, and hardens deregistration/teardown paths. Add memory because allocation/free and registration-lifecycle semantics changed (segment-aware hgMem/hggc free helpers and deregister callback draining to prevent stale reused-address mappings). Add network because proxy-side FD/query and proxy connection handle-queue lifecycle were substantively extended in shared proxy infrastructure, not just caller wiring."
     }
   },
   "reviewers": {
