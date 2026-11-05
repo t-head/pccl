@@ -1,15 +1,15 @@
 {
   "classification": {
     "base_sha": "a04b88e02c3a5b955ba0847eca2bc3d19cbf4829",
-    "head_sha": "50308d05a3eb1d3a2d35c10e8d2c6bb3b89ca03f",
-    "input_fingerprint": "37603377f6ba8f4e8e7a76848f5338042c0ea3146f396c167e5d786ecb06bb89",
+    "head_sha": "80b995fdb68936d020c7c0b1b4128f1a34924b36",
+    "input_fingerprint": "abe51689d090c5607132b5161217e226cb4c9d79db231373732a47d7169088ce",
     "pr_number": 147,
     "proposal": {
       "modules": [
         "build",
         "ci"
       ],
-      "reason": "Main change adds a new GitHub Actions pipeline for scheduled/manual matrix tarball builds, artifact merge/publish, runner/container settings, and run summaries, which is CI workflow orchestration. It also makes independently substantive packaging changes in the two tar-build scripts (build invocation/versioning, staging build outputs, and tarball assembly), so build expertise is needed for artifact composition semantics."
+      "reason": "Adds a new scheduled/manual GitHub Actions pipeline that resolves a build matrix, runs containerized tarball builds, merges per-matrix artifacts, and reports run summaries (ci). It also substantively changes packaging behavior in the tar build scripts (version stamping, artifact contents/layout, tarball naming per runtime), which impacts build/package outputs (build)."
     }
   },
   "reviewers": {
