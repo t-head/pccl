@@ -1,15 +1,15 @@
 {
   "classification": {
     "base_sha": "a04b88e02c3a5b955ba0847eca2bc3d19cbf4829",
-    "head_sha": "878f731beb1e7a3d7b62b6882880ec9d596a319f",
-    "input_fingerprint": "46881fef2865b9c6ac43430a2f438575387d95acb796e2e6f8b7a87a7ba8c9aa",
+    "head_sha": "b655ee4dbeed3bbbff112fb7262dd5cf42e9a63b",
+    "input_fingerprint": "bac4873573e6fff93e45a09c58acc0c4e5d00a83ccdd9243b9030d48911f77ec",
     "pr_number": 147,
     "proposal": {
       "modules": [
         "build",
         "ci"
       ],
-      "reason": "Main change adds a new scheduled/manual GitHub Actions matrix workflow that runs CPU-only build jobs, merges artifacts, and reports outcomes, which is CI workflow orchestration. Also includes substantive tarball packaging implementation in the two tar build scripts (versioning, artifact contents/layout, and release packaging behavior), which requires build-system packaging review."
+      "reason": "Main change adds a new tarball packaging pipeline and implements the hggcrt12/13 tar build scripts (SDK setup, build invocation, packaging outputs), which is primarily build artifact generation/packaging. An additional CI module is needed because the new GitHub Actions workflow introduces independently substantive runner/matrix scheduling, artifact fan-out/merge, and workflow-trigger orchestration."
     }
   },
   "reviewers": {
