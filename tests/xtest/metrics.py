@@ -321,6 +321,9 @@ def write_metrics(rows, directory):
       fd, name = tempfile.mkstemp(prefix='.metrics-', suffix='.tmp', dir=str(directory))
       temporary = Path(name)
       staged.append(temporary)
+      # Published evidence must stay readable by the summary job, which runs as a
+      # different user than the executor container.
+      os.fchmod(fd, 0o644)
       with os.fdopen(fd, 'w', encoding='utf-8', newline='') as stream:
         if target.suffix == '.jsonl':
           for row in rows:

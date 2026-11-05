@@ -409,6 +409,8 @@ class WriterTests(unittest.TestCase):
       restored = {field: type(json_row[field])(value) for field, value in csv_row.items()}
       self.assertEqual(restored, json_row)
     self.assertEqual(sorted(path.name for path in self.directory.iterdir()), ['metrics.csv', 'metrics.jsonl'])
+    for name in ('metrics.csv', 'metrics.jsonl'):
+      self.assertEqual((self.directory / name).stat().st_mode & 0o777, 0o644, name)
 
   def test_existing_either_artifact_refuses_all_writes(self):
     for name in ('metrics.csv', 'metrics.jsonl'):

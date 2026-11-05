@@ -96,7 +96,9 @@ def summarize(manifest_path, results, output):
             inputs = {**manifest['inputs'], **execution}
             executions[shard['shard_id']] = execution
             valid_shard = True
-        except (OSError, ValueError, KeyError, TypeError, AttributeError):
+        except (OSError, ValueError, KeyError, TypeError, AttributeError) as exception:
+            print(f'Rejected shard {shard["shard_id"]}: {type(exception).__name__}: {exception}',
+                  flush=True)
             errors.append(shard['shard_id'])
         for key, row in expected.items():
             passed = False
@@ -129,8 +131,8 @@ def summarize(manifest_path, results, output):
                             raise ValueError('Missing valid performance result')
                         measurements.extend(verified_metrics(case_dir, row, inputs, log_ref))
                     passed = True
-                except (OSError, ValueError, KeyError, TypeError, AttributeError, OverflowError):
-                    pass
+                except (OSError, ValueError, KeyError, TypeError, AttributeError, OverflowError) as exception:
+                    print(f'Rejected case {key}: {type(exception).__name__}: {exception}', flush=True)
             context = row['spec'].get('execution', {})
             published.append(dict(case_key=key, build_profile=shard['build_profile'],
                                   test_type=row['spec']['test_type'], status='PASSED' if passed else 'FAILED',
