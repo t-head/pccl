@@ -6,9 +6,9 @@
   "gin": 341353320,
   "kernels": 341355176,
   "memory": 340404662,
-  "network": 341355176,
+  "network": 341353320,
   "symmetric": 333277982,
-  "transport": 340104201,
+  "transport": 341355176,
   "tuning": 341751581,
   "workflow": 333277982
 }

@@ -1,0 +1,19 @@
+{
+  "classification": {
+    "base_sha": "a04b88e02c3a5b955ba0847eca2bc3d19cbf4829",
+    "head_sha": "0dc18af2a28a221225e630bafd308cfdbbe94b3f",
+    "input_fingerprint": "e6401ba8a7d7a991a2a8fcfc0f16d8f24d2b0d4fe4d18b049cbe3fd2e460e915",
+    "pr_number": 144,
+    "proposal": {
+      "modules": [
+        "transport",
+        "network"
+      ],
+      "reason": "Main change is P2P transport memory-FD exchange behavior: add opt-in pidfd fallback for GetFd/QueryFd and registration flows in src/transport/p2p.cc. Also includes independently substantive proxy protocol/lifecycle changes in src/proxy.cc (new CloseFd message, async response queue ordering, connection FD ownership/cleanup, and service-failure shutdown behavior), which falls under network proxy progress/connection-resource ownership."
+    }
+  },
+  "reviewers": {
+    "network": 341353320,
+    "transport": 341355176
+  }
+}
