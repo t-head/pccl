@@ -1,0 +1,19 @@
+{
+  "classification": {
+    "base_sha": "a04b88e02c3a5b955ba0847eca2bc3d19cbf4829",
+    "head_sha": "bb42824a35e7a31f0de095eda67f0a5db2331372",
+    "input_fingerprint": "9656d029104cf9bef7a326bfb0298da48b4a66e342092e9d69c7f67a15fa0006",
+    "pr_number": 142,
+    "proposal": {
+      "modules": [
+        "transport",
+        "memory"
+      ],
+      "reason": "Primary change is in P2P transport IPC registration: multi-segment export/import, per-segment FD query/transfer, proxy-side segment mapping, and teardown/cleanup ownership in src/transport/p2p.cc plus related proxy hooks. Memory is also required because registration-cache and lifetime semantics changed (segment-count propagation through free helpers, mapped-range unmap/free behavior, and pcclCommDeregister callback-drain before local deregistration) in src/include/alloc.h and src/register/register.cc."
+    }
+  },
+  "reviewers": {
+    "memory": 340404662,
+    "transport": 340104201
+  }
+}
