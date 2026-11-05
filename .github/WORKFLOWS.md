@@ -12,8 +12,37 @@ PPU tests. `PCCL Tests Gate` reports the results of the required jobs.
 | File | Purpose |
 | --- | --- |
 | [pr-test-ppu.yml](workflows/pr-test-ppu.yml) | Run `PCCL CI` and publish `PCCL Tests Gate`. |
+| [source-sanity.yml](workflows/source-sanity.yml) | Derive single-node and two-node sanity from the reviewed `pccl_test_suites` export: two builds, then one single-node job per profile plus one two-node job that reuses the standard build. |
+| [source-cluster-debug.yml](workflows/source-cluster-debug.yml) | Manual troubleshooting tool for the two-node MPI case; it rebuilds from source instead of reusing a build. |
 | [workflows/scripts/](workflows/scripts/) | Build and test PCCL with the external test suite. |
 | [casecmd.list](workflows/scripts/casecmd.list) | Define the PPU test matrix. |
+
+`source-sanity.yml` runs on same-repository pull requests and on manual dispatch only. It
+never uses repository secrets, and it keeps the executable source of truth in
+`pccl_test_suites`: the checked-in catalog records the reviewed revision, the exporter
+hash, and the selection hash, so a change to the cases requires a new export.
+
+## Reading Cases and commands
+
+The source catalog keeps the normalized execution model: one source Case can have several
+execution profiles. Use the Case-first reader instead of joining `cases` and `executions`
+manually:
+
+```bash
+python3 tests/xtest/catalog.py describe [--case CASE_ID_OR_NAME] [--json]
+```
+
+The three command representations have deliberately different roles:
+
+| Representation | Meaning |
+| --- | --- |
+| `source_command` | Original source command, retained only for provenance and conversion checks. It is never an execution entry. |
+| `executions[].spec.argv` | Execution template consumed by the GitHub runner. Its `{python}`, `{test_root}`, `{binary_dir}`, `{result_dir}` and `{mpi_options}` placeholders require runtime expansion. |
+| `command-reproduction.txt` | The expanded, redacted command and relevant environment for one actual attempt. It is execution evidence, not a catalog input. |
+
+The result gate also writes `case-summary.json`. It groups all execution results by source
+Case and links each profile's `result.json` and, when present, `command-reproduction.txt`.
+The stable Case and execution IDs are not affected by the field-name cleanup.
 
 ## Commit message previews
 
