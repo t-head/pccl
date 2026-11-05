@@ -1,15 +1,15 @@
 {
   "classification": {
     "base_sha": "a04b88e02c3a5b955ba0847eca2bc3d19cbf4829",
-    "head_sha": "0efdc733e23a6a3cdbaffef371bff3e852d0e914",
-    "input_fingerprint": "e904bae87c55a2a12c0fbd19cd134a33b8defc79bcfb92e8ad9d0fc4724a25a3",
+    "head_sha": "af6d9d9a0a12b55939eeba5e687f329e9d356b1b",
+    "input_fingerprint": "abcd1d9bff55b847fcc6fd2d34d8d89be0114a1fc7fd97c46ce6556524a8dbae",
     "pr_number": 149,
     "proposal": {
       "modules": [
         "transport",
         "memory"
       ],
-      "reason": "Main functional change is memory-allocation initialization semantics: HGGC calloc/memset paths now honor NO_MEMSET and only synchronize when memset runs, addressing sync-memset hang behavior. Add transport because the P2P shareable-buffer allocation implementation in src/transport/p2p.cc is independently changed to apply the same zeroing policy."
+      "reason": "Primary change is in memory-allocation semantics: memset during HGGC/allocator calloc paths is now gated by the NO_MEMSET runtime flag (and default behavior is flipped) to avoid sync-memset hang behavior. Transport review is also needed because P2P shareable-buffer allocation now conditionally skips zero-initialization, which changes transport-owned connection buffer setup."
     }
   },
   "reviewers": {
