@@ -1,7 +1,7 @@
 /*************************************************************************
  * SPDX-FileCopyrightText: Copyright (c) 2016-2026 NVIDIA CORPORATION & AFFILIATES. All rights reserved.
  * SPDX-FileCopyrightText: Modifications Copyright (c) 2020-2026 T-Head (Shanghai) Semiconductor Co., Ltd. All rights reserved.
- * SPDX-License-Identifier: BSD-3-Clause
+ * SPDX-License-Identifier: BSD-3-Clause AND Apache-2.0
  *
  * See LICENSE.txt for more license information
  *************************************************************************/
@@ -332,6 +332,11 @@ enum proxyConnectState {
   numConnStates         = 5
 };
 
+struct proxyMemHandle {
+  void* handle;
+  struct proxyMemHandle* next;
+};
+
 struct ncclProxyConnection {
   int send, transport, shared;
   int tpLocalRank, sameProcess;
@@ -341,6 +346,7 @@ struct ncclProxyConnection {
   struct ncclProxyArgs **proxyAppendPtr;
   void* transportResources;
   proxyConnectState state;
+  struct ncclIntruQueue<struct proxyMemHandle, &proxyMemHandle::next> proxyMemHandleQueue;
 };
 
 typedef ncclResult_t (*threadFunc_t)(struct ncclProxyArgs*);
@@ -382,6 +388,9 @@ ncclResult_t ncclPollProxyResponse(ncclComm_t comm, struct ncclProxyConnector* p
 ncclResult_t ncclProxyCallBlocking(ncclComm_t comm, struct ncclProxyConnector* proxyConn, int type, void* reqBuff, int reqSize, void* respBuff, int respSize);
 
 ncclResult_t ncclProxyClientGetFdBlocking(ncclComm_t comm, int proxyRank, void *handle, int* convertedFd);
+
+ncclResult_t ncclProxyClientBatchQueryFdBlocking(ncclComm_t comm, struct ncclProxyConnector* proxyConn,
+    ncclIpcFd* localFds, ncclIpcFd* rmtFds, int numSegments);
 
 ncclResult_t ncclProxyClientQueryFdBlocking(ncclComm_t comm, struct ncclProxyConnector* proxyConn, int localFd, int* rmtFd);
 
