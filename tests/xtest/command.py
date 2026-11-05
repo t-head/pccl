@@ -16,7 +16,8 @@ import sys
 import tempfile
 import time
 
-from runner_capture import ENV_KEY, PRIVATE, SECRET, digest, env_name, read_json, safe_environment, safe_text
+from runner_capture import (CONTROL_ENV, ENV_KEY, PRIVATE, SECRET, digest, env_name, read_json,
+                                safe_environment, safe_text)
 
 SUMMARY = re.compile(r'^#\s*Out of bounds values\s*:\s*0\s+OK\b', re.M)
 GRACE = 0.5
@@ -34,9 +35,6 @@ DIRECT_VALUES = set('-b -e -f -R -d -g -t -x -o -n -w -c -k -a -N -D -V '
 DIRECT_EXPORT_RULE = 'source names plus present allowed names including PCCL/NCCL; no runner-added exports'
 INFRA_MCA = {'plm_rsh_agent', 'orte_base_help_aggregate', 'btl_tcp_if_include'}
 RUNNER_TIMEOUT_GRACE = 30
-CONTROL_ENV = frozenset({
-  'PCCL_REVISION', 'PCCL_TESTS_ROOT', 'PCCL_SOURCE_CATALOG', 'PCCL_MPI_OPTIONS_FILE',
-})
 
 
 def _runner_size(size):

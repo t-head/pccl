@@ -55,9 +55,16 @@ def env_name(name):
   return isinstance(name, str) and (name in ('PATH', 'LD_LIBRARY_PATH', 'DEBUG_FILE') or ENV_KEY.fullmatch(name))
 
 
+CONTROL_ENV = frozenset({
+  'PCCL_REVISION', 'PCCL_TESTS_ROOT', 'PCCL_SOURCE_CATALOG', 'PCCL_MPI_OPTIONS_FILE',
+})
+
+
 def safe_environment(env):
   result = {}
   for key, value in sorted(env.items()):
+    if key in CONTROL_ENV:
+      continue
     if env_name(key):
       if SECRET.search(key):
         raise ValueError('Sensitive test environment key')
