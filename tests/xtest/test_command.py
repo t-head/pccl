@@ -164,6 +164,14 @@ class CommandTests(unittest.TestCase):
     record = json.loads((directory / 'command-process.json').read_text())
     self.assertEqual((record['state'], record['return_code']), ('failed', 7))
 
+  def test_internal_pccl_control_variables_are_not_test_environment(self):
+    from unittest.mock import patch
+    with patch.dict(os.environ, {'PCCL_REVISION': 'a' * 40,
+                                 'PCCL_TESTS_ROOT': '/workspace/pccl-tests'}, clear=False):
+      _, env = command._prepare(self.spec, self.runtime)
+    self.assertNotIn('PCCL_REVISION', env)
+    self.assertNotIn('PCCL_TESTS_ROOT', env)
+
   def test_runner_timeout_adds_outer_grace_and_unbuffers_python(self):
     self.assertEqual(command.execution_timeout(
       {'timeout': 300}, ['python3', '/workspace/run_test.py', '--timeout', '300']), 330)

@@ -34,6 +34,9 @@ DIRECT_VALUES = set('-b -e -f -R -d -g -t -x -o -n -w -c -k -a -N -D -V '
 DIRECT_EXPORT_RULE = 'source names plus present allowed names including PCCL/NCCL; no runner-added exports'
 INFRA_MCA = {'plm_rsh_agent', 'orte_base_help_aggregate', 'btl_tcp_if_include'}
 RUNNER_TIMEOUT_GRACE = 30
+CONTROL_ENV = frozenset({
+  'PCCL_REVISION', 'PCCL_TESTS_ROOT', 'PCCL_SOURCE_CATALOG', 'PCCL_MPI_OPTIONS_FILE',
+})
 
 
 def _runner_size(size):
@@ -372,7 +375,8 @@ def _prepare(spec, runtime, *, inherited=None, validate_paths=True, python=None)
     modes += [x.split('=', 1)[1] for x in argv if x.startswith('--launch-mode=')]
     if groups != ['normal'] or any(mode != 'normal' for mode in modes):
       raise ValueError('run_test.py requires --process-group normal and normal launch mode')
-  env = dict(os.environ if inherited is None else inherited)
+  env = {key: value for key, value in (os.environ if inherited is None else inherited).items()
+         if key not in CONTROL_ENV}
   if not isinstance(spec['env'], dict):
     raise ValueError('env must be a dictionary')
   if spec.get('test_type') == 'performance':

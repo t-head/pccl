@@ -138,7 +138,7 @@ class ClusterCiTests(unittest.TestCase):
 
   def test_workflow_uses_requested_master_action_and_no_direct_ssh_bootstrap(self):
     workflow = (ROOT / '.github/workflows/xtest-cluster-run-validation.yml').read_text()
-    self.assertIn('uses: t-head/ci-infra/cluster-run@feat/master-launch-mode', workflow)
+    self.assertIn('uses: t-head/ci-infra/cluster-run@main', workflow)
     self.assertIn('launch_mode: master', workflow)
     self.assertIn('nnodes: 2', workflow)
     self.assertIn('nproc_per_node: 8', workflow)

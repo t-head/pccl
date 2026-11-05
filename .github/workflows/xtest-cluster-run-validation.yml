@@ -104,7 +104,7 @@ jobs:
       - name: Check staging storage without changing shared permissions
         run: test -d /wl_nas/devops && test -w /wl_nas/devops
       - name: Run the reviewed MPI Case from worker-0
-        uses: t-head/ci-infra/cluster-run@feat/master-launch-mode
+        uses: t-head/ci-infra/cluster-run@main
         with:
           launch_mode: master
           image: download.t-head.cn/docker_release/ppu:sdk2.2.0-hggcrt3-ubuntu24.04-py312-20261005
