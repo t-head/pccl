@@ -1,16 +1,15 @@
 {
   "classification": {
     "base_sha": "a04b88e02c3a5b955ba0847eca2bc3d19cbf4829",
-    "head_sha": "bc771d93c1a610e7ba99ce2059f343411bd0daa2",
-    "input_fingerprint": "8b3cbbd4ddda5383b47f1a11e9d36a3e58b7ac2c5301f0358a3039ec3da243fd",
+    "head_sha": "7c91b85dcc923f1b7229e098da32fb381c0adcb3",
+    "input_fingerprint": "14aef5728d530e1dc3826ef5c77d30f1043aef5bd6b3ce9bd77a3e198eb7a999",
     "pr_number": 142,
     "proposal": {
       "modules": [
         "transport",
-        "memory",
-        "network"
+        "memory"
       ],
-      "reason": "Main change is in P2P IPC registration/import in transport to support multi-segment physical allocations (full-range mapping, segment-aware registration/deregistration, and MULTI_SEGMENT_REGISTER control). Network is also required because proxy RPC/FD exchange and proxy-side handle queue lifecycle were substantively extended for batch segment FD handling and teardown. Memory is required because allocation/free and deregistration ownership semantics were changed to unmap/free multiple segments safely and to poll callbacks before deregistration to avoid stale mapping reuse."
+      "reason": "Primary change is in P2P IPC transport/proxy registration: multi-segment export/import, per-segment FD query/cleanup, mapped-size/offset handling, and proxy-side deregistration lifecycle in src/transport/p2p.cc and proxy interfaces. Added memory module because alloc/register semantics changed independently (segment-aware hgMem free/unmap helpers and callback-draining before pcclCommDeregister) to preserve registration ownership and safe teardown."
     }
   },
   "reviewers": {
