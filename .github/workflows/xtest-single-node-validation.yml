@@ -82,6 +82,7 @@ jobs:
       github.repository == 't-head/pccl' &&
       ((github.event_name == 'pull_request' &&
         github.event.pull_request.head.repo.full_name == github.repository) ||
+       github.event_name == 'workflow_dispatch' ||
        github.ref == 'refs/heads/ci/xtest-single-node-validation')
     runs-on: k8s-runner-group-cpu-thead
     container:
