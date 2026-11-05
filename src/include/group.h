@@ -102,10 +102,16 @@ inline void ncclGroupCommJoin(ncclComm_t comm, int type) {
     // this comm is allocated there.
     ncclMemoryStackPush(&comm->memScoped);
     if (type == ncclGroupTaskTypeCollective) {
-      // Initialize planner
+      // Initialize planner. peers and rmaTaskQueues are permanent allocations, so
+      // they survive the memset.
       ncclKernelPlanner::Peer* tmp = comm->planner.peers;
+      ncclIntruQueue<struct ncclTaskRma, &ncclTaskRma::next>* tmpRma = comm->planner.rmaTaskQueues;
       memset(&comm->planner, 0, sizeof(comm->planner));
       comm->planner.peers = tmp;
+      comm->planner.rmaTaskQueues = tmpRma;
+      if (tmpRma != NULL) {
+        for (int c = 0; c < comm->config.numRmaCtx; c++) ncclIntruQueueConstruct(&tmpRma[c]);
+      }
     }
   }
 

@@ -72,6 +72,8 @@ struct ncclDevrState {
   void* lsaFlatBase;         // base ptr for all lsa ranks' big VA's concatenated
   struct ncclShadowPool shadows;
   struct ncclDevCommWindowTable* windowTable;
+  // Internal GIN device context created for the host RMA proxy; owned by this state.
+  struct ncclDevComm* rmaGinDevComm;
 
   struct ncclIntruQueue<struct ncclDevrRegTask, &ncclDevrRegTask::next> regTaskQueue;
   struct ncclIntruQueue<struct ncclDevrCommCreateTask, &ncclDevrCommCreateTask::next> commCreateTaskQueue;
@@ -111,6 +113,14 @@ void freeDevCommRequirements(struct ncclDevCommRequirements* reqs);
 // Query if a window has multi-segment or sysmem segments
 bool ncclDevrWindowIsMultiSegment(struct ncclDevrWindow* win);
 bool ncclDevrWindowHasSysmemSegment(struct ncclDevrWindow* win);
+
+// Get the data-window MR handle registered on GIN connection `ginCommIdx`.
+// The handles are filled by ncclGinRegister() and consumed by the RMA proxy
+// launch layer.
+void* ncclDevrGetGinWin(struct ncclDevrWindow* winHost, int ginCommIdx);
+
+// Get the byte offset of a window within its backing memory allocation.
+size_t ncclDevrGetWinOffset(struct ncclDevrWindow* winHost);
 
 // Get pointer into another LSA rank's symmetric memory
 ncclResult_t ncclDevrGetLsaRankPtr(struct pcclComm* comm, struct ncclDevrWindow* winHost, size_t offset, int lsaRank, void** outPtr);
