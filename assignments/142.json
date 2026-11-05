@@ -1,15 +1,16 @@
 {
   "classification": {
     "base_sha": "a04b88e02c3a5b955ba0847eca2bc3d19cbf4829",
-    "head_sha": "7c91b85dcc923f1b7229e098da32fb381c0adcb3",
-    "input_fingerprint": "14aef5728d530e1dc3826ef5c77d30f1043aef5bd6b3ce9bd77a3e198eb7a999",
+    "head_sha": "0fca16844fc51d7ab4116a7d68e1e7def5e3becc",
+    "input_fingerprint": "1df14d2a39d28f95993fab3135d2b5138f5c65bb9ca8b82fd57aee15fd151ada",
     "pr_number": 142,
     "proposal": {
       "modules": [
         "transport",
-        "memory"
+        "memory",
+        "network"
       ],
-      "reason": "Primary change is in P2P IPC transport/proxy registration: multi-segment export/import, per-segment FD query/cleanup, mapped-size/offset handling, and proxy-side deregistration lifecycle in src/transport/p2p.cc and proxy interfaces. Added memory module because alloc/register semantics changed independently (segment-aware hgMem free/unmap helpers and callback-draining before pcclCommDeregister) to preserve registration ownership and safe teardown."
+      "reason": "Main change is in P2P transport IPC registration/deregistration to support multi-segment physical allocations (segment-wise export/import/map, offset-safe reuse, and teardown) in src/transport/p2p.cc. Add memory because allocation/free and registration-lifecycle semantics were updated for multi-segment HG mappings and deregistration callback ordering (src/include/alloc.h, src/register/register.cc). Add network because proxy/IPC FD exchange and proxy-side handle tracking/cleanup behavior changed (src/proxy.cc, src/include/proxy.h, src/include/ipcsocket.h)."
     }
   },
   "reviewers": {
