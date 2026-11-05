@@ -1,15 +1,15 @@
 {
   "classification": {
     "base_sha": "a04b88e02c3a5b955ba0847eca2bc3d19cbf4829",
-    "head_sha": "e0ffa231bfe7e6c54c544b39bc28cc9288acce37",
-    "input_fingerprint": "0451665632cd895b670098c7d2c77dc6021683f69d5b540a2b89ad4ccab13973",
+    "head_sha": "94369f577b670718631dabb840a69054c2124df3",
+    "input_fingerprint": "5ea33e12c96be9e6e5f26a23d1afae0898e93d662a965612c1874ae8762c772b",
     "pr_number": 147,
     "proposal": {
       "modules": [
         "build",
         "ci"
       ],
-      "reason": "Primary change is a new Actions workflow that schedules and orchestrates matrix tarball builds, artifact collection/merge, and result reporting, which is CI workflow behavior. It also includes substantive tar build script logic for dependency/SDK setup, build invocation, and tarball packaging/naming, which affects generated build artifacts and needs build-system review."
+      "reason": "Primary change is a new GitHub Actions artifact-build pipeline (schedule/dispatch triggers, matrix expansion, runner/container orchestration, artifact merge/summary), which is CI workflow execution rather than review-policy automation. Also includes substantive packaging logic in the tar build scripts (SDK/toolchain bootstrap, build invocation, version stamping, and tarball content/layout creation), so build-system packaging expertise is additionally required."
     }
   },
   "reviewers": {
