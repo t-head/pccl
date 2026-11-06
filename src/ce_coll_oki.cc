@@ -60,14 +60,14 @@ static ncclResult_t pcclCeLaunchBatchOpsWithOki(
   if (ppuDiesNum == 1) func = (void**) okiMemcpyBatchAsync<1>;
   else if (ppuDiesNum == 2) func = (void**) okiMemcpyBatchAsync<2>;
   else return ncclInternalError;
-  LAUNCH_KERNEL(func, grid, block, pargs, (ssize_t)0, stream, 0, launchConfig);
+  LAUNCH_KERNEL(func, grid, block, pargs, nullptr, (ssize_t)0, stream, 0, launchConfig);
 
   if (ppuDiesNum == 1) func = (void*)okiBatchSynchronize<1>;
   else if (ppuDiesNum == 2) func = (void*)okiBatchSynchronize<2>;
   else return ncclInternalError;
   void* pargs1[] = {&args, &qps, &comm->rank, &stepDev, &numQpGroups};
   // okiBatchSynchronize kernel will wait DMA done launched by okiMemcpyBatchAsync
-  LAUNCH_KERNEL(func, grid, block, pargs1, (ssize_t)0, stream, 0, launchConfig);
+  LAUNCH_KERNEL(func, grid, block, pargs1, nullptr, (ssize_t)0, stream, 0, launchConfig);
   return ncclSuccess;
 }
 
@@ -225,7 +225,7 @@ static ncclResult_t pcclCeOkiReduceLaunch(
   dim3 block = {pcclCeReduceMaxThreads, 1, 1};
   void* pargs[] = {&kargs};
 
-  LAUNCH_KERNEL(pcclCeOkiReduceFuncs[funcIndex], grid, block, pargs, (ssize_t)0, stream, 0, launchConfig);
+  LAUNCH_KERNEL(pcclCeOkiReduceFuncs[funcIndex], grid, block, pargs, nullptr, (ssize_t)0, stream, 0, launchConfig);
 
   return ncclSuccess;
 }

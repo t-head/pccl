@@ -441,7 +441,7 @@ static ncclResult_t p2pDmaLaunchOki(struct pcclComm* comm, struct pcclP2pDmaPlan
   dim3 block = {(uint32_t)pa->nThreads, 1, 1};
   void* roundFn = pa->nDies > 1 ? (void*)pcclP2pDmaOkiRound<2> : (void*)pcclP2pDmaOkiRound<1>;
   // The kernel publishes receive offsets before waiting on peers.
-  LAUNCH_KERNEL(roundFn, grid, block, pargs, (ssize_t)0, stream, 1, launchConfig);
+  LAUNCH_KERNEL(roundFn, grid, block, pargs, nullptr, (ssize_t)0, stream, 1, launchConfig);
   return ncclSuccess;
 }
 #endif
