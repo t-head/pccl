@@ -1657,14 +1657,17 @@ static ncclResult_t scheduleCollTasksToPlan(ncclComm_t comm, struct ncclKernelPl
     }
     if (!plan->usingExtKernel) {
       const bool rooted = info.coll == ncclFuncBroadcast || info.coll == ncclFuncReduce;
+      const bool allReduce = info.coll == ncclFuncAllReduce;
       const bool continuous = info.algorithm == NCCL_ALGO_RING &&
           ((info.coll == ncclFuncAllGather && (info.protocol == NCCL_PROTO_SIMPLE || info.protocol == NCCL_PROTO_LL ||
                                               info.protocol == NCCL_PROTO_LL128)) ||
-           ((info.coll == ncclFuncReduceScatter || rooted) && info.protocol == NCCL_PROTO_SIMPLE));
+           ((info.coll == ncclFuncReduceScatter || rooted || allReduce) && info.protocol == NCCL_PROTO_SIMPLE));
       if (continuous) {
         if (info.nChannels <= 0) return ncclInternalError;
         // Use whole-element cells representing at least 16 KiB of traffic across ranks.
-        const size_t trafficPerByte = (rooted ? 1u : size_t(comm->nRanks)) * (info.protocol == NCCL_PROTO_LL ? 4 : 1);
+        size_t trafficPerByte = rooted ? 1 : comm->nRanks;
+        if (allReduce) trafficPerByte = 2; // ReduceScatter followed by AllGather.
+        if (info.protocol == NCCL_PROTO_LL) trafficPerByte *= 4;
         size_t cellSize = ROUNDUP(DIVUP(16u << 10, trafficPerByte), 16);
         size_t cellCount = cellSize / ncclTypeSize(info.datatype);
         size_t cells = DIVUP(info.count, cellCount);
@@ -1701,7 +1704,9 @@ static ncclResult_t scheduleCollTasksToPlan(ncclComm_t comm, struct ncclKernelPl
           size_t eltSize = ncclTypeSize(info.datatype);
           size_t offset = devWork->partOffset(bid) * eltSize;
           size_t bytes = devWork->partOffset(bid + 1) * eltSize - offset;
-          proxyOp.nsteps = DIVUP(bytes, partPayloadBytes) * info.nstepsPerLoop * proxyOp.chunkSteps;
+          // AllReduce processes one chunk per rank in a channel loop.
+          size_t loopBytes = size_t(partPayloadBytes) * (allReduce ? comm->nRanks : 1);
+          proxyOp.nsteps = DIVUP(bytes, loopBytes) * info.nstepsPerLoop * proxyOp.chunkSteps;
           VERBOSE(NCCL_COLL, "Ring %s %s: start %u channels %d/%d channel %d offset %zu bytes %zu payload %d steps %d",
                   ncclFuncToString(info.coll), ncclProtoStr[info.protocol], (unsigned)devWork->startChannelId,
                   nChannels, comm->nChannels, channelId, offset, bytes, partPayloadBytes, proxyOp.nsteps);

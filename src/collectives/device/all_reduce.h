@@ -50,8 +50,10 @@ namespace {
       chunkSize = stepSize * ALLREDUCE_CHUNKSTEPS;
     }
 
-    const ssize_t loopSize = nChannels*chunkSize;
-    const ssize_t size = work->count;
+    const bool continuous = Proto::Id == NCCL_PROTO_SIMPLE && inputRing == nullptr;
+    ssize_t begin = 0, end = work->count;
+    if (continuous) work->channelBounds(getShmemPtr(comm)->channelId, &begin, &end);
+    const ssize_t loopSize = nranks * (continuous ? chunkSize : nChannels * chunkSize);
 
     // Compute pointers
     const T * __restrict__ thisInput = (const T*)work->sendbuff;
@@ -60,26 +62,38 @@ namespace {
     Primitives<T, FUNC, Proto, 1, 1, 1, 0>
       prims(tid, nthreads, &ring->prev, &ring->next, thisOutput, comm, work->redOpArg, getShmemPtr(comm)->groups, 0, 0, 0, work);
 
-    for (ssize_t gridOffset = 0; gridOffset < size; gridOffset += nranks*loopSize) {
-      ssize_t realChunkSize;
+    for (ssize_t gridOffset = begin; gridOffset < end; gridOffset += loopSize) {
+      const ssize_t remaining = end - gridOffset;
+      ssize_t chunkCount, chunkBase, chunkStride;
+      if (continuous) {
+        chunkCount = chunkSize;
+        if (remaining < loopSize) {
+          chunkCount = DIVUP(remaining, nranks);
+          ALIGN_SIZE(chunkCount, 16 / sizeof(T));
+          chunkCount = min(chunkCount, chunkSize);
+        }
+        chunkBase = gridOffset;
+        chunkStride = chunkCount;
+      } else if (Proto::Id == NCCL_PROTO_LL || Proto::Id == NCCL_PROTO_LL128) {
+        chunkCount = min(DIVUP(remaining, nChannels*nranks*minChunkSize)*minChunkSize, chunkSize);
+        chunkBase = gridOffset + bid * chunkCount;
+        chunkStride = nChannels * chunkCount;
+      } else {
+        chunkCount = min(chunkSize, DIVUP(remaining, nranks*nChannels));
+        ALIGN_SIZE(chunkCount, nthreads*sizeof(uint64_t)/sizeof(T));
+        chunkBase = gridOffset + bid * nranks * chunkCount;
+        chunkStride = chunkCount;
+      }
+
       ssize_t offset;
       int nelem;
-      int chunk;
-      ssize_t chunkOffset;
-      if (Proto::Id == NCCL_PROTO_LL || Proto::Id == NCCL_PROTO_LL128) {
-        chunkSize = min(DIVUP(size-gridOffset, nChannels*nranks*minChunkSize)*minChunkSize, chunkSize);
-        chunk = ring->devUserRanks[nranks-1];
-        offset = gridOffset + (chunk*nChannels+bid) * chunkSize;
-        nelem = min(chunkSize, size-offset);
-      } else {
-        realChunkSize = min(chunkSize, DIVUP(size-gridOffset,nranks*nChannels));
-        ALIGN_SIZE(realChunkSize, nthreads*sizeof(uint64_t)/sizeof(T));
-        chunkOffset = gridOffset + bid*nranks*realChunkSize;
-        // step 0: push data to next GPU
-        chunk = ring->devUserRanks[nranks-1];
-        offset = chunkOffset + chunk * realChunkSize;
-        nelem = min(realChunkSize, size-offset);
-      }
+      auto selectChunk = [&](int ringIndex) {
+        offset = chunkBase + ring->devUserRanks[ringIndex] * chunkStride;
+        // Empty rank chunks still participate in both ring phases.
+        if (continuous) offset = min(offset, end);
+        nelem = min(chunkCount, end - offset);
+      };
+      selectChunk(nranks-1);
       /////////////// begin AllReduce steps ///////////////
 
 #ifdef KERNEL_LOOPBACK
@@ -93,54 +107,26 @@ namespace {
 
       // k-2 steps: reduce and copy to next GPU
       for (int j=2; j<nranks; ++j) {
-        chunk = ring->devUserRanks[nranks-j];
-        if (Proto::Id == NCCL_PROTO_LL || Proto::Id == NCCL_PROTO_LL128) {
-          offset = gridOffset + (chunk*nChannels+bid) * chunkSize;
-          nelem = min(chunkSize, size-offset);
-        } else {
-          offset = chunkOffset + chunk * realChunkSize;
-          nelem = min(realChunkSize, size-offset);
-        }
+        selectChunk(nranks-j);
 
         prims.recvReduceSend(thisInput+offset, nelem);
       }
 
       // step k-1: reduce this buffer and data, which will produce the final
       // result that we store in this data and push to the next GPU
-      chunk = ring->devUserRanks[0];
-      if (Proto::Id == NCCL_PROTO_LL || Proto::Id == NCCL_PROTO_LL128) {
-        offset = gridOffset + (chunk*nChannels+bid) * chunkSize;
-        nelem = min(chunkSize, size-offset);
-      } else {
-        offset = chunkOffset + chunk * realChunkSize;
-        nelem = min(realChunkSize, size-offset);
-      }
+      selectChunk(0);
 
       prims.directRecvReduceCopySend(thisInput+offset, thisOutput+offset, offset, nelem, /*postOp=*/true);
 
       // k-2 steps: copy to next GPU
       for (int j=1; j<nranks-1; ++j) {
-        chunk = ring->devUserRanks[nranks-j];
-        if (Proto::Id == NCCL_PROTO_LL || Proto::Id == NCCL_PROTO_LL128) {
-          offset = gridOffset + (chunk*nChannels+bid) * chunkSize;
-          nelem = min(chunkSize, size-offset);
-        } else {
-          offset = chunkOffset + chunk * realChunkSize;
-          nelem = min(realChunkSize, size-offset);
-        }
+        selectChunk(nranks-j);
 
         prims.directRecvCopySend(thisOutput+offset, offset, nelem);
       }
 
       // Make final copy from buffer to dest.
-      chunk = ring->devUserRanks[1];
-      if (Proto::Id == NCCL_PROTO_LL || Proto::Id == NCCL_PROTO_LL128) {
-        offset = gridOffset + (chunk*nChannels+bid) * chunkSize;
-        nelem = min(chunkSize, size-offset);
-      } else {
-        offset = chunkOffset + chunk * realChunkSize;
-        nelem = min(realChunkSize, size-offset);
-      }
+      selectChunk(1);
 
       // Final wait/copy.
       prims.directRecv(thisOutput+offset, offset, nelem);
