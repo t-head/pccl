@@ -144,6 +144,54 @@ NIC backends can use the existing GIN plugin callbacks; their
 device implementations and matching handle versions must be supplied separately.
 Multi-NIC enumeration does not make different device backends interchangeable.
 
+## GIN windows and device configuration
+
+`PCCL_WIN_GIN_ONLY` registers a window for GIN without importing peer LSA
+allocations. Local address resolution remains available through
+`pcclGetLocalPointer`; peer LSA pointer queries are unsupported for this window.
+Do not combine the flag with `PCCL_WIN_COLL_SYMMETRIC`. Registration is still
+collective, with consistent flags and segment sizes across ranks.
+
+VMM HOST_NUMA allocations and mixed device/host ranges are registered using
+their segment memory types. This does not extend window registration to
+arbitrary `malloc` or ordinary pinned allocations without VMM handles. Host
+windows may use GIN-only registration to avoid peer LSA IPC requirements.
+Use `pcclGin_SegmentHostNuma` or `pcclGin_SegmentMixed` for transfers involving
+host-backed segments and complete the transfers before CPU access or release.
+The `hostRmaSupport` property describes a separate host RMA API capability.
+
+`pcclCommQueryProperties` reports `ginSupport[]`, `ginMinStride`, and
+`devCommRuntimeVersionSize`. `reqs.ginType` may explicitly request the backend
+already selected for the communicator; it does not load or combine backends.
+Only that selected backend is advertised as supported.
+
+`PCCL_GIN_CONNECTION_CUSTOM_STRIDE` uses `reqs.ginCustomStride` to describe a
+logical peer subset. The stride must divide the LSA team size and be a multiple
+of the minimum supported stride. Provider peer tables stay dense; this version
+does not reduce QP allocation with sparse contexts. Existing FULL/RAIL requests
+remain supported. All ranks must agree on connection type, backend and stride.
+
+Released device API structure prefixes remain unchanged. New fields are appended
+after the legacy layout, and old callers receive only their declared layout.
+Use matching headers and runtime libraries; runtime-size reporting is not a
+general translation layer between arbitrary releases.
+
+## Waiting and completion
+
+The existing `waitSignal` and `waitCounter` calls remain available. Overloads
+with a final `timeoutCycles` argument return `pcclResult_t`; the timeout uses
+the device clock. A zero timeout still checks the condition once. Every thread
+in the cooperative group receives the result. Counter providers may specialize
+the optional progress hook when completions require software progress.
+
+`pcclGinFenceLevel::Put` and `Get` extend the existing `Relaxed` barrier mode.
+Use `pcclGinAllContexts(devComm)` to fence every context; a signal on context 0
+alone must not substitute for completion on other contexts. Weak completion
+action names use the existing ordered provider path, retaining its guarantees.
+
+Focused MPI checks for these interfaces, shared storage layouts and failure
+paths are documented in [tests/device_api](../../../../tests/device_api/README.md).
+
 ## Performance Considerations
 
 - **Network overhead**: All communication goes through the network stack
