@@ -1,0 +1,21 @@
+# GIN device API checks
+
+Build on Linux after sourcing the SDK environment and building PCCL:
+
+```sh
+make -C tests/device_api PCCL_HOME="$PWD/build"
+export LD_LIBRARY_PATH="$PWD/build/lib:$LD_LIBRARY_PATH"
+export PCCL_GIN_PLUGIN=none PCCL_GIN_TYPE=3 PCCL_MNNVL_ENABLE=0
+mpirun -np 2 tests/device_api/gin_window 0
+```
+
+`gin_window 0` verifies device-backed GIN-only windows; `gin_window 1`
+verifies VMM HOST_NUMA windows. Each mode checks every allocated context,
+put/get payloads, registration aliases, peer LSA rejection and invalid flags.
+Use an even number of ranks and assign one rank to each available device.
+For multiple hosts, place the same executable and library at the same path.
+Select the network interfaces and GIN connection count for the environment.
+Tests must run on idle devices; use a process timeout to detect a hung peer.
+
+These checks require MPI and a functioning GIN backend and are run manually;
+they are not part of the default build or the hosted CI jobs.
