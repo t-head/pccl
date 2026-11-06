@@ -55,6 +55,7 @@ static ncclResult_t ncclIbGetPciPath(char* devName, char** path, int* realPort) 
 }
 
 ncclResult_t ncclIbGetBondingIf(struct ibv_device** devices, char* ncclIbBondIfName, int nIbDevs) {
+  int nBondCandidates = nIbDevs < MAX_IB_DEVS ? nIbDevs : MAX_IB_DEVS;
   char realPath[PATH_MAX];
   char *bondingMastersPath = realpath("/sys/class/net/bonding_masters", realPath);
   if (bondingMastersPath == NULL) {
@@ -64,15 +65,15 @@ ncclResult_t ncclIbGetBondingIf(struct ibv_device** devices, char* ncclIbBondIfN
 
   int nBondings = 0;
   char* bondingMasters = NULL;
-  NCCLCHECK(ncclCalloc(&bondingMasters, nIbDevs*(MAX_IF_NAME_SIZE+1)));
+  NCCLCHECK(ncclCalloc(&bondingMasters, nBondCandidates*(MAX_IF_NAME_SIZE+1)));
   FILE *bondingMastersFile = fopen(bondingMastersPath, "r");
   char *_line = NULL;
   size_t _length = 0;
   ssize_t _read;
-  while ((nBondings < nIbDevs) && ((_read = getline(&_line, &_length, bondingMastersFile)) != -1)) {
+  while ((nBondings < nBondCandidates) && ((_read = getline(&_line, &_length, bondingMastersFile)) != -1)) {
     if (_line[_read-1] == '\n') _line[_read-1] = '\0';
     char *contents = strtok(_line, " ");
-    while(contents != NULL) {
+    while(contents != NULL && nBondings < nBondCandidates) {
       int l = 0;
       while (l<MAX_IF_NAME_SIZE && l<strlen(contents)) {
         bondingMasters[nBondings*(MAX_IF_NAME_SIZE+1)+l] = contents[l];
@@ -85,7 +86,7 @@ ncclResult_t ncclIbGetBondingIf(struct ibv_device** devices, char* ncclIbBondIfN
   }
   fclose(bondingMastersFile);
 
-  if (nBondings == 0 || nBondings != nIbDevs) {
+  if (nBondings == 0 || nBondings != nBondCandidates) {
     VERBOSE(NCCL_INIT|NCCL_NET, "Empty bondings or mismatch bondings number(%d) to ibDev number(%d)", nBondings, nIbDevs);
     if (nBondings == 0) {
       goto exit;
