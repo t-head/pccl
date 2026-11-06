@@ -1,8 +1,8 @@
 {
   "classification": {
     "base_sha": "a04b88e02c3a5b955ba0847eca2bc3d19cbf4829",
-    "head_sha": "c0049686de5641ed528b767f7b050456e8eb2922",
-    "input_fingerprint": "6e62a276a3337d420f2aeff51d849166de16269dabf3f13eea06188ba8168f39",
+    "head_sha": "9e579cf33eaff671ba04fca89ea741a1eec71b76",
+    "input_fingerprint": "25e76c11148b63905df1bb5716ea257127a0bfa3d092b4032d5f889799103abc",
     "pr_number": 153,
     "proposal": {
       "modules": [
@@ -10,7 +10,7 @@
         "kernels",
         "symmetric"
       ],
-      "reason": "Main functional change is in enqueue: kernel launch now passes an explicit argument-buffer pointer plus actual byte count to hgLaunchKernelExAD, enabling variable-length arguments and a 4 KiB budget. Add symmetric because symmetric multi-task planning/lifetime changed to allocate argument buffers by computed size and propagate actual kernelArgsSize. Add kernels because collective kernel declarations/definitions changed their by-value argument ABI from 1 KiB storage to 4 KiB storage, which is a substantive kernel-interface update."
+      "reason": "Main change is in enqueue/runtime launch plumbing: kernel plans now pass explicit argument-buffer pointer and byte size to hgLaunchKernelExAD, and the global kernel-arg budget/storage is raised to 4 KiB. Symmetric is additionally required because symmetric multi-task planning now computes and allocates variable-sized argument payloads from scoped memory (removing the fixed 4 KiB pool path). Kernels is additionally required due to device-kernel launch ABI/signature updates from 1 KiB to 4 KiB argument structs, a substantive interface change even with small diffs."
     }
   },
   "reviewers": {
