@@ -1,14 +1,15 @@
 {
   "classification": {
     "base_sha": "a04b88e02c3a5b955ba0847eca2bc3d19cbf4829",
-    "head_sha": "352c3a03494ad5b46ea7ae544e1b0deaff37fa00",
-    "input_fingerprint": "da9351c9340e298b50f11822cbb12454b4ccbd841ba3b8554ce966215ddf8e05",
+    "head_sha": "257e19c84b04b5ed8949b951672316b633e5555f",
+    "input_fingerprint": "66b4bcfedb9aad12b81a54432c7880bf7503c322f405fc5684ebc5d3b0849d4a",
     "pr_number": 147,
     "proposal": {
       "modules": [
+        "build",
         "ci"
       ],
-      "reason": "Adds a new scheduled/manual GitHub Actions pipeline to build and publish PPU tarball artifacts (matrix expansion, runner/container setup, artifact merge/summary) and rewrites the two workflow build scripts to make those CI builds reproducible across OS/HGGCRT environments."
+      "reason": "Primary change is a new GitHub Actions pipeline that schedules, matrices, runs, merges, and summarizes PPU tarball builds (CI workflow orchestration). Additional build review is needed because the tar build scripts now implement substantive packaging/build behavior (dependency/bootstrap setup, SDK install, build invocation, and tarball assembly/layout), not just mechanical CI wiring."
     }
   },
   "reviewers": {
