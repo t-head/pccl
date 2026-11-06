@@ -43,8 +43,11 @@ namespace {
       stepSize = comm->buffSizes[NCCL_PROTO_SIMPLE] / (sizeof(T)*NCCL_STEPS);
       chunkSize = stepSize * BROADCAST_CHUNKSTEPS;
     }
-    const ssize_t loopSize = nChannels*chunkSize;
     const ssize_t size = work->count;
+    const bool continuous = Proto::Id == NCCL_PROTO_SIMPLE && inputRing == nullptr;
+    ssize_t begin = 0, end = size;
+    if (continuous) work->channelBounds(getShmemPtr(comm)->channelId, &begin, &end);
+    const ssize_t loopSize = continuous ? chunkSize : nChannels * chunkSize;
     const int rank = (inputRank == -1) ? ring->devUserRanks[0] : inputRank;
     const int nextRank = (inputNextRank == -1) ? ring->devUserRanks[1] : inputNextRank;
     const int root = (inputRoot == -1) ? work->root : inputRoot;
@@ -56,10 +59,12 @@ namespace {
     Primitives<T, FUNC, Proto, 1, 1, 0, 0>
       prims(tid, nthreads, &ring->prev, &ring->next, NULL, comm, work->redOpArg, getShmemPtr(comm)->groups, 0, 0, 0, work);
 
-    for (ssize_t gridOffset = 0; gridOffset < size; gridOffset += loopSize) {
+    for (ssize_t gridOffset = begin; gridOffset < end; gridOffset += loopSize) {
       int realChunkSize;
 
-      if (Proto::Id == NCCL_PROTO_LL) {
+      if (continuous) {
+        realChunkSize = chunkSize;
+      } else if (Proto::Id == NCCL_PROTO_LL) {
         if (size-gridOffset < loopSize) {
           chunkSize = work->lastChunkSize;
         }
@@ -72,8 +77,8 @@ namespace {
         ALIGN_SIZE(realChunkSize, nthreads*sizeof(uint64_t)/sizeof(T));
       }
 
-      ssize_t offset = gridOffset + bid*realChunkSize;
-      int nelem = min(realChunkSize, size-offset);
+      ssize_t offset = continuous ? gridOffset : gridOffset + bid * realChunkSize;
+      int nelem = min(realChunkSize, end - offset);
 
       if (rank == root) {
         if (thisInput == thisOutput) {

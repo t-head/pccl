@@ -1656,14 +1656,15 @@ static ncclResult_t scheduleCollTasksToPlan(ncclComm_t comm, struct ncclKernelPl
       channelUsed += info.nChannels;
     }
     if (!plan->usingExtKernel) {
+      const bool rooted = info.coll == ncclFuncBroadcast || info.coll == ncclFuncReduce;
       const bool continuous = info.algorithm == NCCL_ALGO_RING &&
           ((info.coll == ncclFuncAllGather && (info.protocol == NCCL_PROTO_SIMPLE || info.protocol == NCCL_PROTO_LL ||
                                               info.protocol == NCCL_PROTO_LL128)) ||
-           (info.coll == ncclFuncReduceScatter && info.protocol == NCCL_PROTO_SIMPLE));
+           ((info.coll == ncclFuncReduceScatter || rooted) && info.protocol == NCCL_PROTO_SIMPLE));
       if (continuous) {
         if (info.nChannels <= 0) return ncclInternalError;
         // Use whole-element cells representing at least 16 KiB of traffic across ranks.
-        const size_t trafficPerByte = size_t(comm->nRanks) * (info.protocol == NCCL_PROTO_LL ? 4 : 1);
+        const size_t trafficPerByte = (rooted ? 1u : size_t(comm->nRanks)) * (info.protocol == NCCL_PROTO_LL ? 4 : 1);
         size_t cellSize = ROUNDUP(DIVUP(16u << 10, trafficPerByte), 16);
         size_t cellCount = cellSize / ncclTypeSize(info.datatype);
         size_t cells = DIVUP(info.count, cellCount);
