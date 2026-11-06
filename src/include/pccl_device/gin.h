@@ -33,6 +33,14 @@ struct pcclGin_SignalInc { pcclGinSignal_t signal; };
 // struct pcclGin_SignalSet { pcclGinSignal_t signal; uint64_t value; };
 struct pcclGin_CounterInc { pcclGinCounter_t counter; };
 
+// Existing providers retain their ordered signal path for weak actions. This
+// satisfies the bundled-transfer guarantee without weakening legacy ordering.
+using pcclGin_WeakVASignalInc = pcclGin_VASignalInc;
+using pcclGin_WeakVASignalAdd = pcclGin_VASignalAdd;
+using pcclGin_WeakSignalInc = pcclGin_SignalInc;
+using pcclGin_WeakSignalAdd = pcclGin_SignalAdd;
+using pcclGin_WeakCounterInc = pcclGin_CounterInc;
+
 struct pcclGin_DescriptorSmem { pcclGinDescriptorSmem* descriptor; };
 
 // Segment type tags describe the composition of a buffer's physical cuMem segments.
