@@ -6,12 +6,21 @@
  * See LICENSE.txt for more license information
  *************************************************************************/
 
+#include "a2a_request_tag.h"
 #include "p2p.h"
 #include "common.h"
 #include "connect.h"
 
 NCCL_PARAM(IbArThreshold, "IB_AR_THRESHOLD", -2);
 int64_t ncclIbArThreshold = 8192;
+// Receive-capacity threshold, classified once in the AlltoAll CPU policy.
+PCCL_PARAM(SmallRequestQpBytes, "SMALL_REQUEST_QP_BYTES", 4096);
+static int pcclIbRequestQps(int configured, bool singleQp) {
+  // Capacity was classified once by the receiving AlltoAll's CPU plan.
+  // Keep transport constraints here: they describe this established connection.
+  return singleQp && configured == 2 ? 1 : configured;
+}
+
 
 ncclResult_t ncclIbGetRequest(struct ncclIbNetCommBase* base, struct ncclIbRequest** req) {
   for (int i = 0; i < NET_IB_MAX_REQUESTS; i++) {
@@ -129,7 +138,7 @@ ncclResult_t ncclIbMultiSend(struct ncclIbSendComm* comm, int slot) {
 
   // Multi-QP: make sure IB writes are multiples of 128B so that LL and LL128 protocols still work
   const int align = 128;
-  const int nqps = ncclIbCommBaseGetNqpsPerRequest(&comm->base);
+  const int nqps = reqs[0]->events;
   for (int q = 0; q < nqps; q++) {
     TRACE(NCCL_NET, "NET/IB: %s: Posting send (req=%p, comm=%p, slot=%d, nreqs=%d, wr_id=%ld) on QP (qp_num=%u, qpIndex=%d)",
           __func__, reqs[0], reqs[0]->base, slot, nreqs, wr_id, comm->base.qps[comm->base.qpIndex]->qp_num, comm->base.qpIndex);
@@ -187,8 +196,15 @@ ncclResult_t ncclIbIsend(void* sendComm, void* data, int size, int tag, void* mh
   // Wait until all data has arrived
   for (int r = 1; r < nreqs; r++) while(slots[r].idx != idx);
   __sync_synchronize(); // order the nreqsPtr load against tag/rkey/addr loads below
+  bool singleQp = nreqs > 0;
+  // One ineligible request is enough to keep the configured QP count.
+  for (int i = 0; singleQp && i < nreqs; i++) {
+    singleQp = pcclA2aSingleQpTag(slots[i].tag);
+  }
+  const int requestQps = pcclIbRequestQps(
+      ncclIbCommBaseGetNqpsPerRequest(&comm->base), singleQp);
   for (int r = 0; r < nreqs; r++) {
-    if (reqs[r] != NULL || slots[r].tag != tag) continue;
+    if (reqs[r] != NULL || pcclA2aMatchTag(slots[r].tag) != pcclA2aMatchTag(tag)) continue;
 
     // Sanity checks to catch user collective call count/size mismatches
     if (size > slots[r].size) {
@@ -214,7 +230,7 @@ ncclResult_t ncclIbIsend(void* sendComm, void* data, int size, int tag, void* mh
     req->send.data = data;
     req->send.lkey = mr->lkey;
     req->send.offset = 0;
-    req->events = ncclIbCommBaseGetNqpsPerRequest(&comm->base);
+    req->events = requestQps;
     *request = reqs[r] = req;
     TRACE(NCCL_NET, "NET/IB: %s: Send request created (req=%p, comm=%p, slot=%d, reqIdx=%d, nreqs=%d, tag=%x, size=%ld, data=0x%016" PRIx64 ")",
           __func__, req, req->base, slot, r, nreqs, tag, size, (uint64_t)data);
@@ -327,7 +343,13 @@ ncclResult_t ncclIbIrecv(void* recvComm, int n, void** data, int* sizes, int* ta
 
   uint64_t reqIdx = req - comm->base.reqs;
   comm->recvReqs[reqIdx] = req;
-  const int nqps = ncclIbCommBaseGetNqpsPerRequest(&comm->base);
+  bool singleQp = n > 0;
+  // One ineligible request is enough to keep the configured QP count.
+  for (int i = 0; singleQp && i < n; i++) {
+    singleQp = pcclA2aSingleQpTag(tags[i]);
+  }
+  const int nqps = pcclIbRequestQps(
+      ncclIbCommBaseGetNqpsPerRequest(&comm->base), singleQp);
   if (comm->base.recvMatchingScheme == BY_INDEX) {
     struct ibv_recv_wr wr;
     memset(&wr, 0, sizeof(wr));

@@ -95,6 +95,7 @@
   DECL_P2P(SendRecv, RING, Sum, int8_t)
 
 DECL_ALL
+DECL5(SendRecvNetPoll, RING, SIMPLE, Sum, int8_t)
 
 // Need a power of two to ensure it divides by parallelFactor (which is also a power of two)
 #define NCCL_PAT_NWORKERS 512

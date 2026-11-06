@@ -393,6 +393,14 @@ static ncclResult_t ncclProxyOpToArgs(struct ncclProxyOp* op, struct ncclProxyAr
   //memset(sub, 0, sizeof(struct ncclProxySubArgs));
   sub->connection = op->connection;
   sub->channelId = op->channelId;
+  sub->a2aOptimized = op->a2aOptimized;
+  sub->a2aAutoAsyncFlush = op->a2aAutoAsyncFlush;
+  sub->a2aSingleQp = op->a2aOptimized ? op->a2aSingleQp : 0;
+  sub->a2aAsyncFlush = 0; // Pooled arguments must not inherit the previous task.
+  // Only AlltoAll P2P sends produce a preselected window; other operations
+  // retain the original depth and never read the optional field.
+  sub->a2aSendWindow = op->a2aOptimized && op->pattern == ncclPatternSend
+      ? op->a2aSendWindow : NCCL_STEPS;
   sub->nsteps = op->nsteps;
   sub->nbytes = op->nbytes;
   sub->peer = op->peer;
@@ -946,7 +954,7 @@ static void* pcclCpuFlushThreadMain(void* proxyState_) {
   // (no stdout printf on any path, so it never perturbs perf measurements).
   {
     const int64_t coreParam = pcclParamCpuFlushCore();
-    const int localRank = proxyState->ownerComm->localRank;
+    const int localRank = proxyState->localRank;
     int chosen = -1;
     if (coreParam == -2) {
       // Auto: enumerate this thread's allowed CPUs (NUMA-local via the inherited
@@ -1051,8 +1059,7 @@ void* ncclProxyProgress(void *proxyState_) {
   state->nextOps = -1;
   const int sig = ncclParamProxyDumpSignal();
   if (sig != -1) signal(sig, ncclDumpProxyState);
-  ncclProxyStates[proxyState->ownerComm->localRank] = proxyState;
-  proxyState->localRank = proxyState->ownerComm->localRank;
+  ncclProxyStates[proxyState->localRank] = proxyState;
   char threadName[NCCL_THREAD_NAMELEN];
   snprintf(threadName, NCCL_THREAD_NAMELEN, "PCCL Progress%2d", proxyState->hggcDev);
   hgtxNameOsThreadA(syscall(SYS_gettid), threadName);
@@ -1127,17 +1134,15 @@ ncclResult_t ncclProxyStart(ncclComm_t comm) {
   return ncclSuccess;
 }
 
-ncclResult_t ncclProxyProgressCreate(struct ncclProxyState* proxyState) {
+// Only one caller owns startup: the service thread for the public option,
+// or the progress thread for task-local AlltoAll use when that option is off.
+static void startCpuFlushThread(struct ncclProxyState* proxyState) {
   struct ncclProxyProgressState* state = &proxyState->progressState;
-  if (!state->thread) {
-    pthread_create(&state->thread, NULL, ncclProxyProgress, proxyState);
-    ncclSetThreadName(state->thread, "PCCL Progress%2d", proxyState->hggcDev);
-  }
 #if defined(__x86_64__)
   // The flush thread's ordering read and the recv-side async flush path are both
   // x86-only, so only spin up the thread there. On other arches the thread would
   // busy-wait and hold a scratch allocation without ever performing a real flush.
-  if (pcclParamCpuFlushAsync() && !state->flushThreadStarted) {
+  if (!state->flushThreadStarted) {
     state->flushThreadStop = 0;
     state->flushReqSeq = 0;
     state->flushDoneSeq = 0;
@@ -1151,6 +1156,21 @@ ncclResult_t ncclProxyProgressCreate(struct ncclProxyState* proxyState) {
     }
   }
 #endif
+}
+
+void ncclProxyEnsureA2aCpuFlush(struct ncclProxyState* proxyState) {
+  // The main startup path owns the thread when the public option is enabled.
+  // Do not race it or reinterpret its process-wide configuration.
+  if (!pcclParamCpuFlushAsync()) startCpuFlushThread(proxyState);
+}
+
+ncclResult_t ncclProxyProgressCreate(struct ncclProxyState* proxyState) {
+  struct ncclProxyProgressState* state = &proxyState->progressState;
+  if (!state->thread) {
+    pthread_create(&state->thread, NULL, ncclProxyProgress, proxyState);
+    ncclSetThreadName(state->thread, "PCCL Progress%2d", proxyState->hggcDev);
+  }
+  if (pcclParamCpuFlushAsync()) startCpuFlushThread(proxyState);
   return ncclSuccess;
 }
 
@@ -1982,7 +2002,7 @@ ncclResult_t ncclProxyInit(ncclComm_t comm, struct ncclSocket* sock, union ncclS
   NCCLCHECK(ncclCalloc(&comm->sharedRes->proxyState, 1));
   comm->proxyState = comm->sharedRes->proxyState;
   comm->proxyState->refCount = 1;
-  comm->proxyState->localRank = -1; // will be set by progress thread on registration
+  comm->proxyState->localRank = -1; // set before starting proxy threads
   comm->proxyState->listenSock = sock;
   comm->proxyState->peerAddresses = peerAddresses;
   comm->proxyState->peerAddressesUDS = peerAddressesUDS;
@@ -2013,6 +2033,7 @@ ncclResult_t ncclProxyCreate(ncclComm_t comm) {
     proxyState->pDevMemUsed = &comm->sharedRes->devMemUsed;
     proxyState->pPinnedMemUsed = &comm->sharedRes->pinnedMemUsed;
     proxyState->ownerComm = comm;
+    proxyState->localRank = comm->localRank;
     proxyState->memManager = comm->memManager;
 
     PTHREADCHECK(pthread_create(&comm->proxyState->thread, NULL, ncclProxyService, comm->proxyState), "pthread_create");
