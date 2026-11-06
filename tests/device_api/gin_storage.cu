@@ -159,7 +159,16 @@ int main(int argc, char** argv) {
     REQUIRE(count * sizeof(int) <= memory.own.size && count * sizeof(int) <= memory.gpu.size);
     std::vector<int> input(count), output(count);
     for (size_t i = 0; i < count; i++) input[i] = rank * 100000 + i;
-    CHECK(hggcMemcpy(memory.own.ptr(), input.data(), count * sizeof(int), hggcMemcpyHostToDevice));
+    if (host) {
+      hggcPointerAttributes attributes = {};
+      CHECK(hggcPointerGetAttributes(&attributes, memory.own.ptr()));
+      REQUIRE(attributes.type == hggcMemoryTypeHost);
+      // CPU-accessible VMM mappings may omit the optional runtime host alias.
+      void* cpuPointer = attributes.hostPointer ? attributes.hostPointer : memory.own.ptr();
+      memcpy(cpuPointer, input.data(), count * sizeof(int));
+    } else {
+      CHECK(hggcMemcpy(memory.own.ptr(), input.data(), count * sizeof(int), hggcMemcpyHostToDevice));
+    }
     CHECK(MPI_Barrier(MPI_COMM_WORLD));
     pcclWindow_t main;
     CHECK(pcclCommWindowRegister(comm, reinterpret_cast<void*>(memory.base), memory.gpu.size,
@@ -195,7 +204,15 @@ int main(int argc, char** argv) {
     CHECK(hggcGetLastError());
     CHECK(hggcDeviceSynchronize());
     for (int shard = 0; shard < stride; shard++) {
-      CHECK(hggcMemcpy(output.data(), memory.shard(shard), count * sizeof(int), hggcMemcpyDeviceToHost));
+      if (host) {
+        hggcPointerAttributes attributes = {};
+        CHECK(hggcPointerGetAttributes(&attributes, memory.shard(shard)));
+        REQUIRE(attributes.type == hggcMemoryTypeHost);
+        void* cpuPointer = attributes.hostPointer ? attributes.hostPointer : memory.shard(shard);
+        memcpy(output.data(), cpuPointer, count * sizeof(int));
+      } else {
+        CHECK(hggcMemcpy(output.data(), memory.shard(shard), count * sizeof(int), hggcMemcpyDeviceToHost));
+      }
       for (int local = 0; local < stride; local++) {
         for (unsigned context = 0; context < deviceComm.ginContextCount; context++) {
           for (size_t i = 0; i < intsPerChunk; i++) {

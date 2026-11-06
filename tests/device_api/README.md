@@ -35,6 +35,9 @@ between local processes using SCM_RIGHTS and maps shards after a device segment.
 All ranks register every shard as GIN-only, exercise registration aliases, and
 check get/put payloads on every context. This validates the library against a
 shared-storage layout; it does not execute an application's allocator or kernels.
+The host mode writes the source on the CPU and reads put results directly on the
+CPU after completion, using the CPU-accessible VMM address if no separate runtime
+host alias is reported.
 
 `gin_failure` uses the bundled mock plugin, without launching communication
 kernels. Set `PCCL_GIN_PLUGIN` to the absolute `libpccl-gin-mock.so` path,
