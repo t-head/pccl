@@ -63,6 +63,7 @@ struct ncclDevrState {
 
   size_t granularity;         // hgMemGetAllocationGranularity
   bool ginEnabled;
+  uint64_t nextRegistryId;
   struct ncclDevrMemory* memHead;
   struct ncclDevrWindowSorted* winSorted;
   int winSortedCapacity, winSortedCount;

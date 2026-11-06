@@ -40,6 +40,7 @@ struct multiSegmentGinInfo {
 // Complete types from src/include/dev_runtime.h
 struct ncclDevrMemory {
   int refCount;
+  uint64_t registryId;
   struct ncclDevrMemory* next;
   HGmemGenericAllocationHandle* memHandles;
   void* primaryAddr; // What we hope is the VA of this memory's first mapping.
@@ -307,6 +308,7 @@ static ncclResult_t symMemoryMapLsaTeam(struct pcclComm* comm, struct ncclDevrMe
   int maxSegments = 0;
   const int numSegments = mem->numSegments;
   size_t* segmentSizes = mem->segmentSizes;
+  const bool registerLsa = !(mem->winFlags & NCCL_WIN_GIN_ONLY);
 
   for (int rank = 0; rank < devr->lsaSize; rank++) {
     maxSegments = std::max(maxSegments, segmentCounts[rank]);
@@ -316,11 +318,18 @@ static ncclResult_t symMemoryMapLsaTeam(struct pcclComm* comm, struct ncclDevrMe
 
   for (int segment = 0; segment < numSegments; segment++) {
     symLsaMessage* msg = messages + devr->lsaSelf * maxSegments + segment;
+    if (!registerLsa) {
+      msg->segmentSize = segmentSizes[segment];
+      continue;
+    }
     NCCLCHECKGOTO(symMemoryExportSegmentHandle(comm, msg, mem->memHandles[segment], segmentSizes[segment]), ret, fail);
     INFO(NCCL_REG, "[%d] Segment %d, Type : %d, numSegments : %d, Segment size : %ld, memHandle : %lld", devr->lsaSelf, segment, msg->type, numSegments, msg->segmentSize, msg->memHandle);
   }
 
-  NCCLCHECKGOTO(bootstrapIntraNodeAllGather(comm->bootstrap, devr->lsaRankList, devr->lsaSelf, devr->lsaSize, messages, sizeof(symLsaMessage) * maxSegments), ret, fail);
+  if (registerLsa) {
+    NCCLCHECKGOTO(bootstrapIntraNodeAllGather(comm->bootstrap, devr->lsaRankList, devr->lsaSelf,
+        devr->lsaSize, messages, sizeof(symLsaMessage) * maxSegments), ret, fail);
+  }
 
   if (devr->lsaFlatBase == nullptr) { // Create on first need.
     HGdeviceptr addr;
@@ -329,10 +338,14 @@ static ncclResult_t symMemoryMapLsaTeam(struct pcclComm* comm, struct ncclDevrMe
   }
 
   for (int r = 0; r < devr->lsaSize; r++) {
+    if (!registerLsa && r != devr->lsaSelf) continue;
     NCCLCHECKGOTO(symMemoryImportAndMapSegmentsForRank(comm, r, messages, maxSegments, segmentCounts[r], mem->memHandles, mem->bigOffset), ret, fail);
   }
   // Ensure everyone has imported my mem handles.
-  NCCLCHECKGOTO(bootstrapIntraNodeBarrier(comm->bootstrap, devr->lsaRankList, devr->lsaSelf, devr->lsaSize, 0xbeef), ret, fail);
+  if (registerLsa) {
+    NCCLCHECKGOTO(bootstrapIntraNodeBarrier(comm->bootstrap, devr->lsaRankList,
+        devr->lsaSelf, devr->lsaSize, 0xbeef), ret, fail);
+  }
 leave:
   free(messages);
   return ret;
@@ -482,13 +495,23 @@ static ncclResult_t symMemoryObtain(
   ncclResult_t ret = ncclSuccess;
   struct ncclDevrState* devr = &comm->devrState;
   int64_t bigOffset = 0;
-  struct segmentInfo { int numSegments; bool hasSysmemSegment; size_t memOffset; };
+  struct segmentInfo {
+    int numSegments;
+    bool hasSysmemSegment;
+    size_t memOffset;
+    int winFlags;
+    uint64_t registryId;
+  };
   struct segmentInfo* globalSegmentInfo = nullptr;
   const int globalLsaTeamBaseIdx = devr->lsaSize * (comm->rank / devr->lsaSize);
+  const uint64_t invalidRegistryId = UINT64_MAX;
+  uint64_t candidateRegistryId = invalidRegistryId;
+  bool sameMemOffset = true;
 
   struct ncclDevrMemory* mem = devr->memHead;
   while (mem != nullptr) {
-    if (mem->primaryAddr == memAddr && mem->size == size && mem->numSegments == numSegments) {
+    if (mem->primaryAddr == memAddr && mem->size == size && mem->numSegments == numSegments &&
+        mem->winFlags == winFlags) {
       // Check if all memHandles that [memAddr, memAddr + size] spans also match
       bool allMatch = true;
       for (int segment = 0; segment < mem->numSegments; segment++) {
@@ -498,17 +521,39 @@ static ncclResult_t symMemoryObtain(
         }
       }
       if (allMatch) {
-        for (int segment = 0; segment < mem->numSegments; segment++) {
-          HGCHECKIGNORE(hgMemRelease(memHandles[segment]));
-        }
-        goto leave;
+        candidateRegistryId = mem->registryId;
+        break;
       }
     }
     mem = mem->next;
   }
 
+  // Reuse is a collective decision: a local cache hit must not skip collectives
+  // which another rank enters when creating a new registration.
+  NCCLCHECK(ncclCalloc(&globalSegmentInfo, comm->nRanks));
+  globalSegmentInfo[comm->rank] = {numSegments, hasSysmemSegment, memOffset, winFlags, candidateRegistryId};
+  NCCLCHECKGOTO(bootstrapAllGather(comm->bootstrap, globalSegmentInfo, sizeof(*globalSegmentInfo)),
+                ret, fail_info);
+  for (int r = 0; r < comm->nRanks; r++) {
+    if (globalSegmentInfo[r].winFlags != winFlags) {
+      WARN("Window registration flags disagree between rank %d and rank %d", comm->rank, r);
+      ret = ncclInvalidUsage;
+      goto fail_info;
+    }
+    if (globalSegmentInfo[r].registryId != candidateRegistryId) mem = nullptr;
+    if (globalSegmentInfo[r].memOffset != memOffset) sameMemOffset = false;
+  }
+  if (mem != nullptr) {
+    for (int segment = 0; segment < numSegments; segment++) {
+      HGCHECKIGNORE(hgMemRelease(memHandles[segment]));
+    }
+    mem->globalSameMemOffset = sameMemOffset;
+    goto leave;
+  }
+
   // New memory.
   NCCLCHECKGOTO(ncclCalloc(&mem, 1), ret, fail_mem);
+  mem->registryId = devr->nextRegistryId++;
   NCCLCHECKGOTO(ncclCalloc(&mem->memHandles, numSegments), ret, fail_mem);
   memcpy(mem->memHandles, memHandles, sizeof(*mem->memHandles) * numSegments);
   mem->primaryAddr = memAddr;
@@ -518,7 +563,6 @@ static ncclResult_t symMemoryObtain(
   mem->numSegments = numSegments;
 
   NCCLCHECKGOTO(ncclCalloc(&mem->segmentSizes, numSegments), ret, fail_mem);
-  NCCLCHECKGOTO(ncclCalloc(&globalSegmentInfo, comm->nRanks), ret, fail_mem);
 
   if (numSegments > 1) {
     size_t offset = 0;
@@ -534,10 +578,6 @@ static ncclResult_t symMemoryObtain(
   }
 
   // We need max segments and global sysmem info to selectively disable some features
-  globalSegmentInfo[comm->rank].numSegments = numSegments;
-  globalSegmentInfo[comm->rank].hasSysmemSegment = hasSysmemSegment;
-  globalSegmentInfo[comm->rank].memOffset = memOffset;
-  NCCLCHECKGOTO(bootstrapAllGather(comm->bootstrap, globalSegmentInfo, sizeof(*globalSegmentInfo)), ret, fail_mem);
   mem->globalHasSysmemSegment = false;
   mem->globalSameMemOffset = true;
   for (int r = 0; r < comm->nRanks; r++) {
@@ -594,6 +634,7 @@ fail_mem:
     free(mem->lsaNumSegments);
   }
   free(mem);
+fail_info:
   free(globalSegmentInfo);
 //fail:
   return ret;
@@ -614,6 +655,7 @@ static void symMemoryDropRef(
       }
     }
     for (int r = 0; r < devr->lsaSize; r++) {
+      if ((mem->winFlags & NCCL_WIN_GIN_ONLY) && r != devr->lsaSelf) continue;
       HGdeviceptr addr = reinterpret_cast<uintptr_t>((char*)devr->lsaFlatBase + r*devr->bigSize + mem->bigOffset);
       for (int idx = 0; idx < mem->lsaNumSegments[r]; idx++) {
         HGdeviceptr tmpBase;
@@ -859,7 +901,7 @@ ncclResult_t ncclDevrWindowRegisterInGroup(
       WARN("VA represented by {userPtr = %p, size = %zu} contains CPU-backed physical segments, but PCCL_ELASTIC_BUFFER_REGISTER is set to 0. Please set PCCL_ELASTIC_BUFFER_REGISTER=1 and retry window registration", userPtr, userSize);
       ret = ncclInvalidArgument;
       goto fail_locReg_memHandle;
-    } else if (comm->MNNVL) {
+    } else if (comm->MNNVL && !(winFlags & NCCL_WIN_GIN_ONLY)) {
         int multiNodeLsaSupported = 0;
         HGCHECKGOTO(hgDeviceGetAttribute(&multiNodeLsaSupported, HG_DEVICE_ATTRIBUTE_HOST_NUMA_MULTINODE_IPC_SUPPORTED, comm->hggcDev), ret, fail_locReg_memHandle);
         if (!multiNodeLsaSupported) {
@@ -1337,6 +1379,10 @@ ncclResult_t pcclCommWindowRegister(ncclComm_t comm, void* buff, size_t size, nc
     WARN("%s: invalid pointer %p / size %zu", __func__, buff, size);
     return ncclInvalidArgument;
   }
+  if ((winFlags & PCCL_WIN_GIN_ONLY) && (winFlags & PCCL_WIN_COLL_SYMMETRIC)) {
+    WARN("PCCL_WIN_GIN_ONLY cannot be combined with PCCL_WIN_COLL_SYMMETRIC");
+    return ncclInvalidArgument;
+  }
 
   if (!comm->symmetricSupport) {
     return ncclSuccess;
@@ -1561,6 +1607,10 @@ ncclResult_t ncclDevrGetLsaRankPtr(struct pcclComm* comm, struct ncclDevrWindow*
   struct ncclDevrState* devr = &comm->devrState;
 
   // Validate lsaRank is within bounds
+  if (winHost->winFlags & NCCL_WIN_GIN_ONLY) {
+    WARN("GIN-only windows do not provide LSA peer pointers");
+    return ncclInvalidUsage;
+  }
   if (lsaRank < 0 || lsaRank >= devr->lsaSize) {
     return ncclInvalidArgument;
   }
