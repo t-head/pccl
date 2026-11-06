@@ -78,6 +78,18 @@ static_assert(NCCL_LL_CLEAN_MASK % NCCL_STEPS == 0, "Invalid NCCL_LL_CLEAN_MASK 
 #define NCCL_LL128_SHMEM_SIZE (NCCL_LL128_SHMEM_ELEMS_PER_THREAD*NCCL_LL128_MAX_NTHREADS)
 #define NCCL_PAT_SHMEM_SIZE 8192
 
+// Usable data in a Ring AllGather FIFO chunk. LL stores a flag alongside
+// each 32-bit word. LL128 sends whole warp slices, with a flag in each line.
+static __host__ __device__ inline int ncclAgChunkPayload(int protocol, int wireBytes) {
+  if (protocol == NCCL_PROTO_LL) return (wireBytes / sizeof(union ncclLLFifoLine)) * sizeof(uint64_t);
+  if (protocol == NCCL_PROTO_LL128) {
+    constexpr int wireSlice = WARP_SIZE * NCCL_LL128_SHMEM_ELEMS_PER_THREAD * sizeof(uint64_t);
+    constexpr int dataSlice = wireSlice / NCCL_LL128_LINEELEMS * NCCL_LL128_DATAELEMS;
+    return (wireBytes / wireSlice) * dataSlice;
+  }
+  return wireBytes;
+}
+
 #define NCCL_DIRECT_GPU 0x01
 #define NCCL_DIRECT_NIC 0x10
 
@@ -223,7 +235,7 @@ struct alignas(16) ncclDevWorkColl {
   ssize_t count;
   union {
     size_t lastChunkSize;
-    size_t agBaseBytes; // Whole cells assigned to every Ring/SIMPLE AllGather channel.
+    size_t agBaseBytes; // Whole cells assigned to every continuous Ring AllGather channel.
   };
   uint32_t root;
 

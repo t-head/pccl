@@ -35,7 +35,11 @@ namespace {
     int stepSize;
     ssize_t chunkSize;
     ssize_t minChunkSize;
-    if (Proto::Id == NCCL_PROTO_LL) {
+    if (continuous && inputRing == NULL) {
+      stepSize = comm->buffSizes[Proto::Id] / NCCL_STEPS;
+      int chunkSteps = Proto::Id == NCCL_PROTO_SIMPLE ? ALLGATHER_CHUNKSTEPS : 1;
+      chunkSize = ncclAgChunkPayload(Proto::Id, stepSize * chunkSteps) / sizeof(T);
+    } else if (Proto::Id == NCCL_PROTO_LL) {
       stepSize = comm->buffSizes[NCCL_PROTO_LL] / (sizeof(union ncclLLFifoLine)*NCCL_STEPS);
       chunkSize = stepSize * sizeof(uint64_t) / sizeof(T);
     } else if (Proto::Id == NCCL_PROTO_LL128) {
@@ -209,7 +213,7 @@ template<class FUNC, typename T, int UNROLL>
 class RunWorkColl<ncclFuncAllGather, NCCL_ALGO_RING, NCCL_PROTO_LL, FUNC, T, UNROLL> {
   public:
     __device__ void run(struct ncclDevWorkColl* work, struct ncclRing* inputRing=NULL, int* inputUserRanks=NULL) {
-      runRing<FUNC, T, UNROLL, ProtoLL>(work, inputRing, inputUserRanks);
+      runRing<FUNC, T, UNROLL, ProtoLL, true>(work, inputRing, inputUserRanks);
     }
 };
 
@@ -225,7 +229,7 @@ template<class FUNC, typename T, int UNROLL>
 class RunWorkColl<ncclFuncAllGather, NCCL_ALGO_RING, NCCL_PROTO_LL128, FUNC, T, UNROLL> {
   public:
     __device__ void run(struct ncclDevWorkColl* work, struct ncclRing* inputRing=NULL, int* inputUserRanks=NULL) {
-      runRing<FUNC, T, UNROLL, ProtoLL128>(work, inputRing, inputUserRanks);
+      runRing<FUNC, T, UNROLL, ProtoLL128, true>(work, inputRing, inputUserRanks);
     }
 };
 
