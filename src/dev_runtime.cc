@@ -1159,6 +1159,18 @@ ncclResult_t ncclDevrCommCreateInternal(
     }
   }
 
+  if (devr->ginEnabled) {
+    struct pcclGinState* ginState = &comm->sharedRes->ginState;
+    if (nGinContexts <= 0) {
+      WARN("GIN requires a positive context count");
+      ret = ncclInvalidArgument;
+      goto fail;
+    }
+    nGinContexts = ginState->ginVersion < 13 ? ginState->ginCommCount :
+        ROUNDUP(nGinContexts, ginState->ginCommCount);
+    reqs->ginContextCount = nGinContexts;
+  }
+
   memset(outDevComm, 0, sizeof(*outDevComm));
   outDevComm->magic = PCCL_API_MAGIC;
   outDevComm->version = reqs->version;

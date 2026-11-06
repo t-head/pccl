@@ -118,6 +118,32 @@ GIN uses signals for asynchronous completion detection of network operations. Th
 - **Multi-node environments**: When ranks cannot use LSA
 - **Testing network performance**: Without local optimizations
 
+## Multiple NICs
+
+Set `PCCL_GIN_MULTINIC=1` to enumerate devices from the selected GIN plugin.
+GIN device indices do not have to match the collective NET plugin's indices.
+The default remains the existing topology-affinity selection.
+
+`PCCL_GIN_NCONNECTIONS` optionally selects 1–4 logical connections. Without an
+explicit count, GIN v13 uses the enumerated device count, capped at four. All
+ranks agree on the minimum connection count. Connections cycle through the
+available local GIN devices if more connections than devices are requested.
+
+Device contexts are distributed across connections: context `i` uses connection
+`i % ginConnectionCount` and provider-local context `i / ginConnectionCount`.
+The requested context count is rounded up to a multiple of the connection count;
+use the returned `devComm.ginContextCount` when assigning contexts. Each connection
+has its own device handle and window registration.
+
+An application must complete operations on every context it uses, using the
+existing signal/counter wait and flush APIs. The example uses context 0; it does
+not automatically distribute transfers across NICs.
+
+One selected GIN plugin supplies the connections of a communicator. Additional
+NIC backends can use the existing GIN plugin callbacks; their
+device implementations and matching handle versions must be supplied separately.
+Multi-NIC enumeration does not make different device backends interchangeable.
+
 ## Performance Considerations
 
 - **Network overhead**: All communication goes through the network stack

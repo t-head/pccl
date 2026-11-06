@@ -1005,7 +1005,19 @@ static ncclResult_t ncclTopoGetLocalGinDev(struct ncclTopoSystem* system, int ra
   return ncclSuccess;
 }
 
+NCCL_PARAM(GinMultinic, "GIN_MULTINIC", 0);
+
 ncclResult_t ncclTopoGetLocalGinDevs(ncclComm_t comm, int* localGinDevs, int* localGinCount) {
+  // GIN and collective NET plugins may expose different device namespaces.
+  // Enumerate the selected GIN plugin when multi-NIC is explicitly requested.
+  if (ncclParamGinMultinic()) {
+    int ndev = 0;
+    NCCLCHECK(comm->sharedRes->ginState.ncclGin->devices(&ndev));
+    *localGinCount = std::min(ndev, NCCL_GIN_MAX_CONNECTIONS);
+    for (int n = 0; n < *localGinCount; n++) localGinDevs[n] = n;
+    return *localGinCount > 0 ? ncclSuccess : ncclInvalidUsage;
+  }
+  *localGinCount = 0;
   for (int c = 0; c < NCCL_TOPO_MAX_NODES; c++) {
     NCCLCHECK(ncclTopoGetLocalGinDev(comm->topo, comm->rank, c, NULL, localGinDevs + c));
     if (c > 0 && localGinDevs[c] == localGinDevs[0]) {
@@ -1013,6 +1025,7 @@ ncclResult_t ncclTopoGetLocalGinDevs(ncclComm_t comm, int* localGinDevs, int* lo
       return ncclSuccess;
     }
   }
+  if (*localGinCount == 0) return ncclInternalError;
   return ncclSuccess;
 }
 
