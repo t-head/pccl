@@ -1645,13 +1645,14 @@ static ncclResult_t scheduleCollTasksToPlan(ncclComm_t comm, struct ncclKernelPl
       const bool agSimple = info.coll == ncclFuncAllGather && info.algorithm == NCCL_ALGO_RING &&
                             info.protocol == NCCL_PROTO_SIMPLE;
       if (agSimple) {
+        if (info.nChannels <= 0) return ncclInternalError;
         // AllGather is normalized to bytes. As in NCCL, use 16-byte-aligned
         // cells representing at least 16 KiB of traffic across the ranks.
         size_t cellSize = ROUNDUP(DIVUP(16u << 10, comm->nRanks), 16);
         size_t cells = DIVUP(info.count, cellSize);
-        size_t cellsPerChannel = std::max<size_t>(1, DIVUP(cells, std::max(1, info.nChannels)));
-        devWork->agPartStride = cellsPerChannel * cellSize;
-        info.nChannels = std::max<size_t>(1, DIVUP(cells, cellsPerChannel));
+        devWork->agCellBytes = cellSize;
+        devWork->agBaseBytes = (cells / info.nChannels) * cellSize;
+        devWork->agExtraChannels = cells % info.nChannels;
       }
       // Ensure room for worst case of one new batch per channel
       if (!testBudget(budget, plan->nWorkBatches + info.nChannels, plan->workBytes + workNode->size)) {
@@ -1678,8 +1679,8 @@ static ncclResult_t scheduleCollTasksToPlan(ncclComm_t comm, struct ncclKernelPl
       for (int bid=0; bid<nChannels*nSubChannels; bid++) {
         int channelId = comm->lastChannel % comm->nChannels;
         if (agSimple) {
-          size_t offset = bid * devWork->agPartStride;
-          size_t bytes = std::min(devWork->agPartStride, info.count - offset);
+          size_t offset = devWork->agPartOffset(bid);
+          size_t bytes = devWork->agPartOffset(bid + 1) - offset;
           proxyOp.nsteps = DIVUP(bytes, proxyOp.chunkSize) * info.nstepsPerLoop * proxyOp.chunkSteps;
           VERBOSE(NCCL_COLL, "Ring AllGather SIMPLE: start %u channels %d/%d channel %d offset %zu bytes %zu chunk %d steps %d",
                   (unsigned)devWork->startChannelId, nChannels, comm->nChannels, channelId,

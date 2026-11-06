@@ -54,8 +54,8 @@ namespace {
       // channel selected by the mask and may wrap relative to startChannelId.
       int channel = getShmemPtr(comm)->channelId;
       int part = (channel - work->startChannelId + work->commNChannels) % work->commNChannels;
-      begin = part * work->agPartStride;
-      end = begin + min((ssize_t)work->agPartStride, size - begin);
+      begin = work->agPartOffset(part);
+      end = work->agPartOffset(part + 1);
       loopSize = chunkSize;
     }
 

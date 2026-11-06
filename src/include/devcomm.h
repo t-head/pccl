@@ -223,7 +223,7 @@ struct alignas(16) ncclDevWorkColl {
   ssize_t count;
   union {
     size_t lastChunkSize;
-    size_t agPartStride; // Ring/SIMPLE AllGather: elements per channel before tail clipping.
+    size_t agBaseBytes; // Whole cells assigned to every Ring/SIMPLE AllGather channel.
   };
   uint32_t root;
 
@@ -233,6 +233,8 @@ struct alignas(16) ncclDevWorkColl {
   uint8_t startChannelId;
   uint8_t nChannels;
   uint8_t commNChannels;
+  uint16_t agCellBytes;
+  uint8_t agExtraChannels; // Leading channels receive one additional cell.
 
   // in nccl 2.23, ncclWorkRegElem is used for NVLS to keep a separate dnInput/dnOutput
   // for normal direct, it add sendbuffRmtAddrs/recvbuffRmtAddrs to WorkElem directly.
@@ -243,6 +245,12 @@ struct alignas(16) ncclDevWorkColl {
   uintptr_t* recvbuffRmtAddrs;
 
   uint64_t redOpArg;
+
+  __host__ __device__ size_t agPartOffset(unsigned part) const {
+    size_t extra = part < agExtraChannels ? part : agExtraChannels;
+    size_t offset = part * agBaseBytes + extra * agCellBytes;
+    return offset < (size_t)count ? offset : (size_t)count;
+  }
 };
 
 // unused now
