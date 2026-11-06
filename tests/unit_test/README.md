@@ -9,6 +9,7 @@ This directory contains unit tests for PCCL (PPU Collective Communication Librar
 - **HGGC Graph Tests** (`hggcGraphUnitTest`): Validate HGGC graph integration with PCCL collective operations, including graph capture, task composition, and event-based synchronization.
 - **Communicator Abort Tests** (`pcclCommAbortTest`): Test communicator lifecycle with abort functionality at different execution stages and memory leak detection.
 - **Communicator Shrink Tests** (`pcclCommShrinkTest`): Test selective rank exclusion and communicator resizing with configurable resource sharing.
+- **Symmetric Multi-task Tests** (`symkMultiTaskTest`): Verify grouped symmetric `AllReduce`, `AllGather` and `ReduceScatter` with independent buffers, window registration modes and graph replay (MPI build only).
 - **Group Simulation Tests** (`pcclGroupSimulateEndTest`): Estimate collective operation performance without actual execution across multiple processes.
 - **Memory Management Tests** (`pcclCommMemManagerTest`): Verify communicator memory suspension/resumption with `pcclCommSuspend()`, `pcclCommResume()`, and `pcclCommMemStats()`.
 
@@ -238,6 +239,79 @@ Type `./build/pcclCommMemManagerTest --help` to query all help information.
   - `-i,--iters=<INTEGER>` default `10`
 - number of leading cycles whose tables are printed; `0` disables them, values above `--iters` are capped
   - `-p,--print-cycles=<INTEGER>` default `1`
+
+### PCCL Symmetric Multi-task Test
+
+Each rank enqueues `works` independent collectives inside one `pcclGroupStart()` / `pcclGroupEnd()`.
+Single and grouped symmetric launches share one 4KiB signature and submit only the valid argument prefix.
+Multi-work LL is excluded; unsupported batches fall back to legacy as a whole. Every collective has its own buffers and a
+different element count unless uniform counts are requested. The test checks every output element and
+the guard regions around it, and aborts when a requested symmetric window cannot be registered instead
+of reporting a fallback as covered. One process drives one device; build with `--use_mpi`.
+
+#### Examples
+
+Run 4 grouped float `AllReduce` operations of at least 1027 elements on 8 devices with both buffers
+registered, replayed 10 times from an HGGC graph:
+
+```Shell
+mpirun -np 8 ./build/symkMultiTaskTest ar float 4 1027 3 1 10
+```
+
+Run the AllReduce/AllGather/ReduceScatter sum and ReduceScatter average sweep over five floating-point
+types, 1/4/7/17 operations, full argument capacity, capacity plus one, two capacities plus one,
+and 0/1/257/16387 elements. Capacity is derived from the current argument layout:
+
+```Shell
+mpirun -np 8 ./build/symkMultiTaskTest functional-sweep float 1 1 3 0 3
+```
+
+The `perf-sweep` mode reports stream-event and host enqueue time per iteration for 1 and 4 grouped
+float operations across five message sizes.
+
+#### Arguments
+
+Positional arguments, in order:
+
+- collective: `ar`, `ag`, `rs`, `rs-avg`, `functional-sweep`, `perf-sweep` or `kernel-cache-contract`
+- data type: `float`, `half`, `bf16`, `f8e4m3` or `f8e5m2` (ignored by `functional-sweep`)
+- number of grouped collectives (ignored by the sweeps; `0` checks a task-free group)
+- element count per rank (ignored by the sweeps; `0` issues empty collectives)
+- window registration mask: `1` input, `2` output, `3` both, `0` none
+- graph mode: `0` eager launches, `1` HGGC graph replay
+- timed iterations
+- optional element offset applied to both buffers (default `0`)
+- optional in-place mode (default `0`)
+- optional cancellation inputs for widened accumulation checks (default `0`)
+- optional uniform element counts (default `0`)
+- optional launch-path verification: `0` off, `1` symmetric, `2` legacy (default `0`)
+- optional empty-work interval; `N` makes works `0`, `N`, `2N`, ... empty (default `0`)
+- optional expected device launch count per group; `0` checks work coverage without a fixed count (default `0`)
+- optional LL/barrier epoch-wrap verification; requires nonempty work and launch-path verification (default `0`)
+- optional finite FP8 bit-pattern seed (`1`–`256`, AllReduce sum or ReduceScatter average);
+  `0` keeps the normal input pattern (default `0`). The reference models the accumulation type,
+  rank order and final rounding of the selected kernel.
+
+Path verification checks the selected kernel, effective argument prefix, per-launch work count and
+exact coverage of all nonempty works. Empty collectives are discarded before task or plan allocation;
+zero-length P2P remains a communication operation. These diagnostics are correctness tests, not
+performance measurements. `layout` reports the header size, 64-byte work size and current batch capacity.
+
+Run the correctness suite, including forced LL/LD/ST kernels, whole-batch fallback, zero-work groups,
+mixed empty/nonempty works, prime CTA counts, graph replay/destruction, epoch wraparound, FP8 sum/average
+rounding, P2P capacity, insufficient-budget recovery and PCCL-only ENV/cache contracts:
+
+```Shell
+bash tests/unit_test/run_symk_validation.sh tests/unit_test/build/symkMultiTaskTest build/lib
+```
+
+The `p2p-budget` mode accepts `1024|4096` and `0|1` graph mode, checking P2P channel limits and zero-length
+communication followed by nonempty communication. `budget-contract` accepts graph mode and checks
+rejection before launch plus recovery on the same communicator. `kernel-cache-contract` uses the normal
+positional arguments with one float work, registered buffers and symmetric path verification.
+
+The standard single-node CI job builds and runs this suite against its verified build artifact.
+A failed assertion or nonzero test exit fails the required job and `PCCL Tests Gate`.
 
 ## bench_oki ICN benchmark
 

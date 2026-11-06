@@ -167,12 +167,10 @@ struct alignas(16) pcclSymDevArgs {
   char* output;
   bool incPrecision;
 };
+static_assert(sizeof(pcclSymDevArgs) == 80, "CE private arguments must stay 80 bytes");
 #define ncclSymDevArgs pcclSymDevArgs
 
-// Symmetric kernel selection and dispatch live in sym_kernels.h (the multi-task
-// symk path); this header exposes only the device-side types still used by the
-// CE path and by the legacy ncclSymRun_* inline kernel bodies that the
-// generated __global__ wrappers translate into.
+// 对称集合的选择、参数与分发由sym_kernels.h定义；这里保留CE使用的私有同步类型。
 
 __global__ void gpuBarrier(ncclSymDevArgs const args);
 __global__ void gpuGEQ(volatile uint64_t* ptr, uint64_t data);

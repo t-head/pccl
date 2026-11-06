@@ -16,13 +16,16 @@
 ncclResult_t ncclInitKernelsForDevice(size_t* maxStackSize);
 ncclResult_t ncclEnqueueCheck(struct ncclInfo* info);
 ncclResult_t ncclLaunchPrepare(ncclComm_t comm);
-ncclResult_t ncclLaunchKernelBefore_NoUncapturedHggc(ncclComm_t comm, struct ncclKernelPlan* plan);
+ncclResult_t ncclLaunchKernelBefore_NoUncapturedHggc(ncclComm_t comm, struct ncclKernelPlan* plan, bool* ready);
+ncclResult_t pcclWorkFifoCheckAvailable(ncclComm_t comm, uint32_t desiredProduced, bool* available);
 ncclResult_t ncclLaunchKernel(ncclComm_t comm, struct ncclKernelPlan* plan);
 ncclResult_t ncclLaunchKernelAfter_NoHggc(ncclComm_t comm, struct ncclKernelPlan* plan);
 ncclResult_t ncclLaunchFinish(ncclComm_t comm);
 ncclResult_t ncclLaunchReset(ncclComm_t comm);
 ncclResult_t ncclPrepareTasks(ncclComm_t comm, bool* algoNeedConnect, bool* needConnect, ncclSimInfo_t* simInfo = NULL);
 ncclResult_t ncclTasksRegAndEnqueue(ncclComm_t comm);
+ncclResult_t ncclGetAlgoInfo(ncclComm_t comm, ncclTaskColl* task, int collNetSupport,
+                            int nvlsSupport, int numPipeOps, ncclSimInfo_t* simInfo = nullptr);
 
 static inline size_t ncclFuncSendCount(ncclFunc_t func, int nRanks, size_t count) {
   return func == ncclFuncReduceScatter ? nRanks*count : count;

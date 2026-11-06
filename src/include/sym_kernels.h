@@ -13,8 +13,9 @@
 #include "pccl_internal.h"
 #include "pccl_device/core.h"
 #include "../device/symmetric/gin_scratch.h"
-#include "dev_runtime.h"
 #include "bitops.h"
+
+struct ncclDevrWindow;
 
 ////////////////////////////////////////////////////////////////////////////////
 // ncclSymk[Foo]: Kernels built on the device API
@@ -24,6 +25,7 @@
 constexpr int ncclSymkMaxBlocks = 64;
 constexpr int ncclSymkMaxThreads = 512;
 constexpr int ncclSymkLLMaxEltSize = 8;
+constexpr int pcclSymkLLMetadataBytesPerBlock = 128;
 
 constexpr __host__ __device__ int ncclSymkLLMaxSlots(int eltSize = ncclSymkLLMaxEltSize) {
   return ncclSymkMaxThreads * ncclSymkLLMaxEltSize / eltSize;
@@ -31,27 +33,31 @@ constexpr __host__ __device__ int ncclSymkLLMaxSlots(int eltSize = ncclSymkLLMax
 
 enum ncclSymkKernelId {
   ncclSymkKernelId_AllReduce_AGxLL_R,
+  ncclSymkKernelId_AllReduce_AGxLLMC_R,
+  ncclSymkKernelId_AllReduce_RSxTmaLD_AGxTmaST,
   ncclSymkKernelId_AllReduce_RSxLD_AGxST,
+  ncclSymkKernelId_AllReduce_RSxLDMC_AGxSTMC,
 
   ncclSymkKernelId_AllGather_LL,
+  ncclSymkKernelId_AllGather_LLMC,
+  ncclSymkKernelId_AllGather_TmaST,
   ncclSymkKernelId_AllGather_ST,
-  ncclSymkKernelId_AllGather_ST_Ring,
-  ncclSymkKernelId_AllGather_ST_2D,
+  ncclSymkKernelId_AllGather_TmaSTMC,
+  ncclSymkKernelId_AllGather_STMC,
+  ncclSymkKernelId_AllGather_RailRing_LsaSTMC,
 
   ncclSymkKernelId_ReduceScatter_LL,
+  ncclSymkKernelId_ReduceScatter_TmaLD,
   ncclSymkKernelId_ReduceScatter_LD,
+  ncclSymkKernelId_ReduceScatter_LDMC,
+  ncclSymkKernelId_ReduceScatter_RailA2A_LsaLD,
+  ncclSymkKernelId_ReduceScatter_RailA2A_LsaLDMC,
 
   ncclSymkKernelId_Count
 };
 
-struct ncclSymDevBase;
-
-// Extended DevComm for symmetric kernels.
-//   base = lsa-flat self-rank slot of symk->symkWin; ncclSymPrims's
-//          peerPtr(peer, base) = add4G(base, (peer-rank)*stride4G).
 struct ncclSymkDevComm {
   struct ncclDevComm devComm;
-  struct ncclSymDevBase* base;
   struct ncclLLA2AHandle lsaLLA2A;
   struct ncclGinOutboxHandle ginOutbox;
   ncclGinCounter_t ginCounterPerBlock;
@@ -61,18 +67,17 @@ struct ncclSymkDevComm {
 
 struct ncclSymkState {
   bool initialized;
-  bool initInProgress;
+  bool hasLsaMultimem;
   int maxGinInboxBlocks;
   struct ncclSymkDevComm kcomm;
-  struct ncclDevrWindow* symkWin;
 };
 
-struct pcclSymkChannelWorkRange {
+struct ncclSymkChannelWorkRange {
   uint16_t workHi;
   uint16_t fracHi;
 };
 
-struct alignas(16) pcclSymkDevWork {
+struct alignas(16) ncclSymkDevWork {
   uint64_t redOpArg;
   size_t nElts;
   struct ncclWindow_vidmem* inputWin, *outputWin;
@@ -81,28 +86,31 @@ struct alignas(16) pcclSymkDevWork {
   uint64_t sChannelId:16, nChannels:16, padding:32;
 };
 
-struct alignas(16) pcclSymkDevWorkArgs {
+struct alignas(16) ncclSymkDevWorkArgs {
   struct ncclSymkDevComm kcomm;
   int nMaxChannels;
+  int maxDynamicSmem;
 
   __host__ static constexpr size_t calcArgsSize(int nChannels, int nWorks) {
-    return alignUp(sizeof(struct pcclSymkDevWorkArgs), 16)
-         + alignUp(nChannels * sizeof(struct pcclSymkChannelWorkRange), 16)
-         + nWorks * sizeof(struct pcclSymkDevWork);
+    return alignUp(sizeof(struct ncclSymkDevWorkArgs), 16)
+         + alignUp(nChannels * sizeof(struct ncclSymkChannelWorkRange), 16)
+         + nWorks * sizeof(struct ncclSymkDevWork);
   }
-  __host__ __device__ struct pcclSymkChannelWorkRange* getWorkRange() const {
-    return (struct pcclSymkChannelWorkRange*)((uint8_t*)this + alignUp(sizeof(struct pcclSymkDevWorkArgs), 16));
+  __host__ __device__ struct ncclSymkChannelWorkRange* getWorkRange() const {
+    return (struct ncclSymkChannelWorkRange*)((uint8_t*)this + alignUp(sizeof(struct ncclSymkDevWorkArgs), 16));
   }
-  __host__ __device__ struct pcclSymkDevWork* getWorks(int nChannels) const {
-    return (struct pcclSymkDevWork*)((uint8_t*)this->getWorkRange() + alignUp(nChannels * sizeof(struct pcclSymkChannelWorkRange), 16));
+  __host__ __device__ struct ncclSymkDevWork* getWorks(int nChannels) const {
+    return (struct ncclSymkDevWork*)((uint8_t*)this->getWorkRange() + alignUp(nChannels * sizeof(struct ncclSymkChannelWorkRange), 16));
   }
 };
 
-// 4KB by-value: hgLaunchKernelExAD memcpys the full kernel-signature size.
-union pcclSymkDevWorkArgs4K {
-  struct pcclSymkDevWorkArgs args;
+union ncclSymkDevWorkArgs4K {
+  struct ncclSymkDevWorkArgs args;
   char buf4K[4096];
 };
+static_assert(sizeof(ncclSymkDevWork) == 64, "ncclSymkDevWork size");
+static_assert(alignof(ncclSymkDevWork) == 16, "ncclSymkDevWork alignment");
+static_assert(sizeof(ncclSymkDevWorkArgs4K) == 4096, "ncclSymkDevWorkArgs4K size");
 
 // Registration type for symmetric windows
 typedef enum {
@@ -124,25 +132,19 @@ ncclResult_t ncclSymkFinalize(struct pcclComm* comm);
 bool ncclSymkAvailable(struct pcclComm* comm, ncclFunc_t coll, int/*ncclDevRedOp_t*/ red,
                        ncclDataType_t ty, size_t nElts);
 
-// A nonnegative user mask forces symmetric kernel selection.
-int64_t pcclParamSymKernelId();
-
 // Select the best kernel for a set of symmetric operations
 ncclResult_t ncclSymkPickKernel(struct pcclComm* comm, ncclFunc_t coll, int/*ncclDevRedOp_t*/ red, ncclDataType_t ty,
-                                size_t nEltsTotal, size_t nEltsMax, int nWorks, ncclSymRegType_t winRegType,
+                                size_t nEltsTotal, size_t nEltsMax, size_t nEltsActualMax, int nWorks, ncclSymRegType_t winRegType,
                                 float* estTimeUs, ncclSymkKernelId* kernelId, int* nBlocks, int* nWarps, bool* forced);
 
 // Fill a device work descriptor from a task
 struct ncclTaskColl;
-ncclResult_t ncclSymkMakeDevWork(struct pcclComm* comm, struct ncclTaskColl* task, struct pcclSymkDevWork* outDevWork);
+ncclResult_t ncclSymkMakeDevWork(struct pcclComm* comm, struct ncclTaskColl* task, struct ncclSymkDevWork* outDevWork);
 
-// ncclSymkKernelList[]: multi-task wrappers (4KB pcclSymkDevWorkArgs4K).
-// ncclSymkKernelList_fast[]: single-task wrappers (64B ncclSymDevArgs).
-// Scheduler selects via PCCL_PARAM(SymkUseMultiTask); default fast-path.
 extern int const ncclSymkKernelCount;
 extern void* ncclSymkKernelList[];
-extern void* ncclSymkKernelList_fast[];
 extern int ncclSymkKernelRequirements[];
+extern int ncclSymkKernelMaxDynamicSmem[];
 
 // Kernel index lookup
 int ncclSymkGetKernelIndex(ncclSymkKernelId kernelId, int/*ncclDevRedOp_t*/ red, ncclDataType_t ty);
@@ -152,10 +154,8 @@ const char* ncclSymkKernelIdToString(int kernelId);
 ncclResult_t ncclGetSymRegType(struct ncclDevrWindow* sendWin, struct ncclDevrWindow* recvWin, ncclSymRegType_t* winRegType);
 
 int ncclSymkLLKernelMask();
-
-// Ranks per group for the 2D (hierarchical) AllGather. One group maps to one
-// node; this is a functional constant, not a tuning knob. The kernel derives
-// nGroups directly as nRanks/ncclSymkAg2DGroupSize.
-constexpr int ncclSymkAg2DGroupSize = 8;
+int ncclSymkDynamicSmemKernelMask();
+int ncclSymkMaxChunkElts(struct pcclComm* comm, ncclSymkKernelId kernelId, int red, ncclDataType_t ty);
+constexpr int ncclSymkAllGather_RailRing_ChunkSize = 1<<20;
 
 #endif // NCCL_SYM_KERNELS_H_

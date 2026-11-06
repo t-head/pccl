@@ -1,18 +1,27 @@
 /*************************************************************************
  * SPDX-FileCopyrightText: Copyright (c) 2025-2026 NVIDIA CORPORATION & AFFILIATES. All rights reserved.
  * SPDX-FileCopyrightText: Modifications Copyright (c) 2025-2026 T-Head (Shanghai) Semiconductor Co., Ltd. All rights reserved.
- * SPDX-License-Identifier: BSD-3-Clause
+ * SPDX-License-Identifier: BSD-3-Clause AND Apache-2.0
  *
  * See LICENSE.txt for more license information
  *************************************************************************/
 
-#include "symmetric.h"
+#include "sym_kernels.h"
 #include "symmetric/kernel.cuh"
 #include "symmetric/primitives.cuh"
 
+namespace {
+template<template<typename> class Red, typename T>
+struct pcclSymkRsBulkAccumType : ncclSymkAccumType<Red, T> {};
+#if (defined __HGGC_ARCH__) && (__HGGC_ARCH__ >= 150) && defined(__HGGC_FP8_TYPES_EXIST__)
+template<> struct pcclSymkRsBulkAccumType<FuncSum, __hg_fp8_e4m3> { using Type = __hg_fp8_e4m3; };
+template<> struct pcclSymkRsBulkAccumType<FuncSum, __hg_fp8_e5m2> { using Type = __hg_fp8_e5m2; };
+#endif
+}
+
 template<int BytePerPack, int UnrollPacks, int UnrollPeers, typename T, typename Red>
 static __device__ void reduceDeep(
-    ncclSymPrims& prim, int tn, int t, bool waitNeeded,
+    pcclSymkPrims& prim, int tn, int t, bool waitNeeded,
     Red red, char* inputRank0, char* outputHere, int32_t nIters
   ) {
   using Pack = BytePack<BytePerPack>;
@@ -94,7 +103,7 @@ static __device__ void reduceDeep(
     }
 
     #pragma unroll
-    for (int u=0; u < UnrollPacks; u++) acc0[u] = applyCast<Acc, T>(acc1[u]);
+    for (int u=0; u < UnrollPacks; u++) acc0[u] = applyCast<Acc, T>(applyPostOp(red, acc1[u]));
 
     #pragma unroll UnrollPacks
     for (int u=0; u < UnrollPacks; u++) {
@@ -116,7 +125,7 @@ static __device__ void reduceDeep(
 
 template<int UnrollPeers, typename Red, typename T>
 static __device__ void reduceEnds(
-    ncclSymPrims& prim, int tn, int t, Red red,
+    pcclSymkPrims& prim, int tn, int t, Red red,
     T* inputRank0, T* outputHere, size_t nElts, uint32_t nPreElts, size_t nSufElts
   ) {
   using Acc = typename Red::EltType;
@@ -164,20 +173,19 @@ static __device__ void reduceEnds(
       }
     }
 
-    acc0 = applyCast<Acc, T>(acc1);
+    acc0 = applyCast<Acc, T>(applyPostOp(red, acc1));
     outHere[elt] = acc0;
   }
 }
 
-template<typename Red, typename T, bool incPrecision>
+template<typename Red, typename T>
 static __device__ void reduce(
-    ncclSymPrims& prim, int tn, int t, bool waitNeeded,
-    Red red, T* input, T* output, size_t nElts
+    pcclSymkPrims& prim, int tn, int t, bool waitNeeded,
+    Red red, ncclSymPtr<T> inputPtr, T* output, size_t nElts
   ) {
   int nRanks = prim.nRanks;
-  int nBlocks = prim.nBlocks;
   // Move input to rank=0
-  input = prim.peerPtr(0, input);
+  T* input = inputPtr.lsaPtr(0);
 
   uintptr_t inputUptr = reinterpret_cast<uintptr_t>(input);
   uintptr_t outputUptr = reinterpret_cast<uintptr_t>(output);
@@ -191,8 +199,9 @@ static __device__ void reduce(
   if (sizeof(T) >= 4 || (sizeof(T) < 4 && alignment%4 == 0)) {
     {
       // for UnrollPacks*512B
-      constexpr int BytePerPack = 16, UnrollPacks = (sizeof(T) < 2 || (incPrecision && sizeof(T) < 4)) ? 4 : 8;
-      constexpr int UnrollPeers = (sizeof(T) < 2 || (incPrecision && sizeof(T) < 4)) ? 4 : 2;
+      constexpr bool wideAccumulator = sizeof(typename Red::EltType) > sizeof(T);
+      constexpr int BytePerPack = 16, UnrollPacks = (sizeof(T) < 2 || wideAccumulator) ? 4 : 8;
+      constexpr int UnrollPeers = (sizeof(T) < 2 || wideAccumulator) ? 4 : 2;
       constexpr int BytePerWarp = WARP_SIZE*BytePerPack*UnrollPacks;
       uint32_t chunks = (nBytes-cursor)/BytePerWarp;
       if (chunks != 0) {
@@ -233,42 +242,39 @@ static __device__ void reduce(
 
 
 template<template<typename> class Red, typename T>
-__device__ __forceinline__ void pccl_symRun_ReduceScatter_LD(ncclSymDevArgs const* args) {
-  ncclSymPrims prim(args->comm, args->nBlocks, ncclSymPrims_UseBarrier);
-
-  // Round robin warps over blocks.
-  int t = flattenIx(threadIdx.x%WARP_SIZE, WARP_SIZE,
-                    prim.block, prim.nBlocks,
-                    threadIdx.x/WARP_SIZE, blockDim.x/WARP_SIZE);
-  int tn = prim.nBlocks*blockDim.x;
-
-  prim.barrierArrive(ncclCoopCta(), /*release=*/false);
-  //prim.barrierWait(ncclCoopCta(), /*acquire=*/false);
-  if (args->incPrecision) {
-    using Acc = typename ncclSymAccumType<Red, T, true>::Type;
-    Red<Acc> red(args->redOpArg);
-    reduce<Red<Acc>, T, true>(prim, tn, t, /*waitNeeded=*/true, red, (T*)args->input + prim.rank*args->nElts, (T*)args->output, args->nElts);
-  } else {
-    using Acc = typename ncclSymAccumType<Red, T, false>::Type;
-    Red<Acc> red(args->redOpArg);
-    reduce<Red<Acc>, T, false>(prim, tn, t, /*waitNeeded=*/true, red, (T*)args->input + prim.rank*args->nElts, (T*)args->output, args->nElts);
-  }
-
-  prim.barrierArrive(ncclCoopCta(), /*release=*/false);
-  prim.barrierWait(ncclCoopCta(), /*acquire=*/false);
+__device__ __forceinline__ void ncclSymkRun_ReduceScatter_LD(ncclSymkDevWorkArgs const* args) {
+  ncclSymkArgsHandler handler{args};
+  ncclLsaBarrierSession<ncclCoopCta> bar{ncclCoopCta(), handler.comm, ncclTeamTagLsa(), blockIdx.x};
+  pcclSymkPrims prim(handler.comm, bar);
+  using Acc = typename pcclSymkRsBulkAccumType<Red, T>::Type;
+  Red<Acc> red(handler.devWork->redOpArg);
+  int rank = handler.comm.rank;
+  bar.arrive(ncclCoopCta(), hggc::memory_order_relaxed);
+  bool waitNeeded = true;
+  handler.forEachWork<T>([&](int block, int nBlocks, size_t nElts, size_t nAllElts,
+                            ncclSymPtr<T> input, ncclSymPtr<T> output) {
+    int t = flattenIx(threadIdx.x%WARP_SIZE, WARP_SIZE,
+                      block, nBlocks, threadIdx.x/WARP_SIZE, blockDim.x/WARP_SIZE);
+    int tn = nBlocks*blockDim.x;
+    reduce<Red<Acc>, T>(prim, tn, t, waitNeeded, red,
+                       input + rank*nAllElts, output.localPtr(), nElts);
+    waitNeeded = false;
+  });
+  bar.sync(ncclCoopCta(), hggc::memory_order_relaxed);
 }
 
 // T is user type, EltType is the most aligned type
 template<typename T, typename Red, typename EltType>
-__device__ __forceinline__ void pccl_symRun_ReduceScatter_LL_body(
-    ncclSymPrims &prim, Red red, EltType* input, EltType* output, int nElts, int nPacks, int nStrideElts) {
+__device__ __forceinline__ void ncclSymkRun_ReduceScatter_LL_body(
+    ncclSymkArgsHandler& handler, pcclSymkLLa2ASession& lla2a,
+    Red red, EltType* input, EltType* output, int nElts, int nPacks, int nStrideElts) {
   using Pack = BytePack<8>;
   constexpr int EltPerPack = 8/sizeof(EltType);
 
-  int nRanks = prim.nRanks;
-  int rank = prim.rank;
+  int nRanks = handler.comm.nRanks;
+  int rank = handler.comm.rank;
   int t = threadIdx.x;
-  int tn = ncclSymMaxThreads;
+  int tn = ncclSymkMaxThreads;
   ncclCoopCta cta;
 
   #pragma unroll 1
@@ -282,17 +288,21 @@ __device__ __forceinline__ void pccl_symRun_ReduceScatter_LL_body(
     #pragma unroll 1
     for (int i = t; i < nRanks*nIterPacks; i += tn) {
       Pack got = loadPack<Pack>(input + peer*nStrideElts, pack*EltPerPack, nElts);
-      prim.sendLL(peer, rank*nIterPacks + pack, got);
+      lla2a.send(peer, rank*nIterPacks + pack, got);
       peer += tn_div_nPacks;
       pack += tn_mod_nPacks;
       if (nIterPacks <= pack) { peer += 1; pack -= nIterPacks; }
     }
 
     if (t < nIterPacks) {
-      Pack got = prim.template recvReduceLL<Pack, T>(t, nIterPacks, red);
-      storePack(output, t*EltPerPack, nElts, got);
+      using Acc = typename Red::EltType;
+      using AccPack = BytePack<8*sizeof(Acc)/sizeof(T)>;
+      AccPack got = lla2a.template recvReduce<8, Pack>(t, nRanks, nIterPacks,
+          [&](Pack x)->AccPack { return applyCast<T, Acc>(x); },
+          [&](AccPack a, AccPack b)->AccPack { return applyReduce(red, a, b); });
+      storePack(output, t*EltPerPack, nElts, applyCast<Acc, T>(applyPostOp(red, got)));
     }
-    prim.endLL(cta);
+    lla2a.endEpoch(cta);
 
     input += tn*EltPerPack;
     output += tn*EltPerPack;
@@ -301,30 +311,24 @@ __device__ __forceinline__ void pccl_symRun_ReduceScatter_LL_body(
   }
 }
 template<template<typename> class Red, typename T>
-__device__ __forceinline__ void pccl_symRun_ReduceScatter_LL(ncclSymDevArgs const* args) {
-  ncclSymPrims prim(args->comm, args->nBlocks, ncclSymPrims_UseLL);
-  Red<typename ncclSymAccumType<Red, T>::Type> red(args->redOpArg);
-
+__device__ __forceinline__ void ncclSymkRun_ReduceScatter_LL(ncclSymkDevWorkArgs const* args) {
+  ncclSymkArgsHandler handler{args};
+  pcclSymkLLa2ASession lla2a(handler.comm, handler.lsaLLA2A, blockIdx.x);
+  Red<typename ncclSymkAccumType<Red, T>::Type> red(handler.devWork->redOpArg);
   using Pack = BytePack<8>;
   constexpr int EltPerPack = 8/sizeof(T);
-  int nAllElts = args->nElts;
-  int nAllPacks = divUp(nAllElts, EltPerPack);
-  uint32_t nPackPerBlock, nPackModBlock;
-  idivmodFast32(&nPackPerBlock, &nPackModBlock, nAllPacks, prim.nBlocks, prim.nBlocks_rcp32);
-  int blockPackBegin = prim.block*nPackPerBlock + minval<int>(prim.block, nPackModBlock);
-  int blockPackEnd = blockPackBegin + nPackPerBlock + (prim.block < nPackModBlock ? 1 : 0);
-  int nPacks = blockPackEnd - blockPackBegin;
-  int nElts = nAllElts - blockPackBegin*EltPerPack;
-  nElts = min(nElts, nPacks*EltPerPack);
-  T* input = (T*)args->input + blockPackBegin*EltPerPack;
-  T* output = (T*)args->output + blockPackBegin*EltPerPack;
-
-  uint32_t lowBits = args->nElts*sizeof(T);
-  lowBits |= (uint32_t)reinterpret_cast<uintptr_t>(args->input);
-  lowBits |= (uint32_t)reinterpret_cast<uintptr_t>(args->output);
-  if (__builtin_expect(lowBits%8 == 0, true)) {
-    pccl_symRun_ReduceScatter_LL_body<T>(prim, red, (Pack*)input, (Pack*)output, nPacks, nPacks, nAllElts/EltPerPack);
-  } else {
-    pccl_symRun_ReduceScatter_LL_body<T>(prim, red, input, output, nElts, nPacks, nAllElts);
-  }
+  handler.singleWork<T>([&](size_t nElts, size_t nAllElts,
+                            ncclSymPtr<T> inputPtr, ncclSymPtr<T> outputPtr) {
+    int nPacks = divUp(nElts, EltPerPack);
+    T* input = inputPtr.localPtr();
+    T* output = outputPtr.localPtr();
+    uintptr_t lowBits = nAllElts*sizeof(T) | reinterpret_cast<uintptr_t>(input) |
+                        reinterpret_cast<uintptr_t>(output);
+    if (__builtin_expect(lowBits%8 == 0, true)) {
+      ncclSymkRun_ReduceScatter_LL_body<T>(handler, lla2a, red, (Pack*)input, (Pack*)output,
+                                          nPacks, nPacks, divUp(nAllElts, EltPerPack));
+    } else {
+      ncclSymkRun_ReduceScatter_LL_body<T>(handler, lla2a, red, input, output, nElts, nPacks, nAllElts);
+    }
+  });
 }

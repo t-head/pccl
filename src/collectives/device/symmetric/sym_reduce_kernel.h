@@ -1,7 +1,7 @@
 /*************************************************************************
  * SPDX-FileCopyrightText: Copyright (c) 2015-2026 NVIDIA CORPORATION & AFFILIATES. All rights reserved.
  * SPDX-FileCopyrightText: Modifications Copyright (c) 2025-2026 T-Head (Shanghai) Semiconductor Co., Ltd. All rights reserved.
- * SPDX-License-Identifier: BSD-3-Clause
+ * SPDX-License-Identifier: BSD-3-Clause AND Apache-2.0
  *
  * See LICENSE.txt for more license information
  *************************************************************************/
@@ -599,7 +599,63 @@ struct Apply_PreOp<FuncPreMulSum<half>, /*EltPerPack=*/1> {
 ////////////////////////////////////////////////////////////////////////////////
 // FuncSumPostDiv
 
-// TODO
+template<>
+struct FuncSumPostDiv<float> {
+  using EltType = float;
+  float scalar;
+  __device__ __forceinline__ FuncSumPostDiv(uint64_t opArg) {
+    union { uint64_t u64; float val; };
+    u64 = opArg;
+    scalar = val;
+  }
+};
+
+template<>
+struct FuncSumPostDiv<half> {
+  using EltType = half;
+  __half2 scalar;
+  __device__ __forceinline__ FuncSumPostDiv(uint64_t opArg) {
+    union { uint64_t u64; half val; };
+    u64 = opArg;
+    scalar.x = val;
+    scalar.y = val;
+  }
+};
+
+template<typename T, int EltPerPack>
+struct Apply_Reduce<FuncSumPostDiv<T>, EltPerPack>: Apply_Reduce<FuncSum<T>, EltPerPack> {
+  __device__ __forceinline__ static BytePack<EltPerPack*sizeof(T)> reduce(
+      FuncSumPostDiv<T> fn, BytePack<EltPerPack*sizeof(T)> a, BytePack<EltPerPack*sizeof(T)> b) {
+    return Apply_Reduce<FuncSum<T>, EltPerPack>::reduce(FuncSum<T>(), a, b);
+  }
+};
+
+template<>
+struct Apply_PostOp<FuncSumPostDiv<float>, 1> {
+  static constexpr bool IsIdentity = false;
+  __device__ __forceinline__ static BytePack<sizeof(float)> postOp(
+      FuncSumPostDiv<float> fn, BytePack<sizeof(float)> a) {
+    return toPack<float>(fromPack<float>(a)*fn.scalar);
+  }
+};
+
+template<>
+struct Apply_PostOp<FuncSumPostDiv<half>, 1> {
+  static constexpr bool IsIdentity = false;
+  __device__ __forceinline__ static BytePack<sizeof(half)> postOp(
+      FuncSumPostDiv<half> fn, BytePack<sizeof(half)> a) {
+    return toPack<half>(__hmul(fromPack<half>(a), fn.scalar.x));
+  }
+};
+
+template<>
+struct Apply_PostOp<FuncSumPostDiv<half>, 2> {
+  static constexpr bool IsIdentity = false;
+  __device__ __forceinline__ static BytePack<sizeof(half2)> postOp(
+      FuncSumPostDiv<half> fn, BytePack<sizeof(half2)> a) {
+    return toPack<half2>(__hmul2(fromPack<half2>(a), fn.scalar));
+  }
+};
 
 #define LOC_BULK_CP 0
 #define RMT_BULK_CP_C 0

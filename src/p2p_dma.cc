@@ -8,6 +8,7 @@
 #include "p2p_dma.h"
 #include "comm.h"
 #include "enqueue.h"
+#include "gdrwrap.h"
 #include "param.h"
 #include "bootstrap.h"
 #include "dev_runtime.h"
@@ -85,8 +86,7 @@ static int p2pDmaTakeableFromQueue(struct ncclIntruQueue<struct ncclTaskP2p, &nc
 
 bool pcclP2pDmaEligible(struct pcclComm* comm) {
   if (!pcclP2pDmaEnabled(comm)) return false;
-  // nNodes == 1 is already implied by pcclP2pDmaEnabled -> ncclCeSupported.
-  if (!ncclDevrIsOneLsaTeam(comm)) return false; // lsa index == world rank, assumed below
+  if (!ncclDevrIsOneLsaTeam(comm)) return false;
   // With a size threshold set, a group can be entirely below it. Building a plan
   // then would consume nothing, so the planner has to be told to use the kernel
   // path instead of looping on an empty batch.
@@ -156,16 +156,6 @@ ncclResult_t pcclP2pDmaFinalize(struct pcclComm* comm) {
 // native uploadWork() FIFO discipline, but the DMA p2p plan is not a normal
 // ncclDevKernelArgs plan and therefore must reserve its work list itself.
 
-static ncclResult_t p2pDmaWaitWorkFifoAvailable(ncclComm_t comm, uint32_t desiredProduced) {
-  bool hasRoom = (desiredProduced - comm->workFifoConsumed) <= comm->workFifoBytes;
-  while (!hasRoom) {
-    NCCLCHECK(ncclCommPollEventCallbacks(comm, /*waitSome=*/true));
-    hasRoom = (desiredProduced - comm->workFifoConsumed) <= comm->workFifoBytes;
-    if (!hasRoom) sched_yield();
-  }
-  return ncclSuccess;
-}
-
 // Carve the device-visible work list out of the comm's existing work FIFO,
 // rather than allocating a private buffer: the FIFO is already a host/device
 // mirrored ring with produced/consumed accounting, which is exactly what the
@@ -173,25 +163,41 @@ static ncclResult_t p2pDmaWaitWorkFifoAvailable(ncclComm_t comm, uint32_t desire
 // FIFO size (see p2pDmaWorstCaseWorkBytes). The run is non-wrapping so the
 // kernel sees one contiguous array.
 static ncclResult_t p2pDmaReserveWorks(ncclComm_t comm, size_t bytes, struct pcclP2pDmaWork** outHost,
-                                       struct pcclP2pDmaWork** outDev) {
+                                       struct pcclP2pDmaWork** outDev, uint32_t* outProducedBefore, bool* available) {
+  *outProducedBefore = comm->workFifoProduced;
+  *available = true;
   if (bytes == 0) {
     *outHost = nullptr;
     *outDev = nullptr;
     return ncclSuccess;
   }
   bytes = alignUp(bytes, (size_t)16);
+  if (bytes > comm->workFifoBytes) return ncclInternalError;
   uint32_t off = alignUp(comm->workFifoProduced, 16);
-  NCCLCHECK(p2pDmaWaitWorkFifoAvailable(comm, off + bytes));
   uint32_t mask = comm->workFifoBytes - 1;
-  // Keep this simple and non-wrapping. If the aligned run would straddle the
-  // ring end, skip to the next lap. workFifoBytes is power-of-two checked at
-  // comm init.
+  // Keep the array contiguous. workFifoBytes is power-of-two checked at init.
   if (((off & mask) + bytes) > comm->workFifoBytes) {
     off = alignUp((off + comm->workFifoBytes) & ~mask, 16);
-    NCCLCHECK(p2pDmaWaitWorkFifoAvailable(comm, off + bytes));
   }
+  if ((uint32_t)(off + bytes - comm->workFifoProduced) > comm->workFifoBytes) {
+    // A near-full batch plus wrap padding cannot fit even after all old work
+    // completes. Drain recorded work first, then discard only unused padding.
+    NCCLCHECK(pcclWorkFifoCheckAvailable(comm, comm->workFifoProduced + comm->workFifoBytes, available));
+    if (!*available) return ncclSuccess;
+    if (!ncclIntruQueueEmpty(&comm->eventCallbackQueue)) {
+      *available = false;
+      return ncclSuccess;
+    }
+    comm->workFifoConsumed = off;
+    comm->workFifoProduced = off;
+    comm->workFifoProducedLastRecorded = off;
+    comm->workFifoProducedLastSubmitted = off;
+  }
+  NCCLCHECK(pcclWorkFifoCheckAvailable(comm, off + bytes, available));
+  if (!*available) return ncclSuccess;
   *outHost = (struct pcclP2pDmaWork*)((char*)comm->workFifoBuf + (off & mask));
   *outDev = (struct pcclP2pDmaWork*)((char*)comm->workFifoBufDev + (off & mask));
+  *outProducedBefore = comm->workFifoProduced;
   comm->workFifoProduced = off + bytes;
   return ncclSuccess;
 }
@@ -238,12 +244,13 @@ static bool p2pDmaDetectWindows(struct pcclComm* comm, struct ncclDevrWindow** o
 }
 
 ////////////////////////////////////////////////////////////////////////////////
-// Plan args: the by-value device args plus the host-only bits pcclP2pDmaLaunch
-// needs (die count, thread count). Lives in comm->memScoped, which outlives the
-// launch.
+// Plan args: the by-value device args plus the host-only work staging and launch
+// dimensions. comm->memScoped outlives submission; only devArgs is copied into
+// the kernel arguments, with works pointing at the FIFO rather than staging.
 
 struct pcclP2pDmaPlanArgs {
   struct pcclP2pDmaArgs devArgs;
+  struct pcclP2pDmaWork* worksHost;
   int nDies;
   int nThreads;
 };
@@ -304,12 +311,12 @@ ncclResult_t pcclP2pDmaBuildPlan(struct pcclComm* comm, struct ncclKernelPlan* p
   uint64_t rankFlatBase = (uint64_t)::add4G(comm->devrState.lsaFlatBase, (int)(rank * stride4G));
 
   struct pcclP2pDmaPlanArgs* planArgs = ncclMemoryStackAlloc<struct pcclP2pDmaPlanArgs>(&comm->memScoped);
-  struct pcclP2pDmaWork* worksHost = nullptr;
-  struct pcclP2pDmaWork* worksDev = nullptr;
-  NCCLCHECK(p2pDmaReserveWorks(comm, (size_t)(numSends + numRecvs) * sizeof(struct pcclP2pDmaWork),
-                               &worksHost, &worksDev));
+  // Prepare every batch independently without consuming device FIFO space.
+  struct pcclP2pDmaWork* worksHost = ncclMemoryStackAlloc<struct pcclP2pDmaWork>(
+      &comm->memScoped, numSends + numRecvs);
+  planArgs->worksHost = worksHost;
   struct pcclP2pDmaWork* sendWorks = worksHost;
-  struct pcclP2pDmaWork* recvWorks = worksHost ? worksHost + numSends : nullptr;
+  struct pcclP2pDmaWork* recvWorks = worksHost + numSends;
 
   int sendIndex = 0, recvIndex = 0;
   void* apiEvent = nullptr;
@@ -381,7 +388,7 @@ ncclResult_t pcclP2pDmaBuildPlan(struct pcclComm* comm, struct ncclKernelPlan* p
   planArgs->devArgs.abortFlag = comm->abortFlagDev;
   planArgs->devArgs.nSend = numSends;
   planArgs->devArgs.nRecv = numRecvs;
-  planArgs->devArgs.works = worksDev;
+  planArgs->devArgs.works = nullptr;
   planArgs->nDies = p2pDmaDies();
   planArgs->devArgs.nDoneSignallers = planArgs->nDies;
 #if PCCL_HGGC_VERSION >= PCCL_HGGC_DRIVER_VERSION(2, 2, 0)
@@ -425,6 +432,27 @@ ncclResult_t pcclP2pDmaBuildPlan(struct pcclComm* comm, struct ncclKernelPlan* p
 // Submission
 
 #if PCCL_HGGC_VERSION >= PCCL_HGGC_DRIVER_VERSION(2, 2, 0)
+struct pcclP2pDmaFinishCallback {
+  struct ncclCommEventCallback base;
+  uint32_t workFifoConsumed;
+};
+
+static ncclResult_t p2pDmaDestroyFinishCallback(struct pcclP2pDmaFinishCallback* cb) {
+  ncclResult_t result = ncclSuccess;
+  if (cb->base.event != nullptr) {
+    HGGCCHECKGOTO(hggcEventDestroy(cb->base.event), result, finish);
+  }
+finish:
+  NCCLCHECKIGNORE(ncclFree(cb), result);
+  return result;
+}
+
+static ncclResult_t pcclP2pDmaFinishCallback_fn(ncclComm_t comm, struct ncclCommEventCallback* cb) {
+  struct pcclP2pDmaFinishCallback* me = (struct pcclP2pDmaFinishCallback*)cb;
+  comm->workFifoConsumed = me->workFifoConsumed;
+  return p2pDmaDestroyFinishCallback(me);
+}
+
 static ncclResult_t p2pDmaLaunchOki(struct pcclComm* comm, struct pcclP2pDmaPlanArgs* pa, hggcStream_t stream) {
   ltOkiQP_t* qps = comm->okiQps;
   // Symmetric window registration initializes CE storage before P2P admission.
@@ -443,12 +471,55 @@ static ncclResult_t p2pDmaLaunchOki(struct pcclComm* comm, struct pcclP2pDmaPlan
 }
 #endif
 
-ncclResult_t pcclP2pDmaLaunch(struct pcclComm* comm, struct ncclKernelPlan* plan) {
+ncclResult_t pcclP2pDmaLaunch(struct pcclComm* comm, struct ncclKernelPlan* plan, bool* launched) {
+  *launched = false;
   struct pcclP2pDmaPlanArgs* pa = (struct pcclP2pDmaPlanArgs*)plan->kernelSymkArgs;
-  if (pa->devArgs.nSend == 0 && pa->devArgs.nRecv == 0) return ncclSuccess;
+  if (pa->devArgs.nSend == 0 && pa->devArgs.nRecv == 0) {
+    *launched = true;
+    return ncclSuccess;
+  }
 
 #if PCCL_HGGC_VERSION >= PCCL_HGGC_DRIVER_VERSION(2, 2, 0)
-  return p2pDmaLaunchOki(comm, pa, comm->planner.streams->stream);
+  ncclResult_t result = ncclSuccess;
+  struct pcclP2pDmaFinishCallback* cb = nullptr;
+  struct pcclP2pDmaPlanArgs launchArgs = *pa;
+  struct pcclP2pDmaWork* worksHost = nullptr;
+  size_t byteCount = (size_t)(pa->devArgs.nSend + pa->devArgs.nRecv) * sizeof(struct pcclP2pDmaWork);
+  uint32_t producedBefore = comm->workFifoProduced;
+  bool reserved = false, submitted = false, available = false;
+  hggcStream_t stream = comm->planner.streams->stream;
+
+  NCCLCHECKGOTO(p2pDmaReserveWorks(comm, byteCount, &worksHost, &launchArgs.devArgs.works,
+                                 &producedBefore, &available), result, fail);
+  if (!available) return ncclSuccess;
+  reserved = true;
+  NCCLCHECKGOTO(ncclCalloc(&cb, 1), result, fail);
+  cb->base.fn = pcclP2pDmaFinishCallback_fn;
+  HGGCCHECKGOTO(hggcEventCreateWithFlags(&cb->base.event, hggcEventDisableTiming), result, fail);
+  memcpy(worksHost, pa->worksHost, byteCount);
+  if (comm->workFifoBufGdrHandle != nullptr) wc_store_fence();
+  cb->workFifoConsumed = comm->workFifoProduced;
+
+  submitted = true;
+  NCCLCHECKGOTO(p2pDmaLaunchOki(comm, &launchArgs, stream), result, fail);
+  comm->workFifoProducedLastSubmitted = cb->workFifoConsumed;
+  // Record before any following plan reserves FIFO space, not at group finish.
+  HGGCCHECKGOTO(hggcEventRecord(cb->base.event, stream), result, fail);
+  comm->workFifoProducedLastRecorded = cb->workFifoConsumed;
+  ncclIntruQueueEnqueue(&comm->eventCallbackQueue, &cb->base);
+  *launched = true;
+  return ncclSuccess;
+
+fail:
+  if (submitted) {
+    // Peers may not be submitted yet; retain the reservation and abort without synchronizing here.
+    __atomic_store_n(comm->abortFlag, 1, __ATOMIC_RELEASE);
+    __atomic_store_n(comm->abortFlagDev, 1, __ATOMIC_RELEASE);
+  } else if (reserved) {
+    comm->workFifoProduced = producedBefore;
+  }
+  if (cb) NCCLCHECKIGNORE(p2pDmaDestroyFinishCallback(cb), result);
+  return result;
 #else
   return ncclInternalError;
 #endif

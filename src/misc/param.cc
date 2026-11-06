@@ -18,11 +18,9 @@
 #include <sys/types.h>
 #include <unistd.h>
 #include <pthread.h>
-#include <pwd.h>
 
 const char* userHomeDir() {
-  struct passwd *pwUser = getpwuid(getuid());
-  return pwUser == NULL ? NULL : pwUser->pw_dir;
+  return getenv("HOME");
 }
 
 void setEnvFile(const char* fileName) {
@@ -35,8 +33,9 @@ void setEnvFile(const char* fileName) {
   size_t n = 0;
   ssize_t read;
   while ((read = getline(&line, &n, file)) != -1) {
+    if (read > 0 && line[read-1] == '\n') line[--read] = '\0';
+    if (read > 0 && line[read-1] == '\r') line[--read] = '\0';
     if (line[0] == '#') continue;
-    if (line[read-1] == '\n') line[read-1] = '\0';
     int s=0; // Env Var Size
     while (line[s] != '\0' && line[s] != '=') s++;
     if (line[s] == '\0') continue;
@@ -104,28 +103,8 @@ int64_t ncclLoadParam(char const* env, int64_t deftVal, int64_t uninitialized, i
 }
 
 const char* pcclGetEnvWithDualPrefix(const char* name) {
-  if (name == NULL) {
-    return NULL;
-  }
-
-  const char *value = NULL;
-  const char *ncclValue = NULL;
-  const char *pcclValue = NULL;
-  const int envNameLength = 64;
-  const int envPrefixLength = strlen("PCCL");
-  char ncclEnvName[envNameLength];
-  char pcclEnvName[envNameLength];
-  ncclEnvName[0] = '\0';
-  pcclEnvName[0] = '\0';
-  if ((name[0] == 'N' || name[0] == 'P') && (strncmp(name+1, "CCL_", 4) == 0)) {
-    if (snprintf(pcclEnvName, envNameLength, "PCCL%s", name+envPrefixLength) >= envNameLength) pcclEnvName[0] = '\0';
-    if (snprintf(ncclEnvName, envNameLength, "PCCL%s", name+envPrefixLength) >= envNameLength) ncclEnvName[0] = '\0';
-    else ncclEnvName[0] = 'N';
-  }
-  if (strlen(ncclEnvName) > 0) ncclValue = getenv(ncclEnvName);
-  if (strlen(pcclEnvName) > 0) pcclValue = getenv(pcclEnvName);
-  value = pcclValue ? pcclValue : (ncclValue ? ncclValue : getenv(name));
-  return value;
+  if (name == nullptr || strncmp(name, "NCCL_", 5) == 0) return nullptr;
+  return getenv(name);
 }
 
 const char* ncclGetEnv(const char* name) {

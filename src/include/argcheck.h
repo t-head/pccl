@@ -9,12 +9,19 @@
 #ifndef NCCL_ARGCHECK_H_
 #define NCCL_ARGCHECK_H_
 
-#include "core.h"
 #include "info.h"
+
+struct ncclArgsInfo {
+  struct ncclInfo info;
+  struct ncclArgsInfo* next;
+};
+
+#include "core.h"
 
 ncclResult_t PtrCheck(const void* ptr, const char* opname, const char* ptrname);
 ncclResult_t CommCheck(ncclComm_t comm, const char* opname, const char* ptrname);
 ncclResult_t ArgsCheck(struct ncclInfo* info);
 ncclResult_t HggcPtrCheck(const void* pointer, ncclComm_t comm, const char* ptrname, const char* opname);
+ncclResult_t ncclArgsGlobalCheck(struct ncclArgsInfo* info);
 
 #endif

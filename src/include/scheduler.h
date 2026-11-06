@@ -13,7 +13,7 @@
 #include "comm.h"
 
 ncclResult_t ncclMakeSymmetricTaskList(struct pcclComm* comm,
-    struct ncclIntruQueue<struct ncclTaskColl, &ncclTaskColl::next>* collTaskQueue,
+    struct ncclTaskColl* task,
     struct ncclIntruQueue<struct ncclTaskColl, &ncclTaskColl::next>* symTaskQueue,
     struct ncclTaskColl** remainTasksHead);
 

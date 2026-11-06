@@ -216,6 +216,7 @@ PCCL_DEVICE_INLINE void pcclLLA2ASession<Coop>::endEpoch(Coop) {
     for (int i=this->coop.thread_rank(); i < this->handle.nSlots; i += this->coop.size()) {
       buf[i] = uint4{0, 0, 0, 0};
     }
+    __threadfence_system();
   }
   this->coop.sync();
   this->epoch += (this->epoch == -1u) ? 3 : 1;

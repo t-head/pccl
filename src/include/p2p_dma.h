@@ -110,7 +110,7 @@ ncclResult_t pcclP2pDmaFinalize(struct pcclComm* comm);
 // Take at most pcclP2pDmaOpsPerPeer operations per peer, leaving the remainder queued.
 ncclResult_t pcclP2pDmaBuildPlan(struct pcclComm* comm, struct ncclKernelPlan* plan);
 
-ncclResult_t pcclP2pDmaLaunch(struct pcclComm* comm, struct ncclKernelPlan* plan);
+ncclResult_t pcclP2pDmaLaunch(struct pcclComm* comm, struct ncclKernelPlan* plan, bool* launched);
 
 ////////////////////////////////////////////////////////////////////////////////
 // Device entry points (defined in collectives/device/symmetric/p2p_dma_kernel.cuh)

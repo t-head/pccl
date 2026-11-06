@@ -668,6 +668,11 @@ jobs:
               --pccl-revision '${{ github.sha }}' \
               --expected-sha256 '${{ env.EXPECTED_SHA }}' \
               --output "$RESULT_ROOT"
+            if [ '${{ matrix.profile }}' = standard ]; then
+              bash "$build_output/pccl/tests/unit_test/run_symk_validation.sh" \
+                "$build_output/pccl/tests/unit_test/build/symkMultiTaskTest" \
+                "$build_output/lib" | tee "$RESULT_ROOT/symk-validation.log"
+            fi
 
   two-node:
     name: Two-node master-only CSV (${{ matrix.platform }})

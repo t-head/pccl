@@ -85,7 +85,8 @@ make -C ${source_home}/pccl/tests/unit_test/src \
   BUILDDIR=${NATIVE_UNIT_BUILD} \
   ${NATIVE_UNIT_BUILD}/collPcclUnitTest \
   ${NATIVE_UNIT_BUILD}/hggcGraphUnitTest \
-  ${NATIVE_UNIT_BUILD}/pcclCommAbortTest
+  ${NATIVE_UNIT_BUILD}/pcclCommAbortTest \
+  ${NATIVE_UNIT_BUILD}/symkMultiTaskTest
 cp ${NATIVE_UNIT_BUILD}/collPcclUnitTest \
   ${NATIVE_UNIT_BUILD}/hggcGraphUnitTest \
   ${NATIVE_UNIT_BUILD}/pcclCommAbortTest \
