@@ -161,10 +161,10 @@ jobs:
             chmod 0755 /tmp/pccl-noapt/apt
             PATH="/tmp/pccl-noapt:$PATH" bash pccl/.github/workflows/scripts/build.sh
             tar -czf "$RUN_ROOT/output_standard.tar.gz" -C "$RUN_ROOT" output_cluster
-            python3 -S -B pccl/tests/xtest/build_evidence.py create \
+            python3 -S -B "$build_output/pccl/tests/xtest/build_evidence.py" create \
               --archive "$RUN_ROOT/output_standard.tar.gz" \
-              --pccl-revision "$(git -C pccl rev-parse HEAD)" \
-              --pccl-tests-revision "$(git -C pccl-tests rev-parse HEAD)" \
+              --pccl-revision "$(git -C "$build_output/pccl" rev-parse HEAD)" \
+              --pccl-tests-revision "$(git -C "$build_output/pccl-tests" rev-parse HEAD)" \
               --profile standard --output "$RUN_ROOT/output_standard.build.json"
             source /usr/local/PPU_SDK/envsetup.sh
             export LD_LIBRARY_PATH="$build_output/lib:${LD_LIBRARY_PATH:-}"

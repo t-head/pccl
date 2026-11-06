@@ -199,7 +199,7 @@ class ClusterCiTests(unittest.TestCase):
     self.assertIn('cluster_ci.py diagnose', workflow)
     self.assertIn('cluster_ci.py summary', workflow)
     self.assertNotIn('github.run_attempt', workflow)
-    self.assertIn('build_evidence.py create', workflow)
+    self.assertIn('build_evidence.py" create', workflow)
     self.assertIn('--build-record "$RUN_ROOT/output_standard.build.json"', workflow)
     self.assertIn('--build-archive "$RUN_ROOT/output_standard.tar.gz"', workflow)
     self.assertNotIn('ppu-scheduler-action@', workflow)
