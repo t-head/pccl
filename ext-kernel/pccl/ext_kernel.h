@@ -76,7 +76,7 @@ typedef pcclDataType_t ncclDataType_t;
  * Reduction operations
  *========================================================================*/
 typedef enum {
-  ncclDevSum, ncclDevProd, ncclDevMax, ncclDevMin,
+  ncclDevSum, ncclDevProd, ncclDevMinMax,
   ncclDevPreMulSum, ncclDevSumPostDiv,
   ncclNumDevRedOps
 } pcclDevRedOp_t ;

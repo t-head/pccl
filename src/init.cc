@@ -952,15 +952,15 @@ static ncclResult_t setupChannel(ncclComm_t comm, int channelId, int rank, int n
   NCCLCHECK(initChannel(comm, channelId));
 
   struct ncclRing* ring = &comm->channels[channelId].ring;
-  // Reorganize ranks to start with rank.
-  int shift;
-  for (shift = 0; shift<nranks; shift++) {
-    if (ringRanks[shift] == rank) {
-      break;
-    }
-  }
+  // Find our ring-distance from rank zero and reorganize ranks to start with rank.
+  int ixZero = 0, ixRank = 0;
   for (int i=0; i<nranks; i++) {
-    ring->userRanks[i] = ringRanks[(i+shift)%nranks];
+    if (ringRanks[i] == 0) ixZero = i;
+    if (ringRanks[i] == rank) ixRank = i;
+  }
+  ring->index = (ixRank - ixZero + nranks) % nranks;
+  for (int i=0; i<nranks; i++) {
+    ring->userRanks[i] = ringRanks[(i+ixRank)%nranks];
   }
   return ncclSuccess;
 }
@@ -1004,6 +1004,7 @@ ncclResult_t ncclCommSetIntraProc(ncclComm_t comm) {
 #define DEFAULT_SIGNAL_BULK_BUFFSIZE_ARM (1 << 20) /* 1MiB */
 #define DEFAULT_SIMPLE_BULK_AR_BUFFSIZE (1 << 22) /* 4MiB */
 #define DEFAULT_SIMPLE_BULK_AR_BUFFSIZE_ARM (1 << 20) /* 1MiB */
+
 NCCL_PARAM(BuffSize, "BUFFSIZE", -2);
 NCCL_PARAM(LlBuffSize, "LL_BUFFSIZE", -2);
 NCCL_PARAM(Ll128BuffSize, "LL128_BUFFSIZE", -2);
@@ -1026,6 +1027,8 @@ static ncclResult_t computeBuffSizes(ncclComm_t comm) {
   for (int p=0; p<NCCL_NUM_PROTOCOLS; p++) {
     comm->buffSizes[p] = comm->hostDevComm.comm.buffSizes[p] = envs[p] != -2 ? envs[p] : defaults[p];
   }
+
+
   return ncclSuccess;
 }
 
@@ -1559,11 +1562,11 @@ static ncclResult_t initTransportsRank(ncclComm_t comm, ncclComm_t parent, uint6
   }
 
   // ensure that the die detecting / channel computing is done
-  // funcStrategy is indexed by [0, TOTAL_FUNCS_NUM) for standard collectives and
-  // by [TOTAL_FUNCS_NUM, TOTAL_FUNCS_NUM + ncclSymkKernelId_Count) for symk
+  // funcStrategy is indexed by [0, pcclFuncIdCount) for standard collectives and
+  // by [pcclFuncIdCount, pcclFuncIdCount + ncclSymkKernelId_Count) for symk
   // entries (one slot per ncclSymkKernelId enum value, see enqueue.cc::
   // ncclSetDispatchStrategy and symmetric_sched.cc::plan->symFuncIndex).
-  NCCLCHECKGOTO(ncclCalloc(&comm->funcStrategy, TOTAL_FUNCS_NUM + (int)ncclSymkKernelId_Count), res, fail);
+  NCCLCHECKGOTO(ncclCalloc(&comm->funcStrategy, pcclFuncIdCount + (int)ncclSymkKernelId_Count), res, fail);
   NCCLCHECKGOTO(initDefaultDispatchStrategy(comm, ppuDiesNum), res, fail);
 
   if (comm->nNodes > 1 &&

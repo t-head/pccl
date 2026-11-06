@@ -347,64 +347,63 @@ overfill:
   goto exit;
 }
 
-void getKerFuncStr(const int funcIndexIn, char *funcStr, int *funcType, int *dataType) {
+void getKerFuncStr(const int funcId, char *funcStr) {
   const char* ncclDataTypeStr[ncclNumTypes] = { "int8_t", "uint8_t", "int32_t", "uint32_t", "int64_t", "uint64_t", "half", "float", "double", "bfloat16" , "fp8e4m3", "fp8e5m2" };
-  const char* ncclRedOpStr[ncclNumDevRedOps] = { "Sum", "Prod", "Max", "Min", "PreMulSum", "SumPostDiv" };
+  const char* ncclRedOpStr[ncclNumDevRedOps] = { "Sum", "Prod", "MinMax", "PreMulSum", "SumPostDiv" };
   constexpr int funcRange = ncclNumDevRedOps * ncclNumTypes * NCCL_NUM_ALGORITHMS * NCCL_NUM_PROTOCOLS;
   constexpr int redopRange = ncclNumTypes * NCCL_NUM_ALGORITHMS * NCCL_NUM_PROTOCOLS;
   constexpr int typeRange = NCCL_NUM_ALGORITHMS * NCCL_NUM_PROTOCOLS;
   constexpr int algoRange = NCCL_NUM_PROTOCOLS;
-  // p2p first
-  int funcIndex = 0;
-  int datatypeIndex = 0;;
-  if (funcIndexIn < NUM_P2P_FUNC) {
-    if (funcStr != NULL) {
-      switch(funcIndexIn) {
-        case FUNC_INDEX_P2P_SIMPLE:
-          sprintf(funcStr, "%s", "SendRecv_Ring_Simple_Sum_int8_t");
-          break;
-        case FUNC_INDEX_P2P_SIMPLE_BULK:
-          sprintf(funcStr, "%s", "SendRecv_Ring_SimpleBulk_Sum_int8_t");
-          break;
-        case FUNC_INDEX_P2P_SIGNAL:
-          sprintf(funcStr, "%s", "SendRecv_Ring_Signal_Sum_int8_t");
-          break;
-        case FUNC_INDEX_P2P_SIGNAL_BULK:
-          sprintf(funcStr, "%s", "SendRecv_Ring_SignalBulk_Sum_int8_t");
-          break;
-        case FUNC_INDEX_P2P_SIMPLE_BULK_AR:
-          sprintf(funcStr, "%s", "SendRecv_Ring_SimpleBulkAR_Sum_int8_t");
-          break;
-        default:
-          sprintf(funcStr, "%s", "Invalid Kernel");
-          break;
-      }
-    }
-    funcIndex = ncclFuncSendRecv;
-    datatypeIndex = ncclInt8;
-  } else {
-    // coll compute
-    int collIndex  = funcIndexIn - NUM_P2P_FUNC;
-    funcIndex = collIndex / funcRange;
-    int offset = collIndex - funcIndex * funcRange;
-    int redopIndex  = offset / redopRange;
-    offset -= redopIndex * redopRange;
-    datatypeIndex = offset / typeRange;
-    offset -= datatypeIndex * typeRange;
-    int algoIndex = offset / algoRange;
-    offset -= algoIndex * algoRange;
 
-    if (funcStr != NULL) {
-      sprintf(funcStr, "%s_%s_%s_%s_%s",
-            ncclFuncStr[funcIndex],
-            ncclAlgoStr[algoIndex],
-            ncclProtoStr[offset],
-            ncclRedOpStr[redopIndex],
-            ncclDataTypeStr[datatypeIndex]);
-    }
+  if (funcId < 0 || funcId >= pcclFuncIdCount) {
+    sprintf(funcStr, "%s", "Invalid Kernel");
+    return;
   }
-  if (funcType != NULL) *funcType = funcIndex;
-  if (dataType != NULL) *dataType = datatypeIndex;
+  
+  const int funcIndexIn = pcclFuncIdToRow[funcId];
+
+  // p2p first
+  if (funcIndexIn < NUM_P2P_FUNC) {
+    switch(funcIndexIn) {
+      case FUNC_INDEX_P2P_SIMPLE:
+        sprintf(funcStr, "%s", "SendRecv_Ring_Simple_Sum_int8_t");
+        break;
+      case FUNC_INDEX_P2P_SIMPLE_BULK:
+        sprintf(funcStr, "%s", "SendRecv_Ring_SimpleBulk_Sum_int8_t");
+        break;
+      case FUNC_INDEX_P2P_SIGNAL:
+        sprintf(funcStr, "%s", "SendRecv_Ring_Signal_Sum_int8_t");
+        break;
+      case FUNC_INDEX_P2P_SIGNAL_BULK:
+        sprintf(funcStr, "%s", "SendRecv_Ring_SignalBulk_Sum_int8_t");
+        break;
+      case FUNC_INDEX_P2P_SIMPLE_BULK_AR:
+        sprintf(funcStr, "%s", "SendRecv_Ring_SimpleBulkAR_Sum_int8_t");
+        break;
+      default:
+        sprintf(funcStr, "%s", "Invalid Kernel");
+        break;
+    }
+    return;
+  }
+
+  // coll compute
+  int collIndex  = funcIndexIn - NUM_P2P_FUNC;
+  int funcIndex = collIndex / funcRange;
+  int offset = collIndex - funcIndex * funcRange;
+  int redopIndex  = offset / redopRange;
+  offset -= redopIndex * redopRange;
+  int datatypeIndex = offset / typeRange;
+  offset -= datatypeIndex * typeRange;
+  int algoIndex = offset / algoRange;
+  offset -= algoIndex * algoRange;
+
+  sprintf(funcStr, "%s_%s_%s_%s_%s",
+        ncclFuncStr[funcIndex],
+        ncclAlgoStr[algoIndex],
+        ncclProtoStr[offset],
+        ncclRedOpStr[redopIndex],
+        ncclDataTypeStr[datatypeIndex]);
 }
 
 __thread struct ncclThreadSignal ncclThreadSignalLocalInstance = ncclThreadSignalStaticInitializer();

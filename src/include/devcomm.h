@@ -51,6 +51,7 @@ union ncclLLFifoLine {
 #define NCCL_MIN_NTHREADS (4*WARP_SIZE)
 #define NCCL_SIMPLE_MAX_NTHREADS 512
 #define NCCL_LL_MAX_NTHREADS 512
+#define NCCL_SIMPLE_EXTRA_GROUP_IF_NTHREADS_GE (3*WARP_SIZE)
 #define NCCL_LL_LINES_PER_THREAD 8
 #ifdef TEST_LL_CLEANUP
 #define NCCL_LL_CLEAN_MASK 0x078 // Set to 0x100 to disable cleanup
@@ -85,7 +86,7 @@ static_assert(NCCL_LL_CLEAN_MASK % NCCL_STEPS == 0, "Invalid NCCL_LL_CLEAN_MASK 
 #define NCCL_MAX_GROUPS 16
 
 enum ncclDevRedOp_t {
-  ncclDevSum, ncclDevProd, ncclDevMax, ncclDevMin,
+  ncclDevSum, ncclDevProd, ncclDevMinMax,
   ncclDevPreMulSum, ncclDevSumPostDiv,
   ncclNumDevRedOps
 };
@@ -144,6 +145,7 @@ struct ncclRing {
   // devices. Ordered from current device.
   int* userRanks;
   int* devUserRanks;
+  int index;
   int nRanks;
   ncclConn_t sendConnType;
   ncclConn_t recvConnType;
@@ -313,11 +315,17 @@ __device__ __forceinline__ constexpr int ncclSendRecvLocalUnroll() {
 #define NCCL_REG_ELEM_FACTOR 2
 
 struct ncclShmemGroup {
+  void* userInput;
+  void* userOutput;
   void* srcs[NCCL_MAX_FC_ARITY];
   void* dsts[NCCL_MAX_FC_ARITY];
   int realSizes[NCCL_MAX_FC_ARITY];
   int totalSendSize[NCCL_MAX_SLICE_PER_CHUNK];
+  uint64_t redOpArgs;
 };
+
+static_assert(NCCL_MAX_DEV_ARITY + 1 <= NCCL_MAX_FC_ARITY,
+              "ncclShmemGroup srcs/dsts too short for the tree/ring paths");
 
 struct alignas(16) ncclKernelComm {
   int rank;
@@ -433,7 +441,7 @@ struct ncclShmemData {
     struct ncclShmemGroup groups[NCCL_MAX_GROUPS];
   };
 
-  alignas(16) char workStorage[1024];
+  alignas(16) char workStorage[NCCL_MAX_DEV_WORK_BATCH_BYTES];
 };
 
 struct ncclChannel {

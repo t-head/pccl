@@ -1,6 +1,6 @@
 /*************************************************************************
  * SPDX-FileCopyrightText: Copyright (c) 2017-2026 NVIDIA CORPORATION & AFFILIATES. All rights reserved.
- * SPDX-FileCopyrightText: Modifications Copyright (c) 2020-2026 T-Head (Shanghai) Semiconductor Co., Ltd. All rights reserved.
+ * SPDX-FileCopyrightText: Modifications Copyright (c) 2020-2026 T-HEAD (SHANGHAI) SEMICONDUCTOR CO., Ltd. All Rights Reserved.
  * SPDX-License-Identifier: BSD-3-Clause
  *
  * See LICENSE.txt for more license information
@@ -15,6 +15,8 @@
 #include "utils.h"
 #include "reduce_kernel.h"
 #include <iostream>
+
+#define COLL_UNROLL (ncclCollUnroll())
 
 // Exit If Abort Barrier across CTA: make sure all threads exit consistently
 // Each thread sets a predicate to true if abort == 1
@@ -234,10 +236,17 @@ class RunWorkColl {
 };
 
 template <ncclFunc_t FUNCTION, int ALGO, int PROTO, class REDOP, typename T, int UNROLL>
-class RunWorkP2p {
-  public:
-  __device__ void run(struct ncclDevWorkP2p* work) {}
-};
+class RunWorkBatch;
+
+// Specialized for P2p in sendrecv.h
+#define PCCL_DECLARE_P2P_RUNWORKBATCH(PROTO) \
+  template <class REDOP, typename T, int UNROLL> \
+  class RunWorkBatch<ncclFuncSendRecv, NCCL_ALGO_RING, PROTO, REDOP, T, UNROLL>;
+PCCL_DECLARE_P2P_RUNWORKBATCH(NCCL_PROTO_SIMPLE)
+PCCL_DECLARE_P2P_RUNWORKBATCH(NCCL_PROTO_SIMPLE_BULK)
+PCCL_DECLARE_P2P_RUNWORKBATCH(NCCL_PROTO_SIGNAL)
+PCCL_DECLARE_P2P_RUNWORKBATCH(NCCL_PROTO_SIGNAL_BULK)
+PCCL_DECLARE_P2P_RUNWORKBATCH(NCCL_PROTO_SIMPLE_BULK_AR)
 
 template <ncclFunc_t FUNCTION, int ALGO, int PROTO, class REDOP, typename T, int UNROLL>
 class RunWorkBatch {
@@ -249,35 +258,30 @@ class RunWorkBatch {
     ncclShmemData* pShmem = &pcclShmem;
   #endif
 
-    if (pShmem->funcId > NUM_P2P_FUNC) {
-      int tid = threadIdx.x;
-      int tn = blockDim.x;
+    int tid = threadIdx.x;
+    int tn = blockDim.x;
 
-      if (RedOpArg<REDOP>::ArgUsed) {
-        int nWorks = pShmem->nWorks;
-        for (int w=tid; w < nWorks; w += tn) {
-          struct ncclDevWorkColl* work = (ncclDevWorkColl*)(pShmem->workStorage + w*pShmem->workSize);
-          if (work->redOpArgIsPtr) {
-            work->redOpArg = RedOpArg<REDOP>::loadArg(reinterpret_cast<void*>(work->redOpArg));
-          }
-        }
-        __syncthreads();
-      }
-
-      for (int w=0; w < pShmem->nWorks; w++) {
+    if (RedOpArg<REDOP>::ArgUsed) {
+      int nWorks = pShmem->nWorks;
+      for (int w=tid; w < nWorks; w += tn) {
         struct ncclDevWorkColl* work = (struct ncclDevWorkColl*)(pShmem->workStorage + w*pShmem->workSize);
-        if (w != 0) {
-          struct ncclDevWorkColl* workPrev = (struct ncclDevWorkColl*)(pShmem->workStorage + (w-1)*pShmem->workSize);
-          if (work->nThreads != workPrev->nThreads) __syncthreads();
-        }
-        int subtn = work->nThreads;
-        if (tid < subtn) {
-          RunWorkColl<FUNCTION, ALGO, PROTO, REDOP, T, UNROLL>().run(work);
+        if (work->redOpArgIsPtr) {
+          work->redOpArg = RedOpArg<REDOP>::loadArg(reinterpret_cast<void*>(work->redOpArg));
         }
       }
-    } else {
-      ncclDevWorkP2p* work = (ncclDevWorkP2p*)pShmem->workStorage;
-      RunWorkP2p<FUNCTION, ALGO, PROTO, REDOP, T, UNROLL>().run(work);
+      __syncthreads();
+    }
+
+    for (int w=0; w < pShmem->nWorks; w++) {
+      struct ncclDevWorkColl* work = (struct ncclDevWorkColl*)(pShmem->workStorage + w*pShmem->workSize);
+      if (w != 0) {
+        struct ncclDevWorkColl* workPrev = (struct ncclDevWorkColl*)(pShmem->workStorage + (w-1)*pShmem->workSize);
+        if (work->nThreads != workPrev->nThreads) __syncthreads();
+      }
+      int subtn = work->nThreads;
+      if (tid < subtn) {
+        RunWorkColl<FUNCTION, ALGO, PROTO, REDOP, T, UNROLL>().run(work);
+      }
     }
   }
 };
@@ -300,20 +304,6 @@ __device__ __forceinline__ bool profilerEnabled(ncclShmemData* pShmem, int workI
 }
 
 __device__ __forceinline__ void profiler(ncclShmemData* pShmem, int action) {
-  // Early exit if profiling is globally disabled to avoid expensive loops
-  if (__builtin_expect(!pShmem->comm.profilerGlobalEnabled, 1)) {
-    if (threadIdx.x == 0) {
-      if (action == STOP) {
-        pShmem->channel.workCounter += pShmem->nWorks;
-      } else if (action == FINI) {
-        pShmem->channel.workCounter += pShmem->nWorks;
-        ((ncclKernelCommAndChannels*)pShmem->args.comm)->channels[pShmem->channelId].workCounter = pShmem->channel.workCounter;
-      }
-    }
-    return;
-  }
-
-  // Original profiling logic when profiler is enabled
   if (threadIdx.x == 0) {
     int idx = 0;
     uint64_t wc = pShmem->channel.workCounter + 1;
@@ -451,8 +441,6 @@ __device__ void ncclKernelMain(struct ncclDevKernelArgs const* args)  {
   profiler(pShmem, FINI);
 }
 
-// Only generate kernels for SUM
-#if NCCL_OP == 0
 #if defined(__HGGC_ARCH__) && __HGGC_ARCH__ == 150
 // relax max vreg limit for ppu1.5. (640, 2) -> 96, (640, 1) -> 168, (896, 1) -> 128
 #define NCCL_KERN_LAUNCH_BOUNDS_MAX_NTHREADS 896
@@ -467,9 +455,6 @@ __global__ void __launch_bounds__(NCCL_KERN_LAUNCH_BOUNDS_MAX_NTHREADS, NCCL_KER
 __global__ void NCCL_KERN_NAME(func, algo, proto, devredop, type)(ncclDevKernelArgs1K const args4K) { \
   ncclKernelMain<ncclFunc##func, NCCL_ALGO_##algo, NCCL_PROTO_##proto, Func##devredop<type>, type, ncclCollUnroll(), fIndex>(&args4K.args); \
 }
-#endif
-#else
-#define IMPL_COLL_KERN(func, algo, proto, devredop, type, fInded)
 #endif
 
 // Examples :     AllReduce, RING, LL,    Sum,   uint8
@@ -488,90 +473,6 @@ __device__ void NCCL_FUNC_NAME(func, algo, proto, devredop, type)(void* args) { 
   } \
   __ppu_exit(); \
 }
-#endif
-
-// Only generate inline kernels for LL
-#define IMPL_COLL4(func, algo, devredop, type, ncclType) \
-  IMPL_COLL_FUNC(func, algo, LL,     devredop, type) \
-  IMPL_COLL_FUNC(func, algo, LL128,  devredop, type) \
-  IMPL_COLL_FUNC(func, algo, SIMPLE, devredop, type) \
-  IMPL_COLL_FUNC(func, algo, SIGNAL, devredop, type) \
-  IMPL_COLL_FUNC(func, algo, SIMPLE_BULK, devredop, type) \
-  IMPL_COLL_FUNC(func, algo, SIGNAL_BULK, devredop, type) \
-  IMPL_COLL_FUNC(func, algo, SIMPLE_BULK_AR, devredop, type) \
-  IMPL_COLL_KERN(func, algo, LL,     devredop, type, FUNC_INDEX(ncclFunc##func, nccl##devredop, ncclType, NCCL_ALGO_##algo, NCCL_PROTO_LL)) \
-
-#define IMPL_COLL3(func, devredop, type, ncclType) \
-  IMPL_COLL4(func, TREE,    devredop, type, ncclType) \
-  IMPL_COLL4(func, RING,    devredop, type, ncclType) \
-  IMPL_COLL4(func, COLLNET, devredop, type, ncclType) \
-  IMPL_COLL4(func, FC,      devredop, type, ncclType) \
-  IMPL_COLL4(func, PAT,     devredop, type, ncclType)
-
-#if NCCL_TYPE == 0
-#define IMPL_COLL2(func, devredop) IMPL_COLL3(func, devredop, int8_t,   ncclInt8)
-#elif NCCL_TYPE == 1
-#define IMPL_COLL2(func, devredop) IMPL_COLL3(func, devredop, uint8_t,  ncclUint8)
-#elif NCCL_TYPE == 2
-#define IMPL_COLL2(func, devredop) IMPL_COLL3(func, devredop, int32_t,  ncclInt32)
-#elif NCCL_TYPE == 3
-#define IMPL_COLL2(func, devredop) IMPL_COLL3(func, devredop, uint32_t, ncclUint32)
-#elif NCCL_TYPE == 4
-#define IMPL_COLL2(func, devredop) IMPL_COLL3(func, devredop, int64_t,  ncclInt64)
-#elif NCCL_TYPE == 5
-#define IMPL_COLL2(func, devredop) IMPL_COLL3(func, devredop, uint64_t, ncclUint64)
-#elif NCCL_TYPE == 6
-#define IMPL_COLL2(func, devredop) IMPL_COLL3(func, devredop, half,     ncclFloat16)
-#elif NCCL_TYPE == 7
-#define IMPL_COLL2(func, devredop) IMPL_COLL3(func, devredop, float,    ncclFloat32)
-#elif NCCL_TYPE == 8
-#define IMPL_COLL2(func, devredop) IMPL_COLL3(func, devredop, double,   ncclFloat64)
-#elif NCCL_TYPE == 9
-#define IMPL_COLL2(func, devredop) IMPL_COLL3(func, devredop, __ppu_bfloat16,   ncclBfloat16)
-#elif NCCL_TYPE == 10
-#define IMPL_COLL2(func, devredop) IMPL_COLL3(func, devredop, __hg_fp8_e4m3,   ncclFloat8e4m3)
-#elif NCCL_TYPE == 11
-#define IMPL_COLL2(func, devredop) IMPL_COLL3(func, devredop, __hg_fp8_e5m2,   ncclFloat8e5m2)
-#endif
-
-// Reduction define all functions
-#if NCCL_OP == 0
-#define IMPL_COLL_R(func) IMPL_COLL2(func, Sum);
-#elif NCCL_OP == 1
-#define IMPL_COLL_R(func) IMPL_COLL2(func, Prod);
-#elif NCCL_OP == 2
-#define IMPL_COLL_R(func) IMPL_COLL2(func, Max);
-#elif NCCL_OP == 3
-#define IMPL_COLL_R(func) IMPL_COLL2(func, Min);
-#elif NCCL_OP == 4
-#define IMPL_COLL_R(func) IMPL_COLL2(func, PreMulSum);
-#elif NCCL_OP == 5
-  #if NCCL_TYPE < 6
-    #define IMPL_COLL_R(func) IMPL_COLL2(func, SumPostDiv);
-  #else
-    #define IMPL_COLL_R(func) // skip SumPostDiv for floating point
-  #endif
-#endif
-
-#if NCCL_OP == 0 && NCCL_TYPE == 0
-// Copy primitives only define one function for copy
-#define IMPL_COLL_C(func) IMPL_COLL3(func, Sum, int8_t, ncclInt8);
-
-// Point-to-point primitives only have one function/kernel.
-#define IMPL_COLL_P(func) \
-  IMPL_COLL_FUNC(func, RING, SIMPLE, Sum, int8_t); \
-  IMPL_COLL_KERN(func, RING, SIMPLE, Sum, int8_t, FUNC_INDEX_P2P_SIMPLE); \
-  IMPL_COLL_FUNC(func, RING, SIMPLE_BULK, Sum, int8_t); \
-  IMPL_COLL_KERN(func, RING, SIMPLE_BULK, Sum, int8_t, FUNC_INDEX_P2P_SIMPLE_BULK); \
-  IMPL_COLL_FUNC(func, RING, SIGNAL, Sum, int8_t); \
-  IMPL_COLL_KERN(func, RING, SIGNAL, Sum, int8_t, 0); \
-  IMPL_COLL_FUNC(func, RING, SIGNAL_BULK, Sum, int8_t); \
-  IMPL_COLL_KERN(func, RING, SIGNAL_BULK, Sum, int8_t, 0); \
-  IMPL_COLL_FUNC(func, RING, SIMPLE_BULK_AR, Sum, int8_t); \
-  IMPL_COLL_KERN(func, RING, SIMPLE_BULK_AR, Sum, int8_t, 0);
-#else
-#define IMPL_COLL_C(func)
-#define IMPL_COLL_P(func)
 #endif
 
 #endif

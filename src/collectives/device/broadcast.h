@@ -10,15 +10,20 @@
 #include "collectives.h"
 #include "primitives.h"
 namespace {
-  template<class FUNC, typename T, int UNROLL, typename Proto>
+  template<typename T, typename RedOp, typename Proto>
   __device__ __forceinline__ void runRing(struct ncclDevWorkColl* work, struct ncclRing* inputRing=NULL, int inputRank=-1, int inputNextRank=-1, int inputRoot=-1) {
     const int tid = threadIdx.x;
-    int nthreads;
+    int nworkers;
     if (Proto::Id == NCCL_PROTO_LL || Proto::Id == NCCL_PROTO_LL128) {
-      nthreads = work->nThreads;
+      nworkers = work->nThreads;
     } else {
-      nthreads = work->nThreads-WARP_SIZE;
+#ifndef NO_EXTRA_WARP
+      nworkers = work->nThreads-WARP_SIZE;
+#else
+      nworkers = work->nThreads;
+#endif
     }
+    const int nthreads = ncclPrimsThreadsFromWorkers<Proto, 1>(nworkers);
 
     const int nChannels = work->nChannels;
     int bid = (blockIdx.x >= work->startChannelId) ?
@@ -28,7 +33,10 @@ namespace {
     struct ncclKernelComm* comm = getShmemComm(work);
     struct ncclDevChannel* channel = &(getShmemPtr(comm)->channel);
     struct ncclRing* ring = (inputRing == NULL) ? &channel->ring : inputRing;
-
+    const int* ringRanks = ring->devUserRanks;
+    const int rank = (inputRank == -1) ? ringRanks[0] : inputRank;
+    const int nextRank = (inputNextRank == -1) ? ringRanks[1] : inputNextRank;
+    const int root = (inputRoot == -1) ? work->root : inputRoot;
     int stepSize;
     ssize_t chunkSize;
     ssize_t minChunkSize;
@@ -38,27 +46,26 @@ namespace {
     } else if (Proto::Id == NCCL_PROTO_LL128) {
       stepSize = comm->buffSizes[NCCL_PROTO_LL128] / (sizeof(uint64_t)*NCCL_STEPS);
       chunkSize = stepSize*NCCL_LL128_DATAELEMS*sizeof(uint64_t) / (NCCL_LL128_LINEELEMS*sizeof(T));
-      minChunkSize = (NCCL_LL128_SHMEM_ELEMS_PER_THREAD*nthreads*NCCL_LL128_DATAELEMS*sizeof(uint64_t))/(NCCL_LL128_LINEELEMS*sizeof(T));
+      minChunkSize = (NCCL_LL128_SHMEM_ELEMS_PER_THREAD*nworkers*NCCL_LL128_DATAELEMS*sizeof(uint64_t))/(NCCL_LL128_LINEELEMS*sizeof(T));
     } else {
       stepSize = comm->buffSizes[NCCL_PROTO_SIMPLE] / (sizeof(T)*NCCL_STEPS);
       chunkSize = stepSize * BROADCAST_CHUNKSTEPS;
     }
     const ssize_t loopSize = nChannels*chunkSize;
     const ssize_t size = work->count;
-    const int rank = (inputRank == -1) ? ring->devUserRanks[0] : inputRank;
-    const int nextRank = (inputNextRank == -1) ? ring->devUserRanks[1] : inputNextRank;
-    const int root = (inputRoot == -1) ? work->root : inputRoot;
+    ssize_t offset;
+    int nelem;
 
     // Compute pointers
     const T * __restrict__ thisInput = (const T*)work->sendbuff;
     T * __restrict__ thisOutput = (T*)work->recvbuff;
 
-    Primitives<T, FUNC, Proto, 1, 1, 0, 0>
+    Primitives<T, RedOp, FanAsymmetric<1, 1>, 0, Proto, 0>
       prims(tid, nthreads, &ring->prev, &ring->next, NULL, comm, work->redOpArg, getShmemPtr(comm)->groups, 0, 0, 0, work);
+    prims.setDataPtrs(thisInput, thisOutput);
 
     for (ssize_t gridOffset = 0; gridOffset < size; gridOffset += loopSize) {
       int realChunkSize;
-
       if (Proto::Id == NCCL_PROTO_LL) {
         if (size-gridOffset < loopSize) {
           chunkSize = work->lastChunkSize;
@@ -69,27 +76,26 @@ namespace {
         realChunkSize = chunkSize;
       } else {
         realChunkSize = min(chunkSize, DIVUP(size-gridOffset,nChannels));
-        ALIGN_SIZE(realChunkSize, nthreads*sizeof(uint64_t)/sizeof(T));
+        ALIGN_SIZE(realChunkSize, nworkers*sizeof(uint64_t)/sizeof(T));
       }
-
-      ssize_t offset = gridOffset + bid*realChunkSize;
-      int nelem = min(realChunkSize, size-offset);
+      offset = gridOffset + bid*realChunkSize;
+      nelem = (int)min(realChunkSize, size-offset);
 
       if (rank == root) {
         if (thisInput == thisOutput) {
-          prims.send(thisInput+offset, nelem);
+          prims.send(offset, nelem);
         } else {
-          prims.copySend(thisInput+offset, thisOutput+offset, nelem);
+          prims.copySend(offset, offset, nelem);
         }
       } else if (nextRank == root) {
-        prims.recv(thisOutput+offset, nelem);
+        prims.recv(offset, nelem);
       } else {
-        prims.recvCopySend(thisOutput+offset, nelem);
+        prims.recvCopySend(offset, nelem);
       }
     }
   }
 
-  template<class FUNC, typename T, int UNROLL, typename Proto>
+  template<typename T, typename RedOp, typename Proto>
   __device__ __forceinline__ void runFC(struct ncclDevWorkColl* work) {
     const int tid = threadIdx.x;
     const int nChannels = work->nChannels;
@@ -103,13 +109,10 @@ namespace {
     const int rank = comm->rank;
     int root = work->root;
 
-    int nthreads = work->nThreads, nworkers = work->nThreads;
+    int nroleWorkers = work->nThreads, nworkers = work->nThreads;
 #ifndef NO_EXTRA_WARP
     if (Proto::Id != NCCL_PROTO_LL && Proto::Id != NCCL_PROTO_LL128) {
-      // root sends only, its nthreads will increase later
-      // nthreads: total threads per block including standalone sync warp
-      // nworkers: total data process threads per block
-      nthreads = (rank == root) ? (nthreads - WARP_SIZE) : nthreads;
+      nroleWorkers = (rank == root) ? (nroleWorkers - WARP_SIZE) : nroleWorkers;
       nworkers -= WARP_SIZE;
     }
 #endif
@@ -132,67 +135,69 @@ namespace {
     T* __restrict__ thisOutput = (T*)work->recvbuff;
 
     if (rank == root) {
-      Primitives<T, FUNC, Proto, 0, NCCL_MAX_FC_ARITY-1, 1, 0>
-        prims(tid, nthreads, NULL, fc->peerRanks, thisOutput, comm, work->redOpArg, getShmemPtr(comm)->groups, 0, 0, 0, work);
+      Primitives<T, RedOp, FanAsymmetric<0, NCCL_MAX_FC_ARITY-1>, 1, Proto, 0>
+        prims(tid, ncclPrimsThreadsFromWorkers<Proto, NCCL_MAX_FC_ARITY-1>(nroleWorkers), NULL, fc->peerRanks, thisOutput, comm, work->redOpArg, getShmemPtr(comm)->groups, 0, 0, 0, work);
+      prims.setDataPtrs(thisInput, thisOutput);
 
       for (ssize_t gridOffset = 0; gridOffset < size; gridOffset += loopSize) {
         ssize_t realChunkSize = min(chunkSize, DIVUP(size-gridOffset, nChannels));
         ALIGN_SIZE(realChunkSize, nworkers*sizeof(uint64_t)/sizeof(T));
         ssize_t offset = gridOffset + bid * realChunkSize;
         int nelem = min(realChunkSize, size-offset);
-        prims.directCopySend(thisInput+offset, thisOutput+offset, offset, nelem);
+        prims.directCopySend(offset, offset, nelem);
       }
     } else {
-      Primitives<T, FUNC, Proto, 1, 0, 1, 0>
-        prims(tid, nthreads, &root, NULL, thisOutput, comm, work->redOpArg, getShmemPtr(comm)->groups, 0, 0, 0, work);
+      Primitives<T, RedOp, FanAsymmetric<1, 0>, 1, Proto, 0>
+        prims(tid, ncclPrimsThreadsFromWorkers<Proto, 0>(nroleWorkers), &root, NULL, thisOutput, comm, work->redOpArg, getShmemPtr(comm)->groups, 0, 0, 0, work);
+      prims.setDataPtrs(thisInput, thisOutput);
 
       for (ssize_t gridOffset = 0; gridOffset < size; gridOffset += loopSize) {
         ssize_t realChunkSize = min(chunkSize, DIVUP(size-gridOffset, nChannels));
         ALIGN_SIZE(realChunkSize, nworkers*sizeof(uint64_t)/sizeof(T));
         ssize_t offset = gridOffset + bid * realChunkSize;
         int nelem = min(realChunkSize, size-offset);
-        prims.directRecv(thisOutput+offset, offset, nelem);
+        prims.directRecv(offset, nelem);
       }
     }
   }
 }
 
-template<class FUNC, typename T, int UNROLL>
-class RunWorkColl<ncclFuncBroadcast, NCCL_ALGO_RING, NCCL_PROTO_SIMPLE, FUNC, T, UNROLL> {
+template<typename RedOp, typename T, int UNROLL>
+class RunWorkColl<ncclFuncBroadcast, NCCL_ALGO_RING, NCCL_PROTO_SIMPLE, RedOp, T, UNROLL> {
   public:
     __device__ void run(struct ncclDevWorkColl* work, struct ncclRing* inputRing=NULL, int inputRank=-1, int inputNextRank=-1, int inputRoot=-1) {
-      using Proto = ProtoSimple<UNROLL, BROADCAST_CHUNKSTEPS/BROADCAST_SLICESTEPS, BROADCAST_SLICESTEPS>;
-      runRing<FUNC, T, UNROLL, Proto>(work, inputRing, inputRank, inputNextRank, inputRoot);
+      using Proto = ProtoSimple<BROADCAST_CHUNKSTEPS/BROADCAST_SLICESTEPS, BROADCAST_SLICESTEPS, UNROLL>;
+      runRing<T, RedOp, Proto>(work, inputRing, inputRank, inputNextRank, inputRoot);
     }
 };
 
-template<class FUNC, typename T, int UNROLL>
-class RunWorkColl<ncclFuncBroadcast, NCCL_ALGO_RING, NCCL_PROTO_LL, FUNC, T, UNROLL> {
+template<typename RedOp, typename T, int UNROLL>
+class RunWorkColl<ncclFuncBroadcast, NCCL_ALGO_RING, NCCL_PROTO_LL, RedOp, T, UNROLL> {
   public:
     __device__ void run(struct ncclDevWorkColl* work, struct ncclRing* inputRing=NULL, int inputRank=-1, int inputNextRank=-1, int inputRoot=-1) {
-      runRing<FUNC, T, UNROLL, ProtoLL>(work, inputRing, inputRank, inputNextRank, inputRoot);
+      runRing<T, RedOp, ProtoLL>(work, inputRing, inputRank, inputNextRank, inputRoot);
     }
 };
 
-template<class FUNC, typename T, int UNROLL>
-class RunWorkColl<ncclFuncBroadcast, NCCL_ALGO_RING, NCCL_PROTO_LL128, FUNC, T, UNROLL> {
+template<typename RedOp, typename T, int UNROLL>
+class RunWorkColl<ncclFuncBroadcast, NCCL_ALGO_RING, NCCL_PROTO_LL128, RedOp, T, UNROLL> {
   public:
     __device__ void run(struct ncclDevWorkColl* work, struct ncclRing* inputRing=NULL, int inputRank=-1, int inputNextRank=-1, int inputRoot=-1) {
-      runRing<FUNC, T, UNROLL, ProtoLL128>(work, inputRing, inputRank, inputNextRank, inputRoot);
+      runRing<T, RedOp, ProtoLL128>(work, inputRing, inputRank, inputNextRank, inputRoot);
     }
 };
 
-template<class FUNC, typename T, int UNROLL>
-class RunWorkColl<ncclFuncBroadcast, NCCL_ALGO_RING, NCCL_PROTO_SIGNAL, FUNC, T, UNROLL> {
+template<typename RedOp, typename T, int UNROLL>
+class RunWorkColl<ncclFuncBroadcast, NCCL_ALGO_RING, NCCL_PROTO_SIGNAL, RedOp, T, UNROLL> {
   public:
     __device__ void run(struct ncclDevWorkColl* work, struct ncclRing* inputRing=NULL, int inputRank=-1, int inputNextRank=-1, int inputRoot=-1) {
-      using Proto = ProtoSignal<UNROLL, BROADCAST_CHUNKSTEPS/BROADCAST_SLICESTEPS, BROADCAST_SLICESTEPS>;
-      runRing<FUNC, T, UNROLL, Proto>(work, inputRing, inputRank, inputNextRank, inputRoot);
+      using Proto = ProtoSignal<BROADCAST_CHUNKSTEPS/BROADCAST_SLICESTEPS, BROADCAST_SLICESTEPS, UNROLL>;
+      runRing<T, RedOp, Proto>(work, inputRing, inputRank, inputNextRank, inputRoot);
     }
 };
 
-template<class FUNC, typename T, int UNROLL>
-class RunWorkColl<ncclFuncBroadcast, NCCL_ALGO_RING, NCCL_PROTO_SIMPLE_BULK, FUNC, T, UNROLL> {
+template<typename RedOp, typename T, int UNROLL>
+class RunWorkColl<ncclFuncBroadcast, NCCL_ALGO_RING, NCCL_PROTO_SIMPLE_BULK, RedOp, T, UNROLL> {
   public:
     __device__ void run(struct ncclDevWorkColl* work, struct ncclRing* inputRing=NULL, int inputRank=-1, int inputNextRank=-1, int inputRoot=-1) {
       struct ncclKernelComm* comm = getShmemComm(work);
@@ -201,77 +206,77 @@ class RunWorkColl<ncclFuncBroadcast, NCCL_ALGO_RING, NCCL_PROTO_SIMPLE_BULK, FUN
       const ncclConn_t recvConnType = channel->ring.recvConnType;
 
       if (sendConnType == CONN_ICN) {
-        using Proto = ProtoSimpleBulk<UNROLL, BROADCAST_CHUNKSTEPS/BROADCAST_SLICESTEPS, BROADCAST_SLICESTEPS, CONN_ICN, CONN_ICN>;
-        runRing<FUNC, T, UNROLL, Proto>(work, inputRing, inputRank, inputNextRank, inputRoot);
+        using Proto = ProtoSimpleBulk<BROADCAST_CHUNKSTEPS/BROADCAST_SLICESTEPS, BROADCAST_SLICESTEPS, UNROLL, CONN_ICN, CONN_ICN>;
+        runRing<T, RedOp, Proto>(work, inputRing, inputRank, inputNextRank, inputRoot);
       } else {
-        using Proto = ProtoSimpleBulk<UNROLL, BROADCAST_CHUNKSTEPS/BROADCAST_SLICESTEPS, BROADCAST_SLICESTEPS, CONN_NORMAL, CONN_ICN>;
-        runRing<FUNC, T, UNROLL, Proto>(work, inputRing, inputRank, inputNextRank, inputRoot);
+        using Proto = ProtoSimpleBulk<BROADCAST_CHUNKSTEPS/BROADCAST_SLICESTEPS, BROADCAST_SLICESTEPS, UNROLL, CONN_NORMAL, CONN_ICN>;
+        runRing<T, RedOp, Proto>(work, inputRing, inputRank, inputNextRank, inputRoot);
       }
     }
 };
 
-template<class FUNC, typename T, int UNROLL>
-class RunWorkColl<ncclFuncBroadcast, NCCL_ALGO_RING, NCCL_PROTO_SIGNAL_BULK, FUNC, T, UNROLL> {
+template<typename RedOp, typename T, int UNROLL>
+class RunWorkColl<ncclFuncBroadcast, NCCL_ALGO_RING, NCCL_PROTO_SIGNAL_BULK, RedOp, T, UNROLL> {
   public:
     __device__ void run(struct ncclDevWorkColl* work, struct ncclRing* inputRing=NULL, int inputRank=-1, int inputNextRank=-1, int inputRoot=-1) {
-      using Proto = ProtoSignalBulk<UNROLL, BROADCAST_CHUNKSTEPS/BROADCAST_SLICESTEPS, BROADCAST_SLICESTEPS>;
-      runRing<FUNC, T, UNROLL, Proto>(work, inputRing, inputRank, inputNextRank, inputRoot);
+      using Proto = ProtoSignalBulk<BROADCAST_CHUNKSTEPS/BROADCAST_SLICESTEPS, BROADCAST_SLICESTEPS, UNROLL>;
+      runRing<T, RedOp, Proto>(work, inputRing, inputRank, inputNextRank, inputRoot);
     }
 };
 
-template<class FUNC, typename T, int UNROLL>
-class RunWorkColl<ncclFuncBroadcast, NCCL_ALGO_RING, NCCL_PROTO_SIMPLE_BULK_AR, FUNC, T, UNROLL> {
+template<typename RedOp, typename T, int UNROLL>
+class RunWorkColl<ncclFuncBroadcast, NCCL_ALGO_RING, NCCL_PROTO_SIMPLE_BULK_AR, RedOp, T, UNROLL> {
   public:
     __device__ void run(struct ncclDevWorkColl* work, struct ncclRing* inputRing=NULL, int inputRank=-1, int inputNextRank=-1, int inputRoot=-1) {
 #if defined(__HGGC_ARCH__) && __HGGC_ARCH__ >= 150
-      using Proto = ProtoSimpleBulkAR<UNROLL, BROADCAST_CHUNKSTEPS/BROADCAST_SLICESTEPS, BROADCAST_SLICESTEPS, CONN_ICN, CONN_ICN>;
-      runRing<FUNC, T, UNROLL, Proto>(work, inputRing, inputRank, inputNextRank, inputRoot);
+      using Proto = ProtoSimpleBulkAR<BROADCAST_CHUNKSTEPS/BROADCAST_SLICESTEPS, BROADCAST_SLICESTEPS, UNROLL, CONN_ICN, CONN_ICN>;
+      runRing<T, RedOp, Proto>(work, inputRing, inputRank, inputNextRank, inputRoot);
 #endif
     }
 };
 
-template<class FUNC, typename T, int UNROLL>
-class RunWorkColl<ncclFuncBroadcast, NCCL_ALGO_FC, NCCL_PROTO_SIMPLE, FUNC, T, UNROLL> {
+template<typename RedOp, typename T, int UNROLL>
+class RunWorkColl<ncclFuncBroadcast, NCCL_ALGO_FC, NCCL_PROTO_SIMPLE, RedOp, T, UNROLL> {
   public:
     __device__ void run(struct ncclDevWorkColl* work) {
-      using Proto = ProtoSimple<UNROLL, BROADCAST_CHUNKSTEPS/BROADCAST_SLICESTEPS, BROADCAST_SLICESTEPS>;
-      runFC<FUNC, T, UNROLL, Proto>(work);
+      using Proto = ProtoSimple<BROADCAST_CHUNKSTEPS/BROADCAST_SLICESTEPS, BROADCAST_SLICESTEPS, UNROLL>;
+      runFC<T, RedOp, Proto>(work);
     }
 };
 
-template<class FUNC, typename T, int UNROLL>
-class RunWorkColl<ncclFuncBroadcast, NCCL_ALGO_FC, NCCL_PROTO_SIMPLE_BULK, FUNC, T, UNROLL> {
+template<typename RedOp, typename T, int UNROLL>
+class RunWorkColl<ncclFuncBroadcast, NCCL_ALGO_FC, NCCL_PROTO_SIMPLE_BULK, RedOp, T, UNROLL> {
   public:
     __device__ void run(struct ncclDevWorkColl* work) {
     struct ncclKernelComm* comm = getShmemComm(work);
     struct ncclDevChannel* channel = &(getShmemPtr(comm)->channel);
       const ncclConn_t connType = channel->fc.connType;
       if (connType == CONN_ICN) {
-        using Proto = ProtoSimpleBulk<UNROLL, BROADCAST_CHUNKSTEPS/BROADCAST_SLICESTEPS, BROADCAST_SLICESTEPS, CONN_ICN, CONN_ICN>;
-        runFC<FUNC, T, UNROLL, Proto>(work);
+        using Proto = ProtoSimpleBulk<BROADCAST_CHUNKSTEPS/BROADCAST_SLICESTEPS, BROADCAST_SLICESTEPS, UNROLL, CONN_ICN, CONN_ICN>;
+        runFC<T, RedOp, Proto>(work);
       } else {
-        using Proto = ProtoSimpleBulk<UNROLL, BROADCAST_CHUNKSTEPS/BROADCAST_SLICESTEPS, BROADCAST_SLICESTEPS, CONN_NORMAL, CONN_ICN>;
-        runFC<FUNC, T, UNROLL, Proto>(work);
+        using Proto = ProtoSimpleBulk<BROADCAST_CHUNKSTEPS/BROADCAST_SLICESTEPS, BROADCAST_SLICESTEPS, UNROLL, CONN_NORMAL, CONN_ICN>;
+        runFC<T, RedOp, Proto>(work);
       }
     }
 };
 
-template<class FUNC, typename T, int UNROLL>
-class RunWorkColl<ncclFuncBroadcast, NCCL_ALGO_FC, NCCL_PROTO_LL, FUNC, T, UNROLL> {
+template<typename RedOp, typename T, int UNROLL>
+class RunWorkColl<ncclFuncBroadcast, NCCL_ALGO_FC, NCCL_PROTO_LL, RedOp, T, UNROLL> {
   public:
     __device__ void run(struct ncclDevWorkColl* work) {
-      runFC<FUNC, T, UNROLL, ProtoLL>(work);
+      runFC<T, RedOp, ProtoLL>(work);
     }
 };
 
-template<int PROTO, class REDOP, typename T, int UNROLL>
-class RunWorkColl<ncclFuncBroadcast, NCCL_ALGO_TREE, PROTO, REDOP, T, UNROLL> {
+template<int PROTO, typename RedOp, typename T, int UNROLL>
+class RunWorkColl<ncclFuncBroadcast, NCCL_ALGO_TREE, PROTO, RedOp, T, UNROLL> {
   public:
     __device__ void run(struct ncclDevWorkColl* work) {}
 };
 
-template<int PROTO, class REDOP, typename T, int UNROLL>
-class RunWorkColl<ncclFuncBroadcast, NCCL_ALGO_COLLNET, PROTO, REDOP, T, UNROLL> {
+template<int PROTO, typename RedOp, typename T, int UNROLL>
+class RunWorkColl<ncclFuncBroadcast, NCCL_ALGO_COLLNET, PROTO, RedOp, T, UNROLL> {
   public:
     __device__ void run(struct ncclDevWorkColl* work) {}
 };

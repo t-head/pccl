@@ -12,64 +12,74 @@
 
 namespace {
 
-// Per-direction runners. Proto is the actual proto used for this direction — caller passes either
-// the plan-wide base proto or ProtoLL after the per-pair LL upgrade. Pulled out so the dispatch
-// site is a single ternary instead of two near-identical 12-line blocks.
-template<class FUNC, typename T, typename Proto>
-__device__ __forceinline__ void runRecv(
-    int tid, int nt, int peer, T* recvbuff, ssize_t recvCount, int chunkSize,
-    struct ncclKernelComm* comm, int group, struct ncclDevWorkP2p* work) {
-  Primitives<T, FUNC, Proto, 1, 0, 1, 1>
-    prims(tid, nt, &peer, NULL, recvbuff, comm, /*redOpArg(ignored)=*/0, getShmemPtr(comm)->groups, group, 1, 1, NULL, work);
+__device__ __forceinline__ struct ncclShmemData* p2pRunShmem(void* args) {
+#ifdef NO_TSM
+  return (struct ncclShmemData*)args;
+#else
+  (void)args;
+  return &pcclShmem;
+#endif
+}
+
+template<typename T, typename RedOp, typename Proto>
+__device__ __forceinline__ void runRecv(int tid, int workers, int peer, T* recvbuff,
+    ssize_t recvCount, int chunkSize, struct ncclKernelComm* comm, int group, struct ncclDevWorkP2p* work) {
+  int total = ncclPrimsThreadsFromWorkers<Proto, 0>(workers);
+  Primitives<T, RedOp, FanAsymmetric<1, 0>, 1, Proto, 1> prims(
+      tid, total, &peer, nullptr, recvbuff, comm, 0, getShmemPtr(comm)->groups, group, 1, 1, nullptr, work);
+  prims.setDataPtrs(nullptr, recvbuff);
   if (recvCount == 0) {
-    prims.recv(recvbuff, 0);
+    prims.recv(0, 0);
   } else for (ssize_t offset = 0; offset < recvCount; offset += chunkSize) {
     int realChunkSize = min(chunkSize, recvCount-offset);
-    ALIGN_SIZE(realChunkSize, nt*sizeof(uint64_t)/sizeof(T));
+    ALIGN_SIZE(realChunkSize, workers*sizeof(uint64_t)/sizeof(T));
     int nelem = min(realChunkSize, recvCount-offset);
-    prims.directRecv(recvbuff+offset, offset, nelem);
+    prims.directRecv(offset, nelem);
   }
 }
 
-template<class FUNC, typename T, typename Proto>
-__device__ __forceinline__ void runSend(
-    int tid, int nt, int peer, const T* sendbuff, T* recvbuff, ssize_t sendCount, int chunkSize,
-    struct ncclKernelComm* comm, int group, struct ncclDevWorkP2p* work) {
-  Primitives<T, FUNC, Proto, 0, 1, 1, 1>
-    prims(tid, nt, NULL, &peer, recvbuff, comm, /*redOpArg(ignored)=*/0, getShmemPtr(comm)->groups, group, 1, 1, NULL, work);
+template<typename T, typename RedOp, typename Proto>
+__device__ __forceinline__ void runSend(int tid, int workers, int peer, const T* sendbuff, T* recvbuff,
+    ssize_t sendCount, int chunkSize, struct ncclKernelComm* comm, int group, struct ncclDevWorkP2p* work) {
+  int total = ncclPrimsThreadsFromWorkers<Proto, 1>(workers);
+  Primitives<T, RedOp, FanAsymmetric<0, 1>, 1, Proto, 1> prims(
+      tid, total, nullptr, &peer, recvbuff, comm, 0, getShmemPtr(comm)->groups, group, 1, 1, nullptr, work);
+  prims.setDataPtrs(sendbuff, nullptr);
   if (sendCount == 0) {
-    prims.send(sendbuff, 0);
+    prims.send(0, 0);
   } else for (ssize_t offset = 0; offset < sendCount; offset += chunkSize) {
     int realChunkSize = min(chunkSize, sendCount-offset);
-    ALIGN_SIZE(realChunkSize, nt*sizeof(uint64_t)/sizeof(T));
+    ALIGN_SIZE(realChunkSize, workers*sizeof(uint64_t)/sizeof(T));
     int nelem = min(realChunkSize, sendCount-offset);
-    prims.directSend(sendbuff+offset, offset, nelem);
+    prims.directSend(offset, offset, nelem);
   }
 }
 
-template<class FUNC, typename T, int UNROLL, typename Proto>
-__device__ __forceinline__ void runSendRecv(struct ncclDevWorkP2p* work) {
+template<typename T, typename RedOp, typename Proto>
+__device__ __forceinline__ void runSendRecv(void* args) {
+  static_assert(sizeof(T) == 1, "SendRecv only works on single byte types T.");
+  struct ncclShmemData* shmem = p2pRunShmem(args);
+  struct ncclDevWorkP2p* work = (struct ncclDevWorkP2p*)shmem->workStorage;
   int tid = threadIdx.x;
-  struct ncclKernelComm* comm = getShmemComm(work);
-  int nWorks = getShmemPtr(comm)->nWorks;
-  struct ncclDevChannel* channel = &(getShmemPtr(comm)->channel);
-  int group = 0;
-  constexpr bool kProtoNeedsExtraWarp = (Proto::Id != NCCL_PROTO_LL);
-  constexpr bool kAllowLLSwitch = (Proto::Id == NCCL_PROTO_SIMPLE || Proto::Id == NCCL_PROTO_SIMPLE_BULK || Proto::Id == NCCL_PROTO_SIMPLE_BULK_AR);
+  int nWorks = shmem->nWorks;
+  constexpr bool kProtoNeedsExtraWarp = Proto::Id != NCCL_PROTO_LL;
+  constexpr bool kAllowLLSwitch = Proto::Id == NCCL_PROTO_SIMPLE || Proto::Id == NCCL_PROTO_SIMPLE_BULK || Proto::Id == NCCL_PROTO_SIMPLE_BULK_AR;
   int nThreadsSegment = 16 * WARP_SIZE;
   while (nWorks*nThreadsSegment > 512) nThreadsSegment /= 2;
 #ifndef NO_EXTRA_WARP
   if (kProtoNeedsExtraWarp && nThreadsSegment >= 128) nThreadsSegment += WARP_SIZE;
 #endif
+  int group = 0;
   for (int s=0; s<nWorks; s++) {
-    int groupRecv = group;
-    group += 1;
+    int groupRecv = group++;
     int groupSend = group;
     group += nThreadsSegment > 128 ? 2 : 1;
     if (tid < nThreadsSegment) {
-      const int nThreads = (kProtoNeedsExtraWarp && nThreadsSegment > 128) ? nThreadsSegment-WARP_SIZE : nThreadsSegment;
-
-      // Compute pointers
+      int nThreads = nThreadsSegment;
+#ifndef NO_EXTRA_WARP
+      if (kProtoNeedsExtraWarp && nThreadsSegment > 128) nThreads -= WARP_SIZE;
+#endif
+      struct ncclKernelComm* comm = getShmemComm(work);
       const T* sendbuff = (const T*)work->sendbuff;
       T* recvbuff = (T*)work->recvbuff;
       const ssize_t sendCount = work->sendCount;
@@ -77,21 +87,18 @@ __device__ __forceinline__ void runSendRecv(struct ncclDevWorkP2p* work) {
 
       if (work->sendRank == comm->rank) {
         if (tid < nThreads && sendbuff != recvbuff) {
-          // local copy : ReduceOrCopyMulti takes an int as number of elements,
-          // so we split it in blocks of 1G elements.
-          int blockSize = 1<<30;
-          for (ssize_t offset=0; offset<sendCount; offset += blockSize) {
-            size_t remaining = sendCount - offset;
-            if (remaining < blockSize) blockSize = remaining;
-            ReduceOrCopyMultiBulk<ncclSendRecvLocalUnroll(), FUNC, T, 1, 1, 1, 1, 1, 1, Proto::RTMD, CONN_ICN, CONN_ICN>(tid, nThreads, FUNC(), false, false, 1, &sendbuff, 1, &recvbuff, blockSize);
-            sendbuff += blockSize; recvbuff += blockSize;
+          // Same local unroll, 1G element blocking and same-address skip as the
+          // old path.
+          const int blockSize = 1 << 30;
+          for (ssize_t offset=0; offset<sendCount; offset+=blockSize) {
+            int count = min(blockSize, sendCount-offset);
+            ReduceOrCopyMultiBulk<ncclSendRecvLocalUnroll(), RedOp, T, 1, 1, 1, 1, 1, 1, Proto::RTMD, CONN_ICN, CONN_ICN>(
+                tid, nThreads, RedOp(), false, false, 1, &sendbuff, 1, &recvbuff, count);
+            sendbuff += count;
+            recvbuff += count;
           }
         }
       } else {
-        struct ncclKernelComm* comm = getShmemComm(work);
-
-        const int stepSize = comm->buffSizes[Proto::Id]/(sizeof(T)*NCCL_STEPS);
-
         int nThreadsSplit = nThreads/2;
         const bool recvLL = kAllowLLSwitch && work->recvProtoLL;
         const bool sendLL = kAllowLLSwitch && work->sendProtoLL;
@@ -100,9 +107,9 @@ __device__ __forceinline__ void runSendRecv(struct ncclDevWorkP2p* work) {
           int peer = work->recvRank;
           int nt = nThreadsSplit;
           if (recvLL) {
-            runRecv<FUNC, T, ProtoLL>(tid, nt, peer, recvbuff, recvCount, chunkSize, comm, groupRecv, work);
+            runRecv<T, RedOp, ProtoLL>(tid, nt, peer, recvbuff, recvCount, chunkSize, comm, groupRecv, work);
           } else {
-            runRecv<FUNC, T, Proto>(tid, nt, peer, recvbuff, recvCount, chunkSize, comm, groupRecv, work);
+            runRecv<T, RedOp, Proto>(tid, nt, peer, recvbuff, recvCount, chunkSize, comm, groupRecv, work);
           }
         }
         if ((tid >= nThreadsSplit) && sendCount >= 0) {
@@ -110,9 +117,9 @@ __device__ __forceinline__ void runSendRecv(struct ncclDevWorkP2p* work) {
           int peer = work->sendRank;
           int nt = sendLL ? (nThreadsSegment - nThreadsSplit) : (nThreads - nThreadsSplit);
           if (sendLL) {
-            runSend<FUNC, T, ProtoLL>(tid-nThreadsSplit, nt, peer, sendbuff, recvbuff, sendCount, chunkSize, comm, groupSend, work);
+            runSend<T, RedOp, ProtoLL>(tid-nThreadsSplit, nt, peer, sendbuff, recvbuff, sendCount, chunkSize, comm, groupSend, work);
           } else {
-            runSend<FUNC, T, Proto>(tid-nThreadsSplit, nt, peer, sendbuff, recvbuff, sendCount, chunkSize, comm, groupSend, work);
+            runSend<T, RedOp, Proto>(tid-nThreadsSplit, nt, peer, sendbuff, recvbuff, sendCount, chunkSize, comm, groupSend, work);
           }
         }
       }
@@ -125,49 +132,51 @@ __device__ __forceinline__ void runSendRecv(struct ncclDevWorkP2p* work) {
 
 }
 
-template<class FUNC, typename T, int UNROLL>
-class RunWorkP2p<ncclFuncSendRecv, NCCL_ALGO_RING, NCCL_PROTO_SIMPLE, FUNC, T, UNROLL> {
+template<typename RedOp, typename T, int UNROLL>
+class RunWorkBatch<ncclFuncSendRecv, NCCL_ALGO_RING, NCCL_PROTO_SIMPLE, RedOp, T, UNROLL> {
   public:
-    __device__ void run(struct ncclDevWorkP2p* work) {
-      using Proto = ProtoSimple<UNROLL, 1, 1>;
-      runSendRecv<FUNC, T, UNROLL, Proto>(work);
+    __device__ void run(void* args) {
+      using Proto = ProtoSimple<1, 1, UNROLL>;
+      runSendRecv<T, RedOp, Proto>(args);
     }
 };
 
-template<class FUNC, typename T, int UNROLL>
-class RunWorkP2p<ncclFuncSendRecv, NCCL_ALGO_RING, NCCL_PROTO_SIMPLE_BULK, FUNC, T, UNROLL> {
+template<typename RedOp, typename T, int UNROLL>
+class RunWorkBatch<ncclFuncSendRecv, NCCL_ALGO_RING, NCCL_PROTO_SIMPLE_BULK, RedOp, T, UNROLL> {
   public:
-    __device__ void run(struct ncclDevWorkP2p* work) {
-      using Proto = ProtoSimpleBulk<UNROLL, 1, 1>;
-      runSendRecv<FUNC, T, UNROLL, Proto>(work);
+    __device__ void run(void* args) {
+      using Proto = ProtoSimpleBulk<1, 1, UNROLL>;
+      runSendRecv<T, RedOp, Proto>(args);
     }
 };
 
-template<class FUNC, typename T, int UNROLL>
-class RunWorkP2p<ncclFuncSendRecv, NCCL_ALGO_RING, NCCL_PROTO_SIGNAL, FUNC, T, UNROLL> {
+template<typename RedOp, typename T, int UNROLL>
+class RunWorkBatch<ncclFuncSendRecv, NCCL_ALGO_RING, NCCL_PROTO_SIGNAL, RedOp, T, UNROLL> {
   public:
-    __device__ void run(struct ncclDevWorkP2p* work) {
-      using Proto = ProtoSignal<UNROLL, 1, 1>;
-      runSendRecv<FUNC, T, UNROLL, Proto>(work);
+    __device__ void run(void* args) {
+      using Proto = ProtoSignal<1, 1, UNROLL>;
+      runSendRecv<T, RedOp, Proto>(args);
     }
 };
 
-template<class FUNC, typename T, int UNROLL>
-class RunWorkP2p<ncclFuncSendRecv, NCCL_ALGO_RING, NCCL_PROTO_SIGNAL_BULK, FUNC, T, UNROLL> {
+template<typename RedOp, typename T, int UNROLL>
+class RunWorkBatch<ncclFuncSendRecv, NCCL_ALGO_RING, NCCL_PROTO_SIGNAL_BULK, RedOp, T, UNROLL> {
   public:
-    __device__ void run(struct ncclDevWorkP2p* work) {
-      using Proto = ProtoSignalBulk<UNROLL, 1, 1>;
-      runSendRecv<FUNC, T, UNROLL, Proto>(work);
+    __device__ void run(void* args) {
+      using Proto = ProtoSignalBulk<1, 1, UNROLL>;
+      runSendRecv<T, RedOp, Proto>(args);
     }
 };
 
-template<class FUNC, typename T, int UNROLL>
-class RunWorkP2p<ncclFuncSendRecv, NCCL_ALGO_RING, NCCL_PROTO_SIMPLE_BULK_AR, FUNC, T, UNROLL> {
+template<typename RedOp, typename T, int UNROLL>
+class RunWorkBatch<ncclFuncSendRecv, NCCL_ALGO_RING, NCCL_PROTO_SIMPLE_BULK_AR, RedOp, T, UNROLL> {
   public:
-    __device__ void run(struct ncclDevWorkP2p* work) {
+    __device__ void run(void* args) {
 #if defined(__HGGC_ARCH__) && __HGGC_ARCH__ >= 150
-      using Proto = ProtoSimpleBulkAR<UNROLL, 1, 1>;
-      runSendRecv<FUNC, T, UNROLL, Proto>(work);
+      using Proto = ProtoSimpleBulkAR<1, 1, UNROLL>;
+      runSendRecv<T, RedOp, Proto>(args);
+#else
+      (void)args;
 #endif
     }
 };
