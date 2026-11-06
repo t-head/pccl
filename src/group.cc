@@ -360,11 +360,17 @@ static void groupCleanup(ncclComm_t* groupCommHeadPtr, struct ncclIntruQueue<str
         while (!ncclIntruQueueEmpty(&comm->planner.planQueue)) {
           struct ncclKernelPlan* plan = ncclIntruQueueDequeue(&comm->planner.planQueue);
           // Persistent plans will be reclaimed via the callbackQueue when the
-          // graph drops its UserObject reference.
-          if (!plan->persistent) {
+          // graph drops its UserObject reference. So are plans whose reclaimer
+          // is queued already, or will be by a pending host callback.
+          if (!plan->persistent && !plan->isHostCbEnq && !plan->reclaimQueued) {
             while (!ncclIntruQueueEmpty(&plan->proxyOpQueue)) {
               struct ncclProxyOp* pxop = ncclIntruQueueDequeue(&plan->proxyOpQueue);
               ncclMemoryPoolFree(&comm->memPool_ncclProxyOp, pxop);
+            }
+            // Pooled multi-work symk arguments are not part of memScoped.
+            if (plan->isSymColl && plan->symkArgsPooled && plan->kernelSymkArgs != nullptr) {
+              ncclMemoryPoolFree<pcclSymkDevWorkArgs1K>(&comm->memPool_kernelSymkArgs,
+                  reinterpret_cast<pcclSymkDevWorkArgs1K*>(plan->kernelSymkArgs));
             }
             ncclMemoryPoolFree(&comm->memPool_ncclKernelPlan, plan);
           }

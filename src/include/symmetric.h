@@ -166,7 +166,11 @@ struct alignas(16) pcclSymDevArgs {
   char* input;
   char* output;
   bool incPrecision;
+  // Work-slice fields, read only by the multi-work entry (Slice bodies); a single work spans its launch.
+  int blockOffset; // computeBlock = blockIdx.x - blockOffset; barrier/LL slots use blockIdx.x.
+  size_t nAllElts; // Whole per-rank work length (AG/RS rank-slot stride); nElts is the slice.
 };
+static_assert(sizeof(pcclSymDevArgs) == 80, "Symk single-work arguments must stay 80 bytes");
 #define ncclSymDevArgs pcclSymDevArgs
 
 // Symmetric kernel selection and dispatch live in sym_kernels.h (the multi-task

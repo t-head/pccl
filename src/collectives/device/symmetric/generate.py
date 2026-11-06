@@ -122,71 +122,68 @@ def kernel_conds(k):
   if arch == 0: return None
   return "(defined __HGGC_ARCH__) && (__HGGC_ARCH__ >= %d)"%arch
 
-# Multi-task wrapper (4KB by-value); the body unpacks per-channel work from
-# pcclSymkDevWorkArgs and dispatches to the inline ncclSymRun_* bodies which
-# take ncclSymDevArgs.
+# Multi-task wrapper (1KB by-value): ncclSymkArgsHandler::forEachWork slices the
+# works as NCCL does and runs each slice through the inline pccl_symRun_* bodies,
+# which take ncclSymDevArgs.
 MULTI_WRAPPER_PROLOGUE = (
-    "  pcclSymkDevWorkArgs const* args = &args4K.args;\n"
-    "  int blockId = blockIdx.x;\n"
-    "  pcclSymkChannelWorkRange* range = args->getWorkRange();\n"
-    "  pcclSymkDevWork* works = args->getWorks(args->nMaxChannels);\n"
-    "  int workLo = (blockId == 0) ? 0 : (int)range[blockId-1].workHi;\n"
-    "  if (blockId != 0 && (uint32_t)range[blockId-1].fracHi + 1u == 0x10000u) workLo++;\n"
-    "  int workHi = (int)range[blockId].workHi;\n"
-    "  for (int wi = workLo; wi <= workHi; wi++) {{\n"
-    "    pcclSymkDevWork const& work = works[wi];\n"
-    "    if (blockId < (int)work.sChannelId ||\n"
-    "        blockId >= (int)work.sChannelId + (int)work.nChannels) continue;\n"
-    "    ncclSymDevArgs perWork;\n"
-    "    perWork.comm.base         = args->kcomm.base;\n"
-    "    perWork.comm.stride4G     = work.inputWin->stride4G;\n"
-    "    perWork.comm.nRanks       = args->kcomm.devComm.lsaSize;\n"
-    "    perWork.comm.rank         = args->kcomm.devComm.lsaRank;\n"
-    "    perWork.comm.nRanks_rcp32 = args->kcomm.devComm.lsaSize_rcp32;\n"
-    "    perWork.rootRank          = work.rootRank;\n"
-    "    perWork.nBlocks           = work.nChannels;\n"
-    "    perWork.redOpArg          = work.redOpArg;\n"
-    "    perWork.nElts             = work.nElts;\n"
-    "    perWork.input             = (char*)::add4G((void*)work.inputWin->lsaFlatBase,\n"
-    "                                  (int)(args->kcomm.devComm.lsaRank * work.inputWin->stride4G)) + work.inputOff;\n"
-    "    perWork.output            = (char*)::add4G((void*)work.outputWin->lsaFlatBase,\n"
-    "                                  (int)(args->kcomm.devComm.lsaRank * work.outputWin->stride4G)) + work.outputOff;\n"
-    "    perWork.incPrecision      = false;\n"
+    "  ncclSymkArgsHandler handler{{&args1K.args}};\n"
+    "  ncclSymkDevComm const& kcomm = args1K.args.kcomm;\n"
+    "  ncclSymDevArgs perWork;\n"
+    "  perWork.comm.base         = kcomm.base;\n"
+    "  // Every LSA window shares the resource window's stride, including when a work has none.\n"
+    "  perWork.comm.stride4G     = kcomm.devComm.resourceWindow_inlined.stride4G;\n"
+    "  perWork.comm.nRanks       = kcomm.devComm.lsaSize;\n"
+    "  perWork.comm.rank         = kcomm.devComm.lsaRank;\n"
+    "  perWork.comm.nRanks_rcp32 = kcomm.devComm.lsaSize_rcp32;\n"
+    "  // Batched works share func/op/type; like NCCL's redOpArg, take uniform fields from the first.\n"
+    "  perWork.rootRank          = handler.devWork->rootRank;\n"
+    "  perWork.redOpArg          = handler.devWork->redOpArg;\n"
+    "  perWork.incPrecision      = handler.devWork->incPrecision;\n"
+    "  bool firstWork = true;\n"
+    "  handler.forEachWork<{ty}>([&](int block, int nBlocks, size_t nElts, size_t nAllElts,\n"
+    "                                {ty}* input, {ty}* output) {{\n"
+    "    // Thread 0 of the previous work's ncclSymPrims wrote back the epochs this one reloads.\n"
+    "    if (!firstWork) ncclCoopCta().sync();\n"
+    "    firstWork = false;\n"
+    "    perWork.nBlocks           = nBlocks;\n"
+    "    perWork.blockOffset       = blockIdx.x - block;\n"
+    "    perWork.nElts             = nElts;\n"
+    "    perWork.nAllElts          = nAllElts;\n"
+    "    perWork.input             = (char*)input;\n"
+    "    perWork.output            = (char*)output;\n"
 )
-MULTI_WRAPPER_EPILOGUE = "  }}"
+MULTI_WRAPPER_EPILOGUE = "  }});"
 
-def instantiate(k):
+def instantiate(k, part):
   arch_cond = kernel_conds(k)
-  # Fast-path: 64B ncclSymDevArgs by value. Used when PCCL_SYMK_USE_MULTI_TASK=0
-  # (default). Avoids PPU hgLaunchKernelExAD memcpying the full 4KB args
-  # signature per launch.
+  # Fast-path: one work as 80B ncclSymDevArgs by value, cheaper to launch than
+  # the multi-task ABI.
   fast_template = (
       "__global__ void __launch_bounds__(ncclSymMaxThreads, ncclSymMinBlocksPerCU)\n"
       "{cname_fast}(ncclSymDevArgs args) {{\n"
       "{fast_call}\n"
       "}}"
   )
-  # Multi-task: 4KB pcclSymkDevWorkArgs4K by value.
-  # Currently no callers; re-enable via PCCL_SYMK_USE_MULTI_TASK=1 when PPU
-  # SDK exposes a per-launch args-size override.
+  # Multi-task: 1KB pcclSymkDevWorkArgs1K by value; launches pass only the
+  # calcArgsSize() prefix.
   multi_template = (
       "__global__ void __launch_bounds__(ncclSymMaxThreads, ncclSymMinBlocksPerCU)\n"
-      "{cname}(pcclSymkDevWorkArgs4K const args4K) {{\n"
+      "{cname}(pcclSymkDevWorkArgs1K const args1K) {{\n"
       + MULTI_WRAPPER_PROLOGUE
       + "{multi_call}\n"
       + MULTI_WRAPPER_EPILOGUE
       + "\n}}"
   )
   if arch_cond is None:
-    fast_call_red_ty  = "  pccl_symRun_{id}<{red}, {ty}>(&args);"
-    fast_call_form    = "  pccl_symRun_{id}(&args);"
-    multi_call_red_ty = "    pccl_symRun_{id}<{red}, {ty}>(&perWork);"
-    multi_call_form   = "    pccl_symRun_{id}(&perWork);"
+    fast_call_red_ty  = "  pccl_symRun_{id}<{red}, {ty}, false>(&args);"
+    fast_call_form    = "  pccl_symRun_{id}<false>(&args);"
+    multi_call_red_ty = "    pccl_symRun_{id}<{red}, {ty}, true>(&perWork);"
+    multi_call_form   = "    pccl_symRun_{id}<true>(&perWork);"
   else:
-    fast_call_red_ty = "  #if {arch_cond}\n    pccl_symRun_{id}<{red}, {ty}>(&args);\n  #endif"
-    fast_call_form   = "  #if {arch_cond}\n    pccl_symRun_{id}(&args);\n  #endif"
-    multi_call_red_ty = "    #if {arch_cond}\n      pccl_symRun_{id}<{red}, {ty}>(&perWork);\n    #endif"
-    multi_call_form   = "    #if {arch_cond}\n      pccl_symRun_{id}(&perWork);\n    #endif"
+    fast_call_red_ty = "  #if {arch_cond}\n    pccl_symRun_{id}<{red}, {ty}, false>(&args);\n  #endif"
+    fast_call_form   = "  #if {arch_cond}\n    pccl_symRun_{id}<false>(&args);\n  #endif"
+    multi_call_red_ty = "    #if {arch_cond}\n      pccl_symRun_{id}<{red}, {ty}, true>(&perWork);\n    #endif"
+    multi_call_form   = "    #if {arch_cond}\n      pccl_symRun_{id}<true>(&perWork);\n    #endif"
 
   id = k.coll+'_'+k.algo
   cname = kernel_cname(k)
@@ -197,12 +194,13 @@ def instantiate(k):
   else:
     fast_call  = fast_call_form.format(id=id, arch_cond=arch_cond)
     multi_call = multi_call_form.format(id=id, arch_cond=arch_cond)
-  return (multi_template.format(cname=cname, multi_call=multi_call)
-          + "\n"
-          + fast_template.format(cname_fast=cname_fast, fast_call=fast_call))
+  ty = ty_to_cxxtype[k.ty] if k.coll in reductions else "char"
+  if part == 'fast':
+    return fast_template.format(cname_fast=cname_fast, fast_call=fast_call)
+  return multi_template.format(cname=cname, multi_call=multi_call, ty=ty)
 
 def prototype(k):
-  return ("__global__ void {cname}(pcclSymkDevWorkArgs4K const);\n"
+  return ("__global__ void {cname}(pcclSymkDevWorkArgs1K const);\n"
           "__global__ void {cname_fast}(ncclSymDevArgs);").format(
             cname=kernel_cname(k), cname_fast=kernel_cname_fast(k))
 
@@ -234,8 +232,11 @@ for (fname, coll), ks in kernels_by_file.items():
     emitln(f, '#include "pccl_device/core.h"')
     emitln(f, '#include "symmetric/kernel.cuh"')
     emitln(f, '#include "symmetric/{coll}.cuh"'.format(coll=coll_to_lower[coll]))
-    for k in ks:
-      emitln(f, instantiate(k))
+    # Single-work entries first, so the batch entries of a file do not shift them in the linked
+    # image; small-message single-work latency depends on that code placement.
+    for part in ('fast', 'multi'):
+      for k in ks:
+        emitln(f, instantiate(k, part))
 
 # Generate <gensrc>/symmetric_kernels.cc
 kernel_list = list(enumerate_kernels())
