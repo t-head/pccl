@@ -29,11 +29,7 @@ PCCL_DEVICE_INLINE pcclGinWindow_t getGinWindow(pcclWindow_t window, int connect
 
 PCCL_DEVICE_INLINE int teamRankToGinRank(pcclDevComm const& comm, pcclTeam team, int teamRank) {
   int worldRank = pcclTeamRankToWorld(comm, team, teamRank);
-  if (comm.ginIsRailed) {
-    return utility::idivFast32(worldRank, comm.lsaSize, comm.lsaSize_rcp32);
-  } else {
-    return worldRank;
-  }
+  return utility::idivFast32(worldRank, comm.ginConnectionStride, comm.ginConnectionStride_rcp32);
 }
 
 // Multi-segment put/get helpers
@@ -124,14 +120,8 @@ template<unsigned beMask>
 PCCL_DEVICE_INLINE pcclGinCtx_M<beMask> pcclGin_BackendMask<beMask>::_makeCtx() const {
   pcclGinCtx_M<beMask> ans;
   ans.backend = (pcclNetDeviceType)_ginBackend;
-  if (comm.ginIsRailed) {
-    pcclTeam teamRail = pcclTeamRail(comm);
-    ans.rank = teamRail.rank;
-    ans.nRanks = teamRail.nRanks;
-  } else {
-    ans.rank = comm.rank;
-    ans.nRanks = comm.nRanks;
-  }
+  ans.rank = pccl::utility::idivFast32(comm.rank, comm.ginConnectionStride, comm.ginConnectionStride_rcp32);
+  ans.nRanks = pccl::utility::idivFast32(comm.nRanks, comm.ginConnectionStride, comm.ginConnectionStride_rcp32);
   ans.handle = _ginHandle;
   ans.contextId = contextId;
   ans.resourceSharingMode = (uint8_t)this->resourceSharingMode;
@@ -142,14 +132,10 @@ PCCL_DEVICE_INLINE pcclGinCtx pcclGin_C_makeCtx(pcclGin_C* net) {
   pcclGinCtx ans;
   ans.backendMask = net->backendMask;
   ans.backend = (pcclNetDeviceType)net->_ginBackend;
-  if (net->comm.ginIsRailed) {
-    pcclTeam teamRail = pcclTeamRail(net->comm);
-    ans.rank = teamRail.rank;
-    ans.nRanks = teamRail.nRanks;
-  } else {
-    ans.rank = net->comm.rank;
-    ans.nRanks = net->comm.nRanks;
-  }
+  ans.rank = pccl::utility::idivFast32(net->comm.rank, net->comm.ginConnectionStride,
+                                     net->comm.ginConnectionStride_rcp32);
+  ans.nRanks = pccl::utility::idivFast32(net->comm.nRanks, net->comm.ginConnectionStride,
+                                       net->comm.ginConnectionStride_rcp32);
   ans.handle = net->_ginHandle;
   ans.contextId = net->contextId;
   ans.resourceSharingMode = (uint8_t)net->resourceSharingMode;

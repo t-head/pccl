@@ -104,6 +104,8 @@ __global__ void exchange(pcclDevComm comm, pcclWindow_t source, pcclWindow_t des
   }
   pcclGinBarrierSession<pcclCoopThread> barrier(coop, pcclGinAllContexts(comm), pcclTeamTagWorld{}, 0);
   barrier.sync(coop, hggc::memory_order_acq_rel, pcclGinFenceLevel::Put | pcclGinFenceLevel::Get);
+  pcclBarrierSession<pcclCoopThread> hybrid(coop, pcclTeamTagWorld{}, pcclGin(comm, 0), 0);
+  hybrid.sync(coop, hggc::memory_order_acq_rel, pcclGinFenceLevel::Put);
 }
 
 int main(int argc, char** argv) {
@@ -118,6 +120,7 @@ int main(int argc, char** argv) {
   CHECK(MPI_Comm_rank(local, &localRank));
   CHECK(hggcSetDevice(localRank));
   bool host = argc > 1 && atoi(argv[1]) != 0;
+  int stride = argc > 2 ? atoi(argv[2]) : 0;
   pcclUniqueId id;
   if (rank == 0) CHECK(pcclGetUniqueId(&id));
   CHECK(MPI_Bcast(&id, sizeof(id), MPI_BYTE, 0, MPI_COMM_WORLD));
@@ -136,10 +139,17 @@ int main(int argc, char** argv) {
         PCCL_WIN_GIN_ONLY | PCCL_WIN_COLL_SYMMETRIC) == pcclInvalidArgument);
     pcclDevCommRequirements req = PCCL_DEV_COMM_REQUIREMENTS_INITIALIZER;
     req.ginConnectionType = PCCL_GIN_CONNECTION_FULL;
+    if (stride > 0) {
+      req.ginConnectionType = PCCL_GIN_CONNECTION_CUSTOM_STRIDE;
+      req.ginCustomStride = stride;
+      REQUIRE((ranks / 2) % stride == 0);
+    }
     req.ginContextCount = 3;
     req.worldGinBarrierCount = 1;
+    req.barrierCount = 1;
     pcclDevComm deviceComm;
     CHECK(pcclDevCommCreate(comm, &req, &deviceComm));
+    REQUIRE(deviceComm.ginContextStride == (stride > 0 ? stride : 1));
     if (host) {
       pcclWindow_vidmem window;
       CHECK(hggcMemcpy(&window, sourceWindow, sizeof(window), hggcMemcpyDeviceToHost));
