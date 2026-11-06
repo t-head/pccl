@@ -1,7 +1,7 @@
 /*************************************************************************
  * SPDX-FileCopyrightText: Copyright (c) 2016-2026 NVIDIA CORPORATION & AFFILIATES. All rights reserved.
  * SPDX-FileCopyrightText: Modifications Copyright (c) 2020-2026 T-Head (Shanghai) Semiconductor Co., Ltd. All rights reserved.
- * SPDX-License-Identifier: BSD-3-Clause
+ * SPDX-License-Identifier: BSD-3-Clause AND Apache-2.0
  *
  * See LICENSE.txt for more license information
  *************************************************************************/
@@ -42,7 +42,8 @@ static_assert(sizeof(struct p2pConnectInfo) <= CONNECT_SIZE, "p2pConnectInfo is 
 struct p2pIpcExpInfo {
   ncclIpcDesc ipcDesc;
   bool legacyIpcCap;
-  int impFd;
+  bool closeOnly;
+  ncclIpcFd impFd;
   size_t phySize;
   size_t virSize;
   uintptr_t offset;
@@ -709,7 +710,29 @@ static ncclResult_t p2pSendProxyConnect(struct ncclProxyConnection* connection, 
   return ncclSuccess;
 }
 
+static ncclResult_t p2pDeregisterMemHandle(struct ncclProxyConnection* connection, struct ncclProxyState* proxyState,
+                                           struct ncclIpcImpInfo* ipcInfo) {
+  if (ipcInfo->legacyIpcCap) {
+    HGGCCHECK(hggcIpcCloseMemHandle((void*)((uintptr_t)ipcInfo->rmtRegAddr - ipcInfo->offset)));
+  } else {
+    if (connection->sameProcess) {
+      NCCLCHECK(ncclHgMemFreeAddr((void*)((uintptr_t)ipcInfo->rmtRegAddr - ipcInfo->offset), nullptr,
+                                  ipcInfo->numSegments));
+    } else {
+      NCCLCHECK(ncclHggcFree((void*)((uintptr_t)ipcInfo->rmtRegAddr - ipcInfo->offset), MEM_NORMAL, nullptr, ipcInfo->numSegments));
+    }
+  }
+  return ncclSuccess;
+}
+
 static ncclResult_t p2pSendProxyFree(struct ncclProxyConnection* connection, struct ncclProxyState* proxyState) {
+  while (!ncclIntruQueueEmpty(&connection->proxyMemHandleQueue)) {
+    struct proxyMemHandle* memHandle = ncclIntruQueueDequeue(&connection->proxyMemHandleQueue);
+    NCCLVERIFY(p2pDeregisterMemHandle(connection, proxyState, (struct ncclIpcImpInfo*)memHandle->handle));
+    ncclFree(memHandle->handle);
+    ncclFree(memHandle);
+  }
+
   if (usingMemcpy()) {
     struct p2pShmProxyInfo* proxyInfo = (struct p2pShmProxyInfo*)connection->transportResources;
     if (proxyInfo) {
@@ -741,6 +764,13 @@ static ncclResult_t p2pSendProxyFree(struct ncclProxyConnection* connection, str
 }
 
 static ncclResult_t p2pRecvProxyFree(struct ncclProxyConnection* connection, struct ncclProxyState* proxyState) {
+  while (!ncclIntruQueueEmpty(&connection->proxyMemHandleQueue)) {
+    struct proxyMemHandle* memHandle = ncclIntruQueueDequeue(&connection->proxyMemHandleQueue);
+    NCCLVERIFY(p2pDeregisterMemHandle(connection, proxyState, (struct ncclIpcImpInfo*)memHandle->handle));
+    ncclFree(memHandle->handle);
+    ncclFree(memHandle);
+  }
+
   if (ncclCuMemEnable()) {
     struct p2pHgMemProxyInfo *proxyInfo = (struct p2pHgMemProxyInfo *) connection->transportResources;
     if (proxyInfo) {
@@ -817,12 +847,138 @@ static ncclResult_t p2pSendProxyProgress(struct ncclProxyState* proxyState, stru
   return ncclSuccess;
 }
 
+#define NCCL_P2P_MAX_PHYSICAL_SEGMENTS 8192
+
+static ncclResult_t ipcHandleMultiSegmentRegistration(HGdeviceptr userBuff, size_t userBuffSize, ncclComm* comm,
+    struct ncclProxyConnector* proxyConn, size_t* totalMappedBufferSize,
+    int* numSegments, struct p2pIpcExpInfo** ipcInfos) {
+  ncclResult_t ret = ncclSuccess;
+  *totalMappedBufferSize = 0;
+  *numSegments = 0;
+  HGdeviceptr userBuffStart = userBuff;
+  HGdeviceptr userBuffEnd = userBuffStart + userBuffSize;
+  HGdeviceptr mappedPtrEnd = userBuffStart;
+  HGdeviceptr tmpBase;
+  size_t tmpBaseSize;
+  HGmemGenericAllocationHandle* segmentHandles = nullptr;
+  ncclIpcFd* expFds = nullptr;
+  ncclIpcFd* impFds = nullptr;
+  int capacity = 2;
+  int released = 0;
+  size_t maxGranularity = 0;
+  bool useFd = !proxyConn->sameProcess && ncclHgMemHandleType == HG_MEM_HANDLE_TYPE_POSIX_FILE_DESCRIPTOR;
+  *ipcInfos = nullptr;
+  // Minimum of two segments in this codepath.
+  NCCLCHECK(ncclCalloc(ipcInfos, capacity));
+  if (useFd) {
+    NCCLCHECKGOTO(ncclCalloc(&expFds, capacity), ret, fail);
+    for (int idx = 0; idx < capacity; idx++) expFds[idx] = NCCL_INVALID_IPC_FD;
+  }
+  NCCLCHECKGOTO(ncclCalloc(&segmentHandles, capacity), ret, fail);
+
+  while (mappedPtrEnd < userBuffEnd) {
+    int segment = *numSegments;
+    if (segment == NCCL_P2P_MAX_PHYSICAL_SEGMENTS) {
+      INFO(NCCL_REG, "Number of segments exceeded maximum supported for p2p (%d). Skipping registration.",
+           NCCL_P2P_MAX_PHYSICAL_SEGMENTS);
+      ret = ncclInternalError;
+      goto fail;
+    }
+    if (segment == capacity) {
+      capacity = capacity * 2;
+      NCCLCHECKGOTO(ncclRealloc(ipcInfos, segment, capacity), ret, fail);
+      if (useFd) {
+        NCCLCHECKGOTO(ncclRealloc(&expFds, segment, capacity), ret, fail);
+        for (int idx = segment; idx < capacity; idx++) expFds[idx] = NCCL_INVALID_IPC_FD;
+      }
+      NCCLCHECKGOTO(ncclRealloc(&segmentHandles, segment, capacity), ret, fail);
+    }
+    struct p2pIpcExpInfo* ipcInfo = *ipcInfos + segment;
+    ipcInfo->impFd = NCCL_INVALID_IPC_FD;
+    HGCHECKGOTO(hgMemGetAddressRange(&tmpBase, &tmpBaseSize, mappedPtrEnd), ret, fail);
+    ipcInfo->phySize = tmpBaseSize;
+    HGCHECKGOTO(hgMemRetainAllocationHandle(&segmentHandles[segment], (void*)tmpBase), ret, fail);
+    // Count retained handles before exporting so failure cleanup releases this segment too.
+    *numSegments = *numSegments + 1;
+    if (proxyConn->sameProcess) {
+      memcpy(&ipcInfo->ipcDesc.memHandle, &segmentHandles[segment], sizeof(HGmemGenericAllocationHandle));
+    } else {
+      if (useFd) {
+        HGCHECKGOTO(hgMemExportToShareableHandle(&expFds[segment], segmentHandles[segment],
+                                               ncclHgMemHandleType, 0), ret, fail);
+      } else {
+        HGCHECKGOTO(hgMemExportToShareableHandle(&ipcInfo->ipcDesc.hgDesc.handle, segmentHandles[segment],
+                                               ncclHgMemHandleType, 0), ret, fail);
+      }
+    }
+    // HG virtual reservation granularity can differ from physical allocation granularity.
+    HGmemAllocationProp prop = {};
+    size_t granularityVir = 0;
+    HGCHECKGOTO(hgMemGetAllocationPropertiesFromHandle(&prop, segmentHandles[segment]), ret, fail);
+    HGCHECKGOTO(hgMemGetAllocationGranularity(&granularityVir, &prop, HG_MEM_ALLOC_GRANULARITY_MINIMUM), ret, fail);
+    maxGranularity = std::max(maxGranularity, granularityVir);
+    *totalMappedBufferSize += tmpBaseSize;
+    mappedPtrEnd = tmpBase + tmpBaseSize;
+  }
+  ALIGN_SIZE_WITH_RTN(*totalMappedBufferSize, maxGranularity, (*ipcInfos)->virSize);
+
+  if (useFd) {
+    NCCLCHECKGOTO(ncclCalloc(&impFds, *numSegments), ret, fail);
+    for (int segment = 0; segment < *numSegments; segment++) impFds[segment] = NCCL_INVALID_IPC_FD;
+    NCCLCHECKGOTO(ncclProxyClientBatchQueryFdBlocking(comm, proxyConn, expFds, impFds, *numSegments), ret, fail);
+    for (int segment = 0; segment < *numSegments; segment++) {
+      (*ipcInfos)[segment].impFd = impFds[segment];
+      ncclIpcFd fd = expFds[segment];
+      expFds[segment] = NCCL_INVALID_IPC_FD;
+      SYSCHECKGOTO(ncclIpcFdClose(fd), "close", ret, fail);
+    }
+  }
+  for (; released < *numSegments; released++) {
+    HGCHECKGOTO(hgMemRelease(segmentHandles[released]), ret, fail);
+  }
+  TRACE(NCCL_REG, "Populated multi-segment IPC infos. totalMappedBufferSize : %zu, Num segments : %d",
+        *totalMappedBufferSize, *numSegments);
+
+exit:
+  ncclFree(expFds);
+  ncclFree(impFds);
+  ncclFree(segmentHandles);
+  return ret;
+fail:
+  // The upstream batch helper may fail after transferring a prefix of the FDs.
+  // Preserve cleanup of that prefix in its owning proxy process.
+  if (impFds) {
+    int transferred = 0;
+    while (transferred < *numSegments && impFds[transferred] != NCCL_INVALID_IPC_FD) {
+      (*ipcInfos)[transferred].impFd = impFds[transferred];
+      transferred++;
+    }
+    if (transferred > 0) {
+      // Close already transferred FDs in their owning process if a later query fails.
+      void* unused = NULL;
+      (*ipcInfos)->closeOnly = true;
+      NCCLVERIFY(ncclProxyCallBlocking(comm, proxyConn, ncclProxyMsgRegister,
+          *ipcInfos, sizeof(**ipcInfos) * transferred, &unused, sizeof(unused)));
+    }
+  }
+  for (int segment = 0; segment < *numSegments; segment++) {
+    if (useFd && expFds[segment] != NCCL_INVALID_IPC_FD && ncclIpcFdClose(expFds[segment]) != 0)
+      WARN("IPC export fd close failed: %s", strerror(errno));
+    if (segment >= released) HGCHECKIGNORE(hgMemRelease(segmentHandles[segment]));
+  }
+  ncclFree(*ipcInfos);
+  *ipcInfos = nullptr;
+  goto exit;
+}
+
 static ncclResult_t ipcRegisterBuffer(ncclComm_t comm, const void* userbuff, size_t buffSize, int* peerRanks, int nPeers, ncclIpcRegType type, struct ncclReg* regRecord, int* regBufFlag, uintptr_t* offsetOut, uintptr_t** peerRmtAddrsOut, bool* isLegacyIpc) {
   ncclResult_t ret = ncclSuccess;
+  struct p2pIpcExpInfo* ipcInfo = nullptr;
   struct ncclIpcRegInfo* newInfo = NULL;
   uintptr_t* peerRmtAddrs = NULL;
   int legacyIpcCap = 0;
-  size_t sizeAlignedPhy = 0;
+  size_t baseSize = 0;
+  size_t totalMappedSize = 0;
   size_t sizeAlignedVir = 0;
   void* baseAddr = NULL;
   bool needUpdate = false;
@@ -832,25 +988,49 @@ static ncclResult_t ipcRegisterBuffer(ncclComm_t comm, const void* userbuff, siz
   *peerRmtAddrsOut = NULL;
   if (isLegacyIpc) *isLegacyIpc = false;
   if (regRecord) {
-    // buffer was registered by by users, we need to start to register or reuse it
+    // buffer was registered by users, we need to start to register or reuse it
     int peerLocalRank = -1;
     for (int p = 0; p < nPeers; p++) {
       int peerRank = peerRanks[p];
+      if (peerRank < 0 || peerRank >= comm->nRanks) {
+        WARN("rank %d invalid IPC peerRank %d nRanks %d", comm->rank, peerRank, comm->nRanks);
+        ret = ncclInternalError;
+        goto fail;
+      }
       peerLocalRank = comm->rankToLocalRank[peerRank];
+      if (peerLocalRank < 0 || peerLocalRank >= comm->localRanks || peerLocalRank >= NCCL_MAX_LOCAL_RANKS) {
+        WARN("rank %d invalid IPC peerLocalRank %d for peerRank %d localRanks %d maxLocalRanks %d",
+             comm->rank, peerLocalRank, peerRank, comm->localRanks, NCCL_MAX_LOCAL_RANKS);
+        ret = ncclInternalError;
+        goto fail;
+      }
       if (regRecord->ipcInfos[peerLocalRank]) {
         // We already have IPC info for peerLocalRank, no need to register it, we can reuse it
         *regBufFlag = 1;
         if (isLegacyIpc) *isLegacyIpc = regRecord->ipcInfos[peerLocalRank]->impInfo.legacyIpcCap;
-        INFO(NCCL_REG, "rank %d - IPC reuse buffer %p size %ld (baseAddr %p size %ld) to peer %d regAddr %p", comm->rank, userbuff, buffSize, (void*)regRecord->addr, regRecord->pages * comm->regCache.pageSize, peerRank, regRecord->ipcInfos[peerLocalRank]->impInfo.rmtRegAddr);
+        INFO(NCCL_REG, "rank %d - IPC reuse buffer %p size %ld (baseAddr %p size %ld) to peer %d regAddr %p", comm->rank, userbuff, buffSize, (void*)regRecord->begAddr, regRecord->endAddr - regRecord->begAddr, peerRank, regRecord->ipcInfos[peerLocalRank]->impInfo.rmtRegAddr);
       } else {
         // Register buffer with peerLocalRank
         struct ncclProxyConnector* proxyConn = NULL;
-        struct p2pIpcExpInfo ipcInfo;
+        int numSegments = 1;
+        bool multiSegment = false;
 
+        // Register the whole record, not just the segment under userbuff, so a
+        // later reuse of this import for a different segment stays in bounds.
+        void* regBeg = (void*)regRecord->begAddr;
+        size_t regSize = regRecord->endAddr - regRecord->begAddr;
         if (baseAddr == NULL) {
-          HGCHECKGOTO(hgMemGetAddressRange((HGdeviceptr*)&baseAddr, &sizeAlignedPhy, (HGdeviceptr)userbuff), ret, fail);
-          sizeAlignedVir = sizeAlignedPhy;
-          HGCHECKGOTO(hgPointerGetAttribute((void*)&legacyIpcCap, HG_POINTER_ATTRIBUTE_IS_LEGACY_HGGC_IPC_CAPABLE, (HGdeviceptr)baseAddr), ret, fail);
+          HGCHECKGOTO(hgMemGetAddressRange((HGdeviceptr*)&baseAddr, &baseSize, (HGdeviceptr)regBeg), ret, fail);
+          HGCHECKGOTO(hgPointerGetAttribute(&legacyIpcCap, HG_POINTER_ATTRIBUTE_IS_LEGACY_HGGC_IPC_CAPABLE,
+                                          (HGdeviceptr)baseAddr), ret, fail);
+        }
+        if ((uintptr_t)baseAddr + baseSize < (uintptr_t)regBeg + regSize) multiSegment = true;
+        if (multiSegment && (!ncclCuMemEnable() || !ncclParamMultiSegmentRegister())) goto exit;
+        if (!multiSegment) {
+          NCCLCHECKGOTO(ncclCalloc(&ipcInfo, 1), ret, fail);
+          ipcInfo->impFd = -1;
+          totalMappedSize = baseSize;
+          sizeAlignedVir = baseSize;
         }
         if (comm->gproxyConn[peerRank].initialized == false)
           NCCLCHECKGOTO(ncclProxyConnect(comm, TRANSPORT_P2P, 1, peerRank, &comm->gproxyConn[peerRank]), ret, fail);
@@ -859,45 +1039,50 @@ static ncclResult_t ipcRegisterBuffer(ncclComm_t comm, const void* userbuff, siz
         // Get the mem handle for that buffer. It may have been allocated through hggcMalloc in which case we'll
         // get the hggc legacy mem handle, or through hgMem*.
         if (ncclCuMemEnable()) {
-          HGmemGenericAllocationHandle handle;
-          if (hgMemRetainAllocationHandle(&handle, baseAddr) != HGGC_SUCCESS) {
-            // if hgMem* export fails, retry legacy export
-            if (comm->directMode || !ncclLegacyCudaRegister()) goto fail;
-            HGGCCHECKGOTO(hggcIpcGetMemHandle(&ipcInfo.ipcDesc.devIpc, baseAddr), ret, fail);
-            ipcInfo.legacyIpcCap = true;
-            if (isLegacyIpc) *isLegacyIpc = true;
+          if (multiSegment) {
+            NCCLCHECKGOTO(ipcHandleMultiSegmentRegistration((HGdeviceptr)regBeg, regSize, comm, proxyConn,
+                &totalMappedSize, &numSegments, &ipcInfo), ret, fail);
           } else {
-            ipcInfo.legacyIpcCap = false;
-            if (isLegacyIpc) *isLegacyIpc = false;
-            // hgMem* export to file descriptor or fabric handle
-            if (proxyConn->sameProcess) {
-              memcpy(&ipcInfo.ipcDesc.memHandle, &handle, sizeof(HGmemGenericAllocationHandle));
+            HGmemGenericAllocationHandle handle;
+            if (hgMemRetainAllocationHandle(&handle, baseAddr) != HGGC_SUCCESS) {
+              // if hgMem* export fails, retry legacy export
+              if (comm->directMode || !ncclLegacyCudaRegister()) goto fail;
+              HGGCCHECKGOTO(hggcIpcGetMemHandle(&ipcInfo->ipcDesc.devIpc, baseAddr), ret, fail);
+              ipcInfo->legacyIpcCap = true;
+              if (isLegacyIpc) *isLegacyIpc = true;
             } else {
-              if (ncclHgMemHandleType == HG_MEM_HANDLE_TYPE_POSIX_FILE_DESCRIPTOR) {
-                int expFd = -1;
-                HGCHECKGOTO(hgMemExportToShareableHandle(&expFd, handle, ncclHgMemHandleType, 0), ret, fail);
-                NCCLCHECKGOTO(ncclProxyClientQueryFdBlocking(comm, proxyConn, expFd, &ipcInfo.impFd), ret, fail);
-                SYSCHECKGOTO(close(expFd), "close", ret, fail);
+              ipcInfo->legacyIpcCap = false;
+              if (isLegacyIpc) *isLegacyIpc = false;
+              // hgMem* export to file descriptor or fabric handle
+              if (proxyConn->sameProcess) {
+                memcpy(&ipcInfo->ipcDesc.memHandle, &handle, sizeof(HGmemGenericAllocationHandle));
               } else {
-                // Allow this to silently fail for cases where the user buff cannot be registered
-                if ((hgMemExportToShareableHandle(&ipcInfo.ipcDesc.hgDesc.handle, handle, ncclHgMemHandleType, 0)) != HGGC_SUCCESS) {
-                  HGCHECKGOTO(hgMemRelease(handle), ret, fail);
-                  goto fail;
+                if (ncclHgMemHandleType == HG_MEM_HANDLE_TYPE_POSIX_FILE_DESCRIPTOR) {
+                  int expFd = -1;
+                  HGCHECKGOTO(hgMemExportToShareableHandle(&expFd, handle, ncclHgMemHandleType, 0), ret, fail);
+                  NCCLCHECKGOTO(ncclProxyClientQueryFdBlocking(comm, proxyConn, expFd, &ipcInfo->impFd), ret, fail);
+                  SYSCHECKGOTO(close(expFd), "close", ret, fail);
+                } else {
+                  // Allow this to silently fail for cases where the user buff cannot be registered
+                  if ((hgMemExportToShareableHandle(&ipcInfo->ipcDesc.hgDesc.handle, handle, ncclHgMemHandleType, 0)) != HGGC_SUCCESS) {
+                    HGCHECKGOTO(hgMemRelease(handle), ret, fail);
+                    goto fail;
+                  }
                 }
               }
+              HGmemAllocationProp prop = {};
+              size_t granularityVir = 0;
+              HGCHECK(hgMemGetAllocationPropertiesFromHandle(&prop, handle));
+              HGCHECK(hgMemGetAllocationGranularity(&granularityVir, &prop, HG_MEM_ALLOC_GRANULARITY_MINIMUM));
+              ALIGN_SIZE_WITH_RTN(totalMappedSize, granularityVir, sizeAlignedVir);
+              HGCHECKGOTO(hgMemRelease(handle), ret, fail);
             }
-            HGmemAllocationProp prop = {};
-            size_t granularityVir = 0;
-            HGCHECK(hgMemGetAllocationPropertiesFromHandle(&prop, handle));
-            HGCHECK(hgMemGetAllocationGranularity(&granularityVir, &prop, HG_MEM_ALLOC_GRANULARITY_MINIMUM));
-            ALIGN_SIZE_WITH_RTN(sizeAlignedPhy, granularityVir, sizeAlignedVir);
-            HGCHECKGOTO(hgMemRelease(handle), ret, fail);
           }
         } else if (legacyIpcCap) {
           // legacy export
           if (comm->directMode || !ncclLegacyCudaRegister()) goto fail;
-          HGGCCHECKGOTO(hggcIpcGetMemHandle(&ipcInfo.ipcDesc.devIpc, baseAddr), ret, fail);
-          ipcInfo.legacyIpcCap = true;
+          HGGCCHECKGOTO(hggcIpcGetMemHandle(&ipcInfo->ipcDesc.devIpc, baseAddr), ret, fail);
+          ipcInfo->legacyIpcCap = true;
           if (isLegacyIpc) *isLegacyIpc = true;
         } else {
           // nothing works, just return
@@ -905,15 +1090,19 @@ static ncclResult_t ipcRegisterBuffer(ncclComm_t comm, const void* userbuff, siz
         }
 
         void* rmtRegAddr = NULL;
-        ipcInfo.phySize = sizeAlignedPhy;
-        ipcInfo.virSize = sizeAlignedVir;
-        ipcInfo.offset = regRecord->addr - (uintptr_t)baseAddr;
+        if (!multiSegment) {
+          ipcInfo->phySize = totalMappedSize;
+          ipcInfo->virSize = sizeAlignedVir;
+        }
+        ipcInfo->offset = regRecord->begAddr - (uintptr_t)baseAddr;
         // Now ipcInfo contains all necessary registration info. Start to register buffer on proxy side
         // and get the remote register address back.
         if (proxyConn) {
           INFO(NCCL_REG, "rank %d - IPC registering buffer %p buffSize %ld (baseAddr %p phySize %ld) to peer %d",
-            comm->rank, userbuff, buffSize, (void*)regRecord->addr, ipcInfo.phySize, peerRank);
-          NCCLCHECKGOTO(ncclProxyCallBlocking(comm, proxyConn, ncclProxyMsgRegister, &ipcInfo, sizeof(p2pIpcExpInfo), &rmtRegAddr, sizeof(void*)), ret, fail);
+            comm->rank, userbuff, buffSize, (void*)regRecord->begAddr, ipcInfo->phySize, peerRank);
+          NCCLCHECKGOTO(ncclProxyCallBlocking(comm, proxyConn, ncclProxyMsgRegister,
+              ipcInfo, sizeof(p2pIpcExpInfo) * numSegments,
+              &rmtRegAddr, sizeof(void*)), ret, fail);
         }
         if (rmtRegAddr) {
           NCCLCHECKGOTO(ncclCalloc(&newInfo, 1), ret, fail);
@@ -926,19 +1115,27 @@ static ncclResult_t ipcRegisterBuffer(ncclComm_t comm, const void* userbuff, siz
           newInfo->peerRank = peerRank;
           newInfo->baseAddr = baseAddr;
           newInfo->impInfo.rmtRegAddr = rmtRegAddr;
-          newInfo->impInfo.offset = ipcInfo.offset;
-          newInfo->impInfo.legacyIpcCap = ipcInfo.legacyIpcCap;
+          newInfo->impInfo.offset = ipcInfo->offset;
+          newInfo->impInfo.legacyIpcCap = ipcInfo->legacyIpcCap;
+          newInfo->impInfo.numSegments = numSegments;
           newInfo->ipcProxyconn = proxyConn;
           regRecord->ipcInfos[peerLocalRank] = newInfo;
+          newInfo = NULL;  // The registration cache now owns this record.
           if (regRecord->regIpcAddrs.hostPeerRmtAddrs == NULL) {
             NCCLCHECKGOTO(ncclCalloc(&regRecord->regIpcAddrs.hostPeerRmtAddrs, comm->localRanks), ret, fail);
           }
           regRecord->regIpcAddrs.hostPeerRmtAddrs[peerLocalRank] = (uintptr_t)rmtRegAddr;
           needUpdate = true;
           *regBufFlag = 1;
-          INFO(NCCL_REG, "rank %d - IPC registered buffer %p phySize %ld virSize %ld (baseAddr %p size %ld) to peer %d regAddr %p offsetOut %ld",
-            comm->rank, userbuff, buffSize, (void*)regRecord->addr, ipcInfo.phySize, ipcInfo.virSize, peerRank, rmtRegAddr, (uintptr_t)userbuff - regRecord->addr);
+          INFO(NCCL_REG, "rank %d - IPC registered buffer %p size %zu segments %d baseAddr %p to peer %d "
+               "regAddr %p offsetOut %zu", comm->rank, userbuff, buffSize, numSegments,
+               (void*)regRecord->begAddr, peerRank, rmtRegAddr, (uintptr_t)userbuff - regRecord->begAddr);
+        } else {
+          ncclFree(newInfo);
+          newInfo = NULL;
         }
+        ncclFree(ipcInfo);
+        ipcInfo = nullptr;
       }
     }
 
@@ -959,11 +1156,12 @@ static ncclResult_t ipcRegisterBuffer(ncclComm_t comm, const void* userbuff, siz
         // p2p always returns remote addr here since remote buffer addr is passed in ncclDevWorkP2p struct
         peerRmtAddrs = (uintptr_t*)regRecord->regIpcAddrs.hostPeerRmtAddrs[peerLocalRank];
       }
-      *offsetOut = (uintptr_t)userbuff - regRecord->addr;
+      *offsetOut = (uintptr_t)userbuff - regRecord->begAddr;
       *peerRmtAddrsOut = peerRmtAddrs;
     }
   }
 exit:
+  ncclFree(ipcInfo);
   return ret;
 fail:
   *regBufFlag = 0;
@@ -1059,74 +1257,132 @@ ncclResult_t ncclIpcDeregBuffer(ncclComm_t comm, struct ncclIpcRegInfo* regInfo)
   return ncclSuccess;
 }
 
-static ncclResult_t p2pProxyRegister(struct ncclProxyConnection* connection, struct ncclProxyState* proxyState, void* reqBuff, int reqSize, void* respBuff, int respSize, int* done) {
+static ncclResult_t p2pProxyRegister(struct ncclProxyConnection* connection, struct ncclProxyState* proxyState,
+    void* reqBuff, int reqSize, void* respBuff, int respSize, int* done) {
   struct p2pIpcExpInfo* ipcExpInfo = (struct p2pIpcExpInfo*)reqBuff;
-  void* regAddr = NULL;
+  if (reqSize <= 0 || reqSize % sizeof(*ipcExpInfo) != 0 || respSize != sizeof(void*)) {
+    ERROR("Invalid P2P IPC register request size %d or response size %d", reqSize, respSize);
+    return ncclInternalError;
+  }
+  int numSegments = reqSize / sizeof(*ipcExpInfo);
   ncclResult_t ret = ncclSuccess;
-  bool mapped = false;
-  bool imported = false;
-  HGmemGenericAllocationHandle handle;
+  void* regAddr = NULL;
+  HGmemGenericAllocationHandle* segmentHandles = NULL;
+  bool* imported = NULL;
+  bool* mapped = NULL;
+  size_t totalSize = 0;
+  bool legacyOpened = false;
+  HGmemAccessDesc accessDesc = {};
+  struct proxyMemHandle* memHandle = NULL;
+  struct ncclIpcImpInfo* ipcInfo = NULL;
 
-  if (reqSize != sizeof(struct p2pIpcExpInfo)) {
-    ERROR("Invalid P2P IPC register request size %d, expected %zu", reqSize, sizeof(struct p2pIpcExpInfo));
-    return ncclInternalError;
-  }
-  if (respSize != sizeof(void*)) {
-    ERROR("Invalid P2P IPC register response size %d, expected %zu", respSize, sizeof(void*));
-    return ncclInternalError;
-  }
-
-  INFO(NCCL_REG, "Proxy rank %d register reqBuff %p phySize %ld virSize %ld offset %ld legacyIpcCap %d sameProcess %d",
-    proxyState->tpRank, reqBuff, ipcExpInfo->phySize, ipcExpInfo->virSize, ipcExpInfo->offset, ipcExpInfo->legacyIpcCap, connection->sameProcess);
-
-  // request peer passes all necessary buffer info to import. The proxy thread would register
-  // the buffer locally and return register addr back
-  if (ipcExpInfo->legacyIpcCap) {
-    // legacy import
-    HGGCCHECKGOTO(hggcIpcOpenMemHandle(&regAddr, ipcExpInfo->ipcDesc.devIpc, hggcIpcMemLazyEnablePeerAccess), ret, fail);
-    regAddr = (void*)((uintptr_t)regAddr + ipcExpInfo->offset);
-  } else {
-    // hgMem import
-    if (connection->sameProcess) {
-      // if proxy is same process as request peer, we just need to map the handle.
-      memcpy(&handle, &ipcExpInfo->ipcDesc.memHandle, sizeof(HGmemGenericAllocationHandle));
-    } else {
-      if (ncclHgMemHandleType == HG_MEM_HANDLE_TYPE_POSIX_FILE_DESCRIPTOR) {
-        HGCHECKGOTO(hgMemImportFromShareableHandle(&handle, (void*)(uintptr_t)ipcExpInfo->impFd, ncclHgMemHandleType), ret, fail);
-        SYSCHECKGOTO(close(ipcExpInfo->impFd), "close", ret, fail);
-      } else {
-        HGCHECKGOTO(hgMemImportFromShareableHandle(&handle, (void*)&ipcExpInfo->ipcDesc.hgDesc, ncclHgMemHandleType), ret, fail);
-      }
+  if (ipcExpInfo[0].closeOnly) goto exit;
+  for (int segment = 0; segment < numSegments; segment++) {
+    if (ipcExpInfo[segment].phySize == 0 || ipcExpInfo[segment].phySize > SIZE_MAX - totalSize ||
+        (ipcExpInfo[segment].legacyIpcCap && numSegments != 1)) {
+      ret = ncclInternalError;
+      goto fail;
     }
-    imported = true;
-    HGCHECKGOTO(hgMemAddressReserve((HGdeviceptr*)&regAddr, ipcExpInfo->virSize, /* alignment */ 0, /* addr */ 0, /* flags */ 0), ret, fail);
-    HGCHECKGOTO(hgMemMap((HGdeviceptr)regAddr, ipcExpInfo->phySize, /* offset */ 0, handle, /* flags */ 0), ret, fail);
-    mapped = true;
-    // Allow access by the local GPU
-    HGmemAccessDesc accessDesc = {};
+    totalSize += ipcExpInfo[segment].phySize;
+  }
+  if (ipcExpInfo[0].virSize < totalSize || ipcExpInfo[0].offset >= ipcExpInfo[0].phySize) {
+    ret = ncclInternalError;
+    goto fail;
+  }
+  INFO(NCCL_REG, "Proxy rank %d IPC register segments %d phySize %zu virSize %zu offset %zu sameProcess %d",
+       proxyState->tpRank, numSegments, totalSize, ipcExpInfo[0].virSize, ipcExpInfo[0].offset, connection->sameProcess);
+
+  NCCLCHECKGOTO(ncclCalloc(&memHandle, 1), ret, fail);
+  NCCLCHECKGOTO(ncclCalloc(&ipcInfo, 1), ret, fail);
+  if (ipcExpInfo[0].legacyIpcCap) {
+    HGGCCHECKGOTO(hggcIpcOpenMemHandle(&regAddr, ipcExpInfo[0].ipcDesc.devIpc,
+                                     hggcIpcMemLazyEnablePeerAccess), ret, fail);
+    legacyOpened = true;
+  } else {
+    NCCLCHECKGOTO(ncclCalloc(&segmentHandles, numSegments), ret, fail);
+    NCCLCHECKGOTO(ncclCalloc(&imported, numSegments), ret, fail);
+    NCCLCHECKGOTO(ncclCalloc(&mapped, numSegments), ret, fail);
+    HGCHECKGOTO(hgMemAddressReserve((HGdeviceptr*)&regAddr, ipcExpInfo[0].virSize, 0, 0, 0), ret, fail);
+    size_t offset = 0;
+    for (int segment = 0; segment < numSegments; segment++) {
+      if (connection->sameProcess) {
+        segmentHandles[segment] = ipcExpInfo[segment].ipcDesc.memHandle;
+      } else {
+        if (ncclHgMemHandleType == HG_MEM_HANDLE_TYPE_POSIX_FILE_DESCRIPTOR) {
+          HGCHECKGOTO(hgMemImportFromShareableHandle(&segmentHandles[segment], (void*)(uintptr_t)ipcExpInfo[segment].impFd,
+                                                    ncclHgMemHandleType), ret, fail);
+          imported[segment] = true;
+          ncclIpcFd fd = ipcExpInfo[segment].impFd;
+          ipcExpInfo[segment].impFd = NCCL_INVALID_IPC_FD;
+          SYSCHECKGOTO(ncclIpcFdClose(fd), "close", ret, fail);
+        } else {
+          HGCHECKGOTO(hgMemImportFromShareableHandle(&segmentHandles[segment], &ipcExpInfo[segment].ipcDesc.hgDesc.handle,
+                                                    ncclHgMemHandleType), ret, fail);
+          imported[segment] = true;
+        }
+      }
+      HGCHECKGOTO(hgMemMap((HGdeviceptr)regAddr + offset, ipcExpInfo[segment].phySize, 0, segmentHandles[segment], 0), ret, fail);
+      offset += ipcExpInfo[segment].phySize;
+      mapped[segment] = true;
+    }
     accessDesc.location.type = HG_MEM_LOCATION_TYPE_DEVICE;
     accessDesc.location.id = proxyState->hggcDev;
     accessDesc.flags = HG_MEM_ACCESS_FLAGS_PROT_READWRITE;
-    HGCHECKGOTO(hgMemSetAccess((HGdeviceptr)regAddr, ipcExpInfo->phySize, &accessDesc, 1), ret, fail);
-    regAddr = (void*)((uintptr_t)regAddr + ipcExpInfo->offset);
+    HGCHECKGOTO(hgMemSetAccess((HGdeviceptr)regAddr, totalSize, &accessDesc, 1), ret, fail);
   }
-  INFO(NCCL_REG, "Proxy rank %d register success regAddr %p phySize %ld virSize %ld offset %ld legacyIpcCap %d sameProcess %d", proxyState->tpRank, regAddr, ipcExpInfo->phySize, ipcExpInfo->virSize, ipcExpInfo->offset, ipcExpInfo->legacyIpcCap, connection->sameProcess);
-
+  regAddr = (void*)((uintptr_t)regAddr + ipcExpInfo[0].offset);
+  INFO(NCCL_REG, "Proxy rank %d IPC register success regAddr %p segments %d size %zu",
+       proxyState->tpRank, regAddr, numSegments, totalSize);
+  ipcInfo->rmtRegAddr = regAddr;
+  ipcInfo->offset = ipcExpInfo[0].offset;
+  ipcInfo->legacyIpcCap = ipcExpInfo[0].legacyIpcCap;
+  ipcInfo->numSegments = numSegments;
+  memHandle->handle = (void*)ipcInfo;
+  ncclIntruQueueEnqueue(&connection->proxyMemHandleQueue, memHandle);
+  memHandle = NULL;
+  ipcInfo = NULL;
 exit:
-  memcpy(respBuff, (void*)&regAddr, sizeof(void*));
+  ncclFree(memHandle);
+  ncclFree(ipcInfo);
+  // Also close descriptors for segments that were never reached on an error.
+  if (!connection->sameProcess && !ipcExpInfo[0].legacyIpcCap &&
+      ncclHgMemHandleType == HG_MEM_HANDLE_TYPE_POSIX_FILE_DESCRIPTOR) {
+    for (int segment = 0; segment < numSegments; segment++) {
+      if (ipcExpInfo[segment].impFd != NCCL_INVALID_IPC_FD && ncclIpcFdClose(ipcExpInfo[segment].impFd) != 0)
+        WARN("IPC import fd close failed: %s", strerror(errno));
+    }
+  }
+  ncclFree(mapped);
+  ncclFree(segmentHandles);
+  ncclFree(imported);
+  memcpy(respBuff, &regAddr, sizeof(regAddr));
   *done = 1;
   return ret;
 fail:
-  if (!ipcExpInfo->legacyIpcCap) {
-    if (mapped) HGCHECK(hgMemUnmap((HGdeviceptr)regAddr, ipcExpInfo->phySize));
-    if (regAddr) HGCHECK(hgMemAddressFree((HGdeviceptr)regAddr, ipcExpInfo->virSize));
-    if (imported) HGCHECK(hgMemRelease(handle));
+  if (legacyOpened) {
+    HGGCCHECKIGNORE(hggcIpcCloseMemHandle(regAddr));
+  } else {
+    size_t offset = 0;
+    for (int segment = 0; segment < numSegments; segment++) {
+      if (mapped && mapped[segment]) HGCHECKIGNORE(hgMemUnmap((HGdeviceptr)regAddr + offset, ipcExpInfo[segment].phySize));
+      if (imported && imported[segment]) HGCHECKIGNORE(hgMemRelease(segmentHandles[segment]));
+      offset += ipcExpInfo[segment].phySize;
+    }
+    if (regAddr) HGCHECKIGNORE(hgMemAddressFree((HGdeviceptr)regAddr, ipcExpInfo[0].virSize));
   }
   regAddr = NULL;
   goto exit;
 }
 
-static ncclResult_t p2pProxyDeregister(struct ncclProxyConnection* connection, struct ncclProxyState* proxyState, void* reqBuff, int reqSize, int* done) {
+static bool p2pHandleCmp(struct proxyMemHandle* a, struct proxyMemHandle* b) {
+  struct ncclIpcImpInfo* ipcInfoA = (struct ncclIpcImpInfo*)a->handle;
+  struct ncclIpcImpInfo* ipcInfoB = (struct ncclIpcImpInfo*)b->handle;
+  return ipcInfoA->rmtRegAddr == ipcInfoB->rmtRegAddr && ipcInfoA->offset == ipcInfoB->offset &&
+         ipcInfoA->legacyIpcCap == ipcInfoB->legacyIpcCap && ipcInfoA->numSegments == ipcInfoB->numSegments;
+}
+
+static ncclResult_t p2pProxyDeregister(struct ncclProxyConnection* connection, struct ncclProxyState* proxyState,
+                                       void* reqBuff, int reqSize, int* done) {
   ncclResult_t ret = ncclSuccess;
   struct ncclIpcImpInfo* ipcInfo = (struct ncclIpcImpInfo*)reqBuff;
   if (reqSize != sizeof(struct ncclIpcImpInfo)) {
@@ -1134,15 +1390,19 @@ static ncclResult_t p2pProxyDeregister(struct ncclProxyConnection* connection, s
     return ncclInternalError;
   }
 
-  if (ipcInfo->legacyIpcCap) {
-    HGGCCHECKGOTO(hggcIpcCloseMemHandle((void*)((uintptr_t)ipcInfo->rmtRegAddr - ipcInfo->offset)), ret, fail);
-  } else {
-    if (connection->sameProcess) {
-      NCCLCHECKGOTO(ncclHgMemFreeAddr((void*)((uintptr_t)ipcInfo->rmtRegAddr - ipcInfo->offset)), ret, fail);
-    } else {
-      NCCLCHECKGOTO(ncclHggcFree((void*)((uintptr_t)ipcInfo->rmtRegAddr - ipcInfo->offset)), ret, fail);
-    }
+  struct proxyMemHandle memHandle = {};
+  struct proxyMemHandle* deletedHandle;
+  memHandle.handle = (void*)ipcInfo;
+  deletedHandle = ncclIntruQueueDelete(&connection->proxyMemHandleQueue, &memHandle, p2pHandleCmp);
+  if (deletedHandle == NULL) {
+    WARN("IPC deregistration could not find proxy handle %p", ipcInfo->rmtRegAddr);
+    ret = ncclInternalError;
+    goto fail;
   }
+  ncclFree(deletedHandle->handle);
+  ncclFree(deletedHandle);
+
+  NCCLCHECKGOTO(p2pDeregisterMemHandle(connection, proxyState, ipcInfo), ret, fail);
 
 exit:
   *done = 1;
@@ -1150,7 +1410,6 @@ exit:
 fail:
   goto exit;
 }
-
 
 struct ncclTransport p2pTransport = {
   "P2P",

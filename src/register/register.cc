@@ -133,6 +133,10 @@ exit:
 NCCL_API(ncclResult_t, pcclCommDeregister, const ncclComm_t comm, void* handle);
 ncclResult_t pcclCommDeregister(const ncclComm_t comm, void *handle) {
   INFO_CALL("PCCL API: pcclCommDeregister(comm=%p, handle=%p)", comm, handle);
+  NCCLCHECK(CommCheck(comm, "pcclCommDeregister", "comm"));
+  // Retire destroyed graphs before dropping the local reference. Otherwise a
+  // new allocation at this address can inherit imports of the old allocation.
+  NCCLCHECK(ncclCommPollCallbacks(comm, /*waitSome=*/false));
   NCCLCHECK(commDeregister(comm, false, (struct ncclReg*)handle));
   return ncclSuccess;
 }
