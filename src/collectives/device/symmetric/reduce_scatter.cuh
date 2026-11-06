@@ -232,13 +232,13 @@ static __device__ void reduce(
 }
 
 
-template<template<typename> class Red, typename T>
+template<template<typename> class Red, typename T, bool Slice>
 __device__ __forceinline__ void pccl_symRun_ReduceScatter_LD(ncclSymDevArgs const* args) {
-  ncclSymPrims prim(args->comm, args->nBlocks, ncclSymPrims_UseBarrier);
+  ncclSymPrims prim(args->comm, args->nBlocks, ncclSymPrims_UseBarrier, pcclSymBlockOffset<Slice>(args));
 
   // Round robin warps over blocks.
   int t = flattenIx(threadIdx.x%WARP_SIZE, WARP_SIZE,
-                    prim.block, prim.nBlocks,
+                    prim.computeBlock, prim.nBlocks,
                     threadIdx.x/WARP_SIZE, blockDim.x/WARP_SIZE);
   int tn = prim.nBlocks*blockDim.x;
 
@@ -247,11 +247,11 @@ __device__ __forceinline__ void pccl_symRun_ReduceScatter_LD(ncclSymDevArgs cons
   if (args->incPrecision) {
     using Acc = typename ncclSymAccumType<Red, T, true>::Type;
     Red<Acc> red(args->redOpArg);
-    reduce<Red<Acc>, T, true>(prim, tn, t, /*waitNeeded=*/true, red, (T*)args->input + prim.rank*args->nElts, (T*)args->output, args->nElts);
+    reduce<Red<Acc>, T, true>(prim, tn, t, /*waitNeeded=*/true, red, (T*)args->input + prim.rank*pcclSymAllElts<Slice>(args), (T*)args->output, args->nElts);
   } else {
     using Acc = typename ncclSymAccumType<Red, T, false>::Type;
     Red<Acc> red(args->redOpArg);
-    reduce<Red<Acc>, T, false>(prim, tn, t, /*waitNeeded=*/true, red, (T*)args->input + prim.rank*args->nElts, (T*)args->output, args->nElts);
+    reduce<Red<Acc>, T, false>(prim, tn, t, /*waitNeeded=*/true, red, (T*)args->input + prim.rank*pcclSymAllElts<Slice>(args), (T*)args->output, args->nElts);
   }
 
   prim.barrierArrive(ncclCoopCta(), /*release=*/false);
@@ -300,9 +300,9 @@ __device__ __forceinline__ void pccl_symRun_ReduceScatter_LL_body(
     nPacks -= tn;
   }
 }
-template<template<typename> class Red, typename T>
+template<template<typename> class Red, typename T, bool Slice>
 __device__ __forceinline__ void pccl_symRun_ReduceScatter_LL(ncclSymDevArgs const* args) {
-  ncclSymPrims prim(args->comm, args->nBlocks, ncclSymPrims_UseLL);
+  ncclSymPrims prim(args->comm, args->nBlocks, ncclSymPrims_UseLL, pcclSymBlockOffset<Slice>(args));
   Red<typename ncclSymAccumType<Red, T>::Type> red(args->redOpArg);
 
   using Pack = BytePack<8>;
@@ -311,20 +311,21 @@ __device__ __forceinline__ void pccl_symRun_ReduceScatter_LL(ncclSymDevArgs cons
   int nAllPacks = divUp(nAllElts, EltPerPack);
   uint32_t nPackPerBlock, nPackModBlock;
   idivmodFast32(&nPackPerBlock, &nPackModBlock, nAllPacks, prim.nBlocks, prim.nBlocks_rcp32);
-  int blockPackBegin = prim.block*nPackPerBlock + minval<int>(prim.block, nPackModBlock);
-  int blockPackEnd = blockPackBegin + nPackPerBlock + (prim.block < nPackModBlock ? 1 : 0);
+  int blockPackBegin = prim.computeBlock*nPackPerBlock + minval<int>(prim.computeBlock, nPackModBlock);
+  int blockPackEnd = blockPackBegin + nPackPerBlock + (prim.computeBlock < nPackModBlock ? 1 : 0);
   int nPacks = blockPackEnd - blockPackBegin;
   int nElts = nAllElts - blockPackBegin*EltPerPack;
   nElts = min(nElts, nPacks*EltPerPack);
   T* input = (T*)args->input + blockPackBegin*EltPerPack;
   T* output = (T*)args->output + blockPackBegin*EltPerPack;
 
-  uint32_t lowBits = args->nElts*sizeof(T);
+  int nStrideElts = Slice ? int(args->nAllElts) : nAllElts;
+  uint32_t lowBits = pcclSymAllElts<Slice>(args)*sizeof(T);
   lowBits |= (uint32_t)reinterpret_cast<uintptr_t>(args->input);
   lowBits |= (uint32_t)reinterpret_cast<uintptr_t>(args->output);
   if (__builtin_expect(lowBits%8 == 0, true)) {
-    pccl_symRun_ReduceScatter_LL_body<T>(prim, red, (Pack*)input, (Pack*)output, nPacks, nPacks, nAllElts/EltPerPack);
+    pccl_symRun_ReduceScatter_LL_body<T>(prim, red, (Pack*)input, (Pack*)output, nPacks, nPacks, nStrideElts/EltPerPack);
   } else {
-    pccl_symRun_ReduceScatter_LL_body<T>(prim, red, input, output, nElts, nPacks, nAllElts);
+    pccl_symRun_ReduceScatter_LL_body<T>(prim, red, input, output, nElts, nPacks, nStrideElts);
   }
 }

@@ -248,6 +248,25 @@ class WorkflowContractTests(unittest.TestCase):
             self.assertFalse((ROOT / 'tests/xtest' / path).exists(), path)
         self.assertFalse((ROOT / '.github/workflows/source-cluster-debug.yml').exists())
 
+    def test_symk_correctness_runs_in_the_required_standard_job(self):
+        section = self.job('single-node')
+        script = re.search(r"            if \[ '\$\{\{ matrix.profile \}\}' = standard \]; then\n"
+                           r".*?            fi", section, re.S).group()
+        self.assertIn('run_symk_validation.sh', script)
+        self.assertIn('tests/unit_test/build/symkMultiTaskTest', script)
+        self.assertIn('set -euo pipefail', section)
+        build = (ROOT / '.github/workflows/scripts/build.sh').read_text()
+        self.assertIn('${COMM_ABORT_BUILD}/symkMultiTaskTest', build)
+        script = textwrap.dedent(script).replace('"$RESULT_ROOT/symk-validation.log"', '/dev/null')
+        for profile, status, expected in (('standard', 0, 0), ('standard', 23, 23), ('notsm', 23, 0)):
+            with self.subTest(profile=profile, status=status):
+                command = ('set -euo pipefail\nbash() { return ' + str(status) + '; }\n' +
+                           script.replace('${{ matrix.profile }}', profile))
+                result = subprocess.run(['bash', '-c', command],
+                                        env={**os.environ, 'build_output': '/unused'},
+                                        capture_output=True, text=True)
+                self.assertEqual(result.returncode, expected, result.stderr)
+
     def test_real_csv_selection_and_source_revision(self):
         directory = ROOT / 'tests/xtest/minimal-csv'
         metadata = json.loads((directory / 'export.json').read_text())

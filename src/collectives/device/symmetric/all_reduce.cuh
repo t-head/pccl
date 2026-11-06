@@ -263,16 +263,16 @@ static __device__ void allreduce(
   allreduceEnds<UnrollPeers>(prim, tn, t, red, input, output, nElts, nPreBytes/sizeof(T), nSufElts);
 }
 
-template<template<typename> class Red, typename T>
+template<template<typename> class Red, typename T, bool Slice>
 __device__ __forceinline__ void pccl_symRun_AllReduce_RSxLD_AGxST(ncclSymDevArgs const* args) {
-  ncclSymPrims prim(args->comm, args->nBlocks, ncclSymPrims_UseBarrier);
+  ncclSymPrims prim(args->comm, args->nBlocks, ncclSymPrims_UseBarrier, pcclSymBlockOffset<Slice>(args));
   int /*const&*/ rank = prim.rank;
   int /*const&*/ nRanks = prim.nRanks;
 
   // Threads numbered globally such that we round robin warps by rank then block.
   int gt = flattenIx(threadIdx.x%WARP_SIZE, WARP_SIZE,
                      rank, nRanks,
-                     prim.block, prim.nBlocks,
+                     prim.computeBlock, prim.nBlocks,
                      threadIdx.x/WARP_SIZE, blockDim.x/WARP_SIZE);
   int gtn = nRanks*prim.nBlocks*blockDim.x;
 
@@ -293,8 +293,32 @@ __device__ __forceinline__ void pccl_symRun_AllReduce_RSxLD_AGxST(ncclSymDevArgs
 }
 
 template<template<typename> class Red, typename T>
+__device__ __forceinline__ void pccl_symRun_AllReduce_AGxLL_R_short(ncclSymDevArgs const* args) {
+  // The host selects this entry only for one CTA and a nonempty sub-pack FP8 work.
+  ncclSymPrims prim(args->comm, 1, ncclSymPrims_UseLL);
+  using Acc = typename ncclSymAccumType<Red, T>::Type;
+  Red<Acc> red(args->redOpArg);
+  int nElts = int(args->nElts);
+  int nPacks = divUp(nElts, 2);
+  int t = threadIdx.x;
+  if (t < nPacks) {
+    // Sub-pack FP8 work uses the native two-element reduction, with initialized padding lanes.
+    // Keep the existing accumulator type and rank order.
+    int index = 2 * t;
+    BytePack<8> payload = {};
+    payload.u8[0] = loadPack<BytePack<1>>((T*)args->input, index, nElts).u8[0];
+    if (index + 1 < nElts)
+      payload.u8[1] = loadPack<BytePack<1>>((T*)args->input, index + 1, nElts).u8[0];
+    prim.bcastLL(nPacks * prim.rank + t, payload);
+    BytePack<2> out = prim.template recvReduceLL<BytePack<2>, T>(t, nPacks, red);
+    storePack((T*)args->output, index, nElts, out);
+  }
+  prim.endLL(ncclCoopCta());
+}
+
+template<template<typename> class Red, typename T, bool Slice>
 __device__ __forceinline__ void pccl_symRun_AllReduce_AGxLL_R_impl(ncclSymDevArgs const* args) {
-  ncclSymPrims prim(args->comm, args->nBlocks, ncclSymPrims_UseLL);
+  ncclSymPrims prim(args->comm, args->nBlocks, ncclSymPrims_UseLL, pcclSymBlockOffset<Slice>(args));
   int /*const&*/ rank = prim.rank;
   using Acc = typename ncclSymAccumType<Red, T>::Type;
   Red<Acc> red(args->redOpArg);
@@ -313,8 +337,8 @@ __device__ __forceinline__ void pccl_symRun_AllReduce_AGxLL_R_impl(ncclSymDevArg
 
   uint32_t nPackPerBlock, nPackModBlock;
   idivmodFast32(&nPackPerBlock, &nPackModBlock, nPacks, prim.nBlocks, prim.nBlocks_rcp32);
-  int begin = prim.block*nPackPerBlock + minval<int>(prim.block, nPackModBlock);
-  int end = begin + nPackPerBlock + (prim.block < nPackModBlock ? 1 : 0);
+  int begin = prim.computeBlock*nPackPerBlock + minval<int>(prim.computeBlock, nPackModBlock);
+  int end = begin + nPackPerBlock + (prim.computeBlock < nPackModBlock ? 1 : 0);
 
   nPacks = end - begin;
   nElts -= begin*EltPerPack;
@@ -362,8 +386,8 @@ __device__ __forceinline__ void pccl_symRun_AllReduce_AGxLL_R_impl(ncclSymDevArg
   }
 }
 
-template<template<typename> class Red, typename T>
+template<template<typename> class Red, typename T, bool Slice>
 __device__ __forceinline__ void pccl_symRun_AllReduce_AGxLL_R(ncclSymDevArgs const* args) {
-  pccl_symRun_AllReduce_AGxLL_R_impl<Red, T>(args);
+  pccl_symRun_AllReduce_AGxLL_R_impl<Red, T, Slice>(args);
 }
 
