@@ -2,7 +2,7 @@
   "classification": {
     "base_sha": "a04b88e02c3a5b955ba0847eca2bc3d19cbf4829",
     "head_sha": "df81f9d74bdd3686466c6f6a0eef4c403f71d83e",
-    "input_fingerprint": "43f7337d61face57763781e14bad1b719bd9b44558d9ac4fe9330739bac9125c",
+    "input_fingerprint": "2abf826ef7d95ede8917a14597d5c41bd7b96b506cc2c73ead0b4f2d67eabba2",
     "pr_number": 116,
     "proposal": {
       "modules": [
@@ -10,7 +10,7 @@
         "transport",
         "memory"
       ],
-      "reason": "Main change is in transport connection selection/setup for P2P and SHM (including NET-vs-local gating, symmetric P2P capability handling, stream sync pairing, and connection-progress logic). Add device-topology because new path-bandwidth-based NET preference logic and path-computation ordering are introduced in topology checks. Add memory because SHM resource ownership/lifecycle is substantively refactored to handle-based shareable allocation/import/close semantics with explicit mapping and cleanup behavior."
+      "reason": "Main change is in transport: P2P/SHM connection setup, synchronization/progress accounting, and descriptor-based shared-memory handling for Copy-Engine control buffers. Add device-topology because a new NET-vs-P2P/SHM path decision (ncclTopoCheckNet and NET path-speed use) changes transport eligibility policy. Add memory because registered-address table allocation/update semantics changed to on-demand collective-only device tables with different P2P remote-address handling."
     }
   },
   "reviewers": {
