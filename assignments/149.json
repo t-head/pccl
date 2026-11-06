@@ -2,14 +2,14 @@
   "classification": {
     "base_sha": "a04b88e02c3a5b955ba0847eca2bc3d19cbf4829",
     "head_sha": "153a478f69dffc7e8c5efe7122b949fd771da408",
-    "input_fingerprint": "2b27d3eaf0aad4dcd86ab09a0d95d97c5b0945c196da5a552e97b591275cfe1d",
+    "input_fingerprint": "2279ee9bf9196a0e3cbb492517c77322c9458cc81a99a783dd28cd6d561679af",
     "pr_number": 149,
     "proposal": {
       "modules": [
         "transport",
         "memory"
       ],
-      "reason": "Primary change makes allocation zero-initialization optional via PCCL_NO_MEMSET (including default behavior and calloc/memset paths), which changes memory initialization semantics and ownership expectations. Also updates the P2P shareable-buffer allocation path in transport to skip zeroing under the same flag, an independently substantive transport resource-initialization change."
+      "reason": "Main change is in allocator behavior: buffer zeroing is now gated by PCCL_NO_MEMSET (opt-in memset) across ncclHggcCalloc* paths, with corresponding global flag wiring updates in shared init code. Also include transport because P2P shareable buffer allocation in src/transport/p2p.cc independently changes its initialization policy under the same flag."
     }
   },
   "reviewers": {
