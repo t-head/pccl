@@ -62,17 +62,32 @@ ncclResult_t ncclIbGetBondingIf(struct ibv_device** devices, char* ncclIbBondIfN
     return ncclInternalError;
   }
 
+  ncclResult_t result = ncclSuccess;
   int nBondings = 0;
   char* bondingMasters = NULL;
-  NCCLCHECK(ncclCalloc(&bondingMasters, nIbDevs*(MAX_IF_NAME_SIZE+1)));
+  bool* used = NULL;
   FILE *bondingMastersFile = fopen(bondingMastersPath, "r");
+  if (bondingMastersFile == NULL) return ncclSystemError;
   char *_line = NULL;
   size_t _length = 0;
   ssize_t _read;
-  while ((nBondings < nIbDevs) && ((_read = getline(&_line, &_length, bondingMastersFile)) != -1)) {
-    if (_line[_read-1] == '\n') _line[_read-1] = '\0';
-    char *contents = strtok(_line, " ");
-    while(contents != NULL) {
+  while ((_read = getline(&_line, &_length, bondingMastersFile)) != -1) {
+    int nBondCandidates = nBondings;
+    for (char* p = _line; *p != '\0';) {
+      p += strspn(p, " \t\r\n");
+      if (*p == '\0') break;
+      nBondCandidates++;
+      p += strcspn(p, " \t\r\n");
+    }
+    if (nBondCandidates == nBondings) continue;
+    if (nBondings == 0) {
+      NCCLCHECKGOTO(ncclCalloc(&bondingMasters, (size_t)nBondCandidates*(MAX_IF_NAME_SIZE+1)), result, exit);
+    } else {
+      NCCLCHECKGOTO(ncclRealloc(&bondingMasters, (size_t)nBondings*(MAX_IF_NAME_SIZE+1),
+                              (size_t)nBondCandidates*(MAX_IF_NAME_SIZE+1)), result, exit);
+    }
+    char *contents = strtok(_line, " \t\r\n");
+    while(contents != NULL && nBondings < nBondCandidates) {
       int l = 0;
       while (l<MAX_IF_NAME_SIZE && l<strlen(contents)) {
         bondingMasters[nBondings*(MAX_IF_NAME_SIZE+1)+l] = contents[l];
@@ -80,22 +95,18 @@ ncclResult_t ncclIbGetBondingIf(struct ibv_device** devices, char* ncclIbBondIfN
       }
       bondingMasters[nBondings*(MAX_IF_NAME_SIZE+1)+l] = '\0';
       nBondings++;
-      contents = strtok(NULL, " ");
+      contents = strtok(NULL, " \t\r\n");
     }
+  }
+  if (!feof(bondingMastersFile)) {
+    result = ncclSystemError;
+    goto exit;
   }
   fclose(bondingMastersFile);
+  bondingMastersFile = NULL;
 
-  if (nBondings == 0 || nBondings != nIbDevs) {
-    VERBOSE(NCCL_INIT|NCCL_NET, "Empty bondings or mismatch bondings number(%d) to ibDev number(%d)", nBondings, nIbDevs);
-    if (nBondings == 0) {
-      goto exit;
-    }
-  }
-
-  bool used[MAX_IB_DEVS];
-  for (int i=0; i<MAX_IB_DEVS; i++) {
-    used[i] = false;
-  }
+  if (nBondings == 0) goto exit;
+  NCCLCHECKGOTO(ncclCalloc(&used, nBondings), result, exit);
 
   char slavesPath[PATH_MAX];
   char devResPath[PATH_MAX];
@@ -160,8 +171,11 @@ ncclResult_t ncclIbGetBondingIf(struct ibv_device** devices, char* ncclIbBondIfN
   }
   INFO(NCCL_INIT|NCCL_NET, "%s", info);
 exit:
+  if (bondingMastersFile != NULL) fclose(bondingMastersFile);
+  NCCLCHECK(ncclFree(_line));
+  NCCLCHECK(ncclFree(used));
   NCCLCHECK(ncclFree(bondingMasters));
-  return ncclSuccess;
+  return result;
 }
 
 static int ibvWidths[] = { 1, 4, 8, 12, 2 };
