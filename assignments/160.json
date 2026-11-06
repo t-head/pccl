@@ -1,14 +1,14 @@
 {
   "classification": {
     "base_sha": "77af125652fd1ffc532bf519022f709b9df510fd",
-    "head_sha": "3b5c47b08853373da4761fad2709fa64636be9e4",
-    "input_fingerprint": "11d6d833cf27f6b85f89224736cd91457aab46e06777e18ae72b94103bc00728",
+    "head_sha": "6d639db679ca9d0f1ac3ca5a98b22ac143a9078e",
+    "input_fingerprint": "04370cc18f2c56418bd12d9dce28271b91ebf2664ffb1be2618ce7ec4f2cfef5",
     "pr_number": 160,
     "proposal": {
       "modules": [
         "network"
       ],
-      "reason": "Fixes NET/IB initialization logic in src/transport/net_ib/init.cc by bounding bonding interface token parsing to nIbDevs, preventing buffer overflow during network backend interface discovery."
+      "reason": "Bounds checks were added in the NET/IB backend bonding-interface parser during network initialization (`ncclIbGetBondingIf`) to prevent buffer overflow/heap corruption when parsing `/sys/class/net/bonding_masters`."
     }
   },
   "reviewers": {
