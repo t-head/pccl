@@ -38,6 +38,7 @@ PCCL_DEVICE_INLINE pcclBarrierSession<Coop>::pcclBarrierSession(
     gin.comm.hybridLsaBarrier, gin.comm.hybridRailGinBarrier,
     index, multimem, gin.comm.lsaMultimem
   ) {
+  this->worldBarrier = true;
 }
 
 template<typename Coop>
@@ -78,7 +79,19 @@ PCCL_DEVICE_INLINE void pcclBarrierSession<Coop>::sync(Coop, hggc::memory_order 
     this->innerLsaBar.thing.sync(this->coop, this->outerGinBar.present ? pccl::utility::releaseOrderOf(ord) : ord);
   }
   if (this->outerGinBar.present) {
-    this->outerGinBar.thing.sync(this->coop, this->innerLsaBar.present ? pccl::utility::acquireOrderOf(ord) : ord, fence);
+    // Preserve the hierarchical path unless incoming puts require notifications
+    // from a denser set of GIN peers than the rail team.
+    auto const& comm = this->gin.thing.comm;
+    bool dense = this->worldBarrier && comm.ginContextStride != comm.lsaSize &&
+        (static_cast<uint32_t>(fence) & static_cast<uint32_t>(pcclGinFenceLevel::Put));
+    if (dense) {
+      pcclTeam team = {comm.nRanks / comm.ginContextStride, comm.rank / comm.ginContextStride, comm.ginContextStride};
+      pcclGinBarrierSession<Coop> barrier(this->coop, this->gin.thing, team,
+          comm.hybridDenseGinBarrier, this->outerGinBar.thing.index);
+      barrier.sync(this->coop, this->innerLsaBar.present ? pccl::utility::acquireOrderOf(ord) : ord, fence);
+    } else {
+      this->outerGinBar.thing.sync(this->coop, this->innerLsaBar.present ? pccl::utility::acquireOrderOf(ord) : ord, fence);
+    }
   }
 }
 
@@ -104,12 +117,19 @@ PCCL_DEVICE_INLINE pcclResult_t pcclBarrierSession<Coop>::sync(
 
   // Outer GIN barrier (if present) - detects remote GPU/network issues
   if (this->outerGinBar.present) {
-    railResult = this->outerGinBar.thing.sync(
-      this->coop,
-      this->innerLsaBar.present ? pccl::utility::acquireOrderOf(ord) : ord,
-      fence,
-      timeoutCycles
-    );
+    auto const& comm = this->gin.thing.comm;
+    bool dense = this->worldBarrier && comm.ginContextStride != comm.lsaSize &&
+        (static_cast<uint32_t>(fence) & static_cast<uint32_t>(pcclGinFenceLevel::Put));
+    if (dense) {
+      pcclTeam team = {comm.nRanks / comm.ginContextStride, comm.rank / comm.ginContextStride, comm.ginContextStride};
+      pcclGinBarrierSession<Coop> barrier(this->coop, this->gin.thing, team,
+          comm.hybridDenseGinBarrier, this->outerGinBar.thing.index);
+      railResult = barrier.sync(this->coop,
+          this->innerLsaBar.present ? pccl::utility::acquireOrderOf(ord) : ord, fence, timeoutCycles);
+    } else {
+      railResult = this->outerGinBar.thing.sync(this->coop,
+          this->innerLsaBar.present ? pccl::utility::acquireOrderOf(ord) : ord, fence, timeoutCycles);
+    }
   }
   return lsaResult != pcclSuccess ? lsaResult : railResult;
 }

@@ -120,6 +120,7 @@ typedef pcclSimInfo_t ncclSimInfo_t;
 #define NCCL_VERSION_CODE PCCL_VERSION_CODE
 #define NCCL_CONFIG_UNDEF_INT PCCL_CONFIG_UNDEF_INT
 #define NCCL_WIN_STRICT_ORDERING PCCL_WIN_STRICT_ORDERING
+#define NCCL_WIN_GIN_ONLY PCCL_WIN_GIN_ONLY
 constexpr auto ncclTimeout = pcclTimeout;
 constexpr auto NCCL_DESTROY = PCCL_DESTROY;
 #define ncclCommRegister pcclCommRegister

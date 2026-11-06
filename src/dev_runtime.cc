@@ -18,6 +18,7 @@
 #include "utils.h"
 #include "argcheck.h"
 #include "gin/gin_host.h"
+#include "devcomm/compat.h"
 #include <mutex>
 
 NCCL_PARAM(WinStride, "WIN_STRIDE", -1);
@@ -40,6 +41,7 @@ struct multiSegmentGinInfo {
 // Complete types from src/include/dev_runtime.h
 struct ncclDevrMemory {
   int refCount;
+  uint64_t registryId;
   struct ncclDevrMemory* next;
   HGmemGenericAllocationHandle* memHandles;
   void* primaryAddr; // What we hope is the VA of this memory's first mapping.
@@ -307,6 +309,7 @@ static ncclResult_t symMemoryMapLsaTeam(struct pcclComm* comm, struct ncclDevrMe
   int maxSegments = 0;
   const int numSegments = mem->numSegments;
   size_t* segmentSizes = mem->segmentSizes;
+  const bool registerLsa = !(mem->winFlags & NCCL_WIN_GIN_ONLY);
 
   for (int rank = 0; rank < devr->lsaSize; rank++) {
     maxSegments = std::max(maxSegments, segmentCounts[rank]);
@@ -316,11 +319,18 @@ static ncclResult_t symMemoryMapLsaTeam(struct pcclComm* comm, struct ncclDevrMe
 
   for (int segment = 0; segment < numSegments; segment++) {
     symLsaMessage* msg = messages + devr->lsaSelf * maxSegments + segment;
+    if (!registerLsa) {
+      msg->segmentSize = segmentSizes[segment];
+      continue;
+    }
     NCCLCHECKGOTO(symMemoryExportSegmentHandle(comm, msg, mem->memHandles[segment], segmentSizes[segment]), ret, fail);
     INFO(NCCL_REG, "[%d] Segment %d, Type : %d, numSegments : %d, Segment size : %ld, memHandle : %lld", devr->lsaSelf, segment, msg->type, numSegments, msg->segmentSize, msg->memHandle);
   }
 
-  NCCLCHECKGOTO(bootstrapIntraNodeAllGather(comm->bootstrap, devr->lsaRankList, devr->lsaSelf, devr->lsaSize, messages, sizeof(symLsaMessage) * maxSegments), ret, fail);
+  if (registerLsa) {
+    NCCLCHECKGOTO(bootstrapIntraNodeAllGather(comm->bootstrap, devr->lsaRankList, devr->lsaSelf,
+        devr->lsaSize, messages, sizeof(symLsaMessage) * maxSegments), ret, fail);
+  }
 
   if (devr->lsaFlatBase == nullptr) { // Create on first need.
     HGdeviceptr addr;
@@ -329,10 +339,14 @@ static ncclResult_t symMemoryMapLsaTeam(struct pcclComm* comm, struct ncclDevrMe
   }
 
   for (int r = 0; r < devr->lsaSize; r++) {
+    if (!registerLsa && r != devr->lsaSelf) continue;
     NCCLCHECKGOTO(symMemoryImportAndMapSegmentsForRank(comm, r, messages, maxSegments, segmentCounts[r], mem->memHandles, mem->bigOffset), ret, fail);
   }
   // Ensure everyone has imported my mem handles.
-  NCCLCHECKGOTO(bootstrapIntraNodeBarrier(comm->bootstrap, devr->lsaRankList, devr->lsaSelf, devr->lsaSize, 0xbeef), ret, fail);
+  if (registerLsa) {
+    NCCLCHECKGOTO(bootstrapIntraNodeBarrier(comm->bootstrap, devr->lsaRankList,
+        devr->lsaSelf, devr->lsaSize, 0xbeef), ret, fail);
+  }
 leave:
   free(messages);
   return ret;
@@ -411,10 +425,12 @@ static ncclResult_t symMemoryRegisterGin(struct pcclComm* comm, struct ncclDevrM
     }
 
     NCCLCHECKGOTO(ncclCalloc(&segmentTypes, mem->numSegments), ret, fail);
+    size_t segmentOffset = 0;
     for (int segment = 0; segment < mem->numSegments; segment++) {
-      HGmemAllocationProp prop;
-      HGCHECKGOTO(hgMemGetAllocationPropertiesFromHandle(&prop, mem->memHandles[segment]), ret, fail);
-      segmentTypes[segment] = prop.location.type;
+      HGdeviceptr address = reinterpret_cast<HGdeviceptr>(mem->primaryAddr) + segmentOffset;
+      NCCLCHECKGOTO(ncclHgMemGetAllocationLocation(address, mem->memHandles[segment], &segmentTypes[segment]),
+                    ret, fail);
+      segmentOffset += mem->segmentSizes[segment];
     }
 
     // Gather segment sizes from all ranks to verify they are identical.
@@ -457,6 +473,14 @@ static ncclResult_t symMemoryRegisterGin(struct pcclComm* comm, struct ncclDevrM
       offset += mem->segmentSizes[segment];
     }
     mem->numGinSegments = mem->numSegments;
+    // The single-segment device fast path reads the flat handle table, including
+    // for a HOST_NUMA-only allocation. Segment records own the registrations.
+    if (mem->numGinSegments == 1) {
+      for (int connection = 0; connection < NCCL_GIN_MAX_CONNECTIONS; connection++) {
+        mem->ginDevWins[connection] = mem->ginSegmentInfos[0].ginDevWins[connection];
+        mem->ginHostWins[connection] = mem->ginSegmentInfos[0].ginHostWins[connection];
+      }
+    }
   }
 exit:
   free(segmentTypes);
@@ -482,13 +506,23 @@ static ncclResult_t symMemoryObtain(
   ncclResult_t ret = ncclSuccess;
   struct ncclDevrState* devr = &comm->devrState;
   int64_t bigOffset = 0;
-  struct segmentInfo { int numSegments; bool hasSysmemSegment; size_t memOffset; };
+  struct segmentInfo {
+    int numSegments;
+    bool hasSysmemSegment;
+    size_t memOffset;
+    int winFlags;
+    uint64_t registryId;
+  };
   struct segmentInfo* globalSegmentInfo = nullptr;
   const int globalLsaTeamBaseIdx = devr->lsaSize * (comm->rank / devr->lsaSize);
+  const uint64_t invalidRegistryId = UINT64_MAX;
+  uint64_t candidateRegistryId = invalidRegistryId;
+  bool sameMemOffset = true;
 
   struct ncclDevrMemory* mem = devr->memHead;
   while (mem != nullptr) {
-    if (mem->primaryAddr == memAddr && mem->size == size && mem->numSegments == numSegments) {
+    if (mem->primaryAddr == memAddr && mem->size == size && mem->numSegments == numSegments &&
+        mem->winFlags == winFlags) {
       // Check if all memHandles that [memAddr, memAddr + size] spans also match
       bool allMatch = true;
       for (int segment = 0; segment < mem->numSegments; segment++) {
@@ -498,17 +532,39 @@ static ncclResult_t symMemoryObtain(
         }
       }
       if (allMatch) {
-        for (int segment = 0; segment < mem->numSegments; segment++) {
-          HGCHECKIGNORE(hgMemRelease(memHandles[segment]));
-        }
-        goto leave;
+        candidateRegistryId = mem->registryId;
+        break;
       }
     }
     mem = mem->next;
   }
 
+  // Reuse is a collective decision: a local cache hit must not skip collectives
+  // which another rank enters when creating a new registration.
+  NCCLCHECK(ncclCalloc(&globalSegmentInfo, comm->nRanks));
+  globalSegmentInfo[comm->rank] = {numSegments, hasSysmemSegment, memOffset, winFlags, candidateRegistryId};
+  NCCLCHECKGOTO(bootstrapAllGather(comm->bootstrap, globalSegmentInfo, sizeof(*globalSegmentInfo)),
+                ret, fail_info);
+  for (int r = 0; r < comm->nRanks; r++) {
+    if (globalSegmentInfo[r].winFlags != winFlags) {
+      WARN("Window registration flags disagree between rank %d and rank %d", comm->rank, r);
+      ret = ncclInvalidUsage;
+      goto fail_info;
+    }
+    if (globalSegmentInfo[r].registryId != candidateRegistryId) mem = nullptr;
+    if (globalSegmentInfo[r].memOffset != memOffset) sameMemOffset = false;
+  }
+  if (mem != nullptr) {
+    for (int segment = 0; segment < numSegments; segment++) {
+      HGCHECKIGNORE(hgMemRelease(memHandles[segment]));
+    }
+    mem->globalSameMemOffset = sameMemOffset;
+    goto leave;
+  }
+
   // New memory.
   NCCLCHECKGOTO(ncclCalloc(&mem, 1), ret, fail_mem);
+  mem->registryId = devr->nextRegistryId++;
   NCCLCHECKGOTO(ncclCalloc(&mem->memHandles, numSegments), ret, fail_mem);
   memcpy(mem->memHandles, memHandles, sizeof(*mem->memHandles) * numSegments);
   mem->primaryAddr = memAddr;
@@ -518,7 +574,6 @@ static ncclResult_t symMemoryObtain(
   mem->numSegments = numSegments;
 
   NCCLCHECKGOTO(ncclCalloc(&mem->segmentSizes, numSegments), ret, fail_mem);
-  NCCLCHECKGOTO(ncclCalloc(&globalSegmentInfo, comm->nRanks), ret, fail_mem);
 
   if (numSegments > 1) {
     size_t offset = 0;
@@ -534,10 +589,6 @@ static ncclResult_t symMemoryObtain(
   }
 
   // We need max segments and global sysmem info to selectively disable some features
-  globalSegmentInfo[comm->rank].numSegments = numSegments;
-  globalSegmentInfo[comm->rank].hasSysmemSegment = hasSysmemSegment;
-  globalSegmentInfo[comm->rank].memOffset = memOffset;
-  NCCLCHECKGOTO(bootstrapAllGather(comm->bootstrap, globalSegmentInfo, sizeof(*globalSegmentInfo)), ret, fail_mem);
   mem->globalHasSysmemSegment = false;
   mem->globalSameMemOffset = true;
   for (int r = 0; r < comm->nRanks; r++) {
@@ -594,6 +645,7 @@ fail_mem:
     free(mem->lsaNumSegments);
   }
   free(mem);
+fail_info:
   free(globalSegmentInfo);
 //fail:
   return ret;
@@ -605,7 +657,7 @@ static void symMemoryDropRef(
   if (mem != nullptr && 0 == --mem->refCount) {
     struct ncclDevrState* devr = &comm->devrState;
     if (devr->ginEnabled) {
-      if (mem->numGinSegments > 1) {
+      if (mem->ginSegmentInfos != nullptr) {
         for (int i = 0; i < mem->numGinSegments; i++) {
           ncclGinDeregister(comm, mem->ginSegmentInfos[i].ginHostWins);
         }
@@ -614,6 +666,7 @@ static void symMemoryDropRef(
       }
     }
     for (int r = 0; r < devr->lsaSize; r++) {
+      if ((mem->winFlags & NCCL_WIN_GIN_ONLY) && r != devr->lsaSelf) continue;
       HGdeviceptr addr = reinterpret_cast<uintptr_t>((char*)devr->lsaFlatBase + r*devr->bigSize + mem->bigOffset);
       for (int idx = 0; idx < mem->lsaNumSegments[r]; idx++) {
         HGdeviceptr tmpBase;
@@ -859,7 +912,7 @@ ncclResult_t ncclDevrWindowRegisterInGroup(
       WARN("VA represented by {userPtr = %p, size = %zu} contains CPU-backed physical segments, but PCCL_ELASTIC_BUFFER_REGISTER is set to 0. Please set PCCL_ELASTIC_BUFFER_REGISTER=1 and retry window registration", userPtr, userSize);
       ret = ncclInvalidArgument;
       goto fail_locReg_memHandle;
-    } else if (comm->MNNVL) {
+    } else if (comm->MNNVL && !(winFlags & NCCL_WIN_GIN_ONLY)) {
         int multiNodeLsaSupported = 0;
         HGCHECKGOTO(hgDeviceGetAttribute(&multiNodeLsaSupported, HG_DEVICE_ATTRIBUTE_HOST_NUMA_MULTINODE_IPC_SUPPORTED, comm->hggcDev), ret, fail_locReg_memHandle);
         if (!multiNodeLsaSupported) {
@@ -882,10 +935,11 @@ ncclResult_t ncclDevrWindowRegisterInGroup(
     size_t baseSendSize;
     HGCHECKGOTO(hgMemGetAddressRange(nullptr, &baseSendSize, memAddr + offset), ret, fail_locReg_memHandle);
     HGCHECKGOTO(hgMemRetainAllocationHandle(&memHandles[segment], (void *) (reinterpret_cast<char*>(memAddr) + offset)), ret, fail_locReg_memHandle);
-    HGmemAllocationProp prop;
-    HGCHECKGOTO(hgMemGetAllocationPropertiesFromHandle(&prop, memHandles[segment]), ret, fail_locReg_memHandle);
-    if (prop.location.type != HG_MEM_LOCATION_TYPE_HOST_NUMA && prop.location.type != HG_MEM_LOCATION_TYPE_DEVICE) {
-      WARN("Segment %d has unsupported location type %d. Symmetric memory currently only supports HG_MEM_LOCATION_TYPE_HOST_NUMA and HG_MEM_LOCATION_TYPE_DEVICE.", segment, (int)prop.location.type);
+    HGmemLocationType location;
+    NCCLCHECKGOTO(ncclHgMemGetAllocationLocation(memAddr + offset, memHandles[segment], &location),
+                  ret, fail_locReg_memHandle);
+    if (location != HG_MEM_LOCATION_TYPE_HOST_NUMA && location != HG_MEM_LOCATION_TYPE_DEVICE) {
+      WARN("Segment %d has unsupported location type %d", segment, (int)location);
       ret = ncclInvalidArgument;
       goto fail_locReg_memHandle;
     }
@@ -1114,6 +1168,15 @@ ncclResult_t ncclDevrCommCreateInternal(
   struct ncclDevrWindow* win = nullptr;
   struct ncclWindow_vidmem* winHost = nullptr;
   size_t ginSignalShadowsOffset = 0;
+  struct ncclDevResourceRequirements denseGinBarrierReq;
+  struct ncclDevComm currentDevComm;
+  struct ncclDevComm* legacyOutput = nullptr;
+  const bool legacyLayout = !isInternal && !reqs->useRuntimeVersion &&
+      reqs->size <= sizeof(pcclDevCommRequirementsLegacy);
+  if (legacyLayout) {
+    legacyOutput = outDevComm;
+    outDevComm = &currentDevComm;
+  }
 
   // This function always operates on the current version of the ncclDevResourceRequirements structure, thanks
   // to the deepCopyDevCommRequirements() function, so version checks are not needed.  The data in reqs can also
@@ -1126,6 +1189,51 @@ ncclResult_t ncclDevrCommCreateInternal(
     INFO(NCCL_INIT,
          "ginForceEnable is being deprecated in favor of explicitly setting ginConnectionType!");
     requestedConnectionType = NCCL_GIN_CONNECTION_FULL;
+  }
+
+  // Agree on backend requests before entering backend-specific collectives.
+  {
+    struct GinRequest { int connection, backend, stride; } local = {
+      (int)requestedConnectionType, (int)reqs->ginType, reqs->ginCustomStride
+    };
+    GinRequest* requests = nullptr;
+    NCCLCHECK(ncclCalloc(&requests, comm->nRanks));
+    requests[comm->rank] = local;
+    ret = bootstrapAllGather(comm->bootstrap, requests, sizeof(GinRequest));
+    if (ret == ncclSuccess) {
+      for (int rank = 0; rank < comm->nRanks; rank++) {
+        if (requests[rank].connection != local.connection || requests[rank].backend != local.backend ||
+            requests[rank].stride != local.stride) {
+          WARN("GIN connection, backend or stride requests disagree across ranks");
+          ret = ncclInvalidUsage;
+          break;
+        }
+      }
+    }
+    free(requests);
+    if (ret != ncclSuccess) return ret;
+  }
+  if (requestedConnectionType < NCCL_GIN_CONNECTION_NONE ||
+      requestedConnectionType > NCCL_GIN_CONNECTION_CUSTOM_STRIDE) return ncclInvalidArgument;
+  if ((int)reqs->ginType < 0 || (int)reqs->ginType >= PCCL_GIN_MAX_TYPES) return ncclInvalidArgument;
+  if (reqs->ginType != PCCL_GIN_TYPE_NONE &&
+      (requestedConnectionType == NCCL_GIN_CONNECTION_NONE || reqs->ginType != comm->sharedRes->ginState.ginType)) {
+    WARN("Requested GIN backend %d is not selected for this communicator", (int)reqs->ginType);
+    return ncclInvalidUsage;
+  }
+  reqs->ginConnectionType = requestedConnectionType;
+  if (requestedConnectionType == NCCL_GIN_CONNECTION_CUSTOM_STRIDE) {
+    int railStride = ncclTeamRail(comm).stride;
+    int minimumStride = comm->globalGinSupport == NCCL_GIN_CONNECTION_FULL ? 1 : railStride;
+    if (reqs->ginCustomStride <= 0 || reqs->ginCustomStride > railStride ||
+        railStride % reqs->ginCustomStride != 0 || reqs->ginCustomStride % minimumStride != 0) {
+      WARN("Invalid GIN custom stride %d (minimum %d, rail stride %d)",
+           reqs->ginCustomStride, minimumStride, railStride);
+      return ncclInvalidArgument;
+    }
+  } else if (reqs->ginCustomStride != 0) {
+    WARN("ginCustomStride requires PCCL_GIN_CONNECTION_CUSTOM_STRIDE");
+    return ncclInvalidArgument;
   }
 
   bool requestedGinResources = ncclGinResourcesRequested(reqs);
@@ -1151,12 +1259,30 @@ ncclResult_t ncclDevrCommCreateInternal(
   }
 
   if (ginActivated) {
-    NCCLCHECKGOTO(ncclGinConnectOnce(comm), ret, fail);
+    ret = ncclGinConnectOnce(comm);
+    if (ret != ncclSuccess) {
+      devr->ginEnabled = false;
+      goto fail;
+    }
     // Register all preexisting memories with GIN. Update the windows later when
     // we have a stream.
     for (struct ncclDevrMemory* mem = devr->memHead; mem != nullptr; mem = mem->next) {
       NCCLCHECKGOTO(symMemoryRegisterGin(comm, mem), ret, fail);
     }
+  }
+
+  if (requestedConnectionType != NCCL_GIN_CONNECTION_NONE) {
+    struct pcclGinState* ginState = &comm->sharedRes->ginState;
+    if (nGinContexts <= 0) {
+      WARN("GIN requires a positive context count");
+      ret = ncclInvalidArgument;
+      goto fail;
+    }
+    nGinContexts = ginState->ginVersion < 13 ? ginState->ginCommCount :
+        ROUNDUP(nGinContexts, ginState->ginCommCount);
+    reqs->ginContextCount = nGinContexts;
+  } else {
+    nGinContexts = 0;
   }
 
   memset(outDevComm, 0, sizeof(*outDevComm));
@@ -1169,6 +1295,9 @@ ncclResult_t ncclDevrCommCreateInternal(
   outDevComm->lsaSize = devr->lsaSize;
   outDevComm->lsaSize_rcp32 = idivRcp32(devr->lsaSize);
   outDevComm->ginIsRailed = comm->sharedRes->ginState.ginConnectionType == NCCL_GIN_CONNECTION_RAIL; // false if FULL or NONE
+  outDevComm->ginConnectionStride = 1;
+  outDevComm->ginConnectionStride_rcp32 = idivRcp32(1);
+  outDevComm->ginContextStride = 1;
   outDevComm->lsaMultimem.mcBasePtr = nullptr; // PPU does not support multimem
   if (isInternal) outDevComm->abortFlag = comm->abortFlagDev;
 
@@ -1194,6 +1323,17 @@ ncclResult_t ncclDevrCommCreateInternal(
   ncclGinBarrierCreateRequirement(comm, ncclTeamRail(comm), reqs->barrierCount, &outDevComm->hybridRailGinBarrier, &hybridRailGinBarrierReq);
   hybridRailGinBarrierReq.next = &hybridLsaBarrierReq;
   resReqsHead = &hybridRailGinBarrierReq;
+
+  {
+    int stride = requestedConnectionType == NCCL_GIN_CONNECTION_CUSTOM_STRIDE ? reqs->ginCustomStride : 1;
+    ncclTeam denseTeam = {comm->nRanks / stride, comm->rank / stride, stride};
+    int count = !legacyLayout && requestedConnectionType != NCCL_GIN_CONNECTION_NONE &&
+        requestedConnectionType != NCCL_GIN_CONNECTION_RAIL ? reqs->barrierCount : 0;
+    NCCLCHECK(ncclGinBarrierCreateRequirement(comm, denseTeam, count,
+        &outDevComm->hybridDenseGinBarrier, &denseGinBarrierReq));
+    denseGinBarrierReq.next = resReqsHead;
+    resReqsHead = &denseGinBarrierReq;
+  }
 
   ncclLsaBarrierCreateRequirement(lsa, reqs->lsaBarrierCount, &outDevComm->lsaBarrier, &lsaBarReq);
   lsaBarReq.next = resReqsHead;
@@ -1227,7 +1367,7 @@ ncclResult_t ncclDevrCommCreateInternal(
     bufSizeTotal = alignUp(bufSizeTotal, devr->granularity);
   }
 
-  if (devr->ginEnabled) {
+  if (requestedConnectionType != NCCL_GIN_CONNECTION_NONE) {
     reqs->ginSignalCount = ginSignalTotal;
     reqs->ginCounterCount = ginCounterTotal;
     NCCLCHECK(ncclGinDevCommSetup(comm, reqs, outDevComm));
@@ -1247,10 +1387,9 @@ ncclResult_t ncclDevrCommCreateInternal(
       }
       winHost->numSegments = win->memory->numGinSegments;
 
-      if (win->memory->numGinSegments > 1) {
-        // When a window is created, numGinSegments is always set to `1`.  As we now
-        // know that there are multiple segments, we need to reallocate ginMultiSegmentWins
-
+      {
+        // Populate records created before GIN activation even for one segment:
+        // HOST_NUMA metadata and handles were not known when it was allocated.
         struct ncclSegmentWindow* segmentWindowsDev;
         struct ncclSegmentWindow* segmentWindowsHost;
         NCCLCHECKGOTO(ncclShadowPoolFree(&devr->shadows, winHost->ginMultiSegmentWins, stream), ret, fail_stream);
@@ -1300,6 +1439,7 @@ ncclResult_t ncclDevrCommCreateInternal(
   HGGCCHECKGOTO(hggcStreamDestroy(stream), ret, fail_stream_mem_win);
 
   //ncclDevCommDump(outDevComm);
+  if (legacyOutput) memcpy(legacyOutput, outDevComm, sizeof(pcclDevCommLegacy));
   return ret;
 
 fail_stream_mem_win:
@@ -1323,6 +1463,10 @@ ncclResult_t pcclCommWindowRegister(ncclComm_t comm, void* buff, size_t size, nc
   *win = nullptr;
   if (buff == nullptr || size <= 0) {
     WARN("%s: invalid pointer %p / size %zu", __func__, buff, size);
+    return ncclInvalidArgument;
+  }
+  if ((winFlags & PCCL_WIN_GIN_ONLY) && (winFlags & PCCL_WIN_COLL_SYMMETRIC)) {
+    WARN("PCCL_WIN_GIN_ONLY cannot be combined with PCCL_WIN_COLL_SYMMETRIC");
     return ncclInvalidArgument;
   }
 
@@ -1416,20 +1560,36 @@ ncclResult_t pcclCommQueryProperties(ncclComm_t comm, ncclCommProperties_t* prop
   NCCLCHECK(ncclCommEnsureReady(comm));
   NCCLCHECK(checkDevApiVersion(props->magic, props->version));
 
-  props->rank = comm->rank;
-  props->nRanks = comm->nRanks;
-  props->hggcDev = comm->hggcDev;
-  props->hgmlDev = comm->hgmlDev;
-  props->deviceApiSupport = comm->symmetricSupport;
-  props->multimemSupport = false; // PPU does not support multimem/NVLS
-  props->hostRmaSupport = false;  // PPU does not support host RMA
-  NCCLCHECK(getGlobalGinType(comm, &props->ginType));
-  NCCLCHECK(getGlobalRailedGinType(comm, &props->railedGinType));
-
-  // Preferring to call ncclDevrInitOnce directly instead to calling ncclTeam* functions because
-  // we can propagate the result of ncclDevrInitOnce back to the caller.
+  if (props->size != sizeof(pcclCommPropertiesLegacy) && props->size != sizeof(pcclCommProperties)) {
+    WARN("Unsupported communicator-properties size %zu", props->size);
+    return ncclInvalidUsage;
+  }
+  // Build the runtime record, then copy only the caller's declared layout.
+  // This also keeps newer fields from overwriting a released caller's buffer.
+  pcclCommProperties runtime = {};
+  runtime.size = props->size;
+  runtime.magic = props->magic;
+  runtime.version = props->version;
+  runtime.rank = comm->rank;
+  runtime.nRanks = comm->nRanks;
+  runtime.hggcDev = comm->hggcDev;
+  runtime.hgmlDev = comm->hgmlDev;
+  runtime.deviceApiSupport = comm->symmetricSupport;
+  runtime.multimemSupport = false;
+  runtime.hostRmaSupport = false;
+  NCCLCHECK(getGlobalGinType(comm, &runtime.ginType));
+  NCCLCHECK(getGlobalRailedGinType(comm, &runtime.railedGinType));
   NCCLCHECK(ncclDevrInitOnce(comm));
-  props->nLsaTeams = comm->devrState.nLsaTeams;
+  runtime.nLsaTeams = comm->devrState.nLsaTeams;
+  runtime.commHash = comm->commHash;
+  runtime.ginConnectionType = comm->globalGinSupport;
+  runtime.ginMinStride = comm->globalGinSupport == NCCL_GIN_CONNECTION_RAIL ? ncclTeamRail(comm).stride : 1;
+  int backend = (int)comm->sharedRes->ginState.ginType;
+  if (comm->globalGinSupport != NCCL_GIN_CONNECTION_NONE && backend > 0 && backend < PCCL_GIN_MAX_TYPES) {
+    runtime.ginSupport[backend] = true;
+  }
+  runtime.devCommRuntimeVersionSize = sizeof(pcclDevComm);
+  memcpy(props, &runtime, props->size);
 
   return ncclSuccess;
 }
@@ -1442,6 +1602,11 @@ ncclResult_t pcclDevCommCreate(
   NCCLCHECK(CommCheck(comm, __func__, "comm"));
   NCCLCHECK(PtrCheck(reqs, __func__, "reqs"));
   NCCLCHECK(checkDevApiVersion(reqs->magic, reqs->version));
+  NCCLCHECK(PtrCheck(outDevComm, __func__, "outDevComm"));
+  if (reqs->size != sizeof(pcclDevCommRequirementsLegacy) && reqs->size != sizeof(pcclDevCommRequirements)) {
+    WARN("Unsupported device-communicator requirements size %zu", reqs->size);
+    return ncclInvalidUsage;
+  }
 
   ncclResult_t ret = ncclSuccess;
   int saveDev;
@@ -1549,6 +1714,10 @@ ncclResult_t ncclDevrGetLsaRankPtr(struct pcclComm* comm, struct ncclDevrWindow*
   struct ncclDevrState* devr = &comm->devrState;
 
   // Validate lsaRank is within bounds
+  if (winHost->winFlags & NCCL_WIN_GIN_ONLY) {
+    WARN("GIN-only windows do not provide LSA peer pointers");
+    return ncclInvalidUsage;
+  }
   if (lsaRank < 0 || lsaRank >= devr->lsaSize) {
     return ncclInvalidArgument;
   }

@@ -615,9 +615,23 @@ finish:
 
 #define ncclHggcFreeLegacy(...) ncclHggcFreeDebugLegacy(__FILENAME__, __LINE__, __VA_ARGS__)
 
-// Walks all physical segments backing a virtual address range, returning
-// the base address, total mapped size, segment count, and whether any
-// segment is host-resident.
+// Some runtime versions report CPU-backed VMM handles with a legacy location
+// type. Check the mapped pointer before choosing a GIN registration path.
+static inline ncclResult_t ncclHgMemGetAllocationLocation(
+    HGdeviceptr address, HGmemGenericAllocationHandle handle, HGmemLocationType* location) {
+  HGmemAllocationProp prop;
+  HGCHECK(hgMemGetAllocationPropertiesFromHandle(&prop, handle));
+  *location = prop.location.type;
+  if (*location != HG_MEM_LOCATION_TYPE_HOST_NUMA) {
+    hggcPointerAttributes attributes = {};
+    HGGCCHECK(hggcPointerGetAttributes(&attributes, reinterpret_cast<void*>(address)));
+    if (attributes.type == hggcMemoryTypeHost) *location = HG_MEM_LOCATION_TYPE_HOST_NUMA;
+  }
+  return ncclSuccess;
+}
+
+// Walk all physical segments backing a virtual address range, returning its
+// base, mapped size, segment count and whether any segment is host-resident.
 static inline ncclResult_t ncclHgMemGetAddressRange(
     HGdeviceptr userBuff, size_t userBuffSize,
     HGdeviceptr* mappedPtrBase, size_t* totalMappedBufferSize,
@@ -641,13 +655,14 @@ static inline ncclResult_t ncclHgMemGetAddressRange(
 
     if (hasSysmemSegment != nullptr && *hasSysmemSegment == false) {
       HGmemGenericAllocationHandle handle;
-      HGmemAllocationProp prop;
+      HGmemLocationType location;
       HGCHECK(hgMemRetainAllocationHandle(&handle, (void*)mappedPtrEnd));
-      HGCHECK(hgMemGetAllocationPropertiesFromHandle(&prop, handle));
-      if (prop.location.type == HG_MEM_LOCATION_TYPE_HOST_NUMA) {
+      ncclResult_t result = ncclHgMemGetAllocationLocation(mappedPtrEnd, handle, &location);
+      HGCHECK(hgMemRelease(handle));
+      NCCLCHECK(result);
+      if (location == HG_MEM_LOCATION_TYPE_HOST_NUMA) {
         *hasSysmemSegment = true;
       }
-      HGCHECK(hgMemRelease(handle));
     }
 
     if (*totalMappedBufferSize == 0) {

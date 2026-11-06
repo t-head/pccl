@@ -14,6 +14,8 @@
 #include "register_inline.h"
 #include "gin/gin_host.h"
 #include "gin/gin_host_proxy.h"
+#include "pccl_device/gin/gdaki/gin_gdaki_device_host_common.h"
+#include "pccl_device/gin/proxy/gin_proxy_device_host_common.h"
 #include "compiler.h"
 #include <cmath>
 #include <algorithm>
@@ -143,9 +145,11 @@ ncclResult_t ncclGinConnectOnce(struct pcclComm* comm) {
   int nLocalGinDevs;
   int localGinDevs[NCCL_TOPO_MAX_NODES];
   NCCLCHECK(ncclTopoGetLocalGinDevs(comm, localGinDevs, &nLocalGinDevs));
+  if (nLocalGinDevs <= 0) return ncclInvalidUsage;
 
   void** handles = NULL;
   char* allHandles = NULL;
+  void* listenComm = NULL;
 
   int* ginCommCountHandles = NULL;
   NCCLCHECKGOTO(ncclCalloc(&ginCommCountHandles, comm->nRanks), ret, fail);
@@ -162,6 +166,11 @@ ncclResult_t ncclGinConnectOnce(struct pcclComm* comm) {
   NCCLCHECKGOTO(bootstrapAllGather(comm->bootstrap, ginCommCountHandles, sizeof(int)), ret, fail);
   for (int r = 0; r < comm->nRanks; r++) {
     ginState->ginCommCount = std::min(ginState->ginCommCount, ginCommCountHandles[r]);
+  }
+  if (ginState->ginCommCount <= 0) {
+    WARN("GIN requires a positive connection count on every rank");
+    ret = ncclInvalidArgument;
+    goto fail;
   }
 
   NCCLCHECKGOTO(ncclCalloc(&allHandles, (size_t)comm->nRanks * NCCL_NET_HANDLE_MAXSIZE), ret, fail);
@@ -194,7 +203,6 @@ ncclResult_t ncclGinConnectOnce(struct pcclComm* comm) {
   }
 
   for (int n = 0; n < ginState->ginCommCount; n++) {
-    void* listenComm;
     NCCLCHECKGOTO(
       ginState->ncclGin->listen(ginState->ginInstance, localGinDevs[n%nLocalGinDevs],
                                 allHandles + NCCL_NET_HANDLE_MAXSIZE * comm->rank, &listenComm),
@@ -202,6 +210,8 @@ ncclResult_t ncclGinConnectOnce(struct pcclComm* comm) {
 
     NCCLCHECKGOTO(ginState->ncclGin->getProperties(localGinDevs[n%nLocalGinDevs], ginState->ginProps+n),
       ret, fail);
+    INFO(NCCL_INIT, "GIN connection %d: rank %d device %d (%s)", n, comm->rank,
+         localGinDevs[n%nLocalGinDevs], ginState->ginProps[n].name);
 
     NCCLCHECKGOTO(bootstrapAllGather(comm->bootstrap, allHandles, NCCL_NET_HANDLE_MAXSIZE), ret, fail);
 
@@ -210,6 +220,7 @@ ncclResult_t ncclGinConnectOnce(struct pcclComm* comm) {
         ret, fail);
 
     NCCLCHECKGOTO(ginState->ncclGin->closeListen(listenComm), ret, fail);
+    listenComm = NULL;
   }
   free(handles);
   handles = NULL;
@@ -222,6 +233,13 @@ exit:
   if (ret == ncclSuccess) ginState->connected = true;
   return ret;
 fail:
+  if (listenComm) NCCLCHECKIGNORE(ginState->ncclGin->closeListen(listenComm), ret);
+  for (int n = 0; n < ginState->ginCommCount; n++) {
+    if (ginState->ginComms[n]) {
+      NCCLCHECKIGNORE(ginState->ncclGin->closeColl(ginState->ginComms[n]), ret);
+      ginState->ginComms[n] = NULL;
+    }
+  }
   if (allHandles)
     free(allHandles);
   if (handles)
@@ -238,11 +256,24 @@ ncclResult_t ncclGinDevCommSetup(struct pcclComm* comm, struct ncclDevCommRequir
   devComm->ginSignalCount = reqs->ginSignalCount;
   devComm->ginCounterCount = reqs->ginCounterCount;
 
+  int connectedStride = ginState->ginConnectionType == NCCL_GIN_CONNECTION_FULL ? 1 : ncclTeamRail(comm).stride;
+  int requestedStride = reqs->ginConnectionType == NCCL_GIN_CONNECTION_CUSTOM_STRIDE ? reqs->ginCustomStride :
+      reqs->ginConnectionType == NCCL_GIN_CONNECTION_RAIL ? ncclTeamRail(comm).stride : 1;
+  if (requestedStride <= 0 || requestedStride % connectedStride != 0 ||
+      ncclTeamRail(comm).stride % requestedStride != 0) {
+    WARN("Invalid GIN context stride %d for connection stride %d", requestedStride, connectedStride);
+    return ncclInvalidArgument;
+  }
+  // Retain the provider's peer table and handle ABI. Context stride describes
+  // the logical peer subset; it does not request sparse provider allocations.
+  devComm->ginConnectionStride = connectedStride;
+  devComm->ginConnectionStride_rcp32 = idivRcp32(connectedStride);
+  devComm->ginContextStride = requestedStride;
+
   int nContextsTotal = reqs->ginContextCount;
   if (ginState->ginVersion < 13) {
     nContextsTotal = ginState->ginCommCount;
   }
-  devComm->ginContextCount = nContextsTotal;
   devComm->ginConnectionCount = ginState->ginCommCount;
 
   if (!reqs->ginExclusiveContexts) {
@@ -250,6 +281,7 @@ ncclResult_t ncclGinDevCommSetup(struct pcclComm* comm, struct ncclDevCommRequir
   }
 
   nContextsTotal = ROUNDUP(nContextsTotal, ginState->ginCommCount);
+  devComm->ginContextCount = nContextsTotal;
   int nContextsPerComm = nContextsTotal / ginState->ginCommCount;
   INFO(NCCL_INIT, "devCommCreate: creating %d contexts: %d GIN connections with %d contexts each (%d contexts total requested)",
       nContextsTotal, ginState->ginCommCount, nContextsPerComm, reqs->ginContextCount);
@@ -258,6 +290,10 @@ ncclResult_t ncclGinDevCommSetup(struct pcclComm* comm, struct ncclDevCommRequir
   NCCLCHECK(ncclCalloc(&ginStateDevComm, 1));
   ginStateDevComm->contextCount = nContextsTotal;
   ncclResult_t ret = ncclSuccess;
+
+  const int expectedHandleVersion = ginState->ginType == PCCL_GIN_TYPE_GDAKI ? PCCL_GIN_GDAKI_VERSION :
+      ginState->ginType == PCCL_GIN_TYPE_PROXY ? PCCL_GIN_PROXY_VERSION : -1;
+  bool needsProxyProgress = false;
 
   ncclGinConfig_t ginConfig = {
     reqs->ginSignalCount,
@@ -271,11 +307,20 @@ ncclResult_t ncclGinDevCommSetup(struct pcclComm* comm, struct ncclDevCommRequir
     NCCLCHECKGOTO(ginState->ncclGin->createContext(
                     ginState->ginComms[n], &ginConfig, &ginStateDevComm->ginCtx[n], &ginStateDevComm->devHandles[n]),
                   ret, end);
+    if (ginStateDevComm->devHandles[n] == nullptr ||
+        (int)ginStateDevComm->devHandles[n]->netDeviceType != (int)ginState->ginType ||
+        ginStateDevComm->devHandles[n]->netDeviceVersion != expectedHandleVersion ||
+        (ginStateDevComm->devHandles[n]->needsProxyProgress && !ginState->ncclGin->ginProgress)) {
+      WARN("GIN plugin returned an incompatible device handle or missing progress callback");
+      ret = ncclInvalidUsage;
+      goto end;
+    }
     devComm->ginNetDeviceTypes[n] = ginStateDevComm->devHandles[n]->netDeviceType;
     devComm->ginHandles[n] = ginStateDevComm->devHandles[n]->handle;
-    if (ginStateDevComm->devHandles[n]->needsProxyProgress) ginState->needsProxyProgress = 1;
+    needsProxyProgress |= ginStateDevComm->devHandles[n]->needsProxyProgress;
   }
 
+  ginState->needsProxyProgress |= needsProxyProgress;
   if (ginState->needsProxyProgress && ginState->ginProgress == 0) {
     ginState->ginProgress = 1;
     ginState->thread = std::thread(ncclGinProgress, ginState);
@@ -340,7 +385,7 @@ ncclResult_t ncclGinHostFinalize(struct pcclComm* comm) {
       comm->sharedRes->ginState.ginProgress = -1;
       ginState->cond.notify_one();
     }
-    ginState->thread.join();
+    if (ginState->thread.joinable()) ginState->thread.join();
   }
 
   for (int n = 0; n < ginState->ginCommCount; n++) {
@@ -367,23 +412,33 @@ ncclResult_t ncclGinRegister(struct pcclComm* comm, void* address, size_t size,
     }
   }
   int mrFlags = (winFlags & NCCL_WIN_STRICT_ORDERING) ? NCCL_NET_MR_FLAG_FORCE_SO : 0;
+  ncclResult_t ret = ncclSuccess;
   for (int n = 0; n < ginState->ginCommCount; n++) {
-    NCCLCHECK(ginState->ncclGin->regMrSym(ginState->ginComms[n], address, size, memType, mrFlags,
-                                          &ginHostWins[n], &ginDevWins[n]));
+    NCCLCHECKGOTO(ginState->ncclGin->regMrSym(ginState->ginComms[n], address, size, memType, mrFlags,
+                                          &ginHostWins[n], &ginDevWins[n]), ret, fail);
     if (ginHostWins[n] == NULL) {
       WARN("rank %d - GIN Symmetric register failed: buff %p, size %ld", comm->rank, address, size);
-      return ncclSystemError;
+      ret = ncclSystemError;
+      goto fail;
     }
   }
   return ncclSuccess;
+fail:
+  NCCLCHECKIGNORE(ncclGinDeregister(comm, ginHostWins), ret);
+  memset(ginDevWins, 0, NCCL_GIN_MAX_CONNECTIONS * sizeof(*ginDevWins));
+  return ret;
 }
 
 ncclResult_t ncclGinDeregister(struct pcclComm* comm, void* ginHostWins[NCCL_GIN_MAX_CONNECTIONS]) {
   struct pcclGinState* ginState = &comm->sharedRes->ginState;
+  ncclResult_t ret = ncclSuccess;
   for (int n = 0; n < ginState->ginCommCount; n++) {
-    NCCLCHECK(ginState->ncclGin->deregMrSym(ginState->ginComms[n], ginHostWins[n]));
+    if (!ginHostWins[n]) continue;
+    ncclResult_t result = ginState->ncclGin->deregMrSym(ginState->ginComms[n], ginHostWins[n]);
+    if (result == ncclSuccess) ginHostWins[n] = NULL;
+    else if (ret == ncclSuccess) ret = result;
   }
-  return ncclSuccess;
+  return ret;
 }
 
 ncclResult_t ncclGinQueryLastError(struct pcclGinState* ginState, bool* hasError) {

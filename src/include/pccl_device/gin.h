@@ -33,6 +33,14 @@ struct pcclGin_SignalInc { pcclGinSignal_t signal; };
 // struct pcclGin_SignalSet { pcclGinSignal_t signal; uint64_t value; };
 struct pcclGin_CounterInc { pcclGinCounter_t counter; };
 
+// Existing providers retain their ordered signal path for weak actions. This
+// satisfies the bundled-transfer guarantee without weakening legacy ordering.
+using pcclGin_WeakVASignalInc = pcclGin_VASignalInc;
+using pcclGin_WeakVASignalAdd = pcclGin_VASignalAdd;
+using pcclGin_WeakSignalInc = pcclGin_SignalInc;
+using pcclGin_WeakSignalAdd = pcclGin_SignalAdd;
+using pcclGin_WeakCounterInc = pcclGin_CounterInc;
+
 struct pcclGin_DescriptorSmem { pcclGinDescriptorSmem* descriptor; };
 
 // Segment type tags describe the composition of a buffer's physical cuMem segments.
@@ -343,6 +351,10 @@ struct pcclGin_BackendMask {
   template<typename Coop>
   PCCL_DEVICE_INLINE void waitCounter(Coop, pcclGinCounter_t counter, uint64_t least, int bits=56, hggc::memory_order ord = hggc::memory_order_acquire) const;
 
+  template<typename Coop>
+  PCCL_DEVICE_INLINE pcclResult_t waitCounter(Coop, pcclGinCounter_t counter, uint64_t least, int bits,
+                                             hggc::memory_order ord, uint64_t timeoutCycles) const;
+
   // Each signal has a dedicated "shadow" which the user is free to manipulate for
   // any reason. The only calls which manipulate the shadow are `increaseSignalShadow`
   // and `resetSignal`.
@@ -359,9 +371,18 @@ struct pcclGin_BackendMask {
   template<typename Coop>
   PCCL_DEVICE_INLINE void waitSignal(Coop, pcclGinSignal_t signal, uint64_t least, int bits=64, hggc::memory_order ord = hggc::memory_order_acquire) const;
 
+  template<typename Coop>
+  PCCL_DEVICE_INLINE pcclResult_t waitSignal(Coop, pcclGinSignal_t signal, uint64_t least, int bits,
+                                            hggc::memory_order ord, uint64_t timeoutCycles) const;
+
   // Wait for VA signal at given window and offset to meet or exceed value.
   template<typename Coop>
   PCCL_DEVICE_INLINE void waitSignal(Coop, pcclWindow_t signalWindow, size_t signalOffset, uint64_t least, int bits=64, hggc::memory_order ord = hggc::memory_order_acquire) const;
+
+  template<typename Coop>
+  PCCL_DEVICE_INLINE pcclResult_t waitSignal(Coop, pcclWindow_t signalWindow, size_t signalOffset,
+                                            uint64_t least, int bits, hggc::memory_order ord,
+                                            uint64_t timeoutCycles) const;
 
   // Wait for signal to meet or exceed shadow value.
   template<typename Coop>

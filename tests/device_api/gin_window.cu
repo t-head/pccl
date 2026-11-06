@@ -1,0 +1,114 @@
+/*************************************************************************
+ * SPDX-FileCopyrightText: Copyright (c) 2026 T-Head (Shanghai) Semiconductor Co., Ltd. All rights reserved.
+ * SPDX-License-Identifier: Apache-2.0
+ *************************************************************************/
+#include "gin_test_common.h"
+
+template<bool Host>
+__global__ void exchange(pcclDevComm comm, pcclWindow_t source, pcclWindow_t destination, bool get) {
+  if (threadIdx.x != 0) return;
+  pcclCoopThread coop;
+  int peer = (comm.rank + comm.nRanks / 2) % comm.nRanks;
+  for (unsigned context = 0; context < comm.ginContextCount; context++) {
+    pcclGin gin(comm, context);
+    size_t offset = context * chunkBytes;
+    if (get) {
+      if constexpr (Host) {
+        gin.get(pcclTeamWorld(comm), peer, source, offset, destination, offset, chunkBytes,
+            coop, pcclGin_None{}, pcclGinOptFlagsDefault, pcclGin_SegmentHostNuma{});
+      } else {
+        gin.get(pcclTeamWorld(comm), peer, source, offset, destination, offset, chunkBytes);
+      }
+    } else {
+      if constexpr (Host) {
+        gin.put(pcclTeamWorld(comm), peer, destination, offset, source, offset, chunkBytes,
+            pcclGin_None{}, pcclGin_None{}, coop, pcclGin_None{}, hggc::thread_scope_thread,
+            hggc::thread_scope_system, pcclGinOptFlagsDefault, pcclGin_SegmentHostNuma{});
+      } else {
+        gin.put(pcclTeamWorld(comm), peer, destination, offset, source, offset, chunkBytes);
+      }
+    }
+    gin.flush(coop);
+  }
+  pcclGinBarrierSession<pcclCoopThread> barrier(coop, pcclGinAllContexts(comm), pcclTeamTagWorld{}, 0);
+  barrier.sync(coop, hggc::memory_order_acq_rel, pcclGinFenceLevel::Put | pcclGinFenceLevel::Get);
+  pcclBarrierSession<pcclCoopThread> hybrid(coop, pcclTeamTagWorld{}, pcclGin(comm, 0), 0);
+  hybrid.sync(coop, hggc::memory_order_acq_rel, pcclGinFenceLevel::Put);
+}
+
+int main(int argc, char** argv) {
+  CHECK(MPI_Init(&argc, &argv));
+  int rank = 0, ranks = 0;
+  CHECK(MPI_Comm_rank(MPI_COMM_WORLD, &rank));
+  CHECK(MPI_Comm_size(MPI_COMM_WORLD, &ranks));
+  REQUIRE(ranks >= 2 && ranks % 2 == 0);
+  MPI_Comm local;
+  CHECK(MPI_Comm_split_type(MPI_COMM_WORLD, MPI_COMM_TYPE_SHARED, rank, MPI_INFO_NULL, &local));
+  int localRank = 0;
+  CHECK(MPI_Comm_rank(local, &localRank));
+  CHECK(hggcSetDevice(localRank));
+  bool host = argc > 1 && atoi(argv[1]) != 0;
+  int stride = argc > 2 ? atoi(argv[2]) : 0;
+  pcclUniqueId id;
+  if (rank == 0) CHECK(pcclGetUniqueId(&id));
+  CHECK(MPI_Bcast(&id, sizeof(id), MPI_BYTE, 0, MPI_COMM_WORLD));
+  pcclComm_t comm;
+  CHECK(pcclCommInitRank(&comm, ranks, id, rank));
+  {
+    Allocation source(host, 64 * chunkBytes), destination(host, 64 * chunkBytes);
+    pcclWindow_t sourceWindow, destinationWindow, alias;
+    CHECK(pcclCommWindowRegister(comm, source.ptr(), source.size, &sourceWindow, PCCL_WIN_GIN_ONLY));
+    CHECK(pcclCommWindowRegister(comm, destination.ptr(), destination.size, &destinationWindow, PCCL_WIN_GIN_ONLY));
+    CHECK(pcclCommWindowRegister(comm, source.ptr(), source.size, &alias, PCCL_WIN_GIN_ONLY));
+    void* peer = nullptr;
+    REQUIRE(pcclGetLsaDevicePointer(sourceWindow, 0, 0, &peer) == pcclInvalidUsage);
+    pcclWindow_t invalid = nullptr;
+    REQUIRE(pcclCommWindowRegister(comm, source.ptr(), source.size, &invalid,
+        PCCL_WIN_GIN_ONLY | PCCL_WIN_COLL_SYMMETRIC) == pcclInvalidArgument);
+    pcclDevCommRequirements req = PCCL_DEV_COMM_REQUIREMENTS_INITIALIZER;
+    req.ginConnectionType = PCCL_GIN_CONNECTION_FULL;
+    if (stride > 0) {
+      req.ginConnectionType = PCCL_GIN_CONNECTION_CUSTOM_STRIDE;
+      req.ginCustomStride = stride;
+      REQUIRE((ranks / 2) % stride == 0);
+    }
+    req.ginContextCount = 3;
+    req.worldGinBarrierCount = 1;
+    req.barrierCount = 1;
+    pcclDevComm deviceComm;
+    CHECK(pcclDevCommCreate(comm, &req, &deviceComm));
+    REQUIRE(deviceComm.ginContextStride == (stride > 0 ? stride : 1));
+    if (host) {
+      pcclWindow_vidmem window;
+      CHECK(hggcMemcpy(&window, sourceWindow, sizeof(window), hggcMemcpyDeviceToHost));
+      pcclSegmentWindow segment;
+      CHECK(hggcMemcpy(&segment, window.ginMultiSegmentWins, sizeof(segment), hggcMemcpyDeviceToHost));
+      REQUIRE(segment.memType == HG_MEM_LOCATION_TYPE_HOST_NUMA);
+      REQUIRE(window.ginWins[0] != nullptr);
+    }
+    REQUIRE(deviceComm.ginContextCount * chunkBytes <= source.size);
+    std::vector<int> input(deviceComm.ginContextCount * chunkBytes / sizeof(int));
+    std::vector<int> output(input.size());
+    for (size_t i = 0; i < input.size(); i++) input[i] = rank * 100000 + i + 1;
+    CHECK(hggcMemcpy(source.ptr(), input.data(), input.size() * sizeof(int), hggcMemcpyHostToDevice));
+    for (int get = 0; get < 2; get++) {
+      CHECK(hggcMemset(destination.ptr(), 0, output.size() * sizeof(int)));
+      CHECK(MPI_Barrier(MPI_COMM_WORLD));
+      if (host) exchange<true><<<1, 32>>>(deviceComm, sourceWindow, destinationWindow, get);
+      else exchange<false><<<1, 32>>>(deviceComm, sourceWindow, destinationWindow, get);
+      CHECK(hggcGetLastError());
+      CHECK(hggcDeviceSynchronize());
+      CHECK(hggcMemcpy(output.data(), destination.ptr(), output.size() * sizeof(int), hggcMemcpyDeviceToHost));
+      int sourceRank = (rank + ranks / 2) % ranks;
+      for (size_t i = 0; i < output.size(); i++) REQUIRE(output[i] == sourceRank * 100000 + i + 1);
+    }
+    CHECK(pcclCommWindowDeregister(comm, alias));
+    CHECK(pcclCommWindowDeregister(comm, sourceWindow));
+    CHECK(pcclCommWindowDeregister(comm, destinationWindow));
+    CHECK(pcclDevCommDestroy(comm, &deviceComm));
+  }
+  CHECK(pcclCommDestroy(comm));
+  printf("GIN_WINDOW_PASS rank=%d host=%d\n", rank, host);
+  CHECK(MPI_Comm_free(&local));
+  CHECK(MPI_Finalize());
+}
