@@ -263,31 +263,25 @@ static __device__ void allreduce(
   allreduceEnds<UnrollPeers>(prim, tn, t, red, input, output, nElts, nPreBytes/sizeof(T), nSufElts);
 }
 
-template<template<typename> class Red, typename T>
-__device__ __forceinline__ void pccl_symRun_AllReduce_RSxLD_AGxST(ncclSymDevArgs const* args) {
-  ncclSymPrims prim(args->comm, args->nBlocks, ncclSymPrims_UseBarrier);
-  int /*const&*/ rank = prim.rank;
-  int /*const&*/ nRanks = prim.nRanks;
-
-  // Threads numbered globally such that we round robin warps by rank then block.
-  int gt = flattenIx(threadIdx.x%WARP_SIZE, WARP_SIZE,
-                     rank, nRanks,
-                     prim.block, prim.nBlocks,
-                     threadIdx.x/WARP_SIZE, blockDim.x/WARP_SIZE);
-  int gtn = nRanks*prim.nBlocks*blockDim.x;
-
+template<template<typename> class Red, typename T, typename Handler>
+__device__ __forceinline__ void pccl_symRun_AllReduce_RSxLD_AGxST(Handler handler) {
+  ncclSymPrims prim(handler.comm, gridDim.x, ncclSymPrims_UseBarrier);
   prim.barrierArrive(ncclCoopCta(), /*release=*/false);
-  //prim.barrierWait(ncclCoopCta(), /*acquire=*/false);
-  if (args->incPrecision) {
-    using Acc = typename ncclSymAccumType<Red, T, true>::Type;
-    Red<Acc> red(args->redOpArg);
-    allreduce<Red<Acc>, T, true>(prim, gtn, gt, /*waitNeeded=*/true, red, (T*)args->input, (T*)args->output, args->nElts);
-  } else {
-    using Acc = typename ncclSymAccumType<Red, T, false>::Type;
-    Red<Acc> red(args->redOpArg);
-    allreduce<Red<Acc>, T, false>(prim, gtn, gt, /*waitNeeded=*/true, red, (T*)args->input, (T*)args->output, args->nElts);
-  }
-
+  bool waitNeeded = true;
+  handler.template forEachWork<T>([&](int block, int nBlocks, size_t nElts, size_t nAllElts,
+                                      T* input, T* output, uint64_t redOpArg) {
+    int t = flattenIx(threadIdx.x%WARP_SIZE, WARP_SIZE, prim.rank, prim.nRanks, block, nBlocks,
+                      threadIdx.x/WARP_SIZE, blockDim.x/WARP_SIZE);
+    int tn = prim.nRanks*nBlocks*blockDim.x;
+    if (handler.incPrecision) {
+      using Acc = typename ncclSymAccumType<Red, T, true>::Type;
+      allreduce<Red<Acc>, T, true>(prim, tn, t, waitNeeded, Red<Acc>(redOpArg), input, output, nElts);
+    } else {
+      using Acc = typename ncclSymAccumType<Red, T, false>::Type;
+      allreduce<Red<Acc>, T, false>(prim, tn, t, waitNeeded, Red<Acc>(redOpArg), input, output, nElts);
+    }
+    waitNeeded = false;
+  });
   prim.barrierArrive(ncclCoopCta(), /*release=*/true);
   prim.barrierWait(ncclCoopCta(), /*acquire=*/false);
 }

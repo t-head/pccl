@@ -367,6 +367,8 @@ static ncclResult_t ncclSymmetricTaskSchedulerMulti(
   workRangePtr = argsBuf->getWorkRange();
   workBufPtr = argsBuf->getWorks(nMaxChannels);
   argsBuf->nMaxChannels = nMaxChannels;
+  argsBuf->stride4G = comm->devrState.bigSize >> 32;
+  argsBuf->incPrecision = pcclParamSymOpAccPrecisionInc();
 
   while (!ncclIntruQueueEmpty(symTaskQueue)) {
     struct pcclSymkDevWork devWork = {};
@@ -461,7 +463,7 @@ ncclResult_t ncclSymmetricTaskScheduler(
     struct ncclIntruQueue<struct ncclTaskColl, &ncclTaskColl::next>* symTaskQueue,
     struct ncclKernelPlan* plan
   ) {
-  if (pcclParamSymkUseMultiTask())
+  if (pcclParamSymkUseMultiTask() && !ncclIntruQueueHead(symTaskQueue)->isSymLast)
     return ncclSymmetricTaskSchedulerMulti(comm, symTaskQueue, plan);
   return ncclSymmetricTaskSchedulerFast(comm, symTaskQueue, plan);
 }

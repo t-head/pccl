@@ -225,22 +225,19 @@ static __device__ void bcast(
   bcastEnds<UnrollPeers>(prim, tn, t, input, output, inPlace, nElts, nPreBytes/sizeof(T), nSufElts);
 }
 
-template<bool RingTraverseOrder>
-__device__ __forceinline__ void pccl_symRun_AllGather_ST_impl(ncclSymDevArgs const* args) {
-  ncclSymPrims prim(args->comm, args->nBlocks, ncclSymPrims_UseBarrier);
-  int const& rank = prim.rank;
-
-  // Threads numbered over rank.
-  int bt = flattenIx(threadIdx.x%WARP_SIZE, WARP_SIZE,
-                     prim.block, prim.nBlocks,
-                     threadIdx.x/WARP_SIZE, blockDim.x/WARP_SIZE);
-  int btn = prim.nBlocks*blockDim.x;
-
+template<bool RingTraverseOrder, typename Handler>
+__device__ __forceinline__ void pccl_symRun_AllGather_ST_impl(Handler handler) {
+  ncclSymPrims prim(handler.comm, gridDim.x, ncclSymPrims_UseBarrier);
   prim.barrierArrive(ncclCoopCta(), /*release=*/false);
-  //prim.barrierWait(ncclCoopCta(), /*acquire=*/false);
-
-  bcast<char, RingTraverseOrder>(prim, btn, bt, /*waitNeeded=*/true, (char*)args->input, (char*)args->output + rank*args->nElts, args->nElts);
-
+  bool waitNeeded = true;
+  handler.template forEachWork<char>([&](int block, int nBlocks, size_t nElts, size_t nAllElts,
+                                          char* input, char* output, uint64_t) {
+    int bt = flattenIx(threadIdx.x%WARP_SIZE, WARP_SIZE, block, nBlocks,
+                       threadIdx.x/WARP_SIZE, blockDim.x/WARP_SIZE);
+    bcast<char, RingTraverseOrder>(prim, nBlocks*blockDim.x, bt, waitNeeded, input,
+                                  output + prim.rank*nAllElts, nElts);
+    waitNeeded = false;
+  });
   prim.barrierArrive(ncclCoopCta(), /*release=*/true);
   prim.barrierWait(ncclCoopCta(), /*acquire=*/false);
 }
@@ -419,19 +416,13 @@ static __device__ void bulkCopy(
   }
 }
 
-__device__ __forceinline__ void pccl_symRun_AllGather_ST_2D_impl(ncclSymDevArgs const* args) {
-  ncclSymPrims prim(args->comm, args->nBlocks, ncclSymPrims_UseBarrier);
+__device__ __forceinline__ void pccl_symRun_AllGather_ST_2D_work(ncclSymPrims& prim, int block, int nBlocks,
+    size_t nBytes, size_t stride, char* input, char* output) {
   int const& rank = prim.rank;
   int const& nRanks = prim.nRanks;
-
-  int bt = flattenIx(threadIdx.x%WARP_SIZE, WARP_SIZE,
-                     prim.block, prim.nBlocks,
+  int bt = flattenIx(threadIdx.x%WARP_SIZE, WARP_SIZE, block, nBlocks,
                      threadIdx.x/WARP_SIZE, blockDim.x/WARP_SIZE);
-  int btn = prim.nBlocks*blockDim.x;
-
-  size_t nBytes = args->nElts; // per-rank block size in bytes
-  char* input = (char*)args->input;
-  char* output = (char*)args->output;
+  int btn = nBlocks*blockDim.x;
 
   int groupSize = ncclSymkAg2DGroupSize;
   int nGroups = nRanks / groupSize;
@@ -447,8 +438,8 @@ __device__ __forceinline__ void pccl_symRun_AllGather_ST_2D_impl(ncclSymDevArgs 
   // down, and the two must agree on every chunk boundary.
   bool bulkAligned = ((((uint32_t)reinterpret_cast<uintptr_t>(output)
                       | (uint32_t)reinterpret_cast<uintptr_t>(input)
-                      | (uint32_t)nBytes) % BULK_ALIGN_BYTES) == 0);
-  char* selfSlot = output + (size_t)rank*nBytes;
+                      | (uint32_t)stride | (uint32_t)nBytes) % BULK_ALIGN_BYTES) == 0);
+  char* selfSlot = output + (size_t)rank*stride;
 
   // Make the previous kernel's remote writes visible before overwriting output.
   prim.barrierArrive(ncclCoopCta(), /*release=*/false);
@@ -469,7 +460,7 @@ __device__ __forceinline__ void pccl_symRun_AllGather_ST_2D_impl(ncclSymDevArgs 
   bool selfPending = (input != selfSlot);
   for (int dr = 1; dr < groupSize; dr++) {
     int dstRank = groupBase + (lr + dr) % groupSize;
-    char* rmtSlot = prim.peerPtr(dstRank, output) + (size_t)rank*nBytes;
+    char* rmtSlot = prim.peerPtr(dstRank, output) + (size_t)rank*stride;
     if (selfPending) {
       bulkCopy<true>(btn, bt, input, selfSlot, rmtSlot, nBytes);
       selfPending = false;
@@ -492,7 +483,7 @@ __device__ __forceinline__ void pccl_symRun_AllGather_ST_2D_impl(ncclSymDevArgs 
     int g = (groupId + gi) % nGroups;
     int partner = g * groupSize + lr;
     for (int k = 0; k < groupSize; k++) {
-      size_t slotOff = (size_t)(groupBase + k)*nBytes;
+      size_t slotOff = (size_t)(groupBase + k)*stride;
       char* slot = output + slotOff;
       bulkCopy<false>(btn, bt, slot, slot, prim.peerPtr(partner, output) + slotOff, nBytes);
     }
@@ -502,16 +493,23 @@ __device__ __forceinline__ void pccl_symRun_AllGather_ST_2D_impl(ncclSymDevArgs 
   prim.barrierWait(ncclCoopCta(), /*acquire=*/false);
 }
 
-__device__ __forceinline__ void pccl_symRun_AllGather_ST(ncclSymDevArgs const* args) {
-  pccl_symRun_AllGather_ST_impl<false>(args);
+template<typename Handler>
+__device__ __forceinline__ void pccl_symRun_AllGather_ST(Handler handler) {
+  pccl_symRun_AllGather_ST_impl<false>(handler);
 }
 
-__device__ __forceinline__ void pccl_symRun_AllGather_ST_Ring(ncclSymDevArgs const* args) {
-  pccl_symRun_AllGather_ST_impl<true>(args);
+template<typename Handler>
+__device__ __forceinline__ void pccl_symRun_AllGather_ST_Ring(Handler handler) {
+  pccl_symRun_AllGather_ST_impl<true>(handler);
 }
 
-__device__ __forceinline__ void pccl_symRun_AllGather_ST_2D(ncclSymDevArgs const* args) {
-  pccl_symRun_AllGather_ST_2D_impl(args);
+template<typename Handler>
+__device__ __forceinline__ void pccl_symRun_AllGather_ST_2D(Handler handler) {
+  ncclSymPrims prim(handler.comm, gridDim.x, ncclSymPrims_UseBarrier);
+  handler.template forEachWork<char>([&](int block, int nBlocks, size_t nElts, size_t nAllElts,
+                                          char* input, char* output, uint64_t) {
+    pccl_symRun_AllGather_ST_2D_work(prim, block, nBlocks, nElts, nAllElts, input, output);
+  });
 }
 
 __device__ __forceinline__ void pccl_symRun_AllGather_LL(ncclSymDevArgs const* args) {

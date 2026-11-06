@@ -232,28 +232,26 @@ static __device__ void reduce(
 }
 
 
-template<template<typename> class Red, typename T>
-__device__ __forceinline__ void pccl_symRun_ReduceScatter_LD(ncclSymDevArgs const* args) {
-  ncclSymPrims prim(args->comm, args->nBlocks, ncclSymPrims_UseBarrier);
-
-  // Round robin warps over blocks.
-  int t = flattenIx(threadIdx.x%WARP_SIZE, WARP_SIZE,
-                    prim.block, prim.nBlocks,
-                    threadIdx.x/WARP_SIZE, blockDim.x/WARP_SIZE);
-  int tn = prim.nBlocks*blockDim.x;
-
+template<template<typename> class Red, typename T, typename Handler>
+__device__ __forceinline__ void pccl_symRun_ReduceScatter_LD(Handler handler) {
+  ncclSymPrims prim(handler.comm, gridDim.x, ncclSymPrims_UseBarrier);
   prim.barrierArrive(ncclCoopCta(), /*release=*/false);
-  //prim.barrierWait(ncclCoopCta(), /*acquire=*/false);
-  if (args->incPrecision) {
-    using Acc = typename ncclSymAccumType<Red, T, true>::Type;
-    Red<Acc> red(args->redOpArg);
-    reduce<Red<Acc>, T, true>(prim, tn, t, /*waitNeeded=*/true, red, (T*)args->input + prim.rank*args->nElts, (T*)args->output, args->nElts);
-  } else {
-    using Acc = typename ncclSymAccumType<Red, T, false>::Type;
-    Red<Acc> red(args->redOpArg);
-    reduce<Red<Acc>, T, false>(prim, tn, t, /*waitNeeded=*/true, red, (T*)args->input + prim.rank*args->nElts, (T*)args->output, args->nElts);
-  }
-
+  bool waitNeeded = true;
+  handler.template forEachWork<T>([&](int block, int nBlocks, size_t nElts, size_t nAllElts,
+                                      T* input, T* output, uint64_t redOpArg) {
+    int t = flattenIx(threadIdx.x%WARP_SIZE, WARP_SIZE, block, nBlocks,
+                      threadIdx.x/WARP_SIZE, blockDim.x/WARP_SIZE);
+    int tn = nBlocks*blockDim.x;
+    input += prim.rank*nAllElts;
+    if (handler.incPrecision) {
+      using Acc = typename ncclSymAccumType<Red, T, true>::Type;
+      reduce<Red<Acc>, T, true>(prim, tn, t, waitNeeded, Red<Acc>(redOpArg), input, output, nElts);
+    } else {
+      using Acc = typename ncclSymAccumType<Red, T, false>::Type;
+      reduce<Red<Acc>, T, false>(prim, tn, t, waitNeeded, Red<Acc>(redOpArg), input, output, nElts);
+    }
+    waitNeeded = false;
+  });
   prim.barrierArrive(ncclCoopCta(), /*release=*/false);
   prim.barrierWait(ncclCoopCta(), /*acquire=*/false);
 }

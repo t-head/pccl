@@ -84,6 +84,8 @@ struct alignas(16) pcclSymkDevWork {
 struct alignas(16) pcclSymkDevWorkArgs {
   struct ncclSymkDevComm kcomm;
   int nMaxChannels;
+  uint32_t stride4G;
+  bool incPrecision;
 
   __host__ static constexpr size_t calcArgsSize(int nChannels, int nWorks) {
     return alignUp(sizeof(struct pcclSymkDevWorkArgs), 16)
