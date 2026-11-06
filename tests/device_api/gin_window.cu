@@ -40,6 +40,7 @@ struct Allocation {
     prop.type = HG_MEM_ALLOCATION_TYPE_PINNED;
     prop.location.type = host ? HG_MEM_LOCATION_TYPE_HOST_NUMA : HG_MEM_LOCATION_TYPE_DEVICE;
     prop.location.id = device;
+    prop.requestedHandleTypes = HG_MEM_HANDLE_TYPE_POSIX_FILE_DESCRIPTOR;
     if (host) {
       int numa = 0;
       CHECK(hgDeviceGetAttribute(&numa, HG_DEVICE_ATTRIBUTE_HOST_NUMA_ID, device));
@@ -60,6 +61,9 @@ struct Allocation {
     if (host) {
       access.location = prop.location;
       CHECK(hgMemSetAccess(address, size, &access, 1));
+      hggcPointerAttributes attributes = {};
+      CHECK(hggcPointerGetAttributes(&attributes, ptr()));
+      REQUIRE(attributes.type == hggcMemoryTypeHost);
     }
   }
 
@@ -136,6 +140,14 @@ int main(int argc, char** argv) {
     req.worldGinBarrierCount = 1;
     pcclDevComm deviceComm;
     CHECK(pcclDevCommCreate(comm, &req, &deviceComm));
+    if (host) {
+      pcclWindow_vidmem window;
+      CHECK(hggcMemcpy(&window, sourceWindow, sizeof(window), hggcMemcpyDeviceToHost));
+      pcclSegmentWindow segment;
+      CHECK(hggcMemcpy(&segment, window.ginMultiSegmentWins, sizeof(segment), hggcMemcpyDeviceToHost));
+      REQUIRE(segment.memType == HG_MEM_LOCATION_TYPE_HOST_NUMA);
+      REQUIRE(window.ginWins[0] != nullptr);
+    }
     REQUIRE(deviceComm.ginContextCount * chunkBytes <= source.size);
     std::vector<int> input(deviceComm.ginContextCount * chunkBytes / sizeof(int));
     std::vector<int> output(input.size());

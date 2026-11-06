@@ -153,12 +153,14 @@ static ncclResult_t gdakiRegMrDmaBuf(struct ibv_mr** mr, struct ibv_pd* pd,
 // allocations, so internal callers (counters/signals/sink) must allocate at
 // least PAGE_SIZE bytes via gdakiAlignedHggcMalloc.
 static ncclResult_t gdakiRegMr(struct ibv_mr **mr, struct ibv_pd *pd, void *addr, size_t length,
-                               int access, bool force_strict_ordering = false) {
+                               int access, bool force_strict_ordering = false, bool hostMemory = false) {
   if (!force_strict_ordering && gdakiRelaxedOrderingEnabled())
     access |= IBV_ACCESS_RELAXED_ORDERING;
 
-  ncclResult_t status = gdakiRegMrDmaBuf(mr, pd, addr, length, access);
-  if (status == ncclSuccess) return ncclSuccess;
+  if (!hostMemory) {
+    ncclResult_t status = gdakiRegMrDmaBuf(mr, pd, addr, length, access);
+    if (status == ncclSuccess) return ncclSuccess;
+  }
 
   NCCLCHECK(wrap_ibv_reg_mr_iova2(mr, pd, addr, length, 0, (unsigned int)access));
   INFO(NCCL_NET, "gdakiRegMr: iova=0 addr=%p length=%zu mr->addr=%p mr->length=%zu lkey=0x%x rkey=0x%x",
@@ -1063,7 +1065,7 @@ ncclResult_t ncclGinGdakiRegMrSym(void *collComm, void *data, size_t size, int t
     bool force_strict_ordering = (mr_flags & NCCL_NET_MR_FLAG_FORCE_SO);
     NCCLCHECKGOTO(gdakiRegMr(&mr, cComm->ib.pd, data, size,
                              IBV_ACCESS_LOCAL_WRITE | IBV_ACCESS_REMOTE_WRITE | IBV_ACCESS_REMOTE_READ |
-                               IBV_ACCESS_REMOTE_ATOMIC, force_strict_ordering),
+                               IBV_ACCESS_REMOTE_ATOMIC, force_strict_ordering, type == NCCL_PTR_HOST),
                   status, out);
   }
 
