@@ -41,8 +41,11 @@ class BuildEvidenceTests(unittest.TestCase):
                                 capture_output=True, text=True)
         self.assertEqual(result.returncode, 0, result.stdout + result.stderr)
         self.assertEqual(json.loads(cli_output.read_text()), record)
-        with self.assertRaises(ValueError):
-            build_evidence.write_json(output, record)
+        # A rerun of the build job replaces the archive and its record atomically.
+        self.archive.write_bytes(b'new build from a rerun')
+        rebuilt = self.record()
+        build_evidence.write_json(output, rebuilt)
+        self.assertEqual(build_evidence.load(output, self.inputs, 'standard', self.archive), rebuilt)
 
     def test_revision_profile_archive_and_schema_tampering_fail_closed(self):
         record = self.record()

@@ -56,8 +56,8 @@ def load(path, inputs, profile, archive):
 
 def write_json(path, record):
     path = Path(path)
-    if not path.parent.is_dir() or path.exists():
-        raise ValueError('Build evidence output must be a new file in an existing directory')
+    if not path.parent.is_dir():
+        raise ValueError('Build evidence output requires an existing directory')
     temporary = path.with_suffix(path.suffix + '.tmp')
     temporary.write_text(json.dumps(record, indent=2, allow_nan=False) + '\n', encoding='utf-8')
     temporary.replace(path)
