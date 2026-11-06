@@ -338,17 +338,23 @@ ncclResult_t ncclGinIbGdakiDevices(int* ndev) {
   return ncclSuccess;
 }
 
+static ncclResult_t ncclGinIbGdakiGetPhysicalProperties(int dev, void* output) {
+  auto* props = static_cast<ncclNetProperties_v12_t*>(output);
+  ncclNetProperties_v6_t physProps = {};
+  NCCLCHECK(ncclIbGetPhysProperties(dev, &physProps));
+  ncclGinIbFillV12Properties(physProps, props);
+  props->netDeviceType = NCCL_NET_DEVICE_GIN_GDAKI;
+  return ncclSuccess;
+}
+
 ncclResult_t ncclGinIbGdakiGetProperties(int dev, ncclNetProperties_v12_t* props) {
   std::lock_guard<std::mutex> lock(ncclGinIbGdakiLockMutex);
-  if (dev >= ncclGinIbGdakiNDevs) {
+  if (dev < 0 || dev >= ncclGinIbGdakiNDevs) {
     WARN("NET/IB : Requested properties for GIN GDAKI NIC %d, only %d GIN GDAKI NICs have been created",
          dev, ncclGinIbGdakiNDevs);
     return ncclInvalidUsage;
   }
-  ncclNetProperties_v6_t physProps = {};
-  NCCLCHECK(ncclIbGetPhysProperties(ncclGinIbGdakiDevIndexes[dev], &physProps));
-  ncclGinIbFillV12Properties(physProps, props);
-  props->netDeviceType = NCCL_NET_DEVICE_GIN_GDAKI;
+  NCCLCHECK(ncclGinIbGdakiGetPhysicalProperties(ncclGinIbGdakiDevIndexes[dev], props));
   props->vProps.ndevs = 1;
   props->vProps.devs[0] = dev;
   return ncclSuccess;
@@ -365,7 +371,8 @@ ncclResult_t ncclGinIbGdakiConnect(void* ctx, void* handles[], int nranks, int r
   NCCLCHECK(ncclGinIbConnect(ctx, handles, nranks, rank, listenComm, collComm));
 
   struct ncclGinIbCollComm* cComm = (struct ncclGinIbCollComm*)*collComm;
-  cComm->getProperties = (ncclResult_t(*)(int, void*))ncclGinIbGdakiGetProperties;
+  // cComm->dev is a physical IB index, not an index in the filtered GIN list.
+  cComm->getProperties = ncclGinIbGdakiGetPhysicalProperties;
   return ncclSuccess;
 }
 
