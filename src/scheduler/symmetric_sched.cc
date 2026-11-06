@@ -84,6 +84,8 @@ ncclResult_t ncclMakeSymmetricTaskList(
   struct ncclKernelPlanner* planner = &comm->planner;
   struct ncclTaskColl* remainTasksTail = nullptr;
   bool foundSymm = false;
+  // The larger regular-plan budget must not change how symmetric work is grouped.
+  const size_t symWorkBudget = std::min<size_t>(comm->workArgsBytes, 1u << 10);
 
   memset(tasksSymByFnOpTy, 0, sizeof(tasksSymByFnOpTy));
   *remainTasksHead = nullptr;
@@ -122,7 +124,7 @@ ncclResult_t ncclMakeSymmetricTaskList(
   if (!foundSymm) goto exit;
 
   if (pcclParamSymkUseMultiTask() &&
-      comm->workArgsBytes < pcclSymkDevWorkArgs::calcArgsSize(MAXCHANNELS, 1)) {
+      symWorkBudget < pcclSymkDevWorkArgs::calcArgsSize(MAXCHANNELS, 1)) {
     WARN("workArgsBytes (%u) too small for symmetric kernel args", comm->workArgsBytes);
     ret = ncclInternalError;
     goto exit;
@@ -151,7 +153,7 @@ ncclResult_t ncclMakeSymmetricTaskList(
         count = alignUp(task->count, cellCount);
         countTotal += count;
         if (count > countMax) countMax = count;
-        bool overflow = useMulti && (pcclSymkDevWorkArgs::calcArgsSize(MAXCHANNELS, nWorks + 1) > comm->workArgsBytes);
+        bool overflow = useMulti && (pcclSymkDevWorkArgs::calcArgsSize(MAXCHANNELS, nWorks + 1) > symWorkBudget);
         if (!useMulti || overflow || task->next == nullptr) {
           task->isSymLast = 1;
           break;

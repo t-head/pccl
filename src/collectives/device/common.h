@@ -459,12 +459,12 @@ __device__ void ncclKernelMain(struct ncclDevKernelArgs const* args)  {
 #define NCCL_KERN_LAUNCH_BOUNDS_MIN_NBLOCKS 1
 #define IMPL_COLL_KERN(func, algo, proto, devredop, type, fIndex) \
 __global__ void __launch_bounds__(NCCL_KERN_LAUNCH_BOUNDS_MAX_NTHREADS, NCCL_KERN_LAUNCH_BOUNDS_MIN_NBLOCKS) \
-  NCCL_KERN_NAME(func, algo, proto, devredop, type)(ncclDevKernelArgs1K const args4K) { \
+  NCCL_KERN_NAME(func, algo, proto, devredop, type)(ncclDevKernelArgs4K const args4K) { \
     ncclKernelMain<ncclFunc##func, NCCL_ALGO_##algo, NCCL_PROTO_##proto, Func##devredop<type>, type, ncclCollUnroll(), fIndex>(&args4K.args); \
 }
 #else
 #define IMPL_COLL_KERN(func, algo, proto, devredop, type, fIndex) \
-__global__ void NCCL_KERN_NAME(func, algo, proto, devredop, type)(ncclDevKernelArgs1K const args4K) { \
+__global__ void NCCL_KERN_NAME(func, algo, proto, devredop, type)(ncclDevKernelArgs4K const args4K) { \
   ncclKernelMain<ncclFunc##func, NCCL_ALGO_##algo, NCCL_PROTO_##proto, Func##devredop<type>, type, ncclCollUnroll(), fIndex>(&args4K.args); \
 }
 #endif

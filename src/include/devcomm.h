@@ -364,7 +364,7 @@ struct alignas(16) pcclDevKernelArgs {
 #define ncclDevKernelArgs pcclDevKernelArgs
 
 __host__ __device__ constexpr int ncclMaxKernelArgsSize() {
-  return 1<<10;
+  return 4 << 10;
 }
 
 template<size_t capacity>
@@ -376,7 +376,7 @@ struct alignas(16) pcclDevKernelArgsStorage {
 };
 #define ncclDevKernelArgsStorage pcclDevKernelArgsStorage
 
-typedef ncclDevKernelArgsStorage<(1<<10)> ncclDevKernelArgs1K;
+typedef ncclDevKernelArgsStorage<(4<<10)> ncclDevKernelArgs4K;
 
 template<typename T>
 __host__ __device__ constexpr T min_constexpr(T a) { return a; }
