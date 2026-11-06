@@ -1,14 +1,14 @@
 {
   "classification": {
     "base_sha": "77af125652fd1ffc532bf519022f709b9df510fd",
-    "head_sha": "750ad65ed6254e95ad72a818ea0bf41f6cf06092",
-    "input_fingerprint": "729474f23b8c781609ea56548a65b2c8229e70f682913f8fc9552f8b7923c0ab",
+    "head_sha": "3b5c47b08853373da4761fad2709fa64636be9e4",
+    "input_fingerprint": "f4f16218783eb92aa7a59edcac67299dba09f7913df3180db76aed1fbda41989",
     "pr_number": 160,
     "proposal": {
       "modules": [
         "network"
       ],
-      "reason": "Fixes NET/IB backend initialization logic in bonding-interface discovery by bounding parsing to nIbDevs to prevent overflow of network transport connection resources."
+      "reason": "Bounds bond-name token parsing in NET/IB initialization to allocated nIbDevs entries, fixing buffer overwrite risk in network backend interface discovery."
     }
   },
   "reviewers": {
