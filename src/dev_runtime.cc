@@ -18,6 +18,7 @@
 #include "utils.h"
 #include "argcheck.h"
 #include "gin/gin_host.h"
+#include "devcomm/compat.h"
 #include <mutex>
 
 NCCL_PARAM(WinStride, "WIN_STRIDE", -1);
@@ -1167,6 +1168,14 @@ ncclResult_t ncclDevrCommCreateInternal(
   struct ncclDevrWindow* win = nullptr;
   struct ncclWindow_vidmem* winHost = nullptr;
   size_t ginSignalShadowsOffset = 0;
+  struct ncclDevComm currentDevComm;
+  struct ncclDevComm* legacyOutput = nullptr;
+  const bool legacyLayout = !isInternal && !reqs->useRuntimeVersion &&
+      reqs->size <= sizeof(pcclDevCommRequirementsLegacy);
+  if (legacyLayout) {
+    legacyOutput = outDevComm;
+    outDevComm = &currentDevComm;
+  }
 
   // This function always operates on the current version of the ncclDevResourceRequirements structure, thanks
   // to the deepCopyDevCommRequirements() function, so version checks are not needed.  The data in reqs can also
@@ -1180,6 +1189,38 @@ ncclResult_t ncclDevrCommCreateInternal(
          "ginForceEnable is being deprecated in favor of explicitly setting ginConnectionType!");
     requestedConnectionType = NCCL_GIN_CONNECTION_FULL;
   }
+
+  // Agree on backend requests before entering backend-specific collectives.
+  {
+    struct GinRequest { int connection, backend, stride; } local = {
+      (int)requestedConnectionType, (int)reqs->ginType, reqs->ginCustomStride
+    };
+    GinRequest* requests = nullptr;
+    NCCLCHECK(ncclCalloc(&requests, comm->nRanks));
+    requests[comm->rank] = local;
+    ret = bootstrapAllGather(comm->bootstrap, requests, sizeof(GinRequest));
+    if (ret == ncclSuccess) {
+      for (int rank = 0; rank < comm->nRanks; rank++) {
+        if (requests[rank].connection != local.connection || requests[rank].backend != local.backend ||
+            requests[rank].stride != local.stride) {
+          WARN("GIN connection, backend or stride requests disagree across ranks");
+          ret = ncclInvalidUsage;
+          break;
+        }
+      }
+    }
+    free(requests);
+    if (ret != ncclSuccess) return ret;
+  }
+  if (requestedConnectionType < NCCL_GIN_CONNECTION_NONE || requestedConnectionType > NCCL_GIN_CONNECTION_RAIL ||
+      reqs->ginCustomStride != 0) return ncclInvalidArgument;
+  if ((int)reqs->ginType < 0 || (int)reqs->ginType >= PCCL_GIN_MAX_TYPES) return ncclInvalidArgument;
+  if (reqs->ginType != PCCL_GIN_TYPE_NONE &&
+      (requestedConnectionType == NCCL_GIN_CONNECTION_NONE || reqs->ginType != comm->sharedRes->ginState.ginType)) {
+    WARN("Requested GIN backend %d is not selected for this communicator", (int)reqs->ginType);
+    return ncclInvalidUsage;
+  }
+  reqs->ginConnectionType = requestedConnectionType;
 
   bool requestedGinResources = ncclGinResourcesRequested(reqs);
   if (requestedGinResources && requestedConnectionType == NCCL_GIN_CONNECTION_NONE) {
@@ -1212,7 +1253,7 @@ ncclResult_t ncclDevrCommCreateInternal(
     }
   }
 
-  if (devr->ginEnabled) {
+  if (requestedConnectionType != NCCL_GIN_CONNECTION_NONE) {
     struct pcclGinState* ginState = &comm->sharedRes->ginState;
     if (nGinContexts <= 0) {
       WARN("GIN requires a positive context count");
@@ -1222,6 +1263,8 @@ ncclResult_t ncclDevrCommCreateInternal(
     nGinContexts = ginState->ginVersion < 13 ? ginState->ginCommCount :
         ROUNDUP(nGinContexts, ginState->ginCommCount);
     reqs->ginContextCount = nGinContexts;
+  } else {
+    nGinContexts = 0;
   }
 
   memset(outDevComm, 0, sizeof(*outDevComm));
@@ -1234,6 +1277,9 @@ ncclResult_t ncclDevrCommCreateInternal(
   outDevComm->lsaSize = devr->lsaSize;
   outDevComm->lsaSize_rcp32 = idivRcp32(devr->lsaSize);
   outDevComm->ginIsRailed = comm->sharedRes->ginState.ginConnectionType == NCCL_GIN_CONNECTION_RAIL; // false if FULL or NONE
+  outDevComm->ginConnectionStride = 1;
+  outDevComm->ginConnectionStride_rcp32 = idivRcp32(1);
+  outDevComm->ginContextStride = 1;
   outDevComm->lsaMultimem.mcBasePtr = nullptr; // PPU does not support multimem
   if (isInternal) outDevComm->abortFlag = comm->abortFlagDev;
 
@@ -1292,7 +1338,7 @@ ncclResult_t ncclDevrCommCreateInternal(
     bufSizeTotal = alignUp(bufSizeTotal, devr->granularity);
   }
 
-  if (devr->ginEnabled) {
+  if (requestedConnectionType != NCCL_GIN_CONNECTION_NONE) {
     reqs->ginSignalCount = ginSignalTotal;
     reqs->ginCounterCount = ginCounterTotal;
     NCCLCHECK(ncclGinDevCommSetup(comm, reqs, outDevComm));
@@ -1364,6 +1410,7 @@ ncclResult_t ncclDevrCommCreateInternal(
   HGGCCHECKGOTO(hggcStreamDestroy(stream), ret, fail_stream_mem_win);
 
   //ncclDevCommDump(outDevComm);
+  if (legacyOutput) memcpy(legacyOutput, outDevComm, sizeof(pcclDevCommLegacy));
   return ret;
 
 fail_stream_mem_win:
@@ -1484,20 +1531,36 @@ ncclResult_t pcclCommQueryProperties(ncclComm_t comm, ncclCommProperties_t* prop
   NCCLCHECK(ncclCommEnsureReady(comm));
   NCCLCHECK(checkDevApiVersion(props->magic, props->version));
 
-  props->rank = comm->rank;
-  props->nRanks = comm->nRanks;
-  props->hggcDev = comm->hggcDev;
-  props->hgmlDev = comm->hgmlDev;
-  props->deviceApiSupport = comm->symmetricSupport;
-  props->multimemSupport = false; // PPU does not support multimem/NVLS
-  props->hostRmaSupport = false;  // PPU does not support host RMA
-  NCCLCHECK(getGlobalGinType(comm, &props->ginType));
-  NCCLCHECK(getGlobalRailedGinType(comm, &props->railedGinType));
-
-  // Preferring to call ncclDevrInitOnce directly instead to calling ncclTeam* functions because
-  // we can propagate the result of ncclDevrInitOnce back to the caller.
+  if (props->size != sizeof(pcclCommPropertiesLegacy) && props->size != sizeof(pcclCommProperties)) {
+    WARN("Unsupported communicator-properties size %zu", props->size);
+    return ncclInvalidUsage;
+  }
+  // Build the runtime record, then copy only the caller's declared layout.
+  // This also keeps newer fields from overwriting a released caller's buffer.
+  pcclCommProperties runtime = {};
+  runtime.size = props->size;
+  runtime.magic = props->magic;
+  runtime.version = props->version;
+  runtime.rank = comm->rank;
+  runtime.nRanks = comm->nRanks;
+  runtime.hggcDev = comm->hggcDev;
+  runtime.hgmlDev = comm->hgmlDev;
+  runtime.deviceApiSupport = comm->symmetricSupport;
+  runtime.multimemSupport = false;
+  runtime.hostRmaSupport = false;
+  NCCLCHECK(getGlobalGinType(comm, &runtime.ginType));
+  NCCLCHECK(getGlobalRailedGinType(comm, &runtime.railedGinType));
   NCCLCHECK(ncclDevrInitOnce(comm));
-  props->nLsaTeams = comm->devrState.nLsaTeams;
+  runtime.nLsaTeams = comm->devrState.nLsaTeams;
+  runtime.commHash = comm->commHash;
+  runtime.ginConnectionType = comm->globalGinSupport;
+  runtime.ginMinStride = comm->globalGinSupport == NCCL_GIN_CONNECTION_RAIL ? ncclTeamRail(comm).stride : 1;
+  int backend = (int)comm->sharedRes->ginState.ginType;
+  if (comm->globalGinSupport != NCCL_GIN_CONNECTION_NONE && backend > 0 && backend < PCCL_GIN_MAX_TYPES) {
+    runtime.ginSupport[backend] = true;
+  }
+  runtime.devCommRuntimeVersionSize = sizeof(pcclDevComm);
+  memcpy(props, &runtime, props->size);
 
   return ncclSuccess;
 }
@@ -1510,6 +1573,11 @@ ncclResult_t pcclDevCommCreate(
   NCCLCHECK(CommCheck(comm, __func__, "comm"));
   NCCLCHECK(PtrCheck(reqs, __func__, "reqs"));
   NCCLCHECK(checkDevApiVersion(reqs->magic, reqs->version));
+  NCCLCHECK(PtrCheck(outDevComm, __func__, "outDevComm"));
+  if (reqs->size != sizeof(pcclDevCommRequirementsLegacy) && reqs->size != sizeof(pcclDevCommRequirements)) {
+    WARN("Unsupported device-communicator requirements size %zu", reqs->size);
+    return ncclInvalidUsage;
+  }
 
   ncclResult_t ret = ncclSuccess;
   int saveDev;
