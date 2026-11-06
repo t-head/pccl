@@ -20,8 +20,20 @@ struct pcclGinBarrierHandle;
 PCCL_EXTERN_C __host__ pcclResult_t pcclGinBarrierCreateRequirement(pcclComm_t, pcclTeam_t, int nBarriers, pcclGinBarrierHandle_t* outHandle, pcclDevResourceRequirements_t* outReq);
 
 #if PCCL_CHECK_HGGCCC
-enum class pcclGinFenceLevel {
-  Relaxed
+enum class pcclGinFenceLevel : uint32_t {
+  None = 0,
+  Put = 1u << 0,
+  Get = 1u << 1,
+  Relaxed = None
+};
+
+PCCL_HOST_DEVICE_INLINE constexpr pcclGinFenceLevel operator|(pcclGinFenceLevel a, pcclGinFenceLevel b) {
+  return static_cast<pcclGinFenceLevel>(static_cast<uint32_t>(a) | static_cast<uint32_t>(b));
+}
+
+struct pcclGinAllContexts {
+  pcclDevComm const& comm;
+  PCCL_HOST_DEVICE_INLINE constexpr pcclGinAllContexts(pcclDevComm const& comm_) : comm(comm_) {}
 };
 
 template<typename Coop>
@@ -32,6 +44,10 @@ struct pcclGinBarrierSession: pcclGinBarrierSession_internal<Coop> {
   PCCL_DEVICE_INLINE pcclGinBarrierSession(Coop, pcclGin, pcclTeam, pcclGinBarrierHandle, uint32_t index);
   PCCL_DEVICE_INLINE pcclGinBarrierSession(Coop, pcclGin, pcclTeamTagRail, uint32_t index);
   PCCL_DEVICE_INLINE pcclGinBarrierSession(Coop, pcclGin, pcclTeamTagWorld, uint32_t index);
+  PCCL_DEVICE_INLINE pcclGinBarrierSession(Coop, pcclGinAllContexts, pcclTeam,
+                                          pcclGinBarrierHandle, uint32_t index);
+  PCCL_DEVICE_INLINE pcclGinBarrierSession(Coop, pcclGinAllContexts, pcclTeamTagRail, uint32_t index);
+  PCCL_DEVICE_INLINE pcclGinBarrierSession(Coop, pcclGinAllContexts, pcclTeamTagWorld, uint32_t index);
 
   PCCL_DEVICE_INLINE ~pcclGinBarrierSession();
 

@@ -101,9 +101,9 @@ __global__ void exchange(pcclDevComm comm, pcclWindow_t source, pcclWindow_t des
       }
     }
     gin.flush(coop);
-    pcclGinBarrierSession<pcclCoopThread> barrier(coop, gin, pcclTeamTagWorld{}, 0);
-    barrier.sync(coop, hggc::memory_order_acq_rel, pcclGinFenceLevel::Relaxed);
   }
+  pcclGinBarrierSession<pcclCoopThread> barrier(coop, pcclGinAllContexts(comm), pcclTeamTagWorld{}, 0);
+  barrier.sync(coop, hggc::memory_order_acq_rel, pcclGinFenceLevel::Put | pcclGinFenceLevel::Get);
 }
 
 int main(int argc, char** argv) {
