@@ -238,6 +238,8 @@ static inline ncclResult_t ncclHgMemFree(void *ptr) {
   return result;
 }
 
+extern int pcclParamNoMemsetFlag;
+
 template <typename T>
 ncclResult_t ncclHggcCallocAsyncDebug(T** ptr, size_t nelem, uint64_t* pDevMemUsed, hggcStream_t stream, const char *filefunc, int line) {
   ncclResult_t result = ncclSuccess;
@@ -251,7 +253,7 @@ ncclResult_t ncclHggcCallocAsyncDebug(T** ptr, size_t nelem, uint64_t* pDevMemUs
   } else {
     HGGCCHECKGOTO(hggcMalloc(ptr, nelem*sizeof(T)), result, finish);
   }
-  HGGCCHECKGOTO(hggcMemsetAsync(*ptr, 0, nelem*sizeof(T), stream), result, finish);
+  if (pcclParamNoMemsetFlag == 0) HGGCCHECKGOTO(hggcMemsetAsync(*ptr, 0, nelem*sizeof(T), stream), result, finish);
 finish:
   HGGCCHECK(hggcThreadExchangeStreamCaptureMode(&mode));
   if (*ptr == nullptr) ERROR("Failed to HGGC calloc async %ld bytes", nelem*sizeof(T));
@@ -334,8 +336,6 @@ static ncclResult_t ncclFree(T*& ptr) {
   return ncclSuccess;
 }
 
-extern int ncclParamNoMemsetFlag;
-
 template <typename T>
 static ncclResult_t ncclHggcCallocOrigin(T** ptr, size_t nelem, size_t *sizeAligned, int memMode) {
   if (nelem == 0) {
@@ -345,15 +345,15 @@ static ncclResult_t ncclHggcCallocOrigin(T** ptr, size_t nelem, size_t *sizeAlig
     return nccl_u2mm_gpu_calloc(ptr, nelem, memMode == MEM_U2MM_DIRECT);
   }
 
-  hggcStream_t stream;
   VERBOSE(NCCL_ALLOC, "pcclHggcCallocOrigin(ptr=%p, nelem=%zu)", ptr, nelem);
-  HGGCCHECK(hggcEitInterface::getInstance().wrapHggcStreamCreateForCopyEngine(&stream));
   if (ncclCuMemEnable()) {
     NCCLCHECK(ncclHgMemAlloc((void **)ptr, NULL, ncclHgMemHandleType, nelem*sizeof(T), nullptr, sizeAligned, memMode));
   } else {
     HGGCCHECK(hggcMalloc(ptr, nelem*sizeof(T)));
   }
-  if (ncclParamNoMemsetFlag == 0) {
+  if (pcclParamNoMemsetFlag == 0) {
+    hggcStream_t stream;
+    HGGCCHECK(hggcEitInterface::getInstance().wrapHggcStreamCreateForCopyEngine(&stream));
     // for bit accurate mode.
     if (gModelType == HW_PERF) {
         T* host_ptr = NULL;
@@ -363,9 +363,9 @@ static ncclResult_t ncclHggcCallocOrigin(T** ptr, size_t nelem, size_t *sizeAlig
     } else {
       HGGCCHECK(hggcMemsetAsync(*ptr, 0, nelem*ncclSizeOfT<T>(), stream));
     }
+    HGGCCHECK(hggcStreamSynchronize(stream));
+    HGGCCHECK(hggcStreamDestroy(stream));
   }
-  HGGCCHECK(hggcStreamSynchronize(stream));
-  HGGCCHECK(hggcStreamDestroy(stream));
   return ncclSuccess;
 }
 
@@ -583,10 +583,10 @@ static ncclResult_t ncclHggcCallocOriginLegacy(T** ptr, size_t nelem) {
   VERBOSE(NCCL_ALLOC, "pcclHggcCallocOriginLegacy(ptr=%p, nelem=%zu)", ptr, nelem);
   HGGCCHECK(hggcMalloc(ptr, nelem*sizeof(T)));
 
-  if (ncclParamNoMemsetFlag == 0) {
+  if (pcclParamNoMemsetFlag == 0) {
     HGGCCHECK(hggcMemset(*ptr, 0, nelem*ncclSizeOfT<T>()));
+    HGGCCHECK(hggcStreamSynchronize(0));
   }
-  HGGCCHECK(hggcStreamSynchronize(0));
   return ncclSuccess;
 }
 
@@ -615,7 +615,7 @@ ncclResult_t ncclHggcCallocAsyncDebugLegacy(T** ptr, size_t nelem, uint64_t* pDe
   VERBOSE(NCCL_ALLOC, "pcclHggcCallocAsyncLegacy(ptr=%p, nelem=%zu, stream=%p)", ptr, nelem, stream);
   HGGCCHECK(hggcThreadExchangeStreamCaptureMode(&mode));
   HGGCCHECKGOTO(hggcMalloc(ptr, nelem*sizeof(T)), result, finish);
-  HGGCCHECKGOTO(hggcMemsetAsync(*ptr, 0, nelem*sizeof(T), stream), result, finish);
+  if (pcclParamNoMemsetFlag == 0) HGGCCHECKGOTO(hggcMemsetAsync(*ptr, 0, nelem*sizeof(T), stream), result, finish);
 finish:
   HGGCCHECK(hggcThreadExchangeStreamCaptureMode(&mode));
   if (*ptr == nullptr) ERROR("Failed to HGGC calloc async %ld bytes", nelem*sizeof(T));
