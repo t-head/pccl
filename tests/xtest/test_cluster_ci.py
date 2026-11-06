@@ -44,6 +44,8 @@ class ClusterCiTests(unittest.TestCase):
                                  ['--hostfile', str(build / 'hosts.cfg')]), 0)
 
   def test_source_export_and_manifest_are_exactly_one_two_node_case(self):
+    self.assertEqual(ci.ACTION_REF, 't-head/ci-infra/cluster-run@40165c945cba33ac7b16b41c4485fe53b68f581f')
+    self.assertEqual(self.inputs['cluster_action_ref'], ci.ACTION_REF)
     spec, source = ci.load_case()
     self.assertEqual(source['revision'], ci.EXPECTED_SOURCE_REVISION)
     self.assertEqual((spec['nodes'], spec['cards_per_node'], spec['processes_per_node'],

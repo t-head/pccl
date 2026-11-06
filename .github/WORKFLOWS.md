@@ -20,7 +20,9 @@ PPU tests. `PCCL Tests Gate` reports the results of the required jobs.
 `source-sanity.yml` runs on same-repository pull requests and on manual dispatch only. It
 never uses repository secrets, and it keeps the executable source of truth in
 `pccl_test_suites`: the checked-in catalog records the reviewed revision, the exporter
-hash, and the selection hash, so a change to the cases requires a new export.
+hash, and the selection hash, so a change to the cases requires a new export. The reviewed
+two-node selection currently contains only a standard execution; the notsm build covers
+single-node sanity and is not a second two-node variant in this workflow.
 
 ## Reading Cases and commands
 
@@ -42,6 +44,9 @@ The three command representations have deliberately different roles:
 
 The result gate also writes `case-summary.json`. It groups all execution results by source
 Case and links each profile's `result.json` and, when present, `command-reproduction.txt`.
+The uploaded `single-node-source-sanity-results` artifact includes those linked files under
+the same relative paths. Result JSON is limited to the public result projection, and the
+reproduction text is redacted again during publication instead of copying raw diagnostics.
 The stable Case and execution IDs are not affected by the field-name cleanup.
 
 ## Commit message previews

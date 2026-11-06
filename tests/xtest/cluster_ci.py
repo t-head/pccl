@@ -22,7 +22,7 @@ from manifest import (PCCL_TESTS_REVISION, RUNNER_HASHES, build_manifest, case_k
 
 
 CATALOG = Path(__file__).with_name('cluster-source-case.json')
-ACTION_REF = 't-head/ci-infra/cluster-run@main'
+ACTION_REF = 't-head/ci-infra/cluster-run@40165c945cba33ac7b16b41c4485fe53b68f581f'
 EXPECTED_SOURCE_REVISION = '54c1bc05c5a8be5df07c5c8b21dd7fd20b4a0fdc'
 EXPECTED_EXPORTER_SHA256 = 'de8bce1ab8aaffc43623147f29475f4e5839064b467b0797707a6a61a44d0a7f'
 EXPECTED_BUNDLE_SHA256 = 'c9481658bb21cbf2b313e92d535adbc882508dbf3be1cfaef093c9dc910006b7'

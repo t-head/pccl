@@ -6,7 +6,9 @@ import os
 from pathlib import Path
 import re
 import subprocess
+import sys
 import tempfile
+import textwrap
 import unittest
 import venv
 
@@ -173,6 +175,7 @@ assert not ({'xtest', 'mmengine', 'filelock'} & sys.modules.keys())
         # Both pods must see the same binaries: stage the build on the shared NAS, never
         # in the master-only workspace.
         self.assertIn('export build_output="$RUN_ROOT/output_standard"', cluster)
+        self.assertIn('sha256sum --check "$BUILD_ROOT/output_standard.tar.gz.sha256"', cluster)
         self.assertIn('tar -xzf "$BUILD_ROOT/output_standard.tar.gz" -C "$RUN_ROOT"', cluster)
         self.assertNotIn('build_output="$SOURCE_DIR/output_standard"', cluster)
         self.assertIn('cluster_ci.py" run', cluster)
@@ -184,9 +187,33 @@ assert not ({'xtest', 'mmengine', 'filelock'} & sys.modules.keys())
         self.assertIn('cluster-run-build-deps', prepare)
         self.assertIn('cluster_ci.py prepare', prepare)
         self.assertIn('cluster_ci.py summary', workflow)
+        summary = workflow.split('\n  summary:', 1)[1]
+        for job in (prepare, build_standard, build_notsm, sanity, cluster, summary):
+            self.assertIn('github.event.pull_request.head.repo.full_name == github.repository', job)
+        self.assertNotIn("if: always() && needs.prepare.result == 'success'", summary)
         self.assertNotIn('notsm_build.sh', sanity)
         self.assertNotIn('-m xtest', workflow)
         self.assertNotIn('art-pub.eng.t-head.cn', workflow)
+
+    def test_result_gate_requires_prepare_single_node_and_two_node_success(self):
+        workflow = (ROOT / '.github/workflows/source-sanity.yml').read_text()
+        gate = workflow.split("          python3 - <<'PY'\n", 1)[1].split('\n          PY', 1)[0]
+        gate = textwrap.dedent(gate)
+        names = ('prepare', 'build-standard', 'build-notsm', 'sanity', 'cluster')
+        base = {name: {'result': 'success'} for name in names}
+
+        def evaluate(changes):
+            needs = {name: dict(value) for name, value in base.items()}
+            for name, result in changes.items():
+                needs[name]['result'] = result
+            return subprocess.run([sys.executable, '-c', gate], capture_output=True, text=True,
+                                  env={'NEEDS': json.dumps(needs)}).returncode
+
+        self.assertEqual(evaluate({}), 0)
+        self.assertEqual(evaluate({'build-notsm': 'skipped'}), 0)
+        self.assertEqual(evaluate({'prepare': 'failure', 'sanity': 'skipped', 'cluster': 'skipped'}), 1)
+        self.assertEqual(evaluate({'cluster': 'skipped'}), 1)
+        self.assertEqual(evaluate({'sanity': 'skipped'}), 1)
 
 
 if __name__ == '__main__':

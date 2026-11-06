@@ -16,6 +16,11 @@ concurrency:
 jobs:
   prepare:
     name: Standard-library contracts and single-node manifest (no hardware)
+    if: >-
+      github.repository == 't-head/pccl' &&
+      ((github.event_name == 'pull_request' &&
+        github.event.pull_request.head.repo.full_name == github.repository) ||
+       github.event_name == 'workflow_dispatch')
     runs-on: ubuntu-24.04
     timeout-minutes: 20
     outputs:
@@ -120,7 +125,12 @@ jobs:
   build-standard:
     name: Build standard (ubuntu24_hggcrt13)
     needs: prepare
-    if: contains(fromJSON(needs.prepare.outputs.profiles), 'standard')
+    if: >-
+      github.repository == 't-head/pccl' &&
+      ((github.event_name == 'pull_request' &&
+        github.event.pull_request.head.repo.full_name == github.repository) ||
+       github.event_name == 'workflow_dispatch') &&
+      contains(fromJSON(needs.prepare.outputs.profiles), 'standard')
     runs-on: k8s-runner-group-cpu-thead
     container:
       image: ghcr.io/actions/actions-runner:latest
@@ -167,7 +177,12 @@ jobs:
   build-notsm:
     name: Build notsm
     needs: prepare
-    if: contains(fromJSON(needs.prepare.outputs.profiles), 'notsm')
+    if: >-
+      github.repository == 't-head/pccl' &&
+      ((github.event_name == 'pull_request' &&
+        github.event.pull_request.head.repo.full_name == github.repository) ||
+       github.event_name == 'workflow_dispatch') &&
+      contains(fromJSON(needs.prepare.outputs.profiles), 'notsm')
     runs-on: k8s-runner-group-cpu-thead
     container:
       image: ghcr.io/actions/actions-runner:latest
@@ -368,6 +383,7 @@ jobs:
             git config --global --unset-all url.https://ai-gerrit.eng.t-head.cn/Public/Github/.insteadOf 2>/dev/null || true
             git config --global --add safe.directory "$SOURCE_DIR"
             git config --global --add safe.directory '*'
+            sha256sum --check "$BUILD_ROOT/output_standard.tar.gz.sha256"
             tar -xzf "$BUILD_ROOT/output_standard.tar.gz" -C "$RUN_ROOT"
             test -d "$build_output/lib"
             python3 -m venv /workspace/pccl-cluster-env
@@ -397,7 +413,11 @@ jobs:
   summary:
     name: Source sanity result gate
     needs: [prepare, build-standard, build-notsm, sanity, cluster]
-    if: always() && needs.prepare.result == 'success'
+    if: >-
+      always() && github.repository == 't-head/pccl' &&
+      ((github.event_name == 'pull_request' &&
+        github.event.pull_request.head.repo.full_name == github.repository) ||
+       github.event_name == 'workflow_dispatch')
     runs-on: k8s-runner-group-cpu-thead
     container:
       image: ghcr.io/actions/actions-runner:latest
@@ -452,8 +472,9 @@ jobs:
           needs = json.loads(os.environ['NEEDS'])
           failed = {name: value['result'] for name, value in needs.items()
                     if value['result'] not in ('success', 'skipped')}
-          if needs['sanity']['result'] != 'success':
-              failed['sanity'] = needs['sanity']['result']
+          for name in ('prepare', 'sanity', 'cluster'):
+              if needs[name]['result'] != 'success':
+                  failed[name] = needs[name]['result']
           for name, result in failed.items():
               print(f'::error::{name}: {result}')
           sys.exit(bool(failed))

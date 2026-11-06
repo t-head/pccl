@@ -11,7 +11,7 @@ import subprocess
 import sys
 
 from catalog import cases, load_catalog, performance_cases
-from command import check_command
+from command import _redacted_lines, check_command
 from execute import (execution_provenance, read_jsonl, run_shard, verified_metrics, verified_runtime,
                      verify_lifecycle, write_json)
 from manifest import case_key, digest, load_manifest, read_json, validate_selection
@@ -65,9 +65,10 @@ def run(manifest_path, profile, test_root, output, shard_id):
     return run_shard(manifest_path, shard_id, root, binary, Path(output) / shard_id, [])
 
 
-def case_summaries(manifest, published, results):
-    """Project execution evidence back onto its source Case for reviewers."""
+def case_summaries(manifest, published, results, output):
+    """Publish a Case-first index and the sanitized evidence it references."""
     definitions = {row['id']: row for row in load_catalog()['cases']}
+    target = Path(output)
     templates = {}
     for shard in manifest['shards']:
         for row in shard['cases']:
@@ -79,7 +80,24 @@ def case_summaries(manifest, published, results):
         case_contexts[case_id] = result['source_context']
         shard, spec = templates[(result['case_key'], result['build_profile'])]
         relative = Path(shard['build_profile']) / shard['shard_id'] / result['case_key'] / 'attempt-1'
-        reproduction = relative / 'command-reproduction.txt'
+        evidence = target / relative
+        evidence.mkdir(parents=True, exist_ok=True)
+        # Raw execution results can contain private diagnostics. Publish only the
+        # reviewed public projection, not a byte-for-byte copy of the NAS file.
+        public_result = {name: result[name] for name in
+                         ('case_key', 'build_profile', 'test_type', 'status', 'source_context')}
+        write_json(evidence / 'result.json', public_result)
+        source = Path(results) / relative / 'command-reproduction.txt'
+        if source.is_symlink():
+            raise ValueError('Case reproduction evidence must be a regular file')
+        reproduction = None
+        if source.is_file():
+            # The executor already redacts this file. Reapply the publication filter
+            # so later NAS tampering cannot copy newly introduced secrets verbatim.
+            text = source.read_text(encoding='utf-8')
+            with (evidence / 'command-reproduction.txt').open('x', encoding='utf-8') as stream:
+                stream.writelines(_redacted_lines(text, spec['env']))
+            reproduction = str(relative / 'command-reproduction.txt')
         grouped[case_id].append({
             'case_key': result['case_key'], 'build_profile': result['build_profile'],
             'test_type': result['test_type'], 'status': result['status'],
@@ -88,7 +106,7 @@ def case_summaries(manifest, published, results):
                           ('nodes', 'cards_per_node', 'processes_per_node',
                            'threads_per_process', 'devices_per_thread')},
             'result': str(relative / 'result.json'),
-            'reproduction': str(reproduction) if (Path(results) / reproduction).is_file() else None,
+            'reproduction': reproduction,
         })
     cases = []
     for case_id, executions in sorted(grouped.items()):
@@ -190,10 +208,12 @@ def summarize(manifest_path, results, output):
         if measurements:
             summaries = summarize_metrics(measurements)
             write_metrics(measurements, target)
+            if any(row['sample_status'] != 'STABLE' for row in summaries):
+                complete, artifact_error = False, 'PERFORMANCE_SAMPLE_QUALITY'
             write_json(target / 'performance-summary.json', dict(complete=complete, measurements=summaries))
     except (OSError, ValueError) as exception:
         complete, artifact_error = False, type(exception).__name__
-    case_summary = case_summaries(manifest, published, results)
+    case_summary = case_summaries(manifest, published, results, target)
     case_summary['complete'] = complete
     write_json(target / 'case-summary.json', case_summary)
     write_json(target / 'summary.json', dict(scope='sanity-single-node', complete=complete,
