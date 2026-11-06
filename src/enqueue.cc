@@ -837,7 +837,7 @@ static ncclResult_t getLoopInfo(struct ncclInfo* info) {
 }
 
 static ncclResult_t computeColl(struct ncclInfo* info, struct ncclDevWorkColl* work, struct ncclProxyOp* proxyOp,
-                                int* agPayloadBytes) {
+                                int* partPayloadBytes) {
   work->comm = info->comm->devComm;
 
   // Set nstepsPerLoop and nchunksPerLoop
@@ -895,7 +895,7 @@ static ncclResult_t computeColl(struct ncclInfo* info, struct ncclDevWorkColl* w
     while (chunkSize*info->nChannels*32 > info->nBytes && chunkSize > 65536) chunkSize /= 2;
     // Use lastChunkSize as chunkSize
     work->lastChunkSize = chunkSize / ncclTypeSize(info->datatype);
-  } else if (info->protocol == NCCL_PROTO_LL && agPayloadBytes == nullptr) {
+  } else if (info->protocol == NCCL_PROTO_LL && partPayloadBytes == nullptr) {
     const ssize_t sliceSize = stepSize*sizeof(uint64_t)/sizeof(union ncclLLFifoLine);
     const ssize_t loopSize = info->nChannels*info->nchunksPerLoop*(ssize_t)sliceSize;
     work->lastChunkSize = DIVUP((info->nBytes-(info->nBytes/loopSize)*loopSize), info->nChannels*info->nchunksPerLoop);
@@ -913,13 +913,16 @@ static ncclResult_t computeColl(struct ncclInfo* info, struct ncclDevWorkColl* w
 
   // Compute nSteps for proxies
   int chunkEffectiveSize = chunkSize;
-  if (agPayloadBytes != nullptr) {
-    chunkEffectiveSize = ncclAgChunkPayload(info->protocol, chunkSize);
+  if (partPayloadBytes != nullptr) {
+    // A SIMPLE step carries whole elements on the device.
+    int eltSize = ncclTypeSize(info->datatype);
+    int partChunkSize = (stepSize / eltSize) * eltSize * chunkSteps;
+    chunkEffectiveSize = ncclRingChunkPayload(info->protocol, partChunkSize);
     if (chunkEffectiveSize == 0) {
-      WARN("Ring AllGather %s FIFO chunk is too small (%d bytes)", ncclProtoStr[info->protocol], chunkSize);
+      WARN("Ring %s %s FIFO chunk is too small (%d bytes)", ncclFuncToString(info->coll), ncclProtoStr[info->protocol], chunkSize);
       return ncclInvalidArgument;
     }
-    *agPayloadBytes = chunkEffectiveSize;
+    *partPayloadBytes = chunkEffectiveSize;
   } else if (info->protocol == NCCL_PROTO_LL) {
     chunkEffectiveSize /= 2;
   } else if (info->protocol == NCCL_PROTO_LL128) {
@@ -1653,18 +1656,20 @@ static ncclResult_t scheduleCollTasksToPlan(ncclComm_t comm, struct ncclKernelPl
       channelUsed += info.nChannels;
     }
     if (!plan->usingExtKernel) {
-      const bool agContinuous = info.coll == ncclFuncAllGather && info.algorithm == NCCL_ALGO_RING &&
-          (info.protocol == NCCL_PROTO_SIMPLE || info.protocol == NCCL_PROTO_LL || info.protocol == NCCL_PROTO_LL128);
-      if (agContinuous) {
+      const bool continuous = info.algorithm == NCCL_ALGO_RING &&
+          ((info.coll == ncclFuncAllGather && (info.protocol == NCCL_PROTO_SIMPLE || info.protocol == NCCL_PROTO_LL ||
+                                              info.protocol == NCCL_PROTO_LL128)) ||
+           (info.coll == ncclFuncReduceScatter && info.protocol == NCCL_PROTO_SIMPLE));
+      if (continuous) {
         if (info.nChannels <= 0) return ncclInternalError;
-        // AllGather is normalized to bytes. As in NCCL, use 16-byte-aligned
-        // cells representing at least 16 KiB of traffic across the ranks.
+        // Use whole-element cells representing at least 16 KiB of traffic across ranks.
         const size_t trafficPerByte = size_t(comm->nRanks) * (info.protocol == NCCL_PROTO_LL ? 4 : 1);
         size_t cellSize = ROUNDUP(DIVUP(16u << 10, trafficPerByte), 16);
-        size_t cells = DIVUP(info.count, cellSize);
-        devWork->agCellBytes = cellSize;
-        devWork->agBaseBytes = (cells / info.nChannels) * cellSize;
-        devWork->agExtraChannels = cells % info.nChannels;
+        size_t cellCount = cellSize / ncclTypeSize(info.datatype);
+        size_t cells = DIVUP(info.count, cellCount);
+        devWork->partCellCount = cellCount;
+        devWork->partBaseCount = (cells / info.nChannels) * cellCount;
+        devWork->partExtraChannels = cells % info.nChannels;
       }
       // Ensure room for worst case of one new batch per channel
       if (!testBudget(budget, plan->nWorkBatches + info.nChannels, plan->workBytes + workNode->size)) {
@@ -1675,8 +1680,8 @@ static ncclResult_t scheduleCollTasksToPlan(ncclComm_t comm, struct ncclKernelPl
 
       struct ncclProxyOp proxyOp = {};
       info.funcIndex = FUNC_INDEX(info.coll, info.opFull.op, info.datatype, info.algorithm, info.protocol);
-      int agPayloadBytes = 0;
-      NCCLCHECK(computeColl(&info, devWork, &proxyOp, agContinuous ? &agPayloadBytes : nullptr));
+      int partPayloadBytes = 0;
+      NCCLCHECK(computeColl(&info, devWork, &proxyOp, continuous ? &partPayloadBytes : nullptr));
 
       int nChannels = devWork->nChannels;
       int nSubChannels = (proxyOp.pattern == ncclPatternCollTreeUp || proxyOp.pattern == ncclPatternCollTreeDown) ? 2 : 1;
@@ -1691,13 +1696,14 @@ static ncclResult_t scheduleCollTasksToPlan(ncclComm_t comm, struct ncclKernelPl
       }
       for (int bid=0; bid<nChannels*nSubChannels; bid++) {
         int channelId = comm->lastChannel % comm->nChannels;
-        if (agContinuous) {
-          size_t offset = devWork->agPartOffset(bid);
-          size_t bytes = devWork->agPartOffset(bid + 1) - offset;
-          proxyOp.nsteps = DIVUP(bytes, agPayloadBytes) * info.nstepsPerLoop * proxyOp.chunkSteps;
-          VERBOSE(NCCL_COLL, "Ring AllGather %s: start %u channels %d/%d channel %d offset %zu bytes %zu payload %d steps %d",
-                  ncclProtoStr[info.protocol], (unsigned)devWork->startChannelId, nChannels, comm->nChannels,
-                  channelId, offset, bytes, agPayloadBytes, proxyOp.nsteps);
+        if (continuous) {
+          size_t eltSize = ncclTypeSize(info.datatype);
+          size_t offset = devWork->partOffset(bid) * eltSize;
+          size_t bytes = devWork->partOffset(bid + 1) * eltSize - offset;
+          proxyOp.nsteps = DIVUP(bytes, partPayloadBytes) * info.nstepsPerLoop * proxyOp.chunkSteps;
+          VERBOSE(NCCL_COLL, "Ring %s %s: start %u channels %d/%d channel %d offset %zu bytes %zu payload %d steps %d",
+                  ncclFuncToString(info.coll), ncclProtoStr[info.protocol], (unsigned)devWork->startChannelId,
+                  nChannels, comm->nChannels, channelId, offset, bytes, partPayloadBytes, proxyOp.nsteps);
         }
         // Proxy
         proxyOp.task.coll = head;

@@ -78,9 +78,9 @@ static_assert(NCCL_LL_CLEAN_MASK % NCCL_STEPS == 0, "Invalid NCCL_LL_CLEAN_MASK 
 #define NCCL_LL128_SHMEM_SIZE (NCCL_LL128_SHMEM_ELEMS_PER_THREAD*NCCL_LL128_MAX_NTHREADS)
 #define NCCL_PAT_SHMEM_SIZE 8192
 
-// Usable data in a Ring AllGather FIFO chunk. LL stores a flag alongside
+// Usable data in a ring FIFO chunk. LL stores a flag alongside
 // each 32-bit word. LL128 sends whole warp slices, with a flag in each line.
-static __host__ __device__ inline int ncclAgChunkPayload(int protocol, int wireBytes) {
+static __host__ __device__ inline int ncclRingChunkPayload(int protocol, int wireBytes) {
   if (protocol == NCCL_PROTO_LL) return (wireBytes / sizeof(union ncclLLFifoLine)) * sizeof(uint64_t);
   if (protocol == NCCL_PROTO_LL128) {
     constexpr int wireSlice = WARP_SIZE * NCCL_LL128_SHMEM_ELEMS_PER_THREAD * sizeof(uint64_t);
@@ -235,7 +235,7 @@ struct alignas(16) ncclDevWorkColl {
   ssize_t count;
   union {
     size_t lastChunkSize;
-    size_t agBaseBytes; // Whole cells assigned to every continuous Ring AllGather channel.
+    size_t partBaseCount; // Elements assigned to each channel before distributing the remainder.
   };
   uint32_t root;
 
@@ -245,8 +245,8 @@ struct alignas(16) ncclDevWorkColl {
   uint8_t startChannelId;
   uint8_t nChannels;
   uint8_t commNChannels;
-  uint16_t agCellBytes;
-  uint8_t agExtraChannels; // Leading channels receive one additional cell.
+  uint16_t partCellCount;
+  uint8_t partExtraChannels; // Leading channels receive one additional cell.
 
   // in nccl 2.23, ncclWorkRegElem is used for NVLS to keep a separate dnInput/dnOutput
   // for normal direct, it add sendbuffRmtAddrs/recvbuffRmtAddrs to WorkElem directly.
@@ -258,10 +258,16 @@ struct alignas(16) ncclDevWorkColl {
 
   uint64_t redOpArg;
 
-  __host__ __device__ size_t agPartOffset(unsigned part) const {
-    size_t extra = part < agExtraChannels ? part : agExtraChannels;
-    size_t offset = part * agBaseBytes + extra * agCellBytes;
+  __host__ __device__ size_t partOffset(unsigned part) const {
+    size_t extra = part < partExtraChannels ? part : partExtraChannels;
+    size_t offset = part * partBaseCount + extra * partCellCount;
     return offset < (size_t)count ? offset : (size_t)count;
+  }
+
+  __device__ void channelBounds(int channelId, ssize_t* begin, ssize_t* end) const {
+    int part = (channelId - startChannelId + commNChannels) % commNChannels;
+    *begin = partOffset(part);
+    *end = partOffset(part + 1);
   }
 };
 

@@ -46,8 +46,12 @@ namespace {
     }
 
     const int nranks = comm->nRanks;
-    const ssize_t loopSize = nChannels*(ssize_t)chunkSize;
-    const ssize_t size = work->count;
+    const ssize_t size = work->count; // Full rank segment stride, in elements.
+    ssize_t begin = 0, end = size, loopSize = nChannels * chunkSize;
+    if (Proto::Id == NCCL_PROTO_SIMPLE) {
+      work->channelBounds(getShmemPtr(comm)->channelId, &begin, &end);
+      loopSize = chunkSize;
+    }
 
     // Compute pointers
     const T * __restrict__ thisInput = (const T*)work->sendbuff;
@@ -56,9 +60,11 @@ namespace {
     Primitives<T, FUNC, Proto, 1, 1, 0, 0>
       prims(tid, nthreads, &ring->prev, &ring->next, NULL, comm, work->redOpArg, getShmemPtr(comm)->groups, 0, 0, 0, NULL);
 
-    for (ssize_t gridOffset = 0; gridOffset < size; gridOffset += loopSize) {
+    for (ssize_t gridOffset = begin; gridOffset < end; gridOffset += loopSize) {
       int realChunkSize;
-      if (Proto::Id == NCCL_PROTO_LL) {
+      if (Proto::Id == NCCL_PROTO_SIMPLE) {
+        realChunkSize = chunkSize;
+      } else if (Proto::Id == NCCL_PROTO_LL) {
         if (size-gridOffset < loopSize) {
           chunkSize = work->lastChunkSize;
         }
@@ -71,12 +77,12 @@ namespace {
         ALIGN_SIZE(realChunkSize, nthreads*sizeof(uint64_t)/sizeof(T));
       }
 
-
-      ssize_t chunkOffset = gridOffset + bid*realChunkSize;
+      ssize_t chunkOffset = gridOffset;
+      if (Proto::Id != NCCL_PROTO_SIMPLE) chunkOffset += bid * realChunkSize;
 
       /////////////// begin ReduceScatter steps ///////////////
       ssize_t offset;
-      int nelem = min(realChunkSize, size-chunkOffset);
+      int nelem = min(realChunkSize, end-chunkOffset);
       int rankDest;
 
       // step 0: push data to next GPU

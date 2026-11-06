@@ -38,7 +38,7 @@ namespace {
     if (continuous && inputRing == NULL) {
       stepSize = comm->buffSizes[Proto::Id] / NCCL_STEPS;
       int chunkSteps = Proto::Id == NCCL_PROTO_SIMPLE ? ALLGATHER_CHUNKSTEPS : 1;
-      chunkSize = ncclAgChunkPayload(Proto::Id, stepSize * chunkSteps) / sizeof(T);
+      chunkSize = ncclRingChunkPayload(Proto::Id, stepSize * chunkSteps) / sizeof(T);
     } else if (Proto::Id == NCCL_PROTO_LL) {
       stepSize = comm->buffSizes[NCCL_PROTO_LL] / (sizeof(union ncclLLFifoLine)*NCCL_STEPS);
       chunkSize = stepSize * sizeof(uint64_t) / sizeof(T);
@@ -56,10 +56,7 @@ namespace {
     if (continuous && inputRing == NULL) {
       // A block indexes the compact launch grid. channelId is the physical
       // channel selected by the mask and may wrap relative to startChannelId.
-      int channel = getShmemPtr(comm)->channelId;
-      int part = (channel - work->startChannelId + work->commNChannels) % work->commNChannels;
-      begin = work->agPartOffset(part);
-      end = work->agPartOffset(part + 1);
+      work->channelBounds(getShmemPtr(comm)->channelId, &begin, &end);
       loopSize = chunkSize;
     }
 
