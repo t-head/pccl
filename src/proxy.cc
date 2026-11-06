@@ -772,6 +772,8 @@ static ncclResult_t progressOps(struct ncclProxyState* proxyState, struct ncclPr
   return ncclSuccess;
 }
 
+NCCL_PARAM(ProxyAppendBatchSize, "PROXY_APPEND_BATCH_SIZE", 16);
+
 static ncclResult_t ncclProxyGetPostedOps(struct ncclProxyState* proxyState, int* added) {
   struct ncclProxyProgressState* state = &proxyState->progressState;
   if (state->opsPool == NULL) return ncclInternalError;
@@ -788,7 +790,7 @@ static ncclResult_t ncclProxyGetPostedOps(struct ncclProxyState* proxyState, int
   if (state->active != NULL && (pool->nextOps == -1 || pthread_mutex_trylock(&pool->mutex) != 0)) return ncclSuccess;
   if (state->active == NULL) {
     pthread_mutex_lock(&pool->mutex);
-    while (pool->nextOps == -1 && !state->stop) {
+    if (pool->nextOps == -1 && !state->stop) {
       ncclProfilerStartProxyCtrlEvent(proxyState->profilerContext, &eHandle);
       ncclProfilerRecordProxyCtrlEventState(eHandle, 0, ncclProfilerProxyCtrlSleep);
       profArgs.perfComm = proxyState->ownerComm;
@@ -798,16 +800,11 @@ static ncclResult_t ncclProxyGetPostedOps(struct ncclProxyState* proxyState, int
       ncclProfilerRecordProxyCtrlEventState(eHandle, 0, ncclProfilerProxyCtrlWakeup);
       ncclProfilerStopProxyCtrlEvent(eHandle);
     }
-    if (state->stop) { // We might have been woken up to stop.
-      pthread_mutex_unlock(&pool->mutex);
-      return ncclSuccess;
-    }
   }
 
   state->nextOps = pool->nextOps;
   pool->nextOps = pool->nextOpsEnd = -1;
   pthread_mutex_unlock(&pool->mutex);
-  if (state->nextOps == -1) return ncclInternalError;
 
 process_nextops:
   pcclAsysProxyProfilingRecord(&profArgs, 0, 0, ncclProxyProfileAppend);
@@ -818,10 +815,17 @@ process_nextops:
   int freeOpEnd[NCCL_MAX_PROXY_CONNECTIONS];
   for (int i=0; i<proxyState->tpLocalnRanks; i++) freeOp[i] = -1;
 
+  uint64_t lastOpCount = 0;
+  int lastPeer = -1;
+  int count = 0;
   for (int opIndex = state->nextOps; opIndex != -1;) {
     struct ncclProxyOp* peerOp = pool->ops+opIndex;
-    peerOp->perfComm = proxyState->ownerComm;
     int peer = opIndex / MAX_OPS_PER_PEER;
+    if ((lastOpCount && peerOp->opCount != lastOpCount) || ((lastPeer != -1) && peer != lastPeer)) count++;
+    if (count == ncclParamProxyAppendBatchSize()+1) break;
+    lastOpCount = peerOp->opCount;
+    lastPeer = peer;
+    peerOp->perfComm = proxyState->ownerComm;
     if (peerOp->connection == NULL) return ncclInternalError;
     if (peerOp->next != -1) __builtin_prefetch(pool->ops+peerOp->next);
     NCCLCHECK(ProxyAppend(state, peerOp));
@@ -1071,7 +1075,7 @@ void* ncclProxyProgress(void *proxyState_) {
   int proxyOpAppendCounter = 0;
   struct ncclProxyArgs profArgs;
   profArgs.perfComm = proxyState->ownerComm;
-  while (state->stop == 0 && __atomic_load_n(proxyState->abortFlag, __ATOMIC_ACQUIRE) == 0) {
+  do {
     int idle = 1;
     ncclResult_t ret = progressOps(proxyState, state, state->active, &idle);
     if (ret != ncclSuccess) {
@@ -1107,7 +1111,7 @@ void* ncclProxyProgress(void *proxyState_) {
       }
     }
     lastIdle = idle;
-  }
+  } while ((state->stop == 0 || (state->stop == 1 && state->active)) && __atomic_load_n(proxyState->abortFlag, __ATOMIC_ACQUIRE) == 0);
   return NULL;
 }
 
@@ -1281,7 +1285,7 @@ ncclResult_t ncclProxyConnect(ncclComm_t comm, int transport, int send, int prox
   struct ncclSocket* sock = sharedProxyState->peerSocks+proxyConn->tpLocalRank;
   NCCLCHECK(ncclSocketReady(sock, &ready));
   if (!ready) {
-    NCCLCHECK(ncclSocketInit(sock, sharedProxyState->peerAddresses+proxyConn->tpRank, comm->sharedRes->magic, ncclSocketTypeProxy, NULL));
+    NCCLCHECK(ncclSocketInit(sock, sharedProxyState->peerAddresses+proxyConn->tpRank, comm->sharedRes->magic, ncclSocketTypeProxy, comm->abortFlag));
     NCCLCHECK(ncclSocketConnect(sock));
   }
 
@@ -2038,7 +2042,7 @@ ncclResult_t ncclProxyStop(ncclComm_t comm) {
         // We need to send a ncclProxyMsgStop message to our own proxy
         struct ncclSocket sock;
         int type = ncclProxyMsgStop;
-        NCCLCHECK(ncclSocketInit(&sock, sharedProxyState->peerAddresses+comm->topParentRanks[comm->rank], comm->sharedRes->magic, ncclSocketTypeProxy, NULL));
+        NCCLCHECK(ncclSocketInit(&sock, sharedProxyState->peerAddresses+comm->topParentRanks[comm->rank], comm->sharedRes->magic, ncclSocketTypeProxy, comm->abortFlag));
         if (ncclSocketConnect(&sock) == ncclSuccess) {
           (void)ncclSocketSend(&sock, &type, sizeof(int));
         }
