@@ -26,6 +26,7 @@ struct pcclGinBarrierSession_internal {
   pcclGinBarrierHandle handle;
   int index;
   pcclGinSignal_t signal;
+  bool fenceAllContexts = false;
 
   template<bool EnableTimeout>
   PCCL_DEVICE_INLINE pcclResult_t syncInternal(Coop, hggc::memory_order ord, pcclGinFenceLevel fence,
