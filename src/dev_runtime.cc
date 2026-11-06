@@ -424,10 +424,12 @@ static ncclResult_t symMemoryRegisterGin(struct pcclComm* comm, struct ncclDevrM
     }
 
     NCCLCHECKGOTO(ncclCalloc(&segmentTypes, mem->numSegments), ret, fail);
+    size_t segmentOffset = 0;
     for (int segment = 0; segment < mem->numSegments; segment++) {
-      HGmemAllocationProp prop;
-      HGCHECKGOTO(hgMemGetAllocationPropertiesFromHandle(&prop, mem->memHandles[segment]), ret, fail);
-      segmentTypes[segment] = prop.location.type;
+      HGdeviceptr address = reinterpret_cast<HGdeviceptr>(mem->primaryAddr) + segmentOffset;
+      NCCLCHECKGOTO(ncclHgMemGetAllocationLocation(address, mem->memHandles[segment], &segmentTypes[segment]),
+                    ret, fail);
+      segmentOffset += mem->segmentSizes[segment];
     }
 
     // Gather segment sizes from all ranks to verify they are identical.
@@ -470,6 +472,14 @@ static ncclResult_t symMemoryRegisterGin(struct pcclComm* comm, struct ncclDevrM
       offset += mem->segmentSizes[segment];
     }
     mem->numGinSegments = mem->numSegments;
+    // The single-segment device fast path reads the flat handle table, including
+    // for a HOST_NUMA-only allocation. Segment records own the registrations.
+    if (mem->numGinSegments == 1) {
+      for (int connection = 0; connection < NCCL_GIN_MAX_CONNECTIONS; connection++) {
+        mem->ginDevWins[connection] = mem->ginSegmentInfos[0].ginDevWins[connection];
+        mem->ginHostWins[connection] = mem->ginSegmentInfos[0].ginHostWins[connection];
+      }
+    }
   }
 exit:
   free(segmentTypes);
@@ -646,7 +656,7 @@ static void symMemoryDropRef(
   if (mem != nullptr && 0 == --mem->refCount) {
     struct ncclDevrState* devr = &comm->devrState;
     if (devr->ginEnabled) {
-      if (mem->numGinSegments > 1) {
+      if (mem->ginSegmentInfos != nullptr) {
         for (int i = 0; i < mem->numGinSegments; i++) {
           ncclGinDeregister(comm, mem->ginSegmentInfos[i].ginHostWins);
         }
@@ -924,10 +934,11 @@ ncclResult_t ncclDevrWindowRegisterInGroup(
     size_t baseSendSize;
     HGCHECKGOTO(hgMemGetAddressRange(nullptr, &baseSendSize, memAddr + offset), ret, fail_locReg_memHandle);
     HGCHECKGOTO(hgMemRetainAllocationHandle(&memHandles[segment], (void *) (reinterpret_cast<char*>(memAddr) + offset)), ret, fail_locReg_memHandle);
-    HGmemAllocationProp prop;
-    HGCHECKGOTO(hgMemGetAllocationPropertiesFromHandle(&prop, memHandles[segment]), ret, fail_locReg_memHandle);
-    if (prop.location.type != HG_MEM_LOCATION_TYPE_HOST_NUMA && prop.location.type != HG_MEM_LOCATION_TYPE_DEVICE) {
-      WARN("Segment %d has unsupported location type %d. Symmetric memory currently only supports HG_MEM_LOCATION_TYPE_HOST_NUMA and HG_MEM_LOCATION_TYPE_DEVICE.", segment, (int)prop.location.type);
+    HGmemLocationType location;
+    NCCLCHECKGOTO(ncclHgMemGetAllocationLocation(memAddr + offset, memHandles[segment], &location),
+                  ret, fail_locReg_memHandle);
+    if (location != HG_MEM_LOCATION_TYPE_HOST_NUMA && location != HG_MEM_LOCATION_TYPE_DEVICE) {
+      WARN("Segment %d has unsupported location type %d", segment, (int)location);
       ret = ncclInvalidArgument;
       goto fail_locReg_memHandle;
     }
@@ -1305,10 +1316,9 @@ ncclResult_t ncclDevrCommCreateInternal(
       }
       winHost->numSegments = win->memory->numGinSegments;
 
-      if (win->memory->numGinSegments > 1) {
-        // When a window is created, numGinSegments is always set to `1`.  As we now
-        // know that there are multiple segments, we need to reallocate ginMultiSegmentWins
-
+      {
+        // Populate records created before GIN activation even for one segment:
+        // HOST_NUMA metadata and handles were not known when it was allocated.
         struct ncclSegmentWindow* segmentWindowsDev;
         struct ncclSegmentWindow* segmentWindowsHost;
         NCCLCHECKGOTO(ncclShadowPoolFree(&devr->shadows, winHost->ginMultiSegmentWins, stream), ret, fail_stream);
