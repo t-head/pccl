@@ -1,0 +1,217 @@
+name: source-derived two-node cluster debug
+
+# Manual troubleshooting tool. The pull-request path runs the same reviewed two-node Case
+# inside source-sanity.yml, where it reuses that workflow's standard build.
+on:
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+concurrency:
+  group: source-cluster-run-${{ github.event.pull_request.number || github.ref }}
+  cancel-in-progress: false
+
+jobs:
+  prepare:
+    name: Prepare reviewed two-node manifest (no hardware)
+    runs-on: ubuntu-24.04
+    timeout-minutes: 20
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          persist-credentials: false
+      - uses: actions/checkout@v4
+        with:
+          repository: t-head/pccl-tests
+          ref: 394556512e87259e9ffa25225632c46b0a0bbcd5
+          path: public-runner
+          persist-credentials: false
+      - uses: actions/setup-python@v5
+        with:
+          python-version: '3.12'
+      - name: Validate the source export and create its manifest
+        run: |
+          python3 -S -B -m unittest discover -s tests/xtest -p 'test_cluster_ci.py' -v
+          python3 -S -B tests/xtest/cluster_ci.py prepare \
+            --pccl-revision "$GITHUB_SHA" --pccl-tests public-runner \
+            --output "$RUNNER_TEMP/cluster-manifest"
+          python3 -m pip download --disable-pip-version-check --only-binary=:all: --no-deps \
+            --dest "$RUNNER_TEMP/cluster-deps" filelock==3.20.3
+          printf '%s  %s\n' \
+            '4b0dda527ee31078689fc205ec4f1c1bf7d56cf88b6dc9426c4f230e46c2dce1' \
+            "$RUNNER_TEMP/cluster-deps/filelock-3.20.3-py3-none-any.whl" | sha256sum --check -
+          mkdir -p "$RUNNER_TEMP/cluster-debs"
+          (cd "$RUNNER_TEMP/cluster-debs" && apt-get download \
+            libboost-program-options-dev libboost-program-options1.83-dev \
+            libboost-program-options1.83.0 libboost1.83-dev)
+        env:
+          PCCL_TESTS_ROOT: ${{ github.workspace }}/public-runner
+      - uses: actions/upload-artifact@v4
+        with:
+          name: cluster-run-source-manifest
+          path: ${{ runner.temp }}/cluster-manifest/manifest.json
+          if-no-files-found: error
+      - uses: actions/upload-artifact@v4
+        with:
+          name: cluster-run-python-deps
+          path: ${{ runner.temp }}/cluster-deps/
+          if-no-files-found: error
+      - uses: actions/upload-artifact@v4
+        with:
+          name: cluster-run-build-deps
+          path: ${{ runner.temp }}/cluster-debs/
+          if-no-files-found: error
+
+  cluster:
+    name: Two-node M890P MPI through cluster-run master mode
+    needs: prepare
+    if: >-
+      github.repository == 't-head/pccl' && github.event_name == 'workflow_dispatch'
+    runs-on: k8s-runner-group-cpu-thead
+    container:
+      image: ghcr.io/actions/actions-runner:latest
+    timeout-minutes: 360
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          path: pccl
+          persist-credentials: false
+      - uses: actions/checkout@v4
+        with:
+          repository: t-head/pccl-tests
+          ref: 394556512e87259e9ffa25225632c46b0a0bbcd5
+          path: pccl-tests
+          persist-credentials: false
+      - uses: actions/download-artifact@v4
+        with:
+          name: cluster-run-source-manifest
+          path: cluster-manifest
+      - uses: actions/download-artifact@v4
+        with:
+          name: cluster-run-python-deps
+          path: cluster-deps
+      - uses: actions/download-artifact@v4
+        with:
+          name: cluster-run-build-deps
+          path: cluster-debs
+      - name: Check staging storage without changing shared permissions
+        run: test -d /wl_nas/devops && test -w /wl_nas/devops
+      - name: Run the reviewed MPI Case from worker-0
+        uses: t-head/ci-infra/cluster-run@40165c945cba33ac7b16b41c4485fe53b68f581f
+        with:
+          launch_mode: master
+          image: download.t-head.cn/docker_release/ppu:sdk2.2.0-hggcrt3-ubuntu24.04-py312-20261005
+          nnodes: 2
+          nproc_per_node: 8
+          node_selector: board-type=ZW-M890P
+          namespace: ppu-sched
+          timeout_minutes: 300
+          cleanup_policy: always
+          container_options: |
+            privileged: true
+          host_volumes: /dev/infiniband:/dev/infiniband
+          setup_command: |
+            set -euo pipefail
+            source /usr/local/PPU_SDK/envsetup.sh
+            test -d /dev/infiniband
+            set -- /dev/infiniband/*
+            test -e "$1"
+          command: |
+            set -euo pipefail
+            cd "$SOURCE_DIR"
+            RUN_ROOT=/mnt/wl_nas/devops/pccl-cluster-run/${{ github.run_id }}
+            RESULT_ROOT="$RUN_ROOT/results"
+            export source_home="$SOURCE_DIR"
+            export build_output="$RUN_ROOT/output_cluster"
+            umask 022
+            install -d -m 0755 /mnt/wl_nas/devops/pccl-cluster-run "$RUN_ROOT" "$RESULT_ROOT"
+            make_results_readable() {
+              chmod a+rx /mnt/wl_nas/devops/pccl-cluster-run 2>/dev/null || true
+              chmod -R a+rX "$RUN_ROOT" 2>/dev/null || true
+            }
+            trap make_results_readable EXIT
+            git config --global --unset-all url.https://ai-gerrit.eng.t-head.cn/Public/Github/.insteadOf 2>/dev/null || true
+            git config --global --add safe.directory "$SOURCE_DIR"
+            git config --global --add safe.directory '*'
+            rm -rf "$RESULT_ROOT/standard" "$build_output" \
+              "$RUN_ROOT/output_standard.tar.gz" "$RUN_ROOT/output_standard.build.json"
+            python3 -m venv /workspace/pccl-cluster-env
+            /workspace/pccl-cluster-env/bin/python -m pip install --disable-pip-version-check \
+              --no-index --find-links "$SOURCE_DIR/cluster-deps" -r pccl/tests/xtest/requirements.txt
+            /workspace/pccl-cluster-env/bin/python -m pip check
+            if ! dpkg-query -W -f='${Status}' libboost-program-options-dev 2>/dev/null \
+                | grep -qx 'install ok installed'; then
+              dpkg -i "$SOURCE_DIR"/cluster-debs/*.deb
+            fi
+            mkdir -p /tmp/pccl-noapt
+            cat > /tmp/pccl-noapt/apt <<'SH'
+            #!/bin/sh
+            set -eu
+            case "$1" in
+              update) exit 0 ;;
+              install)
+                shift
+                [ "${1:-}" != -y ] || shift
+                for package in "$@"; do dpkg-query -W "$package" >/dev/null; done
+                exit 0 ;;
+              *) exec /usr/bin/apt "$@" ;;
+            esac
+            SH
+            chmod 0755 /tmp/pccl-noapt/apt
+            PATH="/tmp/pccl-noapt:$PATH" bash pccl/.github/workflows/scripts/build.sh
+            tar -czf "$RUN_ROOT/output_standard.tar.gz" -C "$RUN_ROOT" output_cluster
+            python3 -S -B "$build_output/pccl/tests/xtest/build_evidence.py" create \
+              --archive "$RUN_ROOT/output_standard.tar.gz" \
+              --pccl-revision "$(git -C "$build_output/pccl" rev-parse HEAD)" \
+              --pccl-tests-revision "$(git -C "$build_output/pccl-tests" rev-parse HEAD)" \
+              --profile standard --output "$RUN_ROOT/output_standard.build.json"
+            source /usr/local/PPU_SDK/envsetup.sh
+            export LD_LIBRARY_PATH="$build_output/lib:${LD_LIBRARY_PATH:-}"
+            cp "$CLUSTER_HOSTS_FILE" "$build_output/hosts.cfg"
+            test "$(wc -l < "$build_output/hosts.cfg")" -eq 2
+            /workspace/pccl-cluster-env/bin/python \
+              "$build_output/pccl/tests/xtest/cluster_ci.py" run \
+              --manifest "$SOURCE_DIR/cluster-manifest/manifest.json" \
+              --test-root "$build_output" \
+              --build-record "$RUN_ROOT/output_standard.build.json" \
+              --build-archive "$RUN_ROOT/output_standard.tar.gz" \
+              --output "$RESULT_ROOT/standard"
+      - name: Print sanitized MPI diagnostics
+        if: always()
+        run: |
+          python3 -B pccl/tests/xtest/cluster_ci.py diagnose \
+            --results /wl_nas/devops/pccl-cluster-run/${{ github.run_id }}/results/standard \
+            --output /tmp/unused
+
+  summary:
+    name: Two-node cluster-run result gate
+    needs: [prepare, cluster]
+    if: always() && needs.prepare.result == 'success' && needs.cluster.result != 'skipped'
+    runs-on: k8s-runner-group-cpu-thead
+    container:
+      image: ghcr.io/actions/actions-runner:latest
+    timeout-minutes: 10
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          persist-credentials: false
+      - uses: actions/download-artifact@v4
+        with:
+          name: cluster-run-source-manifest
+          path: cluster-manifest
+      - name: Reconcile the MPI execution evidence
+        run: |
+          python3 -B tests/xtest/cluster_ci.py summary \
+            --manifest cluster-manifest/manifest.json \
+            --results /wl_nas/devops/pccl-cluster-run/${{ github.run_id }}/results/standard \
+            --output public-results
+      - uses: actions/upload-artifact@v4
+        if: always()
+        with:
+          name: cluster-run-source-results
+          path: public-results/
+          if-no-files-found: error
+      - name: Require the cluster-run action job
+        if: always() && needs.cluster.result != 'success'
+        run: exit 1

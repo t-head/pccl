@@ -1,0 +1,3380 @@
+{
+  "bundle_sha256": "b66f9af9fe9ff9b949b2ab6895f49f4ad3732b44a074bf2e21a0649f9ebb9a3a",
+  "cases": [
+    {
+      "build_profile": "standard",
+      "classification": "exact_resource_incompatible",
+      "group": "common",
+      "legacy_case_key": "common-0ae432ae1212fa0af1b2",
+      "legacy_source": "run_common_test.sh:20",
+      "matches": [
+        {
+          "case": "test_op_all_reduce_perf_algo_Ring_proto_Signal_datatype_float_datasize_512MB_iters_10_ranks_4_devices_0_1_2_3",
+          "m890p_single_node": false,
+          "pipeline_supported": false,
+          "plan": "pccl_810E_postsil_daily_plan",
+          "selected": false,
+          "source_id": "4f4a48097b9fb79a1f26c8f7b6a63db198295613bdf03c51c718ad3449641445",
+          "suite": "postsil_daily_810E_single_node_suite"
+        },
+        {
+          "case": "test_op_all_reduce_perf_algo_Ring_proto_Signal_datatype_float_datasize_512MB_iters_10__ranks_4_devices_0_1_2_3",
+          "m890p_single_node": false,
+          "pipeline_supported": false,
+          "plan": "pccl_810_postsil_daily_plan",
+          "selected": false,
+          "source_id": "a28f8c68db5284a4f3c8e3cd73cd60e8390ccbb4f132e3a71861054d0d25efe4",
+          "suite": "postsil_daily_single_node_suite"
+        },
+        {
+          "case": "test_op_all_reduce_perf_algo_Ring_proto_Signal_datatype_float_datasize_512MB_iters_10_ranks_4_devices_0_1_2_3",
+          "m890p_single_node": false,
+          "pipeline_supported": false,
+          "plan": "pccl_890L_postsil_daily_test_plan",
+          "selected": false,
+          "source_id": "c32044dac2ae1e9b06589c371c03e59da2f04509cac78f33ff3bd7e21e1fdbf3",
+          "suite": "postsil_daily_test_890L_single_node_suite"
+        }
+      ],
+      "parameters": {
+        "algo": "Ring",
+        "auto_detect": true,
+        "data_sizes": [
+          "512MB"
+        ],
+        "devices": "0,1,2,3",
+        "dtype": "float",
+        "iters": 10,
+        "op": "all_reduce_perf",
+        "proto": "Signal",
+        "ranks": 4
+      },
+      "test_type": "functional"
+    },
+    {
+      "build_profile": "notsm",
+      "classification": "exact_resource_incompatible",
+      "group": "common",
+      "legacy_case_key": "common-15b1a7924c132787bb48",
+      "legacy_source": "run_common_test.sh:28",
+      "matches": [
+        {
+          "case": "test_op_all_reduce_perf_algo_Tree_proto_SignalBulk_datatype_half_datasize_100point5MB_iters_10__ranks_4_devices_0_1_2_3",
+          "m890p_single_node": false,
+          "pipeline_supported": false,
+          "plan": "pccl_810_postsil_daily_plan",
+          "selected": false,
+          "source_id": "a7421899bcf57650e67ceb5b02399e7438797881efacc4970914c7ec9aa7252d",
+          "suite": "postsil_daily_single_node_suite"
+        }
+      ],
+      "parameters": {
+        "algo": "Tree",
+        "auto_detect": true,
+        "data_sizes": [
+          "100.5MB"
+        ],
+        "devices": "0,1,2,3",
+        "dtype": "half",
+        "iters": 10,
+        "op": "all_reduce_perf",
+        "proto": "SignalBulk",
+        "ranks": 4
+      },
+      "test_type": "functional"
+    },
+    {
+      "build_profile": "standard",
+      "classification": "exact_resource_incompatible",
+      "group": "common",
+      "legacy_case_key": "common-19dda7d143f393d1fdfb",
+      "legacy_source": "run_common_test.sh:17",
+      "matches": [
+        {
+          "case": "test_op_all_reduce_perf_algo_Ring_proto_Simple_datatype_float_datasize_512MB_iters_10_ranks_4_devices_0_1_2_3",
+          "m890p_single_node": false,
+          "pipeline_supported": false,
+          "plan": "pccl_810E_postsil_daily_plan",
+          "selected": false,
+          "source_id": "85cbf931ef31fe288466abf2485ad2520971ebdfb4d7fca231e7f583851e9d0e",
+          "suite": "postsil_daily_810E_single_node_suite"
+        },
+        {
+          "case": "test_op_all_reduce_perf_algo_Ring_proto_Simple_datatype_float_datasize_512MB_iters_10__ranks_4_devices_0_1_2_3",
+          "m890p_single_node": false,
+          "pipeline_supported": false,
+          "plan": "pccl_810_postsil_daily_plan",
+          "selected": false,
+          "source_id": "39b719039e2bf3ee5619f754a728f175121aabf23a5dd14fc98e02921f92215a",
+          "suite": "postsil_daily_single_node_suite"
+        },
+        {
+          "case": "test_op_all_reduce_perf_algo_Ring_proto_Simple_datatype_float_datasize_512MB_iters_10_ranks_4_devices_0_1_2_3",
+          "m890p_single_node": false,
+          "pipeline_supported": false,
+          "plan": "pccl_890L_postsil_daily_test_plan",
+          "selected": false,
+          "source_id": "a746e9fdae03ab0642b0ea90142b3ce576219bd0729a8cd4efd3e243e203aec7",
+          "suite": "postsil_daily_test_890L_single_node_suite"
+        }
+      ],
+      "parameters": {
+        "algo": "Ring",
+        "auto_detect": true,
+        "data_sizes": [
+          "512MB"
+        ],
+        "devices": "0,1,2,3",
+        "dtype": "float",
+        "iters": 10,
+        "op": "all_reduce_perf",
+        "proto": "Simple",
+        "ranks": 4
+      },
+      "test_type": "functional"
+    },
+    {
+      "build_profile": "standard",
+      "classification": "exact_resource_incompatible",
+      "group": "common",
+      "legacy_case_key": "common-292d891d477c059a2da8",
+      "legacy_source": "run_common_test.sh:35",
+      "matches": [
+        {
+          "case": "test_op_reduce_perf_algo_Ring_proto_Simple_datatype_half_datasize_100point5MB_iters_10__ranks_4_devices_0_1_2_3",
+          "m890p_single_node": false,
+          "pipeline_supported": false,
+          "plan": "pccl_810_postsil_daily_plan",
+          "selected": false,
+          "source_id": "82e310d7250e55cb760b55c3351741a4714c85d74ddb1872b16e4ee983b20866",
+          "suite": "postsil_daily_single_node_suite"
+        }
+      ],
+      "parameters": {
+        "algo": "Ring",
+        "auto_detect": true,
+        "data_sizes": [
+          "100.5MB"
+        ],
+        "devices": "0,1,2,3",
+        "dtype": "half",
+        "iters": 10,
+        "op": "reduce_perf",
+        "proto": "Simple",
+        "ranks": 4
+      },
+      "test_type": "functional"
+    },
+    {
+      "build_profile": "standard",
+      "classification": "exact_resource_incompatible",
+      "group": "common",
+      "legacy_case_key": "common-2b76bd4f2a3775fedb9d",
+      "legacy_source": "run_common_test.sh:26",
+      "matches": [
+        {
+          "case": "test_op_all_reduce_perf_algo_Tree_proto_SimpleBulk_datatype_float_datasize_1point2GB_iters_10__ranks_4_devices_0_1_2_3",
+          "m890p_single_node": false,
+          "pipeline_supported": false,
+          "plan": "pccl_810_postsil_daily_plan",
+          "selected": false,
+          "source_id": "875d49b308972a79e2f8bf08f019bd93c73c789abffc1c5535a5b255a642149f",
+          "suite": "postsil_daily_single_node_suite"
+        }
+      ],
+      "parameters": {
+        "algo": "Tree",
+        "auto_detect": true,
+        "data_sizes": [
+          "1.2GB"
+        ],
+        "devices": "0,1,2,3",
+        "dtype": "float",
+        "iters": 10,
+        "op": "all_reduce_perf",
+        "proto": "SimpleBulk",
+        "ranks": 4
+      },
+      "test_type": "functional"
+    },
+    {
+      "build_profile": "notsm",
+      "classification": "exact_resource_incompatible",
+      "group": "common",
+      "legacy_case_key": "common-2d2d7dee451e82bd2fa5",
+      "legacy_source": "run_common_test.sh:38",
+      "matches": [
+        {
+          "case": "test_op_reduce_scatter_perf_algo_Ring_proto_Simple_datatype_half_datasize_100point5MB_iters_10__ranks_4_devices_0_1_2_3",
+          "m890p_single_node": false,
+          "pipeline_supported": false,
+          "plan": "pccl_810_postsil_daily_plan",
+          "selected": false,
+          "source_id": "ff4cc8ba0d3cc45d60719773dc366c31274a5d120759f8683adf8ff72e92fd4d",
+          "suite": "postsil_daily_single_node_suite"
+        }
+      ],
+      "parameters": {
+        "algo": "Ring",
+        "auto_detect": true,
+        "data_sizes": [
+          "100.5MB"
+        ],
+        "devices": "0,1,2,3",
+        "dtype": "half",
+        "iters": 10,
+        "op": "reduce_scatter_perf",
+        "proto": "Simple",
+        "ranks": 4
+      },
+      "test_type": "functional"
+    },
+    {
+      "build_profile": "notsm",
+      "classification": "exact_resource_incompatible",
+      "group": "common",
+      "legacy_case_key": "common-2e626ab570f76ad68ec2",
+      "legacy_source": "run_common_test.sh:37",
+      "matches": [
+        {
+          "case": "test_op_reduce_scatter_perf_algo_Ring_proto_LL128_datatype_float_datasize_100point5MB_iters_10__ranks_4_devices_0_1_2_3",
+          "m890p_single_node": false,
+          "pipeline_supported": false,
+          "plan": "pccl_810_postsil_daily_plan",
+          "selected": false,
+          "source_id": "3fce069622448b8d1acdb4d7629152bce455333da4c6775017142ae12369b301",
+          "suite": "postsil_daily_single_node_suite"
+        }
+      ],
+      "parameters": {
+        "algo": "Ring",
+        "auto_detect": true,
+        "data_sizes": [
+          "100.5MB"
+        ],
+        "devices": "0,1,2,3",
+        "dtype": "float",
+        "iters": 10,
+        "op": "reduce_scatter_perf",
+        "proto": "LL128",
+        "ranks": 4
+      },
+      "test_type": "functional"
+    },
+    {
+      "build_profile": "standard",
+      "classification": "exact_resource_incompatible",
+      "group": "common",
+      "legacy_case_key": "common-2ee9357747e6a9135c72",
+      "legacy_source": "run_common_test.sh:38",
+      "matches": [
+        {
+          "case": "test_op_reduce_scatter_perf_algo_Ring_proto_Simple_datatype_half_datasize_100point5MB_iters_10__ranks_4_devices_0_1_2_3",
+          "m890p_single_node": false,
+          "pipeline_supported": false,
+          "plan": "pccl_810_postsil_daily_plan",
+          "selected": false,
+          "source_id": "ff4cc8ba0d3cc45d60719773dc366c31274a5d120759f8683adf8ff72e92fd4d",
+          "suite": "postsil_daily_single_node_suite"
+        }
+      ],
+      "parameters": {
+        "algo": "Ring",
+        "auto_detect": true,
+        "data_sizes": [
+          "100.5MB"
+        ],
+        "devices": "0,1,2,3",
+        "dtype": "half",
+        "iters": 10,
+        "op": "reduce_scatter_perf",
+        "proto": "Simple",
+        "ranks": 4
+      },
+      "test_type": "functional"
+    },
+    {
+      "build_profile": "standard",
+      "classification": "exact_resource_incompatible",
+      "group": "common",
+      "legacy_case_key": "common-2f0e77a97b30ee51bd3e",
+      "legacy_source": "run_common_test.sh:24",
+      "matches": [
+        {
+          "case": "test_op_all_reduce_perf_algo_Tree_proto_Simple_datatype_half_datasize_100point5MB_iters_10__ranks_4_devices_0_1_2_3",
+          "m890p_single_node": false,
+          "pipeline_supported": false,
+          "plan": "pccl_810_postsil_daily_plan",
+          "selected": false,
+          "source_id": "6fb6f16478b67d6f2b2950eb39334f5fdcb9650be14644dc2dcdd50a5994e02a",
+          "suite": "postsil_daily_single_node_suite"
+        }
+      ],
+      "parameters": {
+        "algo": "Tree",
+        "auto_detect": true,
+        "data_sizes": [
+          "100.5MB"
+        ],
+        "devices": "0,1,2,3",
+        "dtype": "half",
+        "iters": 10,
+        "op": "all_reduce_perf",
+        "proto": "Simple",
+        "ranks": 4
+      },
+      "test_type": "functional"
+    },
+    {
+      "build_profile": "notsm",
+      "classification": "exact_resource_incompatible",
+      "group": "common",
+      "legacy_case_key": "common-31c3dca93cf58612f799",
+      "legacy_source": "run_common_test.sh:29",
+      "matches": [
+        {
+          "case": "test_op_broadcast_perf_algo_Ring_proto_LL_datatype_int8_datasize_100point5MB_iters_10__ranks_4_devices_0_1_2_3",
+          "m890p_single_node": false,
+          "pipeline_supported": false,
+          "plan": "pccl_810_postsil_daily_plan",
+          "selected": false,
+          "source_id": "d948e7987049e183bdfda0c3ea80fb2dce5432d7791369ce1056988450f746e3",
+          "suite": "postsil_daily_single_node_suite"
+        }
+      ],
+      "parameters": {
+        "algo": "Ring",
+        "auto_detect": true,
+        "data_sizes": [
+          "100.5MB"
+        ],
+        "devices": "0,1,2,3",
+        "dtype": "int8",
+        "iters": 10,
+        "op": "broadcast_perf",
+        "proto": "LL",
+        "ranks": 4
+      },
+      "test_type": "functional"
+    },
+    {
+      "build_profile": "standard",
+      "classification": "exact_resource_incompatible",
+      "group": "common",
+      "legacy_case_key": "common-38c5a86baa6b4cfb699f",
+      "legacy_source": "run_common_test.sh:31",
+      "matches": [
+        {
+          "case": "test_op_broadcast_perf_algo_Ring_proto_Simple_datatype_int8_datasize_100point5MB_iters_10__ranks_4_devices_0_1_2_3",
+          "m890p_single_node": false,
+          "pipeline_supported": false,
+          "plan": "pccl_810_postsil_daily_plan",
+          "selected": false,
+          "source_id": "346b564ec8e00f92e30146c3fefd9d7843823964cd23576d52124cdbf6fa4416",
+          "suite": "postsil_daily_single_node_suite"
+        }
+      ],
+      "parameters": {
+        "algo": "Ring",
+        "auto_detect": true,
+        "data_sizes": [
+          "100.5MB"
+        ],
+        "devices": "0,1,2,3",
+        "dtype": "int8",
+        "iters": 10,
+        "op": "broadcast_perf",
+        "proto": "Simple",
+        "ranks": 4
+      },
+      "test_type": "functional"
+    },
+    {
+      "build_profile": "standard",
+      "classification": "exact_resource_incompatible",
+      "group": "common",
+      "legacy_case_key": "common-4024fb0843e7ac288d3c",
+      "legacy_source": "run_common_test.sh:25",
+      "matches": [
+        {
+          "case": "test_op_all_reduce_perf_algo_Tree_proto_SimpleBulk_datatype_half_datasize_100point5MB_iters_10__ranks_4_devices_0_1_2_3",
+          "m890p_single_node": false,
+          "pipeline_supported": false,
+          "plan": "pccl_810_postsil_daily_plan",
+          "selected": false,
+          "source_id": "35d8eba24e96f3faf13ab2b3704080c14b62ff561370167a558e20fe49511389",
+          "suite": "postsil_daily_single_node_suite"
+        }
+      ],
+      "parameters": {
+        "algo": "Tree",
+        "auto_detect": true,
+        "data_sizes": [
+          "100.5MB"
+        ],
+        "devices": "0,1,2,3",
+        "dtype": "half",
+        "iters": 10,
+        "op": "all_reduce_perf",
+        "proto": "SimpleBulk",
+        "ranks": 4
+      },
+      "test_type": "functional"
+    },
+    {
+      "build_profile": "standard",
+      "classification": "exact_resource_incompatible",
+      "group": "common",
+      "legacy_case_key": "common-45024ccf5a5ceef8fe42",
+      "legacy_source": "run_common_test.sh:36",
+      "matches": [
+        {
+          "case": "test_op_reduce_scatter_perf_algo_Ring_proto_LL_datatype_half_datasize_100point5MB_iters_10__ranks_4_devices_0_1_2_3",
+          "m890p_single_node": false,
+          "pipeline_supported": false,
+          "plan": "pccl_810_postsil_daily_plan",
+          "selected": false,
+          "source_id": "95fabb9beae7917d83395ec883a930dc31589f899165b2581dbec77451857b02",
+          "suite": "postsil_daily_single_node_suite"
+        }
+      ],
+      "parameters": {
+        "algo": "Ring",
+        "auto_detect": true,
+        "data_sizes": [
+          "100.5MB"
+        ],
+        "devices": "0,1,2,3",
+        "dtype": "half",
+        "iters": 10,
+        "op": "reduce_scatter_perf",
+        "proto": "LL",
+        "ranks": 4
+      },
+      "test_type": "functional"
+    },
+    {
+      "build_profile": "standard",
+      "classification": "exact_resource_incompatible",
+      "group": "common",
+      "legacy_case_key": "common-46f20e4e065ca9e017fa",
+      "legacy_source": "run_common_test.sh:13",
+      "matches": [
+        {
+          "case": "test_op_all_gather_perf_algo_Ring_proto_LL128_datatype_int8_datasize_100point5MB_iters_10__ranks_4_devices_0_1_2_3",
+          "m890p_single_node": false,
+          "pipeline_supported": false,
+          "plan": "pccl_810_postsil_daily_plan",
+          "selected": false,
+          "source_id": "c6c7b082ace210743e6315758da1378b2ab28c696e1e853826e26e69239b47ff",
+          "suite": "postsil_daily_single_node_suite"
+        }
+      ],
+      "parameters": {
+        "algo": "Ring",
+        "auto_detect": true,
+        "data_sizes": [
+          "100.5MB"
+        ],
+        "devices": "0,1,2,3",
+        "dtype": "int8",
+        "iters": 10,
+        "op": "all_gather_perf",
+        "proto": "LL128",
+        "ranks": 4
+      },
+      "test_type": "functional"
+    },
+    {
+      "build_profile": "notsm",
+      "classification": "exact_resource_incompatible",
+      "group": "common",
+      "legacy_case_key": "common-49589b2694839671f9f0",
+      "legacy_source": "run_common_test.sh:11",
+      "matches": [
+        {
+          "case": "test_op_alltoall_perf_algo_Ring_proto_Simple_datatype_int8_datasize_100point5MB_iters_10__ranks_4_devices_0_1_2_3",
+          "m890p_single_node": false,
+          "pipeline_supported": false,
+          "plan": "pccl_810_postsil_daily_plan",
+          "selected": false,
+          "source_id": "5059ed5b925b1f489ab0bf79fab7962a366172cc2aeed7fd54e014134f2b98ff",
+          "suite": "postsil_daily_single_node_suite"
+        }
+      ],
+      "parameters": {
+        "algo": "Ring",
+        "auto_detect": true,
+        "data_sizes": [
+          "100.5MB"
+        ],
+        "devices": "0,1,2,3",
+        "dtype": "int8",
+        "iters": 10,
+        "op": "alltoall_perf",
+        "proto": "Simple",
+        "ranks": 4
+      },
+      "test_type": "functional"
+    },
+    {
+      "build_profile": "standard",
+      "classification": "exact_resource_incompatible",
+      "group": "common",
+      "legacy_case_key": "common-4a2bb23dc0f573279251",
+      "legacy_source": "run_common_test.sh:11",
+      "matches": [
+        {
+          "case": "test_op_alltoall_perf_algo_Ring_proto_Simple_datatype_int8_datasize_100point5MB_iters_10__ranks_4_devices_0_1_2_3",
+          "m890p_single_node": false,
+          "pipeline_supported": false,
+          "plan": "pccl_810_postsil_daily_plan",
+          "selected": false,
+          "source_id": "5059ed5b925b1f489ab0bf79fab7962a366172cc2aeed7fd54e014134f2b98ff",
+          "suite": "postsil_daily_single_node_suite"
+        }
+      ],
+      "parameters": {
+        "algo": "Ring",
+        "auto_detect": true,
+        "data_sizes": [
+          "100.5MB"
+        ],
+        "devices": "0,1,2,3",
+        "dtype": "int8",
+        "iters": 10,
+        "op": "alltoall_perf",
+        "proto": "Simple",
+        "ranks": 4
+      },
+      "test_type": "functional"
+    },
+    {
+      "build_profile": "notsm",
+      "classification": "exact_resource_incompatible",
+      "group": "common",
+      "legacy_case_key": "common-4f1443453e88562dd6a5",
+      "legacy_source": "run_common_test.sh:17",
+      "matches": [
+        {
+          "case": "test_op_all_reduce_perf_algo_Ring_proto_Simple_datatype_float_datasize_512MB_iters_10_ranks_4_devices_0_1_2_3",
+          "m890p_single_node": false,
+          "pipeline_supported": false,
+          "plan": "pccl_810E_postsil_daily_plan",
+          "selected": false,
+          "source_id": "85cbf931ef31fe288466abf2485ad2520971ebdfb4d7fca231e7f583851e9d0e",
+          "suite": "postsil_daily_810E_single_node_suite"
+        },
+        {
+          "case": "test_op_all_reduce_perf_algo_Ring_proto_Simple_datatype_float_datasize_512MB_iters_10__ranks_4_devices_0_1_2_3",
+          "m890p_single_node": false,
+          "pipeline_supported": false,
+          "plan": "pccl_810_postsil_daily_plan",
+          "selected": false,
+          "source_id": "39b719039e2bf3ee5619f754a728f175121aabf23a5dd14fc98e02921f92215a",
+          "suite": "postsil_daily_single_node_suite"
+        },
+        {
+          "case": "test_op_all_reduce_perf_algo_Ring_proto_Simple_datatype_float_datasize_512MB_iters_10_ranks_4_devices_0_1_2_3",
+          "m890p_single_node": false,
+          "pipeline_supported": false,
+          "plan": "pccl_890L_postsil_daily_test_plan",
+          "selected": false,
+          "source_id": "a746e9fdae03ab0642b0ea90142b3ce576219bd0729a8cd4efd3e243e203aec7",
+          "suite": "postsil_daily_test_890L_single_node_suite"
+        }
+      ],
+      "parameters": {
+        "algo": "Ring",
+        "auto_detect": true,
+        "data_sizes": [
+          "512MB"
+        ],
+        "devices": "0,1,2,3",
+        "dtype": "float",
+        "iters": 10,
+        "op": "all_reduce_perf",
+        "proto": "Simple",
+        "ranks": 4
+      },
+      "test_type": "functional"
+    },
+    {
+      "build_profile": "notsm",
+      "classification": "exact_resource_incompatible",
+      "group": "common",
+      "legacy_case_key": "common-5093e1b65f634fc527c6",
+      "legacy_source": "run_common_test.sh:25",
+      "matches": [
+        {
+          "case": "test_op_all_reduce_perf_algo_Tree_proto_SimpleBulk_datatype_half_datasize_100point5MB_iters_10__ranks_4_devices_0_1_2_3",
+          "m890p_single_node": false,
+          "pipeline_supported": false,
+          "plan": "pccl_810_postsil_daily_plan",
+          "selected": false,
+          "source_id": "35d8eba24e96f3faf13ab2b3704080c14b62ff561370167a558e20fe49511389",
+          "suite": "postsil_daily_single_node_suite"
+        }
+      ],
+      "parameters": {
+        "algo": "Tree",
+        "auto_detect": true,
+        "data_sizes": [
+          "100.5MB"
+        ],
+        "devices": "0,1,2,3",
+        "dtype": "half",
+        "iters": 10,
+        "op": "all_reduce_perf",
+        "proto": "SimpleBulk",
+        "ranks": 4
+      },
+      "test_type": "functional"
+    },
+    {
+      "build_profile": "standard",
+      "classification": "exact_resource_incompatible",
+      "group": "common",
+      "legacy_case_key": "common-50fef51e7346a0408bce",
+      "legacy_source": "run_common_test.sh:23",
+      "matches": [
+        {
+          "case": "test_op_all_reduce_perf_algo_Tree_proto_LL128_datatype_half_datasize_100point5MB_iters_10__ranks_4_devices_0_1_2_3",
+          "m890p_single_node": false,
+          "pipeline_supported": false,
+          "plan": "pccl_810_postsil_daily_plan",
+          "selected": false,
+          "source_id": "f3d62b3b1d7a671e1516cc1beeb149a3f52efdf1ff3b952768f24e50875b6fcb",
+          "suite": "postsil_daily_single_node_suite"
+        }
+      ],
+      "parameters": {
+        "algo": "Tree",
+        "auto_detect": true,
+        "data_sizes": [
+          "100.5MB"
+        ],
+        "devices": "0,1,2,3",
+        "dtype": "half",
+        "iters": 10,
+        "op": "all_reduce_perf",
+        "proto": "LL128",
+        "ranks": 4
+      },
+      "test_type": "functional"
+    },
+    {
+      "build_profile": "standard",
+      "classification": "exact_resource_incompatible",
+      "group": "common",
+      "legacy_case_key": "common-527ad11659d1b76a0343",
+      "legacy_source": "run_common_test.sh:34",
+      "matches": [
+        {
+          "case": "test_op_reduce_perf_algo_Ring_proto_LL128_datatype_half_datasize_100point5MB_iters_10__ranks_4_devices_0_1_2_3",
+          "m890p_single_node": false,
+          "pipeline_supported": false,
+          "plan": "pccl_810_postsil_daily_plan",
+          "selected": false,
+          "source_id": "52f9125157e3f7d76bd402c7fd91612311ab318113a9c1de9087809aa768e32e",
+          "suite": "postsil_daily_single_node_suite"
+        }
+      ],
+      "parameters": {
+        "algo": "Ring",
+        "auto_detect": true,
+        "data_sizes": [
+          "100.5MB"
+        ],
+        "devices": "0,1,2,3",
+        "dtype": "half",
+        "iters": 10,
+        "op": "reduce_perf",
+        "proto": "LL128",
+        "ranks": 4
+      },
+      "test_type": "functional"
+    },
+    {
+      "build_profile": "standard",
+      "classification": "exact_resource_incompatible",
+      "group": "common",
+      "legacy_case_key": "common-564b242da7771d39df03",
+      "legacy_source": "run_common_test.sh:14",
+      "matches": [
+        {
+          "case": "test_op_all_gather_perf_algo_Ring_proto_Simple_datatype_int8_datasize_512MB_iters_10_ranks_4_devices_0_1_2_3",
+          "m890p_single_node": false,
+          "pipeline_supported": false,
+          "plan": "pccl_810E_postsil_daily_plan",
+          "selected": false,
+          "source_id": "2bb46e2e11f248a7da83c6d6de65a218d06e723a0ab2aeb2a03b0d50729a3ad1",
+          "suite": "postsil_daily_810E_single_node_suite"
+        },
+        {
+          "case": "test_op_all_gather_perf_algo_Ring_proto_Simple_datatype_int8_datasize_512MB_iters_10__ranks_4_devices_0_1_2_3",
+          "m890p_single_node": false,
+          "pipeline_supported": false,
+          "plan": "pccl_810_postsil_daily_plan",
+          "selected": false,
+          "source_id": "db7886e7594486a82fc46c5680f719133ecc1307aa44601f013d52256c240c1b",
+          "suite": "postsil_daily_single_node_suite"
+        },
+        {
+          "case": "test_op_all_gather_perf_algo_Ring_proto_Simple_datatype_int8_datasize_512MB_iters_10_ranks_4_devices_0_1_2_3",
+          "m890p_single_node": false,
+          "pipeline_supported": false,
+          "plan": "pccl_890L_postsil_daily_test_plan",
+          "selected": false,
+          "source_id": "e576c768c8e81e506783d22ca99dbfb5f3eb697f6652c4851ac43c78e2ca9787",
+          "suite": "postsil_daily_test_890L_single_node_suite"
+        }
+      ],
+      "parameters": {
+        "algo": "Ring",
+        "auto_detect": true,
+        "data_sizes": [
+          "512MB"
+        ],
+        "devices": "0,1,2,3",
+        "dtype": "int8",
+        "iters": 10,
+        "op": "all_gather_perf",
+        "proto": "Simple",
+        "ranks": 4
+      },
+      "test_type": "functional"
+    },
+    {
+      "build_profile": "notsm",
+      "classification": "exact_resource_incompatible",
+      "group": "common",
+      "legacy_case_key": "common-5ce211af072ce8464ee4",
+      "legacy_source": "run_common_test.sh:22",
+      "matches": [
+        {
+          "case": "test_op_all_reduce_perf_algo_Tree_proto_LL_datatype_half_datasize_100point5MB_iters_10__ranks_4_devices_0_1_2_3",
+          "m890p_single_node": false,
+          "pipeline_supported": false,
+          "plan": "pccl_810_postsil_daily_plan",
+          "selected": false,
+          "source_id": "59ddd4adce80385adfde9dc06f675ae878de054ae55f86816869fea53e66b3fa",
+          "suite": "postsil_daily_single_node_suite"
+        }
+      ],
+      "parameters": {
+        "algo": "Tree",
+        "auto_detect": true,
+        "data_sizes": [
+          "100.5MB"
+        ],
+        "devices": "0,1,2,3",
+        "dtype": "half",
+        "iters": 10,
+        "op": "all_reduce_perf",
+        "proto": "LL",
+        "ranks": 4
+      },
+      "test_type": "functional"
+    },
+    {
+      "build_profile": "notsm",
+      "classification": "exact_resource_incompatible",
+      "group": "common",
+      "legacy_case_key": "common-5ec96a99439212a1dac9",
+      "legacy_source": "run_common_test.sh:33",
+      "matches": [
+        {
+          "case": "test_op_reduce_perf_algo_Ring_proto_LL_datatype_half_datasize_100point5MB_iters_10__ranks_4_devices_0_1_2_3",
+          "m890p_single_node": false,
+          "pipeline_supported": false,
+          "plan": "pccl_810_postsil_daily_plan",
+          "selected": false,
+          "source_id": "185fa54b8fe278a69958d2c4c2075a69b37a61feadfb372303acbeac0833ab7b",
+          "suite": "postsil_daily_single_node_suite"
+        }
+      ],
+      "parameters": {
+        "algo": "Ring",
+        "auto_detect": true,
+        "data_sizes": [
+          "100.5MB"
+        ],
+        "devices": "0,1,2,3",
+        "dtype": "half",
+        "iters": 10,
+        "op": "reduce_perf",
+        "proto": "LL",
+        "ranks": 4
+      },
+      "test_type": "functional"
+    },
+    {
+      "build_profile": "standard",
+      "classification": "exact_resource_incompatible",
+      "group": "common",
+      "legacy_case_key": "common-6576e76b80417f5bdfa8",
+      "legacy_source": "run_common_test.sh:30",
+      "matches": [
+        {
+          "case": "test_op_broadcast_perf_algo_Ring_proto_LL128_datatype_int8_datasize_100point5MB_iters_10__ranks_4_devices_0_1_2_3",
+          "m890p_single_node": false,
+          "pipeline_supported": false,
+          "plan": "pccl_810_postsil_daily_plan",
+          "selected": false,
+          "source_id": "c91a2eb9554c582d715e68da2276b23552201da385aaaafca1bccbe5bbaf269c",
+          "suite": "postsil_daily_single_node_suite"
+        }
+      ],
+      "parameters": {
+        "algo": "Ring",
+        "auto_detect": true,
+        "data_sizes": [
+          "100.5MB"
+        ],
+        "devices": "0,1,2,3",
+        "dtype": "int8",
+        "iters": 10,
+        "op": "broadcast_perf",
+        "proto": "LL128",
+        "ranks": 4
+      },
+      "test_type": "functional"
+    },
+    {
+      "build_profile": "standard",
+      "classification": "exact_resource_incompatible",
+      "group": "common",
+      "legacy_case_key": "common-6d8af84cd79c30557478",
+      "legacy_source": "run_common_test.sh:27",
+      "matches": [
+        {
+          "case": "test_op_all_reduce_perf_algo_Tree_proto_Signal_datatype_float_datasize_512MB_iters_10_ranks_4_devices_0_1_2_3",
+          "m890p_single_node": false,
+          "pipeline_supported": false,
+          "plan": "pccl_810E_postsil_daily_plan",
+          "selected": false,
+          "source_id": "5879bfe46865887f4c85259ad3b2eb589b0cd1848c64c52832c4f5d2f8135ab4",
+          "suite": "postsil_daily_810E_single_node_suite"
+        },
+        {
+          "case": "test_op_all_reduce_perf_algo_Tree_proto_Signal_datatype_float_datasize_512MB_iters_10__ranks_4_devices_0_1_2_3",
+          "m890p_single_node": false,
+          "pipeline_supported": false,
+          "plan": "pccl_810_postsil_daily_plan",
+          "selected": false,
+          "source_id": "8f866052283d530dcb92b0b22c16976ac819b901fc68888a7be048431c6048c9",
+          "suite": "postsil_daily_single_node_suite"
+        },
+        {
+          "case": "test_op_all_reduce_perf_algo_Tree_proto_Signal_datatype_float_datasize_512MB_iters_10_ranks_4_devices_0_1_2_3",
+          "m890p_single_node": false,
+          "pipeline_supported": false,
+          "plan": "pccl_890L_postsil_daily_test_plan",
+          "selected": false,
+          "source_id": "edd743fdd0b740333be6126dbcbb78d0f3e862e014d8136cb0bc4bbeeb5b6465",
+          "suite": "postsil_daily_test_890L_single_node_suite"
+        }
+      ],
+      "parameters": {
+        "algo": "Tree",
+        "auto_detect": true,
+        "data_sizes": [
+          "512MB"
+        ],
+        "devices": "0,1,2,3",
+        "dtype": "float",
+        "iters": 10,
+        "op": "all_reduce_perf",
+        "proto": "Signal",
+        "ranks": 4
+      },
+      "test_type": "functional"
+    },
+    {
+      "build_profile": "notsm",
+      "classification": "exact_resource_incompatible",
+      "group": "common",
+      "legacy_case_key": "common-754f3402891bddf7ee7c",
+      "legacy_source": "run_common_test.sh:19",
+      "matches": [
+        {
+          "case": "test_op_all_reduce_perf_algo_Ring_proto_SimpleBulk_datatype_float_datasize_1point2GB_iters_10__ranks_4_devices_0_1_2_3",
+          "m890p_single_node": false,
+          "pipeline_supported": false,
+          "plan": "pccl_810_postsil_daily_plan",
+          "selected": false,
+          "source_id": "38239f50b3266bfcfbffe8824bc7cb4293b01e7377927873c16ff3b8397b5895",
+          "suite": "postsil_daily_single_node_suite"
+        }
+      ],
+      "parameters": {
+        "algo": "Ring",
+        "auto_detect": true,
+        "data_sizes": [
+          "1.2GB"
+        ],
+        "devices": "0,1,2,3",
+        "dtype": "float",
+        "iters": 10,
+        "op": "all_reduce_perf",
+        "proto": "SimpleBulk",
+        "ranks": 4
+      },
+      "test_type": "functional"
+    },
+    {
+      "build_profile": "notsm",
+      "classification": "exact_resource_incompatible",
+      "group": "common",
+      "legacy_case_key": "common-7b9f664435f97cae2b36",
+      "legacy_source": "run_common_test.sh:21",
+      "matches": [
+        {
+          "case": "test_op_all_reduce_perf_algo_Ring_proto_SignalBulk_datatype_half_datasize_100point5MB_iters_10__ranks_4_devices_0_1_2_3",
+          "m890p_single_node": false,
+          "pipeline_supported": false,
+          "plan": "pccl_810_postsil_daily_plan",
+          "selected": false,
+          "source_id": "9bc6150009537c91297e2063c5440e714e8a7af934a1711abd61ffbf4e059cdf",
+          "suite": "postsil_daily_single_node_suite"
+        }
+      ],
+      "parameters": {
+        "algo": "Ring",
+        "auto_detect": true,
+        "data_sizes": [
+          "100.5MB"
+        ],
+        "devices": "0,1,2,3",
+        "dtype": "half",
+        "iters": 10,
+        "op": "all_reduce_perf",
+        "proto": "SignalBulk",
+        "ranks": 4
+      },
+      "test_type": "functional"
+    },
+    {
+      "build_profile": "notsm",
+      "classification": "exact_resource_incompatible",
+      "group": "common",
+      "legacy_case_key": "common-8c11ff66387bb5d80d1a",
+      "legacy_source": "run_common_test.sh:18",
+      "matches": [
+        {
+          "case": "test_op_all_reduce_perf_algo_Ring_proto_SimpleBulk_datatype_float_datasize_100point5MB_iters_10__ranks_4_devices_0_1_2_3",
+          "m890p_single_node": false,
+          "pipeline_supported": false,
+          "plan": "pccl_810_postsil_daily_plan",
+          "selected": false,
+          "source_id": "d90dec456d38f366a1d384f400dbd3419b623643326310985f56f6c2db6a323b",
+          "suite": "postsil_daily_single_node_suite"
+        }
+      ],
+      "parameters": {
+        "algo": "Ring",
+        "auto_detect": true,
+        "data_sizes": [
+          "100.5MB"
+        ],
+        "devices": "0,1,2,3",
+        "dtype": "float",
+        "iters": 10,
+        "op": "all_reduce_perf",
+        "proto": "SimpleBulk",
+        "ranks": 4
+      },
+      "test_type": "functional"
+    },
+    {
+      "build_profile": "standard",
+      "classification": "exact_resource_incompatible",
+      "group": "common",
+      "legacy_case_key": "common-8e51c87542c437507168",
+      "legacy_source": "run_common_test.sh:22",
+      "matches": [
+        {
+          "case": "test_op_all_reduce_perf_algo_Tree_proto_LL_datatype_half_datasize_100point5MB_iters_10__ranks_4_devices_0_1_2_3",
+          "m890p_single_node": false,
+          "pipeline_supported": false,
+          "plan": "pccl_810_postsil_daily_plan",
+          "selected": false,
+          "source_id": "59ddd4adce80385adfde9dc06f675ae878de054ae55f86816869fea53e66b3fa",
+          "suite": "postsil_daily_single_node_suite"
+        }
+      ],
+      "parameters": {
+        "algo": "Tree",
+        "auto_detect": true,
+        "data_sizes": [
+          "100.5MB"
+        ],
+        "devices": "0,1,2,3",
+        "dtype": "half",
+        "iters": 10,
+        "op": "all_reduce_perf",
+        "proto": "LL",
+        "ranks": 4
+      },
+      "test_type": "functional"
+    },
+    {
+      "build_profile": "standard",
+      "classification": "exact_resource_incompatible",
+      "group": "common",
+      "legacy_case_key": "common-8f5a0c0866ed9da3adb0",
+      "legacy_source": "run_common_test.sh:16",
+      "matches": [
+        {
+          "case": "test_op_all_reduce_perf_algo_Ring_proto_LL128_datatype_half_datasize_1point2GB_iters_10__ranks_4_devices_0_1_2_3",
+          "m890p_single_node": false,
+          "pipeline_supported": false,
+          "plan": "pccl_810_postsil_daily_plan",
+          "selected": false,
+          "source_id": "ce34e21ff14db52be1b9bf0653a1e704a3e116280533e76ddb0b035357c87fd1",
+          "suite": "postsil_daily_single_node_suite"
+        }
+      ],
+      "parameters": {
+        "algo": "Ring",
+        "auto_detect": true,
+        "data_sizes": [
+          "1.2GB"
+        ],
+        "devices": "0,1,2,3",
+        "dtype": "half",
+        "iters": 10,
+        "op": "all_reduce_perf",
+        "proto": "LL128",
+        "ranks": 4
+      },
+      "test_type": "functional"
+    },
+    {
+      "build_profile": "standard",
+      "classification": "exact_resource_incompatible",
+      "group": "common",
+      "legacy_case_key": "common-8f921dba5e4912559450",
+      "legacy_source": "run_common_test.sh:21",
+      "matches": [
+        {
+          "case": "test_op_all_reduce_perf_algo_Ring_proto_SignalBulk_datatype_half_datasize_100point5MB_iters_10__ranks_4_devices_0_1_2_3",
+          "m890p_single_node": false,
+          "pipeline_supported": false,
+          "plan": "pccl_810_postsil_daily_plan",
+          "selected": false,
+          "source_id": "9bc6150009537c91297e2063c5440e714e8a7af934a1711abd61ffbf4e059cdf",
+          "suite": "postsil_daily_single_node_suite"
+        }
+      ],
+      "parameters": {
+        "algo": "Ring",
+        "auto_detect": true,
+        "data_sizes": [
+          "100.5MB"
+        ],
+        "devices": "0,1,2,3",
+        "dtype": "half",
+        "iters": 10,
+        "op": "all_reduce_perf",
+        "proto": "SignalBulk",
+        "ranks": 4
+      },
+      "test_type": "functional"
+    },
+    {
+      "build_profile": "notsm",
+      "classification": "exact_resource_incompatible",
+      "group": "common",
+      "legacy_case_key": "common-91db8dda6b8df8e7e0e2",
+      "legacy_source": "run_common_test.sh:31",
+      "matches": [
+        {
+          "case": "test_op_broadcast_perf_algo_Ring_proto_Simple_datatype_int8_datasize_100point5MB_iters_10__ranks_4_devices_0_1_2_3",
+          "m890p_single_node": false,
+          "pipeline_supported": false,
+          "plan": "pccl_810_postsil_daily_plan",
+          "selected": false,
+          "source_id": "346b564ec8e00f92e30146c3fefd9d7843823964cd23576d52124cdbf6fa4416",
+          "suite": "postsil_daily_single_node_suite"
+        }
+      ],
+      "parameters": {
+        "algo": "Ring",
+        "auto_detect": true,
+        "data_sizes": [
+          "100.5MB"
+        ],
+        "devices": "0,1,2,3",
+        "dtype": "int8",
+        "iters": 10,
+        "op": "broadcast_perf",
+        "proto": "Simple",
+        "ranks": 4
+      },
+      "test_type": "functional"
+    },
+    {
+      "build_profile": "notsm",
+      "classification": "exact_resource_incompatible",
+      "group": "common",
+      "legacy_case_key": "common-92f29409fe2c5dbc93ab",
+      "legacy_source": "run_common_test.sh:15",
+      "matches": [
+        {
+          "case": "test_op_all_reduce_perf_algo_Ring_proto_LL_datatype_float_datasize_100point5MB_iters_10__ranks_4_devices_0_1_2_3",
+          "m890p_single_node": false,
+          "pipeline_supported": false,
+          "plan": "pccl_810_postsil_daily_plan",
+          "selected": false,
+          "source_id": "e8f9ed301b6ec23d357cb52458595034f1bd710e041a79e08296671d51d95a23",
+          "suite": "postsil_daily_single_node_suite"
+        }
+      ],
+      "parameters": {
+        "algo": "Ring",
+        "auto_detect": true,
+        "data_sizes": [
+          "100.5MB"
+        ],
+        "devices": "0,1,2,3",
+        "dtype": "float",
+        "iters": 10,
+        "op": "all_reduce_perf",
+        "proto": "LL",
+        "ranks": 4
+      },
+      "test_type": "functional"
+    },
+    {
+      "build_profile": "standard",
+      "classification": "exact_resource_incompatible",
+      "group": "common",
+      "legacy_case_key": "common-9b02a1d5660fb562d1c8",
+      "legacy_source": "run_common_test.sh:37",
+      "matches": [
+        {
+          "case": "test_op_reduce_scatter_perf_algo_Ring_proto_LL128_datatype_float_datasize_100point5MB_iters_10__ranks_4_devices_0_1_2_3",
+          "m890p_single_node": false,
+          "pipeline_supported": false,
+          "plan": "pccl_810_postsil_daily_plan",
+          "selected": false,
+          "source_id": "3fce069622448b8d1acdb4d7629152bce455333da4c6775017142ae12369b301",
+          "suite": "postsil_daily_single_node_suite"
+        }
+      ],
+      "parameters": {
+        "algo": "Ring",
+        "auto_detect": true,
+        "data_sizes": [
+          "100.5MB"
+        ],
+        "devices": "0,1,2,3",
+        "dtype": "float",
+        "iters": 10,
+        "op": "reduce_scatter_perf",
+        "proto": "LL128",
+        "ranks": 4
+      },
+      "test_type": "functional"
+    },
+    {
+      "build_profile": "notsm",
+      "classification": "exact_resource_incompatible",
+      "group": "common",
+      "legacy_case_key": "common-9b82ccdc64ef0b4f97cd",
+      "legacy_source": "run_common_test.sh:35",
+      "matches": [
+        {
+          "case": "test_op_reduce_perf_algo_Ring_proto_Simple_datatype_half_datasize_100point5MB_iters_10__ranks_4_devices_0_1_2_3",
+          "m890p_single_node": false,
+          "pipeline_supported": false,
+          "plan": "pccl_810_postsil_daily_plan",
+          "selected": false,
+          "source_id": "82e310d7250e55cb760b55c3351741a4714c85d74ddb1872b16e4ee983b20866",
+          "suite": "postsil_daily_single_node_suite"
+        }
+      ],
+      "parameters": {
+        "algo": "Ring",
+        "auto_detect": true,
+        "data_sizes": [
+          "100.5MB"
+        ],
+        "devices": "0,1,2,3",
+        "dtype": "half",
+        "iters": 10,
+        "op": "reduce_perf",
+        "proto": "Simple",
+        "ranks": 4
+      },
+      "test_type": "functional"
+    },
+    {
+      "build_profile": "standard",
+      "classification": "exact_resource_incompatible",
+      "group": "common",
+      "legacy_case_key": "common-9db65e6ee88cf7912312",
+      "legacy_source": "run_common_test.sh:18",
+      "matches": [
+        {
+          "case": "test_op_all_reduce_perf_algo_Ring_proto_SimpleBulk_datatype_float_datasize_100point5MB_iters_10__ranks_4_devices_0_1_2_3",
+          "m890p_single_node": false,
+          "pipeline_supported": false,
+          "plan": "pccl_810_postsil_daily_plan",
+          "selected": false,
+          "source_id": "d90dec456d38f366a1d384f400dbd3419b623643326310985f56f6c2db6a323b",
+          "suite": "postsil_daily_single_node_suite"
+        }
+      ],
+      "parameters": {
+        "algo": "Ring",
+        "auto_detect": true,
+        "data_sizes": [
+          "100.5MB"
+        ],
+        "devices": "0,1,2,3",
+        "dtype": "float",
+        "iters": 10,
+        "op": "all_reduce_perf",
+        "proto": "SimpleBulk",
+        "ranks": 4
+      },
+      "test_type": "functional"
+    },
+    {
+      "build_profile": "notsm",
+      "classification": "exact_resource_incompatible",
+      "group": "common",
+      "legacy_case_key": "common-9eaec5575baa44641725",
+      "legacy_source": "run_common_test.sh:26",
+      "matches": [
+        {
+          "case": "test_op_all_reduce_perf_algo_Tree_proto_SimpleBulk_datatype_float_datasize_1point2GB_iters_10__ranks_4_devices_0_1_2_3",
+          "m890p_single_node": false,
+          "pipeline_supported": false,
+          "plan": "pccl_810_postsil_daily_plan",
+          "selected": false,
+          "source_id": "875d49b308972a79e2f8bf08f019bd93c73c789abffc1c5535a5b255a642149f",
+          "suite": "postsil_daily_single_node_suite"
+        }
+      ],
+      "parameters": {
+        "algo": "Tree",
+        "auto_detect": true,
+        "data_sizes": [
+          "1.2GB"
+        ],
+        "devices": "0,1,2,3",
+        "dtype": "float",
+        "iters": 10,
+        "op": "all_reduce_perf",
+        "proto": "SimpleBulk",
+        "ranks": 4
+      },
+      "test_type": "functional"
+    },
+    {
+      "build_profile": "notsm",
+      "classification": "exact_resource_incompatible",
+      "group": "common",
+      "legacy_case_key": "common-9f6e9db2ab080bad496a",
+      "legacy_source": "run_common_test.sh:16",
+      "matches": [
+        {
+          "case": "test_op_all_reduce_perf_algo_Ring_proto_LL128_datatype_half_datasize_1point2GB_iters_10__ranks_4_devices_0_1_2_3",
+          "m890p_single_node": false,
+          "pipeline_supported": false,
+          "plan": "pccl_810_postsil_daily_plan",
+          "selected": false,
+          "source_id": "ce34e21ff14db52be1b9bf0653a1e704a3e116280533e76ddb0b035357c87fd1",
+          "suite": "postsil_daily_single_node_suite"
+        }
+      ],
+      "parameters": {
+        "algo": "Ring",
+        "auto_detect": true,
+        "data_sizes": [
+          "1.2GB"
+        ],
+        "devices": "0,1,2,3",
+        "dtype": "half",
+        "iters": 10,
+        "op": "all_reduce_perf",
+        "proto": "LL128",
+        "ranks": 4
+      },
+      "test_type": "functional"
+    },
+    {
+      "build_profile": "notsm",
+      "classification": "exact_resource_incompatible",
+      "group": "common",
+      "legacy_case_key": "common-a268ee4bee2d53da714f",
+      "legacy_source": "run_common_test.sh:23",
+      "matches": [
+        {
+          "case": "test_op_all_reduce_perf_algo_Tree_proto_LL128_datatype_half_datasize_100point5MB_iters_10__ranks_4_devices_0_1_2_3",
+          "m890p_single_node": false,
+          "pipeline_supported": false,
+          "plan": "pccl_810_postsil_daily_plan",
+          "selected": false,
+          "source_id": "f3d62b3b1d7a671e1516cc1beeb149a3f52efdf1ff3b952768f24e50875b6fcb",
+          "suite": "postsil_daily_single_node_suite"
+        }
+      ],
+      "parameters": {
+        "algo": "Tree",
+        "auto_detect": true,
+        "data_sizes": [
+          "100.5MB"
+        ],
+        "devices": "0,1,2,3",
+        "dtype": "half",
+        "iters": 10,
+        "op": "all_reduce_perf",
+        "proto": "LL128",
+        "ranks": 4
+      },
+      "test_type": "functional"
+    },
+    {
+      "build_profile": "notsm",
+      "classification": "exact_resource_incompatible",
+      "group": "common",
+      "legacy_case_key": "common-ae7d738ff12524f99dab",
+      "legacy_source": "run_common_test.sh:12",
+      "matches": [
+        {
+          "case": "test_op_all_gather_perf_algo_Ring_proto_LL_datatype_int8_datasize_32MB_iters_10_ranks_4_devices_0_1_2_3",
+          "m890p_single_node": false,
+          "pipeline_supported": false,
+          "plan": "pccl_810E_postsil_daily_plan",
+          "selected": false,
+          "source_id": "7f622757c8af078f6766d1f8c81a92df61647a1d35bb4a2615ff97c5e311e278",
+          "suite": "postsil_daily_810E_single_node_suite"
+        },
+        {
+          "case": "test_op_all_gather_perf_algo_Ring_proto_LL_datatype_int8_datasize_32MB_iters_10__ranks_4_devices_0_1_2_3",
+          "m890p_single_node": false,
+          "pipeline_supported": false,
+          "plan": "pccl_810_postsil_daily_plan",
+          "selected": false,
+          "source_id": "29c944836248b3e7f801937003719e44b1c7038ea40d517e1109d2a4790c7a24",
+          "suite": "postsil_daily_single_node_suite"
+        },
+        {
+          "case": "test_op_all_gather_perf_algo_Ring_proto_LL_datatype_int8_datasize_32MB_iters_10_ranks_4_devices_0_1_2_3",
+          "m890p_single_node": false,
+          "pipeline_supported": false,
+          "plan": "pccl_890L_postsil_daily_test_plan",
+          "selected": false,
+          "source_id": "c1ff88bfb4b4d77c6e4f6e3311eebbf4b6e1d6316f0816098dd28380cdb49f0b",
+          "suite": "postsil_daily_test_890L_single_node_suite"
+        }
+      ],
+      "parameters": {
+        "algo": "Ring",
+        "auto_detect": true,
+        "data_sizes": [
+          "32MB"
+        ],
+        "devices": "0,1,2,3",
+        "dtype": "int8",
+        "iters": 10,
+        "op": "all_gather_perf",
+        "proto": "LL",
+        "ranks": 4
+      },
+      "test_type": "functional"
+    },
+    {
+      "build_profile": "standard",
+      "classification": "exact_resource_incompatible",
+      "group": "common",
+      "legacy_case_key": "common-b6c3d9181d8ac96e863e",
+      "legacy_source": "run_common_test.sh:15",
+      "matches": [
+        {
+          "case": "test_op_all_reduce_perf_algo_Ring_proto_LL_datatype_float_datasize_100point5MB_iters_10__ranks_4_devices_0_1_2_3",
+          "m890p_single_node": false,
+          "pipeline_supported": false,
+          "plan": "pccl_810_postsil_daily_plan",
+          "selected": false,
+          "source_id": "e8f9ed301b6ec23d357cb52458595034f1bd710e041a79e08296671d51d95a23",
+          "suite": "postsil_daily_single_node_suite"
+        }
+      ],
+      "parameters": {
+        "algo": "Ring",
+        "auto_detect": true,
+        "data_sizes": [
+          "100.5MB"
+        ],
+        "devices": "0,1,2,3",
+        "dtype": "float",
+        "iters": 10,
+        "op": "all_reduce_perf",
+        "proto": "LL",
+        "ranks": 4
+      },
+      "test_type": "functional"
+    },
+    {
+      "build_profile": "notsm",
+      "classification": "exact_resource_incompatible",
+      "group": "common",
+      "legacy_case_key": "common-b7c24e4f0a6b2897adb8",
+      "legacy_source": "run_common_test.sh:36",
+      "matches": [
+        {
+          "case": "test_op_reduce_scatter_perf_algo_Ring_proto_LL_datatype_half_datasize_100point5MB_iters_10__ranks_4_devices_0_1_2_3",
+          "m890p_single_node": false,
+          "pipeline_supported": false,
+          "plan": "pccl_810_postsil_daily_plan",
+          "selected": false,
+          "source_id": "95fabb9beae7917d83395ec883a930dc31589f899165b2581dbec77451857b02",
+          "suite": "postsil_daily_single_node_suite"
+        }
+      ],
+      "parameters": {
+        "algo": "Ring",
+        "auto_detect": true,
+        "data_sizes": [
+          "100.5MB"
+        ],
+        "devices": "0,1,2,3",
+        "dtype": "half",
+        "iters": 10,
+        "op": "reduce_scatter_perf",
+        "proto": "LL",
+        "ranks": 4
+      },
+      "test_type": "functional"
+    },
+    {
+      "build_profile": "notsm",
+      "classification": "exact_resource_incompatible",
+      "group": "common",
+      "legacy_case_key": "common-ba19ffa4e210422bb644",
+      "legacy_source": "run_common_test.sh:24",
+      "matches": [
+        {
+          "case": "test_op_all_reduce_perf_algo_Tree_proto_Simple_datatype_half_datasize_100point5MB_iters_10__ranks_4_devices_0_1_2_3",
+          "m890p_single_node": false,
+          "pipeline_supported": false,
+          "plan": "pccl_810_postsil_daily_plan",
+          "selected": false,
+          "source_id": "6fb6f16478b67d6f2b2950eb39334f5fdcb9650be14644dc2dcdd50a5994e02a",
+          "suite": "postsil_daily_single_node_suite"
+        }
+      ],
+      "parameters": {
+        "algo": "Tree",
+        "auto_detect": true,
+        "data_sizes": [
+          "100.5MB"
+        ],
+        "devices": "0,1,2,3",
+        "dtype": "half",
+        "iters": 10,
+        "op": "all_reduce_perf",
+        "proto": "Simple",
+        "ranks": 4
+      },
+      "test_type": "functional"
+    },
+    {
+      "build_profile": "standard",
+      "classification": "exact_resource_incompatible",
+      "group": "common",
+      "legacy_case_key": "common-ba62638b5c8f7c663246",
+      "legacy_source": "run_common_test.sh:19",
+      "matches": [
+        {
+          "case": "test_op_all_reduce_perf_algo_Ring_proto_SimpleBulk_datatype_float_datasize_1point2GB_iters_10__ranks_4_devices_0_1_2_3",
+          "m890p_single_node": false,
+          "pipeline_supported": false,
+          "plan": "pccl_810_postsil_daily_plan",
+          "selected": false,
+          "source_id": "38239f50b3266bfcfbffe8824bc7cb4293b01e7377927873c16ff3b8397b5895",
+          "suite": "postsil_daily_single_node_suite"
+        }
+      ],
+      "parameters": {
+        "algo": "Ring",
+        "auto_detect": true,
+        "data_sizes": [
+          "1.2GB"
+        ],
+        "devices": "0,1,2,3",
+        "dtype": "float",
+        "iters": 10,
+        "op": "all_reduce_perf",
+        "proto": "SimpleBulk",
+        "ranks": 4
+      },
+      "test_type": "functional"
+    },
+    {
+      "build_profile": "standard",
+      "classification": "exact_resource_incompatible",
+      "group": "common",
+      "legacy_case_key": "common-bb06518ec807d148132f",
+      "legacy_source": "run_common_test.sh:12",
+      "matches": [
+        {
+          "case": "test_op_all_gather_perf_algo_Ring_proto_LL_datatype_int8_datasize_32MB_iters_10_ranks_4_devices_0_1_2_3",
+          "m890p_single_node": false,
+          "pipeline_supported": false,
+          "plan": "pccl_810E_postsil_daily_plan",
+          "selected": false,
+          "source_id": "7f622757c8af078f6766d1f8c81a92df61647a1d35bb4a2615ff97c5e311e278",
+          "suite": "postsil_daily_810E_single_node_suite"
+        },
+        {
+          "case": "test_op_all_gather_perf_algo_Ring_proto_LL_datatype_int8_datasize_32MB_iters_10__ranks_4_devices_0_1_2_3",
+          "m890p_single_node": false,
+          "pipeline_supported": false,
+          "plan": "pccl_810_postsil_daily_plan",
+          "selected": false,
+          "source_id": "29c944836248b3e7f801937003719e44b1c7038ea40d517e1109d2a4790c7a24",
+          "suite": "postsil_daily_single_node_suite"
+        },
+        {
+          "case": "test_op_all_gather_perf_algo_Ring_proto_LL_datatype_int8_datasize_32MB_iters_10_ranks_4_devices_0_1_2_3",
+          "m890p_single_node": false,
+          "pipeline_supported": false,
+          "plan": "pccl_890L_postsil_daily_test_plan",
+          "selected": false,
+          "source_id": "c1ff88bfb4b4d77c6e4f6e3311eebbf4b6e1d6316f0816098dd28380cdb49f0b",
+          "suite": "postsil_daily_test_890L_single_node_suite"
+        }
+      ],
+      "parameters": {
+        "algo": "Ring",
+        "auto_detect": true,
+        "data_sizes": [
+          "32MB"
+        ],
+        "devices": "0,1,2,3",
+        "dtype": "int8",
+        "iters": 10,
+        "op": "all_gather_perf",
+        "proto": "LL",
+        "ranks": 4
+      },
+      "test_type": "functional"
+    },
+    {
+      "build_profile": "standard",
+      "classification": "exact_resource_incompatible",
+      "group": "common",
+      "legacy_case_key": "common-bb3e54b7ca3e92c08bfd",
+      "legacy_source": "run_common_test.sh:28",
+      "matches": [
+        {
+          "case": "test_op_all_reduce_perf_algo_Tree_proto_SignalBulk_datatype_half_datasize_100point5MB_iters_10__ranks_4_devices_0_1_2_3",
+          "m890p_single_node": false,
+          "pipeline_supported": false,
+          "plan": "pccl_810_postsil_daily_plan",
+          "selected": false,
+          "source_id": "a7421899bcf57650e67ceb5b02399e7438797881efacc4970914c7ec9aa7252d",
+          "suite": "postsil_daily_single_node_suite"
+        }
+      ],
+      "parameters": {
+        "algo": "Tree",
+        "auto_detect": true,
+        "data_sizes": [
+          "100.5MB"
+        ],
+        "devices": "0,1,2,3",
+        "dtype": "half",
+        "iters": 10,
+        "op": "all_reduce_perf",
+        "proto": "SignalBulk",
+        "ranks": 4
+      },
+      "test_type": "functional"
+    },
+    {
+      "build_profile": "notsm",
+      "classification": "exact_resource_incompatible",
+      "group": "common",
+      "legacy_case_key": "common-be6b1ee9a52c5bdfe863",
+      "legacy_source": "run_common_test.sh:32",
+      "matches": [
+        {
+          "case": "test_op_broadcast_perf_algo_Ring_proto_Simple_datatype_int8_datasize_1point2GB_iters_10__ranks_4_devices_0_1_2_3",
+          "m890p_single_node": false,
+          "pipeline_supported": false,
+          "plan": "pccl_810_postsil_daily_plan",
+          "selected": false,
+          "source_id": "d099aa5cdf6273609fa0acd507ec2eb3ac20e736c2f1ada5ddf571ab5ebd3ed6",
+          "suite": "postsil_daily_single_node_suite"
+        }
+      ],
+      "parameters": {
+        "algo": "Ring",
+        "auto_detect": true,
+        "data_sizes": [
+          "1.2GB"
+        ],
+        "devices": "0,1,2,3",
+        "dtype": "int8",
+        "iters": 10,
+        "op": "broadcast_perf",
+        "proto": "Simple",
+        "ranks": 4
+      },
+      "test_type": "functional"
+    },
+    {
+      "build_profile": "notsm",
+      "classification": "exact_resource_incompatible",
+      "group": "common",
+      "legacy_case_key": "common-c4134111532d6a039bbe",
+      "legacy_source": "run_common_test.sh:30",
+      "matches": [
+        {
+          "case": "test_op_broadcast_perf_algo_Ring_proto_LL128_datatype_int8_datasize_100point5MB_iters_10__ranks_4_devices_0_1_2_3",
+          "m890p_single_node": false,
+          "pipeline_supported": false,
+          "plan": "pccl_810_postsil_daily_plan",
+          "selected": false,
+          "source_id": "c91a2eb9554c582d715e68da2276b23552201da385aaaafca1bccbe5bbaf269c",
+          "suite": "postsil_daily_single_node_suite"
+        }
+      ],
+      "parameters": {
+        "algo": "Ring",
+        "auto_detect": true,
+        "data_sizes": [
+          "100.5MB"
+        ],
+        "devices": "0,1,2,3",
+        "dtype": "int8",
+        "iters": 10,
+        "op": "broadcast_perf",
+        "proto": "LL128",
+        "ranks": 4
+      },
+      "test_type": "functional"
+    },
+    {
+      "build_profile": "standard",
+      "classification": "exact_resource_incompatible",
+      "group": "common",
+      "legacy_case_key": "common-d1bd7b14f49d28e0add1",
+      "legacy_source": "run_common_test.sh:32",
+      "matches": [
+        {
+          "case": "test_op_broadcast_perf_algo_Ring_proto_Simple_datatype_int8_datasize_1point2GB_iters_10__ranks_4_devices_0_1_2_3",
+          "m890p_single_node": false,
+          "pipeline_supported": false,
+          "plan": "pccl_810_postsil_daily_plan",
+          "selected": false,
+          "source_id": "d099aa5cdf6273609fa0acd507ec2eb3ac20e736c2f1ada5ddf571ab5ebd3ed6",
+          "suite": "postsil_daily_single_node_suite"
+        }
+      ],
+      "parameters": {
+        "algo": "Ring",
+        "auto_detect": true,
+        "data_sizes": [
+          "1.2GB"
+        ],
+        "devices": "0,1,2,3",
+        "dtype": "int8",
+        "iters": 10,
+        "op": "broadcast_perf",
+        "proto": "Simple",
+        "ranks": 4
+      },
+      "test_type": "functional"
+    },
+    {
+      "build_profile": "standard",
+      "classification": "exact_resource_incompatible",
+      "group": "common",
+      "legacy_case_key": "common-de53d7df6f0cf7e380f5",
+      "legacy_source": "run_common_test.sh:33",
+      "matches": [
+        {
+          "case": "test_op_reduce_perf_algo_Ring_proto_LL_datatype_half_datasize_100point5MB_iters_10__ranks_4_devices_0_1_2_3",
+          "m890p_single_node": false,
+          "pipeline_supported": false,
+          "plan": "pccl_810_postsil_daily_plan",
+          "selected": false,
+          "source_id": "185fa54b8fe278a69958d2c4c2075a69b37a61feadfb372303acbeac0833ab7b",
+          "suite": "postsil_daily_single_node_suite"
+        }
+      ],
+      "parameters": {
+        "algo": "Ring",
+        "auto_detect": true,
+        "data_sizes": [
+          "100.5MB"
+        ],
+        "devices": "0,1,2,3",
+        "dtype": "half",
+        "iters": 10,
+        "op": "reduce_perf",
+        "proto": "LL",
+        "ranks": 4
+      },
+      "test_type": "functional"
+    },
+    {
+      "build_profile": "notsm",
+      "classification": "exact_resource_incompatible",
+      "group": "common",
+      "legacy_case_key": "common-e0d16b9a11fb89476422",
+      "legacy_source": "run_common_test.sh:20",
+      "matches": [
+        {
+          "case": "test_op_all_reduce_perf_algo_Ring_proto_Signal_datatype_float_datasize_512MB_iters_10_ranks_4_devices_0_1_2_3",
+          "m890p_single_node": false,
+          "pipeline_supported": false,
+          "plan": "pccl_810E_postsil_daily_plan",
+          "selected": false,
+          "source_id": "4f4a48097b9fb79a1f26c8f7b6a63db198295613bdf03c51c718ad3449641445",
+          "suite": "postsil_daily_810E_single_node_suite"
+        },
+        {
+          "case": "test_op_all_reduce_perf_algo_Ring_proto_Signal_datatype_float_datasize_512MB_iters_10__ranks_4_devices_0_1_2_3",
+          "m890p_single_node": false,
+          "pipeline_supported": false,
+          "plan": "pccl_810_postsil_daily_plan",
+          "selected": false,
+          "source_id": "a28f8c68db5284a4f3c8e3cd73cd60e8390ccbb4f132e3a71861054d0d25efe4",
+          "suite": "postsil_daily_single_node_suite"
+        },
+        {
+          "case": "test_op_all_reduce_perf_algo_Ring_proto_Signal_datatype_float_datasize_512MB_iters_10_ranks_4_devices_0_1_2_3",
+          "m890p_single_node": false,
+          "pipeline_supported": false,
+          "plan": "pccl_890L_postsil_daily_test_plan",
+          "selected": false,
+          "source_id": "c32044dac2ae1e9b06589c371c03e59da2f04509cac78f33ff3bd7e21e1fdbf3",
+          "suite": "postsil_daily_test_890L_single_node_suite"
+        }
+      ],
+      "parameters": {
+        "algo": "Ring",
+        "auto_detect": true,
+        "data_sizes": [
+          "512MB"
+        ],
+        "devices": "0,1,2,3",
+        "dtype": "float",
+        "iters": 10,
+        "op": "all_reduce_perf",
+        "proto": "Signal",
+        "ranks": 4
+      },
+      "test_type": "functional"
+    },
+    {
+      "build_profile": "notsm",
+      "classification": "exact_resource_incompatible",
+      "group": "common",
+      "legacy_case_key": "common-e1f6a56527d30a280675",
+      "legacy_source": "run_common_test.sh:34",
+      "matches": [
+        {
+          "case": "test_op_reduce_perf_algo_Ring_proto_LL128_datatype_half_datasize_100point5MB_iters_10__ranks_4_devices_0_1_2_3",
+          "m890p_single_node": false,
+          "pipeline_supported": false,
+          "plan": "pccl_810_postsil_daily_plan",
+          "selected": false,
+          "source_id": "52f9125157e3f7d76bd402c7fd91612311ab318113a9c1de9087809aa768e32e",
+          "suite": "postsil_daily_single_node_suite"
+        }
+      ],
+      "parameters": {
+        "algo": "Ring",
+        "auto_detect": true,
+        "data_sizes": [
+          "100.5MB"
+        ],
+        "devices": "0,1,2,3",
+        "dtype": "half",
+        "iters": 10,
+        "op": "reduce_perf",
+        "proto": "LL128",
+        "ranks": 4
+      },
+      "test_type": "functional"
+    },
+    {
+      "build_profile": "notsm",
+      "classification": "exact_resource_incompatible",
+      "group": "common",
+      "legacy_case_key": "common-e57bb76d09756e5a3eca",
+      "legacy_source": "run_common_test.sh:27",
+      "matches": [
+        {
+          "case": "test_op_all_reduce_perf_algo_Tree_proto_Signal_datatype_float_datasize_512MB_iters_10_ranks_4_devices_0_1_2_3",
+          "m890p_single_node": false,
+          "pipeline_supported": false,
+          "plan": "pccl_810E_postsil_daily_plan",
+          "selected": false,
+          "source_id": "5879bfe46865887f4c85259ad3b2eb589b0cd1848c64c52832c4f5d2f8135ab4",
+          "suite": "postsil_daily_810E_single_node_suite"
+        },
+        {
+          "case": "test_op_all_reduce_perf_algo_Tree_proto_Signal_datatype_float_datasize_512MB_iters_10__ranks_4_devices_0_1_2_3",
+          "m890p_single_node": false,
+          "pipeline_supported": false,
+          "plan": "pccl_810_postsil_daily_plan",
+          "selected": false,
+          "source_id": "8f866052283d530dcb92b0b22c16976ac819b901fc68888a7be048431c6048c9",
+          "suite": "postsil_daily_single_node_suite"
+        },
+        {
+          "case": "test_op_all_reduce_perf_algo_Tree_proto_Signal_datatype_float_datasize_512MB_iters_10_ranks_4_devices_0_1_2_3",
+          "m890p_single_node": false,
+          "pipeline_supported": false,
+          "plan": "pccl_890L_postsil_daily_test_plan",
+          "selected": false,
+          "source_id": "edd743fdd0b740333be6126dbcbb78d0f3e862e014d8136cb0bc4bbeeb5b6465",
+          "suite": "postsil_daily_test_890L_single_node_suite"
+        }
+      ],
+      "parameters": {
+        "algo": "Tree",
+        "auto_detect": true,
+        "data_sizes": [
+          "512MB"
+        ],
+        "devices": "0,1,2,3",
+        "dtype": "float",
+        "iters": 10,
+        "op": "all_reduce_perf",
+        "proto": "Signal",
+        "ranks": 4
+      },
+      "test_type": "functional"
+    },
+    {
+      "build_profile": "standard",
+      "classification": "exact_resource_incompatible",
+      "group": "common",
+      "legacy_case_key": "common-e887a95294230f62daa2",
+      "legacy_source": "run_common_test.sh:29",
+      "matches": [
+        {
+          "case": "test_op_broadcast_perf_algo_Ring_proto_LL_datatype_int8_datasize_100point5MB_iters_10__ranks_4_devices_0_1_2_3",
+          "m890p_single_node": false,
+          "pipeline_supported": false,
+          "plan": "pccl_810_postsil_daily_plan",
+          "selected": false,
+          "source_id": "d948e7987049e183bdfda0c3ea80fb2dce5432d7791369ce1056988450f746e3",
+          "suite": "postsil_daily_single_node_suite"
+        }
+      ],
+      "parameters": {
+        "algo": "Ring",
+        "auto_detect": true,
+        "data_sizes": [
+          "100.5MB"
+        ],
+        "devices": "0,1,2,3",
+        "dtype": "int8",
+        "iters": 10,
+        "op": "broadcast_perf",
+        "proto": "LL",
+        "ranks": 4
+      },
+      "test_type": "functional"
+    },
+    {
+      "build_profile": "notsm",
+      "classification": "exact_resource_incompatible",
+      "group": "common",
+      "legacy_case_key": "common-e9b3f8091c331ce1890d",
+      "legacy_source": "run_common_test.sh:13",
+      "matches": [
+        {
+          "case": "test_op_all_gather_perf_algo_Ring_proto_LL128_datatype_int8_datasize_100point5MB_iters_10__ranks_4_devices_0_1_2_3",
+          "m890p_single_node": false,
+          "pipeline_supported": false,
+          "plan": "pccl_810_postsil_daily_plan",
+          "selected": false,
+          "source_id": "c6c7b082ace210743e6315758da1378b2ab28c696e1e853826e26e69239b47ff",
+          "suite": "postsil_daily_single_node_suite"
+        }
+      ],
+      "parameters": {
+        "algo": "Ring",
+        "auto_detect": true,
+        "data_sizes": [
+          "100.5MB"
+        ],
+        "devices": "0,1,2,3",
+        "dtype": "int8",
+        "iters": 10,
+        "op": "all_gather_perf",
+        "proto": "LL128",
+        "ranks": 4
+      },
+      "test_type": "functional"
+    },
+    {
+      "build_profile": "notsm",
+      "classification": "exact_resource_incompatible",
+      "group": "common",
+      "legacy_case_key": "common-ea83c2173cc66db58247",
+      "legacy_source": "run_common_test.sh:14",
+      "matches": [
+        {
+          "case": "test_op_all_gather_perf_algo_Ring_proto_Simple_datatype_int8_datasize_512MB_iters_10_ranks_4_devices_0_1_2_3",
+          "m890p_single_node": false,
+          "pipeline_supported": false,
+          "plan": "pccl_810E_postsil_daily_plan",
+          "selected": false,
+          "source_id": "2bb46e2e11f248a7da83c6d6de65a218d06e723a0ab2aeb2a03b0d50729a3ad1",
+          "suite": "postsil_daily_810E_single_node_suite"
+        },
+        {
+          "case": "test_op_all_gather_perf_algo_Ring_proto_Simple_datatype_int8_datasize_512MB_iters_10__ranks_4_devices_0_1_2_3",
+          "m890p_single_node": false,
+          "pipeline_supported": false,
+          "plan": "pccl_810_postsil_daily_plan",
+          "selected": false,
+          "source_id": "db7886e7594486a82fc46c5680f719133ecc1307aa44601f013d52256c240c1b",
+          "suite": "postsil_daily_single_node_suite"
+        },
+        {
+          "case": "test_op_all_gather_perf_algo_Ring_proto_Simple_datatype_int8_datasize_512MB_iters_10_ranks_4_devices_0_1_2_3",
+          "m890p_single_node": false,
+          "pipeline_supported": false,
+          "plan": "pccl_890L_postsil_daily_test_plan",
+          "selected": false,
+          "source_id": "e576c768c8e81e506783d22ca99dbfb5f3eb697f6652c4851ac43c78e2ca9787",
+          "suite": "postsil_daily_test_890L_single_node_suite"
+        }
+      ],
+      "parameters": {
+        "algo": "Ring",
+        "auto_detect": true,
+        "data_sizes": [
+          "512MB"
+        ],
+        "devices": "0,1,2,3",
+        "dtype": "int8",
+        "iters": 10,
+        "op": "all_gather_perf",
+        "proto": "Simple",
+        "ranks": 4
+      },
+      "test_type": "functional"
+    },
+    {
+      "build_profile": "standard",
+      "classification": "missing",
+      "group": "copyengine",
+      "legacy_case_key": "copyengine-466364f0cc175856196c",
+      "legacy_source": "run_copyengine_test.sh:16",
+      "matches": [],
+      "parameters": {
+        "cta_policy": 2,
+        "max_data_size": "1023M",
+        "min_data_size": "5110984",
+        "op": "reduce_scatter_perf",
+        "ranks": 2,
+        "register": 2,
+        "step_factor": 2
+      },
+      "test_type": "functional"
+    },
+    {
+      "build_profile": "standard",
+      "classification": "missing",
+      "group": "copyengine",
+      "legacy_case_key": "copyengine-8144eea5c2e999f75634",
+      "legacy_source": "run_copyengine_test.sh:17",
+      "matches": [],
+      "parameters": {
+        "cta_policy": 2,
+        "max_data_size": "1023M",
+        "min_data_size": "5110984",
+        "op": "reduce_scatter_perf",
+        "ranks": 2,
+        "redop": "avg",
+        "register": 2,
+        "step_factor": 2
+      },
+      "test_type": "functional"
+    },
+    {
+      "build_profile": "standard",
+      "classification": "missing",
+      "group": "copyengine",
+      "legacy_case_key": "copyengine-e9331f28869bb58cb4bb",
+      "legacy_source": "run_copyengine_test.sh:11",
+      "matches": [],
+      "parameters": {
+        "cta_policy": 2,
+        "max_data_size": "1023M",
+        "min_data_size": "5111004",
+        "op": "all_reduce_perf",
+        "ranks": 2,
+        "register": 2,
+        "step_factor": 2
+      },
+      "test_type": "functional"
+    },
+    {
+      "build_profile": "standard",
+      "classification": "missing",
+      "group": "copyengine",
+      "legacy_case_key": "copyengine-fc65c1ee0e36a4232aec",
+      "legacy_source": "run_copyengine_test.sh:12",
+      "matches": [],
+      "parameters": {
+        "cta_policy": 2,
+        "max_data_size": "1023M",
+        "min_data_size": "5111004",
+        "op": "all_reduce_perf",
+        "ranks": 2,
+        "register": 2,
+        "step_factor": 2
+      },
+      "test_type": "functional"
+    },
+    {
+      "build_profile": "standard",
+      "classification": "missing",
+      "group": "customAllreduce",
+      "legacy_case_key": "customAllreduce-1ae709e0ce37049c9039",
+      "legacy_source": "run_customAllreduce_test.sh:12",
+      "matches": [],
+      "parameters": {
+        "data_sizes": [
+          "301K"
+        ],
+        "dtype": "half",
+        "max_data_size": "301K",
+        "min_data_size": "301K",
+        "op": "all_reduce_perf",
+        "ranks": 2,
+        "step_factor": 2
+      },
+      "test_type": "functional"
+    },
+    {
+      "build_profile": "standard",
+      "classification": "missing",
+      "group": "customAllreduce",
+      "legacy_case_key": "customAllreduce-9ef7a2223f8dbf2fc3f0",
+      "legacy_source": "run_customAllreduce_test.sh:11",
+      "matches": [],
+      "parameters": {
+        "data_sizes": [
+          "33K"
+        ],
+        "dtype": "half",
+        "max_data_size": "33K",
+        "min_data_size": "33K",
+        "op": "all_reduce_perf",
+        "ranks": 2,
+        "step_factor": 2
+      },
+      "test_type": "functional"
+    },
+    {
+      "build_profile": "standard",
+      "classification": "missing",
+      "group": "lsa",
+      "legacy_case_key": "lsa-00aa69be9ccf2fa175ee",
+      "legacy_source": "run_lsa_test.sh:17",
+      "matches": [],
+      "parameters": {
+        "device_cta_count": 16,
+        "device_impl": 1,
+        "elapsed_type": 1,
+        "max_data_size": "2G",
+        "min_data_size": "8",
+        "op": "alltoall_perf",
+        "ranks": 2,
+        "register": 2,
+        "step_factor": 2
+      },
+      "test_type": "functional"
+    },
+    {
+      "build_profile": "standard",
+      "classification": "missing",
+      "group": "lsa",
+      "legacy_case_key": "lsa-0590a6c9e54e12e60656",
+      "legacy_source": "run_lsa_test.sh:13",
+      "matches": [],
+      "parameters": {
+        "device_impl": 0,
+        "elapsed_type": 1,
+        "max_data_size": "2G",
+        "min_data_size": "8",
+        "op": "all_reduce_perf",
+        "ranks": 2,
+        "register": 2,
+        "step_factor": 2
+      },
+      "test_type": "functional"
+    },
+    {
+      "build_profile": "standard",
+      "classification": "missing",
+      "group": "lsa",
+      "legacy_case_key": "lsa-903ccf136ec24643f82a",
+      "legacy_source": "run_lsa_test.sh:14",
+      "matches": [],
+      "parameters": {
+        "device_impl": 0,
+        "elapsed_type": 1,
+        "max_data_size": "2G",
+        "min_data_size": "8",
+        "op": "alltoall_perf",
+        "ranks": 2,
+        "register": 2,
+        "step_factor": 2
+      },
+      "test_type": "functional"
+    },
+    {
+      "build_profile": "standard",
+      "classification": "missing",
+      "group": "lsa",
+      "legacy_case_key": "lsa-9589b6f21a5058793b92",
+      "legacy_source": "run_lsa_test.sh:18",
+      "matches": [],
+      "parameters": {
+        "device_cta_count": 16,
+        "device_impl": 2,
+        "elapsed_type": 1,
+        "max_data_size": "2G",
+        "min_data_size": "8",
+        "op": "alltoall_perf",
+        "ranks": 2,
+        "register": 2,
+        "step_factor": 2
+      },
+      "test_type": "functional"
+    },
+    {
+      "build_profile": "standard",
+      "classification": "missing",
+      "group": "lsa",
+      "legacy_case_key": "lsa-dde55bc63ba85ced67c9",
+      "legacy_source": "run_lsa_test.sh:16",
+      "matches": [],
+      "parameters": {
+        "device_cta_count": 16,
+        "device_impl": 2,
+        "elapsed_type": 1,
+        "max_data_size": "2G",
+        "min_data_size": "8",
+        "op": "all_reduce_perf",
+        "ranks": 2,
+        "register": 2,
+        "step_factor": 2
+      },
+      "test_type": "functional"
+    },
+    {
+      "build_profile": "standard",
+      "classification": "missing",
+      "group": "lsa",
+      "legacy_case_key": "lsa-e2274cdce5d4e5f7ef21",
+      "legacy_source": "run_lsa_test.sh:15",
+      "matches": [],
+      "parameters": {
+        "device_cta_count": 16,
+        "device_impl": 1,
+        "elapsed_type": 1,
+        "max_data_size": "2G",
+        "min_data_size": "8",
+        "op": "all_reduce_perf",
+        "ranks": 2,
+        "register": 2,
+        "step_factor": 2
+      },
+      "test_type": "functional"
+    },
+    {
+      "build_profile": "standard",
+      "classification": "exact_resource_incompatible",
+      "group": "memcpy",
+      "legacy_case_key": "memcpy-0c838c0cb3374ba1f8de",
+      "legacy_source": "run_memcpy_test.sh:15",
+      "matches": [
+        {
+          "case": "test_op_all_gather_perf_algo_Auto_proto_Auto_datatype_float_datasize_32MB_iters_10_ranks_2_nproc_1_threads_2",
+          "m890p_single_node": false,
+          "pipeline_supported": false,
+          "plan": "pccl_gdrcopy_test_plan",
+          "selected": false,
+          "source_id": "44d465bc690effee10b28e2893c61e8370d7dae10b9501913cfbf8222472b88c",
+          "suite": "gdrcopy_test_810e_single_node_suite"
+        },
+        {
+          "case": "test_op_all_gather_perf_algo_Auto_proto_Auto_datatype_float_datasize_32MB_iters_10_ranks_2_nproc_1_threads_2",
+          "m890p_single_node": false,
+          "pipeline_supported": false,
+          "plan": "pccl_memcpy_test_plan",
+          "selected": false,
+          "source_id": "ae788af7c20cf78639760648c281e3058e92eeae21cfb602bbca2329a530d019",
+          "suite": "memcpy_test_810_single_node_suite"
+        },
+        {
+          "case": "test_op_all_gather_perf_algo_Auto_proto_Auto_datatype_float_datasize_32MB_iters_10_ranks_2_nproc_1_threads_2",
+          "m890p_single_node": false,
+          "pipeline_supported": false,
+          "plan": "pccl_memcpy_test_plan",
+          "selected": false,
+          "source_id": "c81fc508b184d171774e1baa90bd7149a16e5f51dceec9aa272dcacda16fd818",
+          "suite": "memcpy_test_810e_single_node_suite"
+        }
+      ],
+      "parameters": {
+        "algo": "Auto",
+        "auto_detect": true,
+        "data_sizes": [
+          "32MB"
+        ],
+        "dtype": "float",
+        "iters": 10,
+        "op": "all_gather_perf",
+        "proto": "Auto",
+        "ranks": 2
+      },
+      "test_type": "functional"
+    },
+    {
+      "build_profile": "standard",
+      "classification": "exact_resource_incompatible",
+      "group": "memcpy",
+      "legacy_case_key": "memcpy-307dbb584001536c53a0",
+      "legacy_source": "run_memcpy_test.sh:16",
+      "matches": [
+        {
+          "case": "test_op_all_gather_perf_algo_Auto_proto_Auto_datatype_float_datasize_32MB_iters_10_ranks_2_nproc_2_threads_1",
+          "m890p_single_node": false,
+          "pipeline_supported": false,
+          "plan": "pccl_gdrcopy_test_plan",
+          "selected": false,
+          "source_id": "98322d4f9f2fbe1701cd6c797af9a0d5f0d674daf04156f1b3260bc53df540d9",
+          "suite": "gdrcopy_test_810e_single_node_suite"
+        },
+        {
+          "case": "test_op_all_gather_perf_algo_Auto_proto_Auto_datatype_float_datasize_32MB_iters_10_ranks_2_nproc_2_threads_1",
+          "m890p_single_node": false,
+          "pipeline_supported": false,
+          "plan": "pccl_memcpy_test_plan",
+          "selected": false,
+          "source_id": "3858e06d9392be68e03b442ac47e05d31033b2e0f495e01a86da470faa5261f6",
+          "suite": "memcpy_test_810_single_node_suite"
+        },
+        {
+          "case": "test_op_all_gather_perf_algo_Auto_proto_Auto_datatype_float_datasize_32MB_iters_10_ranks_2_nproc_2_threads_1",
+          "m890p_single_node": false,
+          "pipeline_supported": false,
+          "plan": "pccl_memcpy_test_plan",
+          "selected": false,
+          "source_id": "001662bea3f71bdf468594934416020746d01d2202a15be8d851f6b7872526ab",
+          "suite": "memcpy_test_810e_single_node_suite"
+        }
+      ],
+      "parameters": {
+        "algo": "Auto",
+        "auto_detect": true,
+        "data_sizes": [
+          "32MB"
+        ],
+        "dtype": "float",
+        "iters": 10,
+        "op": "all_gather_perf",
+        "proto": "Auto",
+        "ranks": 2
+      },
+      "test_type": "functional"
+    },
+    {
+      "build_profile": "standard",
+      "classification": "exact_resource_incompatible",
+      "group": "memcpy",
+      "legacy_case_key": "memcpy-4802d36bbcacb13d06da",
+      "legacy_source": "run_memcpy_test.sh:14",
+      "matches": [
+        {
+          "case": "test_op_alltoall_perf_algo_Auto_proto_Auto_datatype_float_datasize_32MB_iters_10_ranks_2_nproc_2_threads_1",
+          "m890p_single_node": false,
+          "pipeline_supported": false,
+          "plan": "pccl_gdrcopy_test_plan",
+          "selected": false,
+          "source_id": "84a0dd75cc2ae15d8e3437a97e035680286b78d6c61462f527632d7232476fd8",
+          "suite": "gdrcopy_test_810e_single_node_suite"
+        },
+        {
+          "case": "test_op_alltoall_perf_algo_Auto_proto_Auto_datatype_float_datasize_32MB_iters_10_ranks_2_nproc_2_threads_1",
+          "m890p_single_node": false,
+          "pipeline_supported": false,
+          "plan": "pccl_memcpy_test_plan",
+          "selected": false,
+          "source_id": "565bcb84fcc711db0d5e6c72c6a22915c7f7f07ce7b9e6bc38c126d2ae3672d5",
+          "suite": "memcpy_test_810_single_node_suite"
+        },
+        {
+          "case": "test_op_alltoall_perf_algo_Auto_proto_Auto_datatype_float_datasize_32MB_iters_10_ranks_2_nproc_2_threads_1",
+          "m890p_single_node": false,
+          "pipeline_supported": false,
+          "plan": "pccl_memcpy_test_plan",
+          "selected": false,
+          "source_id": "c7fe70713eca87b993dc930183350510ecedc0fa1ff9e022068cdd52365c68ec",
+          "suite": "memcpy_test_810e_single_node_suite"
+        }
+      ],
+      "parameters": {
+        "algo": "Auto",
+        "auto_detect": true,
+        "data_sizes": [
+          "32MB"
+        ],
+        "dtype": "float",
+        "iters": 10,
+        "op": "alltoall_perf",
+        "proto": "Auto",
+        "ranks": 2
+      },
+      "test_type": "functional"
+    },
+    {
+      "build_profile": "standard",
+      "classification": "exact_resource_incompatible",
+      "group": "memcpy",
+      "legacy_case_key": "memcpy-9e6d5a8d0c6374bac7a4",
+      "legacy_source": "run_memcpy_test.sh:13",
+      "matches": [
+        {
+          "case": "test_op_alltoall_perf_algo_Auto_proto_Auto_datatype_float_datasize_32MB_iters_10_ranks_2_nproc_1_threads_2",
+          "m890p_single_node": false,
+          "pipeline_supported": false,
+          "plan": "pccl_gdrcopy_test_plan",
+          "selected": false,
+          "source_id": "9b2b7665ac340c4533f245612f419316513ca391f629489a10938a09011f491e",
+          "suite": "gdrcopy_test_810e_single_node_suite"
+        },
+        {
+          "case": "test_op_alltoall_perf_algo_Auto_proto_Auto_datatype_float_datasize_32MB_iters_10_ranks_2_nproc_1_threads_2",
+          "m890p_single_node": false,
+          "pipeline_supported": false,
+          "plan": "pccl_memcpy_test_plan",
+          "selected": false,
+          "source_id": "2f919a1d3345a0ec5cff44f657f3ee02660754b240c02890a2a4c85c38bb3d59",
+          "suite": "memcpy_test_810_single_node_suite"
+        },
+        {
+          "case": "test_op_alltoall_perf_algo_Auto_proto_Auto_datatype_float_datasize_32MB_iters_10_ranks_2_nproc_1_threads_2",
+          "m890p_single_node": false,
+          "pipeline_supported": false,
+          "plan": "pccl_memcpy_test_plan",
+          "selected": false,
+          "source_id": "f3846f146baf2206fbbe4bbcef61e52e774bfbaa7466e4275812d445c338e66c",
+          "suite": "memcpy_test_810e_single_node_suite"
+        }
+      ],
+      "parameters": {
+        "algo": "Auto",
+        "auto_detect": true,
+        "data_sizes": [
+          "32MB"
+        ],
+        "dtype": "float",
+        "iters": 10,
+        "op": "alltoall_perf",
+        "proto": "Auto",
+        "ranks": 2
+      },
+      "test_type": "functional"
+    },
+    {
+      "build_profile": "standard",
+      "classification": "missing",
+      "group": "nonblocking",
+      "legacy_case_key": "nonblocking-1d69580edb34bf3a9046",
+      "legacy_source": "run_nonblocking_test.sh:34",
+      "matches": [],
+      "parameters": {
+        "algo": "Ring",
+        "auto_detect": true,
+        "data_sizes": [
+          "32MB"
+        ],
+        "dtype": "float",
+        "iters": 10,
+        "non_blocking": true,
+        "op": "all_reduce_perf",
+        "proto": "LL",
+        "ranks": 2
+      },
+      "test_type": "functional"
+    },
+    {
+      "build_profile": "standard",
+      "classification": "missing",
+      "group": "nonblocking",
+      "legacy_case_key": "nonblocking-32184f8e415469a85dbe",
+      "legacy_source": "run_nonblocking_test.sh:32",
+      "matches": [],
+      "parameters": {
+        "algo": "Ring",
+        "auto_detect": true,
+        "data_sizes": [
+          "32MB"
+        ],
+        "dtype": "int8",
+        "iters": 10,
+        "non_blocking": true,
+        "op": "alltoall_perf",
+        "proto": "Auto",
+        "ranks": 2
+      },
+      "test_type": "functional"
+    },
+    {
+      "build_profile": "standard",
+      "classification": "missing",
+      "group": "nonblocking",
+      "legacy_case_key": "nonblocking-66877dff5834e4bf4999",
+      "legacy_source": "run_nonblocking_test.sh:19",
+      "matches": [],
+      "parameters": {
+        "check": 1,
+        "init_blocking": 0,
+        "max_data_size": "1G",
+        "min_data_size": "4",
+        "op": "alltoall_perf",
+        "ranks": 2,
+        "register": 0,
+        "step_factor": 2
+      },
+      "test_type": "functional"
+    },
+    {
+      "build_profile": "standard",
+      "classification": "missing",
+      "group": "nonblocking",
+      "legacy_case_key": "nonblocking-773fa6a3fac6eef20b4c",
+      "legacy_source": "run_nonblocking_test.sh:33",
+      "matches": [],
+      "parameters": {
+        "algo": "Ring",
+        "auto_detect": true,
+        "data_sizes": [
+          "32MB"
+        ],
+        "dtype": "half",
+        "iters": 10,
+        "non_blocking": true,
+        "op": "all_reduce_perf",
+        "proto": "LL",
+        "ranks": 2
+      },
+      "test_type": "functional"
+    },
+    {
+      "build_profile": "standard",
+      "classification": "missing",
+      "group": "nonblocking",
+      "legacy_case_key": "nonblocking-805fb18d172f92ee8ce4",
+      "legacy_source": "run_nonblocking_test.sh:19",
+      "matches": [],
+      "parameters": {
+        "check": 1,
+        "init_blocking": 0,
+        "max_data_size": "1G",
+        "min_data_size": "4",
+        "op": "all_reduce_perf",
+        "ranks": 2,
+        "register": 0,
+        "step_factor": 2
+      },
+      "test_type": "functional"
+    },
+    {
+      "build_profile": "standard",
+      "classification": "missing",
+      "group": "perf_allreduce",
+      "legacy_case_key": "perf_allreduce-58b4022deabdcbfaf28f",
+      "legacy_source": "pccl-tests/src/common.cu:149-169",
+      "matches": [],
+      "parameters": {
+        "algo": "Ring",
+        "data_sizes": [
+          "8M"
+        ],
+        "dtype": "float",
+        "iters": 100,
+        "op": "all_reduce_perf",
+        "proto": "Simple",
+        "ranks": 2,
+        "redop": "sum",
+        "warmup": 5
+      },
+      "test_type": "performance"
+    },
+    {
+      "build_profile": "standard",
+      "classification": "missing",
+      "group": "perf_allreduce",
+      "legacy_case_key": "perf_allreduce-6404d3c0ab071a8776cd",
+      "legacy_source": "pccl-tests/src/common.cu:149-169",
+      "matches": [],
+      "parameters": {
+        "algo": "Ring",
+        "data_sizes": [
+          "8M"
+        ],
+        "dtype": "float",
+        "iters": 100,
+        "op": "all_reduce_perf",
+        "proto": "Simple",
+        "ranks": 2,
+        "redop": "sum",
+        "warmup": 5
+      },
+      "test_type": "performance"
+    },
+    {
+      "build_profile": "standard",
+      "classification": "missing",
+      "group": "perf_allreduce",
+      "legacy_case_key": "perf_allreduce-726218504abd26000a72",
+      "legacy_source": "pccl-tests/src/common.cu:149-169",
+      "matches": [],
+      "parameters": {
+        "algo": "Ring",
+        "data_sizes": [
+          "8M"
+        ],
+        "dtype": "float",
+        "iters": 100,
+        "op": "all_reduce_perf",
+        "proto": "Simple",
+        "ranks": 2,
+        "redop": "sum",
+        "warmup": 5
+      },
+      "test_type": "performance"
+    },
+    {
+      "build_profile": "standard",
+      "classification": "near_m890p_supported",
+      "group": "register",
+      "legacy_case_key": "register-03c0340767bb2db7857f",
+      "legacy_source": "run_register_test.sh:27",
+      "matches": [
+        {
+          "case": "test_op_sendrecv_perf_algo_Ring_proto_Simple_datatype_int8_datasize_32MB_iters_10_ranks_2_devices_0_1",
+          "m890p_single_node": true,
+          "pipeline_supported": true,
+          "plan": "pccl_shm_register_test_single_node1_plan",
+          "selected": true,
+          "source_id": "b888992c2ce2f6fe571867f291a102baefd3d79ebd0b8b504e8ccf35cb2701f3",
+          "suite": "register_test_shm_single_node_suite"
+        },
+        {
+          "case": "test_op_sendrecv_perf_algo_Ring_proto_Simple_datatype_int8_datasize_32MB_iters_10_ranks_2_devices_0_1",
+          "m890p_single_node": false,
+          "pipeline_supported": false,
+          "plan": "pccl_810E_register_func_plan",
+          "selected": false,
+          "source_id": "a777c7141ca63bc64fc73cb99adfef8576ee1569f178ab02d0d87b197c841022",
+          "suite": "register_func_810E_single_node_suite"
+        },
+        {
+          "case": "test_op_sendrecv_perf_algo_Ring_proto_Simple_datatype_int8_datasize_32MB_iters_10_ranks_2_devices_0_1",
+          "m890p_single_node": false,
+          "pipeline_supported": false,
+          "plan": "pccl_810_register_func_plan",
+          "selected": false,
+          "source_id": "07b1954d2095b7e1e18c2dc96ea76855e0a94f5299607f08cb1e7afab49b51a7",
+          "suite": "register_func_single_node_suite"
+        },
+        {
+          "case": "test_op_sendrecv_perf_algo_Ring_proto_Simple_datatype_int8_datasize_32MB_iters_10_ranks_2_devices_0_1",
+          "m890p_single_node": false,
+          "pipeline_supported": false,
+          "plan": "pccl_890L_register_test_plan",
+          "selected": false,
+          "source_id": "a44c2407aeffa7a192759c879d0387c7135831dfaea571b558d1fbe6cc8aac2e",
+          "suite": "register_test_890L_single_node_suite"
+        }
+      ],
+      "parameters": {
+        "algo": "Ring",
+        "auto_detect": true,
+        "data_sizes": [
+          "32MB"
+        ],
+        "dtype": "int8",
+        "iters": 10,
+        "op": "sendrecv_perf",
+        "proto": "Simple",
+        "ranks": 2,
+        "register": 1
+      },
+      "test_type": "functional"
+    },
+    {
+      "build_profile": "standard",
+      "classification": "missing",
+      "group": "register",
+      "legacy_case_key": "register-417b6d2672b8e7ffacfe",
+      "legacy_source": "run_register_test.sh:11",
+      "matches": [],
+      "parameters": {
+        "dtype": "half",
+        "max_data_size": "1G",
+        "min_data_size": "32",
+        "op": "scatter_perf",
+        "ranks": 2,
+        "register": 1,
+        "step_factor": 2
+      },
+      "test_type": "functional"
+    },
+    {
+      "build_profile": "standard",
+      "classification": "near_m890p_supported",
+      "group": "register",
+      "legacy_case_key": "register-5e0a3861985e9e4781fd",
+      "legacy_source": "run_register_test.sh:23",
+      "matches": [
+        {
+          "case": "test_op_gather_perf_algo_Ring_proto_Simple_datatype_int8_datasize_32MB_iters_10_ranks_2_devices_0_1",
+          "m890p_single_node": true,
+          "pipeline_supported": true,
+          "plan": "pccl_shm_register_test_single_node1_plan",
+          "selected": true,
+          "source_id": "3200d8a310332689f623cf9a657392489467caa564de4db3338181ed93d696cb",
+          "suite": "register_test_shm_single_node_suite"
+        },
+        {
+          "case": "test_op_gather_perf_algo_Ring_proto_Simple_datatype_int8_datasize_32MB_iters_10_ranks_2_devices_0_1",
+          "m890p_single_node": false,
+          "pipeline_supported": false,
+          "plan": "pccl_810E_register_func_plan",
+          "selected": false,
+          "source_id": "d5d174fe62fa0349390b2288f3d7352970aae54519970dd85fb969ac7a6d31c5",
+          "suite": "register_func_810E_single_node_suite"
+        },
+        {
+          "case": "test_op_gather_perf_algo_Ring_proto_Simple_datatype_int8_datasize_32MB_iters_10_ranks_2_devices_0_1",
+          "m890p_single_node": false,
+          "pipeline_supported": false,
+          "plan": "pccl_810_register_func_plan",
+          "selected": false,
+          "source_id": "bc43951fe0cf4b0772db5948d32b2ed1532935baa0c44b9858faa6c6fe0350c4",
+          "suite": "register_func_single_node_suite"
+        },
+        {
+          "case": "test_op_gather_perf_algo_Ring_proto_Simple_datatype_int8_datasize_32MB_iters_10_ranks_2_devices_0_1",
+          "m890p_single_node": false,
+          "pipeline_supported": false,
+          "plan": "pccl_890L_register_test_plan",
+          "selected": false,
+          "source_id": "46d358ae3896c4226ddac0f882dc80e87d70748cb4387ddba656aa9911db25f3",
+          "suite": "register_test_890L_single_node_suite"
+        }
+      ],
+      "parameters": {
+        "algo": "Ring",
+        "auto_detect": true,
+        "data_sizes": [
+          "32MB"
+        ],
+        "dtype": "int8",
+        "iters": 10,
+        "op": "gather_perf",
+        "proto": "Simple",
+        "ranks": 2,
+        "register": 1
+      },
+      "test_type": "functional"
+    },
+    {
+      "build_profile": "standard",
+      "classification": "missing",
+      "group": "register",
+      "legacy_case_key": "register-760407868869cd5b1e3a",
+      "legacy_source": "run_register_test.sh:21",
+      "matches": [],
+      "parameters": {
+        "algo": "Ring",
+        "auto_detect": true,
+        "data_sizes": [
+          "32MB"
+        ],
+        "dtype": "int8",
+        "iters": 10,
+        "op": "hypercube_perf",
+        "proto": "Simple",
+        "ranks": 2,
+        "register": 1
+      },
+      "test_type": "functional"
+    },
+    {
+      "build_profile": "standard",
+      "classification": "exact_m890p_supported",
+      "group": "register",
+      "legacy_case_key": "register-8dae3e5a2714b4a88f5a",
+      "legacy_source": "run_register_test.sh:17",
+      "matches": [
+        {
+          "case": "test_op_all_gather_perf_algo_Auto_proto_Auto_datatype_float_datasize_32MB_iters_10_ranks_2_nproc_2_threads_1",
+          "m890p_single_node": true,
+          "pipeline_supported": true,
+          "plan": "pccl_shm_register_test_single_node1_plan",
+          "selected": true,
+          "source_id": "89e53ce4e9dc7b28360f3750f0c85685497490dbdf16b3da2e87b6552a5ccc95",
+          "suite": "register_test_shm_single_node_suite"
+        },
+        {
+          "case": "test_op_all_gather_perf_algo_Auto_proto_Auto_datatype_float_datasize_32MB_iters_10_ranks_2_nproc_2_threads_1",
+          "m890p_single_node": false,
+          "pipeline_supported": false,
+          "plan": "pccl_810E_register_func_plan",
+          "selected": false,
+          "source_id": "cd12c550a4cc26ab8e456309265ef1cc733babc53ff4ddbaae881f295b2cf5f1",
+          "suite": "register_func_810E_single_node_suite"
+        },
+        {
+          "case": "test_op_all_gather_perf_algo_Auto_proto_Auto_datatype_float_datasize_32MB_iters_10_ranks_2_nproc_2_threads_1",
+          "m890p_single_node": false,
+          "pipeline_supported": false,
+          "plan": "pccl_810_register_func_plan",
+          "selected": false,
+          "source_id": "98258d3815d45760907d451f2f02139517715067349694f2e174e2ffbac5c4cd",
+          "suite": "register_func_single_node_suite"
+        },
+        {
+          "case": "test_op_all_gather_perf_algo_Auto_proto_Auto_datatype_float_datasize_32MB_iters_10_ranks_2_nproc_2_threads_1",
+          "m890p_single_node": false,
+          "pipeline_supported": false,
+          "plan": "pccl_890L_register_test_plan",
+          "selected": false,
+          "source_id": "54e91b3bbeee8aa9893f1b44053fb0d063b73e28b0591b9899340bec90d583a2",
+          "suite": "register_test_890L_single_node_suite"
+        }
+      ],
+      "parameters": {
+        "algo": "Auto",
+        "auto_detect": true,
+        "data_sizes": [
+          "32MB"
+        ],
+        "dtype": "float",
+        "iters": 10,
+        "op": "all_gather_perf",
+        "proto": "Auto",
+        "ranks": 2,
+        "register": 1
+      },
+      "test_type": "functional"
+    },
+    {
+      "build_profile": "standard",
+      "classification": "exact_m890p_supported",
+      "group": "register",
+      "legacy_case_key": "register-8ef4927f22ff63559951",
+      "legacy_source": "run_register_test.sh:18",
+      "matches": [
+        {
+          "case": "test_op_all_reduce_perf_algo_Auto_proto_Auto_datatype_float_datasize_32MB_iters_10_ranks_2_nproc_1_threads_2",
+          "m890p_single_node": true,
+          "pipeline_supported": true,
+          "plan": "pccl_shm_register_test_single_node1_plan",
+          "selected": true,
+          "source_id": "42a1e2277825997cae3cf3098818d26346779be244df5cfd86c441ff496451e0",
+          "suite": "register_test_shm_single_node_suite"
+        },
+        {
+          "case": "test_op_all_reduce_perf_algo_Auto_proto_Auto_datatype_float_datasize_32MB_iters_10_ranks_2_nproc_1_threads_2",
+          "m890p_single_node": false,
+          "pipeline_supported": false,
+          "plan": "pccl_810E_register_func_plan",
+          "selected": false,
+          "source_id": "e64080ec4e47f5c3d8478af95742e4f540d07187aa1afd2291c1e5ee64cbd178",
+          "suite": "register_func_810E_single_node_suite"
+        },
+        {
+          "case": "test_op_all_reduce_perf_algo_Auto_proto_Auto_datatype_float_datasize_32MB_iters_10_ranks_2_nproc_1_threads_2",
+          "m890p_single_node": false,
+          "pipeline_supported": false,
+          "plan": "pccl_810_register_func_plan",
+          "selected": false,
+          "source_id": "5c23e3b3e56e50c2c497f21354753c405459dc40a98692b88fa782f48876d538",
+          "suite": "register_func_single_node_suite"
+        },
+        {
+          "case": "test_op_all_reduce_perf_algo_Auto_proto_Auto_datatype_float_datasize_32MB_iters_10_ranks_2_nproc_1_threads_2",
+          "m890p_single_node": false,
+          "pipeline_supported": false,
+          "plan": "pccl_890L_register_test_plan",
+          "selected": false,
+          "source_id": "cd2d9d5792c156e8ba2f434372d88cbc85fc56bcef53060646a020f28d9c51af",
+          "suite": "register_test_890L_single_node_suite"
+        }
+      ],
+      "parameters": {
+        "algo": "Auto",
+        "auto_detect": true,
+        "data_sizes": [
+          "32MB"
+        ],
+        "dtype": "float",
+        "iters": 10,
+        "op": "all_reduce_perf",
+        "proto": "Auto",
+        "ranks": 2,
+        "register": 1
+      },
+      "test_type": "functional"
+    },
+    {
+      "build_profile": "standard",
+      "classification": "exact_m890p_supported",
+      "group": "register",
+      "legacy_case_key": "register-acc5c0ce273ceab83099",
+      "legacy_source": "run_register_test.sh:19",
+      "matches": [
+        {
+          "case": "test_op_all_reduce_perf_algo_Auto_proto_Auto_datatype_float_datasize_32MB_iters_10_ranks_2_nproc_2_threads_1",
+          "m890p_single_node": true,
+          "pipeline_supported": true,
+          "plan": "pccl_shm_register_test_single_node1_plan",
+          "selected": true,
+          "source_id": "2a30962992ce9b850308a8fdda373867af01a17ae61e1b0ce47e94f59e35ee87",
+          "suite": "register_test_shm_single_node_suite"
+        },
+        {
+          "case": "test_op_all_reduce_perf_algo_Auto_proto_Auto_datatype_float_datasize_32MB_iters_10_ranks_2_nproc_2_threads_1",
+          "m890p_single_node": false,
+          "pipeline_supported": false,
+          "plan": "pccl_810E_register_func_plan",
+          "selected": false,
+          "source_id": "8dc2b2c26afa21e95d8a420096f5a63ebe53c0e3de55b1ed9d59251b32eeabb5",
+          "suite": "register_func_810E_single_node_suite"
+        },
+        {
+          "case": "test_op_all_reduce_perf_algo_Auto_proto_Auto_datatype_float_datasize_32MB_iters_10_ranks_2_nproc_2_threads_1",
+          "m890p_single_node": false,
+          "pipeline_supported": false,
+          "plan": "pccl_810_register_func_plan",
+          "selected": false,
+          "source_id": "6e194b6e398a9555e88a62d52377b396ec0a28270f307c9e59ad1f670ee586fe",
+          "suite": "register_func_single_node_suite"
+        },
+        {
+          "case": "test_op_all_reduce_perf_algo_Auto_proto_Auto_datatype_float_datasize_32MB_iters_10_ranks_2_nproc_2_threads_1",
+          "m890p_single_node": false,
+          "pipeline_supported": false,
+          "plan": "pccl_890L_register_test_plan",
+          "selected": false,
+          "source_id": "04e38fcee430ed72257003769ca5990a8e3e24859e9a447dc8075937c72fe059",
+          "suite": "register_test_890L_single_node_suite"
+        }
+      ],
+      "parameters": {
+        "algo": "Auto",
+        "auto_detect": true,
+        "data_sizes": [
+          "32MB"
+        ],
+        "dtype": "float",
+        "iters": 10,
+        "op": "all_reduce_perf",
+        "proto": "Auto",
+        "ranks": 2,
+        "register": 1
+      },
+      "test_type": "functional"
+    },
+    {
+      "build_profile": "standard",
+      "classification": "exact_m890p_supported",
+      "group": "register",
+      "legacy_case_key": "register-b61d7f2f6586ae7f62dd",
+      "legacy_source": "run_register_test.sh:16",
+      "matches": [
+        {
+          "case": "test_op_all_gather_perf_algo_Auto_proto_Auto_datatype_float_datasize_32MB_iters_10_ranks_2_nproc_1_threads_2",
+          "m890p_single_node": true,
+          "pipeline_supported": true,
+          "plan": "pccl_shm_register_test_single_node1_plan",
+          "selected": true,
+          "source_id": "904915dd5de1a252e258a868353fb070e790d7ff9c2e05efa1816073336cf00f",
+          "suite": "register_test_shm_single_node_suite"
+        },
+        {
+          "case": "test_op_all_gather_perf_algo_Auto_proto_Auto_datatype_float_datasize_32MB_iters_10_ranks_2_nproc_1_threads_2",
+          "m890p_single_node": false,
+          "pipeline_supported": false,
+          "plan": "pccl_810E_register_func_plan",
+          "selected": false,
+          "source_id": "878886e22bd200b17fa8b5fbe51e8323b2e97b0da9b70f7f4848bdefcaa86774",
+          "suite": "register_func_810E_single_node_suite"
+        },
+        {
+          "case": "test_op_all_gather_perf_algo_Auto_proto_Auto_datatype_float_datasize_32MB_iters_10_ranks_2_nproc_1_threads_2",
+          "m890p_single_node": false,
+          "pipeline_supported": false,
+          "plan": "pccl_810_register_func_plan",
+          "selected": false,
+          "source_id": "3a830f46a1e99ddb48dde5b38fefc49c0709ffd0d770338dbb2eafdd59783ed9",
+          "suite": "register_func_single_node_suite"
+        },
+        {
+          "case": "test_op_all_gather_perf_algo_Auto_proto_Auto_datatype_float_datasize_32MB_iters_10_ranks_2_nproc_1_threads_2",
+          "m890p_single_node": false,
+          "pipeline_supported": false,
+          "plan": "pccl_890L_register_test_plan",
+          "selected": false,
+          "source_id": "ed69e268ce132e27d1f526667f5e7b473a1eaf225187942c6113b4272510262e",
+          "suite": "register_test_890L_single_node_suite"
+        }
+      ],
+      "parameters": {
+        "algo": "Auto",
+        "auto_detect": true,
+        "data_sizes": [
+          "32MB"
+        ],
+        "dtype": "float",
+        "iters": 10,
+        "op": "all_gather_perf",
+        "proto": "Auto",
+        "ranks": 2,
+        "register": 1
+      },
+      "test_type": "functional"
+    },
+    {
+      "build_profile": "standard",
+      "classification": "near_m890p_supported",
+      "group": "register",
+      "legacy_case_key": "register-b9d49b093bbc7ec6e8e9",
+      "legacy_source": "run_register_test.sh:26",
+      "matches": [
+        {
+          "case": "test_op_sendrecv_perf_algo_Ring_proto_Simple_datatype_int8_datasize_32MB_iters_10_ranks_2_devices_0_1",
+          "m890p_single_node": true,
+          "pipeline_supported": true,
+          "plan": "pccl_shm_register_test_single_node1_plan",
+          "selected": true,
+          "source_id": "b888992c2ce2f6fe571867f291a102baefd3d79ebd0b8b504e8ccf35cb2701f3",
+          "suite": "register_test_shm_single_node_suite"
+        },
+        {
+          "case": "test_op_sendrecv_perf_algo_Ring_proto_Simple_datatype_int8_datasize_32MB_iters_10_ranks_2_devices_0_1",
+          "m890p_single_node": false,
+          "pipeline_supported": false,
+          "plan": "pccl_810E_register_func_plan",
+          "selected": false,
+          "source_id": "a777c7141ca63bc64fc73cb99adfef8576ee1569f178ab02d0d87b197c841022",
+          "suite": "register_func_810E_single_node_suite"
+        },
+        {
+          "case": "test_op_sendrecv_perf_algo_Ring_proto_Simple_datatype_int8_datasize_32MB_iters_10_ranks_2_devices_0_1",
+          "m890p_single_node": false,
+          "pipeline_supported": false,
+          "plan": "pccl_810_register_func_plan",
+          "selected": false,
+          "source_id": "07b1954d2095b7e1e18c2dc96ea76855e0a94f5299607f08cb1e7afab49b51a7",
+          "suite": "register_func_single_node_suite"
+        },
+        {
+          "case": "test_op_sendrecv_perf_algo_Ring_proto_Simple_datatype_int8_datasize_32MB_iters_10_ranks_2_devices_0_1",
+          "m890p_single_node": false,
+          "pipeline_supported": false,
+          "plan": "pccl_890L_register_test_plan",
+          "selected": false,
+          "source_id": "a44c2407aeffa7a192759c879d0387c7135831dfaea571b558d1fbe6cc8aac2e",
+          "suite": "register_test_890L_single_node_suite"
+        }
+      ],
+      "parameters": {
+        "algo": "Ring",
+        "auto_detect": true,
+        "data_sizes": [
+          "32MB"
+        ],
+        "dtype": "int8",
+        "iters": 10,
+        "op": "sendrecv_perf",
+        "proto": "Simple",
+        "ranks": 2,
+        "register": 1
+      },
+      "test_type": "functional"
+    },
+    {
+      "build_profile": "standard",
+      "classification": "exact_m890p_supported",
+      "group": "register",
+      "legacy_case_key": "register-cc6388c7e3ba5b691f5d",
+      "legacy_source": "run_register_test.sh:15",
+      "matches": [
+        {
+          "case": "test_op_alltoall_perf_algo_Auto_proto_Auto_datatype_float_datasize_32MB_iters_10_ranks_2_nproc_2_threads_1",
+          "m890p_single_node": true,
+          "pipeline_supported": true,
+          "plan": "pccl_shm_register_test_single_node1_plan",
+          "selected": true,
+          "source_id": "217cef1305a99b45c3a3c7924cea38f1e242b3da69cd05c9c0c61dd60b250ec6",
+          "suite": "register_test_shm_single_node_suite"
+        },
+        {
+          "case": "test_op_alltoall_perf_algo_Auto_proto_Auto_datatype_float_datasize_32MB_iters_10_ranks_2_nproc_2_threads_1",
+          "m890p_single_node": false,
+          "pipeline_supported": false,
+          "plan": "pccl_810E_register_func_plan",
+          "selected": false,
+          "source_id": "c392a23036412008976eb09ee71dbf72b9cc6e602a0c75cfb97b79f78cc4f585",
+          "suite": "register_func_810E_single_node_suite"
+        },
+        {
+          "case": "test_op_alltoall_perf_algo_Auto_proto_Auto_datatype_float_datasize_32MB_iters_10_ranks_2_nproc_2_threads_1",
+          "m890p_single_node": false,
+          "pipeline_supported": false,
+          "plan": "pccl_810_register_func_plan",
+          "selected": false,
+          "source_id": "889dc4f2980014b44d60b7143097d433aa1d685ef45362e75394ea0ae8f71417",
+          "suite": "register_func_single_node_suite"
+        },
+        {
+          "case": "test_op_alltoall_perf_algo_Auto_proto_Auto_datatype_float_datasize_32MB_iters_10_ranks_2_nproc_2_threads_1",
+          "m890p_single_node": false,
+          "pipeline_supported": false,
+          "plan": "pccl_890L_register_test_plan",
+          "selected": false,
+          "source_id": "e62d910ec2a6b663d1fab3de192c64c09a0e9439a197f6a0fc55524ee92457d4",
+          "suite": "register_test_890L_single_node_suite"
+        }
+      ],
+      "parameters": {
+        "algo": "Auto",
+        "auto_detect": true,
+        "data_sizes": [
+          "32MB"
+        ],
+        "dtype": "float",
+        "iters": 10,
+        "op": "alltoall_perf",
+        "proto": "Auto",
+        "ranks": 2,
+        "register": 1
+      },
+      "test_type": "functional"
+    },
+    {
+      "build_profile": "standard",
+      "classification": "near_m890p_supported",
+      "group": "register",
+      "legacy_case_key": "register-cf210eaa6d3ff4e1cca2",
+      "legacy_source": "run_register_test.sh:24",
+      "matches": [
+        {
+          "case": "test_op_scatter_perf_algo_Ring_proto_Simple_datatype_int8_datasize_32MB_iters_10_ranks_2_devices_0_1",
+          "m890p_single_node": true,
+          "pipeline_supported": true,
+          "plan": "pccl_shm_register_test_single_node1_plan",
+          "selected": true,
+          "source_id": "c13ed6fa5a85fee212f912bc0d9fdc7768da655433c1b5e84cc4a7487031f505",
+          "suite": "register_test_shm_single_node_suite"
+        },
+        {
+          "case": "test_op_scatter_perf_algo_Ring_proto_Simple_datatype_int8_datasize_32MB_iters_10_ranks_2_devices_0_1",
+          "m890p_single_node": false,
+          "pipeline_supported": false,
+          "plan": "pccl_810E_register_func_plan",
+          "selected": false,
+          "source_id": "f2934376ac141dc59c68b8c841c7fe668ed14e8dcb698d4e20981a7126b956d2",
+          "suite": "register_func_810E_single_node_suite"
+        },
+        {
+          "case": "test_op_scatter_perf_algo_Ring_proto_Simple_datatype_int8_datasize_32MB_iters_10_ranks_2_devices_0_1",
+          "m890p_single_node": false,
+          "pipeline_supported": false,
+          "plan": "pccl_810_register_func_plan",
+          "selected": false,
+          "source_id": "c51fde75fc661928428e7eb2a10b23c944f6553ac023d9448cac8bfc1c87cee7",
+          "suite": "register_func_single_node_suite"
+        },
+        {
+          "case": "test_op_scatter_perf_algo_Ring_proto_Simple_datatype_int8_datasize_32MB_iters_10_ranks_2_devices_0_1",
+          "m890p_single_node": false,
+          "pipeline_supported": false,
+          "plan": "pccl_890L_register_test_plan",
+          "selected": false,
+          "source_id": "f0414b701d49f681f9ee3c23a518a773b89e37b3a5363e1aefc082fbb0ff754a",
+          "suite": "register_test_890L_single_node_suite"
+        }
+      ],
+      "parameters": {
+        "algo": "Ring",
+        "auto_detect": true,
+        "data_sizes": [
+          "32MB"
+        ],
+        "dtype": "int8",
+        "iters": 10,
+        "op": "scatter_perf",
+        "proto": "Simple",
+        "ranks": 2,
+        "register": 1
+      },
+      "test_type": "functional"
+    },
+    {
+      "build_profile": "standard",
+      "classification": "missing",
+      "group": "register",
+      "legacy_case_key": "register-d7bc3b7b649acb6443c3",
+      "legacy_source": "run_register_test.sh:12",
+      "matches": [],
+      "parameters": {
+        "dtype": "half",
+        "max_data_size": "1G",
+        "min_data_size": "32",
+        "op": "gather_perf",
+        "ranks": 2,
+        "register": 1,
+        "step_factor": 2
+      },
+      "test_type": "functional"
+    },
+    {
+      "build_profile": "standard",
+      "classification": "near_m890p_supported",
+      "group": "register",
+      "legacy_case_key": "register-e06c194ea39e6a2e7b25",
+      "legacy_source": "run_register_test.sh:25",
+      "matches": [
+        {
+          "case": "test_op_scatter_perf_algo_Ring_proto_Simple_datatype_int8_datasize_32MB_iters_10_ranks_2_devices_0_1",
+          "m890p_single_node": true,
+          "pipeline_supported": true,
+          "plan": "pccl_shm_register_test_single_node1_plan",
+          "selected": true,
+          "source_id": "c13ed6fa5a85fee212f912bc0d9fdc7768da655433c1b5e84cc4a7487031f505",
+          "suite": "register_test_shm_single_node_suite"
+        },
+        {
+          "case": "test_op_scatter_perf_algo_Ring_proto_Simple_datatype_int8_datasize_32MB_iters_10_ranks_2_devices_0_1",
+          "m890p_single_node": false,
+          "pipeline_supported": false,
+          "plan": "pccl_810E_register_func_plan",
+          "selected": false,
+          "source_id": "f2934376ac141dc59c68b8c841c7fe668ed14e8dcb698d4e20981a7126b956d2",
+          "suite": "register_func_810E_single_node_suite"
+        },
+        {
+          "case": "test_op_scatter_perf_algo_Ring_proto_Simple_datatype_int8_datasize_32MB_iters_10_ranks_2_devices_0_1",
+          "m890p_single_node": false,
+          "pipeline_supported": false,
+          "plan": "pccl_810_register_func_plan",
+          "selected": false,
+          "source_id": "c51fde75fc661928428e7eb2a10b23c944f6553ac023d9448cac8bfc1c87cee7",
+          "suite": "register_func_single_node_suite"
+        },
+        {
+          "case": "test_op_scatter_perf_algo_Ring_proto_Simple_datatype_int8_datasize_32MB_iters_10_ranks_2_devices_0_1",
+          "m890p_single_node": false,
+          "pipeline_supported": false,
+          "plan": "pccl_890L_register_test_plan",
+          "selected": false,
+          "source_id": "f0414b701d49f681f9ee3c23a518a773b89e37b3a5363e1aefc082fbb0ff754a",
+          "suite": "register_test_890L_single_node_suite"
+        }
+      ],
+      "parameters": {
+        "algo": "Ring",
+        "auto_detect": true,
+        "data_sizes": [
+          "32MB"
+        ],
+        "dtype": "int8",
+        "iters": 10,
+        "op": "scatter_perf",
+        "proto": "Simple",
+        "ranks": 2,
+        "register": 1
+      },
+      "test_type": "functional"
+    },
+    {
+      "build_profile": "standard",
+      "classification": "missing",
+      "group": "register",
+      "legacy_case_key": "register-e79c41b1241fe882455a",
+      "legacy_source": "run_register_test.sh:20",
+      "matches": [],
+      "parameters": {
+        "algo": "Ring",
+        "auto_detect": true,
+        "data_sizes": [
+          "32MB"
+        ],
+        "dtype": "int8",
+        "iters": 10,
+        "op": "hypercube_perf",
+        "proto": "Simple",
+        "ranks": 2,
+        "register": 1
+      },
+      "test_type": "functional"
+    },
+    {
+      "build_profile": "standard",
+      "classification": "exact_m890p_supported",
+      "group": "register",
+      "legacy_case_key": "register-e7c1f5f0c82d506411ff",
+      "legacy_source": "run_register_test.sh:14",
+      "matches": [
+        {
+          "case": "test_op_alltoall_perf_algo_Auto_proto_Auto_datatype_float_datasize_32MB_iters_10_ranks_2_nproc_1_threads_2",
+          "m890p_single_node": true,
+          "pipeline_supported": true,
+          "plan": "pccl_shm_register_test_single_node1_plan",
+          "selected": true,
+          "source_id": "e9d4188737b5d025bb9a03658ce6baae81b3d351a009cbea7841d1facc90a835",
+          "suite": "register_test_shm_single_node_suite"
+        },
+        {
+          "case": "test_op_alltoall_perf_algo_Auto_proto_Auto_datatype_float_datasize_32MB_iters_10_ranks_2_nproc_1_threads_2",
+          "m890p_single_node": false,
+          "pipeline_supported": false,
+          "plan": "pccl_810E_register_func_plan",
+          "selected": false,
+          "source_id": "179137d5ee6e93894c6e7878fdaa468e225a28b4ecb1e9792619925f79bd16ff",
+          "suite": "register_func_810E_single_node_suite"
+        },
+        {
+          "case": "test_op_alltoall_perf_algo_Auto_proto_Auto_datatype_float_datasize_32MB_iters_10_ranks_2_nproc_1_threads_2",
+          "m890p_single_node": false,
+          "pipeline_supported": false,
+          "plan": "pccl_810_register_func_plan",
+          "selected": false,
+          "source_id": "dfbc36130305452f63f578f681520218a9e578785262638bf3a524ec6c3e040f",
+          "suite": "register_func_single_node_suite"
+        },
+        {
+          "case": "test_op_alltoall_perf_algo_Auto_proto_Auto_datatype_float_datasize_32MB_iters_10_ranks_2_nproc_1_threads_2",
+          "m890p_single_node": false,
+          "pipeline_supported": false,
+          "plan": "pccl_890L_register_test_plan",
+          "selected": false,
+          "source_id": "2d991b4f0735ad24999b06b95716ff0282414abe07c636716ff8c9577a82b2b1",
+          "suite": "register_test_890L_single_node_suite"
+        }
+      ],
+      "parameters": {
+        "algo": "Auto",
+        "auto_detect": true,
+        "data_sizes": [
+          "32MB"
+        ],
+        "dtype": "float",
+        "iters": 10,
+        "op": "alltoall_perf",
+        "proto": "Auto",
+        "ranks": 2,
+        "register": 1
+      },
+      "test_type": "functional"
+    },
+    {
+      "build_profile": "standard",
+      "classification": "near_m890p_supported",
+      "group": "register",
+      "legacy_case_key": "register-fc0cd04a7104c2e2b35e",
+      "legacy_source": "run_register_test.sh:22",
+      "matches": [
+        {
+          "case": "test_op_gather_perf_algo_Ring_proto_Simple_datatype_int8_datasize_32MB_iters_10_ranks_2_devices_0_1",
+          "m890p_single_node": true,
+          "pipeline_supported": true,
+          "plan": "pccl_shm_register_test_single_node1_plan",
+          "selected": true,
+          "source_id": "3200d8a310332689f623cf9a657392489467caa564de4db3338181ed93d696cb",
+          "suite": "register_test_shm_single_node_suite"
+        },
+        {
+          "case": "test_op_gather_perf_algo_Ring_proto_Simple_datatype_int8_datasize_32MB_iters_10_ranks_2_devices_0_1",
+          "m890p_single_node": false,
+          "pipeline_supported": false,
+          "plan": "pccl_810E_register_func_plan",
+          "selected": false,
+          "source_id": "d5d174fe62fa0349390b2288f3d7352970aae54519970dd85fb969ac7a6d31c5",
+          "suite": "register_func_810E_single_node_suite"
+        },
+        {
+          "case": "test_op_gather_perf_algo_Ring_proto_Simple_datatype_int8_datasize_32MB_iters_10_ranks_2_devices_0_1",
+          "m890p_single_node": false,
+          "pipeline_supported": false,
+          "plan": "pccl_810_register_func_plan",
+          "selected": false,
+          "source_id": "bc43951fe0cf4b0772db5948d32b2ed1532935baa0c44b9858faa6c6fe0350c4",
+          "suite": "register_func_single_node_suite"
+        },
+        {
+          "case": "test_op_gather_perf_algo_Ring_proto_Simple_datatype_int8_datasize_32MB_iters_10_ranks_2_devices_0_1",
+          "m890p_single_node": false,
+          "pipeline_supported": false,
+          "plan": "pccl_890L_register_test_plan",
+          "selected": false,
+          "source_id": "46d358ae3896c4226ddac0f882dc80e87d70748cb4387ddba656aa9911db25f3",
+          "suite": "register_test_890L_single_node_suite"
+        }
+      ],
+      "parameters": {
+        "algo": "Ring",
+        "auto_detect": true,
+        "data_sizes": [
+          "32MB"
+        ],
+        "dtype": "int8",
+        "iters": 10,
+        "op": "gather_perf",
+        "proto": "Simple",
+        "ranks": 2,
+        "register": 1
+      },
+      "test_type": "functional"
+    }
+  ],
+  "inputs": {
+    "legacy_catalog_sha256": "0099b6661c757fdb2e8a0419333912a2400a5c46d5edd0fe47c6f3af587853be",
+    "mapper_sha256": "c55953902f3ca57247e96fb2caca1da36f4f0be8d5c96b7d3504ab5548297012",
+    "selection_sha256": "939067d8b0a7ef8a814d6434c1071adc5161d44a44fdc0ede3aef6184eb2a748",
+    "source_revision": "bbbeb207dd7f28980b55336660da0b47866e47aa"
+  },
+  "schema_version": 1,
+  "summary": {
+    "classifications": {
+      "exact_m890p_supported": 6,
+      "exact_resource_incompatible": 60,
+      "missing": 24,
+      "near_m890p_supported": 6
+    },
+    "legacy_case_count": 96,
+    "selected_source_case_count": 9,
+    "source_load_errors": 12
+  }
+}

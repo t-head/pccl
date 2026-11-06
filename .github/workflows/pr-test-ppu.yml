@@ -260,7 +260,7 @@ jobs:
             cd /workspace/source/output_hggcrt13
             export TEST_ROOT=$(pwd)
             source /usr/local/PPU_SDK/envsetup.sh
-            python3 -m pip install junit-xml filelock==3.20.0 || true
+            python3 -m pip install junit-xml filelock==3.20.3 || true
 
             echo "bash ${{ matrix.test_script }}" > /tmp/single_case.list
             set +e
@@ -328,7 +328,7 @@ jobs:
             cd /workspace/source/output_notsm
             export TEST_ROOT=$(pwd)
             source /usr/local/PPU_SDK/envsetup.sh
-            python3 -m pip install junit-xml filelock==3.20.0 || true
+            python3 -m pip install junit-xml filelock==3.20.3 || true
 
             echo "bash run_common_test.sh" > /tmp/single_case.list
             set +e
