@@ -1,0 +1,23 @@
+{
+  "classification": {
+    "base_sha": "a04b88e02c3a5b955ba0847eca2bc3d19cbf4829",
+    "head_sha": "0cb356b3d56c996bbd195e8a26fa37fb6f8df53c",
+    "input_fingerprint": "ad8832cd9e5ab4d5c4ea9a7ed849d6970fe45f71feee2f65ef653ed549f09f17",
+    "pr_number": 153,
+    "proposal": {
+      "modules": [
+        "enqueue",
+        "kernels",
+        "kernel-plugin",
+        "symmetric"
+      ],
+      "reason": "Primary change is in enqueue: kernel launches now pass a packed argument buffer plus explicit byte size and the global kernel-arg budget increases to 4 KiB. Add symmetric because symmetric multi-task planning switches from fixed 4 KiB pool allocation/reclaim to variable-sized scoped argument allocation using calculated size. Add kernels because built-in device kernel signatures and shared argument-storage types change from 1 KiB to 4 KiB capacity (API/ABI surface). Add kernel-plugin because ext-kernel launch macros and call sites change to by-value struct launch semantics with explicit launch-buffer handling; CE/OKI and P2P DMA edits are mechanical call-shape updates only."
+    }
+  },
+  "reviewers": {
+    "enqueue": 341349555,
+    "kernel-plugin": 335730053,
+    "kernels": 341349555,
+    "symmetric": 335730053
+  }
+}
