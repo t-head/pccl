@@ -53,7 +53,7 @@ current commit. Authors are exempt from this check for modules they maintain. Th
 Maintainer can approve all modules on another author's PR.
 
 The gate checks existing approvals after the invitation run finishes, even if an invitation
-failed. It also refreshes whenever a review is submitted, edited or dismissed.
+failed. It also refreshes whenever a review is submitted or dismissed.
 
 | File | Purpose |
 | --- | --- |

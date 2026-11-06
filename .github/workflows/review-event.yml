@@ -3,7 +3,7 @@ run-name: "PCCL review for PR #${{ github.event.pull_request.number }}"
 
 on:
   pull_request_review:
-    types: [submitted, edited, dismissed]
+    types: [submitted, dismissed]
 
 permissions: {}
 
