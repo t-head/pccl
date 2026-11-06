@@ -256,6 +256,20 @@ ncclResult_t ncclGinDevCommSetup(struct pcclComm* comm, struct ncclDevCommRequir
   devComm->ginSignalCount = reqs->ginSignalCount;
   devComm->ginCounterCount = reqs->ginCounterCount;
 
+  int connectedStride = ginState->ginConnectionType == NCCL_GIN_CONNECTION_FULL ? 1 : ncclTeamRail(comm).stride;
+  int requestedStride = reqs->ginConnectionType == NCCL_GIN_CONNECTION_CUSTOM_STRIDE ? reqs->ginCustomStride :
+      reqs->ginConnectionType == NCCL_GIN_CONNECTION_RAIL ? ncclTeamRail(comm).stride : 1;
+  if (requestedStride <= 0 || requestedStride % connectedStride != 0 ||
+      ncclTeamRail(comm).stride % requestedStride != 0) {
+    WARN("Invalid GIN context stride %d for connection stride %d", requestedStride, connectedStride);
+    return ncclInvalidArgument;
+  }
+  // Retain the provider's peer table and handle ABI. Context stride describes
+  // the logical peer subset; it does not request sparse provider allocations.
+  devComm->ginConnectionStride = connectedStride;
+  devComm->ginConnectionStride_rcp32 = idivRcp32(connectedStride);
+  devComm->ginContextStride = requestedStride;
+
   int nContextsTotal = reqs->ginContextCount;
   if (ginState->ginVersion < 13) {
     nContextsTotal = ginState->ginCommCount;

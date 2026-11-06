@@ -1168,6 +1168,7 @@ ncclResult_t ncclDevrCommCreateInternal(
   struct ncclDevrWindow* win = nullptr;
   struct ncclWindow_vidmem* winHost = nullptr;
   size_t ginSignalShadowsOffset = 0;
+  struct ncclDevResourceRequirements denseGinBarrierReq;
   struct ncclDevComm currentDevComm;
   struct ncclDevComm* legacyOutput = nullptr;
   const bool legacyLayout = !isInternal && !reqs->useRuntimeVersion &&
@@ -1212,8 +1213,8 @@ ncclResult_t ncclDevrCommCreateInternal(
     free(requests);
     if (ret != ncclSuccess) return ret;
   }
-  if (requestedConnectionType < NCCL_GIN_CONNECTION_NONE || requestedConnectionType > NCCL_GIN_CONNECTION_RAIL ||
-      reqs->ginCustomStride != 0) return ncclInvalidArgument;
+  if (requestedConnectionType < NCCL_GIN_CONNECTION_NONE ||
+      requestedConnectionType > NCCL_GIN_CONNECTION_CUSTOM_STRIDE) return ncclInvalidArgument;
   if ((int)reqs->ginType < 0 || (int)reqs->ginType >= PCCL_GIN_MAX_TYPES) return ncclInvalidArgument;
   if (reqs->ginType != PCCL_GIN_TYPE_NONE &&
       (requestedConnectionType == NCCL_GIN_CONNECTION_NONE || reqs->ginType != comm->sharedRes->ginState.ginType)) {
@@ -1221,6 +1222,19 @@ ncclResult_t ncclDevrCommCreateInternal(
     return ncclInvalidUsage;
   }
   reqs->ginConnectionType = requestedConnectionType;
+  if (requestedConnectionType == NCCL_GIN_CONNECTION_CUSTOM_STRIDE) {
+    int railStride = ncclTeamRail(comm).stride;
+    int minimumStride = comm->globalGinSupport == NCCL_GIN_CONNECTION_FULL ? 1 : railStride;
+    if (reqs->ginCustomStride <= 0 || reqs->ginCustomStride > railStride ||
+        railStride % reqs->ginCustomStride != 0 || reqs->ginCustomStride % minimumStride != 0) {
+      WARN("Invalid GIN custom stride %d (minimum %d, rail stride %d)",
+           reqs->ginCustomStride, minimumStride, railStride);
+      return ncclInvalidArgument;
+    }
+  } else if (reqs->ginCustomStride != 0) {
+    WARN("ginCustomStride requires PCCL_GIN_CONNECTION_CUSTOM_STRIDE");
+    return ncclInvalidArgument;
+  }
 
   bool requestedGinResources = ncclGinResourcesRequested(reqs);
   if (requestedGinResources && requestedConnectionType == NCCL_GIN_CONNECTION_NONE) {
@@ -1309,6 +1323,17 @@ ncclResult_t ncclDevrCommCreateInternal(
   ncclGinBarrierCreateRequirement(comm, ncclTeamRail(comm), reqs->barrierCount, &outDevComm->hybridRailGinBarrier, &hybridRailGinBarrierReq);
   hybridRailGinBarrierReq.next = &hybridLsaBarrierReq;
   resReqsHead = &hybridRailGinBarrierReq;
+
+  {
+    int stride = requestedConnectionType == NCCL_GIN_CONNECTION_CUSTOM_STRIDE ? reqs->ginCustomStride : 1;
+    ncclTeam denseTeam = {comm->nRanks / stride, comm->rank / stride, stride};
+    int count = !legacyLayout && requestedConnectionType != NCCL_GIN_CONNECTION_NONE &&
+        requestedConnectionType != NCCL_GIN_CONNECTION_RAIL ? reqs->barrierCount : 0;
+    NCCLCHECK(ncclGinBarrierCreateRequirement(comm, denseTeam, count,
+        &outDevComm->hybridDenseGinBarrier, &denseGinBarrierReq));
+    denseGinBarrierReq.next = resReqsHead;
+    resReqsHead = &denseGinBarrierReq;
+  }
 
   ncclLsaBarrierCreateRequirement(lsa, reqs->lsaBarrierCount, &outDevComm->lsaBarrier, &lsaBarReq);
   lsaBarReq.next = resReqsHead;

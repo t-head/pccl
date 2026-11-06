@@ -7,6 +7,7 @@
 #include <hggc_runtime.h>
 #include <cstdio>
 #include <cstring>
+#include <initializer_list>
 
 #define CHECK(call) do { int status = (int)(call); if (status) { \
   fprintf(stderr, "%d: %s returned %d\n", __LINE__, #call, status); MPI_Abort(MPI_COMM_WORLD, 1); \
@@ -74,6 +75,15 @@ int main(int argc, char** argv) {
     req.ginType = rank == 0 ? PCCL_GIN_TYPE_NONE : props.value.railedGinType;
     REQUIRE(pcclDevCommCreate(comm, &req, &current.value) == pcclInvalidUsage);
   }
+  req = PCCL_DEV_COMM_REQUIREMENTS_INITIALIZER;
+  req.ginConnectionType = PCCL_GIN_CONNECTION_CUSTOM_STRIDE;
+  for (int stride : {0, -1, ranks + 1}) {
+    req.ginCustomStride = stride;
+    REQUIRE(pcclDevCommCreate(comm, &req, &current.value) == pcclInvalidArgument);
+  }
+  req.ginConnectionType = PCCL_GIN_CONNECTION_FULL;
+  req.ginCustomStride = 1;
+  REQUIRE(pcclDevCommCreate(comm, &req, &current.value) == pcclInvalidArgument);
   req = PCCL_DEV_COMM_REQUIREMENTS_INITIALIZER;
   CHECK(pcclDevCommCreate(comm, &req, &current.value));
   REQUIRE(current.value.ginContextCount == 0);

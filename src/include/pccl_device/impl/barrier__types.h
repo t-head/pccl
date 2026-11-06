@@ -18,6 +18,7 @@ struct pcclBarrierSession_internal {
   pccl::utility::Optional<pcclGin> gin;
   pccl::utility::Optional<pcclLsaBarrierSession<Coop>> innerLsaBar;
   pccl::utility::Optional<pcclGinBarrierSession<Coop>> outerGinBar;
+  bool worldBarrier = false;
 
   template<typename GinInit, typename InnerInit, typename OuterInit>
   PCCL_DEVICE_INLINE pcclBarrierSession_internal(

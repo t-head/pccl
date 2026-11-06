@@ -14,6 +14,11 @@ mpirun -np 2 tests/device_api/gin_wait
 `gin_window 0` verifies device-backed GIN-only windows; `gin_window 1`
 verifies VMM HOST_NUMA windows. Each mode checks every allocated context,
 put/get payloads, registration aliases, peer LSA rejection and invalid flags.
+An optional second argument requests custom stride: with four ranks,
+`gin_window 1 2` checks stride two. The stride must divide the LSA team size
+and half the world size so the selected transfer peer belongs to the subset.
+Custom stride retains dense provider connections; sparse allocation is not
+implemented. Unsupported strides are rejected rather than silently remapped.
 Use an even number of ranks and assign one rank to each available device.
 For multiple hosts, place the same executable and library at the same path.
 Select the network interfaces and GIN connection count for the environment.
