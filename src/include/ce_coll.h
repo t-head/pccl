@@ -115,7 +115,11 @@ static int localReduceFuncIndex(pcclDataType_t dtype, int nRanks, int/*ncclRedOp
   return idx;
 }
 
+bool pcclCeAutoAllGatherSupported(ncclComm_t comm);
+bool pcclCeShouldUseCollective(ncclComm_t comm, ncclFunc_t coll, size_t count,
+                             bool ceAvailable, bool hasSysmemSegment, bool inPlace);
 bool ncclCeOkiRequested();
+bool pcclOkiArchSupported(ncclComm_t comm);
 bool ncclCeReduceEnabled(ncclFunc_t coll);
 bool ncclCeAvailable(ncclComm_t comm, ncclFunc_t coll, int/*ncclRedOp_t*/ red, ncclDataType_t ty, size_t count, ncclSymRegType_t winRegType, const void* recvbuff);
 

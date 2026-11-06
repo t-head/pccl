@@ -124,6 +124,9 @@ ncclResult_t ncclSymkFinalize(struct pcclComm* comm);
 bool ncclSymkAvailable(struct pcclComm* comm, ncclFunc_t coll, int/*ncclDevRedOp_t*/ red,
                        ncclDataType_t ty, size_t nElts);
 
+// A nonnegative user mask forces symmetric kernel selection.
+int64_t pcclParamSymKernelId();
+
 // Select the best kernel for a set of symmetric operations
 ncclResult_t ncclSymkPickKernel(struct pcclComm* comm, ncclFunc_t coll, int/*ncclDevRedOp_t*/ red, ncclDataType_t ty,
                                 size_t nEltsTotal, size_t nEltsMax, int nWorks, ncclSymRegType_t winRegType,
