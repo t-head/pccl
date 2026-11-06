@@ -300,10 +300,10 @@ struct pcclGinApi_Wait<PCCL_NET_DEVICE_GIN_PROXY> {
 
 template <>
 struct pcclGinApi_GetCounterPtr<PCCL_NET_DEVICE_GIN_PROXY> {
-  PCCL_DEVICE_INLINE static uint64_t* call(pcclGinCtx ctx, pcclGinCounter_t counterId) {
+  PCCL_DEVICE_INLINE static pcclGinOffsetPtr call(pcclGinCtx ctx, pcclGinCounter_t counterId) {
     pcclGinProxyGpuCtx_t* proxyCtx = &((pcclGinProxyGpuCtx_t*)ctx.handle)[ctx.contextId];
     uint64_t* counter = pccl::utility::loadConst(&proxyCtx->counters) + counterId;
-    return counter;
+    return {counter, 0};
   }
 };
 
@@ -318,10 +318,10 @@ struct pcclGinApi_ResetCounter<PCCL_NET_DEVICE_GIN_PROXY> {
 
 template <>
 struct pcclGinApi_GetSignalPtr<PCCL_NET_DEVICE_GIN_PROXY> {
-  PCCL_DEVICE_INLINE static uint64_t* call(pcclGinCtx ctx, pcclGinSignal_t signalId) {
+  PCCL_DEVICE_INLINE static pcclGinOffsetPtr call(pcclGinCtx ctx, pcclGinSignal_t signalId) {
     pcclGinProxyGpuCtx_t* proxyCtx = &((pcclGinProxyGpuCtx_t*)ctx.handle)[ctx.contextId];
     uint64_t* signal = pccl::utility::loadConst(&proxyCtx->signals) + signalId;
-    return signal;
+    return {signal, 0};
   }
 };
 

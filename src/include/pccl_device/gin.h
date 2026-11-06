@@ -343,6 +343,10 @@ struct pcclGin_BackendMask {
   template<typename Coop>
   PCCL_DEVICE_INLINE void waitCounter(Coop, pcclGinCounter_t counter, uint64_t least, int bits=56, hggc::memory_order ord = hggc::memory_order_acquire) const;
 
+  template<typename Coop>
+  PCCL_DEVICE_INLINE pcclResult_t waitCounter(Coop, pcclGinCounter_t counter, uint64_t least, int bits,
+                                             hggc::memory_order ord, uint64_t timeoutCycles) const;
+
   // Each signal has a dedicated "shadow" which the user is free to manipulate for
   // any reason. The only calls which manipulate the shadow are `increaseSignalShadow`
   // and `resetSignal`.
@@ -359,9 +363,18 @@ struct pcclGin_BackendMask {
   template<typename Coop>
   PCCL_DEVICE_INLINE void waitSignal(Coop, pcclGinSignal_t signal, uint64_t least, int bits=64, hggc::memory_order ord = hggc::memory_order_acquire) const;
 
+  template<typename Coop>
+  PCCL_DEVICE_INLINE pcclResult_t waitSignal(Coop, pcclGinSignal_t signal, uint64_t least, int bits,
+                                            hggc::memory_order ord, uint64_t timeoutCycles) const;
+
   // Wait for VA signal at given window and offset to meet or exceed value.
   template<typename Coop>
   PCCL_DEVICE_INLINE void waitSignal(Coop, pcclWindow_t signalWindow, size_t signalOffset, uint64_t least, int bits=64, hggc::memory_order ord = hggc::memory_order_acquire) const;
+
+  template<typename Coop>
+  PCCL_DEVICE_INLINE pcclResult_t waitSignal(Coop, pcclWindow_t signalWindow, size_t signalOffset,
+                                            uint64_t least, int bits, hggc::memory_order ord,
+                                            uint64_t timeoutCycles) const;
 
   // Wait for signal to meet or exceed shadow value.
   template<typename Coop>

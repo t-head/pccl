@@ -487,19 +487,19 @@ struct pcclGinApi_ResetSignal<PCCL_NET_DEVICE_GIN_GDAKI> {
 
 template <>
 struct pcclGinApi_GetCounterPtr<PCCL_NET_DEVICE_GIN_GDAKI> {
-  PCCL_DEVICE_INLINE static uint64_t* call(pcclGinCtx ctx, pcclGinCounter_t counterId) {
+  PCCL_DEVICE_INLINE static pcclGinOffsetPtr call(pcclGinCtx ctx, pcclGinCounter_t counterId) {
     using pccl::utility::loadConst;
     pcclGinGdakiGPUContext* gdaki = &((struct pcclGinGdakiGPUContext*)ctx.handle)[ctx.contextId];
-    return loadConst(&gdaki->counters_table.buffer) + counterId;
+    return {loadConst(&gdaki->counters_table.buffer) + counterId, 0};
   }
 };
 
 template <>
 struct pcclGinApi_GetSignalPtr<PCCL_NET_DEVICE_GIN_GDAKI> {
-  PCCL_DEVICE_INLINE static uint64_t* call(pcclGinCtx ctx, pcclGinSignal_t signalId) {
+  PCCL_DEVICE_INLINE static pcclGinOffsetPtr call(pcclGinCtx ctx, pcclGinSignal_t signalId) {
     using pccl::utility::loadConst;
     pcclGinGdakiGPUContext* gdaki = &((struct pcclGinGdakiGPUContext*)ctx.handle)[ctx.contextId];
-    return loadConst(&gdaki->signals_table.buffer) + signalId;
+    return {loadConst(&gdaki->signals_table.buffer) + signalId, 0};
   }
 };
 

@@ -59,6 +59,11 @@ struct pcclGinDescriptorSmem {
   alignas(16) char space[64];
 };
 
+struct pcclGinOffsetPtr {
+  uint64_t* ptr;
+  uint64_t offset;
+};
+
 enum pcclGinSignalType {
   PCCL_GIN_SIGNAL_TYPE_NONE,
   PCCL_GIN_SIGNAL_TYPE_VA,
@@ -129,12 +134,22 @@ struct pcclGinApi_PutValue {
 
 template <pcclNetDeviceType backend>
 struct pcclGinApi_GetSignalPtr {
-  PCCL_DEVICE_INLINE static uint64_t* call(pcclGinCtx, int peer, pcclGinSignal_t signalId);
+  PCCL_DEVICE_INLINE static pcclGinOffsetPtr call(pcclGinCtx, pcclGinSignal_t signalId);
 };
 
 template <pcclNetDeviceType backend>
 struct pcclGinApi_GetCounterPtr {
-  PCCL_DEVICE_INLINE static uint64_t* call(pcclGinCtx, int peer, pcclGinCounter_t counterId);
+  PCCL_DEVICE_INLINE static pcclGinOffsetPtr call(pcclGinCtx, pcclGinCounter_t counterId);
+};
+
+// Providers with software-maintained counters may advance completions here.
+// Automatic-progress providers need no specialization. On error, a provider
+// also publishes its asynchronous error/abort state for the void/read APIs.
+template <pcclNetDeviceType backend>
+struct pcclGinApi_ProgressCounter {
+  PCCL_DEVICE_INLINE static pcclResult_t call(pcclGinCtx, uint32_t* abortFlag) {
+    return pcclSuccess;
+  }
 };
 
 template <pcclNetDeviceType backend>

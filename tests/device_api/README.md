@@ -8,6 +8,7 @@ export LD_LIBRARY_PATH="$PWD/build/lib:$LD_LIBRARY_PATH"
 export PCCL_GIN_PLUGIN=none PCCL_GIN_TYPE=3 PCCL_MNNVL_ENABLE=0
 mpirun -np 2 tests/device_api/gin_window 0
 mpirun -np 2 tests/device_api/gin_config
+mpirun -np 2 tests/device_api/gin_wait
 ```
 
 `gin_window 0` verifies device-backed GIN-only windows; `gin_window 1`
@@ -20,6 +21,8 @@ Tests must run on idle devices; use a process timeout to detect a hung peer.
 
 `gin_config` checks capability reporting, backend selection, collective request
 agreement, legacy output canaries and LSA-only creation after GIN activation.
+`gin_wait` checks immediate success, timeout, invalid bit widths and delayed
+indexed/VA signals and counters, including cooperative status broadcasts.
 
 These checks require MPI and a functioning GIN backend and are run manually;
 they are not part of the default build or the hosted CI jobs.
