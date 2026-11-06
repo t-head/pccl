@@ -2,13 +2,14 @@
   "classification": {
     "base_sha": "77af125652fd1ffc532bf519022f709b9df510fd",
     "head_sha": "1e963c9328ddade632e7b91d8011869712a64106",
-    "input_fingerprint": "5c113d3ea63adc17da4400a1bb331c354afb7adfda836d0e80d065fdcd5c257e",
+    "input_fingerprint": "cc5395e8a5fc0e9c5b2970b17901bd14a608bc11966e7cb6a43fe3616bc0819e",
     "pr_number": 130,
     "proposal": {
       "modules": [
+        "network",
         "gin"
       ],
-      "reason": "Main functional change is in GIN-specific networking: GDAKI and PROXY now do LAG-aware QP TX-port affinity (capability-gated, disable flags, per-context/peer rotation) during GIN connection setup. The mlx5/DOCA symbol and wrapper additions are supporting plumbing for this GIN behavior, not an independent shared-network policy change."
+      "reason": "Primary change is GIN behavior: GDAKI and GIN_IB_PROXY now set/rotate LAG TX QP affinity across contexts/peers (plus related context-exchange/self-loop connect flow updates). Add network because the PR also makes substantive RDMA backend changes in shared mlx5/verbs layers (new mlx5dv symbol wrappers, LAG capability queries, and QP lag-port attribute validation/set paths) that affect transport-level connection handling beyond a pure caller edit."
     }
   },
   "reviewers": {
