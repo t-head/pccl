@@ -22,7 +22,10 @@ never uses repository secrets, and it keeps the executable source of truth in
 `pccl_test_suites`: the checked-in catalog records the reviewed revision, the exporter
 hash, and the selection hash, so a change to the cases requires a new export. The reviewed
 two-node selection currently contains only a standard execution; the notsm build covers
-single-node sanity and is not a second two-node variant in this workflow.
+single-node sanity and is not a second two-node variant in this workflow. Each build also
+publishes a build record containing the actual source revisions, profile and archive SHA-256.
+The executor verifies that record against the archive and retains it in shard evidence; both
+result gates check it again without requiring the original build host or archive to be present.
 
 ## Reading Cases and commands
 

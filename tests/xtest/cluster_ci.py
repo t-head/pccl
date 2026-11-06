@@ -14,9 +14,11 @@ import shutil
 import subprocess
 import sys
 
+from build_evidence import load as load_build
 from catalog import validate_bundle
 from command import check_command
-from execute import execution_provenance, read_jsonl, run_shard, verified_runtime, verify_lifecycle, write_json
+from execute import (execution_provenance, read_jsonl, run_shard, verified_build, verified_runtime,
+                     verify_lifecycle, write_json)
 from manifest import (PCCL_TESTS_REVISION, RUNNER_HASHES, build_manifest, case_key, digest,
                       load_manifest, validate_spec, write_bundle)
 
@@ -172,7 +174,7 @@ def selection(path):
   return manifest
 
 
-def run(manifest_path, test_root, output):
+def run(manifest_path, test_root, output, build_record, build_archive):
   manifest = selection(manifest_path)
   root = Path(test_root).resolve()
   binary = root / 'pccl-tests' / 'build'
@@ -183,8 +185,9 @@ def run(manifest_path, test_root, output):
   libraries = re.findall(r'lib(?:pccl|nccl)\.so[^\s]*\s+=>\s+(\S+)', linked.stdout)
   if not libraries or any(Path(path).resolve().parent != (root / 'lib').resolve() for path in libraries):
     raise ValueError('Benchmark is not linked to the freshly built PCCL library')
+  build = load_build(build_record, manifest['inputs'], 'standard', build_archive)
   shard = manifest['shards'][0]
-  return run_shard(manifest_path, shard['shard_id'], root, binary, Path(output), mpi_options())
+  return run_shard(manifest_path, shard['shard_id'], root, binary, Path(output), mpi_options(), build=build)
 
 
 def summarize(manifest_path, results, output):
@@ -192,7 +195,7 @@ def summarize(manifest_path, results, output):
   shard = manifest['shards'][0]
   expected = {row['case_key']: row for row in shard['cases']}
   directory = Path(results)
-  passed, error = 0, ''
+  passed, error, build = 0, '', None
   try:
     index = read_json(directory / 'index.json')
     rows = read_jsonl(directory / 'results.jsonl')
@@ -200,7 +203,8 @@ def summarize(manifest_path, results, output):
     execution = index['execution']
     if (len(actual) != len(rows) or list(actual) != list(expected)
         or index['shard_id'] != shard['shard_id'] or index['expected'] != list(expected)
-        or index['completed'] != list(expected) or index['failures'] != 0
+        or index['completed'] != list(expected) or type(index['failures']) is not int
+        or index['failures'] != 0
         or index['cancelled'] is not False or index['artifact_error'] != ''
         or index['selection_sha256'] != manifest['selection_sha256']
         or digest(load_manifest(directory / 'manifest.json')) != digest(manifest)
@@ -209,6 +213,7 @@ def summarize(manifest_path, results, output):
         or not re.fullmatch(r'3\.[0-9]+\.[0-9]+', execution['executor_python_version'])):
       raise ValueError('Cluster shard evidence is incomplete or inconsistent')
     shard_runtime = verified_runtime(directory, index)
+    build = verified_build(directory, index, manifest['inputs'], 'standard')
     if index.get('lifecycle_error') != '':
       raise ValueError('Cluster Suite lifecycle did not complete cleanly')
     verify_lifecycle(directory, shard, shard_runtime)
@@ -216,8 +221,10 @@ def summarize(manifest_path, results, output):
     result = actual[key]
     case_dir = directory / key / 'attempt-1'
     log_ref = f'{key}/attempt-1/command.log'
-    if (result['status'] != 'PASSED' or result['returncode'] != 0 or result['error'] != ''
-        or result['attempt'] != 1 or type(result['duration']) not in (int, float)
+    if (result['status'] != 'PASSED' or type(result['returncode']) is not int
+        or result['returncode'] != 0 or result['error'] != ''
+        or type(result['attempt']) is not int or result['attempt'] != 1
+        or type(result['duration']) not in (int, float)
         or not math.isfinite(result['duration']) or result['duration'] < 0
         or result['command_log'] != log_ref or result['legacy_source'] != row['spec']['legacy_source']
         or digest(read_json(case_dir / 'result.json')) != digest(result)):
@@ -240,7 +247,7 @@ def summarize(manifest_path, results, output):
   complete = passed == 1 and not error
   write_json(target / 'summary.json', {
     'scope': 'two-node-cluster-run-trial', 'complete': complete, 'expected': 1,
-    'passed': passed, 'error': error, 'inputs': manifest['inputs'],
+    'passed': passed, 'error': error, 'inputs': manifest['inputs'], 'build': build,
   })
   print(f'Cluster-run MPI trial: {passed}/1 passed; complete={complete}')
   return 0 if complete else 1
@@ -254,6 +261,8 @@ def main():
   parser.add_argument('--pccl-revision')
   parser.add_argument('--pccl-tests', type=Path)
   parser.add_argument('--test-root', type=Path)
+  parser.add_argument('--build-record', type=Path)
+  parser.add_argument('--build-archive', type=Path)
   parser.add_argument('--results', type=Path)
   args = parser.parse_args()
   try:
@@ -270,9 +279,9 @@ def main():
     if args.manifest is None:
       parser.error('run and summary require --manifest')
     if args.operation == 'run':
-      if args.test_root is None:
-        parser.error('run requires --test-root')
-      return run(args.manifest, args.test_root, args.output)
+      if args.test_root is None or args.build_record is None or args.build_archive is None:
+        parser.error('run requires --test-root, --build-record and --build-archive')
+      return run(args.manifest, args.test_root, args.output, args.build_record, args.build_archive)
     if args.results is None:
       parser.error('summary requires --results')
     return summarize(args.manifest, args.results, args.output)

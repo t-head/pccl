@@ -55,6 +55,7 @@ jobs:
               "$PREPARE_PYTHON" -S -B -m unittest discover -s tests/xtest -p "test_catalog.py" -v
               "$PREPARE_PYTHON" -S -B -m unittest discover -s tests/xtest -p "test_manifest.py" -v
               "$PREPARE_PYTHON" -S -B -m unittest discover -s tests/xtest -p "test_metrics.py" -v
+              "$PREPARE_PYTHON" -S -B -m unittest discover -s tests/xtest -p "test_build_evidence.py" -v
               "$PREPARE_PYTHON" -S -B -m unittest discover -s tests/xtest -p "test_command.py" -v
               "$PREPARE_PYTHON" -S -B -m unittest discover -s tests/xtest -p "test_execute.py" -v
               "$PREPARE_PYTHON" -S -B -m unittest discover -s tests/xtest -p "test_single_node_ci.py" -v
@@ -173,6 +174,11 @@ jobs:
             mkdir -p "$NAS_BUILD_DIR"
             tar -czf "$NAS_BUILD_DIR/output_standard.tar.gz" -C /workspace/source output_standard
             sha256sum "$NAS_BUILD_DIR/output_standard.tar.gz" > "$NAS_BUILD_DIR/output_standard.tar.gz.sha256"
+            python3 -S -B pccl/tests/xtest/build_evidence.py create \
+              --archive "$NAS_BUILD_DIR/output_standard.tar.gz" \
+              --pccl-revision "$(git -C pccl rev-parse HEAD)" \
+              --pccl-tests-revision "$(git -C pccl-tests rev-parse HEAD)" \
+              --profile standard --output "$NAS_BUILD_DIR/output_standard.build.json"
 
   build-notsm:
     name: Build notsm
@@ -225,6 +231,11 @@ jobs:
             mkdir -p "$NAS_BUILD_DIR"
             tar -czf "$NAS_BUILD_DIR/output_notsm.tar.gz" -C /workspace/source output_notsm
             sha256sum "$NAS_BUILD_DIR/output_notsm.tar.gz" > "$NAS_BUILD_DIR/output_notsm.tar.gz.sha256"
+            python3 -S -B pccl/tests/xtest/build_evidence.py create \
+              --archive "$NAS_BUILD_DIR/output_notsm.tar.gz" \
+              --pccl-revision "$(git -C pccl rev-parse HEAD)" \
+              --pccl-tests-revision "$(git -C pccl-tests rev-parse HEAD)" \
+              --profile notsm --output "$NAS_BUILD_DIR/output_notsm.build.json"
 
   sanity:
     name: Source sanity (${{ matrix.profile }})
@@ -300,6 +311,8 @@ jobs:
               /workspace/pccl-source-env/bin/python "$build_output/pccl/tests/xtest/single_node_ci.py" run \
                 --manifest /workspace/source/sanity-manifest/manifest.json \
                 --profile '${{ matrix.profile }}' --shard "$shard" --test-root "$build_output" \
+                --build-record "$BUILD_ROOT/output_${{ matrix.profile }}.build.json" \
+                --build-archive "$BUILD_ROOT/output_${{ matrix.profile }}.tar.gz" \
                 --output "$RESULT_ROOT/${{ matrix.profile }}"
             done
 
@@ -402,7 +415,10 @@ jobs:
             /workspace/pccl-cluster-env/bin/python \
               "$build_output/pccl/tests/xtest/cluster_ci.py" run \
               --manifest "$SOURCE_DIR/cluster-manifest/manifest.json" \
-              --test-root "$build_output" --output "$RESULT_ROOT/standard"
+              --test-root "$build_output" \
+              --build-record "$BUILD_ROOT/output_standard.build.json" \
+              --build-archive "$BUILD_ROOT/output_standard.tar.gz" \
+              --output "$RESULT_ROOT/standard"
       - name: Print sanitized MPI diagnostics
         if: always()
         run: |
@@ -441,7 +457,7 @@ jobs:
             --results /wl_nas/devops/pccl-source-sanity/${{ github.run_id }}/results \
             --output public-results
       - name: Reconcile the two-node MPI execution record
-        if: needs.cluster.result == 'success'
+        if: always() && needs.cluster.result == 'success'
         run: |
           python3 -B tests/xtest/cluster_ci.py summary \
             --manifest cluster-manifest/manifest.json \

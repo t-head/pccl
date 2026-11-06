@@ -16,6 +16,7 @@ import sys
 import time
 import xml.etree.ElementTree as ET
 
+from build_evidence import validate as validate_build
 from command import _prepare as prepare_command
 from command import cancellation_signals, check_command, run_command, safe_environment, safe_text, stop_recorded_process
 from manifest import digest, load_manifest, read_json
@@ -25,7 +26,7 @@ from metrics import parse_metrics, summarize_metrics, write_metrics
 def execution_provenance():
     root = Path(__file__).resolve().parent
     files = ('execute.py', 'command.py', 'manifest.py', 'catalog.py', 'source-catalog.json',
-             'metrics.py', 'single_node_ci.py', 'cluster_ci.py', 'runner_capture.py')
+             'metrics.py', 'single_node_ci.py', 'cluster_ci.py', 'runner_capture.py', 'build_evidence.py')
     return {'executor_sha256': digest({name: hashlib.sha256((root / name).read_bytes()).hexdigest()
                                        for name in files}),
             'executor_python_version': platform.python_version()}
@@ -125,12 +126,25 @@ def verified_runtime(directory, index):
     """
     snapshot = read_json(Path(directory) / 'shard-runtime.json')
     if (not isinstance(snapshot, dict)
-            or set(snapshot) != {'schema_version', 'shard_id', 'selection_sha256', 'execution', 'runtime'}
+            or not {'schema_version', 'shard_id', 'selection_sha256', 'execution', 'runtime'} <= set(snapshot)
+            or set(snapshot) - {'schema_version', 'shard_id', 'selection_sha256', 'execution', 'runtime', 'build'}
             or type(snapshot['schema_version']) is not int or snapshot['schema_version'] != 1
             or any(snapshot[key] != index[key] for key in ('shard_id', 'selection_sha256', 'execution'))
             or digest(snapshot) != index.get('runtime_sha256')):
         raise ValueError('Shard runtime differs from manifest/executor index')
     return _validate_runtime(snapshot['runtime'])
+
+
+def verified_build(directory, index, inputs, profile):
+    """Verify the build identity retained in the trusted shard-runtime snapshot."""
+    # Reuse the full snapshot/index/manifest/executor binding before reading build.
+    verified_runtime(directory, index)
+    snapshot = read_json(Path(directory) / 'shard-runtime.json')
+    if digest(snapshot) != index.get('runtime_sha256'):
+        raise ValueError('Build evidence changed during snapshot verification')
+    if 'build' not in snapshot:
+        raise ValueError('Shard runtime is missing build evidence')
+    return validate_build(snapshot['build'], inputs, profile)
 
 
 def _lifecycle_record(suite):
@@ -404,7 +418,7 @@ def verify_lifecycle(directory, shard, runtime=None):
         raise ValueError(f'Invalid Suite lifecycle evidence: {exception}') from exception
 
 
-def run_shard(manifest_path, shard_id, test_root, binary_dir, output, mpi_options):
+def run_shard(manifest_path, shard_id, test_root, binary_dir, output, mpi_options, build=None):
     manifest = load_manifest(Path(manifest_path).resolve())
     matches = [shard for shard in manifest['shards'] if shard['shard_id'] == shard_id]
     if len(matches) != 1:
@@ -424,6 +438,8 @@ def run_shard(manifest_path, shard_id, test_root, binary_dir, output, mpi_option
                                          inherited_environment=safe_environment(os.environ)))
     snapshot = dict(schema_version=1, shard_id=shard_id, selection_sha256=manifest['selection_sha256'],
                     execution=provenance, runtime=hook_runtime)
+    if build is not None:
+        snapshot['build'] = validate_build(build, manifest['inputs'], shard['build_profile'])
     runtime_sha256 = digest(snapshot)
     output.mkdir(parents=True, exist_ok=False)
     write_json(output / 'manifest.json', manifest)

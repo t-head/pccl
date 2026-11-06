@@ -120,7 +120,7 @@ jobs:
           command: |
             set -euo pipefail
             cd "$SOURCE_DIR"
-            RUN_ROOT=/mnt/wl_nas/devops/pccl-cluster-run/${{ github.run_id }}/${{ github.run_attempt }}
+            RUN_ROOT=/mnt/wl_nas/devops/pccl-cluster-run/${{ github.run_id }}
             RESULT_ROOT="$RUN_ROOT/results"
             export source_home="$SOURCE_DIR"
             export build_output="$RUN_ROOT/output_cluster"
@@ -134,6 +134,8 @@ jobs:
             git config --global --unset-all url.https://ai-gerrit.eng.t-head.cn/Public/Github/.insteadOf 2>/dev/null || true
             git config --global --add safe.directory "$SOURCE_DIR"
             git config --global --add safe.directory '*'
+            rm -rf "$RESULT_ROOT/standard" "$build_output" \
+              "$RUN_ROOT/output_standard.tar.gz" "$RUN_ROOT/output_standard.build.json"
             python3 -m venv /workspace/pccl-cluster-env
             /workspace/pccl-cluster-env/bin/python -m pip install --disable-pip-version-check \
               --no-index --find-links "$SOURCE_DIR/cluster-deps" -r pccl/tests/xtest/requirements.txt
@@ -158,6 +160,12 @@ jobs:
             SH
             chmod 0755 /tmp/pccl-noapt/apt
             PATH="/tmp/pccl-noapt:$PATH" bash pccl/.github/workflows/scripts/build.sh
+            tar -czf "$RUN_ROOT/output_standard.tar.gz" -C "$RUN_ROOT" output_cluster
+            python3 -S -B pccl/tests/xtest/build_evidence.py create \
+              --archive "$RUN_ROOT/output_standard.tar.gz" \
+              --pccl-revision "$(git -C pccl rev-parse HEAD)" \
+              --pccl-tests-revision "$(git -C pccl-tests rev-parse HEAD)" \
+              --profile standard --output "$RUN_ROOT/output_standard.build.json"
             source /usr/local/PPU_SDK/envsetup.sh
             export LD_LIBRARY_PATH="$build_output/lib:${LD_LIBRARY_PATH:-}"
             cp "$CLUSTER_HOSTS_FILE" "$build_output/hosts.cfg"
@@ -165,12 +173,15 @@ jobs:
             /workspace/pccl-cluster-env/bin/python \
               "$build_output/pccl/tests/xtest/cluster_ci.py" run \
               --manifest "$SOURCE_DIR/cluster-manifest/manifest.json" \
-              --test-root "$build_output" --output "$RESULT_ROOT/standard"
+              --test-root "$build_output" \
+              --build-record "$RUN_ROOT/output_standard.build.json" \
+              --build-archive "$RUN_ROOT/output_standard.tar.gz" \
+              --output "$RESULT_ROOT/standard"
       - name: Print sanitized MPI diagnostics
         if: always()
         run: |
           python3 -B pccl/tests/xtest/cluster_ci.py diagnose \
-            --results /wl_nas/devops/pccl-cluster-run/${{ github.run_id }}/${{ github.run_attempt }}/results/standard \
+            --results /wl_nas/devops/pccl-cluster-run/${{ github.run_id }}/results/standard \
             --output /tmp/unused
 
   summary:
@@ -193,7 +204,7 @@ jobs:
         run: |
           python3 -B tests/xtest/cluster_ci.py summary \
             --manifest cluster-manifest/manifest.json \
-            --results /wl_nas/devops/pccl-cluster-run/${{ github.run_id }}/${{ github.run_attempt }}/results/standard \
+            --results /wl_nas/devops/pccl-cluster-run/${{ github.run_id }}/results/standard \
             --output public-results
       - uses: actions/upload-artifact@v4
         if: always()

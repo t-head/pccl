@@ -51,6 +51,12 @@ def public_runner_fixture(build, runner):
         launcher.chmod(0o700)
 
 
+def synthetic_build_record(inputs, profile):
+    return {'schema_version': 1, 'pccl_revision': inputs['pccl_revision'],
+            'pccl_tests_revision': inputs['pccl_tests_revision'], 'build_profile': profile,
+            'artifact_sha256': hashlib.sha256(('synthetic archive: ' + profile).encode()).hexdigest()}
+
+
 def rewrite_hook_runtime(directory, shard, field, value):
     """Rewrite only hook-owned evidence, including every self-declared hash."""
     suite = next(suite for suite in shard['suite_runs'] if suite['lifecycle']['setup'])
@@ -166,7 +172,8 @@ class SingleNodeTests(unittest.TestCase):
                 if shard['test_type'] == 'performance':
                     environment.pop('UCX_TLS')
                 with patch.dict(os.environ, environment, clear=True):
-                    status = run_shard(self.path, shard['shard_id'], build, build, directory, [])
+                    status = run_shard(self.path, shard['shard_id'], build, build, directory, [],
+                               build=synthetic_build_record(self.inputs, shard['build_profile']))
                 rows = [json.loads(line) for line in (directory / 'results.jsonl').read_text().splitlines()]
                 self.assertEqual(status, 0, {'index': execute.read_json(directory / 'index.json'), 'results': rows})
                 for row in rows:
@@ -194,6 +201,10 @@ class SingleNodeTests(unittest.TestCase):
         self.assertEqual(ci.summarize(self.path, self.results, self.output), 0)
         summary = json.loads((self.output / 'summary.json').read_text())
         self.assertTrue(summary['complete'])
+        self.assertEqual(len(summary['builds']), 3)
+        for shard in self.manifest['shards']:
+            self.assertEqual(summary['builds'][shard['shard_id']],
+                             synthetic_build_record(self.inputs, shard['build_profile']))
         case_summary = json.loads((self.output / 'case-summary.json').read_text())
         self.assertTrue(case_summary['complete'])
         self.assertEqual(len(case_summary['cases']), 71)
@@ -506,21 +517,53 @@ class SingleNodeTests(unittest.TestCase):
         self.assertEqual({row['spec']['parameters']['ranks'] for shard in self.manifest['shards']
                           for row in shard['cases']}, {2, 4})
 
+    def test_build_identity_is_required_and_bound_to_each_shard(self):
+        self.write_results()
+        for shard in self.manifest['shards']:
+            directory = self.results / shard['build_profile'] / shard['shard_id']
+            snapshot_path = directory / 'shard-runtime.json'
+            index_path = directory / 'index.json'
+            snapshot = execute.read_json(snapshot_path)
+            for mutation in ('missing', 'revision', 'profile'):
+                changed = copy.deepcopy(snapshot)
+                if mutation == 'missing':
+                    changed.pop('build')
+                elif mutation == 'revision':
+                    changed['build']['pccl_revision'] = 'f' * 40
+                else:
+                    changed['build']['build_profile'] = 'notsm' if shard['build_profile'] == 'standard' else 'standard'
+                write_json(snapshot_path, changed)
+                index = execute.read_json(index_path)
+                index['runtime_sha256'] = digest(changed)
+                write_json(index_path, index)
+                with self.subTest(shard=shard['shard_id'], mutation=mutation):
+                    self.assertEqual(ci.summarize(self.path, self.results,
+                                                  self.root / f"build-{shard['shard_id']}-{mutation}"), 1)
+                write_json(snapshot_path, snapshot)
+                index['runtime_sha256'] = digest(snapshot)
+                write_json(index_path, index)
+
     def test_run_rejects_sdk_library_and_stops_after_shard_failure(self):
         build = self.root / 'build'
+        archive = self.root / 'output.tar.gz'
+        archive.write_bytes(b'synthetic archive')
+        record = synthetic_build_record(self.inputs, 'standard')
+        record['artifact_sha256'] = hashlib.sha256(archive.read_bytes()).hexdigest()
+        record_path = self.root / 'build.json'
+        write_json(record_path, record)
         shard_id = next(shard['shard_id'] for shard in self.manifest['shards']
                         if shard['build_profile'] == 'standard')
         with patch.object(ci.subprocess, 'run') as linked, patch.object(ci, 'run_shard') as run:
             linked.return_value.stdout = 'libpccl.so.2 => /usr/local/PPU_SDK/lib/libpccl.so.2 (0x123)'
             with self.assertRaisesRegex(ValueError, 'freshly built'):
-                ci.run(self.path, 'standard', build, self.results, shard_id)
+                ci.run(self.path, 'standard', build, self.results, shard_id, record_path, archive)
             run.assert_not_called()
             linked.return_value.stdout = f'libpccl.so.2 => {build}/lib/libpccl.so.2 (0x123)'
             run.return_value = 1
-            self.assertEqual(ci.run(self.path, 'standard', build, self.results, shard_id), 1)
+            self.assertEqual(ci.run(self.path, 'standard', build, self.results, shard_id, record_path, archive), 1)
             self.assertEqual(run.call_count, 1)
             with self.assertRaisesRegex(ValueError, 'exactly one'):
-                ci.run(self.path, 'standard', build, self.results, 'unknown-batch')
+                ci.run(self.path, 'standard', build, self.results, 'unknown-batch', record_path, archive)
 
 
 if __name__ == '__main__':

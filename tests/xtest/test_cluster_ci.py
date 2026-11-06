@@ -14,7 +14,8 @@ from unittest import mock
 import cluster_ci as ci
 from execute import run_shard, write_json
 from manifest import build_manifest, case_key, digest, write_bundle
-from test_single_node_ci import public_runner_fixture, rewrite_case_runtime, rewrite_hook_runtime
+from test_single_node_ci import (public_runner_fixture, rewrite_case_runtime, rewrite_hook_runtime,
+                                 synthetic_build_record)
 
 
 ROOT = Path(__file__).resolve().parents[2]
@@ -41,7 +42,8 @@ class ClusterCiTests(unittest.TestCase):
     environment.update(inherited or {})
     with mock.patch.dict(os.environ, environment, clear=True):
       self.assertEqual(run_shard(self.path, shard['shard_id'], build, build, self.root / 'results',
-                                 ['--hostfile', str(build / 'hosts.cfg')]), 0)
+                                 ['--hostfile', str(build / 'hosts.cfg')],
+                                 build=synthetic_build_record(self.inputs, 'standard')), 0)
 
   def test_source_export_and_manifest_are_exactly_one_two_node_case(self):
     self.assertEqual(ci.ACTION_REF, 't-head/ci-infra/cluster-run@40165c945cba33ac7b16b41c4485fe53b68f581f')
@@ -86,9 +88,55 @@ class ClusterCiTests(unittest.TestCase):
     self.assertEqual(ci.summarize(self.path, self.root / 'results', output), 0)
     summary = json.loads((output / 'summary.json').read_text())
     self.assertEqual((summary['expected'], summary['passed'], summary['complete']), (1, 1, True))
+    self.assertEqual(summary['build'], synthetic_build_record(self.inputs, 'standard'))
     process = next((self.root / 'results').rglob('command-process.json'))
     write_json(process, {'active': False, 'state': 'failed', 'return_code': 0})
     self.assertEqual(ci.summarize(self.path, self.root / 'results', self.root / 'failed'), 1)
+
+  def test_integer_only_result_fields_reject_booleans_and_floats(self):
+    self.write_results()
+    index_path = self.root / 'results/index.json'
+    index = ci.read_json(index_path)
+    for value in (False, 0.0):
+      write_json(index_path, dict(index, failures=value))
+      with self.subTest(field='failures', value=value):
+        self.assertEqual(ci.summarize(self.path, self.root / 'results', self.root / f'index-{value}'), 1)
+    write_json(index_path, index)
+    key = self.manifest['shards'][0]['cases'][0]['case_key']
+    result_path = self.root / 'results' / key / 'attempt-1/result.json'
+    result = ci.read_json(result_path)
+    for field, value in (('returncode', False), ('returncode', 0.0), ('attempt', True), ('attempt', 1.0)):
+      changed = dict(result, **{field: value})
+      write_json(result_path, changed)
+      (self.root / 'results/results.jsonl').write_text(json.dumps(changed) + '\n')
+      with self.subTest(field=field, value=value):
+        self.assertEqual(ci.summarize(self.path, self.root / 'results',
+                                      self.root / f'{field}-{value}'), 1)
+      write_json(result_path, result)
+      (self.root / 'results/results.jsonl').write_text(json.dumps(result) + '\n')
+
+  def test_build_identity_is_required_and_bound_to_manifest(self):
+    self.write_results()
+    snapshot_path = self.root / 'results/shard-runtime.json'
+    index_path = self.root / 'results/index.json'
+    snapshot = ci.read_json(snapshot_path)
+    for mutation in ('missing', 'revision', 'profile'):
+      changed = copy.deepcopy(snapshot)
+      if mutation == 'missing':
+        changed.pop('build')
+      elif mutation == 'revision':
+        changed['build']['pccl_revision'] = 'f' * 40
+      else:
+        changed['build']['build_profile'] = 'notsm'
+      write_json(snapshot_path, changed)
+      index = ci.read_json(index_path)
+      index['runtime_sha256'] = digest(changed)
+      write_json(index_path, index)
+      with self.subTest(mutation=mutation):
+        self.assertEqual(ci.summarize(self.path, self.root / 'results', self.root / f'build-{mutation}'), 1)
+      write_json(snapshot_path, snapshot)
+      index['runtime_sha256'] = digest(snapshot)
+      write_json(index_path, index)
 
   def test_relocated_summary_needs_no_build_hostfile_or_local_runtime(self):
     self.write_results()
@@ -150,6 +198,10 @@ class ClusterCiTests(unittest.TestCase):
     self.assertIn('cluster_ci.py" run', workflow)
     self.assertIn('cluster_ci.py diagnose', workflow)
     self.assertIn('cluster_ci.py summary', workflow)
+    self.assertNotIn('github.run_attempt', workflow)
+    self.assertIn('build_evidence.py create', workflow)
+    self.assertIn('--build-record "$RUN_ROOT/output_standard.build.json"', workflow)
+    self.assertIn('--build-archive "$RUN_ROOT/output_standard.tar.gz"', workflow)
     self.assertNotIn('ppu-scheduler-action@', workflow)
     # The two-node trial must keep the same time budget as the single-node job.
     single = (ROOT / '.github/workflows/source-sanity.yml').read_text()

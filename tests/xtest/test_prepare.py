@@ -132,7 +132,8 @@ assert not ({'xtest', 'mmengine', 'filelock'} & sys.modules.keys())
         for forbidden in ('pip install', 'requirements.txt', 'ppu-scheduler-action@',
                           'single_node_ci.py" run', 'single_node_ci.py summary'):
             self.assertNotIn(forbidden, prepare)
-        for suite in ('test_catalog.py', 'test_manifest.py', 'test_metrics.py', 'test_command.py', 'test_execute.py',
+        for suite in ('test_catalog.py', 'test_manifest.py', 'test_metrics.py', 'test_build_evidence.py',
+                      'test_command.py', 'test_execute.py',
                       'test_single_node_ci.py', 'test_coverage_map.py', 'test_prepare.py',
                       'test_migration_contract.py'):
             self.assertIn(suite, prepare)
@@ -151,6 +152,10 @@ assert not ({'xtest', 'mmengine', 'filelock'} & sys.modules.keys())
         self.assertIn('max-parallel: 2', sanity)
         self.assertIn('single_node_ci.py" run', workflow)
         self.assertIn('single_node_ci.py summary', workflow)
+        self.assertIn('--build-record "$BUILD_ROOT/output_${{ matrix.profile }}.build.json"', sanity)
+        self.assertIn('--build-archive "$BUILD_ROOT/output_${{ matrix.profile }}.tar.gz"', sanity)
+        self.assertIn('--build-record "$BUILD_ROOT/output_standard.build.json"', cluster)
+        self.assertIn('--build-archive "$BUILD_ROOT/output_standard.tar.gz"', cluster)
         # Re-running failed jobs keeps the run id but bumps the attempt, so the build and
         # the result roots must not embed the attempt number.
         self.assertEqual(workflow.count('${{ github.run_attempt }}'), 0)
@@ -164,6 +169,10 @@ assert not ({'xtest', 'mmengine', 'filelock'} & sys.modules.keys())
         self.assertIn('tar -czf', build_notsm)
         self.assertIn('sha256sum', build_standard)
         self.assertIn('sha256sum', build_notsm)
+        self.assertIn('build_evidence.py create', build_standard)
+        self.assertIn('build_evidence.py create', build_notsm)
+        self.assertIn('--pccl-revision "$(git -C pccl rev-parse HEAD)"', workflow)
+        self.assertIn('--pccl-tests-revision "$(git -C pccl-tests rev-parse HEAD)"', workflow)
         self.assertIn('tar -xzf', sanity)
         self.assertIn('sha256sum --check', sanity)
         # Performance identity must not inherit the internal build-system publish path.
@@ -191,6 +200,7 @@ assert not ({'xtest', 'mmengine', 'filelock'} & sys.modules.keys())
         for job in (prepare, build_standard, build_notsm, sanity, cluster, summary):
             self.assertIn('github.event.pull_request.head.repo.full_name == github.repository', job)
         self.assertNotIn("if: always() && needs.prepare.result == 'success'", summary)
+        self.assertIn("if: always() && needs.cluster.result == 'success'", summary)
         self.assertNotIn('notsm_build.sh', sanity)
         self.assertNotIn('-m xtest', workflow)
         self.assertNotIn('art-pub.eng.t-head.cn', workflow)

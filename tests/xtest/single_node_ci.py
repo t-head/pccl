@@ -10,10 +10,11 @@ import re
 import subprocess
 import sys
 
+from build_evidence import load as load_build
 from catalog import cases, load_catalog, performance_cases
 from command import _redacted_lines, check_command
-from execute import (execution_provenance, read_jsonl, run_shard, verified_metrics, verified_runtime,
-                     verify_lifecycle, write_json)
+from execute import (execution_provenance, read_jsonl, run_shard, verified_build, verified_metrics,
+                     verified_runtime, verify_lifecycle, write_json)
 from manifest import case_key, digest, load_manifest, read_json, validate_selection
 from metrics import summarize_metrics, write_metrics
 
@@ -49,7 +50,7 @@ def matrix(manifest_path):
     return {'include': include}
 
 
-def run(manifest_path, profile, test_root, output, shard_id):
+def run(manifest_path, profile, test_root, output, shard_id, build_record, build_archive):
     manifest = selection(manifest_path)
     selected = [shard for shard in manifest['shards']
                 if shard['build_profile'] == profile and shard['shard_id'] == shard_id]
@@ -61,8 +62,9 @@ def run(manifest_path, profile, test_root, output, shard_id):
     libraries = re.findall(r'lib(?:pccl|nccl)\.so[^\s]*\s+=>\s+(\S+)', linked.stdout)
     if not libraries or any(Path(path).resolve().parent != (root / 'lib').resolve() for path in libraries):
         raise ValueError('Benchmark is not linked to the freshly built PCCL library')
+    build = load_build(build_record, manifest['inputs'], profile, build_archive)
     Path(output).mkdir(parents=True, exist_ok=True)
-    return run_shard(manifest_path, shard_id, root, binary, Path(output) / shard_id, [])
+    return run_shard(manifest_path, shard_id, root, binary, Path(output) / shard_id, [], build=build)
 
 
 def case_summaries(manifest, published, results, output):
@@ -127,7 +129,7 @@ def case_summaries(manifest, published, results, output):
 
 def summarize(manifest_path, results, output):
     manifest = selection(manifest_path)
-    published, measurements, errors, executions = [], [], [], {}
+    published, measurements, errors, executions, builds = [], [], [], {}, {}
     source_hash = execution_provenance()['executor_sha256']
     for shard in manifest['shards']:
         directory = Path(results) / shard['build_profile'] / shard['shard_id']
@@ -150,6 +152,7 @@ def summarize(manifest_path, results, output):
                     or not re.fullmatch(r'3\.[0-9]+\.[0-9]+', execution['executor_python_version'])):
                 raise ValueError('Shard evidence does not match this manifest and executor')
             shard_runtime = verified_runtime(directory, index)
+            builds[shard['shard_id']] = verified_build(directory, index, manifest['inputs'], shard['build_profile'])
             if shard.get('suite_runs'):
                 if index.get('lifecycle_error') != '':
                     raise ValueError('Suite lifecycle did not complete cleanly')
@@ -219,7 +222,8 @@ def summarize(manifest_path, results, output):
     write_json(target / 'summary.json', dict(scope='sanity-single-node', complete=complete,
                                            expected=len(published), passed=passed,
                                            failed_shards=errors, artifact_error=artifact_error,
-                                           cases=published, inputs=manifest['inputs'], executions=executions))
+                                           cases=published, inputs=manifest['inputs'], executions=executions,
+                                           builds=builds))
     print(f'Single-node sanity: {passed}/{len(published)} passed; complete={complete}')
     return 0 if complete else 1
 
@@ -232,6 +236,8 @@ def main():
     parser.add_argument('--profile', choices=('standard', 'notsm'))
     parser.add_argument('--shard')
     parser.add_argument('--test-root', type=Path)
+    parser.add_argument('--build-record', type=Path)
+    parser.add_argument('--build-archive', type=Path)
     parser.add_argument('--results', type=Path)
     args = parser.parse_args()
     if args.operation == 'matrix':
@@ -240,9 +246,11 @@ def main():
     if args.output is None:
         parser.error('run and summary require --output')
     if args.operation == 'run':
-        if args.profile is None or args.test_root is None or args.shard is None:
-            parser.error('run requires --profile, --shard and --test-root')
-        return run(args.manifest, args.profile, args.test_root, args.output, args.shard)
+        if (args.profile is None or args.test_root is None or args.shard is None
+                or args.build_record is None or args.build_archive is None):
+            parser.error('run requires --profile, --shard, --test-root, --build-record and --build-archive')
+        return run(args.manifest, args.profile, args.test_root, args.output, args.shard,
+                   args.build_record, args.build_archive)
     if args.results is None:
         parser.error('summary requires --results')
     return summarize(args.manifest, args.results, args.output)
