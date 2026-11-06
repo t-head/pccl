@@ -2,13 +2,13 @@
   "classification": {
     "base_sha": "77af125652fd1ffc532bf519022f709b9df510fd",
     "head_sha": "3b5c47b08853373da4761fad2709fa64636be9e4",
-    "input_fingerprint": "bc4cada8aad2eae1ae613ea316ce0f41f62f0ab0acd934dcadd95717753e0352",
+    "input_fingerprint": "11d6d833cf27f6b85f89224736cd91457aab46e06777e18ae72b94103bc00728",
     "pr_number": 160,
     "proposal": {
       "modules": [
         "network"
       ],
-      "reason": "Bounds bond-interface token parsing in NET/IB backend initialization to allocated device-count capacity, fixing a heap-overflow risk in network transport setup."
+      "reason": "Fixes NET/IB initialization logic in src/transport/net_ib/init.cc by bounding bonding interface token parsing to nIbDevs, preventing buffer overflow during network backend interface discovery."
     }
   },
   "reviewers": {
