@@ -29,5 +29,12 @@ agreement, legacy output canaries and LSA-only creation after GIN activation.
 `gin_wait` checks immediate success, timeout, invalid bit widths and delayed
 indexed/VA signals and counters, including cooperative status broadcasts.
 
+`gin_storage 1 2` checks shared HOST_NUMA storage with four ranks and stride two;
+use `gin_storage 0 2` for device storage. It transfers shareable VMM handles
+between local processes using SCM_RIGHTS and maps shards after a device segment.
+All ranks register every shard as GIN-only, exercise registration aliases, and
+check get/put payloads on every context. This validates the library against a
+shared-storage layout; it does not execute an application's allocator or kernels.
+
 These checks require MPI and a functioning GIN backend and are run manually;
 they are not part of the default build or the hosted CI jobs.
