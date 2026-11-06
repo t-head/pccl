@@ -215,8 +215,12 @@ def invite(api, pr, recommendation, roster, skill):
     requested.update(current_approvals(fresh, api.pages(f"/pulls/{number}/reviews")))
     new_users = sorted(roles_by_user.keys() - requested, key=api.login)
     logins = [api.login(user_id) for user_id in new_users]
+    # Explain the author's Maintainer exemption without adding a self-review request.
+    roles_by_user[author] = {module: ["Maintainer"] for module in modules
+                             if roster["modules"][module]["maintainer"] == author}
+    notice_users = new_users + ([author] if roles_by_user[author] else [])
     # Refresh existing notices even when everyone has already been invited.
-    notify_reviewers(api, number, new_users, roles_by_user)
+    notify_reviewers(api, number, notice_users, roles_by_user, author)
     if new_users:
         api.request("POST", f"/pulls/{number}/requested_reviewers", {"reviewers": logins})
     return (f"### Reviewer invitations · PR #{number}\n\n"
@@ -251,7 +255,7 @@ def module_maintainer(roster, module, author):
     return None if maintainer == author else maintainer
 
 
-def notify_reviewers(api, number, new_users, roles_by_user):
+def notify_reviewers(api, number, new_users, roles_by_user, author=None):
     """Keep module notices current and retain account IDs for retry deduplication."""
     notified = set()
     for comment in api.pages(f"/issues/{number}/comments"):
@@ -263,16 +267,16 @@ def notify_reviewers(api, number, new_users, roles_by_user):
         if marker:
             recipients = [int(user_id) for user_id in marker[1].split(",")]
             notified.update(recipients)
-            body = review_notice_body(api, recipients, roles_by_user)
+            body = review_notice_body(api, recipients, roles_by_user, author)
             if body != existing_body:
                 api.request("PATCH", f"/issues/comments/{comment['id']}", {"body": body})
     recipients = [user_id for user_id in new_users if user_id not in notified]
     if recipients:
         api.request("POST", f"/issues/{number}/comments",
-                    {"body": review_notice_body(api, recipients, roles_by_user)})
+                    {"body": review_notice_body(api, recipients, roles_by_user, author)})
 
 
-def review_notice_body(api, recipients, roles_by_user):
+def review_notice_body(api, recipients, roles_by_user, author=None):
     """Render current assignments while preserving the notice's original recipients."""
     lines = []
     for user_id in recipients:
@@ -282,7 +286,11 @@ def review_notice_body(api, recipients, roles_by_user):
             continue
         description = (", ".join(assignments[:-1]) + " and " + assignments[-1]
                        if len(assignments) > 1 else assignments[0])
-        lines.append(f"@{api.login(user_id)}, please review as {description}.")
+        if user_id == author:
+            lines.append(f"@{api.login(user_id)} is the PR author and {description}. "
+                         "No separate Maintainer approval or self-review request is needed.")
+        else:
+            lines.append(f"@{api.login(user_id)}, please review as {description}.")
     marker = "<!-- pccl-review-notice:" + ",".join(str(user_id) for user_id in recipients) + " -->\n"
     body = "\n\n".join(lines) or "No current module assignments remain for the reviewers in this notice."
     return marker + "\n" + body + "\n"
