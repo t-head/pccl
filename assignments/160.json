@@ -1,14 +1,14 @@
 {
   "classification": {
     "base_sha": "77af125652fd1ffc532bf519022f709b9df510fd",
-    "head_sha": "6d639db679ca9d0f1ac3ca5a98b22ac143a9078e",
-    "input_fingerprint": "04370cc18f2c56418bd12d9dce28271b91ebf2664ffb1be2618ce7ec4f2cfef5",
+    "head_sha": "c9f2a553cc0bfcad4551eb8a2f3025ca78518e0e",
+    "input_fingerprint": "aed8092d4044b8c618afda6fad2c6169c2cb41d3ee4ae7a1fb83f91569f8d70c",
     "pr_number": 160,
     "proposal": {
       "modules": [
         "network"
       ],
-      "reason": "Bounds checks were added in the NET/IB backend bonding-interface parser during network initialization (`ncclIbGetBondingIf`) to prevent buffer overflow/heap corruption when parsing `/sys/class/net/bonding_masters`."
+      "reason": "Bounds bonding-master token parsing and allocation in IB network backend initialization to prevent heap overflow/corruption when bonding interfaces exceed detected IB devices."
     }
   },
   "reviewers": {
