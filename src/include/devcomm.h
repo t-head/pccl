@@ -221,7 +221,10 @@ struct alignas(16) ncclDevWorkColl {
   void * recvbuff;
 
   ssize_t count;
-  size_t lastChunkSize;
+  union {
+    size_t lastChunkSize;
+    size_t agPartStride; // Ring/SIMPLE AllGather: elements per channel before tail clipping.
+  };
   uint32_t root;
 
   uint16_t nThreads;

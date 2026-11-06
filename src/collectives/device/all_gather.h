@@ -11,7 +11,7 @@
 #include "primitives.h"
 
 namespace {
-  template<class FUNC, typename T, int UNROLL, typename Proto>
+  template<class FUNC, typename T, int UNROLL, typename Proto, bool continuous = false>
   __device__ __forceinline__ void runRing(struct ncclDevWorkColl* work, struct ncclRing* inputRing=NULL, int* inputUserRanks=NULL) {
     const int tid = threadIdx.x;
     int nthreads;
@@ -47,8 +47,17 @@ namespace {
       chunkSize = stepSize * ALLGATHER_CHUNKSTEPS;
     }
     const int nranks = (inputRing == NULL) ? comm->nRanks : inputRing->nRanks;
-    const ssize_t loopSize = nChannels*(ssize_t)chunkSize;
     const ssize_t size = work->count;
+    ssize_t begin = 0, end = size, loopSize = nChannels * chunkSize;
+    if (continuous && inputRing == NULL) {
+      // A block indexes the compact launch grid. channelId is the physical
+      // channel selected by the mask and may wrap relative to startChannelId.
+      int channel = getShmemPtr(comm)->channelId;
+      int part = (channel - work->startChannelId + work->commNChannels) % work->commNChannels;
+      begin = part * work->agPartStride;
+      end = begin + min((ssize_t)work->agPartStride, size - begin);
+      loopSize = chunkSize;
+    }
 
     // Compute pointers
     const T * __restrict__ thisInput = (const T*)work->sendbuff;
@@ -57,9 +66,12 @@ namespace {
     // DIRECT=1, LL/LL128 do not use
     Primitives<T, FUNC, Proto, 1, 1, 1, 0> prims(tid, nthreads, &ring->prev, &ring->next, thisOutput, comm, work->redOpArg, getShmemPtr(comm)->groups, 0, 0, 0, NULL);
 
-    for (ssize_t gridOffset = 0; gridOffset < size; gridOffset += loopSize) {
+    for (ssize_t gridOffset = begin; gridOffset < end; gridOffset += loopSize) {
       int realChunkSize;
-      if (Proto::Id == NCCL_PROTO_LL) {
+      ssize_t chunkOffset = gridOffset;
+      if (continuous && inputRing == NULL) {
+        realChunkSize = chunkSize;
+      } else if (Proto::Id == NCCL_PROTO_LL) {
         if (size-gridOffset < loopSize) {
          chunkSize = work->lastChunkSize;
         }
@@ -72,8 +84,8 @@ namespace {
         ALIGN_SIZE(realChunkSize, nthreads*sizeof(uint64_t)/sizeof(T));
       }
 
-      ssize_t chunkOffset = gridOffset + bid*realChunkSize;
-      int nelem = min(realChunkSize, size-chunkOffset);
+      if (!continuous || inputRing != NULL) chunkOffset += bid*realChunkSize;
+      int nelem = min(realChunkSize, end-chunkOffset);
 
       /////////////// begin AllGather steps ///////////////
 
@@ -180,7 +192,7 @@ class RunWorkColl<ncclFuncAllGather, NCCL_ALGO_RING, NCCL_PROTO_SIMPLE, FUNC, T,
   public:
     __device__ void run(struct ncclDevWorkColl* work, struct ncclRing* inputRing=NULL, int* inputUserRanks=NULL) {
       using Proto = ProtoSimple<UNROLL, ALLGATHER_CHUNKSTEPS/ALLGATHER_SLICESTEPS, ALLGATHER_SLICESTEPS>;
-      runRing<FUNC, T, UNROLL, Proto>(work, inputRing, inputUserRanks);
+      runRing<FUNC, T, UNROLL, Proto, true>(work, inputRing, inputUserRanks);
     }
 };
 
