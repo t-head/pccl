@@ -1,8 +1,8 @@
 {
   "classification": {
-    "base_sha": "3a96d26465317339888c6c85b47ef3b4b897b3e3",
-    "head_sha": "e847d9c6dd60acf56d1dc9ee19cc11daf8a2764b",
-    "input_fingerprint": "f17e4a992975d2fb5076f57d96b93bfad64047a56d5f133d871646a0321e509f",
+    "base_sha": "77af125652fd1ffc532bf519022f709b9df510fd",
+    "head_sha": "31bf0d9f3c788688f916797f41cb7b3672a87935",
+    "input_fingerprint": "14e5bf69360e89b9e74fd17e89d143bbd5265b0f532cef3ea1fb17347ef666aa",
     "pr_number": 153,
     "proposal": {
       "modules": [
@@ -10,7 +10,7 @@
         "kernels",
         "symmetric"
       ],
-      "reason": "Primary change is in enqueue/launch planning: regular plans now launch with driver extra params carrying argument buffer pointer and actual length, and the runtime kernel-arg capacity/monitor storage is expanded to 4 KiB. kernels is also required because collective kernel signatures/types are changed from 1 KiB to 4 KiB argument storage (device-kernel interface impact). symmetric is additionally required because symmetric scheduling/allocation logic is substantively adjusted to keep its grouping budget capped at 1 KiB and to change multi-task args lifetime/ownership handling."
+      "reason": "Main change is in runtime launch/enqueue: regular plans now launch with explicit argument-buffer pointer and actual size, and the shared kernel-arg storage budget is raised to 4 KiB. Include kernels because collective kernel entry signatures/types are updated from 1 KiB to 4 KiB argument storage. Include symmetric because its scheduler adds an explicit 1 KiB grouping budget cap to preserve symmetric multi-task packing behavior despite the larger regular-plan budget."
     }
   },
   "reviewers": {
