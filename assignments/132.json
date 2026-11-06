@@ -1,15 +1,15 @@
 {
   "classification": {
     "base_sha": "a04b88e02c3a5b955ba0847eca2bc3d19cbf4829",
-    "head_sha": "7d9886c3741011938efc184f58db59601506f7d8",
-    "input_fingerprint": "5ee2ec1a1b9fc41b8700f7fe4e00f09acee0512a6e1fd6d261624986741a8c48",
+    "head_sha": "dbcb13cdbdddfba0d6b35bf1c488f5a7076702f5",
+    "input_fingerprint": "5e0f94d179544f2d5e0313b078944ce7c12927cf832666b38b473d61f9f3e8cf",
     "pr_number": 132,
     "proposal": {
       "modules": [
         "symmetric",
         "copy-engine"
       ],
-      "reason": "Main change is symmetric AllGather policy: automatic CE-vs-kernel path selection with rank/placement/graph thresholds, explicit override handling, and all-rank eligibility gating for SM89+ ICNS communicators. Also requires copy-engine review because CE execution was substantively refactored (partition assignment, local/remote stream-group submission, batch memcpy gating, and CE batch synchronization semantics)."
+      "reason": "Main change is symmetric AllGather policy: automatic CE-vs-kernel path selection with rank/placement/graph thresholds and all-rank eligibility gating. Additional copy-engine review is needed because CE execution is substantively reworked (partition/queue assignment, local-vs-remote stream groups, batch memcpy submission path, and OKI/driver gating behavior)."
     }
   },
   "reviewers": {
