@@ -1,14 +1,14 @@
 {
   "classification": {
     "base_sha": "77af125652fd1ffc532bf519022f709b9df510fd",
-    "head_sha": "a5f03f372245ae3e3f2d3db7435a66751d2392c3",
-    "input_fingerprint": "d41f6df1d9995affb74974e593d857cde21ac024ea86caa4fc5d6468e1ae6d66",
+    "head_sha": "750ad65ed6254e95ad72a818ea0bf41f6cf06092",
+    "input_fingerprint": "729474f23b8c781609ea56548a65b2c8229e70f682913f8fc9552f8b7923c0ab",
     "pr_number": 160,
     "proposal": {
       "modules": [
         "network"
       ],
-      "reason": "Fixes an out-of-bounds write in InfiniBand bonding interface parsing during NET/IB transport initialization by bounding the token loop to the allocated nIbDevs-sized buffer."
+      "reason": "Fixes NET/IB backend initialization logic in bonding-interface discovery by bounding parsing to nIbDevs to prevent overflow of network transport connection resources."
     }
   },
   "reviewers": {
