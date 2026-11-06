@@ -1,0 +1,21 @@
+{
+  "classification": {
+    "base_sha": "a04b88e02c3a5b955ba0847eca2bc3d19cbf4829",
+    "head_sha": "df81f9d74bdd3686466c6f6a0eef4c403f71d83e",
+    "input_fingerprint": "43f7337d61face57763781e14bad1b719bd9b44558d9ac4fe9330739bac9125c",
+    "pr_number": 116,
+    "proposal": {
+      "modules": [
+        "device-topology",
+        "transport",
+        "memory"
+      ],
+      "reason": "Main change is in transport connection selection/setup for P2P and SHM (including NET-vs-local gating, symmetric P2P capability handling, stream sync pairing, and connection-progress logic). Add device-topology because new path-bandwidth-based NET preference logic and path-computation ordering are introduced in topology checks. Add memory because SHM resource ownership/lifecycle is substantively refactored to handle-based shareable allocation/import/close semantics with explicit mapping and cleanup behavior."
+    }
+  },
+  "reviewers": {
+    "device-topology": 341355176,
+    "memory": 341349555,
+    "transport": 341355176
+  }
+}

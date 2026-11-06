@@ -3,13 +3,14 @@
   "build": 341355176,
   "ci": 333302477,
   "copy-engine": 341341178,
+  "device-topology": 341355176,
   "dispatch": 341349555,
   "gin": 341353320,
   "kernels": 341355176,
-  "memory": 340404662,
+  "memory": 341349555,
   "network": 341353320,
   "symmetric": 333277982,
-  "transport": 341341178,
+  "transport": 341355176,
   "tuning": 341751581,
   "workflow": 333277982
 }
