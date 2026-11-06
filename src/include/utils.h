@@ -20,7 +20,7 @@
 #include "alloc.h"
 
 #ifndef LAUNCH_KERNEL
-#define LAUNCH_KERNEL(kernel, gridDim, blockDim, args, sharedMem, stream, subDisaptch, launchConfig)                                                                  \
+#define LAUNCH_KERNEL(kernel, gridDim, blockDim, args, extra, sharedMem, stream, subDisaptch, launchConfig)                                                           \
   do                                                                                                                                                                  \
   {                                                                                                                                                                   \
     HGlaunchConfigAD cfg = {gridDim.x, gridDim.y, gridDim.z, blockDim.x, blockDim.y, blockDim.z, (unsigned int)sharedMem, stream, nullptr, 0};                        \
@@ -39,7 +39,7 @@
     }                                                                                                                                                                 \
     HGfunction hfunc;                                                                                                                                                 \
     HGGCCHECK(hggcGetFuncBySymbol(&hfunc, (const void *)kernel));                                                                                                     \
-    HGGCCHECK((hggcError_t)hgLaunchKernelExAD(&cfg, hfunc, args, nullptr));                                                                                           \
+    HGGCCHECK((hggcError_t)hgLaunchKernelExAD(&cfg, hfunc, args, extra));                                                                                             \
   } while (0)
 #endif
 

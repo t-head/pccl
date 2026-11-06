@@ -349,7 +349,9 @@ ncclResult_t ncclTasksRegAndEnqueue(ncclComm_t comm) {
 
 ncclResult_t saveDevKernelArgs(ncclComm_t comm, struct ncclKernelPlan* plan) {
   KernelInfoMonitor* kernelInfoMonitorPtr = comm->kernelInfoMonitorPtr + comm->kernelNum % pcclDevKernelArgsFifoDepth();
-  memcpy(&(kernelInfoMonitorPtr->kernelArgs), plan->kernelArgs, plan->kernelArgsSize);
+  // A fixed-size symmetric argument can be larger than the monitor record.
+  memcpy(&kernelInfoMonitorPtr->kernelArgs, plan->kernelArgs,
+         std::min(plan->kernelArgsSize, sizeof(kernelInfoMonitorPtr->kernelArgs)));
   comm->kernelNum++;
   for (int i = 0; i < MAXCHANNELS; i++) {
     if (plan->channelMask & (1L << i)) {
@@ -380,8 +382,8 @@ ncclResult_t ncclLaunchKernel(ncclComm_t comm, struct ncclKernelPlan* plan) {
 
   if (nChannels == 0) return ncclSuccess;
 
-  void *args[1] = {plan->kernelArgs};
-  if (plan->isSymColl) args[0] = plan->kernelSymkArgs;
+  void* extra[] = {HG_LAUNCH_PARAM_BUFFER_POINTER, plan->kernelArgs,
+                   HG_LAUNCH_PARAM_BUFFER_SIZE, &plan->kernelArgsSize, HG_LAUNCH_PARAM_END};
   struct dispatchStrategyExAD launchConfig = {0};
   if (!plan->isSymColl) {
     NCCLCHECK(ncclSetDispatchStrategy(plan->kernelFn, comm, launchConfig, plan->funcIndex, nChannels, false));
@@ -389,7 +391,7 @@ ncclResult_t ncclLaunchKernel(ncclComm_t comm, struct ncclKernelPlan* plan) {
     NCCLCHECK(ncclSetDispatchStrategy(plan->kernelFn, comm, launchConfig, plan->symFuncIndex, nChannels, true));
   }
 
-  LAUNCH_KERNEL(plan->kernelFn, grid, block, args, smem, launchStream, 1, launchConfig);
+  LAUNCH_KERNEL(plan->kernelFn, grid, block, nullptr, extra, smem, launchStream, 1, launchConfig);
 
   NCCLCHECK(ncclProfilerStopKernelLaunchEvent(plan));
 
@@ -1739,7 +1741,7 @@ static ncclResult_t finishPlan(ncclComm_t comm, struct ncclKernelPlan* plan) {
   // budget (device-side loadWorkBatchToShmem indexes batches without any
   // bounds check, so a too-large table would silently corrupt following
   // args/work bytes).
-  constexpr size_t kMaxKernelArgsBytes = ncclMaxKernelArgsSize(); // 1<<10 = 1024
+  constexpr size_t kMaxKernelArgsBytes = ncclMaxKernelArgsSize();
   VERBOSE(NCCL_COLL,
        "finishPlan sizes: sizeof(pcclDevKernelArgs)=%zu batchBytes=%zu workBytes=%zu "
        "nWorkBatches=%d workArgsBytes=%zu kernelArgsBudget=%zu",

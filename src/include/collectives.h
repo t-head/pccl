@@ -33,7 +33,7 @@
 /* Declare all collective operations */
 #define DECL5(func, algo, proto, devredop, type) \
   extern __device__ void NCCL_FUNC_NAME(func, algo, proto, devredop, type)(void* args); \
-  extern __global__ void NCCL_KERN_NAME(func, algo, proto, devredop, type)(ncclDevKernelArgs1K const args4K); \
+  extern __global__ void NCCL_KERN_NAME(func, algo, proto, devredop, type)(ncclDevKernelArgs4K const args4K); \
 
 #define CONCAT(a,b) a##b
 #define MACRO_IF(cond, t, f) CONCAT(MACRO_IF_, cond)(t, f)
