@@ -1,17 +1,16 @@
 {
   "classification": {
     "base_sha": "a04b88e02c3a5b955ba0847eca2bc3d19cbf4829",
-    "head_sha": "0cb356b3d56c996bbd195e8a26fa37fb6f8df53c",
-    "input_fingerprint": "ad8832cd9e5ab4d5c4ea9a7ed849d6970fe45f71feee2f65ef653ed549f09f17",
+    "head_sha": "c0049686de5641ed528b767f7b050456e8eb2922",
+    "input_fingerprint": "6e62a276a3337d420f2aeff51d849166de16269dabf3f13eea06188ba8168f39",
     "pr_number": 153,
     "proposal": {
       "modules": [
         "enqueue",
         "kernels",
-        "kernel-plugin",
         "symmetric"
       ],
-      "reason": "Primary change is in enqueue: kernel launches now pass a packed argument buffer plus explicit byte size and the global kernel-arg budget increases to 4 KiB. Add symmetric because symmetric multi-task planning switches from fixed 4 KiB pool allocation/reclaim to variable-sized scoped argument allocation using calculated size. Add kernels because built-in device kernel signatures and shared argument-storage types change from 1 KiB to 4 KiB capacity (API/ABI surface). Add kernel-plugin because ext-kernel launch macros and call sites change to by-value struct launch semantics with explicit launch-buffer handling; CE/OKI and P2P DMA edits are mechanical call-shape updates only."
+      "reason": "Main change is in runtime kernel planning/launch: plans now pass explicit argument buffer pointer+byte size to kernel launch and raise the shared kernel-arg budget/capacity to 4 KiB. Add symmetric because multi-task symmetric scheduling now allocates and owns variable-sized argument buffers differently (scoped allocation, size tracking, and error-path behavior). Add kernels because built-in collective kernel entry signatures and shared device argument storage type changed from 1 KiB to 4 KiB, which is a device-kernel ABI/interface change."
     }
   },
   "reviewers": {
