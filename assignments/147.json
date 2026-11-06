@@ -1,15 +1,15 @@
 {
   "classification": {
     "base_sha": "a04b88e02c3a5b955ba0847eca2bc3d19cbf4829",
-    "head_sha": "a07ee0a06de18ec0169e7aa2647cfde300017c5c",
-    "input_fingerprint": "b7548dab7df2bd7faafcae4039c9d546fd02f8a6298e95794c9405f2ce4b353f",
+    "head_sha": "3c0e121cc85bc671e592497ecc3b73ebf5e4561c",
+    "input_fingerprint": "ebcfbc9a5757a13f67bdee0cc3ab9f7fab293e9dd20341db37906559faad511e",
     "pr_number": 147,
     "proposal": {
       "modules": [
         "build",
         "ci"
       ],
-      "reason": "Main change adds reproducible PPU tarball packaging logic (SDK/toolchain setup, build.sh invocation, and tarball assembly) in the two tar build scripts, which is owned by build. It also introduces a new scheduled/manual GitHub Actions matrix workflow with runner/container orchestration and artifact merge/publish flow, requiring ci review for workflow execution behavior."
+      "reason": "Primary change is a new GitHub Actions pipeline that schedules/dispatches matrix tarball builds, runs them on specific runners/containers, and merges/publishes artifacts (ci). Additional build review is needed because both tar build scripts were converted from placeholders into full SDK/toolchain setup plus packaging logic that constructs the released tarball contents and versioned artifact names (build)."
     }
   },
   "reviewers": {
