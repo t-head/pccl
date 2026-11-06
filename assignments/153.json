@@ -10,7 +10,7 @@
         "kernels",
         "symmetric"
       ],
-      "reason": "Main change is in runtime kernel planning/launch: plans now pass explicit argument buffer pointer+byte size to kernel launch and raise the shared kernel-arg budget/capacity to 4 KiB. Add symmetric because multi-task symmetric scheduling now allocates and owns variable-sized argument buffers differently (scoped allocation, size tracking, and error-path behavior). Add kernels because built-in collective kernel entry signatures and shared device argument storage type changed from 1 KiB to 4 KiB, which is a device-kernel ABI/interface change."
+      "reason": "Main functional change is in enqueue: kernel launch now passes an explicit argument-buffer pointer plus actual byte count to hgLaunchKernelExAD, enabling variable-length arguments and a 4 KiB budget. Add symmetric because symmetric multi-task planning/lifetime changed to allocate argument buffers by computed size and propagate actual kernelArgsSize. Add kernels because collective kernel declarations/definitions changed their by-value argument ABI from 1 KiB storage to 4 KiB storage, which is a substantive kernel-interface update."
     }
   },
   "reviewers": {
