@@ -1,15 +1,14 @@
 {
   "classification": {
     "base_sha": "a04b88e02c3a5b955ba0847eca2bc3d19cbf4829",
-    "head_sha": "760e1364287ea48b77e838ac079970f3dbc6baa4",
-    "input_fingerprint": "a6daea20687449f9e66abc8c317161b7e5e2bea04320ed121b18bc7d9130875f",
+    "head_sha": "352c3a03494ad5b46ea7ae544e1b0deaff37fa00",
+    "input_fingerprint": "da9351c9340e298b50f11822cbb12454b4ccbd841ba3b8554ce966215ddf8e05",
     "pr_number": 147,
     "proposal": {
       "modules": [
-        "build",
         "ci"
       ],
-      "reason": "Adds a new GitHub Actions artifact-build pipeline (schedule/push/dispatch triggers, matrix expansion, runner/container execution, artifact merge/summary), which is a substantive CI workflow change. It also substantially rewrites the tar build scripts to install SDK/toolchain dependencies and assemble/version PCCL tarball outputs, requiring build-system/packaging review."
+      "reason": "Adds a new scheduled/manual GitHub Actions pipeline to build and publish PPU tarball artifacts (matrix expansion, runner/container setup, artifact merge/summary) and rewrites the two workflow build scripts to make those CI builds reproducible across OS/HGGCRT environments."
     }
   },
   "reviewers": {
