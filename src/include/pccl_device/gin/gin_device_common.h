@@ -22,6 +22,10 @@
 #define PCCL_GIN_GDAKI_ENABLE 1
 #endif
 
+#ifndef PCCL_GIN_GPI_ENABLE
+#define PCCL_GIN_GPI_ENABLE 1
+#endif
+
 enum pcclGinOptFlags {
   pcclGinOptFlagsDefault = 0,
   pcclGinOptFlagsMaySkipCreditCheck = (1 << 0),
@@ -30,7 +34,8 @@ enum pcclGinOptFlags {
 
 #define PCCL_GIN_BACKEND_MASK_ALL                                               \
   (((PCCL_GIN_PROXY_ENABLE) ? 1u : 0u) << (unsigned)PCCL_NET_DEVICE_GIN_PROXY | \
-   ((PCCL_GIN_GDAKI_ENABLE) ? 1u : 0u) << (unsigned)PCCL_NET_DEVICE_GIN_GDAKI)
+   ((PCCL_GIN_GDAKI_ENABLE) ? 1u : 0u) << (unsigned)PCCL_NET_DEVICE_GIN_GDAKI | \
+   ((PCCL_GIN_GPI_ENABLE) ? 1u : 0u) << (unsigned)PCCL_NET_DEVICE_GIN_GPI)
 
 // Resource sharing mode for a given pcclGin/pcclGin_C *instance*.
 // This mode is selected at construction time and is carried by the pcclGin
@@ -40,6 +45,7 @@ enum pcclGinOptFlags {
 enum pcclGinResourceSharingMode : uint8_t {
   PCCL_GIN_RESOURCE_SHARING_GPU = 0,
   PCCL_GIN_RESOURCE_SHARING_CTA = 1,
+  PCCL_GIN_RESOURCE_SHARING_THREAD = 2,
 };
 
 struct pcclGinCtx {
@@ -56,7 +62,7 @@ template <unsigned backendMask>
 struct pcclGinCtx_M : pcclGinCtx {};
 
 struct pcclGinDescriptorSmem {
-  alignas(16) char space[64];
+  alignas(64) char space[64];
 };
 
 enum pcclGinSignalType {
@@ -166,6 +172,11 @@ PCCL_DEVICE_INLINE static decltype(auto) pcclGinCallImpl(unsigned beMask, pcclGi
     case (int)PCCL_NET_DEVICE_GIN_GDAKI:
       if (!(1 & (beMask >> (int)PCCL_NET_DEVICE_GIN_GDAKI))) __builtin_unreachable();
       return ApiFn<PCCL_NET_DEVICE_GIN_GDAKI>::call(ctx, static_cast<Arg&&>(arg)...);
+#endif
+#if PCCL_GIN_GPI_ENABLE
+    case (int)PCCL_NET_DEVICE_GIN_GPI:
+      if (!(1 & (beMask >> (int)PCCL_NET_DEVICE_GIN_GPI))) __builtin_unreachable();
+      return ApiFn<PCCL_NET_DEVICE_GIN_GPI>::call(ctx, static_cast<Arg&&>(arg)...);
 #endif
     default:
       __builtin_unreachable();

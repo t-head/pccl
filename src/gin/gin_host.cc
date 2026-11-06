@@ -61,7 +61,8 @@ ncclResult_t setLocalGinType(struct pcclComm* comm) {
   ncclNetProperties_v12_t props;
   NCCLCHECK(ginState.ncclGin->getProperties(0, &props));
   if (props.netDeviceType == NCCL_NET_DEVICE_GIN_PROXY ||
-      props.netDeviceType == NCCL_NET_DEVICE_GIN_GDAKI) {
+      props.netDeviceType == NCCL_NET_DEVICE_GIN_GDAKI ||
+      props.netDeviceType == NCCL_NET_DEVICE_GIN_GPI) {
     // NOTE: The following cast is valid because ncclGinType_t variant values
     // should match NCCL_NET_DEVICE_GIN_* values from `enum ncclNetDeviceType`.
     ginState.ginType = static_cast<ncclGinType_t>(props.netDeviceType);
@@ -271,6 +272,14 @@ ncclResult_t ncclGinDevCommSetup(struct pcclComm* comm, struct ncclDevCommRequir
     NCCLCHECKGOTO(ginState->ncclGin->createContext(
                     ginState->ginComms[n], &ginConfig, &ginStateDevComm->ginCtx[n], &ginStateDevComm->devHandles[n]),
                   ret, end);
+    if (ginStateDevComm->ginCtx[n] == NULL || ginStateDevComm->devHandles[n] == NULL ||
+        ginStateDevComm->devHandles[n]->handle == NULL) {
+      WARN("GIN plugin %s returned invalid context for connection %d: ginCtx=%p devHandle=%p handle=%p",
+           ginState->ncclGin->name, n, ginStateDevComm->ginCtx[n], ginStateDevComm->devHandles[n],
+           ginStateDevComm->devHandles[n] ? ginStateDevComm->devHandles[n]->handle : NULL);
+      ret = ncclInternalError;
+      goto end;
+    }
     devComm->ginNetDeviceTypes[n] = ginStateDevComm->devHandles[n]->netDeviceType;
     devComm->ginHandles[n] = ginStateDevComm->devHandles[n]->handle;
     if (ginStateDevComm->devHandles[n]->needsProxyProgress) ginState->needsProxyProgress = 1;
@@ -340,7 +349,7 @@ ncclResult_t ncclGinHostFinalize(struct pcclComm* comm) {
       comm->sharedRes->ginState.ginProgress = -1;
       ginState->cond.notify_one();
     }
-    ginState->thread.join();
+    if (ginState->thread.joinable()) ginState->thread.join();
   }
 
   for (int n = 0; n < ginState->ginCommCount; n++) {

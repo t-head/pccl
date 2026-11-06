@@ -156,6 +156,8 @@ typedef enum {
   PCCL_GIN_TYPE_NONE = 0,
   PCCL_GIN_TYPE_PROXY = 2, // intentially not 1. Must match PCCL_NET_DEVICE_GIN_PROXY for backward compatibility
   PCCL_GIN_TYPE_GDAKI = 3, // intentially not 2. Must match PCCL_NET_DEVICE_GIN_GDAKI for backward compatibility
+  PCCL_GIN_TYPE_GPI = 4,
+  PCCL_GIN_TYPE_EFA_GDA = 5, // Reserved; no implementation is enabled.
 } pcclGinType_t;
 
 struct pcclCommProperties {

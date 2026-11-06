@@ -16,5 +16,8 @@
 #if PCCL_GIN_PROXY_ENABLE
 #include "proxy/gin_proxy.h"
 #endif
+#if PCCL_GIN_GPI_ENABLE
+#include "gpi/gin_gpi.h"
+#endif
 
 #endif
