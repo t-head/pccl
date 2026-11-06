@@ -60,6 +60,12 @@ struct pcclDevComm {
   pcclGinBarrierHandle_t hybridRailGinBarrier;
 
   pcclGinBarrierHandle_t worldGinBarrier;
+
+  // Keep the released prefix intact; legacy callers receive only that prefix.
+  alignas(8) int ginConnectionStride;
+  uint32_t ginConnectionStride_rcp32;
+  int ginContextStride;
+  pcclGinBarrierHandle_t hybridDenseGinBarrier;
 };
 
 #endif // _PCCL_DEVICE_COMM__TYPES_H_
