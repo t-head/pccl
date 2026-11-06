@@ -51,6 +51,7 @@ NCCL_PARAM(GinGdakiNicHandler, "GIN_GDAKI_NIC_HANDLER", 0);
 NCCL_PARAM(GinGdakiQpDepth, "GIN_GDAKI_QP_DEPTH", 128);
 NCCL_PARAM(GinGdakiMaxDestRdAtomic, "GIN_GDAKI_MAX_DEST_RD_ATOMIC", -2);
 NCCL_PARAM(GinGdakiMaxQpRdAtomic, "GIN_GDAKI_MAX_QP_RD_ATOMIC", -2);
+NCCL_PARAM(GinGdakiLAGAwareDisable, "GIN_GDAKI_LAG_AWARE_DISABLE", 0);
 NCCL_PARAM(GinErrorQuerySec, "GIN_ERROR_QUERY_SEC", 10);
 extern int64_t ncclParamIbTimeout();
 extern int64_t ncclParamIbRetryCnt();
@@ -437,9 +438,11 @@ PCCL_PARAM(GinGdakiEnableMultiPath, "GDAKI_ENABLE_MULTI_PATH", 0);
 
 static ncclResult_t gdakiConnectQp(struct gdaki_context *ctx, struct doca_gpu_verbs_qp_hl *gqp,
                                    struct gdaki_exch_info *exch_info,
-                                   bool is_remote_main_qp) {
+                                   bool is_remote_main_qp, uint8_t lagTxPortAffinity = 0) {
   ncclResult_t status = ncclSuccess;
   struct doca_verbs_qp_attr *verbs_qp_attr = nullptr;
+  int attrMask = DOCA_VERBS_QP_ATTR_NEXT_STATE | DOCA_VERBS_QP_ATTR_ALLOW_REMOTE_WRITE |
+                 DOCA_VERBS_QP_ATTR_ALLOW_REMOTE_READ | DOCA_VERBS_QP_ATTR_PKEY_INDEX | DOCA_VERBS_QP_ATTR_PORT_NUM;
   int max_dest_rd_atomic = ncclParamGinGdakiMaxDestRdAtomic() > 0 ? ncclParamGinGdakiMaxDestRdAtomic() : ctx->ib_dev_attr.max_qp_rd_atom;
   int max_qp_rd_atomic = ncclParamGinGdakiMaxQpRdAtomic() > 0 ? ncclParamGinGdakiMaxQpRdAtomic() : ctx->ib_dev_attr.max_qp_rd_atom;
 
@@ -483,12 +486,12 @@ static ncclResult_t gdakiConnectQp(struct gdaki_context *ctx, struct doca_gpu_ve
   DOCACHECKGOTO(doca_verbs_qp_attr_set_pkey_index(verbs_qp_attr, ncclParamIbPkey()),
                 status, destroy_verbs_qp_attr);
 
-  DOCACHECKGOTO(doca_verbs_qp_modify(
-                  gqp->qp, verbs_qp_attr,
-                  DOCA_VERBS_QP_ATTR_NEXT_STATE | DOCA_VERBS_QP_ATTR_ALLOW_REMOTE_WRITE |
-                    DOCA_VERBS_QP_ATTR_ALLOW_REMOTE_READ | DOCA_VERBS_QP_ATTR_PKEY_INDEX |
-                    DOCA_VERBS_QP_ATTR_PORT_NUM),
-                status, destroy_verbs_qp_attr);
+  if (lagTxPortAffinity > 0) {
+    DOCACHECKGOTO(doca_verbs_qp_attr_set_lag_tx_port_affinity(verbs_qp_attr, lagTxPortAffinity),
+                  status, destroy_verbs_qp_attr);
+    attrMask |= DOCA_VERBS_QP_ATTR_LAG_TX_PORT_AFFINITY;
+  }
+  DOCACHECKGOTO(doca_verbs_qp_modify(gqp->qp, verbs_qp_attr, attrMask), status, destroy_verbs_qp_attr);
 
 
   DOCACHECKGOTO(
@@ -558,6 +561,8 @@ ncclResult_t ncclGinGdakiCreateContext(void *collComm, int nSignals, int nCounte
   struct gdaki_context *gdaki_ctx = nullptr;
   struct gdaki_exch_info *local_exch_info = nullptr;
   struct gdaki_exch_info *remote_exch_info = nullptr;
+  struct doca_verbs_device_attr *devAttr = nullptr;
+  uint8_t numLagPorts = 0;
 
   struct doca_gpu_verbs_qp_init_attr_hl qp_init_attr;
 
@@ -605,7 +610,7 @@ ncclResult_t ncclGinGdakiCreateContext(void *collComm, int nSignals, int nCounte
   local_exch_info = (struct gdaki_exch_info *)calloc(nranks, sizeof(*local_exch_info));
   EQCHECKGOTO(local_exch_info, nullptr, status, out);
 
-  remote_exch_info = (struct gdaki_exch_info *)calloc(nranks, sizeof(*remote_exch_info));
+  remote_exch_info = (struct gdaki_exch_info *)calloc((size_t)ncontexts * nranks, sizeof(*remote_exch_info));
   EQCHECKGOTO(remote_exch_info, nullptr, status, out);
 
   HGGCCHECKGOTO(hggcGetDevice(&gdaki_ctx->hggc_id), status, out);
@@ -614,6 +619,12 @@ ncclResult_t ncclGinGdakiCreateContext(void *collComm, int nSignals, int nCounte
   DOCACHECKGOTO(doca_gpu_create(pciBusId, &gdaki_ctx->gdev), status, out);
 
   NCCLCHECKGOTO(wrap_ibv_query_device(cComm->ib.context, &gdaki_ctx->ib_dev_attr), status, out);
+
+  if (ncclParamGinGdakiLAGAwareDisable() == 0) {
+    DOCACHECKGOTO(doca_verbs_query_device(cComm->ib.context, &devAttr), status, out);
+    if (doca_verbs_device_attr_get_lag_tx_port_affinity(devAttr))
+      numLagPorts = doca_verbs_device_attr_get_num_lag_ports(devAttr);
+  }
 
   // Exchange counters and signals with peers
   NCCLCHECKGOTO(counters_table->register_mr(cComm->ib.pd, true), status, out);
@@ -719,7 +730,7 @@ retry_create_qp_group_hl:
 
     // Exchange information with peers
     NCCLCHECKGOTO(
-      cComm->allToAll(cComm, local_exch_info, remote_exch_info, sizeof(struct gdaki_exch_info)),
+      cComm->allToAll(cComm, local_exch_info, &remote_exch_info[ctx_idx * nranks], sizeof(struct gdaki_exch_info)),
       status, out);
 
     // On the first context exchange, compute the global minimum MTU across all ranks.
@@ -733,25 +744,32 @@ retry_create_qp_group_hl:
       INFO(NCCL_INIT, "GDAKI path MTU: rank=%d local=%u bytes, global_min=%u bytes",
            rank, ibvMtuToBytes(gdaki_ctx->port_attr.active_mtu), ibvMtuToBytes(min_mtu));
     }
+  }
 
-    for (int rank_idx = 0; rank_idx < nranks; rank_idx++) {
+  for (int rank_idx = 0; rank_idx < nranks; rank_idx++) {
+    if (rank_idx == rank) continue;
+    for (int ctx_idx = 0; ctx_idx < ncontexts; ctx_idx++) {
       int qp_idx = rank_idx + ctx_idx * nranks;
-      // Self-loop traffic never reaches an Ethernet path. Keep both ends of
-      // that QP pair in the default ordered mode; only remote main QPs request
-      // multi-path below.
-      if (rank_idx == rank)
-        gdakiFillExchInfo(&remote_exch_info[rank_idx], gdaki_ctx,
-                          gdaki_ctx->gqps[nqps_for_comm + ctx_idx]);
-
-      NCCLCHECKGOTO(gdakiConnectQp(gdaki_ctx, gdaki_ctx->gqps[qp_idx],
-                                      &remote_exch_info[rank_idx], rank_idx != rank),
+      struct gdaki_exch_info *peer_info = &remote_exch_info[ctx_idx * nranks + rank_idx];
+      // Rotate by context and peer to balance both multi-context P2P and single-context multi-peer traffic.
+      uint8_t lagTxPortAffinity = (numLagPorts > 0) ? ((ctx_idx + rank_idx) % numLagPorts) + 1 : 0;
+      NCCLCHECKGOTO(gdakiConnectQp(gdaki_ctx, gdaki_ctx->gqps[qp_idx], peer_info, true, lagTxPortAffinity),
                     status, out);
 
       INFO(NCCL_NET,
-           "[%d] Connected main QP: qp_idx=%d, main_qpn=%#x, remote_rank=%d, remote_qpn=%#x", rank,
-           qp_idx, doca_verbs_qp_get_qpn(gdaki_ctx->gqps[qp_idx]->qp), rank_idx,
-           remote_exch_info[rank_idx].qpn);
+           "[%d] Connected main QP: qp_idx=%d, main_qpn=%#x, remote_rank=%d, remote_qpn=%#x, lagTxPortAffinity=%u%s",
+           rank, qp_idx, doca_verbs_qp_get_qpn(gdaki_ctx->gqps[qp_idx]->qp), rank_idx, peer_info->qpn,
+           lagTxPortAffinity, (numLagPorts > 0) ? " (LAG enabled)" : "");
     }
+  }
+
+  for (int ctx_idx = 0; ctx_idx < ncontexts; ctx_idx++) {
+    int qp_idx = rank + ctx_idx * nranks;
+    struct gdaki_exch_info exch_info;
+    gdakiFillExchInfo(&exch_info, gdaki_ctx, gdaki_ctx->gqps[nqps_for_comm + ctx_idx]);
+    NCCLCHECKGOTO(gdakiConnectQp(gdaki_ctx, gdaki_ctx->gqps[qp_idx], &exch_info, false), status, out);
+    INFO(NCCL_NET, "[%d] Connected self-loop QP: qp_idx=%d, main_qpn=%#x, peer_qpn=%#x", rank,
+         qp_idx, doca_verbs_qp_get_qpn(gdaki_ctx->gqps[qp_idx]->qp), exch_info.qpn);
   }
 
   for (int qp_idx = 0; qp_idx < nqps_per_rank; qp_idx++) {
@@ -926,6 +944,8 @@ out:
       free(gdaki_ctx);
     }
   }
+
+  if (devAttr) doca_verbs_device_attr_free(devAttr);
 
   if (local_exch_info) free(local_exch_info);
 

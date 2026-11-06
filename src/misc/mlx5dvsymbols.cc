@@ -22,6 +22,8 @@ ncclResult_t buildMlx5dvSymbols(struct ncclMlx5dvSymbols* mlx5dvSymbols) {
   ASSIGN_SYM(mlx5dvSymbols, mlx5dv_reg_dmabuf_mr, mlx5dv_internal_reg_dmabuf_mr);
   ASSIGN_SYM(mlx5dvSymbols, mlx5dv_query_device, mlx5dv_internal_query_device);
   ASSIGN_SYM(mlx5dvSymbols, mlx5dv_create_qp, mlx5dv_internal_create_qp);
+  ASSIGN_SYM(mlx5dvSymbols, mlx5dv_query_qp_lag_port, mlx5dv_internal_query_qp_lag_port);
+  ASSIGN_SYM(mlx5dvSymbols, mlx5dv_modify_qp_lag_port, mlx5dv_internal_modify_qp_lag_port);
   return ncclSuccess;
 }
 
@@ -76,6 +78,8 @@ ncclResult_t buildMlx5dvSymbols(struct ncclMlx5dvSymbols* mlx5dvSymbols) {
   LOAD_SYM_VERSION(mlx5dvhandle, "mlx5dv_query_device", mlx5dvSymbols->mlx5dv_internal_query_device, "MLX5_1.0");
   // mlx5dv_create_qp is versioned at MLX5_1.3
   LOAD_SYM_VERSION(mlx5dvhandle, "mlx5dv_create_qp", mlx5dvSymbols->mlx5dv_internal_create_qp, "MLX5_1.3");
+  LOAD_SYM_VERSION(mlx5dvhandle, "mlx5dv_query_qp_lag_port", mlx5dvSymbols->mlx5dv_internal_query_qp_lag_port, "MLX5_1.14");
+  LOAD_SYM_VERSION(mlx5dvhandle, "mlx5dv_modify_qp_lag_port", mlx5dvSymbols->mlx5dv_internal_modify_qp_lag_port, "MLX5_1.14");
 
   return ncclSuccess;
 
@@ -85,6 +89,8 @@ teardown:
   mlx5dvSymbols->mlx5dv_internal_reg_dmabuf_mr = NULL;
   mlx5dvSymbols->mlx5dv_internal_query_device = NULL;
   mlx5dvSymbols->mlx5dv_internal_create_qp = NULL;
+  mlx5dvSymbols->mlx5dv_internal_query_qp_lag_port = NULL;
+  mlx5dvSymbols->mlx5dv_internal_modify_qp_lag_port = NULL;
 
   if (mlx5dvhandle != NULL) dlclose(mlx5dvhandle);
   return ncclSystemError;
