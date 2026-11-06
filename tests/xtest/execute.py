@@ -535,6 +535,11 @@ def run_shard(manifest_path, shard_id, test_root, binary_dir, output, mpi_option
                 if measurements:
                     summaries = summarize_metrics(measurements)
                     write_metrics(measurements, output)
+                    if any(row['sample_status'] != 'STABLE' for row in summaries):
+                        # Fail the hardware job as well as the later result gate. Re-running
+                        # this job collects fresh samples; re-running only the gate cannot.
+                        artifact_error = 'PERFORMANCE_SAMPLE_QUALITY'
+                        failures += 1
                     write_json(output / 'performance-summary.json',
                                {'complete': not failures and not interrupted, 'measurements': summaries})
             except (OSError, ValueError) as exception:

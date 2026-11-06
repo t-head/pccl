@@ -360,6 +360,25 @@ class ExecutorTests(unittest.TestCase):
         binary.chmod(0o700)
         return manifest
 
+    def test_insufficient_performance_samples_fail_shard_for_resampling(self):
+        from test_metrics import synthetic_table
+
+        text = synthetic_table('8388608 2097152 float sum -1 100 80 80 0 110 72 72 0', sizes=(8388608,))
+        manifest = self.prepare_performance(text, samples=2)
+        with patch.dict(os.environ, {'PATH': os.environ.get('PATH', os.defpath)}, clear=True):
+            result = self.invoke(manifest)
+        self.assertEqual(result.returncode, 1, result.stdout + result.stderr)
+        rows = [json.loads(line) for line in (self.output / 'results.jsonl').read_text().splitlines()]
+        self.assertEqual(len(rows), 2)
+        self.assertTrue(all(row['status'] == 'PASSED' and row['data_status'] == 'VALID' for row in rows))
+        summary = json.loads((self.output / 'performance-summary.json').read_text())
+        self.assertFalse(summary['complete'])
+        self.assertTrue(all(row['sample_count'] == 2 and row['sample_status'] == 'INSUFFICIENT_SAMPLES'
+                            for row in summary['measurements']))
+        index = json.loads((self.output / 'index.json').read_text())
+        self.assertEqual(index['failures'], 1)
+        self.assertEqual(index['artifact_error'], 'PERFORMANCE_SAMPLE_QUALITY')
+
     def test_synthetic_performance_through_real_cli(self):
         from test_metrics import synthetic_table
 
