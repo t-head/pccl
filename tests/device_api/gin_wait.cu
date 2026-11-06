@@ -41,15 +41,18 @@ __global__ void delayedSignal(pcclDevComm comm, pcclWindow_t window, int* status
   if (comm.rank >= comm.nRanks / 2) {
     uint64_t start = clock64();
     while (clock64() - start < 50000) {}
-    gin.put(pcclTeamWorld(comm), peer, window, 64, window, 0, 8, pcclGin_SignalInc{0}, pcclGin_CounterInc{0});
+    gin.put(pcclTeamWorld(comm), peer, window, 64, window, 0, 8,
+        pcclGin_WeakSignalInc{0}, pcclGin_WeakCounterInc{0});
   }
   statuses[0] = gin.waitSignal(coop, 0, 1, 64, hggc::memory_order_acquire, 1000000000ULL);
   if (comm.rank < comm.nRanks / 2) {
     gin.put(pcclTeamWorld(comm), peer, window, 64, window, 0, 8, pcclGin_SignalInc{0}, pcclGin_CounterInc{0});
   }
   statuses[1] = gin.waitCounter(coop, 0, 1, 56, hggc::memory_order_acquire, 1000000000ULL);
-  gin.signal(pcclTeamWorld(comm), peer, pcclGin_VASignalAdd{window, 128, 1});
+  gin.signal(pcclTeamWorld(comm), peer, pcclGin_WeakVASignalAdd{window, 128, 1});
   statuses[2] = gin.waitSignal(coop, window, 128, 1, 64, hggc::memory_order_acquire, 1000000000ULL);
+  gin.put(pcclTeamWorld(comm), peer, window, 64, window, 0, 8, pcclGin_WeakVASignalInc{window, 128});
+  statuses[3] = gin.waitSignal(coop, window, 128, 2, 64, hggc::memory_order_acquire, 1000000000ULL);
   gin.flush(coop);
 }
 
@@ -100,8 +103,8 @@ int main(int argc, char** argv) {
   delayedSignal<<<1, 32>>>(deviceComm, window, deviceStatuses);
   CHECK(hggcGetLastError());
   CHECK(hggcDeviceSynchronize());
-  CHECK(hggcMemcpy(statuses, deviceStatuses, 3 * sizeof(int), hggcMemcpyDeviceToHost));
-  for (int i = 0; i < 3; i++) if (statuses[i] != pcclSuccess) MPI_Abort(MPI_COMM_WORLD, 4);
+  CHECK(hggcMemcpy(statuses, deviceStatuses, 4 * sizeof(int), hggcMemcpyDeviceToHost));
+  for (int i = 0; i < 4; i++) if (statuses[i] != pcclSuccess) MPI_Abort(MPI_COMM_WORLD, 4);
   CHECK(hggcFree(deviceStatuses));
   CHECK(pcclCommWindowDeregister(comm, window));
   CHECK(pcclMemFree(memory));
