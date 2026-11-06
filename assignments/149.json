@@ -1,15 +1,15 @@
 {
   "classification": {
     "base_sha": "a04b88e02c3a5b955ba0847eca2bc3d19cbf4829",
-    "head_sha": "acd47a6d6e0569150d15655cd418eadf8020729e",
-    "input_fingerprint": "63632b08c3661517c47159d75e30d531132c92d7c6c07c17ba4880d0cdee7b1c",
+    "head_sha": "153a478f69dffc7e8c5efe7122b949fd771da408",
+    "input_fingerprint": "59762871236e0e4de06c9baecb0f167e18146de0da4d985f69f4e7807b3d2038",
     "pr_number": 149,
     "proposal": {
       "modules": [
         "transport",
         "memory"
       ],
-      "reason": "Primary change is in memory allocation/initialization behavior: NO_MEMSET default is flipped and memset/synchronize paths in alloc helpers are conditionally skipped to avoid sync-memset hangs. Added transport because src/transport/p2p.cc independently changes P2P shareable-buffer zero-initialization policy under the same flag, which is transport-owned buffer setup behavior."
+      "reason": "Main change is in memory allocation/initialization: calloc and legacy allocation paths now gate memset/synchronization on NO_MEMSET and switch the shared runtime flag to avoid sync-memset hangs. Transport is also needed because P2P shareable-buffer allocation in src/transport/p2p.cc changes its own zero-initialization behavior under the same flag, which is a substantive transport-side resource setup change."
     }
   },
   "reviewers": {
