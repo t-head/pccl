@@ -35,9 +35,8 @@ PCCL_DEVICE_INLINE pcclGinBarrierSession<Coop>::pcclGinBarrierSession(Coop coop,
   : pcclGinBarrierSession(coop, net, pcclTeamWorld(net.comm), net.comm.worldGinBarrier, barrierIndex) {}
 #endif
 
-// All-contexts constructors: build a single-context gin (context 0) for the signal/wait
-// path, then flip the `fenceAllContexts` flag so the fence iterates every GIN context on
-// the comm.
+// Bind context 0 as a template and iterate every context for flush, signal and
+// wait. Each context owns separate signal and shadow storage.
 #if PCCL_CHECK_HGGCCC
 template <typename Coop>
 PCCL_DEVICE_INLINE pcclGinBarrierSession<Coop>::pcclGinBarrierSession(
