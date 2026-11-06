@@ -1,8 +1,8 @@
 {
   "classification": {
-    "base_sha": "a04b88e02c3a5b955ba0847eca2bc3d19cbf4829",
-    "head_sha": "9e579cf33eaff671ba04fca89ea741a1eec71b76",
-    "input_fingerprint": "25e76c11148b63905df1bb5716ea257127a0bfa3d092b4032d5f889799103abc",
+    "base_sha": "3a96d26465317339888c6c85b47ef3b4b897b3e3",
+    "head_sha": "e847d9c6dd60acf56d1dc9ee19cc11daf8a2764b",
+    "input_fingerprint": "f17e4a992975d2fb5076f57d96b93bfad64047a56d5f133d871646a0321e509f",
     "pr_number": 153,
     "proposal": {
       "modules": [
@@ -10,7 +10,7 @@
         "kernels",
         "symmetric"
       ],
-      "reason": "Main change is in enqueue/runtime launch plumbing: kernel plans now pass explicit argument-buffer pointer and byte size to hgLaunchKernelExAD, and the global kernel-arg budget/storage is raised to 4 KiB. Symmetric is additionally required because symmetric multi-task planning now computes and allocates variable-sized argument payloads from scoped memory (removing the fixed 4 KiB pool path). Kernels is additionally required due to device-kernel launch ABI/signature updates from 1 KiB to 4 KiB argument structs, a substantive interface change even with small diffs."
+      "reason": "Primary change is in enqueue/launch planning: regular plans now launch with driver extra params carrying argument buffer pointer and actual length, and the runtime kernel-arg capacity/monitor storage is expanded to 4 KiB. kernels is also required because collective kernel signatures/types are changed from 1 KiB to 4 KiB argument storage (device-kernel interface impact). symmetric is additionally required because symmetric scheduling/allocation logic is substantively adjusted to keep its grouping budget capped at 1 KiB and to change multi-task args lifetime/ownership handling."
     }
   },
   "reviewers": {
