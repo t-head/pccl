@@ -682,10 +682,14 @@ PCCL_DEVICE_INLINE void pcclGin_BackendMask<beMask>::waitCounter(
   uint32_t steps = 0;
   coop.sync();
   if (coop.thread_rank() == 0) {
-    uint64_t* ptr = pcclGinCall<pcclGinApi_GetCounterPtr>(this->_makeCtx(), counter);
+    auto ctx = this->_makeCtx();
+    pcclGinOffsetPtr ptr = pcclGinCall<pcclGinApi_GetCounterPtr>(ctx, counter);
     uint64_t got;
     #pragma unroll 1
-    do got = hggc::atomic_ref<uint64_t>{*ptr}.load(ord);
+    do {
+      if (pcclGinCall<pcclGinApi_ProgressCounter>(ctx, this->comm.abortFlag) != pcclSuccess) break;
+      got = (hggc::atomic_ref<uint64_t>{*ptr.ptr}.load(ord) - ptr.offset);
+    }
     while (!pccl::utility::rollingLessEq(least, got, bits) && !testAbort(this->comm.abortFlag, steps));
   }
   coop.sync();
@@ -704,10 +708,13 @@ PCCL_DEVICE_INLINE void pcclGinWaitCounter(
   coop.sync();
   if (coop.thread_rank() == 0) {
     pcclGinCtx ctx = pcclGin_C_makeCtx(net);
-    uint64_t* ptr = pcclGinCall<pcclGinApi_GetCounterPtr>(ctx, counter);
+    pcclGinOffsetPtr ptr = pcclGinCall<pcclGinApi_GetCounterPtr>(ctx, counter);
     uint64_t got;
     #pragma unroll 1
-    do got = hggc::atomic_ref<uint64_t>{*ptr}.load(ord);
+    do {
+      if (pcclGinCall<pcclGinApi_ProgressCounter>(ctx, net->comm.abortFlag) != pcclSuccess) break;
+      got = (hggc::atomic_ref<uint64_t>{*ptr.ptr}.load(ord) - ptr.offset);
+    }
     while (!pccl::utility::rollingLessEq(least, got, bits) && !testAbort(net->comm.abortFlag, steps));
   }
   coop.sync();
@@ -715,9 +722,11 @@ PCCL_DEVICE_INLINE void pcclGinWaitCounter(
 
 template<unsigned beMask>
 PCCL_DEVICE_INLINE uint64_t pcclGin_BackendMask<beMask>::readCounter(pcclGinCounter_t counter, int bits, hggc::memory_order ord) const {
-  uint64_t* ptr = pcclGinCall<pcclGinApi_GetCounterPtr>(this->_makeCtx(), counter);
+  auto ctx = this->_makeCtx();
+  if (pcclGinCall<pcclGinApi_ProgressCounter>(ctx, this->comm.abortFlag) != pcclSuccess) return 0;
+  pcclGinOffsetPtr ptr = pcclGinCall<pcclGinApi_GetCounterPtr>(ctx, counter);
   uint64_t mask = uint64_t(-1)>>(64-bits);
-  return mask & hggc::atomic_ref<uint64_t>{*ptr}.load(ord);
+  return mask & (hggc::atomic_ref<uint64_t>{*ptr.ptr}.load(ord) - ptr.offset);
 }
 
 PCCL_DEVICE_INLINE uint64_t pcclGinReadCounter(
@@ -727,9 +736,10 @@ PCCL_DEVICE_INLINE uint64_t pcclGinReadCounter(
     hggc::memory_order ord
   ) {
   pcclGinCtx ctx = pcclGin_C_makeCtx(net);
-  uint64_t* ptr = pcclGinCall<pcclGinApi_GetCounterPtr>(ctx, counter);
+  if (pcclGinCall<pcclGinApi_ProgressCounter>(ctx, net->comm.abortFlag) != pcclSuccess) return 0;
+  pcclGinOffsetPtr ptr = pcclGinCall<pcclGinApi_GetCounterPtr>(ctx, counter);
   uint64_t mask = uint64_t(-1)>>(64-bits);
-  return mask & hggc::atomic_ref<uint64_t>{*ptr}.load(ord);
+  return mask & (hggc::atomic_ref<uint64_t>{*ptr.ptr}.load(ord) - ptr.offset);
 }
 
 template<unsigned beMask>
@@ -751,9 +761,9 @@ PCCL_DEVICE_INLINE void pcclGin_BackendMask<beMask>::increaseSignalShadow(pcclGi
 
 template<unsigned beMask>
 PCCL_DEVICE_INLINE uint64_t pcclGin_BackendMask<beMask>::readSignal(pcclGinSignal_t signal, int bits, hggc::memory_order ord) const {
-  uint64_t* ptr = pcclGinCall<pcclGinApi_GetSignalPtr>(this->_makeCtx(), signal);
+  pcclGinOffsetPtr ptr = pcclGinCall<pcclGinApi_GetSignalPtr>(this->_makeCtx(), signal);
   uint64_t mask = uint64_t(-1)>>(64-bits);
-  return mask & hggc::atomic_ref<uint64_t>{*ptr}.load(ord);
+  return mask & (hggc::atomic_ref<uint64_t>{*ptr.ptr}.load(ord) - ptr.offset);
 }
 
 template<unsigned beMask>
@@ -770,9 +780,9 @@ PCCL_DEVICE_INLINE uint64_t pcclGinReadSignal(
     hggc::memory_order ord
   ) {
   pcclGinCtx ctx = pcclGin_C_makeCtx(net);
-  uint64_t* ptr = pcclGinCall<pcclGinApi_GetSignalPtr>(ctx, signal);
+  pcclGinOffsetPtr ptr = pcclGinCall<pcclGinApi_GetSignalPtr>(ctx, signal);
   uint64_t mask = uint64_t(-1)>>(64-bits);
-  return mask & hggc::atomic_ref<uint64_t>{*ptr}.load(ord);
+  return mask & (hggc::atomic_ref<uint64_t>{*ptr.ptr}.load(ord) - ptr.offset);
 }
 
 
@@ -899,10 +909,10 @@ PCCL_DEVICE_INLINE void pcclGin_BackendMask<beMask>::waitSignal(Coop coop, pcclG
   uint32_t steps = 0;
   coop.sync();
   if (coop.thread_rank() == 0) {
-    uint64_t* ptr = pcclGinCall<pcclGinApi_GetSignalPtr>(this->_makeCtx(), signal);
+    pcclGinOffsetPtr ptr = pcclGinCall<pcclGinApi_GetSignalPtr>(this->_makeCtx(), signal);
     uint64_t got;
     #pragma unroll 1
-    do got = hggc::atomic_ref<uint64_t>{*ptr}.load(ord);
+    do got = (hggc::atomic_ref<uint64_t>{*ptr.ptr}.load(ord) - ptr.offset);
     while (!pccl::utility::rollingLessEq(least, got, bits) && !testAbort(this->comm.abortFlag, steps));
   }
   coop.sync();
@@ -939,10 +949,10 @@ PCCL_DEVICE_INLINE void pcclGinWaitSignal(
   coop.sync();
   if (coop.thread_rank() == 0) {
     pcclGinCtx ctx = pcclGin_C_makeCtx(net);
-    uint64_t* ptr = pcclGinCall<pcclGinApi_GetSignalPtr>(ctx, signal);
+    pcclGinOffsetPtr ptr = pcclGinCall<pcclGinApi_GetSignalPtr>(ctx, signal);
     uint64_t got;
     #pragma unroll 1
-    do got = hggc::atomic_ref<uint64_t>{*ptr}.load(ord);
+    do got = (hggc::atomic_ref<uint64_t>{*ptr.ptr}.load(ord) - ptr.offset);
     while (!pccl::utility::rollingLessEq(least, got, bits) && !testAbort(net->comm.abortFlag, steps));
   }
   coop.sync();
@@ -955,11 +965,11 @@ PCCL_DEVICE_INLINE void pcclGin_BackendMask<beMask>::waitSignalMeetShadow(Coop c
   uint32_t steps = 0;
   coop.sync();
   if (coop.thread_rank() == 0) {
-    uint64_t* ptr = pcclGinCall<pcclGinApi_GetSignalPtr>(this->_makeCtx(), signal);
+    pcclGinOffsetPtr ptr = pcclGinCall<pcclGinApi_GetSignalPtr>(this->_makeCtx(), signal);
     uint64_t least = this->_signalShadows[signal];
     uint64_t got;
     #pragma unroll 1
-    do got = hggc::atomic_ref<uint64_t>{*ptr}.load(ord);
+    do got = (hggc::atomic_ref<uint64_t>{*ptr.ptr}.load(ord) - ptr.offset);
     while (!pccl::utility::rollingLessEq(least, got, bits) && !testAbort(this->comm.abortFlag, steps));
   }
   coop.sync();
@@ -974,9 +984,9 @@ PCCL_DEVICE_INLINE void pcclGin_BackendMask<beMask>::waitSignalFollowShadow(Coop
   uint64_t before64 = this->_signalShadows[signal];
   uint64_t after64;
   if (coop.thread_rank() == 0) {
-    uint64_t* ptr = pcclGinCall<pcclGinApi_GetSignalPtr>(this->_makeCtx(), signal);
+    pcclGinOffsetPtr ptr = pcclGinCall<pcclGinApi_GetSignalPtr>(this->_makeCtx(), signal);
     #pragma unroll 1
-    do after64 = hggc::atomic_ref<uint64_t>{*ptr}.load(ord);
+    do after64 = (hggc::atomic_ref<uint64_t>{*ptr.ptr}.load(ord) - ptr.offset);
     while (!pccl::utility::rollingLessEq(before64 + leastDelta, after64, bits) && !testAbort(this->comm.abortFlag, steps));
     this->_signalShadows[signal] = after64;
   }
@@ -996,6 +1006,79 @@ PCCL_DEVICE_INLINE void pcclGin_BackendMask<beMask>::waitSignalFollowShadow(Coop
 template<unsigned beMask>
 PCCL_DEVICE_INLINE void pcclGin_BackendMask<beMask>::resetCounter(pcclGinCounter_t counter) const {
   pcclGinCall<pcclGinApi_ResetCounter>(this->_makeCtx(), counter);
+}
+
+namespace pccl {
+namespace gin {
+namespace internal {
+struct NoCounterProgress {
+  PCCL_DEVICE_INLINE pcclResult_t operator()() const { return pcclSuccess; }
+};
+
+template<typename Coop, typename Progress = NoCounterProgress>
+PCCL_DEVICE_INLINE pcclResult_t waitAtLeastTimeout(
+    Coop coop, pcclGinOffsetPtr ptr, uint64_t least, int bits, hggc::memory_order ord,
+    uint32_t* abortFlag, uint64_t timeoutCycles, Progress progress = {}) {
+  coop.sync();
+  int result = pcclSuccess;
+  if (coop.thread_rank() == 0) {
+    if (bits <= 0 || bits > 64) {
+      result = pcclInvalidArgument;
+    } else {
+      uint64_t start = clock64();
+      uint32_t steps = 0;
+      #pragma unroll 1
+      while (true) {
+        result = progress();
+        if (result != pcclSuccess) break;
+        uint64_t got = hggc::atomic_ref<uint64_t>{*ptr.ptr}.load(ord) - ptr.offset;
+        if (pccl::utility::rollingLessEq(least, got, bits)) break;
+        if (pccl::utility::testAbort(abortFlag, steps)) break;
+        if (clock64() - start >= timeoutCycles) {
+          result = pcclTimeout;
+          break;
+        }
+      }
+    }
+  }
+  result = pcclCoopBcast(coop, result, 0, /*entrySync=*/false);
+  coop.sync();
+  return static_cast<pcclResult_t>(result);
+}
+} // namespace internal
+} // namespace gin
+} // namespace pccl
+
+template<unsigned beMask>
+template<typename Coop>
+PCCL_DEVICE_INLINE pcclResult_t pcclGin_BackendMask<beMask>::waitSignal(
+    Coop coop, pcclGinSignal_t signal, uint64_t least, int bits, hggc::memory_order ord,
+    uint64_t timeoutCycles) const {
+  auto ptr = pcclGinCall<pcclGinApi_GetSignalPtr>(this->_makeCtx(), signal);
+  return pccl::gin::internal::waitAtLeastTimeout(coop, ptr, least, bits, ord, this->comm.abortFlag, timeoutCycles);
+}
+
+template<unsigned beMask>
+template<typename Coop>
+PCCL_DEVICE_INLINE pcclResult_t pcclGin_BackendMask<beMask>::waitSignal(
+    Coop coop, pcclWindow_t signalWindow, size_t signalOffset, uint64_t least, int bits,
+    hggc::memory_order ord, uint64_t timeoutCycles) const {
+  pcclGinOffsetPtr ptr = {(uint64_t*)pcclGetLocalPointer(signalWindow, signalOffset), 0};
+  return pccl::gin::internal::waitAtLeastTimeout(coop, ptr, least, bits, ord, this->comm.abortFlag, timeoutCycles);
+}
+
+template<unsigned beMask>
+template<typename Coop>
+PCCL_DEVICE_INLINE pcclResult_t pcclGin_BackendMask<beMask>::waitCounter(
+    Coop coop, pcclGinCounter_t counter, uint64_t least, int bits, hggc::memory_order ord,
+    uint64_t timeoutCycles) const {
+  auto ctx = this->_makeCtx();
+  auto ptr = pcclGinCall<pcclGinApi_GetCounterPtr>(ctx, counter);
+  uint32_t* abortFlag = this->comm.abortFlag;
+  auto progress = [ctx, abortFlag]() {
+    return pcclGinCall<pcclGinApi_ProgressCounter>(ctx, abortFlag);
+  };
+  return pccl::gin::internal::waitAtLeastTimeout(coop, ptr, least, bits, ord, abortFlag, timeoutCycles, progress);
 }
 
 PCCL_DEVICE_INLINE void pcclGinResetCounter(
