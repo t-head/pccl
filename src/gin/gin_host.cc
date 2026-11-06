@@ -14,6 +14,8 @@
 #include "register_inline.h"
 #include "gin/gin_host.h"
 #include "gin/gin_host_proxy.h"
+#include "pccl_device/gin/gdaki/gin_gdaki_device_host_common.h"
+#include "pccl_device/gin/proxy/gin_proxy_device_host_common.h"
 #include "compiler.h"
 #include <cmath>
 #include <algorithm>
@@ -289,6 +291,10 @@ ncclResult_t ncclGinDevCommSetup(struct pcclComm* comm, struct ncclDevCommRequir
   ginStateDevComm->contextCount = nContextsTotal;
   ncclResult_t ret = ncclSuccess;
 
+  const int expectedHandleVersion = ginState->ginType == PCCL_GIN_TYPE_GDAKI ? PCCL_GIN_GDAKI_VERSION :
+      ginState->ginType == PCCL_GIN_TYPE_PROXY ? PCCL_GIN_PROXY_VERSION : -1;
+  bool needsProxyProgress = false;
+
   ncclGinConfig_t ginConfig = {
     reqs->ginSignalCount,
     reqs->ginCounterCount,
@@ -303,8 +309,7 @@ ncclResult_t ncclGinDevCommSetup(struct pcclComm* comm, struct ncclDevCommRequir
                   ret, end);
     if (ginStateDevComm->devHandles[n] == nullptr ||
         (int)ginStateDevComm->devHandles[n]->netDeviceType != (int)ginState->ginType ||
-        (ginState->ginProps[n].netDeviceVersion != 0 &&
-         ginStateDevComm->devHandles[n]->netDeviceVersion != ginState->ginProps[n].netDeviceVersion) ||
+        ginStateDevComm->devHandles[n]->netDeviceVersion != expectedHandleVersion ||
         (ginStateDevComm->devHandles[n]->needsProxyProgress && !ginState->ncclGin->ginProgress)) {
       WARN("GIN plugin returned an incompatible device handle or missing progress callback");
       ret = ncclInvalidUsage;
@@ -312,9 +317,10 @@ ncclResult_t ncclGinDevCommSetup(struct pcclComm* comm, struct ncclDevCommRequir
     }
     devComm->ginNetDeviceTypes[n] = ginStateDevComm->devHandles[n]->netDeviceType;
     devComm->ginHandles[n] = ginStateDevComm->devHandles[n]->handle;
-    if (ginStateDevComm->devHandles[n]->needsProxyProgress) ginState->needsProxyProgress = 1;
+    needsProxyProgress |= ginStateDevComm->devHandles[n]->needsProxyProgress;
   }
 
+  ginState->needsProxyProgress |= needsProxyProgress;
   if (ginState->needsProxyProgress && ginState->ginProgress == 0) {
     ginState->ginProgress = 1;
     ginState->thread = std::thread(ncclGinProgress, ginState);
@@ -379,7 +385,7 @@ ncclResult_t ncclGinHostFinalize(struct pcclComm* comm) {
       comm->sharedRes->ginState.ginProgress = -1;
       ginState->cond.notify_one();
     }
-    ginState->thread.join();
+    if (ginState->thread.joinable()) ginState->thread.join();
   }
 
   for (int n = 0; n < ginState->ginCommCount; n++) {

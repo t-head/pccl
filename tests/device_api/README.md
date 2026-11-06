@@ -36,5 +36,11 @@ All ranks register every shard as GIN-only, exercise registration aliases, and
 check get/put payloads on every context. This validates the library against a
 shared-storage layout; it does not execute an application's allocator or kernels.
 
+`gin_failure` uses the bundled mock plugin, without launching communication
+kernels. Set `PCCL_GIN_PLUGIN` to the absolute `libpccl-gin-mock.so` path,
+`PCCL_GIN_MULTINIC=1`, `PCCL_GIN_NCONNECTIONS=2`, and `PCCL_GIN_TEST_MODE` to
+`valid`, `bad-version`, `partial-progress`, or `retry`. It checks handle-version
+validation, teardown after partial progress requirements, and connection retries.
+
 These checks require MPI and a functioning GIN backend and are run manually;
 they are not part of the default build or the hosted CI jobs.
