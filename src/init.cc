@@ -835,6 +835,10 @@ static ncclResult_t devCommSetup(ncclComm_t comm) {
   }
 
   // Duplicate the dev comm on the device
+  comm->hostDevComm.nP2pChannels = comm->p2pnChannels;
+  for (int part = 0; part < std::min(comm->p2pnChannels, comm->p2pnChannelsPerPeer); part++) {
+    comm->hostDevComm.p2pPartForDelta[comm->p2pChannels[part]] = part;
+  }
   NCCLCHECK(ncclHggcCallocAsyncLegacy(reinterpret_cast<ncclKernelCommAndChannels**>(&comm->devComm), 1, &(comm->devMemUsed), comm->sharedRes->deviceStream.hggcStream, comm->memManager));
   NCCLCHECK(ncclHggcMemcpyAsync(reinterpret_cast<ncclKernelCommAndChannels*>(comm->devComm), &comm->hostDevComm, 1, comm->sharedRes->deviceStream.hggcStream));
 

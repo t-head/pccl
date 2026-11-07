@@ -25,7 +25,9 @@ __device__ __forceinline__ void runRecv(
     prims.recv(recvbuff, 0);
   } else for (ssize_t offset = 0; offset < recvCount; offset += chunkSize) {
     int realChunkSize = min(chunkSize, recvCount-offset);
-    ALIGN_SIZE(realChunkSize, nt*sizeof(uint64_t)/sizeof(T));
+    if (Proto::Id != NCCL_PROTO_LL) {
+      ALIGN_SIZE(realChunkSize, nt*sizeof(uint64_t)/sizeof(T));
+    }
     int nelem = min(realChunkSize, recvCount-offset);
     prims.directRecv(recvbuff+offset, offset, nelem);
   }
@@ -41,7 +43,9 @@ __device__ __forceinline__ void runSend(
     prims.send(sendbuff, 0);
   } else for (ssize_t offset = 0; offset < sendCount; offset += chunkSize) {
     int realChunkSize = min(chunkSize, sendCount-offset);
-    ALIGN_SIZE(realChunkSize, nt*sizeof(uint64_t)/sizeof(T));
+    if (Proto::Id != NCCL_PROTO_LL) {
+      ALIGN_SIZE(realChunkSize, nt*sizeof(uint64_t)/sizeof(T));
+    }
     int nelem = min(realChunkSize, sendCount-offset);
     prims.directSend(sendbuff+offset, offset, nelem);
   }
@@ -52,7 +56,7 @@ __device__ __forceinline__ void runSendRecv(struct ncclDevWorkP2p* work) {
   int tid = threadIdx.x;
   struct ncclKernelComm* comm = getShmemComm(work);
   int nWorks = getShmemPtr(comm)->nWorks;
-  struct ncclDevChannel* channel = &(getShmemPtr(comm)->channel);
+  const int channelId = getShmemPtr(comm)->channelId;
   int group = 0;
   constexpr bool kProtoNeedsExtraWarp = (Proto::Id != NCCL_PROTO_LL);
   constexpr bool kAllowLLSwitch = (Proto::Id == NCCL_PROTO_SIMPLE || Proto::Id == NCCL_PROTO_SIMPLE_BULK || Proto::Id == NCCL_PROTO_SIMPLE_BULK_AR);
@@ -72,8 +76,18 @@ __device__ __forceinline__ void runSendRecv(struct ncclDevWorkP2p* work) {
       // Compute pointers
       const T* sendbuff = (const T*)work->sendbuff;
       T* recvbuff = (T*)work->recvbuff;
-      const ssize_t sendCount = work->sendCount;
-      const ssize_t recvCount = work->recvCount;
+      ssize_t sendCount = work->sendCount;
+      ssize_t recvCount = work->recvCount;
+      if (work->sendParts || work->recvParts) {
+        static_assert(sizeof(T) == 1, "P2P partition strides are in bytes");
+        const int part = ncclP2pChannelToPart(work->comm, work->channelBase, channelId);
+        const size_t step = comm->buffSizes[Proto::Id] / NCCL_STEPS;
+        size_t sendOffset, recvOffset;
+        sendCount = ncclP2pPartBytes(sendCount, step * work->sendPartSteps, work->sendParts, part, &sendOffset);
+        recvCount = ncclP2pPartBytes(recvCount, step * work->recvPartSteps, work->recvParts, part, &recvOffset);
+        if (sendOffset) sendbuff += sendOffset;
+        if (recvOffset) recvbuff += recvOffset;
+      }
 
       if (work->sendRank == comm->rank) {
         if (tid < nThreads && sendbuff != recvbuff) {
@@ -88,10 +102,6 @@ __device__ __forceinline__ void runSendRecv(struct ncclDevWorkP2p* work) {
           }
         }
       } else {
-        struct ncclKernelComm* comm = getShmemComm(work);
-
-        const int stepSize = comm->buffSizes[Proto::Id]/(sizeof(T)*NCCL_STEPS);
-
         int nThreadsSplit = nThreads/2;
         const bool recvLL = kAllowLLSwitch && work->recvProtoLL;
         const bool sendLL = kAllowLLSwitch && work->sendProtoLL;

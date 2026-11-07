@@ -216,6 +216,9 @@ struct alignas(16) ncclDevWorkP2p {
   // Header
   struct ncclKernelComm* comm;
   uint8_t sendRegUsed:1, recvRegUsed:1, sendProtoLL:1, recvProtoLL:1, profilerEnabled:1;
+  // Both part counts are zero for an already sliced, single-channel work.
+  uint8_t channelBase, sendParts, recvParts;
+  uint16_t sendPartSteps, recvPartSteps; // Stride in base-protocol buffer steps.
 
   const void * sendbuff;
   void * recvbuff;
@@ -224,6 +227,17 @@ struct alignas(16) ncclDevWorkP2p {
   int sendRank, recvRank;
   int sendChunkSize, recvChunkSize;
 };
+static_assert(sizeof(ncclDevWorkP2p) == 64, "P2P partition metadata must fit in the existing work header");
+
+inline __host__ __device__ ssize_t ncclP2pPartBytes(
+    ssize_t total, size_t stride, int nParts, int part, size_t* offset) {
+  *offset = 0;
+  if (part >= nParts) return -1;
+  if (nParts == 1) return total; // Includes an explicit zero-byte synchronization.
+  *offset = part * stride;
+  size_t remaining = size_t(total) - *offset;
+  return remaining < stride ? remaining : stride;
+}
 
 struct alignas(16) ncclDevWorkColl {
   // Header
@@ -365,7 +379,21 @@ struct alignas(16) ncclKernelComm {
 struct alignas(16) ncclKernelCommAndChannels {
   struct ncclKernelComm comm;
   struct ncclDevChannel channels[MAXCHANNELS];
+  // Inverse of the host's p2pChannels permutation before the round's rotation.
+  uint8_t p2pPartForDelta[MAXCHANNELS];
+  uint8_t nP2pChannels;
 };
+
+// Invert pcclP2pChannelId for a channel participating in this work. Unlike NCCL's
+// linear mapping, PCCL uses a permutation and supports non-power-of-two channel counts.
+// comm must be work->comm, whose allocation includes the layout, not the shared-memory copy.
+__device__ __forceinline__ int ncclP2pChannelToPart(
+    const ncclKernelComm* comm, int base, int channel) {
+  const auto* layout = reinterpret_cast<const ncclKernelCommAndChannels*>(comm);
+  int delta = channel - base;
+  if (delta < 0) delta += layout->nP2pChannels;
+  return layout->p2pPartForDelta[delta];
+}
 
 enum ncclDevWorkStorageType: uint8_t {
   ncclDevWorkStorageTypeArgs=0,

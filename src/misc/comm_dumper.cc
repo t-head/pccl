@@ -86,6 +86,10 @@ ncclResult_t dumpP2pWorkToFile(FILE* file, struct ncclDevWorkP2p* work, uint16_t
   fprintf(file, "p2p, ");
   fprintf(file, "sendRank:%d, recvRank:%d, sendCount:%ld, recvCount:%ld, sendChunkSize:%d, recvChunkSize:%d, ",
     work->sendRank, work->recvRank, work->sendCount, work->recvCount, work->sendChunkSize, work->recvChunkSize);
+  if (work->sendParts || work->recvParts) {
+    fprintf(file, "channelBase:%u sendParts:%u recvParts:%u sendPartSteps:%u recvPartSteps:%u ",
+        work->channelBase, work->sendParts, work->recvParts, work->sendPartSteps, work->recvPartSteps);
+  }
   fprintf(file, "\n");
   return ncclSuccess;
 }
