@@ -1,0 +1,575 @@
+name: build_artifactory
+
+# Build the pccl distribution tarballs *and* the pccl-tests perf binaries for every supported
+# OS / HGGCRT combination inside the matching docker image, and publish them as this repository's
+# own Actions artifacts:
+#
+#   comm_internal/<pkg_name>.tar.gz              pccl: lib/, include/, bin/, envsetup.sh
+#   comm_internal/<pccl_tests_pkg_name>.tar.gz   pccl-tests: comm_tools/*_perf
+#   comm_release/<pkg_name>.tar.gz
+#   comm_release/<pccl_tests_pkg_name>.tar.gz
+#
+# Both tarballs come out of the same job: the perf binaries link against the libpccl.so that this
+# very run just built, so one commit, one SDK install and one toolchain setup produce a matched
+# pair, and there is no second workflow that can drift out of step. pccl-tests keeps its own
+# workflow only as a manual (workflow_dispatch) fallback.
+#
+# Each matrix entry uploads its own artifact; the publish job merges them into a single
+ # "pccl-tarballs-<ref>-<label>" artifact, where <ref> is the branch or tag that triggered the
+# run (characters other than [A-Za-z0-9._-] become "-") and <label> is the UTC+8 "YYYY-MM-DD-HHmm"
+# timestamp shown in the run summary. Nothing is uploaded to an external server, so no
+# Artifactory credentials are required.
+#
+# The artifact label is a UTC+8 (Asia/Shanghai) "YYYY-MM-DD-HHmm" timestamp shared by every
+# job of a run; it is part of the merged artifact name and tags the run summary.
+#
+# Each matrix entry calls one of the tar build scripts in .github/workflows/scripts:
+#   hggcrt 12 -> pccl_hggcrt12_tar_build.sh
+#   hggcrt 13 -> pccl_hggcrt13_tar_build.sh
+#
+# The container images are plain OS base images under download.t-head.cn/docker_base. They no
+# longer ship the PPU SDK, so each matrix row also carries the SDK run package for its OS and
+# HGGCRT runtime: the tar build script downloads sdk_url into sdk_name and installs it under
+# ${source_home}, which lets one base image serve both hggcrt rows. Every enabled row must carry
+# a container image, otherwise the prepare job fails fast.
+#
+# No repository / organization secrets are needed.
+
+on:
+  # Nightly artifact build at 21:00 UTC+8 (13:00 UTC; GitHub cron is always UTC). GitHub only
+  # picks schedule triggers up from the default branch, so this stays dormant until the file
+  # is merged there.
+  schedule:
+    - cron: '0 13 * * *'
+  # Build on every push to the default branch. `paths` keeps ordinary source commits from
+  # burning a full matrix build; the nightly schedule above is what produces regular artifacts.
+  push:
+    branches:
+      # Temporary: only the feature branch is wired up while this change is under review, so
+      # updating the pull request does not also start a default-branch build. Before merging,
+      # restore `main` and drop this entry.
+      - feat/add_build_artifactory
+    paths:
+      - .github/workflows/build-artifactory-ppu.yml
+      - .github/workflows/scripts/pccl_hggcrt12_tar_build.sh
+      - .github/workflows/scripts/pccl_hggcrt13_tar_build.sh
+  workflow_dispatch:
+    inputs:
+      os_versions:
+        description: 'JSON array of OS labels; every BUILD_TABLE row is enabled: ubuntu2004, ubuntu2204, ubuntu2404, alios7, alios8, alinux3, alinux4'
+        required: true
+        type: string
+        default: '["ubuntu2004","ubuntu2204","ubuntu2404","alios7","alios8","alinux3","alinux4"]'
+      hggcrt_versions:
+        description: 'JSON array of HGGCRT runtime versions; allowed: 12, 13; both are enabled in BUILD_TABLE'
+        required: true
+        type: string
+        default: '["12","13"]'
+      artifact_version:
+        description: 'Label shown in the run summary; empty means the UTC+8 "YYYY-MM-DD-HHmm" timestamp of this run'
+        required: false
+        type: string
+        default: ''
+      package_version:
+        description: 'build.sh --package_version override; empty means "<a.b.c>-<UTC timestamp>"'
+        required: false
+        type: string
+        default: ''
+      pccl_tests_ref:
+        description: 'Branch, tag or sha of t-head/pccl-tests whose perf binaries are packaged next to pccl'
+        required: true
+        type: string
+        default: 'main'
+      cpu_num:
+        description: 'Parallelism passed to build.sh --cpu_num'
+        required: true
+        type: string
+        default: '8'
+
+permissions:
+  contents: read
+  # Merging the per-matrix artifacts lists them through the Actions API, so the scope has to
+  # be granted explicitly; an explicit permissions block sets everything else to none.
+  actions: read
+
+concurrency:
+  group: build-artifactory-ppu-${{ github.ref }}
+  cancel-in-progress: false
+
+jobs:
+  # Expand the OS x HGGCRT matrix and resolve the artifact label once, so every downstream
+  # job and the run summary stay consistent even across re-runs.
+  prepare:
+    name: Prepare build matrix
+    runs-on: k8s-runner-group-cpu-thead
+    # The k8s runner group forbids jobs without a container (same convention as pr-test-ppu.yml).
+    container:
+      image: ghcr.io/actions/actions-runner:latest
+    timeout-minutes: 10
+    outputs:
+      matrix: ${{ steps.matrix.outputs.matrix }}
+      version: ${{ steps.matrix.outputs.version }}
+      buildable: ${{ steps.matrix.outputs.buildable }}
+    steps:
+      - name: Check out source
+        uses: actions/checkout@v4
+        with:
+          fetch-depth: 0
+          path: pccl
+          persist-credentials: false
+
+      - name: Resolve matrix and artifact version
+        id: matrix
+        shell: bash
+        # `inputs` is only populated for workflow_dispatch/workflow_call; for push events it
+        # is an empty string, so every input needs a `||` fallback matching its declared default.
+        env:
+          OS_VERSIONS: ${{ inputs.os_versions || '["ubuntu2004","ubuntu2204","ubuntu2404","alios7","alios8","alinux3","alinux4"]' }}
+          HGGCRT_VERSIONS: ${{ inputs.hggcrt_versions || '["12","13"]' }}
+          ARTIFACT_VERSION: ${{ inputs.artifact_version || '' }}
+        run: |
+          python3 - <<'PY'
+          import json
+          import os
+          import re
+          import subprocess
+          from datetime import datetime, timedelta, timezone
+          from pathlib import Path
+
+          SOURCE_DIR = Path("pccl")
+
+          # (os label, hggcrt, SDK run package name, container image)
+          # Images are plain OS base images: the SDK .run that matches the OS and the HGGCRT
+          # runtime is downloaded and installed by the tar build script via sdk_url/sdk_name.
+          SDK_BASE_URL = "https://download.t-head.cn/artifactory/ptgai-generic-release/PPU_SDK/v2.2.1"
+          BUILD_TABLE = [
+              ("ubuntu2004", "12", "ppu_hggcrt2_ubuntu2004-2.2.1-184ee6.run",
+               "download.t-head.cn/docker_base/ubuntu:20.04"),
+              ("ubuntu2004", "13", "ppu_hggcrt3_ubuntu2004-2.2.1-184ee6.run",
+               "download.t-head.cn/docker_base/ubuntu:20.04"),
+              ("ubuntu2204", "12", "ppu_hggcrt2_ubuntu2204-2.2.1-184ee6.run",
+               "download.t-head.cn/docker_base/ubuntu:22.04"),
+              ("ubuntu2204", "13", "ppu_hggcrt3_ubuntu2204-2.2.1-184ee6.run",
+               "download.t-head.cn/docker_base/ubuntu:22.04"),
+              ("ubuntu2404", "12", "ppu_hggcrt2_ubuntu2404-2.2.1-184ee6.run",
+               "download.t-head.cn/docker_base/ubuntu:24.04"),
+              ("ubuntu2404", "13", "ppu_hggcrt3_ubuntu2404-2.2.1-184ee6.run",
+               "download.t-head.cn/docker_base/ubuntu:24.04"),
+              ("alios7", "12", "ppu_hggcrt2_alios7u2-2.2.1-184ee6.run",
+               "download.t-head.cn/docker_base/alios7u2-min:20220601"),
+              ("alios7", "13", "ppu_hggcrt3_alios7u2-2.2.1-184ee6.run",
+               "download.t-head.cn/docker_base/alios7u2-min:20220601"),
+              ("alinux3", "12", "ppu_hggcrt2_afa3-2.2.1-184ee6.run",
+               "download.t-head.cn/docker_base/alinux3:latest"),
+              ("alinux3", "13", "ppu_hggcrt3_afa3-2.2.1-184ee6.run",
+               "download.t-head.cn/docker_base/alinux3:latest"),
+              # The alios8u image reports itself as Alibaba Cloud Linux 3, so it installs from the
+              # alinux/3 mirror; alinux4 needs the extra os/ path segment of the v4 mirror layout.
+              ("alios8", "12", "ppu_hggcrt2_alios8u2-2.2.1-184ee6.run",
+               "download.t-head.cn/docker_base/alios8u:latest"),
+              ("alios8", "13", "ppu_hggcrt3_alios8u2-2.2.1-184ee6.run",
+               "download.t-head.cn/docker_base/alios8u:latest"),
+              ("alinux4", "12", "ppu_hggcrt2_afa4-2.2.1-184ee6.run",
+               "download.t-head.cn/docker_base/alinux4:latest"),
+              ("alinux4", "13", "ppu_hggcrt3_afa4-2.2.1-184ee6.run",
+               "download.t-head.cn/docker_base/alinux4:latest"),
+          ]
+          OS_LABELS = sorted({row[0] for row in BUILD_TABLE})
+          HGGCRT_LABELS = sorted({row[1] for row in BUILD_TABLE})
+          PATH_PATTERN = r"[A-Za-z0-9][A-Za-z0-9._+-]*"
+
+
+          def fail(message):
+              # Workflow commands are only turned into annotations when printed on stdout.
+              print(f"::error::{message}", flush=True)
+              raise SystemExit(1)
+
+
+          def parse_filter(raw, label, allowed):
+              try:
+                  values = json.loads(raw)
+              except (TypeError, ValueError):
+                  fail(f"{label} must be a JSON array")
+              if not isinstance(values, list) or not values:
+                  fail(f"{label} must be a non-empty JSON array")
+              normalized = []
+              for value in values:
+                  if isinstance(value, int) and label == "hggcrt_versions":
+                      value = str(value)
+                  if value not in allowed:
+                      fail(f"{label} contains unsupported value {value!r}; allowed: {', '.join(allowed)}")
+                  if value not in normalized:
+                      normalized.append(value)
+              return normalized
+
+
+          def resolve_version(raw):
+              # The value ends up in the run summary, so keep it to a single safe token.
+              if raw:
+                  if not re.fullmatch(PATH_PATTERN, raw):
+                      fail("artifact_version must contain only letters, digits and . _ + -")
+                  return raw
+              # One label per run, taken from a single UTC+8 timestamp so every job of the run
+              # reports the same value.
+              return datetime.now(timezone(timedelta(hours=8))).strftime("%Y-%m-%d-%H%M")
+
+
+          selected_os = parse_filter(os.environ["OS_VERSIONS"], "os_versions", OS_LABELS)
+          selected_hggcrt = parse_filter(os.environ["HGGCRT_VERSIONS"], "hggcrt_versions", HGGCRT_LABELS)
+          version = resolve_version(os.environ.get("ARTIFACT_VERSION", "").strip())
+
+          entries = []
+          for os_label, hggcrt, sdk_name, image in BUILD_TABLE:
+              if os_label not in selected_os or hggcrt not in selected_hggcrt:
+                  continue
+              if not image:
+                  # Job-level `if` cannot reference `matrix`, so empty-image rows must never
+                  # reach the matrix; fail here with an actionable message instead.
+                  fail(f"entry ({os_label}, hggcrt{hggcrt}) is selected but has no container image configured")
+              entries.append({
+                  "os": os_label,
+                  "hggcrt": hggcrt,
+                  # Distinct artifact name per matrix row so the merge pattern is unambiguous.
+                  "pkg_name": f"pccl_hggcrt{hggcrt}_{os_label}",
+                  # The same job also packages pccl-tests, so one artifact carries both tarballs.
+                  "tests_pkg_name": f"pccl_tests_hggcrt{hggcrt}_{os_label}",
+                  "output_dir": f"output_hggcrt{hggcrt}_{os_label}",
+                  "build_script": f"pccl_hggcrt{hggcrt}_tar_build.sh",
+                  # The script wgets sdk_url into sdk_name and installs it under ${source_home}.
+                  "sdk_url": f"{SDK_BASE_URL}/{sdk_name}",
+                  "sdk_name": sdk_name,
+                  "image": image,
+              })
+          if not entries:
+              fail("the selected os_versions/hggcrt_versions combination produced an empty matrix")
+
+          buildable = len(entries)
+          print(f"matrix entries: {buildable}, all with container images")
+          print(f"artifact version: {version}")
+          with open(os.environ["GITHUB_OUTPUT"], "a", encoding="utf-8") as output:
+              output.write("matrix=" + json.dumps({"include": entries}, separators=(",", ":")) + "\n")
+              output.write(f"version={version}\n")
+              output.write(f"buildable={buildable}\n")
+          PY
+
+  # One job per OS / HGGCRT pair. Compilation only needs CPU, so the build runs in a
+  # scheduler worker pod that requests zero PPU cards (nproc_per_node: 0) and no
+  # board-type selector; the job itself stays in the lightweight runner container.
+  # Note: job-level `if` is evaluated before the matrix is expanded, so it cannot
+  # reference `matrix`; unconfigured rows are rejected in the prepare job instead.
+  build:
+    name: Build ${{ matrix.os }} (hggcrt${{ matrix.hggcrt }})
+    needs: prepare
+    runs-on: k8s-runner-group-cpu-thead
+    # This runner group forbids jobs without a job container, so the job runs in the same
+    # lightweight runner image as prepare/publish/summary. Only the build step starts the
+    # distribution image, inside a scheduler worker pod (see below).
+    container:
+      image: ghcr.io/actions/actions-runner:latest
+    timeout-minutes: 360
+    strategy:
+      fail-fast: false
+      max-parallel: 4
+      matrix: ${{ fromJSON(needs.prepare.outputs.matrix) }}
+    defaults:
+      run:
+        shell: bash
+    env:
+      # Paths as seen inside the worker pod: the scheduler stages the workspace to
+      # /workspace/source, so the checkout shows up as /workspace/source/pccl.
+      source_home: /workspace/source
+      build_output: /workspace/source/${{ matrix.output_dir }}
+      # NAS hand-off: the worker pod sees the NAS at /mnt/wl_nas, the runner at /wl_nas.
+      nas_build_dir: /mnt/wl_nas/devops/pccl-artifactory/${{ github.run_id }}/${{ github.run_attempt }}/${{ matrix.os }}_hggcrt${{ matrix.hggcrt }}
+      nas_build_dir_runner: /wl_nas/devops/pccl-artifactory/${{ github.run_id }}/${{ github.run_attempt }}/${{ matrix.os }}_hggcrt${{ matrix.hggcrt }}
+      workspace_output: ${{ github.workspace }}/${{ matrix.output_dir }}
+      # Base images carry no PPU SDK: the tar build script downloads sdk_url as sdk_name and
+      # installs it under ${source_home}, then sources ${source_home}/PPU_SDK/envsetup.sh.
+      sdk_url: ${{ matrix.sdk_url }}
+      sdk_name: ${{ matrix.sdk_name }}
+      pkg_name: ${{ matrix.pkg_name }}
+      # The tar build script packages pccl-tests against the pccl build of this job and writes this
+      # tarball next to the pccl one.
+      pccl_tests_pkg_name: ${{ matrix.tests_pkg_name }}
+      cpu: ${{ inputs.cpu_num || '8' }}
+      package_version: ${{ inputs.package_version || '' }}
+    steps:
+      - name: Check out source
+        uses: actions/checkout@v4
+        with:
+          fetch-depth: 0
+          path: pccl
+          persist-credentials: false
+
+      # pccl-tests ships from this job (see the header), so its source is checked out next to pccl
+      # and the same tar build script packages both against the library built a moment earlier.
+      - name: Check out pccl-tests
+        uses: actions/checkout@v4
+        with:
+          repository: t-head/pccl-tests
+          ref: ${{ inputs.pccl_tests_ref || 'main' }}
+          fetch-depth: 0
+          path: pccl-tests
+          persist-credentials: false
+
+      - name: Build pccl and pccl-tests tarballs in a CPU-only worker pod
+        # No PPU card is requested (nproc_per_node: 0) and no board-type selector is
+        # passed, so the pod is scheduled on CPU nodes. container_options must size the
+        # pod explicitly: without cpus/memory the action derives them from the card
+        # count, which is zero here. Job env vars are forwarded into the pod.
+        # The script writes comm_internal/<pkg>.tar.gz plus comm_release/<pkg>.tar.gz
+        # under ${build_output}, which is then staged on the NAS for the runner.
+        uses: t-head/ppu-scheduler-action@main
+        with:
+          image: ${{ matrix.image }}
+          nnodes: 0
+          nproc_per_node: 0
+          namespace: ppu-sched
+          timeout_minutes: 180
+          job_suffix: build-${{ matrix.os }}-hggcrt${{ matrix.hggcrt }}
+          container_options: |
+            cpus: 16
+            memory: 64g
+          # Keep the worker pod around when the build fails so its logs stay readable.
+          cleanup_policy: on_success
+          command: |
+            set -e
+            : "${build_output:?build_output env var must be forwarded into the worker pod}"
+            : "${nas_build_dir:?nas_build_dir env var must be forwarded into the worker pod}"
+            # The Alibaba Cloud Linux docker_base images (alinux3, alinux4, alios8u) ship no tar,
+            # so the `tar xzf` that the action prepends to this command dies with
+            # "tar: command not found"; the pod keeps running because that only breaks the first
+            # link of the injected `&&` list, and /workspace/source stays empty. Restore the same
+            # NAS tarball here instead: with tar when the image has it, otherwise with the
+            # interpreter those images do ship (/usr/libexec/platform-python). Nothing in here
+            # relies on the working directory, because the injected `cd` may itself have failed.
+            # Every job of a run checks out the same commit, so any job's tarball is equivalent.
+            src_root=/workspace/source
+            src_repo=pccl
+            if [ ! -d "${src_root}/${src_repo}/.github" ]; then
+              mkdir -p "${src_root}"
+              nas_run_dir="/mnt/wl_nas/devops/${{ github.run_id }}-${{ github.run_attempt }}"
+              staged=""
+              for candidate in "${nas_run_dir}"/*-build-${{ matrix.os }}-*/source.tar.gz \
+                               "${nas_run_dir}"/*/source.tar.gz; do
+                if [ -z "${staged}" ] && [ -f "${candidate}" ]; then
+                  staged="${candidate}"
+                fi
+              done
+              if [ -z "${staged}" ]; then
+                echo "::error::${src_root} is empty and no staged source tarball was found under ${nas_run_dir}"
+                ls -la "${nas_run_dir}" 2>&1 | head -n 20 || true
+                exit 1
+              fi
+              echo "source was not extracted by the action; restoring ${staged}"
+              if command -v tar >/dev/null 2>&1; then
+                tar xzf "${staged}" -C "${src_root}" || echo "::warning::tar could not extract ${staged}"
+              fi
+              if [ ! -d "${src_root}/${src_repo}/.github" ]; then
+                python_bin=$(command -v python3 || command -v python || echo /usr/libexec/platform-python)
+                rm -rf /tmp/ppu-src && mkdir -p /tmp/ppu-src
+                "${python_bin}" -c 'import sys, tarfile; names = tarfile.open(sys.argv[1], "r:gz").getnames(); print("source.tar.gz holds %d entries, first 5: %s" % (len(names), ", ".join(names[:5])))' "${staged}" || echo "::warning::could not list ${staged}"
+                "${python_bin}" -c 'import sys, tarfile; tarfile.open(sys.argv[1], "r:gz").extractall(sys.argv[2])' "${staged}" /tmp/ppu-src || echo "::warning::python could not extract ${staged}"
+                # Accept both archive layouts: a top-level ${src_repo} directory (optionally one
+                # level down), or the checkout contents at the archive root.
+                found=""
+                for candidate_root in /tmp/ppu-src /tmp/ppu-src/*/; do
+                  if [ -z "${found}" ] && [ -d "${candidate_root%/}/${src_repo}/.github" ]; then
+                    found="${candidate_root%/}"
+                  fi
+                done
+                if [ -n "${found}" ]; then
+                  cp -a "${found}/." "${src_root}/"
+                elif [ -d /tmp/ppu-src/.github ]; then
+                  mkdir -p "${src_root}/${src_repo}" && cp -a /tmp/ppu-src/. "${src_root}/${src_repo}/"
+                fi
+              fi
+              if [ ! -d "${src_root}/${src_repo}/.github" ]; then
+                echo "::error::could not restore ${src_root}/${src_repo} from ${staged}"
+                ls -la "${src_root}" 2>&1 | head -n 20 || true
+                ls -la /tmp/ppu-src 2>&1 | head -n 20 || true
+                exit 1
+              fi
+            fi
+            # The checkout is complete; run the build from its root so the script's relative
+            # source_home paths resolve.
+            cd "${src_root}"
+            set -e
+            # The image bakes in unreachable internal PIP / git redirects.
+            unset PIP_INDEX_URL 2>/dev/null || true
+            # Only the older SDK images ship git. The docker_base images have none, and under
+            # `set -e` an unconditional `git config` kills the step before the build starts
+            # (first docker_base run failed with "/bin/bash: line 8: git: command not found").
+            # Both the redirect cleanup and safe.directory are only meaningful when git exists.
+            if command -v git >/dev/null 2>&1; then
+              git config --global --unset-all url.https://ai-gerrit.eng.t-head.cn/Public/Github/.insteadOf 2>/dev/null || true
+              git config --global --add safe.directory /workspace/source
+              git config --global --add safe.directory '*'
+            fi
+
+            echo "######################### $(date +%Y%m%d%H%M%S) Build ${pkg_name} in ${{ matrix.image }} ##########################"
+            bash "pccl/.github/workflows/scripts/${{ matrix.build_script }}"
+
+            # The script is expected to leave both distributions behind; a missing pccl-tests
+            # tarball means the second checkout or the perf build silently went away, which must
+            # not pass as a green run.
+            for component in comm_internal comm_release; do
+              for tarball in "${pkg_name}" "${pccl_tests_pkg_name}"; do
+                if [ ! -f "${build_output}/${component}/${tarball}.tar.gz" ]; then
+                  echo "::error::${build_output}/${component}/${tarball}.tar.gz was not produced"
+                  ls -la "${build_output}/${component}" 2>&1 | head -n 20 || true
+                  exit 1
+                fi
+              done
+            done
+
+            echo "######################### $(date +%Y%m%d%H%M%S) Stage ${pkg_name} and ${pccl_tests_pkg_name} tarballs on the NAS ##########################"
+            for component in comm_internal comm_release; do
+              if compgen -G "${build_output}/${component}/*.tar.gz" > /dev/null; then
+                mkdir -p "${nas_build_dir}/${component}"
+                cp -av "${build_output}/${component}"/*.tar.gz "${nas_build_dir}/${component}/"
+              fi
+            done
+            if ! compgen -G "${nas_build_dir}/*/*.tar.gz" > /dev/null; then
+              echo "::error::no tarball was produced under ${build_output}"
+              exit 1
+            fi
+
+      - name: Collect tarballs from the NAS
+        # Same NAS directory, seen from the runner container (/wl_nas): bring the tarballs
+        # into the job workspace so upload-artifact and the publish job keep working.
+        run: |
+          set -euo pipefail
+          # Start from a clean directory so a stale copy can never hide a failed upload.
+          rm -rf "${workspace_output}/comm_internal" "${workspace_output}/comm_release"
+          mkdir -p "${workspace_output}/comm_internal" "${workspace_output}/comm_release"
+          copied=0
+          for component in comm_internal comm_release; do
+            if compgen -G "${nas_build_dir_runner}/${component}/*.tar.gz" > /dev/null; then
+              cp -av "${nas_build_dir_runner}/${component}"/*.tar.gz "${workspace_output}/${component}/"
+              copied=$((copied + $(find "${workspace_output}/${component}" -maxdepth 1 -name '*.tar.gz' -type f | wc -l)))
+            fi
+          done
+          if [ "${copied}" -eq 0 ]; then
+            echo "::error::no tarball was staged from ${nas_build_dir_runner}"
+            exit 1
+          fi
+          find "${workspace_output}" -maxdepth 2 -name '*.tar.gz' -type f -print
+
+      - name: Upload tarballs as run artifact
+        uses: actions/upload-artifact@v4
+        with:
+          # run_id / run_attempt keep re-runs of the same commit from colliding.
+          name: ${{ matrix.pkg_name }}-${{ github.run_id }}-${{ github.run_attempt }}
+          path: |
+            ${{ matrix.output_dir }}/comm_internal/*.tar.gz
+            ${{ matrix.output_dir }}/comm_release/*.tar.gz
+          if-no-files-found: error
+          compression-level: 0
+          retention-days: 30
+
+  # Merge the per-matrix artifacts into one. The tarballs stay inside this repository's own
+  # Actions artifacts; nothing is pushed to an external server.
+  publish:
+    name: Publish run artifact
+    needs: [prepare, build]
+    if: >-
+      ${{ !cancelled() &&
+          needs.prepare.result == 'success' &&
+          needs.prepare.outputs.buildable != '0' &&
+          (needs.build.result == 'success' || needs.build.result == 'failure') }}
+    runs-on: k8s-runner-group-cpu-thead
+    container:
+      image: ghcr.io/actions/actions-runner:latest
+    timeout-minutes: 30
+    defaults:
+      run:
+        shell: bash
+    outputs:
+      artifact_name: ${{ steps.name.outputs.artifact_name }}
+    steps:
+      - name: Resolve merged artifact name
+        id: name
+        env:
+          LABEL: ${{ needs.prepare.outputs.version }}
+          REF_NAME: ${{ github.ref_name }}
+        run: |
+          set -euo pipefail
+          # The label is the UTC+8 "YYYY-MM-DD-HHmm" timestamp the prepare job resolves once
+          # per run, so the artifact reads like a release stamp instead of an internal run id
+          # and matches the value shown in the run summary.
+          if [ -z "${LABEL:-}" ]; then
+            echo "::error::the artifact label is empty; the prepare job did not export outputs.version"
+            exit 1
+          fi
+          # The git ref tells main-branch and release-branch builds apart. Branch names contain
+          # "/" and tags may contain other characters an artifact name rejects, so fold anything
+          # outside [A-Za-z0-9._-] into a single "-".
+          ref_slug=$(printf '%s' "${REF_NAME:-unknown}" | sed -e 's/[^A-Za-z0-9._-]/-/g' -e 's/--*/-/g' -e 's/^-//' -e 's/-$//')
+          ref_slug=${ref_slug:-unknown}
+          echo "artifact_name=pccl-tarballs-${ref_slug}-${LABEL}" >> "$GITHUB_OUTPUT"
+
+      - name: Merge tarball artifacts
+        uses: actions/upload-artifact/merge@v4
+        with:
+          name: ${{ steps.name.outputs.artifact_name }}
+          pattern: pccl_hggcrt*-${{ github.run_id }}-${{ github.run_attempt }}
+          delete-merged: true
+          retention-days: 30
+
+      - name: Write artifact summary
+        if: always()
+        env:
+          ARTIFACT_NAME: ${{ steps.name.outputs.artifact_name }}
+          RUN_URL: ${{ github.server_url }}/${{ github.repository }}/actions/runs/${{ github.run_id }}
+          PUBLISH_RESULT: ${{ job.status }}
+        run: |
+          {
+            printf '### pccl tarballs\n\n'
+            printf '| item | value |\n| --- | --- |\n'
+            printf '| artifact | `%s` |\n' "${ARTIFACT_NAME}"
+            printf '| download | [run artifacts](%s) |\n' "${RUN_URL}"
+            printf '| result | %s |\n' "${PUBLISH_RESULT}"
+          } >> "$GITHUB_STEP_SUMMARY"
+
+  summary:
+    name: Build summary
+    needs: [prepare, build, publish]
+    if: always()
+    runs-on: k8s-runner-group-cpu-thead
+    container:
+      image: ghcr.io/actions/actions-runner:latest
+    timeout-minutes: 10
+    steps:
+      - name: Write matrix summary
+        shell: bash
+        env:
+          MATRIX_JSON: ${{ needs.prepare.outputs.matrix }}
+          PREPARE_RESULT: ${{ needs.prepare.result }}
+          VERSION: ${{ needs.prepare.outputs.version }}
+          BUILD_RESULT: ${{ needs.build.result }}
+          PUBLISH_RESULT: ${{ needs.publish.result }}
+          ARTIFACT_NAME: ${{ needs.publish.outputs.artifact_name }}
+        run: |
+          python3 - <<'PY' >> "$GITHUB_STEP_SUMMARY"
+          import json
+          import os
+
+          print("### pccl build artifacts\n")
+          print(f"| item | value |\n| --- | --- |")
+          print(f"| label | {os.environ.get('VERSION') or 'n/a'} |")
+          print(f"| artifact | `{os.environ.get('ARTIFACT_NAME') or 'n/a'}` |")
+          print(f"| prepare | {os.environ.get('PREPARE_RESULT', '')} |")
+          print(f"| build | {os.environ.get('BUILD_RESULT', '')} |")
+          print(f"| publish | {os.environ.get('PUBLISH_RESULT', '')} |")
+
+          raw = os.environ.get("MATRIX_JSON") or ""
+          if not raw:
+              print("\nNo matrix was generated.")
+              raise SystemExit(0)
+          entries = json.loads(raw).get("include", [])
+          print("\n| os | hggcrt | pccl package | pccl-tests package | image |\n| --- | --- | --- | --- | --- |")
+          for entry in entries:
+              tests_pkg = entry.get("tests_pkg_name", "n/a")
+              print(f"| {entry['os']} | {entry['hggcrt']} | `{entry['pkg_name']}.tar.gz` | `{tests_pkg}.tar.gz` | `{entry['image']}` |")
+          PY
