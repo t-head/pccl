@@ -45,6 +45,8 @@ ncclResult_t ncclRegister(ncclComm_t comm, void* data, size_t size, bool isGraph
       struct ncclReg* regSlot = cache->slots[slot];
       regSlot->begAddr = begAddr;
       regSlot->endAddr = endAddr;
+      regSlot->addr = begAddr;
+      regSlot->pages = (endAddr - begAddr) / pageSize;
       if (isGraph) regSlot->graphRefs = 1;
       else regSlot->localRefs = 1;
       cache->population += 1;
