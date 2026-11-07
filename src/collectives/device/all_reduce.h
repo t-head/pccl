@@ -69,7 +69,7 @@ namespace {
         chunkCount = chunkSize;
         if (remaining < loopSize) {
           chunkCount = DIVUP(remaining, nranks);
-          ALIGN_SIZE(chunkCount, 16 / sizeof(T));
+          ALIGN_SIZE(chunkCount, (nChannels == 1 ? nthreads * sizeof(uint64_t) : 16) / sizeof(T));
           chunkCount = min(chunkCount, chunkSize);
         }
         chunkBase = gridOffset;
