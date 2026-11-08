@@ -44,6 +44,8 @@ explicit `run_test.py`, `run_test_config.py`, optional `unit_test.py`, `build`
 and optional `hosts.cfg` links. Private `python`/`python3` launchers for the active interpreter are added to
 `PATH`, so CSV commands see the same Python environment as the executor
 (including its benchmark dependencies), even when the system `python3` differs.
+A `python3.11` compatibility launcher also points to that active interpreter;
+it does not install or claim a separate Python 3.11 runtime.
 
 Only literal `{test_root}`, `{binary_dir}`, `{result_dir}`, `{path}`,
 `{ld_library_path}`, `{hostfile}`, `{mpi_interface}` and `{python_env}` bindings

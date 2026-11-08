@@ -184,7 +184,7 @@ def _stage_interpreter(output):
     directory.mkdir()
     executable = Path(sys.executable).absolute()
     launcher = '#!/bin/sh\nexec ' + shlex.quote(str(executable)) + ' "$@"\n'
-    for name in sorted({"python", "python3", executable.name}):
+    for name in sorted({"python", "python3", "python3.11", executable.name}):
         path = directory / name
         path.write_text(launcher, encoding="utf-8")
         path.chmod(0o755)

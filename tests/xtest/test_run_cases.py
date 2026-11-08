@@ -113,6 +113,12 @@ class CsvRunnerTests(unittest.TestCase):
         text = (self.root / 'output-1/plan/suite/case_0/raw.log').read_text()
         self.assertIn(str(sys.version_info[:2]), text)
 
+    def test_python311_compatibility_launcher_uses_active_interpreter(self):
+        rows = self.execute(self.inputs([{'cmd': "{python_env}/bin/python3.11 -c 'import sys; print(sys.version_info[:2])'"}]))
+        self.assertEqual(rows[0]['status'], 'PASSED')
+        text = (self.root / 'output-1/plan/suite/case_0/raw.log').read_text()
+        self.assertIn(str(sys.version_info[:2]), text)
+
     def test_validation_summary_is_required(self):
         passing = self.execute(self.inputs([{'cmd': f"printf '%s\\n' '{SUMMARY}'", 'check': 'validation_summary'}]))
         self.assertEqual(passing[0]['status'], 'PASSED')
