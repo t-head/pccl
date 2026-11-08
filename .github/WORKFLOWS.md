@@ -11,50 +11,32 @@ PPU tests. `PCCL Tests Gate` reports the results of the required jobs.
 
 | File | Purpose |
 | --- | --- |
-| [source-sanity.yml](workflows/source-sanity.yml) | The sole PPU test pipeline and publisher of `PCCL Tests Gate`: PR prechecks and AI/human approval precede self-hosted builds, followed by two builds, one single-node job per profile, and one two-node job reusing the standard build. |
-| [source-cluster-debug.yml](workflows/source-cluster-debug.yml) | Manual troubleshooting tool for the two-node MPI case; it rebuilds from source instead of reusing a build. |
-| [workflows/scripts/](workflows/scripts/) | Build and test PCCL with the external test suite. |
-| [casecmd.list](workflows/scripts/casecmd.list) | Define the PPU test matrix. |
+| [source-sanity.yml](workflows/source-sanity.yml) | The sole PPU test pipeline and publisher of `PCCL Tests Gate`: PR prechecks and AI/human approval precede self-hosted builds, artifact-backed build distribution, one single-node job per profile, and one two-node job reusing the standard build. |
+| [workflows/scripts/](workflows/scripts/) | Build PCCL and the pinned public benchmark runner. |
 
-`source-sanity.yml` runs on same-repository pull requests, pushes to `main`, and manual dispatch. Unsupported fork PRs receive an explicitly failed `PCCL Tests Gate` on a GitHub-hosted runner without a checkout or self-hosted allocation. It
-never uses repository secrets, and it keeps the executable source of truth in
-`pccl_test_suites`: the checked-in catalog records the reviewed revision, the exporter
-hash, and the selection hash, so a change to the cases requires a new export. The reviewed
-two-node selection currently contains only a standard execution; the notsm build covers
-single-node sanity and is not a second two-node variant in this workflow. Each build also
-publishes a build record containing the actual source revisions, profile and archive SHA-256.
-The executor verifies that record against the archive and retains it in shard evidence; both
-result gates check it again without requiring the original build host or archive to be present.
-Each profile must resolve to one archive identity across all shards, and the two-node
-standard execution must use the same archive as the single-node standard shards.
-Performance command success and valid data are required, but sample stability is observational only
-until a baseline exists. Raw `command.log` evidence remains on the private result store for
-validation; `command-public.log` is the separately redacted diagnostic copy.
+`source-sanity.yml` runs on same-repository pull requests, pushes to `main`, and manual dispatch. Unsupported fork PRs receive an explicitly failed `PCCL Tests Gate` on a GitHub-hosted runner without a checkout or self-hosted allocation. The maintained Plan/Suite/Case definitions are the only test source. Their reviewed commands are exported to the versioned CSV files under `tests/xtest/minimal-csv`; GitHub does not install or import xtest/mmengine.
 
-## Reading Cases and commands
+### CSV Cases and commands
 
-The source catalog keeps the normalized execution model: one source Case can have several
-execution profiles. Use the Case-first reader instead of joining `cases` and `executions`
-manually:
+- `suites.csv` holds the composite Plan/Suite key, node and card resources, outer timeout and shared environment filename.
+- `standard.csv` and `notsm.csv` hold one Case per row with `(plan, suite, name, check, cmd)`.
+- `export.json` records the format, source and public-runner revisions and the exporting xtest version.
+- `run_cases.py` executes the captured command through `/bin/sh -c` without reconstructing Runner arguments. Only documented literal runtime bindings are expanded.
+
+Validate selections without running hardware:
 
 ```bash
-python3 tests/xtest/catalog.py describe [--case CASE_ID_OR_NAME] [--json]
+python3 -S -B tests/xtest/run_cases.py   --input tests/xtest/minimal-csv --profile standard --nodes 1 --validate-only
+python3 -S -B tests/xtest/run_cases.py   --input tests/xtest/minimal-csv --profile notsm --nodes 1 --validate-only
 ```
 
-The three command representations have deliberately different roles:
+Result checks are `exit_code`, `validation_summary` and `performance`. Performance requires command success, a validation summary and a valid table, and emits `metrics.csv`; there is no baseline or sample-stability gate. Raw logs remain unmodified in the private results area.
 
-| Representation | Meaning |
-| --- | --- |
-| `source_command` | Original source command, retained only for provenance and conversion checks. It is never an execution entry. |
-| `executions[].spec.argv` | Execution template consumed by the GitHub runner. Its `{python}`, `{test_root}`, `{binary_dir}`, `{result_dir}` and `{mpi_options}` placeholders require runtime expansion. |
-| `command-reproduction.txt` | The expanded, redacted command and relevant environment for one actual attempt. It is execution evidence, not a catalog input. |
+### Build artifacts and NAS cache
 
-The result gate also writes `case-summary.json`. It groups all execution results by source
-Case and links each profile's `result.json` and, when present, `command-reproduction.txt`.
-The uploaded `single-node-source-sanity-results` artifact includes those linked files under
-the same relative paths. Result JSON is limited to the public result projection, and the
-reproduction text is redacted again during publication instead of copying raw diagnostics.
-The stable Case and execution IDs are not affected by the field-name cleanup.
+standard and notsm are each built once and must be uploaded as GitHub Actions artifacts with source revisions, profile and archive SHA-256. A per-profile staging job reuses a valid run-scoped NAS cache or downloads the artifact once and validates it before publication. The standard single-node and two-node jobs therefore share one artifact download, while each single-node job extracts into its own local workspace.
+
+The two-node master extracts to a NAS directory visible to both workers and removes that directory through an EXIT trap. After result reconciliation, the final cleanup removes only this run's `staging/`, `cache/` and `shared-standard/` directories. Results and raw logs are preserved. Cache hits and cleanup never rely on file existence alone: source revisions, profile, SHA-256 and run-scoped paths are verified. Build artifacts have an explicit retention period to control multi-GB storage use.
 
 ## Commit message previews
 
