@@ -180,8 +180,8 @@ def _runner_root(test_root):
 
 
 def _stage_interpreter(output):
-    directory = output / ".executor-bin"
-    directory.mkdir()
+    directory = output / "python-env" / "bin"
+    directory.mkdir(parents=True)
     executable = Path(sys.executable).absolute()
     launcher = '#!/bin/sh\nexec ' + shlex.quote(str(executable)) + ' "$@"\n'
     for name in sorted({"python", "python3", "python3.11", executable.name}):
@@ -336,7 +336,8 @@ def run_case(case, runtime, interrupted):
     return_code = None
     try:
         bindings = {"test_root": str(runtime["test_root"]), "binary_dir": str(runtime["binary_dir"]),
-                    "result_dir": str(directory), "python_env": str(Path(sys.prefix).absolute())}
+                    "result_dir": str(directory),
+                    "python_env": str(runtime["output"] / "python-env")}
         environment = _expand_environment(
             _environment_file(runtime["input"] / "envs" / suite["env"]), runtime["base_environment"], bindings)
         # Keep the build ahead of inherited installations while retaining the
