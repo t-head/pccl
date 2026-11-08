@@ -10,16 +10,87 @@ on:
 
 permissions:
   contents: read
-  pull-requests: read
+  pull-requests: write
+  statuses: read
 
 concurrency:
   group: source-sanity-single-node-${{ github.event.pull_request.number || github.ref }}
   cancel-in-progress: true
 
 jobs:
+  precheck:
+    name: Pre-check (Secret Scan)
+    if: github.event_name == 'pull_request'
+    uses: t-head/.github/.github/workflows/user-precheck.yml@main
+
+  commit-checks:
+    name: Pre-check (Commit Message & DCO)
+    if: github.event_name == 'pull_request'
+    permissions:
+      contents: read
+    runs-on: ubuntu-latest
+    timeout-minutes: 10
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          fetch-depth: 0
+          persist-credentials: false
+      - name: Check contribution commits
+        env:
+          HEAD_SHA: ${{ github.event.pull_request.head.sha }}
+        run: |
+          python3 - <<'PY'
+          import os
+          import re
+          import subprocess
+          import sys
+
+          def git(*args):
+              return subprocess.check_output(['git', *args], text=True)
+
+          head_sha = os.environ['HEAD_SHA']
+          parents = git('show', '-s', '--format=%P', os.environ['GITHUB_SHA']).split()
+          if len(parents) != 2 or parents[1] != head_sha:
+              sys.exit('Test merge does not match the PR head; start a new checkin run.')
+          # The event base SHA can lag behind the base already included in this test merge.
+          commits = git('rev-list', parents[0] + '..' + head_sha).splitlines()
+          errors = []
+          for sha in commits:
+              message = git('show', '-s', '--format=%B', sha)
+              lines = message.splitlines()
+              if not lines or not lines[0].strip():
+                  errors.append(f'{sha[:12]}: title must not be empty')
+              elif len(lines[0]) > 50:
+                  print(f'::notice::{sha[:12]}: title exceeds the recommended 50 characters; consider shortening it')
+              if len(lines) > 1 and lines[1] != '':
+                  errors.append(f'{sha[:12]}: second line must be blank')
+              issue_ref = r'(?i:\b(?:Refs|Closes|Fixes))[ \t]+(?:[A-Za-z0-9_.-]+/[A-Za-z0-9_.-]+)?#[1-9][0-9]*\b|https://github\.com/[A-Za-z0-9_.-]+/[A-Za-z0-9_.-]+/issues/[1-9][0-9]*\b'
+              if not re.search(issue_ref, '\n'.join(lines[1:])):
+                  errors.append(f'{sha[:12]}: missing issue reference in commit body')
+
+              trailers = subprocess.check_output(
+                  ['git', 'interpret-trailers', '--parse', '--no-divider'], input=message, text=True).splitlines()
+              signoffs = [match.groups() for line in trailers
+                          if (match := re.fullmatch(
+                              r'Signed-off-by: (\S(?:.*\S)?) <([^<>\s]+@[^<>\s]+)>', line))]
+              author = tuple(git('show', '-s', '--format=%an%x00%ae', sha).rstrip('\n').split('\0'))
+              if not signoffs:
+                  errors.append(f'{sha[:12]}: missing valid Signed-off-by trailer')
+              elif author not in signoffs:
+                  errors.append(f'{sha[:12]}: Signed-off-by name and email must match the commit author')
+          for error in errors:
+              print(error)
+          print(f'Checked {len(commits)} contribution commits for message format and DCO.')
+          sys.exit(bool(errors))
+          PY
+
   prepare:
     name: Standard-library contracts and single-node manifest (no hardware)
+    needs: [precheck, commit-checks]
     if: >-
+      always() &&
+      (needs.precheck.result == 'success' || needs.precheck.result == 'skipped') &&
+      (needs.commit-checks.result == 'success' || needs.commit-checks.result == 'skipped') &&
       github.repository == 't-head/pccl' &&
       ((github.event_name == 'pull_request' &&
         github.event.pull_request.head.repo.full_name == github.repository) ||
@@ -118,9 +189,19 @@ jobs:
             'Manifest generation and contract tests used no pip, xtest, mmengine, network access, PPU allocation, or benchmark execution; dependency staging is separate and uses pinned downloads.' \
             >> "$GITHUB_STEP_SUMMARY"
 
+  ai-code-review:
+    name: AI Code Review (Copilot Gate)
+    needs: [precheck, commit-checks]
+    if: >-
+      github.event_name == 'pull_request' &&
+      github.repository == 't-head/pccl' &&
+      github.event.pull_request.head.repo.full_name == github.repository
+    uses: t-head/.github/.github/workflows/ai-code-review.yml@main
+    secrets: inherit
+
   human-review:
     name: Human Review Gate
-    needs: prepare
+    needs: [prepare, ai-code-review]
     if: >-
       github.event_name == 'pull_request' &&
       github.repository == 't-head/pccl' &&
@@ -434,18 +515,30 @@ jobs:
 
   summary:
     name: PCCL Tests Gate
-    needs: [prepare, human-review, build-standard, build-notsm, sanity, cluster]
-    if: >-
-      always() && github.repository == 't-head/pccl' &&
-      ((github.event_name == 'pull_request' &&
-        github.event.pull_request.head.repo.full_name == github.repository) ||
-       github.event_name == 'workflow_dispatch' ||
-       github.event_name == 'push')
-    runs-on: k8s-runner-group-cpu-thead
+    needs: [precheck, commit-checks, prepare, ai-code-review, human-review, build-standard, build-notsm, sanity, cluster]
+    if: always()
+    runs-on: >-
+      ${{ (
+        github.repository == 't-head/pccl' &&
+        ((github.event_name == 'pull_request' &&
+          github.event.pull_request.head.repo.full_name == github.repository) ||
+         github.event_name == 'workflow_dispatch' || github.event_name == 'push')
+      ) && 'k8s-runner-group-cpu-thead' || 'ubuntu-24.04' }}
     container:
       image: ghcr.io/actions/actions-runner:latest
     timeout-minutes: 10
     steps:
+      - name: Reject unsupported repository or event
+        if: >-
+          always() && !(
+            github.repository == 't-head/pccl' &&
+            ((github.event_name == 'pull_request' &&
+              github.event.pull_request.head.repo.full_name == github.repository) ||
+             github.event_name == 'workflow_dispatch' || github.event_name == 'push')
+          )
+        run: |
+          echo '::error::source-sanity supports same-repository pull requests, main pushes and manual dispatch only.'
+          exit 1
       - uses: actions/checkout@v4
         with:
           persist-credentials: false
@@ -493,7 +586,7 @@ jobs:
           path: public-results-cluster/
           if-no-files-found: error
       - uses: actions/upload-artifact@v4
-        if: always()
+        if: always() && needs.prepare.result == 'success'
         with:
           name: single-node-source-sanity-results
           path: public-results/
@@ -511,7 +604,7 @@ jobs:
 
           needs = json.loads(os.environ['NEEDS'])
           if os.environ['EVENT_NAME'] == 'pull_request':
-              for name in ('human-review',):
+              for name in ('precheck', 'commit-checks', 'ai-code-review', 'human-review'):
                   if needs[name]['result'] != 'success':
                       print(f"::error::{name}: {needs[name]['result']}")
                       sys.exit(1)

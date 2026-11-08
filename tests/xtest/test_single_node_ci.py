@@ -197,7 +197,8 @@ class SingleNodeTests(unittest.TestCase):
         shard, row = self.runner_row()
         reproduction = (self.results / shard['build_profile'] / shard['shard_id'] /
                         row['case_key'] / 'attempt-1/command-reproduction.txt')
-        reproduction.write_text('token=PRIVATE_HOST\n' + reproduction.read_text())
+        reproduction.write_text('token=PRIVATE_HOST\nhttps://private.invalid/access\nroot@alibaba-inc.com\n'
+                        + 'a' * 48 + '\n' + reproduction.read_text())
         self.assertEqual(ci.summarize(self.path, self.results, self.output), 0)
         summary = json.loads((self.output / 'summary.json').read_text())
         self.assertTrue(summary['complete'])
@@ -219,7 +220,11 @@ class SingleNodeTests(unittest.TestCase):
                 relative = Path(execution['reproduction'])
                 self.assertTrue((self.results / relative).is_file(), relative)
                 self.assertTrue((self.output / relative).is_file(), relative)
-                self.assertNotIn('PRIVATE HOST', (self.output / relative).read_text())
+                public_reproduction = (self.output / relative).read_text()
+                self.assertNotIn('PRIVATE HOST', public_reproduction)
+                self.assertNotIn('private.invalid', public_reproduction)
+                self.assertNotIn('alibaba-inc.com', public_reproduction)
+                self.assertNotIn('a' * 48, public_reproduction)
                 result_path = Path(execution['result'])
                 self.assertTrue((self.output / result_path).is_file(), result_path)
                 public_result = execute.read_json(self.output / result_path)

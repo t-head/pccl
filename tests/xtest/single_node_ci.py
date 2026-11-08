@@ -112,7 +112,7 @@ def case_summaries(manifest, published, results, output):
             # so later NAS tampering cannot copy newly introduced secrets verbatim.
             text = source.read_text(encoding='utf-8')
             with (evidence / 'command-reproduction.txt').open('x', encoding='utf-8') as stream:
-                stream.writelines(_redacted_lines(text, spec['env']))
+                stream.writelines(_redacted_lines(text, spec['env'], redact_private=True))
             reproduction = str(relative / 'command-reproduction.txt')
         grouped[case_id].append({
             'case_key': result['case_key'], 'build_profile': result['build_profile'],

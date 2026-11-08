@@ -11,13 +11,12 @@ PPU tests. `PCCL Tests Gate` reports the results of the required jobs.
 
 | File | Purpose |
 | --- | --- |
-| [pr-test-ppu.yml](workflows/pr-test-ppu.yml) | Run only the PR Secret Scan and Commit Message / DCO prechecks; its legacy PPU jobs are retired. |
-| [source-sanity.yml](workflows/source-sanity.yml) | The sole PPU test pipeline and publisher of `PCCL Tests Gate`: Human approval precedes self-hosted builds while AI review runs independently, followed by two builds, one single-node job per profile, and one two-node job reusing the standard build. |
+| [source-sanity.yml](workflows/source-sanity.yml) | The sole PPU test pipeline and publisher of `PCCL Tests Gate`: PR prechecks and AI/human approval precede self-hosted builds, followed by two builds, one single-node job per profile, and one two-node job reusing the standard build. |
 | [source-cluster-debug.yml](workflows/source-cluster-debug.yml) | Manual troubleshooting tool for the two-node MPI case; it rebuilds from source instead of reusing a build. |
 | [workflows/scripts/](workflows/scripts/) | Build and test PCCL with the external test suite. |
 | [casecmd.list](workflows/scripts/casecmd.list) | Define the PPU test matrix. |
 
-`source-sanity.yml` runs on same-repository pull requests, pushes to `main`, and manual dispatch. It
+`source-sanity.yml` runs on same-repository pull requests, pushes to `main`, and manual dispatch. Unsupported fork PRs receive an explicitly failed `PCCL Tests Gate` on a GitHub-hosted runner without a checkout or self-hosted allocation. It
 never uses repository secrets, and it keeps the executable source of truth in
 `pccl_test_suites`: the checked-in catalog records the reviewed revision, the exporter
 hash, and the selection hash, so a change to the cases requires a new export. The reviewed

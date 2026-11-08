@@ -443,6 +443,12 @@ class WriterTests(unittest.TestCase):
         metrics.write_metrics(rows, self.directory)
       self.assertEqual(list(self.directory.iterdir()), [])
 
+  def test_invalid_measurement_does_not_echo_raw_token(self):
+    with self.assertRaises(ValueError) as raised:
+      metrics._decimal('offline-credential-value-7319', 'time')
+    self.assertNotIn('offline-credential-value-7319', str(raised.exception))
+    self.assertIn('time', str(raised.exception))
+
   def test_does_not_create_missing_output_directory(self):
     missing = self.directory / 'missing'
     with self.assertRaisesRegex(ValueError, 'already exist'):

@@ -119,17 +119,17 @@ assert not ({'xtest', 'mmengine', 'filelock'} & sys.modules.keys())
     def test_workflow_separates_offline_preparation_from_hardware_execution(self):
         workflow = (ROOT / '.github/workflows/source-sanity.yml').read_text()
         self.assertEqual(re.findall(r'^  ([a-z_-]+):$', workflow, re.M),
-                         ['pull_request', 'push', 'workflow_dispatch', 'prepare',
-                          'human-review', 'build-standard', 'build-notsm', 'sanity', 'cluster', 'summary'])
+                         ['pull_request', 'push', 'workflow_dispatch', 'precheck', 'commit-checks', 'prepare',
+                          'ai-code-review', 'human-review', 'build-standard', 'build-notsm', 'sanity', 'cluster', 'summary'])
         prepare = workflow.split('\n  build-standard:', 1)[0]
         human_review = workflow.split('\n  human-review:', 1)[1].split('\n  build-standard:', 1)[0]
-        self.assertIn('needs: prepare', human_review)
+        self.assertIn('needs: [prepare, ai-code-review]', human_review)
         build_standard = workflow.split('\n  build-standard:', 1)[1].split('\n  build-notsm:', 1)[0]
         build_notsm = workflow.split('\n  build-notsm:', 1)[1].split('\n  sanity:', 1)[0]
         sanity = workflow.split('\n  sanity:', 1)[1].split('\n  cluster:', 1)[0]
         cluster = workflow.split('\n  cluster:', 1)[1].split('\n  summary:', 1)[0]
         self.assertIn('runs-on: ubuntu-24.04', prepare)
-        self.assertIn('pull-requests: read', workflow)
+        self.assertIn('pull-requests: write', workflow)
         self.assertIn('venv --without-pip', prepare)
         self.assertIn('unshare --net', prepare)
         for forbidden in ('pip install', 'requirements.txt', 'ppu-scheduler-action@',
@@ -208,7 +208,7 @@ assert not ({'xtest', 'mmengine', 'filelock'} & sys.modules.keys())
         for job in (prepare, build_standard, build_notsm, sanity, cluster, summary):
             self.assertIn('github.event.pull_request.head.repo.full_name == github.repository', job)
             self.assertIn("github.event_name == 'push'", job)
-        self.assertNotIn("if: always() && needs.prepare.result == 'success'", summary)
+        self.assertIn('    if: always()\n', summary)
         self.assertIn("if: always() && needs.cluster.result != 'skipped'", summary)
         self.assertNotIn('notsm_build.sh', sanity)
         self.assertNotIn('-m xtest', workflow)
@@ -216,19 +216,17 @@ assert not ({'xtest', 'mmengine', 'filelock'} & sys.modules.keys())
         self.assertIn('cancel-in-progress: true', workflow)
         self.assertIn('name: PCCL Tests Gate', summary)
         self.assertIn('Require one build identity per profile', summary)
-        legacy = (ROOT / '.github/workflows/pr-test-ppu.yml').read_text()
-        self.assertNotIn('ppu-scheduler-action', legacy)
-        self.assertNotIn('tests-gate:', legacy)
-        self.assertNotIn('build-test-notsm:', legacy)
-        self.assertIn('ai-code-review:', legacy)
-        self.assertNotIn('human-review:', legacy)
+        self.assertIn('Reject unsupported repository or event', summary)
+        self.assertIn("'k8s-runner-group-cpu-thead' || 'ubuntu-24.04'", summary)
+        self.assertFalse((ROOT / '.github/workflows/pr-test-ppu.yml').exists())
 
     def test_result_gate_requires_prepare_single_node_and_two_node_success(self):
         workflow = (ROOT / '.github/workflows/source-sanity.yml').read_text()
         section = workflow.split('      - name: Require every expected build and test shard', 1)[1]
         gate = section.split("          python3 - <<'PY'\n", 1)[1].split('\n          PY', 1)[0]
         gate = textwrap.dedent(gate)
-        names = ('prepare', 'human-review', 'build-standard', 'build-notsm', 'sanity', 'cluster')
+        names = ('precheck', 'commit-checks', 'prepare', 'ai-code-review', 'human-review',
+                 'build-standard', 'build-notsm', 'sanity', 'cluster')
         base = {name: {'result': 'success'} for name in names}
 
         def evaluate(changes):

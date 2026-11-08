@@ -57,7 +57,7 @@ def _string(value, name):
 
 def _decimal(token, name):
   if not _NUMBER.fullmatch(token):
-    raise ValueError('{} must be a finite decimal number: {!r}'.format(name, token))
+    raise ValueError('{} must be a finite decimal number'.format(name))
   try:
     return Decimal(token)
   except InvalidOperation as error:
