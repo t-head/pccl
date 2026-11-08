@@ -42,7 +42,9 @@ two-node Case; without a filter, every Case in the profile is selected.
 Cases. `test_root` may either contain `run_test.py` directly or contain a
 `pccl-tests` checkout. Each Case gets a separate working directory with
 explicit `run_test.py`, `run_test_config.py`, `build` and optional `hosts.cfg`
-links.
+links. Private `python`/`python3` launchers for the active interpreter are added to
+`PATH`, so CSV commands see the same Python environment as the executor
+(including its benchmark dependencies), even when the system `python3` differs.
 
 Only literal `{test_root}`, `{binary_dir}`, `{result_dir}`, `{path}`,
 `{ld_library_path}` and `{hostfile}` bindings are recognized. The last three

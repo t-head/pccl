@@ -34,6 +34,8 @@ class CsvRunnerTests(unittest.TestCase):
         (self.runner / 'run_test.py').write_text(
             'import os, sys\n'
             'print("arguments=" + repr(sys.argv[1:]))\n'
+            'print("executable=" + sys.executable)\n'
+            'print("version=" + ".".join(str(part) for part in sys.version_info[:2]))\n'
             'print("marker=" + os.environ.get("TEST_MARKER", ""))\n', encoding='utf-8')
         (self.runner / 'run_test_config.py').write_text('# test fixture\n', encoding='utf-8')
         (self.input / 'export.json').write_text(json.dumps({
@@ -95,6 +97,7 @@ class CsvRunnerTests(unittest.TestCase):
         text = (self.root / 'output-1/plan/suite/case_0/raw.log').read_text()
         self.assertIn('arguments=' + repr(['--value', 'a,b "quoted"']), text)
         self.assertIn('marker=from shared env', text)
+        self.assertIn('version=' + '.'.join(str(part) for part in sys.version_info[:2]), text)
         work = self.root / 'output-1/plan/suite/case_0/work'
         self.assertEqual((work / 'run_test.py').resolve(), (self.runner / 'run_test.py').resolve())
         self.assertEqual((work / 'run_test_config.py').resolve(), (self.runner / 'run_test_config.py').resolve())

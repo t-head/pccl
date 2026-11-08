@@ -15,6 +15,7 @@ import json
 import os
 from pathlib import Path
 import re
+import shlex
 import signal
 import subprocess
 import sys
@@ -178,6 +179,18 @@ def _runner_root(test_root):
     return nested if (nested / "run_test.py").is_file() else test_root
 
 
+def _stage_interpreter(output):
+    directory = output / ".executor-bin"
+    directory.mkdir()
+    executable = Path(sys.executable).absolute()
+    launcher = '#!/bin/sh\nexec ' + shlex.quote(str(executable)) + ' "$@"\n'
+    for name in sorted({"python", "python3", executable.name}):
+        path = directory / name
+        path.write_text(launcher, encoding="utf-8")
+        path.chmod(0o755)
+    return directory
+
+
 def _stage_work(work, runner_root, binary_dir, hostfile):
     work.mkdir(parents=True, exist_ok=False)
     for name in ("run_test.py", "run_test_config.py"):
@@ -328,7 +341,8 @@ def run_case(case, runtime, interrupted):
             _environment_file(runtime["input"] / "envs" / suite["env"]), runtime["base_environment"], bindings)
         # Keep the build ahead of inherited installations while retaining the
         # exported SDK path order after it.
-        environment["PATH"] = str(runtime["binary_dir"]) + os.pathsep + environment.get("PATH", "")
+        environment["PATH"] = (str(runtime["binary_dir"]) + os.pathsep
+                               + str(runtime["python_bin"]) + os.pathsep + environment.get("PATH", ""))
         environment["LD_LIBRARY_PATH"] = str(runtime["test_root"] / "lib") + os.pathsep + environment.get(
             "LD_LIBRARY_PATH", "")
         environment["PYTHONUNBUFFERED"] = "1"
@@ -426,6 +440,7 @@ def run_all(inputs, test_root, binary_dir, output, hostfile=None, base_environme
     output.mkdir(parents=True, exist_ok=False)
     runtime = {"test_root": test_root, "binary_dir": binary_dir, "runner_root": _runner_root(test_root),
                "output": output, "hostfile": hostfile, "input": inputs["directory"],
+               "python_bin": _stage_interpreter(output),
                "base_environment": dict(os.environ if base_environment is None else base_environment)}
     interrupted = [None]
 
