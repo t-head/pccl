@@ -1,17 +1,21 @@
 {
   "classification": {
     "base_sha": "77af125652fd1ffc532bf519022f709b9df510fd",
-    "head_sha": "93577b2ba21817d1f4abfa521734281de76487d5",
-    "input_fingerprint": "af46ac145c92981b59797010cd84df9325bddeba9bb64d26a765dcd5c2c0425b",
+    "head_sha": "f6a0ce8cb27fa887d48aa15c96e12d445ba14a20",
+    "input_fingerprint": "49a0490f38ea41c8a3b0581be5ebd146577350bca1dd9198537dbb43fc7dbd58",
     "pr_number": 162,
     "proposal": {
       "modules": [
+        "enqueue",
+        "dispatch",
         "symmetric"
       ],
-      "reason": "Main change is symmetric-memory collective batching: grouped AllReduce/AllGather/ReduceScatter planning and kernel selection, multi-work argument layout/dispatch, CTA/work-range slicing, and symmetric device-kernel execution updates (including LL eligibility, per-work offsets/strides, and symmetric scheduler behavior). Other edits (shared launch/plan plumbing and tests/docs) support this feature rather than introducing an independent module change."
+      "reason": "Primary change is symmetric-memory collective batching: scheduler/kernel argument layout, per-work slicing, block-offset semantics, LL eligibility for grouped works, and symmetric kernel selection/CTA sizing are all substantive symmetric behavior changes. Enqueue also needs review because launch-time argument ABI handling, plan fields, and pooled-argument ownership/cleanup paths were changed in shared kernel-launch/reclaim/group cleanup flows. Dispatch needs review because dispatch-strategy caching/indexing moved from algorithm ID to generated kernel symbol/ABI variants, changing how hardware launch strategy state is keyed and reused."
     }
   },
   "reviewers": {
+    "dispatch": 341355176,
+    "enqueue": 341355176,
     "symmetric": 341349555
   }
 }
