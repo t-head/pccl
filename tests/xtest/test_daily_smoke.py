@@ -53,6 +53,7 @@ class DailySmokeTests(unittest.TestCase):
         self.assertIn("expected = {'standard': 6}", text)
         self.assertIn('len(metrics) != 1', text)
         self.assertIn('artifact_cache.py cleanup', text)
+        self.assertIn('NEEDS: ${{ toJSON(needs) }}', text)
         self.assertIn('retention-days: 3', text)
         self.assertIn('name: m890p-daily-build-standard', text)
         self.assertIn('name: m890p-daily-build-${{ matrix.profile }}', text)

@@ -374,6 +374,7 @@ jobs:
       - name: Require successful daily results and cleanup
         if: always()
         env:
+          NEEDS: ${{ toJSON(needs) }}
           EVENT_NAME: ${{ github.event_name }}
         run: |
           python3 - <<'PY'
