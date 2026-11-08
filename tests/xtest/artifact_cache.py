@@ -1,0 +1,161 @@
+#!/usr/bin/env python3
+# SPDX-FileCopyrightText: Copyright (c) 2026 T-Head (Shanghai) Semiconductor Co., Ltd. All rights reserved.
+# SPDX-License-Identifier: Apache-2.0
+"""Validate GitHub build artifacts and manage a run-scoped NAS cache."""
+
+import argparse
+import hashlib
+import json
+import os
+from pathlib import Path
+import re
+import shutil
+import tempfile
+
+
+HEX40 = re.compile(r"[0-9a-f]{40}\Z")
+HEX64 = re.compile(r"[0-9a-f]{64}\Z")
+FIELDS = {"schema_version", "pccl_revision", "pccl_tests_revision", "build_profile", "artifact_sha256"}
+
+
+def file_sha256(path):
+    path = Path(path)
+    if path.is_symlink() or not path.is_file():
+        raise ValueError("Build archive must be a regular file, not a symlink")
+    digest = hashlib.sha256()
+    with path.open("rb") as stream:
+        for chunk in iter(lambda: stream.read(1024 * 1024), b""):
+            digest.update(chunk)
+    return digest.hexdigest()
+
+
+def read_record(path):
+    path = Path(path)
+    if path.is_symlink() or not path.is_file():
+        raise ValueError("Build record must be a regular file, not a symlink")
+
+    def unique(pairs):
+        result = {}
+        for key, value in pairs:
+            if key in result:
+                raise ValueError("Duplicate build record key")
+            result[key] = value
+        return result
+
+    def invalid(value):
+        raise ValueError("Invalid build record constant")
+
+    record = json.loads(path.read_text(encoding="utf-8"), object_pairs_hook=unique,
+                        parse_constant=invalid)
+    if not isinstance(record, dict) or set(record) != FIELDS:
+        raise ValueError("Unexpected build record fields")
+    return record
+
+
+def paths(directory, profile):
+    if profile not in ("standard", "notsm"):
+        raise ValueError("Unsupported build profile")
+    directory = Path(directory)
+    return (directory / f"output_{profile}.tar.gz",
+            directory / f"output_{profile}.build.json",
+            directory / f"output_{profile}.tar.gz.sha256")
+
+
+def validate(directory, profile, pccl_revision, pccl_tests_revision, expected_sha):
+    if not HEX40.fullmatch(pccl_revision) or not HEX40.fullmatch(pccl_tests_revision):
+        raise ValueError("Invalid source revision")
+    if not HEX64.fullmatch(expected_sha):
+        raise ValueError("Invalid expected archive SHA-256")
+    archive, record_path, checksum_path = paths(directory, profile)
+    record = read_record(record_path)
+    if (record["schema_version"] != 1 or record["pccl_revision"] != pccl_revision
+            or record["pccl_tests_revision"] != pccl_tests_revision
+            or record["build_profile"] != profile or record["artifact_sha256"] != expected_sha):
+        raise ValueError("Build record differs from the requested revision, profile or archive")
+    if file_sha256(archive) != expected_sha:
+        raise ValueError("Build archive SHA-256 mismatch")
+    if checksum_path.is_symlink() or not checksum_path.is_file():
+        raise ValueError("Build checksum must be a regular file, not a symlink")
+    checksum = checksum_path.read_text(encoding="utf-8").split()
+    if not checksum or checksum[0] != expected_sha:
+        raise ValueError("Build checksum sidecar mismatch")
+    return archive
+
+
+def publish(download, cache, profile, pccl_revision, pccl_tests_revision, expected_sha):
+    """Validate a downloaded artifact before atomically publishing one cache directory."""
+    download, cache = Path(download), Path(cache)
+    validate(download, profile, pccl_revision, pccl_tests_revision, expected_sha)
+    cache.parent.mkdir(parents=True, exist_ok=True)
+    temporary = Path(tempfile.mkdtemp(prefix=f".{cache.name}.download-", dir=cache.parent))
+    try:
+        for path in paths(download, profile):
+            shutil.copyfile(path, temporary / path.name)
+        validate(temporary, profile, pccl_revision, pccl_tests_revision, expected_sha)
+        if cache.exists():
+            try:
+                validate(cache, profile, pccl_revision, pccl_tests_revision, expected_sha)
+            except (OSError, ValueError, json.JSONDecodeError):
+                # The cache root is run-scoped. Invalid or partial content must
+                # not be executed and may be replaced by this validated download.
+                shutil.rmtree(cache)
+            else:
+                return cache
+        os.replace(temporary, cache)
+        validate(cache, profile, pccl_revision, pccl_tests_revision, expected_sha)
+        return cache
+    finally:
+        if temporary.exists():
+            shutil.rmtree(temporary)
+
+
+def cleanup(root, run_id):
+    """Remove only build artifacts owned by this run; preserve all test results."""
+    if not run_id.isdigit():
+        raise ValueError("Run ID must be numeric")
+    root = Path(root)
+    if root.name != run_id or root.parent.name != "pccl-artifact-cache":
+        raise ValueError("Cleanup root is not the expected run-scoped artifact directory")
+    for name in ("staging", "cache", "shared-standard"):
+        path = root / name
+        if path.is_symlink():
+            raise ValueError("Cleanup refuses a symlinked artifact directory")
+        if path.exists():
+            shutil.rmtree(path)
+
+
+def main():
+    parser = argparse.ArgumentParser(description=__doc__)
+    subparsers = parser.add_subparsers(dest="operation", required=True)
+    for operation in ("validate", "publish"):
+        command = subparsers.add_parser(operation)
+        command.add_argument("--profile", choices=("standard", "notsm"), required=True)
+        command.add_argument("--pccl-revision", required=True)
+        command.add_argument("--pccl-tests-revision", required=True)
+        command.add_argument("--expected-sha256", required=True)
+        command.add_argument("--directory" if operation == "validate" else "--download", type=Path, required=True)
+        if operation == "publish":
+            command.add_argument("--cache", type=Path, required=True)
+    cleanup_parser = subparsers.add_parser("cleanup")
+    cleanup_parser.add_argument("--root", type=Path, required=True)
+    cleanup_parser.add_argument("--run-id", required=True)
+    args = parser.parse_args()
+    try:
+        if args.operation == "cleanup":
+            cleanup(args.root, args.run_id)
+            return 0
+        directory = args.directory if args.operation == "validate" else args.cache
+        if args.operation == "publish":
+            publish(args.download, args.cache, args.profile, args.pccl_revision,
+                    args.pccl_tests_revision, args.expected_sha256)
+        else:
+            validate(directory, args.profile, args.pccl_revision, args.pccl_tests_revision,
+                     args.expected_sha256)
+        print(args.expected_sha256)
+        return 0
+    except (OSError, ValueError, json.JSONDecodeError) as error:
+        parser.error(str(error))
+
+
+if __name__ == "__main__":
+    raise SystemExit(main())

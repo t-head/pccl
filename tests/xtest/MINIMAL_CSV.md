@@ -68,3 +68,17 @@ has no generic public-log redactor. Infrastructure remains responsible for
 node allocation, MPI/RDMA setup and remote cleanup.
 
 No hardware validation has been performed by this experiment.
+
+## Artifact-backed build distribution experiment
+
+The separate `minimal-csv-artifact-validation.yml` experiment treats GitHub
+Actions artifacts as the authoritative build store. A per-profile staging job
+validates a run-scoped NAS cache or downloads the artifact once, verifies its
+source revisions, profile and SHA-256, and publishes it for all consumers. The
+standard single-node and two-node jobs therefore share one download.
+
+Build-time NAS staging is removed after the required artifact upload. After
+result reconciliation, a final `always()` cleanup removes only this run's
+`staging/`, `cache/` and `shared-standard/` directories. `results/` and its raw
+logs remain intact. Cache reuse is content-verified; file existence alone is
+never sufficient.
