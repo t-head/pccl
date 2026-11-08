@@ -210,7 +210,7 @@ jobs:
             BUILD_ROOT=/mnt/wl_nas/devops/pccl-minimal-csv/${{ github.run_id }}/build
             RESULT_ROOT=/mnt/wl_nas/devops/pccl-minimal-csv/${{ github.run_id }}/results/${{ matrix.profile }}
             rm -rf "$RESULT_ROOT"
-            mkdir -p "$RESULT_ROOT"
+            mkdir -p "$(dirname "$RESULT_ROOT")"
             unset PIP_INDEX_URL PIP_EXTRA_INDEX_URL 2>/dev/null || true
             git config --global --unset-all url.https://ai-gerrit.eng.t-head.cn/Public/Github/.insteadOf 2>/dev/null || true
             git config --global --add safe.directory /workspace/source
@@ -278,7 +278,7 @@ jobs:
             BUILD_ROOT=/mnt/wl_nas/devops/pccl-minimal-csv/${{ github.run_id }}/build
             RESULT_ROOT=/mnt/wl_nas/devops/pccl-minimal-csv/${{ github.run_id }}/results/cluster
             rm -rf "$RESULT_ROOT"
-            mkdir -p "$RESULT_ROOT"
+            mkdir -p "$(dirname "$RESULT_ROOT")"
             unset PIP_INDEX_URL PIP_EXTRA_INDEX_URL 2>/dev/null || true
             git config --global --unset-all url.https://ai-gerrit.eng.t-head.cn/Public/Github/.insteadOf 2>/dev/null || true
             git config --global --add safe.directory "$SOURCE_DIR"
