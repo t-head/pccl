@@ -274,17 +274,18 @@ jobs:
             set -euo pipefail
             umask 022
             cd "$SOURCE_DIR"
-            export build_output="$SOURCE_DIR/output_standard"
+            SHARED_ROOT=/mnt/wl_nas/devops/pccl-minimal-csv/${{ github.run_id }}/shared-standard
+            export build_output="$SHARED_ROOT/output_standard"
             BUILD_ROOT=/mnt/wl_nas/devops/pccl-minimal-csv/${{ github.run_id }}/build
             RESULT_ROOT=/mnt/wl_nas/devops/pccl-minimal-csv/${{ github.run_id }}/results/cluster
-            rm -rf "$RESULT_ROOT"
-            mkdir -p "$(dirname "$RESULT_ROOT")"
+            rm -rf "$RESULT_ROOT" "$SHARED_ROOT"
+            mkdir -p "$(dirname "$RESULT_ROOT")" "$SHARED_ROOT"
             unset PIP_INDEX_URL PIP_EXTRA_INDEX_URL 2>/dev/null || true
             git config --global --unset-all url.https://ai-gerrit.eng.t-head.cn/Public/Github/.insteadOf 2>/dev/null || true
             git config --global --add safe.directory "$SOURCE_DIR"
             git config --global --add safe.directory '*'
             sha256sum --check "$BUILD_ROOT/output_standard.tar.gz.sha256"
-            tar -xzf "$BUILD_ROOT/output_standard.tar.gz" -C "$SOURCE_DIR"
+            tar -xzf "$BUILD_ROOT/output_standard.tar.gz" -C "$SHARED_ROOT"
             test "$(git -C "$build_output/pccl" rev-parse HEAD)" = '${{ github.sha }}'
             test "$(git -C "$build_output/pccl-tests" rev-parse HEAD)" = '${{ env.PCCL_TESTS_REVISION }}'
             python3 -m venv /workspace/minimal-csv-cluster-env
