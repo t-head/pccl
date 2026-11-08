@@ -120,8 +120,10 @@ assert not ({'xtest', 'mmengine', 'filelock'} & sys.modules.keys())
         workflow = (ROOT / '.github/workflows/source-sanity.yml').read_text()
         self.assertEqual(re.findall(r'^  ([a-z_-]+):$', workflow, re.M),
                          ['pull_request', 'push', 'workflow_dispatch', 'prepare',
-                          'build-standard', 'build-notsm', 'sanity', 'cluster', 'summary'])
+                          'ai-code-review', 'human-review', 'build-standard', 'build-notsm', 'sanity', 'cluster', 'summary'])
         prepare = workflow.split('\n  build-standard:', 1)[0]
+        human_review = workflow.split('\n  human-review:', 1)[1].split('\n  build-standard:', 1)[0]
+        self.assertIn('needs: [prepare, ai-code-review]', human_review)
         build_standard = workflow.split('\n  build-standard:', 1)[1].split('\n  build-notsm:', 1)[0]
         build_notsm = workflow.split('\n  build-notsm:', 1)[1].split('\n  sanity:', 1)[0]
         sanity = workflow.split('\n  sanity:', 1)[1].split('\n  cluster:', 1)[0]
@@ -163,6 +165,10 @@ assert not ({'xtest', 'mmengine', 'filelock'} & sys.modules.keys())
         self.assertIn('/devops/pccl-source-sanity/${{ github.run_id }}/results', workflow)
         self.assertIn('rm -rf "$RESULT_ROOT/${{ matrix.profile }}/$shard"', sanity)
         self.assertIn('rm -rf "$RESULT_ROOT/standard"', cluster)
+        for build in (build_standard, build_notsm):
+            self.assertIn('needs: [prepare, human-review]', build)
+            self.assertIn("needs.human-review.result == 'success'", build)
+            self.assertIn("github.event_name != 'pull_request'", build)
         self.assertIn('build.sh', build_standard)
         self.assertIn('notsm_build.sh', build_notsm)
         self.assertIn('tar -czf', build_standard)
@@ -208,17 +214,20 @@ assert not ({'xtest', 'mmengine', 'filelock'} & sys.modules.keys())
         self.assertNotIn('art-pub.eng.t-head.cn', workflow)
         self.assertIn('cancel-in-progress: true', workflow)
         self.assertIn('name: PCCL Tests Gate', summary)
+        self.assertIn('Require one build identity per profile', summary)
         legacy = (ROOT / '.github/workflows/pr-test-ppu.yml').read_text()
         self.assertNotIn('ppu-scheduler-action', legacy)
         self.assertNotIn('tests-gate:', legacy)
         self.assertNotIn('build-test-notsm:', legacy)
-        self.assertIn('needs: [ai-code-review]', legacy)
+        self.assertNotIn('ai-code-review:', legacy)
+        self.assertNotIn('human-review:', legacy)
 
     def test_result_gate_requires_prepare_single_node_and_two_node_success(self):
         workflow = (ROOT / '.github/workflows/source-sanity.yml').read_text()
-        gate = workflow.split("          python3 - <<'PY'\n", 1)[1].split('\n          PY', 1)[0]
+        section = workflow.split('      - name: Require every expected build and test shard', 1)[1]
+        gate = section.split("          python3 - <<'PY'\n", 1)[1].split('\n          PY', 1)[0]
         gate = textwrap.dedent(gate)
-        names = ('prepare', 'build-standard', 'build-notsm', 'sanity', 'cluster')
+        names = ('prepare', 'ai-code-review', 'human-review', 'build-standard', 'build-notsm', 'sanity', 'cluster')
         base = {name: {'result': 'success'} for name in names}
 
         def evaluate(changes):
@@ -226,10 +235,12 @@ assert not ({'xtest', 'mmengine', 'filelock'} & sys.modules.keys())
             for name, result in changes.items():
                 needs[name]['result'] = result
             return subprocess.run([sys.executable, '-c', gate], capture_output=True, text=True,
-                                  env={'NEEDS': json.dumps(needs)}).returncode
+                                  env={'NEEDS': json.dumps(needs), 'EVENT_NAME': 'pull_request'}).returncode
 
         self.assertEqual(evaluate({}), 0)
         self.assertEqual(evaluate({'build-notsm': 'skipped'}), 0)
+        self.assertEqual(evaluate({'human-review': 'failure'}), 1)
+        self.assertEqual(evaluate({'ai-code-review': 'failure'}), 1)
         self.assertEqual(evaluate({'prepare': 'failure', 'sanity': 'skipped', 'cluster': 'skipped'}), 1)
         self.assertEqual(evaluate({'cluster': 'skipped'}), 1)
         self.assertEqual(evaluate({'sanity': 'skipped'}), 1)

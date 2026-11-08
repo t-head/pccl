@@ -88,23 +88,5 @@ jobs:
           sys.exit(bool(errors))
           PY
 
-  # Stage 2: AI code review runs in parallel with prepare.
-  # The review gate should verify the current PR head and the team's resolution
-  # policy; the presence of an earlier Copilot review is not sufficient.
-  ai-code-review:
-    name: AI Code Review (Copilot Gate)
-    needs: [precheck, commit-checks]
-    if: github.event_name == 'pull_request'
-    uses: t-head/.github/.github/workflows/ai-code-review.yml@main
-    secrets: inherit
-
-  # Stage 3: Human approval for module review requirements.
-  human-review:
-    name: Human Review Gate
-    needs: [ai-code-review]
-    if: github.event_name == 'pull_request'
-    uses: t-head/.github/.github/workflows/human-review.yml@main
-    secrets: inherit
-
-  # PPU build and test jobs are retired. source-sanity.yml is the sole PPU
-  # pipeline and publishes PCCL Tests Gate. This workflow retains only PR checks.
+  # AI and human review run in source-sanity.yml before its self-hosted builds.
+  # Legacy PPU build and test jobs are retired; this workflow retains only PR prechecks.

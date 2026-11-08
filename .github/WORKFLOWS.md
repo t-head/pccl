@@ -11,8 +11,8 @@ PPU tests. `PCCL Tests Gate` reports the results of the required jobs.
 
 | File | Purpose |
 | --- | --- |
-| [pr-test-ppu.yml](workflows/pr-test-ppu.yml) | Run only the PR prechecks and AI/human review jobs; its legacy PPU jobs are retired. |
-| [source-sanity.yml](workflows/source-sanity.yml) | The sole PPU test pipeline and publisher of `PCCL Tests Gate`: two builds, one single-node job per profile, and one two-node job reusing the standard build. |
+| [pr-test-ppu.yml](workflows/pr-test-ppu.yml) | Run only the PR Secret Scan and Commit Message / DCO prechecks; its legacy PPU jobs are retired. |
+| [source-sanity.yml](workflows/source-sanity.yml) | The sole PPU test pipeline and publisher of `PCCL Tests Gate`: AI and human approval precede self-hosted builds, followed by two builds, one single-node job per profile, and one two-node job reusing the standard build. |
 | [source-cluster-debug.yml](workflows/source-cluster-debug.yml) | Manual troubleshooting tool for the two-node MPI case; it rebuilds from source instead of reusing a build. |
 | [workflows/scripts/](workflows/scripts/) | Build and test PCCL with the external test suite. |
 | [casecmd.list](workflows/scripts/casecmd.list) | Define the PPU test matrix. |
@@ -26,6 +26,8 @@ single-node sanity and is not a second two-node variant in this workflow. Each b
 publishes a build record containing the actual source revisions, profile and archive SHA-256.
 The executor verifies that record against the archive and retains it in shard evidence; both
 result gates check it again without requiring the original build host or archive to be present.
+Each profile must resolve to one archive identity across all shards, and the two-node
+standard execution must use the same archive as the single-node standard shards.
 Performance command success and valid data are required, but sample stability is observational only
 until a baseline exists. Raw `command.log` evidence remains on the private result store for
 validation; `command-public.log` is the separately redacted diagnostic copy.

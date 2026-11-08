@@ -50,6 +50,20 @@ def matrix(manifest_path):
     return {'include': include}
 
 
+def validate_shared_build(builds, cluster_build=None):
+    """Require one archive identity per profile, optionally including the cluster."""
+    identities = {}
+    for record in builds.values():
+        identities.setdefault(record['build_profile'], set()).add(record['artifact_sha256'])
+    if any(len(digests) != 1 for digests in identities.values()):
+        raise ValueError('Mixed build archives within one profile')
+    if cluster_build is not None:
+        standard = identities.get('standard', set())
+        if len(standard) != 1 or cluster_build['artifact_sha256'] != next(iter(standard)):
+            raise ValueError('Two-node and single-node standard builds differ')
+    return {profile: next(iter(digests)) for profile, digests in identities.items()}
+
+
 def run(manifest_path, profile, test_root, output, shard_id, build_record, build_archive):
     manifest = selection(manifest_path)
     selected = [shard for shard in manifest['shards']
@@ -214,6 +228,11 @@ def summarize(manifest_path, results, output):
             write_json(target / 'performance-summary.json', dict(complete=complete, measurements=summaries))
     except (OSError, ValueError) as exception:
         complete, artifact_error = False, type(exception).__name__
+    try:
+        validate_shared_build(builds)
+    except ValueError:
+        complete = False
+        artifact_error = artifact_error or 'MIXED_BUILD_ARTIFACTS'
     case_summary = case_summaries(manifest, published, results, target)
     case_summary['complete'] = complete
     write_json(target / 'case-summary.json', case_summary)

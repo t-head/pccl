@@ -117,10 +117,33 @@ jobs:
             'Manifest generation and contract tests used no pip, xtest, mmengine, network access, PPU allocation, or benchmark execution; dependency staging is separate and uses pinned downloads.' \
             >> "$GITHUB_STEP_SUMMARY"
 
-  build-standard:
-    name: Build standard (ubuntu24_hggcrt13)
+  ai-code-review:
+    name: AI Code Review (Copilot Gate)
     needs: prepare
     if: >-
+      github.event_name == 'pull_request' &&
+      github.repository == 't-head/pccl' &&
+      github.event.pull_request.head.repo.full_name == github.repository
+    uses: t-head/.github/.github/workflows/ai-code-review.yml@main
+    secrets: inherit
+
+  human-review:
+    name: Human Review Gate
+    needs: [prepare, ai-code-review]
+    if: >-
+      github.event_name == 'pull_request' &&
+      github.repository == 't-head/pccl' &&
+      github.event.pull_request.head.repo.full_name == github.repository
+    uses: t-head/.github/.github/workflows/human-review.yml@main
+    secrets: inherit
+
+  build-standard:
+    name: Build standard (ubuntu24_hggcrt13)
+    needs: [prepare, human-review]
+    if: >-
+      !cancelled() && needs.prepare.result == 'success' &&
+      (needs.human-review.result == 'success' ||
+        (github.event_name != 'pull_request' && needs.human-review.result == 'skipped')) &&
       github.repository == 't-head/pccl' &&
       ((github.event_name == 'pull_request' &&
         github.event.pull_request.head.repo.full_name == github.repository) ||
@@ -177,8 +200,11 @@ jobs:
 
   build-notsm:
     name: Build notsm
-    needs: prepare
+    needs: [prepare, human-review]
     if: >-
+      !cancelled() && needs.prepare.result == 'success' &&
+      (needs.human-review.result == 'success' ||
+        (github.event_name != 'pull_request' && needs.human-review.result == 'skipped')) &&
       github.repository == 't-head/pccl' &&
       ((github.event_name == 'pull_request' &&
         github.event.pull_request.head.repo.full_name == github.repository) ||
@@ -417,7 +443,7 @@ jobs:
 
   summary:
     name: PCCL Tests Gate
-    needs: [prepare, build-standard, build-notsm, sanity, cluster]
+    needs: [prepare, ai-code-review, human-review, build-standard, build-notsm, sanity, cluster]
     if: >-
       always() && github.repository == 't-head/pccl' &&
       ((github.event_name == 'pull_request' &&
@@ -453,6 +479,22 @@ jobs:
             --manifest cluster-manifest/manifest.json \
             --results /wl_nas/devops/pccl-cluster-run/${{ github.run_id }}/results/standard \
             --output public-results-cluster
+      - name: Require one build identity per profile
+        if: always() && needs.cluster.result != 'skipped'
+        run: |
+          python3 - <<'PY'
+          import json
+          import sys
+
+          sys.path.insert(0, 'tests/xtest')
+          from single_node_ci import validate_shared_build
+
+          single = json.load(open('public-results/summary.json'))
+          cluster = json.load(open('public-results-cluster/summary.json'))
+          identities = validate_shared_build(single['builds'], cluster['build'])
+          print(json.dumps(identities, sort_keys=True))
+          PY
+
       - uses: actions/upload-artifact@v4
         if: always() && needs.cluster.result != 'skipped'
         with:
@@ -469,6 +511,7 @@ jobs:
         if: always()
         env:
           NEEDS: ${{ toJSON(needs) }}
+          EVENT_NAME: ${{ github.event_name }}
         run: |
           python3 - <<'PY'
           import json
@@ -476,6 +519,11 @@ jobs:
           import sys
 
           needs = json.loads(os.environ['NEEDS'])
+          if os.environ['EVENT_NAME'] == 'pull_request':
+              for name in ('ai-code-review', 'human-review'):
+                  if needs[name]['result'] != 'success':
+                      print(f"::error::{name}: {needs[name]['result']}")
+                      sys.exit(1)
           failed = {name: value['result'] for name, value in needs.items()
                     if value['result'] not in ('success', 'skipped')}
           for name in ('prepare', 'sanity', 'cluster'):

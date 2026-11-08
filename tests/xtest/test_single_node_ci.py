@@ -543,6 +543,29 @@ class SingleNodeTests(unittest.TestCase):
                 index['runtime_sha256'] = digest(snapshot)
                 write_json(index_path, index)
 
+    def test_mixed_archives_and_two_node_build_differences_fail_acceptance(self):
+        self.write_results()
+        standards = [shard for shard in self.manifest['shards'] if shard['build_profile'] == 'standard']
+        shard = standards[-1]
+        directory = self.results / shard['build_profile'] / shard['shard_id']
+        snapshot = execute.read_json(directory / 'shard-runtime.json')
+        snapshot['build']['artifact_sha256'] = '0' * 64
+        write_json(directory / 'shard-runtime.json', snapshot)
+        index = execute.read_json(directory / 'index.json')
+        index['runtime_sha256'] = digest(snapshot)
+        write_json(directory / 'index.json', index)
+        self.assertEqual(ci.summarize(self.path, self.results, self.output), 1)
+        summary = execute.read_json(self.output / 'summary.json')
+        self.assertEqual(summary['artifact_error'], 'MIXED_BUILD_ARTIFACTS')
+        valid_builds = copy.deepcopy(summary['builds'])
+        standard_digest = next(record['artifact_sha256'] for record in valid_builds.values()
+                               if record['build_profile'] == 'standard' and record['artifact_sha256'] != '0' * 64)
+        for record in valid_builds.values():
+            if record['build_profile'] == 'standard':
+                record['artifact_sha256'] = standard_digest
+        with self.assertRaisesRegex(ValueError, 'single-node standard builds differ'):
+            ci.validate_shared_build(valid_builds, {'artifact_sha256': '0' * 64})
+
     def test_run_rejects_sdk_library_and_stops_after_shard_failure(self):
         build = self.root / 'build'
         archive = self.root / 'output.tar.gz'
