@@ -21,6 +21,7 @@ class WorkflowContractTests(unittest.TestCase):
 
     def test_supported_events_and_review_gates_are_preserved(self):
         for expected in ('pull_request:', "branches: [main, 'release/**']", 'branches: [main]',
+                         'pull-requests: write', 'statuses: read',
                          'workflow_dispatch:', 'cancel-in-progress: true',
                          't-head/.github/.github/workflows/user-precheck.yml@main',
                          't-head/.github/.github/workflows/ai-code-review.yml@main',

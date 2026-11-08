@@ -10,6 +10,8 @@ on:
 
 permissions:
   contents: read
+  pull-requests: write
+  statuses: read
 
 concurrency:
   group: source-sanity-single-node-${{ github.event.pull_request.number || github.ref }}
