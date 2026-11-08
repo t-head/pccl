@@ -2,13 +2,13 @@
   "classification": {
     "base_sha": "77af125652fd1ffc532bf519022f709b9df510fd",
     "head_sha": "bfb5cbad1211fc6a09e042393ee9da24a30f72af",
-    "input_fingerprint": "c1f38c7a8d6d5d8596abbdc0aeb8f152e14516f22d01eeb8c22e475e318a886e",
+    "input_fingerprint": "f0a58b196e63922bd60cd3101973d43905334db92025e595a7afa5d6024df35c",
     "pr_number": 160,
     "proposal": {
       "modules": [
         "network"
       ],
-      "reason": "Fixes NET/IB initialization logic in bonding interface discovery/parsing (bounds-safe tokenization, dynamic buffer sizing, and error/cleanup flow) within the network transport backend."
+      "reason": "Main substantive change is in IB network backend initialization (`src/transport/net_ib/init.cc`): it bounds/parses bond interface names safely, resizes candidate storage to actual parsed entries, and fixes related error/cleanup flow to prevent overflow/corruption during network transport setup."
     }
   },
   "reviewers": {
