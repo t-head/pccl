@@ -118,7 +118,9 @@ jobs:
             cd /workspace/source
             export source_home=/workspace/source
             export build_output=/workspace/source/output_standard
-            STAGING=/mnt/wl_nas/devops/pccl-artifact-cache/${{ github.run_id }}/staging/standard
+            STAGING=/mnt/wl_nas/devops/pccl-artifact-cache-${{ github.run_id }}/staging/standard
+            RUN_ROOT=/mnt/wl_nas/devops/pccl-artifact-cache-${{ github.run_id }}
+            rm -rf /mnt/wl_nas/devops/pccl-artifact-cache/42478314103
             mkdir -p "$build_output" "$STAGING"
             unset PIP_INDEX_URL PIP_EXTRA_INDEX_URL 2>/dev/null || true
             git config --global --unset-all url.https://ai-gerrit.eng.t-head.cn/Public/Github/.insteadOf 2>/dev/null || true
@@ -132,10 +134,11 @@ jobs:
               --pccl-revision "$(git -C "$build_output/pccl" rev-parse HEAD)" \
               --pccl-tests-revision "$(git -C "$build_output/pccl-tests" rev-parse HEAD)" \
               --profile standard --output "$STAGING/output_standard.build.json"
+            chmod -R a+rwX "$RUN_ROOT"
       - id: identity
         name: Validate the standard artifact before upload
         env:
-          STAGING: /wl_nas/devops/pccl-artifact-cache/${{ github.run_id }}/staging/standard
+          STAGING: /wl_nas/devops/pccl-artifact-cache-${{ github.run_id }}/staging/standard
         run: |
           EXPECTED_SHA=$(python3 -c 'import json, os; print(json.load(open(os.path.join(os.environ["STAGING"], "output_standard.build.json")))["artifact_sha256"])')
           python3 -S -B pccl/tests/xtest/artifact_cache.py validate \
@@ -146,7 +149,7 @@ jobs:
       - uses: actions/upload-artifact@v4
         with:
           name: pccl-build-standard
-          path: /wl_nas/devops/pccl-artifact-cache/${{ github.run_id }}/staging/standard/
+          path: /wl_nas/devops/pccl-artifact-cache-${{ github.run_id }}/staging/standard/
           if-no-files-found: error
           overwrite: true
       - name: Remove transient standard NAS staging
@@ -154,7 +157,7 @@ jobs:
         run: |
           python3 - <<'PY'
           import shutil
-          shutil.rmtree('/wl_nas/devops/pccl-artifact-cache/${{ github.run_id }}/staging/standard', ignore_errors=True)
+          shutil.rmtree('/wl_nas/devops/pccl-artifact-cache-${{ github.run_id }}/staging/standard')
           PY
 
   build-notsm:
@@ -192,7 +195,8 @@ jobs:
             cd /workspace/source
             export source_home=/workspace/source
             export build_output=/workspace/source/output_notsm
-            STAGING=/mnt/wl_nas/devops/pccl-artifact-cache/${{ github.run_id }}/staging/notsm
+            STAGING=/mnt/wl_nas/devops/pccl-artifact-cache-${{ github.run_id }}/staging/notsm
+            RUN_ROOT=/mnt/wl_nas/devops/pccl-artifact-cache-${{ github.run_id }}
             mkdir -p "$build_output" "$STAGING"
             unset PIP_INDEX_URL PIP_EXTRA_INDEX_URL 2>/dev/null || true
             git config --global --unset-all url.https://ai-gerrit.eng.t-head.cn/Public/Github/.insteadOf 2>/dev/null || true
@@ -206,10 +210,11 @@ jobs:
               --pccl-revision "$(git -C "$build_output/pccl" rev-parse HEAD)" \
               --pccl-tests-revision "$(git -C "$build_output/pccl-tests" rev-parse HEAD)" \
               --profile notsm --output "$STAGING/output_notsm.build.json"
+            chmod -R a+rwX "$RUN_ROOT"
       - id: identity
         name: Validate the notsm artifact before upload
         env:
-          STAGING: /wl_nas/devops/pccl-artifact-cache/${{ github.run_id }}/staging/notsm
+          STAGING: /wl_nas/devops/pccl-artifact-cache-${{ github.run_id }}/staging/notsm
         run: |
           EXPECTED_SHA=$(python3 -c 'import json, os; print(json.load(open(os.path.join(os.environ["STAGING"], "output_notsm.build.json")))["artifact_sha256"])')
           python3 -S -B pccl/tests/xtest/artifact_cache.py validate \
@@ -220,7 +225,7 @@ jobs:
       - uses: actions/upload-artifact@v4
         with:
           name: pccl-build-notsm
-          path: /wl_nas/devops/pccl-artifact-cache/${{ github.run_id }}/staging/notsm/
+          path: /wl_nas/devops/pccl-artifact-cache-${{ github.run_id }}/staging/notsm/
           if-no-files-found: error
           overwrite: true
       - name: Remove transient notsm NAS staging
@@ -228,7 +233,7 @@ jobs:
         run: |
           python3 - <<'PY'
           import shutil
-          shutil.rmtree('/wl_nas/devops/pccl-artifact-cache/${{ github.run_id }}/staging/notsm', ignore_errors=True)
+          shutil.rmtree('/wl_nas/devops/pccl-artifact-cache-${{ github.run_id }}/staging/notsm')
           PY
 
   stage-cache:
@@ -252,7 +257,7 @@ jobs:
       - id: cache
         name: Check for a valid NAS cache
         env:
-          CACHE_DIR: /wl_nas/devops/pccl-artifact-cache/${{ github.run_id }}/cache/${{ matrix.profile }}/${{ env.EXPECTED_SHA }}
+          CACHE_DIR: /wl_nas/devops/pccl-artifact-cache-${{ github.run_id }}/cache/${{ matrix.profile }}/${{ env.EXPECTED_SHA }}
         run: |
           if python3 -S -B pccl/tests/xtest/artifact_cache.py validate \
             --directory "$CACHE_DIR" --profile '${{ matrix.profile }}' \
@@ -270,7 +275,7 @@ jobs:
       - name: Publish the validated artifact to NAS
         if: steps.cache.outputs.state == 'miss'
         env:
-          CACHE_DIR: /wl_nas/devops/pccl-artifact-cache/${{ github.run_id }}/cache/${{ matrix.profile }}/${{ env.EXPECTED_SHA }}
+          CACHE_DIR: /wl_nas/devops/pccl-artifact-cache-${{ github.run_id }}/cache/${{ matrix.profile }}/${{ env.EXPECTED_SHA }}
         run: |
           python3 -S -B pccl/tests/xtest/artifact_cache.py publish \
             --download download --cache "$CACHE_DIR" --profile '${{ matrix.profile }}' \
@@ -278,8 +283,9 @@ jobs:
             --expected-sha256 '${{ env.EXPECTED_SHA }}'
       - name: Confirm the final NAS cache
         env:
-          CACHE_DIR: /wl_nas/devops/pccl-artifact-cache/${{ github.run_id }}/cache/${{ matrix.profile }}/${{ env.EXPECTED_SHA }}
+          CACHE_DIR: /wl_nas/devops/pccl-artifact-cache-${{ github.run_id }}/cache/${{ matrix.profile }}/${{ env.EXPECTED_SHA }}
         run: |
+          chmod -R a+rwX "$CACHE_DIR"
           python3 -S -B pccl/tests/xtest/artifact_cache.py validate \
             --directory "$CACHE_DIR" --profile '${{ matrix.profile }}' \
             --pccl-revision '${{ github.sha }}' --pccl-tests-revision '${{ env.PCCL_TESTS_REVISION }}' \
@@ -322,8 +328,8 @@ jobs:
             umask 022
             cd /workspace/source
             export build_output=/workspace/source/output_${{ matrix.profile }}
-            CACHE_DIR=/mnt/wl_nas/devops/pccl-artifact-cache/${{ github.run_id }}/cache/${{ matrix.profile }}/${{ env.EXPECTED_SHA }}
-            RESULT_ROOT=/mnt/wl_nas/devops/pccl-artifact-cache/${{ github.run_id }}/results/${{ matrix.profile }}
+            CACHE_DIR=/mnt/wl_nas/devops/pccl-artifact-cache-${{ github.run_id }}/cache/${{ matrix.profile }}/${{ env.EXPECTED_SHA }}
+            RESULT_ROOT=/mnt/wl_nas/devops/pccl-artifact-cache-${{ github.run_id }}/results/${{ matrix.profile }}
             rm -rf "$RESULT_ROOT"
             mkdir -p "$(dirname "$RESULT_ROOT")"
             unset PIP_INDEX_URL PIP_EXTRA_INDEX_URL 2>/dev/null || true
@@ -395,10 +401,10 @@ jobs:
             set -euo pipefail
             umask 022
             cd "$SOURCE_DIR"
-            CACHE_DIR=/mnt/wl_nas/devops/pccl-artifact-cache/${{ github.run_id }}/cache/standard/${{ env.EXPECTED_SHA }}
-            SHARED_ROOT=/mnt/wl_nas/devops/pccl-artifact-cache/${{ github.run_id }}/shared-standard/${{ env.EXPECTED_SHA }}
+            CACHE_DIR=/mnt/wl_nas/devops/pccl-artifact-cache-${{ github.run_id }}/cache/standard/${{ env.EXPECTED_SHA }}
+            SHARED_ROOT=/mnt/wl_nas/devops/pccl-artifact-cache-${{ github.run_id }}/shared-standard/${{ env.EXPECTED_SHA }}
             export build_output="$SHARED_ROOT/output_standard"
-            RESULT_ROOT=/mnt/wl_nas/devops/pccl-artifact-cache/${{ github.run_id }}/results/cluster
+            RESULT_ROOT=/mnt/wl_nas/devops/pccl-artifact-cache-${{ github.run_id }}/results/cluster
             rm -rf "$RESULT_ROOT" "$SHARED_ROOT"
             mkdir -p "$(dirname "$RESULT_ROOT")" "$SHARED_ROOT"
             unset PIP_INDEX_URL PIP_EXTRA_INDEX_URL 2>/dev/null || true
@@ -410,6 +416,7 @@ jobs:
               --pccl-revision '${{ github.sha }}' --pccl-tests-revision '${{ env.PCCL_TESTS_REVISION }}' \
               --expected-sha256 '${{ env.EXPECTED_SHA }}'
             tar -xzf "$CACHE_DIR/output_standard.tar.gz" -C "$SHARED_ROOT"
+            chmod -R a+rwX "$SHARED_ROOT"
             test "$(git -C "$build_output/pccl" rev-parse HEAD)" = '${{ github.sha }}'
             test "$(git -C "$build_output/pccl-tests" rev-parse HEAD)" = '${{ env.PCCL_TESTS_REVISION }}'
             python3 -m venv /workspace/minimal-csv-cluster-env
@@ -458,7 +465,7 @@ jobs:
           import shutil
           import sys
 
-          root = Path('/wl_nas/devops/pccl-artifact-cache/${{ github.run_id }}/results')
+          root = Path('/wl_nas/devops/pccl-artifact-cache-${{ github.run_id }}/results')
           public = Path('public-results')
           public.mkdir()
           expected = {'standard': 71, 'notsm': 37, 'cluster': 1}
@@ -508,7 +515,7 @@ jobs:
         if: always()
         run: |
           python3 -S -B pccl/tests/xtest/artifact_cache.py cleanup \
-            --root /wl_nas/devops/pccl-artifact-cache/${{ github.run_id }} \
+            --root /wl_nas/devops/pccl-artifact-cache-${{ github.run_id }} \
             --run-id '${{ github.run_id }}'
       - name: Require successful results and cleanup
         if: always()

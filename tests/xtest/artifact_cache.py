@@ -114,7 +114,9 @@ def cleanup(root, run_id):
     if not run_id.isdigit():
         raise ValueError("Run ID must be numeric")
     root = Path(root)
-    if root.name != run_id or root.parent.name != "pccl-artifact-cache":
+    if root.is_symlink():
+        raise ValueError("Cleanup refuses a symlinked run root")
+    if root.name != f"pccl-artifact-cache-{run_id}" or root.parent.name != "devops":
         raise ValueError("Cleanup root is not the expected run-scoped artifact directory")
     for name in ("staging", "cache", "shared-standard"):
         path = root / name

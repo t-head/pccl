@@ -76,11 +76,11 @@ class ArtifactCacheTests(unittest.TestCase):
         self.assertFalse((cache / "partial").exists())
 
     def test_cleanup_preserves_results_and_other_runs(self):
-        root = self.root / "pccl-artifact-cache" / "12345"
+        root = self.root / "devops" / "pccl-artifact-cache-12345"
         for name in ("staging", "cache", "shared-standard", "results"):
             (root / name).mkdir(parents=True)
             (root / name / "keep-or-delete").write_text(name)
-        other = self.root / "pccl-artifact-cache" / "99999" / "cache"
+        other = self.root / "devops" / "pccl-artifact-cache-99999" / "cache"
         other.mkdir(parents=True)
         artifact_cache.cleanup(root, "12345")
         for name in ("staging", "cache", "shared-standard"):
