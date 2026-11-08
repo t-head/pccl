@@ -762,7 +762,8 @@ def _redacted_lines(text, env, *, redact_private=False):
     text = text.replace(value, '[REDACTED]')
   for line in text.splitlines(keepends=True):
     checked = line.replace('/private/var/', '/var/').replace('/private/tmp/', '/tmp/')
-    sensitive = SECRET.search(line) or (redact_private and PRIVATE.search(checked))
+    sensitive = (SECRET.search(line) or (redact_private and PRIVATE.search(checked))
+                 or (redact_private and re.search(r'(?<![A-Za-z0-9])[A-Za-z0-9_+-]{40,}(?![A-Za-z0-9])', line)))
     yield '[REDACTED: private diagnostic]\n' if sensitive else line
 
 
