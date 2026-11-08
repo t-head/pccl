@@ -129,6 +129,7 @@ assert not ({'xtest', 'mmengine', 'filelock'} & sys.modules.keys())
         sanity = workflow.split('\n  sanity:', 1)[1].split('\n  cluster:', 1)[0]
         cluster = workflow.split('\n  cluster:', 1)[1].split('\n  summary:', 1)[0]
         self.assertIn('runs-on: ubuntu-24.04', prepare)
+        self.assertIn('pull-requests: read', workflow)
         self.assertIn('venv --without-pip', prepare)
         self.assertIn('unshare --net', prepare)
         for forbidden in ('pip install', 'requirements.txt', 'ppu-scheduler-action@',
