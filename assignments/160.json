@@ -1,14 +1,14 @@
 {
   "classification": {
     "base_sha": "77af125652fd1ffc532bf519022f709b9df510fd",
-    "head_sha": "c9f2a553cc0bfcad4551eb8a2f3025ca78518e0e",
-    "input_fingerprint": "aed8092d4044b8c618afda6fad2c6169c2cb41d3ee4ae7a1fb83f91569f8d70c",
+    "head_sha": "bfb5cbad1211fc6a09e042393ee9da24a30f72af",
+    "input_fingerprint": "c1f38c7a8d6d5d8596abbdc0aeb8f152e14516f22d01eeb8c22e475e318a886e",
     "pr_number": 160,
     "proposal": {
       "modules": [
         "network"
       ],
-      "reason": "Bounds bonding-master token parsing and allocation in IB network backend initialization to prevent heap overflow/corruption when bonding interfaces exceed detected IB devices."
+      "reason": "Fixes NET/IB initialization logic in bonding interface discovery/parsing (bounds-safe tokenization, dynamic buffer sizing, and error/cleanup flow) within the network transport backend."
     }
   },
   "reviewers": {
