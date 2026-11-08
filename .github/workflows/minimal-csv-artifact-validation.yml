@@ -121,6 +121,7 @@ jobs:
             STAGING=/mnt/wl_nas/devops/pccl-artifact-cache-${{ github.run_id }}/staging/standard
             RUN_ROOT=/mnt/wl_nas/devops/pccl-artifact-cache-${{ github.run_id }}
             rm -rf /mnt/wl_nas/devops/pccl-artifact-cache/42478314103
+            rm -rf /mnt/wl_nas/devops/pccl-artifact-cache-42480089838/shared-standard
             mkdir -p "$build_output" "$STAGING"
             unset PIP_INDEX_URL PIP_EXTRA_INDEX_URL 2>/dev/null || true
             git config --global --unset-all url.https://ai-gerrit.eng.t-head.cn/Public/Github/.insteadOf 2>/dev/null || true
@@ -407,6 +408,10 @@ jobs:
             RESULT_ROOT=/mnt/wl_nas/devops/pccl-artifact-cache-${{ github.run_id }}/results/cluster
             rm -rf "$RESULT_ROOT" "$SHARED_ROOT"
             mkdir -p "$(dirname "$RESULT_ROOT")" "$SHARED_ROOT"
+            cleanup_shared_build() {
+              rm -rf "$SHARED_ROOT"
+            }
+            trap cleanup_shared_build EXIT
             unset PIP_INDEX_URL PIP_EXTRA_INDEX_URL 2>/dev/null || true
             git config --global --unset-all url.https://ai-gerrit.eng.t-head.cn/Public/Github/.insteadOf 2>/dev/null || true
             git config --global --add safe.directory "$SOURCE_DIR"
@@ -416,7 +421,6 @@ jobs:
               --pccl-revision '${{ github.sha }}' --pccl-tests-revision '${{ env.PCCL_TESTS_REVISION }}' \
               --expected-sha256 '${{ env.EXPECTED_SHA }}'
             tar -xzf "$CACHE_DIR/output_standard.tar.gz" -C "$SHARED_ROOT"
-            chmod -R a+rwX "$SHARED_ROOT"
             test "$(git -C "$build_output/pccl" rev-parse HEAD)" = '${{ github.sha }}'
             test "$(git -C "$build_output/pccl-tests" rev-parse HEAD)" = '${{ env.PCCL_TESTS_REVISION }}'
             python3 -m venv /workspace/minimal-csv-cluster-env
