@@ -1,0 +1,17 @@
+{
+  "classification": {
+    "base_sha": "77af125652fd1ffc532bf519022f709b9df510fd",
+    "head_sha": "93577b2ba21817d1f4abfa521734281de76487d5",
+    "input_fingerprint": "af46ac145c92981b59797010cd84df9325bddeba9bb64d26a765dcd5c2c0425b",
+    "pr_number": 162,
+    "proposal": {
+      "modules": [
+        "symmetric"
+      ],
+      "reason": "Main change is symmetric-memory collective batching: grouped AllReduce/AllGather/ReduceScatter planning and kernel selection, multi-work argument layout/dispatch, CTA/work-range slicing, and symmetric device-kernel execution updates (including LL eligibility, per-work offsets/strides, and symmetric scheduler behavior). Other edits (shared launch/plan plumbing and tests/docs) support this feature rather than introducing an independent module change."
+    }
+  },
+  "reviewers": {
+    "symmetric": 341349555
+  }
+}
