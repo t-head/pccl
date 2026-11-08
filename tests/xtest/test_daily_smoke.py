@@ -54,6 +54,8 @@ class DailySmokeTests(unittest.TestCase):
         self.assertIn('len(metrics) != 1', text)
         self.assertIn('artifact_cache.py cleanup', text)
         self.assertIn('retention-days: 3', text)
+        self.assertIn('name: m890p-daily-build-standard', text)
+        self.assertIn('name: m890p-daily-build-${{ matrix.profile }}', text)
         self.assertNotIn('Two-node', text)
         self.assertNotIn('human-review', text)
         self.assertNotIn('build-notsm', text)
