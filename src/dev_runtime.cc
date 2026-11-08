@@ -1151,7 +1151,11 @@ ncclResult_t ncclDevrCommCreateInternal(
   }
 
   if (ginActivated) {
-    NCCLCHECKGOTO(ncclGinConnectOnce(comm), ret, fail);
+    ret = ncclGinConnectOnce(comm);
+    if (ret != ncclSuccess) {
+      devr->ginEnabled = false;
+      goto fail;
+    }
     // Register all preexisting memories with GIN. Update the windows later when
     // we have a stream.
     for (struct ncclDevrMemory* mem = devr->memHead; mem != nullptr; mem = mem->next) {
