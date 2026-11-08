@@ -119,7 +119,7 @@ assert not ({'xtest', 'mmengine', 'filelock'} & sys.modules.keys())
     def test_workflow_separates_offline_preparation_from_hardware_execution(self):
         workflow = (ROOT / '.github/workflows/source-sanity.yml').read_text()
         self.assertEqual(re.findall(r'^  ([a-z_-]+):$', workflow, re.M),
-                         ['pull_request', 'workflow_dispatch', 'prepare',
+                         ['pull_request', 'push', 'workflow_dispatch', 'prepare',
                           'build-standard', 'build-notsm', 'sanity', 'cluster', 'summary'])
         prepare = workflow.split('\n  build-standard:', 1)[0]
         build_standard = workflow.split('\n  build-standard:', 1)[1].split('\n  build-notsm:', 1)[0]
@@ -193,17 +193,26 @@ assert not ({'xtest', 'mmengine', 'filelock'} & sys.modules.keys())
         self.assertIn('host_volumes: /dev/infiniband:/dev/infiniband', cluster)
         self.assertIn('cluster-run-source-manifest', prepare)
         self.assertIn('cluster-run-python-deps', prepare)
-        self.assertIn('cluster-run-build-deps', prepare)
+        self.assertNotIn('cluster-run-build-deps', prepare)
+        self.assertNotIn('cluster-run-build-deps', cluster)
         self.assertIn('cluster_ci.py prepare', prepare)
         self.assertIn('cluster_ci.py summary', workflow)
         summary = workflow.split('\n  summary:', 1)[1]
         for job in (prepare, build_standard, build_notsm, sanity, cluster, summary):
             self.assertIn('github.event.pull_request.head.repo.full_name == github.repository', job)
+            self.assertIn("github.event_name == 'push'", job)
         self.assertNotIn("if: always() && needs.prepare.result == 'success'", summary)
-        self.assertIn("if: always() && needs.cluster.result == 'success'", summary)
+        self.assertIn("if: always() && needs.cluster.result != 'skipped'", summary)
         self.assertNotIn('notsm_build.sh', sanity)
         self.assertNotIn('-m xtest', workflow)
         self.assertNotIn('art-pub.eng.t-head.cn', workflow)
+        self.assertIn('cancel-in-progress: true', workflow)
+        self.assertIn('name: PCCL Tests Gate', summary)
+        legacy = (ROOT / '.github/workflows/pr-test-ppu.yml').read_text()
+        self.assertNotIn('ppu-scheduler-action', legacy)
+        self.assertNotIn('tests-gate:', legacy)
+        self.assertNotIn('build-test-notsm:', legacy)
+        self.assertIn('needs: [ai-code-review]', legacy)
 
     def test_result_gate_requires_prepare_single_node_and_two_node_success(self):
         workflow = (ROOT / '.github/workflows/source-sanity.yml').read_text()

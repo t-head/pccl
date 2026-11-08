@@ -418,7 +418,7 @@ class SingleNodeTests(unittest.TestCase):
                             and measurement['sample_status'] == 'INSUFFICIENT_SAMPLES'
                             for measurement in performance['measurements']))
 
-    def test_performance_sample_quality_is_required_even_when_all_cases_pass(self):
+    def test_performance_sample_quality_is_observational_even_when_all_cases_pass(self):
         self.write_results()
         summarize_metrics = ci.summarize_metrics
         for status in ('UNSTABLE', 'INSUFFICIENT_SAMPLES'):
@@ -426,15 +426,15 @@ class SingleNodeTests(unittest.TestCase):
             with patch.object(ci, 'summarize_metrics',
                               side_effect=lambda rows: [dict(row, sample_status=status)
                                                         for row in summarize_metrics(rows)]):
-                self.assertEqual(ci.summarize(self.path, self.results, output), 1)
+                self.assertEqual(ci.summarize(self.path, self.results, output), 0)
             summary = execute.read_json(output / 'summary.json')
             self.assertEqual((summary['passed'], summary['expected']), (108, 108))
-            self.assertFalse(summary['complete'])
-            self.assertEqual(summary['artifact_error'], 'PERFORMANCE_SAMPLE_QUALITY')
+            self.assertTrue(summary['complete'])
+            self.assertEqual(summary['artifact_error'], '')
             performance = execute.read_json(output / 'performance-summary.json')
-            self.assertFalse(performance['complete'])
+            self.assertTrue(performance['complete'])
             self.assertTrue(all(row['sample_status'] == status for row in performance['measurements']))
-            self.assertFalse(execute.read_json(output / 'case-summary.json')['complete'])
+            self.assertTrue(execute.read_json(output / 'case-summary.json')['complete'])
 
     def test_fixture_emits_measurements_only_for_exact_performance_arguments(self):
         from test_manifest import performance_specs

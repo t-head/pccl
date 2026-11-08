@@ -754,16 +754,16 @@ def _check_invocation(spec, runtime, record, *, relocate_artifacts=False):
     raise ValueError('Malformed command evidence') from error
 
 
-def _redacted_lines(text, env):
-  # The spool is anonymous/private. Never publish inherited credentials, even
-  # when a failed runner printed them before its Popen audit event.
-  excluded = {value for key, value in env.items() if (not env_name(key) or SECRET.search(key)) and value
-              and (len(value) >= 4 or SECRET.search(key))}
+def _redacted_lines(text, env, *, redact_private=False):
+  # Only known secret names authorize value-wide redaction. Ordinary settings
+  # such as USER=root and diagnostics containing "internal" or URLs are data.
+  excluded = {value for key, value in env.items() if SECRET.search(key) and value}
   for value in sorted(excluded, key=len, reverse=True):
     text = text.replace(value, '[REDACTED]')
   for line in text.splitlines(keepends=True):
     checked = line.replace('/private/var/', '/var/').replace('/private/tmp/', '/tmp/')
-    yield '[REDACTED: private diagnostic]\n' if SECRET.search(line) or PRIVATE.search(checked) else line
+    sensitive = SECRET.search(line) or (redact_private and PRIVATE.search(checked))
+    yield '[REDACTED: private diagnostic]\n' if sensitive else line
 
 
 def _write_reproduction(path, argv, env, cwd):
@@ -776,23 +776,30 @@ def _write_reproduction(path, argv, env, cwd):
   lines += [f'  {shlex.join(argv)}\n']
   with path.open('x', encoding='utf-8') as stream:
     os.fchmod(stream.fileno(), 0o644)
-    stream.writelines(_redacted_lines(''.join(lines), env))
+    stream.writelines(_redacted_lines(''.join(lines), env, redact_private=True))
 
 
 def _publish_log(output, path, env, directory, *, requires_observation):
   output.flush()
   output.seek(0)
-  text = output.read()
+  raw_text = output.read()
+  public_text = raw_text
   if requires_observation:
     try:
       observed = read_json(directory / 'command-observations.json')
       if (observed.get('state') != 'complete' or not observed['records']
           or any(entry.get('private_environment_changed') for entry in observed['records'])):
-        text = '[REDACTED: incomplete or unrecorded subprocess environment]\n'
+        public_text = '[REDACTED: incomplete or unrecorded subprocess environment]\n'
     except (ValueError, KeyError, TypeError, AttributeError):
-      text = '[REDACTED: missing subprocess evidence]\n'
+      public_text = '[REDACTED: missing subprocess evidence]\n'
+  # Keep the byte-for-byte raw log for validation on the private result store.
+  # Only the separate public copy is redacted; metrics and checkers never parse it.
   with path.open('x', encoding='utf-8', errors='surrogateescape') as stream:
-    stream.writelines(_redacted_lines(text, env))
+    stream.write(raw_text)
+  public_path = path.with_name('command-public.log')
+  with public_path.open('x', encoding='utf-8', errors='surrogateescape') as stream:
+    os.fchmod(stream.fileno(), 0o644)
+    stream.writelines(_redacted_lines(public_text, env))
 
 
 def execution_timeout(spec, argv):
@@ -811,7 +818,7 @@ def run_command(spec, runtime, interrupted):
   reproduction_path = directory / 'command-reproduction.txt'
   capture = 'source_context' in spec
   invocation_path = directory / 'command-invocation.json'
-  reserved = [record_path, log_path, reproduction_path]
+  reserved = [record_path, log_path, log_path.with_name('command-public.log'), reproduction_path]
   if capture:
     reserved += [invocation_path, directory / 'command-observations.json']
   if any(os.path.lexists(path) for path in reserved):

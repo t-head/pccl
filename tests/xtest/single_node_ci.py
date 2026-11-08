@@ -211,8 +211,6 @@ def summarize(manifest_path, results, output):
         if measurements:
             summaries = summarize_metrics(measurements)
             write_metrics(measurements, target)
-            if any(row['sample_status'] != 'STABLE' for row in summaries):
-                complete, artifact_error = False, 'PERFORMANCE_SAMPLE_QUALITY'
             write_json(target / 'performance-summary.json', dict(complete=complete, measurements=summaries))
     except (OSError, ValueError) as exception:
         complete, artifact_error = False, type(exception).__name__

@@ -149,7 +149,7 @@ class CommandTests(unittest.TestCase):
     self.assertTrue(record['identity']['starttime'])
     self.assertEqual(data['metrics'], [])
     self.assertFalse(command.stop_recorded_process(directory / 'command-process.json'))
-    self.assertEqual(sorted(path.name for path in directory.iterdir()), ['command-process.json', 'command-reproduction.txt', 'command.log'])
+    self.assertEqual(sorted(path.name for path in directory.iterdir()), ['command-process.json', 'command-public.log', 'command-reproduction.txt', 'command.log'])
     reproduction = (directory / 'command-reproduction.txt').read_text()
     self.assertIn(f'cd {shlex.quote(str(self.root))} && \\\n', reproduction)
     path = shlex.quote(f'PATH={self.binary}{os.pathsep}{os.defpath}')
@@ -204,14 +204,38 @@ class CommandTests(unittest.TestCase):
         if error:
           self.assertEqual(data['error_type'], error)
           self.assertTrue(data['record_rejected'])
-        artifacts = '\n'.join(path.read_text() for path in directory.iterdir())
+        raw = (directory / 'command.log').read_text()
+        public = (directory / 'command-public.log').read_text()
         for value in values.values():
-          self.assertNotIn(value, artifacts)
-        log = (directory / 'command.log').read_text()
-        self.assertNotIn('SECRET diagnostic details', log)
-        self.assertNotIn('https://example.invalid/diagnostic', log)
-        self.assertIn('safe output\n' + ROW + FOOTER, log)
-        self.assertIn('[REDACTED]', log)
+          self.assertIn(value, raw)
+        self.assertNotIn(values['CI_ACCESS_TOKEN'], public)
+        self.assertNotIn(values['PCCL_ACCESS_TOKEN'], public)
+        self.assertIn(values['UNLISTED_SETTING'], public)
+        self.assertNotIn('SECRET diagnostic details', public)
+        self.assertIn('https://example.invalid/diagnostic', public)
+        self.assertIn('safe output\n' + ROW + FOOTER, raw)
+        self.assertIn('safe output\n' + ROW + FOOTER, public)
+        self.assertIn('[REDACTED]', public)
+
+  def test_raw_log_is_preserved_while_public_copy_redacts_only_secrets(self):
+    import io
+
+    text = ('# size count type redop root cpu_time algbw busbw #wrong\n'
+            'NCCL WARN Call to ibv_create_cq failed: internal error\n'
+            'https://example.invalid/diagnostic\n'
+            'token=offline-fixture-value-7319\n')
+    output = io.StringIO(text)
+    directory = self.root / 'raw-public'
+    directory.mkdir()
+    command._publish_log(output, directory / 'command.log',
+                         {'USER': 'root', 'CI_ACCESS_TOKEN': 'offline-fixture-value-7319'}, directory,
+                         requires_observation=False)
+    self.assertEqual((directory / 'command.log').read_text(), text)
+    public = (directory / 'command-public.log').read_text()
+    self.assertIn('redop root cpu_time', public)
+    self.assertIn('internal error', public)
+    self.assertIn('https://example.invalid/diagnostic', public)
+    self.assertNotIn('offline-fixture-value-7319', public)
 
   def test_generic_log_is_not_published_while_command_runs(self):
     source = ('import sys\nfrom pathlib import Path\n'
@@ -773,7 +797,7 @@ class CommandTests(unittest.TestCase):
     self.assertFalse(data['run_returned'])
     self.assertTrue(data['record_rejected'])
     self.assertFalse((directory / 'command-observations.json').exists())
-    self.assertIn('REDACTED', (directory / 'command.log').read_text())
+    self.assertIn('REDACTED', (directory / 'command-public.log').read_text())
     record = command.read_json(directory / 'command-process.json')
     self.assertFalse(record['active'])
     self.assertEqual(record['return_code'], 0)
@@ -787,7 +811,8 @@ class CommandTests(unittest.TestCase):
         directory, data, _ = self.direct_case(
           spec=dict(self.direct_spec(), timeout=timeout), env={'CI_ACCESS_TOKEN': value}, passed=error is None,
           launcher_extra='print(os.environ["CI_ACCESS_TOKEN"], flush=True)\n' + extra)
-        self.assertNotIn(value, '\n'.join(path.read_text() for path in directory.iterdir()))
+        self.assertIn(value, (directory / 'command.log').read_text())
+        self.assertNotIn(value, (directory / 'command-public.log').read_text())
         record = command.read_json(directory / 'command-process.json')
         self.assertFalse(record['active'])
         self.assertEqual(command._members(record['pgid']), [])
@@ -1137,7 +1162,7 @@ class CommandTests(unittest.TestCase):
       'path = Path(next(x for x in sys.orig_argv if x.endswith("command-invocation.json")))\n'
       'path = path.with_name("command-observations.json")\npath.unlink()\npath.mkdir()'))
     self.assertFalse(data['run_returned'])
-    self.assertIn('REDACTED', (directory / 'command.log').read_text())
+    self.assertIn('REDACTED', (directory / 'command-public.log').read_text())
     record = json.loads((directory / 'command-process.json').read_text())
     self.assertEqual(command._members(record['pgid']), [])
 
@@ -1301,11 +1326,14 @@ class CommandTests(unittest.TestCase):
           env={'CI_ACCESS_TOKEN': value}, passed=error is None, spec_changes=dict(timeout=timeout),
           runner_extra='print(os.environ["CI_ACCESS_TOKEN"], flush=True)',
           launcher_extra='print("safe child output", flush=True)\n' + extra)
-        self.assertNotIn(value, '\n'.join(path.read_text() for path in directory.iterdir()))
-        log = (directory / 'command.log').read_text()
-        self.assertIn('REDACTED', log)
+        raw = (directory / 'command.log').read_text()
+        public = (directory / 'command-public.log').read_text()
+        self.assertIn(value, raw)
+        self.assertNotIn(value, public)
+        self.assertIn('REDACTED', public)
         if error != 'TimeoutExpired':
-          self.assertIn('safe child output', log)
+          self.assertIn('safe child output', raw)
+          self.assertIn('safe child output', public)
         if error:
           self.assertEqual(data['error_type'], error)
           self.assertTrue(data['record_rejected'])
@@ -1313,16 +1341,18 @@ class CommandTests(unittest.TestCase):
   def test_source_private_log_and_child_environment(self):
     directory, _, _ = self.source_case(runner_extra='os.environ["NEW_PRIVATE"] = "opaque-value-xyz"\n'
                                                    'print(os.environ["NEW_PRIVATE"])')
-    self.assertNotIn('opaque-value-xyz', '\n'.join(path.read_text() for path in directory.iterdir()))
+    self.assertIn('opaque-value-xyz', (directory / 'command.log').read_text())
+    self.assertNotIn('opaque-value-xyz', (directory / 'command-public.log').read_text())
     value = 'never-publish-this-value'
     directory, _, _ = self.source_case(env={'CREDENTIAL': value},
                                        runner_extra='print(os.environ["CREDENTIAL"])')
-    self.assertNotIn(value, (directory / 'command.log').read_text())
+    self.assertNotIn(value, (directory / 'command-public.log').read_text())
     for value in ('https://private.invalid/access', 'ghp_abcdefghijklmnop', 'secret-value'):
       with self.subTest(value=value):
         directory, _, _ = self.source_case(runner_extra=f'os.environ["PCCL_DEBUG"] = {value!r}\n'
                                                        'print(os.environ["PCCL_DEBUG"])', passed=False)
-        self.assertNotIn(value, '\n'.join(path.read_text() for path in directory.iterdir()))
+        self.assertNotIn(value, '\n'.join(path.read_text() for path in directory.iterdir()
+                                           if path.name != 'command.log'))
         self.assertEqual(json.loads((directory / 'command-observations.json').read_text())['state'], 'invalid')
 
   def test_performance_returns_metrics_without_writing_them(self):
@@ -1347,7 +1377,7 @@ class CommandTests(unittest.TestCase):
     directory, data, _ = self.case('import os\nprint(os.environ["CI_ACCESS_TOKEN"])\n'
                                    f'print({text!r}, end="")', spec=spec, runtime=runtime,
                                    env={'CI_ACCESS_TOKEN': value})
-    self.assertNotIn(value, (directory / 'command.log').read_text())
+    self.assertNotIn(value, (directory / 'command-public.log').read_text())
     self.assertIn(text, (directory / 'command.log').read_text())
     self.assertEqual(len(data['metrics']), 2)
     self.assertEqual([row['placement'] for row in data['metrics']], ['out-of-place', 'in-place'])
@@ -1360,14 +1390,14 @@ class CommandTests(unittest.TestCase):
       self.assertEqual(row['executor_python_version'], inputs['executor_python_version'])
       self.assertEqual(row['time'], 100)
     self.assertNotIn('not-exported', json.dumps(data['metrics']))
-    self.assertEqual(sorted(path.name for path in directory.iterdir()), ['command-process.json', 'command-reproduction.txt', 'command.log'])
+    self.assertEqual(sorted(path.name for path in directory.iterdir()), ['command-process.json', 'command-public.log', 'command-reproduction.txt', 'command.log'])
     for output in (ROW + FOOTER, text.replace('validation: 1', 'validation: 0'),
                    text.replace('0 OK', '1 FAILED')):
       with self.subTest(output=output):
         directory, data, _ = self.case(f'print({output!r})', spec=spec, runtime=runtime, passed=False)
         self.assertEqual(data['error_type'], 'ValueError')
         self.assertTrue(data['run_returned'])
-        self.assertEqual(sorted(path.name for path in directory.iterdir()), ['command-process.json', 'command-reproduction.txt', 'command.log'])
+        self.assertEqual(sorted(path.name for path in directory.iterdir()), ['command-process.json', 'command-public.log', 'command-reproduction.txt', 'command.log'])
     _, data, _ = self.case('import sys; sys.stdout.buffer.write(b"\\xff")', spec=spec,
                           runtime=runtime, passed=False)
     self.assertEqual(data['error_type'], 'UnicodeDecodeError')

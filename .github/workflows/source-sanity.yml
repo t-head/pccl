@@ -4,6 +4,8 @@ on:
   pull_request:
     branches: [main, 'release/**']
     types: [opened, synchronize, reopened, ready_for_review]
+  push:
+    branches: [main]
   workflow_dispatch:
 
 permissions:
@@ -11,7 +13,7 @@ permissions:
 
 concurrency:
   group: source-sanity-single-node-${{ github.event.pull_request.number || github.ref }}
-  cancel-in-progress: false
+  cancel-in-progress: true
 
 jobs:
   prepare:
@@ -20,7 +22,8 @@ jobs:
       github.repository == 't-head/pccl' &&
       ((github.event_name == 'pull_request' &&
         github.event.pull_request.head.repo.full_name == github.repository) ||
-       github.event_name == 'workflow_dispatch')
+       github.event_name == 'workflow_dispatch' ||
+       github.event_name == 'push')
     runs-on: ubuntu-24.04
     timeout-minutes: 20
     outputs:
@@ -74,7 +77,7 @@ jobs:
           if-no-files-found: error
       - name: Generate the two-node manifest and stage its offline dependencies
         # The two-node job reuses the standard build, so it only needs the reviewed
-        # manifest plus the wheels and debs the isolated pod cannot download itself.
+        # manifest plus the pinned wheel the isolated pod cannot download itself.
         run: |
           python3 -S -B -m unittest discover -s tests/xtest -p 'test_cluster_ci.py' -v
           python3 -S -B tests/xtest/cluster_ci.py prepare \
@@ -85,10 +88,6 @@ jobs:
           printf '%s  %s\n' \
             '4b0dda527ee31078689fc205ec4f1c1bf7d56cf88b6dc9426c4f230e46c2dce1' \
             "$RUNNER_TEMP/cluster-deps/filelock-3.20.3-py3-none-any.whl" | sha256sum --check -
-          mkdir -p "$RUNNER_TEMP/cluster-debs"
-          (cd "$RUNNER_TEMP/cluster-debs" && apt-get download \
-            libboost-program-options-dev libboost-program-options1.83-dev \
-            libboost-program-options1.83.0 libboost1.83-dev)
         env:
           PCCL_TESTS_ROOT: ${{ github.workspace }}/public-runner
       - uses: actions/upload-artifact@v4
@@ -100,11 +99,6 @@ jobs:
         with:
           name: cluster-run-python-deps
           path: ${{ runner.temp }}/cluster-deps/
-          if-no-files-found: error
-      - uses: actions/upload-artifact@v4
-        with:
-          name: cluster-run-build-deps
-          path: ${{ runner.temp }}/cluster-debs/
           if-no-files-found: error
       - name: Derive resource batches from the validated Suite contexts
         id: batches
@@ -120,7 +114,7 @@ jobs:
           printf '%s\n' \
             '## Source-derived manifest' \
             'Suite resources and container bindings determine each execution batch.' \
-            'Preparation used no pip, xtest, mmengine, network access, PPU allocation, or benchmark execution.' \
+            'Manifest generation and contract tests used no pip, xtest, mmengine, network access, PPU allocation, or benchmark execution; dependency staging is separate and uses pinned downloads.' \
             >> "$GITHUB_STEP_SUMMARY"
 
   build-standard:
@@ -130,7 +124,8 @@ jobs:
       github.repository == 't-head/pccl' &&
       ((github.event_name == 'pull_request' &&
         github.event.pull_request.head.repo.full_name == github.repository) ||
-       github.event_name == 'workflow_dispatch') &&
+       github.event_name == 'workflow_dispatch' ||
+       github.event_name == 'push') &&
       contains(fromJSON(needs.prepare.outputs.profiles), 'standard')
     runs-on: k8s-runner-group-cpu-thead
     container:
@@ -187,7 +182,8 @@ jobs:
       github.repository == 't-head/pccl' &&
       ((github.event_name == 'pull_request' &&
         github.event.pull_request.head.repo.full_name == github.repository) ||
-       github.event_name == 'workflow_dispatch') &&
+       github.event_name == 'workflow_dispatch' ||
+       github.event_name == 'push') &&
       contains(fromJSON(needs.prepare.outputs.profiles), 'notsm')
     runs-on: k8s-runner-group-cpu-thead
     container:
@@ -247,7 +243,8 @@ jobs:
       github.repository == 't-head/pccl' &&
       ((github.event_name == 'pull_request' &&
         github.event.pull_request.head.repo.full_name == github.repository) ||
-       github.event_name == 'workflow_dispatch')
+       github.event_name == 'workflow_dispatch' ||
+       github.event_name == 'push')
     runs-on: k8s-runner-group-cpu-thead
     container:
       image: ghcr.io/actions/actions-runner:latest
@@ -325,7 +322,8 @@ jobs:
       github.repository == 't-head/pccl' &&
       ((github.event_name == 'pull_request' &&
         github.event.pull_request.head.repo.full_name == github.repository) ||
-       github.event_name == 'workflow_dispatch')
+       github.event_name == 'workflow_dispatch' ||
+       github.event_name == 'push')
     runs-on: k8s-runner-group-cpu-thead
     container:
       image: ghcr.io/actions/actions-runner:latest
@@ -349,10 +347,6 @@ jobs:
         with:
           name: cluster-run-python-deps
           path: cluster-deps
-      - uses: actions/download-artifact@v4
-        with:
-          name: cluster-run-build-deps
-          path: cluster-debs
       - name: Check staging storage without changing shared permissions
         run: test -d /wl_nas/devops && test -w /wl_nas/devops
       - name: Run the reviewed MPI Case on the shared standard build
@@ -403,10 +397,6 @@ jobs:
             /workspace/pccl-cluster-env/bin/python -m pip install --disable-pip-version-check \
               --no-index --find-links "$SOURCE_DIR/cluster-deps" -r pccl/tests/xtest/requirements.txt
             /workspace/pccl-cluster-env/bin/python -m pip check
-            if ! dpkg-query -W -f='${Status}' libboost-program-options-dev 2>/dev/null \
-                | grep -qx 'install ok installed'; then
-              dpkg -i "$SOURCE_DIR"/cluster-debs/*.deb
-            fi
             source /usr/local/PPU_SDK/envsetup.sh
             export LD_LIBRARY_PATH="$build_output/lib:${LD_LIBRARY_PATH:-}"
             rm -rf "$RESULT_ROOT/standard"
@@ -423,17 +413,17 @@ jobs:
         if: always()
         run: |
           python3 -B pccl/tests/xtest/cluster_ci.py diagnose \
-            --results /wl_nas/devops/pccl-cluster-run/${{ github.run_id }}/results/standard \
-            --output /tmp/unused
+            --results /wl_nas/devops/pccl-cluster-run/${{ github.run_id }}/results/standard
 
   summary:
-    name: Source sanity result gate
+    name: PCCL Tests Gate
     needs: [prepare, build-standard, build-notsm, sanity, cluster]
     if: >-
       always() && github.repository == 't-head/pccl' &&
       ((github.event_name == 'pull_request' &&
         github.event.pull_request.head.repo.full_name == github.repository) ||
-       github.event_name == 'workflow_dispatch')
+       github.event_name == 'workflow_dispatch' ||
+       github.event_name == 'push')
     runs-on: k8s-runner-group-cpu-thead
     container:
       image: ghcr.io/actions/actions-runner:latest
@@ -457,14 +447,14 @@ jobs:
             --results /wl_nas/devops/pccl-source-sanity/${{ github.run_id }}/results \
             --output public-results
       - name: Reconcile the two-node MPI execution record
-        if: always() && needs.cluster.result == 'success'
+        if: always() && needs.cluster.result != 'skipped'
         run: |
           python3 -B tests/xtest/cluster_ci.py summary \
             --manifest cluster-manifest/manifest.json \
             --results /wl_nas/devops/pccl-cluster-run/${{ github.run_id }}/results/standard \
             --output public-results-cluster
       - uses: actions/upload-artifact@v4
-        if: always() && needs.cluster.result == 'success'
+        if: always() && needs.cluster.result != 'skipped'
         with:
           name: cluster-run-source-results
           path: public-results-cluster/

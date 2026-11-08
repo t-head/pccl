@@ -9,7 +9,7 @@ permissions:
   contents: read
 
 concurrency:
-  group: source-cluster-run-${{ github.event.pull_request.number || github.ref }}
+  group: source-cluster-run-${{ github.ref }}
   cancel-in-progress: false
 
 jobs:
@@ -43,8 +43,17 @@ jobs:
             "$RUNNER_TEMP/cluster-deps/filelock-3.20.3-py3-none-any.whl" | sha256sum --check -
           mkdir -p "$RUNNER_TEMP/cluster-debs"
           (cd "$RUNNER_TEMP/cluster-debs" && apt-get download \
-            libboost-program-options-dev libboost-program-options1.83-dev \
-            libboost-program-options1.83.0 libboost1.83-dev)
+            libboost-program-options-dev=1.83.0.1ubuntu2 \
+            libboost-program-options1.83-dev=1.83.0-2.1ubuntu3.2 \
+            libboost-program-options1.83.0=1.83.0-2.1ubuntu3.2 \
+            libboost1.83-dev=1.83.0-2.1ubuntu3.2)
+          cat > "$RUNNER_TEMP/cluster-debs/SHA256SUMS" <<'EOF'
+          e29e7144f831e601b4c8f17ef82cedc05fe9e9e8bb73bfd2488276ba739f6398  libboost-program-options-dev_1.83.0.1ubuntu2_amd64.deb
+          62b00e346474e7dff9bae3b8b12235b1b6e82d6d86f72a532a82aeeb1e1e2e25  libboost-program-options1.83-dev_1.83.0-2.1ubuntu3.2_amd64.deb
+          9e7c21160a9cf2e8847b0789bba7a2b3301a4846f0f999270b41b424afb37559  libboost-program-options1.83.0_1.83.0-2.1ubuntu3.2_amd64.deb
+          519ecf2c64308527e15b6582955681d192a832250baa4bc424967aaf7d02d68f  libboost1.83-dev_1.83.0-2.1ubuntu3.2_amd64.deb
+          EOF
+          (cd "$RUNNER_TEMP/cluster-debs" && sha256sum --check SHA256SUMS)
         env:
           PCCL_TESTS_ROOT: ${{ github.workspace }}/public-runner
       - uses: actions/upload-artifact@v4
@@ -181,8 +190,7 @@ jobs:
         if: always()
         run: |
           python3 -B pccl/tests/xtest/cluster_ci.py diagnose \
-            --results /wl_nas/devops/pccl-cluster-run/${{ github.run_id }}/results/standard \
-            --output /tmp/unused
+            --results /wl_nas/devops/pccl-cluster-run/${{ github.run_id }}/results/standard
 
   summary:
     name: Two-node cluster-run result gate

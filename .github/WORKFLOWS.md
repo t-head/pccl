@@ -11,13 +11,13 @@ PPU tests. `PCCL Tests Gate` reports the results of the required jobs.
 
 | File | Purpose |
 | --- | --- |
-| [pr-test-ppu.yml](workflows/pr-test-ppu.yml) | Run `PCCL CI` and publish `PCCL Tests Gate`. |
-| [source-sanity.yml](workflows/source-sanity.yml) | Derive single-node and two-node sanity from the reviewed `pccl_test_suites` export: two builds, then one single-node job per profile plus one two-node job that reuses the standard build. |
+| [pr-test-ppu.yml](workflows/pr-test-ppu.yml) | Run only the PR prechecks and AI/human review jobs; its legacy PPU jobs are retired. |
+| [source-sanity.yml](workflows/source-sanity.yml) | The sole PPU test pipeline and publisher of `PCCL Tests Gate`: two builds, one single-node job per profile, and one two-node job reusing the standard build. |
 | [source-cluster-debug.yml](workflows/source-cluster-debug.yml) | Manual troubleshooting tool for the two-node MPI case; it rebuilds from source instead of reusing a build. |
 | [workflows/scripts/](workflows/scripts/) | Build and test PCCL with the external test suite. |
 | [casecmd.list](workflows/scripts/casecmd.list) | Define the PPU test matrix. |
 
-`source-sanity.yml` runs on same-repository pull requests and on manual dispatch only. It
+`source-sanity.yml` runs on same-repository pull requests, pushes to `main`, and manual dispatch. It
 never uses repository secrets, and it keeps the executable source of truth in
 `pccl_test_suites`: the checked-in catalog records the reviewed revision, the exporter
 hash, and the selection hash, so a change to the cases requires a new export. The reviewed
@@ -26,6 +26,9 @@ single-node sanity and is not a second two-node variant in this workflow. Each b
 publishes a build record containing the actual source revisions, profile and archive SHA-256.
 The executor verifies that record against the archive and retains it in shard evidence; both
 result gates check it again without requiring the original build host or archive to be present.
+Performance command success and valid data are required, but sample stability is observational only
+until a baseline exists. Raw `command.log` evidence remains on the private result store for
+validation; `command-public.log` is the separately redacted diagnostic copy.
 
 ## Reading Cases and commands
 

@@ -16,7 +16,7 @@ import sys
 
 from build_evidence import load as load_build
 from catalog import validate_bundle
-from command import check_command
+from command import check_command, safe_text
 from execute import (execution_provenance, read_jsonl, run_shard, verified_build, verified_runtime,
                      verify_lifecycle, write_json)
 from manifest import (PCCL_TESTS_REVISION, RUNNER_HASHES, build_manifest, case_key, digest,
@@ -54,7 +54,7 @@ def mpi_options():
 
 def diagnostics(results):
   root = Path(results)
-  logs = sorted(root.glob('*/attempt-1/command.log'))
+  logs = sorted(root.glob('*/attempt-1/command-public.log'))
   if not logs:
     print('Cluster diagnostic: command log was not created')
     return
@@ -71,7 +71,7 @@ def diagnostics(results):
   print('Cluster diagnostic (sanitized tail):')
   selected = lines[-120:] if lines else ['<empty command log>']
   print('\n'.join(selected))
-  for line in selected[-40:]:
+  for line in selected[-5:]:
     annotation = line.replace('%', '%25').replace('\r', '%0D').replace('\n', '%0A')
     print(f'::notice title=Cluster diagnostic::{annotation}')
 
@@ -239,7 +239,11 @@ def summarize(manifest_path, results, output):
     check_command(row['spec'], runtime, read_json(case_dir / 'command-process.json'))
     passed = 1
   except (OSError, ValueError, KeyError, TypeError, AttributeError, OverflowError) as exception:
-    error = type(exception).__name__
+    try:
+      detail = safe_text(str(exception))
+    except ValueError:
+      detail = ''
+    error = type(exception).__name__ + (f': {detail}' if detail else '')
   if passed != 1:
     diagnostics(directory)
   target = Path(output)
@@ -257,7 +261,7 @@ def main():
   parser = argparse.ArgumentParser(description=__doc__)
   parser.add_argument('operation', choices=('prepare', 'run', 'summary', 'diagnose'))
   parser.add_argument('--manifest', type=Path)
-  parser.add_argument('--output', type=Path, required=True)
+  parser.add_argument('--output', type=Path)
   parser.add_argument('--pccl-revision')
   parser.add_argument('--pccl-tests', type=Path)
   parser.add_argument('--test-root', type=Path)
@@ -271,6 +275,8 @@ def main():
         parser.error('diagnose requires --results')
       diagnostics(args.results)
       return 0
+    if args.output is None:
+      parser.error('prepare, run and summary require --output')
     if args.operation == 'prepare':
       if not args.pccl_revision or args.pccl_tests is None:
         parser.error('prepare requires --pccl-revision and --pccl-tests')

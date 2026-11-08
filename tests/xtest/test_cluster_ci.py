@@ -224,7 +224,8 @@ class ClusterCiTests(unittest.TestCase):
     self.assertIn('filelock-3.20.3-py3-none-any.whl', workflow)
     self.assertIn('--no-index --find-links', workflow)
     self.assertIn('cluster-run-build-deps', workflow)
-    self.assertIn('libboost-program-options-dev', workflow)
+    self.assertIn('libboost-program-options-dev=1.83.0.1ubuntu2', workflow)
+    self.assertIn('sha256sum --check SHA256SUMS', workflow)
     # The standalone workflow is a manual troubleshooting tool now; the PR path lives in
     # source-sanity.yml and reuses its standard build.
     head = workflow.split('\n  cluster:', 1)[0]
@@ -241,7 +242,7 @@ class ClusterCiTests(unittest.TestCase):
   def test_diagnostics_redact_worker_addresses_and_paths(self):
     case = self.root / 'diagnostics/case/attempt-1'
     case.mkdir(parents=True)
-    (case / 'command.log').write_text(
+    (case / 'command-public.log').write_text(
       'MPI ERROR ppu-t-head-123-worker-0.job.svc.cluster.local 10.1.2.3 '
       '/workspace/source/private token=unsafe\n')
     with mock.patch('builtins.print') as output:
@@ -252,6 +253,7 @@ class ClusterCiTests(unittest.TestCase):
     self.assertIn('<workspace>', text)
     self.assertIn('token=<redacted>', text)
     self.assertNotIn('10.1.2.3', text)
+    self.assertLessEqual(sum('::notice' in str(call.args[0]) for call in output.call_args_list), 5)
 
   def test_mpi_prefix_is_derived_from_the_worker_image(self):
     prefix = self.root / 'openmpi'
