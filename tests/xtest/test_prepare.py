@@ -120,10 +120,10 @@ assert not ({'xtest', 'mmengine', 'filelock'} & sys.modules.keys())
         workflow = (ROOT / '.github/workflows/source-sanity.yml').read_text()
         self.assertEqual(re.findall(r'^  ([a-z_-]+):$', workflow, re.M),
                          ['pull_request', 'push', 'workflow_dispatch', 'prepare',
-                          'ai-code-review', 'human-review', 'build-standard', 'build-notsm', 'sanity', 'cluster', 'summary'])
+                          'human-review', 'build-standard', 'build-notsm', 'sanity', 'cluster', 'summary'])
         prepare = workflow.split('\n  build-standard:', 1)[0]
         human_review = workflow.split('\n  human-review:', 1)[1].split('\n  build-standard:', 1)[0]
-        self.assertIn('needs: [prepare, ai-code-review]', human_review)
+        self.assertIn('needs: prepare', human_review)
         build_standard = workflow.split('\n  build-standard:', 1)[1].split('\n  build-notsm:', 1)[0]
         build_notsm = workflow.split('\n  build-notsm:', 1)[1].split('\n  sanity:', 1)[0]
         sanity = workflow.split('\n  sanity:', 1)[1].split('\n  cluster:', 1)[0]
@@ -219,7 +219,7 @@ assert not ({'xtest', 'mmengine', 'filelock'} & sys.modules.keys())
         self.assertNotIn('ppu-scheduler-action', legacy)
         self.assertNotIn('tests-gate:', legacy)
         self.assertNotIn('build-test-notsm:', legacy)
-        self.assertNotIn('ai-code-review:', legacy)
+        self.assertIn('ai-code-review:', legacy)
         self.assertNotIn('human-review:', legacy)
 
     def test_result_gate_requires_prepare_single_node_and_two_node_success(self):
@@ -227,7 +227,7 @@ assert not ({'xtest', 'mmengine', 'filelock'} & sys.modules.keys())
         section = workflow.split('      - name: Require every expected build and test shard', 1)[1]
         gate = section.split("          python3 - <<'PY'\n", 1)[1].split('\n          PY', 1)[0]
         gate = textwrap.dedent(gate)
-        names = ('prepare', 'ai-code-review', 'human-review', 'build-standard', 'build-notsm', 'sanity', 'cluster')
+        names = ('prepare', 'human-review', 'build-standard', 'build-notsm', 'sanity', 'cluster')
         base = {name: {'result': 'success'} for name in names}
 
         def evaluate(changes):
@@ -240,7 +240,6 @@ assert not ({'xtest', 'mmengine', 'filelock'} & sys.modules.keys())
         self.assertEqual(evaluate({}), 0)
         self.assertEqual(evaluate({'build-notsm': 'skipped'}), 0)
         self.assertEqual(evaluate({'human-review': 'failure'}), 1)
-        self.assertEqual(evaluate({'ai-code-review': 'failure'}), 1)
         self.assertEqual(evaluate({'prepare': 'failure', 'sanity': 'skipped', 'cluster': 'skipped'}), 1)
         self.assertEqual(evaluate({'cluster': 'skipped'}), 1)
         self.assertEqual(evaluate({'sanity': 'skipped'}), 1)

@@ -12,7 +12,7 @@ PPU tests. `PCCL Tests Gate` reports the results of the required jobs.
 | File | Purpose |
 | --- | --- |
 | [pr-test-ppu.yml](workflows/pr-test-ppu.yml) | Run only the PR Secret Scan and Commit Message / DCO prechecks; its legacy PPU jobs are retired. |
-| [source-sanity.yml](workflows/source-sanity.yml) | The sole PPU test pipeline and publisher of `PCCL Tests Gate`: AI and human approval precede self-hosted builds, followed by two builds, one single-node job per profile, and one two-node job reusing the standard build. |
+| [source-sanity.yml](workflows/source-sanity.yml) | The sole PPU test pipeline and publisher of `PCCL Tests Gate`: Human approval precedes self-hosted builds while AI review runs independently, followed by two builds, one single-node job per profile, and one two-node job reusing the standard build. |
 | [source-cluster-debug.yml](workflows/source-cluster-debug.yml) | Manual troubleshooting tool for the two-node MPI case; it rebuilds from source instead of reusing a build. |
 | [workflows/scripts/](workflows/scripts/) | Build and test PCCL with the external test suite. |
 | [casecmd.list](workflows/scripts/casecmd.list) | Define the PPU test matrix. |
