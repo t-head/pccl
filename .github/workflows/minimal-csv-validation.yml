@@ -268,6 +268,7 @@ jobs:
             set -euo pipefail
             source /usr/local/PPU_SDK/envsetup.sh
             test -d /dev/infiniband
+            test -r /proc/net/route
             set -- /dev/infiniband/*
             test -e "$1"
           command: |
@@ -297,7 +298,7 @@ jobs:
             unset PCCL_PATH
             export OMPI_MCA_plm_rsh_agent=cluster-ssh
             export OMPI_MCA_orte_base_help_aggregate=0
-            MPI_INTERFACE=$(ip -o -4 route show default | awk 'NR == 1 {print $5}')
+            MPI_INTERFACE=$(awk '$2 == "00000000" {print $1; exit}' /proc/net/route)
             test -n "$MPI_INTERFACE"
             echo "MPI TCP interface: $MPI_INTERFACE"
             test "$(wc -l < "$CLUSTER_HOSTS_FILE")" -eq 2
