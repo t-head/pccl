@@ -40,14 +40,14 @@ two-node Case; without a filter, every Case in the profile is selected.
 `--hostfile` is required only when the selected profile contains multi-node
 Cases. `test_root` may either contain `run_test.py` directly or contain a
 `pccl-tests` checkout. Each Case gets a separate working directory with
-explicit `run_test.py`, `run_test_config.py`, `build` and optional `hosts.cfg`
-links. Private `python`/`python3` launchers for the active interpreter are added to
+explicit `run_test.py`, `run_test_config.py`, optional `unit_test.py`, `build`
+and optional `hosts.cfg` links. Private `python`/`python3` launchers for the active interpreter are added to
 `PATH`, so CSV commands see the same Python environment as the executor
 (including its benchmark dependencies), even when the system `python3` differs.
 
 Only literal `{test_root}`, `{binary_dir}`, `{result_dir}`, `{path}`,
-`{ld_library_path}`, `{hostfile}` and `{mpi_interface}` bindings are recognized.
-The last four are bound only when needed. Use `--mpi-interface` to supply the
+`{ld_library_path}`, `{hostfile}`, `{mpi_interface}` and `{python_env}` bindings
+are recognized. The last five are bound only when needed. Use `--mpi-interface` to supply the
 allocated worker's actual TCP interface when the command contains that binding. Environment files are parsed as data and are never
 sourced. Commands alone are passed to `/bin/sh -c`.
 

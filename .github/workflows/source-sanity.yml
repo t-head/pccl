@@ -474,12 +474,16 @@ jobs:
             /workspace/minimal-csv-env/bin/python -m pip check
             source /usr/local/PPU_SDK/envsetup.sh
             unset PCCL_PATH
+            MPI_INTERFACE=$(awk '$2 == "00000000" {print $1; exit}' /proc/net/route)
+            test -n "$MPI_INTERFACE"
+            echo "MPI TCP interface: $MPI_INTERFACE"
             /workspace/minimal-csv-env/bin/python -B \
               "$build_output/pccl/tests/xtest/run_cases.py" \
               --input "$build_output/pccl/tests/xtest/minimal-csv" \
               --profile '${{ matrix.profile }}' --nodes 1 \
               --test-root "$build_output" \
               --binary-dir "$build_output/pccl-tests/build" \
+              --mpi-interface "$MPI_INTERFACE" \
               --output "$RESULT_ROOT"
 
   two-node:

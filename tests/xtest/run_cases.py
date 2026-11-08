@@ -193,7 +193,7 @@ def _stage_interpreter(output):
 
 def _stage_work(work, runner_root, binary_dir, hostfile):
     work.mkdir(parents=True, exist_ok=False)
-    for name in ("run_test.py", "run_test_config.py"):
+    for name in ("run_test.py", "run_test_config.py", "unit_test.py"):
         source = runner_root / name
         if source.is_file():
             (work / name).symlink_to(source)
@@ -336,7 +336,7 @@ def run_case(case, runtime, interrupted):
     return_code = None
     try:
         bindings = {"test_root": str(runtime["test_root"]), "binary_dir": str(runtime["binary_dir"]),
-                    "result_dir": str(directory)}
+                    "result_dir": str(directory), "python_env": str(Path(sys.prefix).absolute())}
         environment = _expand_environment(
             _environment_file(runtime["input"] / "envs" / suite["env"]), runtime["base_environment"], bindings)
         # Keep the build ahead of inherited installations while retaining the

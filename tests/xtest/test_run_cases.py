@@ -38,6 +38,7 @@ class CsvRunnerTests(unittest.TestCase):
             'print("version=" + ".".join(str(part) for part in sys.version_info[:2]))\n'
             'print("marker=" + os.environ.get("TEST_MARKER", ""))\n', encoding='utf-8')
         (self.runner / 'run_test_config.py').write_text('# test fixture\n', encoding='utf-8')
+        (self.runner / 'unit_test.py').write_text('# unit test fixture\n', encoding='utf-8')
         (self.input / 'export.json').write_text(json.dumps({
             'format_version': 1, 'source_revision': SOURCE, 'runner_revision': RUNNER,
             'xtest_version': '0.14.0'}) + '\n')
@@ -103,6 +104,14 @@ class CsvRunnerTests(unittest.TestCase):
         self.assertEqual((work / 'run_test.py').resolve(), (self.runner / 'run_test.py').resolve())
         self.assertEqual((work / 'run_test_config.py').resolve(), (self.runner / 'run_test_config.py').resolve())
         self.assertEqual((work / 'build').resolve(), self.binary.resolve())
+        self.assertEqual((work / 'unit_test.py').resolve(), (self.runner / 'unit_test.py').resolve())
+
+    def test_python_env_binding_uses_the_active_environment(self):
+        command = "{python_env}/bin/" + Path(sys.executable).name + " -c 'import sys; print(sys.version_info[:2])'"
+        rows = self.execute(self.inputs([{'cmd': command}]))
+        self.assertEqual(rows[0]['status'], 'PASSED')
+        text = (self.root / 'output-1/plan/suite/case_0/raw.log').read_text()
+        self.assertIn(str(sys.version_info[:2]), text)
 
     def test_validation_summary_is_required(self):
         passing = self.execute(self.inputs([{'cmd': f"printf '%s\\n' '{SUMMARY}'", 'check': 'validation_summary'}]))
