@@ -350,6 +350,11 @@ def run_case(case, runtime, interrupted):
                         ld_library_path=_command_binding(environment.get("LD_LIBRARY_PATH", "")))
         if suite["nodes"] > 1:
             bindings["hostfile"] = _command_binding(str(runtime["hostfile"]))
+        if "{mpi_interface}" in case["cmd"]:
+            interface = runtime["mpi_interface"]
+            if not isinstance(interface, str) or not re.fullmatch(r"[A-Za-z0-9_.-]+", interface):
+                raise ValueError("This Case requires --mpi-interface with a valid interface name")
+            bindings["mpi_interface"] = interface
         command_bindings = {key: _command_binding(value) for key, value in bindings.items()}
         command = _substitute(case["cmd"], command_bindings)
         _stage_work(work, runtime["runner_root"], runtime["binary_dir"], runtime["hostfile"])
@@ -422,7 +427,7 @@ def _write_summary(output, rows):
     _write_json(output / "summary.json", {"total": len(rows), "counts": counts})
 
 
-def run_all(inputs, test_root, binary_dir, output, hostfile=None, base_environment=None):
+def run_all(inputs, test_root, binary_dir, output, hostfile=None, base_environment=None, mpi_interface=None):
     test_root = Path(test_root).resolve()
     binary_dir = Path(binary_dir).resolve() if binary_dir else _runner_root(test_root) / "build"
     output = Path(output).resolve()
@@ -440,7 +445,7 @@ def run_all(inputs, test_root, binary_dir, output, hostfile=None, base_environme
     output.mkdir(parents=True, exist_ok=False)
     runtime = {"test_root": test_root, "binary_dir": binary_dir, "runner_root": _runner_root(test_root),
                "output": output, "hostfile": hostfile, "input": inputs["directory"],
-               "python_bin": _stage_interpreter(output),
+               "python_bin": _stage_interpreter(output), "mpi_interface": mpi_interface,
                "base_environment": dict(os.environ if base_environment is None else base_environment)}
     interrupted = [None]
 
@@ -484,6 +489,7 @@ def main():
     parser.add_argument("--binary-dir", type=Path)
     parser.add_argument("--output", type=Path)
     parser.add_argument("--hostfile", type=Path)
+    parser.add_argument("--mpi-interface", help="Actual TCP interface for an exported {mpi_interface} binding")
     parser.add_argument("--validate-only", action="store_true")
     args = parser.parse_args()
     try:
@@ -496,7 +502,8 @@ def main():
             return 0
         if args.test_root is None or args.output is None:
             raise ValueError("Execution requires --test-root and --output")
-        rows = run_all(inputs, args.test_root, args.binary_dir, args.output, args.hostfile)
+        rows = run_all(inputs, args.test_root, args.binary_dir, args.output, args.hostfile,
+                       mpi_interface=args.mpi_interface)
         return 0 if all(row["status"] == "PASSED" for row in rows) else 1
     except (OSError, ValueError, json.JSONDecodeError) as error:
         parser.error(str(error))

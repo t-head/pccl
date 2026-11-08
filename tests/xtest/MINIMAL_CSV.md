@@ -47,8 +47,9 @@ links. Private `python`/`python3` launchers for the active interpreter are added
 (including its benchmark dependencies), even when the system `python3` differs.
 
 Only literal `{test_root}`, `{binary_dir}`, `{result_dir}`, `{path}`,
-`{ld_library_path}` and `{hostfile}` bindings are recognized. The last three
-are bound only when needed. Environment files are parsed as data and are never
+`{ld_library_path}`, `{hostfile}` and `{mpi_interface}` bindings are recognized.
+The last four are bound only when needed. Use `--mpi-interface` to supply the
+allocated worker's actual TCP interface when the command contains that binding. Environment files are parsed as data and are never
 sourced. Commands alone are passed to `/bin/sh -c`.
 
 ## Result semantics

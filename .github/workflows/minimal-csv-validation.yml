@@ -297,6 +297,9 @@ jobs:
             unset PCCL_PATH
             export OMPI_MCA_plm_rsh_agent=cluster-ssh
             export OMPI_MCA_orte_base_help_aggregate=0
+            MPI_INTERFACE=$(ip -o -4 route show default | awk 'NR == 1 {print $5}')
+            test -n "$MPI_INTERFACE"
+            echo "MPI TCP interface: $MPI_INTERFACE"
             test "$(wc -l < "$CLUSTER_HOSTS_FILE")" -eq 2
             /workspace/minimal-csv-cluster-env/bin/python -B \
               "$build_output/pccl/tests/xtest/run_cases.py" \
@@ -305,6 +308,7 @@ jobs:
               --test-root "$build_output" \
               --binary-dir "$build_output/pccl-tests/build" \
               --hostfile "$CLUSTER_HOSTS_FILE" \
+              --mpi-interface "$MPI_INTERFACE" \
               --output "$RESULT_ROOT"
 
   summary:

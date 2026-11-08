@@ -67,11 +67,12 @@ class CsvRunnerTests(unittest.TestCase):
         self.write_csv(f'{profile}.csv', run_cases.CASE_FIELDS, rows)
         return run_cases.load_inputs(self.input, profile)
 
-    def execute(self, inputs, hostfile=None):
+    def execute(self, inputs, hostfile=None, mpi_interface=None):
         self.output_number += 1
         return run_cases.run_all(inputs, self.test_root, self.binary,
                                  self.root / f'output-{self.output_number}', hostfile,
-                                 {'PATH': '/usr/bin:/bin', 'LD_LIBRARY_PATH': '', 'PPU_HOME': '/sdk'})
+                                 {'PATH': '/usr/bin:/bin', 'LD_LIBRARY_PATH': '', 'PPU_HOME': '/sdk'},
+                                 mpi_interface=mpi_interface)
 
     def test_csv_shell_text_and_raw_log_are_preserved(self):
         command = "printf '%s\\n' 'USER=root NCCL WARN https://example.invalid/a,b \"quoted\" @tag'"
@@ -148,11 +149,12 @@ class CsvRunnerTests(unittest.TestCase):
     def test_multinode_binds_real_hostfile_and_runs_on_controller(self):
         hostfile = self.root / 'allocated-hosts.cfg'
         hostfile.write_text('worker-a slots=8\nworker-b slots=8\n')
-        command = "test -f {hostfile} && printf '%s\\n' '{path}' '{ld_library_path}'"
-        rows = self.execute(self.inputs([{'cmd': command}], nodes=2), hostfile)
+        command = "test -f {hostfile} && printf '%s\\n' '{path}' '{ld_library_path}' '{mpi_interface}'"
+        rows = self.execute(self.inputs([{'cmd': command}], nodes=2), hostfile, mpi_interface='eth0')
         self.assertEqual(rows[0]['status'], 'PASSED')
         raw = (self.root / 'output-1/plan/suite/case_0/raw.log').read_text()
         self.assertIn('/sdk/bin:', raw)
+        self.assertIn('eth0', raw)
         self.assertTrue((self.root / 'output-1/plan/suite/case_0/work/hosts.cfg').is_symlink())
         with mock.patch.dict(os.environ, {'NODE_RANK': '1'}):
             with self.assertRaisesRegex(ValueError, 'master/controller'):
@@ -199,6 +201,8 @@ class CsvRunnerTests(unittest.TestCase):
         self.assertEqual([case['name'] for case in cluster['cases']], ['cluster'])
         self.assertEqual(self.execute(single)[0]['status'], 'PASSED')
         self.assertEqual(self.execute(cluster, hostfile)[0]['status'], 'PASSED')
+        missing = self.inputs([{'cmd': 'printf {mpi_interface}', 'name': 'missing_interface'}], nodes=2)
+        self.assertEqual(self.execute(missing, hostfile)[0]['status'], 'FAILED')
 
     def test_structural_validation_fails_closed(self):
         scenarios = {
