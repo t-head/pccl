@@ -1,0 +1,12 @@
+plan,suite,nodes,cards_per_node,timeout,env
+pccl_shm_register_test_multi_node2_plan,register_test_shm_multi_nodes2_suite,2,8,300,op_perf.env
+sanity_m890p_single_node_plan,sanity_m890p_ce_ar_oki_suite,1,8,7200,sanity_m890p.env
+sanity_m890p_single_node_plan,sanity_m890p_ce_ar_suite,1,8,7200,sanity_m890p.env
+sanity_m890p_single_node_plan,sanity_m890p_ce_rs_suite,1,8,7200,sanity_m890p.env
+sanity_m890p_single_node_plan,sanity_m890p_common_suite,1,8,7200,sanity_m890p.env
+sanity_m890p_single_node_plan,sanity_m890p_lsa_custom_suite,1,8,7200,sanity_m890p.env
+sanity_m890p_single_node_plan,sanity_m890p_memcpy_suite,1,8,7200,sanity_m890p.env
+sanity_m890p_single_node_plan,sanity_m890p_nonblocking_suite,1,8,7200,sanity_m890p.env
+sanity_m890p_single_node_plan,sanity_m890p_perf_allreduce_suite,1,8,600,sanity_m890p.env
+sanity_m890p_single_node_plan,sanity_m890p_register_extra_suite,1,8,7200,sanity_m890p.env
+sanity_m890p_single_node_plan,sanity_m890p_register_suite,1,8,7200,sanity_m890p.env
