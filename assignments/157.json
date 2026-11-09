@@ -2,13 +2,13 @@
   "classification": {
     "base_sha": "77af125652fd1ffc532bf519022f709b9df510fd",
     "head_sha": "0c8f0c0b9d5dc280e09c5f016129493994bceca7",
-    "input_fingerprint": "81092eebf836e259509dcc0f534bcf02c41062d44965b788f4bf0f7edc980bc4",
+    "input_fingerprint": "39ee0e91064d528943ee0a248e1e5e5689781238c8c45fff61804f184a104b95",
     "pr_number": 157,
     "proposal": {
       "modules": [
         "workflow"
       ],
-      "reason": "Updates review/merge automation policy and behavior: reviewer notice handling now explains PR-author Maintainer exemption without self-review requests, module classification uses complete diff input via stdin (removing truncation limit), and squash-message guidance is refocused on purpose/behavior summaries. These are contribution/review workflow changes, not independent CI/build/runtime system changes."
+      "reason": "Updates review/merge automation behavior: reviewer notice text and dedup flow now handle PR-author Maintainer exemptions without self-review requests, module classification now consumes complete diffs via stdin (removing the size cap), and squash-message generation guidance is refocused on purpose/behavior summaries."
     }
   },
   "reviewers": {
