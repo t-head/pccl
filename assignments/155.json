@@ -1,0 +1,17 @@
+{
+  "classification": {
+    "base_sha": "77af125652fd1ffc532bf519022f709b9df510fd",
+    "head_sha": "f462aa7a0ad7a9371a0bd8ef4a8a9f590bde15a0",
+    "input_fingerprint": "eb799e37d774e7a12b7a604a25557a7ae7da668e4c2e3efe4a0b7980a21f999f",
+    "pr_number": 155,
+    "proposal": {
+      "modules": [
+        "gin"
+      ],
+      "reason": "Main change is GIN-specific backend expansion by adding a new GPI device/host implementation, wiring GPI type/version/handle validation into GIN connect/setup/register flows, and extending GIN backend enums/masks and transport-net GIN property handling. The dev_runtime and shared-header edits are feature-coupled integration points for this GIN functionality, not separate module policy changes."
+    }
+  },
+  "reviewers": {
+    "gin": 262349997
+  }
+}
