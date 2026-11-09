@@ -8,7 +8,7 @@
       "modules": [
         "gin"
       ],
-      "reason": "Main change is end-to-end GIN backend expansion for GPI: host-side GIN connection/context/progress-thread handling in gin_host, new GPI device/backend implementation and shared GPI host-device structures, plus GIN-specific backend/type dispatch and compatibility constants. Other edits are supporting plumbing for this same GIN feature, not independent changes to another catalog module."
+      "reason": "Main change is GIN-specific backend integration: adds new GPI GIN device/host implementation, extends GIN backend/type dispatch and backend-mask logic, and updates GIN connection/context/progress lifecycle handling. Other touched headers/macros are compatibility plumbing for this same GIN backend work, not independent module changes."
     }
   },
   "reviewers": {
