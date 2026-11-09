@@ -2,13 +2,13 @@
   "classification": {
     "base_sha": "77af125652fd1ffc532bf519022f709b9df510fd",
     "head_sha": "b0a4fdf97b607043443703869ac5e5bad9a2dddc",
-    "input_fingerprint": "1698b982b5663d6fd3a0e3b4e871e28cfc7107c33ab922365d6721521f7e62b5",
+    "input_fingerprint": "e91987b8d00e15985f56a21ecacadc069d434fe9102987e9f0689558764291a0",
     "pr_number": 165,
     "proposal": {
       "modules": [
         "kernels"
       ],
-      "reason": "Main substantive change is in built-in device collective kernels (AllGather/AllReduce/Broadcast ring paths): it removes unused custom ring/rank/root override parameters and always uses channel ring and work root defaults, simplifying device-side execution without changing public APIs."
+      "reason": "Refactors built-in device collective kernel paths (AllGather/AllReduce/Broadcast ring variants) by removing unused custom ring/rank/root override parameters in RunWorkColl/runRing and consistently using channel ring state plus work->root; this is a native device-kernel implementation cleanup, not a separate scheduling/dispatch/tuning/workflow change."
     }
   },
   "reviewers": {
