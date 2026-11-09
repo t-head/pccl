@@ -2,13 +2,13 @@
   "classification": {
     "base_sha": "4784d0ad1b4def7ad4b5d686c73e7d16f24fc018",
     "head_sha": "fc76b77c0c2123fb689ceb9e731e12fdd4fe23cd",
-    "input_fingerprint": "b38ab6da28787bf048f6c985c8893c7f47868c7513bffbc385daa971a9ff31e1",
+    "input_fingerprint": "2f6d825182d77c1966f5871a12e6d243ea98df309f30dc4114d55d864f11339c",
     "pr_number": 147,
     "proposal": {
       "modules": [
         "ci"
       ],
-      "reason": "Adds a new scheduled/manual GitHub Actions pipeline that defines build matrices, runner/container execution, artifact merge/publish, and summary reporting for PCCL tarball outputs; the large script changes are implementation details of that CI packaging workflow rather than separate core module changes."
+      "reason": "Main substantive change is a new scheduled/on-demand GitHub Actions pipeline for building and publishing PPU tarball artifacts, plus major updates to workflow build scripts that install toolchains/SDKs, run matrix builds, package outputs, and merge artifacts; this is CI orchestration and execution behavior rather than library runtime module changes."
     }
   },
   "reviewers": {
