@@ -16,12 +16,23 @@ PPU tests. `PCCL Tests Gate` reports the results of the required jobs.
 
 `source-sanity.yml` runs on same-repository pull requests, pushes to `main`, and manual dispatch. Unsupported fork PRs receive an explicitly failed `PCCL Tests Gate` on a GitHub-hosted runner without a checkout or self-hosted allocation. The maintained Plan/Suite/Case definitions are the only test source. Their reviewed commands are exported to the versioned CSV files under `tests/xtest/minimal-csv`; GitHub does not install or import xtest/mmengine.
 
+The final gate always runs on a GitHub-hosted runner without token permissions,
+checkout, repository-script execution or NAS access. Internal result reconciliation
+and cleanup are a separate `results` job; PRs must pass secret scanning, commit
+checks, AI review, human approval and preparation before it can run. Approved
+failed runs still clean up, while rejected PRs never execute internal result scripts.
+
 ### CSV Cases and commands
 
 - `suites.csv` holds the composite Plan/Suite key, node and card resources, outer timeout and shared environment filename.
 - `standard.csv` and `notsm.csv` hold one Case per row with `(plan, suite, name, check, cmd)`.
 - `export.json` records the format, source and public-runner revisions and the exporting xtest version.
 - `run_cases.py` executes the captured command through `/bin/sh -c` without reconstructing Runner arguments. Only documented literal runtime bindings are expanded.
+
+Preparation and result reconciliation validate the full exports against the
+scheduled resource layout: standard on one or two nodes and notsm on one node,
+with `VALIDATION_CARDS` cards per node. Unsupported node or card requests fail
+before execution rather than disappearing from the selected coverage.
 
 Validate selections without running hardware:
 
@@ -37,6 +48,13 @@ Result checks are `exit_code`, `validation_summary` and `performance`. Performan
 standard and notsm are each built once and must be uploaded as GitHub Actions artifacts with source revisions, profile and archive SHA-256. A per-profile staging job reuses a valid run-scoped NAS cache or downloads the artifact once and validates it before publication. The standard single-node and two-node jobs therefore share one artifact download, while each single-node job extracts into its own local workspace.
 
 The two-node master extracts to a NAS directory visible to both workers and removes that directory through an EXIT trap. After result reconciliation, the final cleanup removes only this run's `staging/`, `cache/` and `shared-standard/` directories. Results and raw logs are preserved. Cache hits and cleanup never rely on file existence alone: source revisions, profile, SHA-256 and run-scoped paths are verified. Build artifacts have an explicit retention period to control multi-GB storage use.
+
+Retry publication takes a per-cache interprocess lock outside the directory being
+replaced, with a five-minute wait limit. The NAS must honor shared advisory locks.
+The cache root, profile parent and cache directories are searchable, and artifact
+files are readable by different worker identities before publication (`0755`
+directories, `0644` files), including the retry path. The writable run root and
+results permissions are not narrowed by this repair.
 
 ## Commit message previews
 

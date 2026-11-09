@@ -1,23 +1,77 @@
 # SPDX-FileCopyrightText: Copyright (c) 2026 T-Head (Shanghai) Semiconductor Co., Ltd. All rights reserved.
 # SPDX-License-Identifier: Apache-2.0
 
+import ast
 import json
+import os
 from pathlib import Path
 import re
+import subprocess
+import sys
+import textwrap
 import unittest
 
 import artifact_cache
+import reconcile_results
 import run_cases
 
 
 ROOT = Path(__file__).resolve().parents[2]
 WORKFLOW = ROOT / '.github/workflows/source-sanity.yml'
+PR_JOBS = ('precheck', 'commit-checks', 'ai-code-review', 'human-review')
+REQUIRED_JOBS = ('prepare', 'build-standard', 'build-notsm', 'stage-cache',
+                 'single-node', 'two-node', 'results')
 
 
 class WorkflowContractTests(unittest.TestCase):
     @classmethod
     def setUpClass(cls):
         cls.text = WORKFLOW.read_text(encoding='utf-8')
+
+    def job(self, name):
+        return re.search(rf'^  {re.escape(name)}:\n.*?(?=^  [\w-]+:|\Z)',
+                         self.text, re.M | re.S).group()
+
+    def needs(self, event='pull_request'):
+        values = {name: {'result': 'success'} for name in PR_JOBS + REQUIRED_JOBS}
+        if event != 'pull_request':
+            for name in PR_JOBS:
+                values[name]['result'] = 'skipped'
+        return values
+
+    def results_eligible(self, needs, event='pull_request', repository='t-head/pccl',
+                         head_repository='t-head/pccl', job='results'):
+        condition = re.search(r'^    if: >-\n((?:      .+\n)+)', self.job(job), re.M).group(1)
+        expression = ' '.join(line.strip() for line in condition.splitlines())
+        for key, value in (('github.event.pull_request.head.repo.full_name', head_repository),
+                           ('github.event_name', event), ('github.repository', repository)):
+            expression = expression.replace(key, repr(value))
+        expression = re.sub(r'needs\.([\w-]+)\.result',
+                            lambda match: repr(needs[match.group(1)]['result']), expression)
+        expression = expression.replace('always()', 'True').replace('&&', ' and ').replace('||', ' or ')
+
+        def evaluate(node):
+            if isinstance(node, ast.Constant):
+                return node.value
+            if isinstance(node, ast.BoolOp):
+                operation = all if isinstance(node.op, ast.And) else any
+                return operation(evaluate(value) for value in node.values)
+            if isinstance(node, ast.Compare) and len(node.ops) == 1:
+                left, right = evaluate(node.left), evaluate(node.comparators[0])
+                if isinstance(node.ops[0], ast.Eq):
+                    return left == right
+                if isinstance(node.ops[0], ast.NotEq):
+                    return left != right
+            self.fail(f'Unexpected workflow condition syntax: {ast.dump(node)}')
+
+        return evaluate(ast.parse(expression, mode='eval').body)
+
+    def run_gate(self, needs, event='pull_request'):
+        section = self.job('summary')
+        script = textwrap.dedent(section.split("python3 - <<'PY'\n", 1)[1].rsplit('          PY', 1)[0])
+        return subprocess.run([sys.executable, '-S', '-B', '-c', script],
+                              env={**os.environ, 'NEEDS': json.dumps(needs), 'EVENT_NAME': event},
+                              capture_output=True, text=True)
 
     def test_supported_events_and_review_gates_are_preserved(self):
         for expected in ('pull_request:', "branches: [main, 'release/**']", 'branches: [main]',
@@ -46,25 +100,91 @@ class WorkflowContractTests(unittest.TestCase):
 
     def test_required_gate_is_preserved_and_support_check_always_runs(self):
         self.assertIn('  summary:\n    name: PCCL Tests Gate\n', self.text)
-        support = self.text[self.text.index('      - id: support'):self.text.index('      - uses: actions/checkout@v4',
-                                                                                  self.text.index('      - id: support'))]
+        summary = self.job('summary')
+        support = summary[summary.index('      - id: support'):summary.index('      - name: Require successful')]
         self.assertNotIn('        if:', support)
-        self.assertIn('if [[ "$SUPPORTED" != \'true\' ]]', support)
+        self.assertIn('shell: bash', support)
+        self.assertIn('if [ "$SUPPORTED" != \'true\' ]', support)
+        script = textwrap.dedent(support.split('        run: |\n', 1)[1])
+        shells = ['/bin/sh', '/bin/bash']
+        if Path('/bin/dash').is_file():
+            shells.append('/bin/dash')
+        for shell in shells:
+            for value, status in (('true', 0), ('false', 1), ('', 1)):
+                with self.subTest(shell=shell, supported=value):
+                    result = subprocess.run([shell, '-e', '-c', script], env={'SUPPORTED': value},
+                                            capture_output=True, text=True)
+                    self.assertEqual(result.returncode, status, result.stderr)
         self.assertNotIn('42478314103', self.text)
         self.assertNotIn('42480089838', self.text)
+
+    def test_final_gate_is_hosted_and_never_executes_repository_code(self):
+        summary = self.job('summary')
+        self.assertIn('    if: always()', summary)
+        self.assertIn('    runs-on: ubuntu-24.04', summary)
+        self.assertIn('    permissions: {}', summary)
+        for unsafe in ('actions/checkout', 'tests/xtest/', '/wl_nas/', 'k8s-runner', 'container:'):
+            self.assertNotIn(unsafe, summary)
+        dependencies = re.search(r'    needs: \[(.+)\]', summary).group(1).split(', ')
+        self.assertEqual(set(dependencies), set(PR_JOBS + REQUIRED_JOBS))
+
+    def test_internal_results_reject_unapproved_prs_and_unsupported_events(self):
+        self.assertTrue(self.results_eligible(self.needs()))
+        for name in PR_JOBS + ('prepare',):
+            for status in ('failure', 'cancelled', 'skipped'):
+                with self.subTest(job=name, result=status):
+                    needs = self.needs()
+                    needs[name]['result'] = status
+                    self.assertFalse(self.results_eligible(needs))
+        self.assertFalse(self.results_eligible(self.needs(), head_repository='someone/fork'))
+        self.assertFalse(self.results_eligible(self.needs(), repository='someone/pccl'))
+        self.assertFalse(self.results_eligible(self.needs(), event='pull_request_target'))
+        for event in ('push', 'workflow_dispatch'):
+            self.assertTrue(self.results_eligible(self.needs(event), event))
+        for name in ('build-standard', 'single-node', 'two-node'):
+            needs = self.needs()
+            needs[name]['result'] = 'failure'
+            self.assertTrue(self.results_eligible(needs), 'Approved failed runs still need cleanup')
+        results = self.job('results')
+        self.assertIn("if: always() && steps.checkout.outcome == 'success'", results)
+
+    def test_unsupported_forks_do_not_checkout_in_prechecks(self):
+        for job in ('precheck', 'commit-checks'):
+            self.assertTrue(self.results_eligible(self.needs(), job=job))
+            self.assertFalse(self.results_eligible(self.needs(), head_repository='someone/fork', job=job))
+            self.assertFalse(self.results_eligible(self.needs(), event='workflow_dispatch', job=job))
+
+    def test_final_gate_rejects_failed_cancelled_or_skipped_required_jobs(self):
+        self.assertEqual(self.run_gate(self.needs()).returncode, 0)
+        for name in PR_JOBS + REQUIRED_JOBS:
+            for status in ('failure', 'cancelled', 'skipped'):
+                with self.subTest(job=name, result=status):
+                    needs = self.needs()
+                    needs[name]['result'] = status
+                    result = self.run_gate(needs)
+                    self.assertNotEqual(result.returncode, 0)
+                    self.assertIn(f'{name}: {status}', result.stdout)
+
+    def test_final_gate_allows_only_expected_non_pr_review_skips(self):
+        for event in ('push', 'workflow_dispatch'):
+            with self.subTest(event=event):
+                self.assertEqual(self.run_gate(self.needs(event), event).returncode, 0)
+                needs = self.needs(event)
+                needs['results']['result'] = 'skipped'
+                self.assertNotEqual(self.run_gate(needs, event).returncode, 0)
 
     def test_non_pr_review_skips_do_not_skip_hardware_jobs(self):
         expected = "(github.event_name != 'pull_request' && needs.human-review.result == 'skipped')"
         self.assertEqual(self.text.count(expected), 4)
         single = self.text[self.text.index('  single-node:'):self.text.index('  two-node:')]
-        cluster = self.text[self.text.index('  two-node:'):self.text.index('  summary:')]
+        cluster = self.job('two-node')
         for section in (single, cluster):
             self.assertIn(expected, section)
             self.assertIn("needs.stage-cache.result == 'success'", section)
 
     def test_retried_consumers_restore_a_verified_cache_and_record_build_identity(self):
         single = self.text[self.text.index('  single-node:'):self.text.index('  two-node:')]
-        cluster = self.text[self.text.index('  two-node:'):self.text.index('  summary:')]
+        cluster = self.job('two-node')
         for section in (single, cluster):
             self.assertIn('name: Check the NAS cache before hardware allocation', section)
             self.assertIn('name: Restore a cleaned NAS cache from the build artifact', section)
@@ -75,16 +195,17 @@ class WorkflowContractTests(unittest.TestCase):
             self.assertIn("--expected-sha256 '${{ env.EXPECTED_SHA }}'", section)
 
     def test_final_reconciliation_uses_exact_case_and_build_identity_checks(self):
-        summary = self.text[self.text.index('  summary:'):]
+        results = self.job('results')
         for expected in ('tests/xtest/reconcile_results.py',
                          '--pccl-revision',
                          '--standard-sha256',
                          '--notsm-sha256'):
-            self.assertIn(expected, summary)
-        self.assertNotIn("expected = {'standard': 71", summary)
+            self.assertIn(expected, results)
         prepare = self.text[self.text.index('  prepare:'):self.text.index('  ai-code-review:')]
         self.assertIn("test_reconcile_results.py", prepare)
         self.assertIn("test_workflow_contract.py", prepare)
+        self.assertIn('reconcile_results.load_selections(', prepare)
+        self.assertIn('--cards-per-node', results)
 
     def test_shared_build_is_cleaned_only_by_master_and_results_are_separate(self):
         self.assertIn('SHARED_ROOT=/mnt/wl_nas/devops/pccl-artifact-cache-${{ github.run_id }}/shared-standard/', self.text)
@@ -118,6 +239,9 @@ class WorkflowContractTests(unittest.TestCase):
         for (profile, nodes), count in expected.items():
             selected = run_cases.load_inputs(directory, profile, nodes)
             self.assertEqual(len(selected['cases']), count)
+        selections = reconcile_results.load_selections(directory)
+        self.assertEqual({name: len(inputs['cases']) for name, inputs in selections.items()},
+                         {'standard': 71, 'notsm': 37, 'cluster': 1})
 
     def test_public_runtime_dependencies_remain_minimal(self):
         self.assertEqual((ROOT / 'tests/xtest/requirements.txt').read_text().strip(),

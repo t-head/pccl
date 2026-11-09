@@ -4,7 +4,6 @@
 """Reconcile private hardware results with the exact CSV selection and verified builds."""
 
 import argparse
-import csv
 from decimal import Decimal, InvalidOperation
 import json
 import math
@@ -132,7 +131,34 @@ def _validate_group(results, inputs, identity):
     return {"source": source, "metrics": metrics, "passed": len(cases)}
 
 
-def reconcile(directory, results, public, pccl_revision, standard_sha256, notsm_sha256):
+def load_selections(directory, cards_per_node=8):
+    """Reject any exported Case that the fixed CI resource layout cannot execute."""
+    if type(cards_per_node) is not int or cards_per_node <= 0:
+        raise ValueError("CI cards per node must be a positive integer")
+    schedules = {"standard": ("standard", 1), "notsm": ("notsm", 1),
+                 "cluster": ("standard", 2)}
+    profiles = {profile: run_cases.load_inputs(directory, profile) for profile in ("standard", "notsm")}
+    for profile, inputs in profiles.items():
+        supported_nodes = {nodes for selected_profile, nodes in schedules.values()
+                           if selected_profile == profile}
+        for case in inputs["cases"]:
+            suite = case["suite_spec"]
+            if suite["nodes"] not in supported_nodes or suite["cards_per_node"] != cards_per_node:
+                raise ValueError(
+                    f"Unsupported CI resources for {'/'.join(_key(case))}: profile={profile}, "
+                    f"nodes={suite['nodes']}, cards_per_node={suite['cards_per_node']}")
+    selections = {}
+    for name, (profile, nodes) in schedules.items():
+        inputs = profiles[profile]
+        cases = [case for case in inputs["cases"] if case["suite_spec"]["nodes"] == nodes]
+        if not cases:
+            raise ValueError(f"{name}: no Cases for the scheduled CI resources")
+        selections[name] = {**inputs, "cases": cases, "name": name}
+    return selections
+
+
+def reconcile(directory, results, public, pccl_revision, standard_sha256, notsm_sha256,
+              *, cards_per_node=8):
     """Validate every selected Case before publishing only non-sensitive summaries and metrics."""
     directory, results, public = Path(directory), Path(results), Path(public)
     if not artifact_cache.HEX40.fullmatch(pccl_revision):
@@ -140,15 +166,11 @@ def reconcile(directory, results, public, pccl_revision, standard_sha256, notsm_
     for value in (standard_sha256, notsm_sha256):
         if not artifact_cache.HEX64.fullmatch(value):
             raise ValueError("Invalid expected archive SHA-256")
-    selections = {
-        "standard": (run_cases.load_inputs(directory, "standard", 1), standard_sha256),
-        "notsm": (run_cases.load_inputs(directory, "notsm", 1), notsm_sha256),
-        "cluster": (run_cases.load_inputs(directory, "standard", 2), standard_sha256),
-    }
+    selections = load_selections(directory, cards_per_node)
     validated = {}
     errors = []
-    for name, (inputs, archive_sha256) in selections.items():
-        inputs = {**inputs, "name": name}
+    for name, inputs in selections.items():
+        archive_sha256 = notsm_sha256 if inputs["profile"] == "notsm" else standard_sha256
         identity = {"pccl_revision": pccl_revision, "artifact_sha256": archive_sha256}
         try:
             validated[name] = _validate_group(results, inputs, identity)
@@ -180,10 +202,11 @@ def main():
     parser.add_argument("--pccl-revision", required=True)
     parser.add_argument("--standard-sha256", required=True)
     parser.add_argument("--notsm-sha256", required=True)
+    parser.add_argument("--cards-per-node", type=int, default=8)
     args = parser.parse_args()
     try:
         reconcile(args.input, args.results, args.public, args.pccl_revision,
-                  args.standard_sha256, args.notsm_sha256)
+                  args.standard_sha256, args.notsm_sha256, cards_per_node=args.cards_per_node)
         return 0
     except (OSError, ValueError, json.JSONDecodeError) as error:
         for line in str(error).splitlines():

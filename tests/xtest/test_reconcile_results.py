@@ -98,6 +98,53 @@ class ReconcileResultsTests(unittest.TestCase):
         self.assertEqual(len(metrics), 1)
         self.assertGreater(metrics[0].stat().st_size, 0)
 
+    def test_scheduled_selections_cover_both_complete_profile_exports(self):
+        selections = reconcile_results.load_selections(self.input)
+
+        def key(case):
+            return case["plan"], case["suite"], case["name"]
+
+        for profile in ("standard", "notsm"):
+            complete = run_cases.load_inputs(self.input, profile)["cases"]
+            scheduled = [case for inputs in selections.values() if inputs["profile"] == profile
+                         for case in inputs["cases"]]
+            self.assertEqual(sorted(map(key, complete)), sorted(map(key, scheduled)))
+
+    def test_unsupported_node_counts_are_rejected_before_results_are_accepted(self):
+        scenarios = (("standard", 4), ("standard", 8), ("standard", 16), ("notsm", 2))
+        for number, (profile, nodes) in enumerate(scenarios):
+            with self.subTest(profile=profile, nodes=nodes):
+                if number:
+                    self.tearDown()
+                    self.setUp()
+                suites = run_cases._read_csv(self.input / 'suites.csv', run_cases.SUITE_FIELDS)
+                suites.append({'plan': 'plan', 'suite': 'unsupported', 'nodes': str(nodes),
+                               'cards_per_node': '8', 'timeout': '10', 'env': 'suite.env'})
+                self.write_csv('suites.csv', run_cases.SUITE_FIELDS, suites)
+                rows = run_cases._read_csv(self.input / f'{profile}.csv', run_cases.CASE_FIELDS)
+                rows.append({'plan': 'plan', 'suite': 'unsupported', 'name': 'never_run',
+                             'check': 'exit_code', 'cmd': 'false'})
+                self.write_csv(f'{profile}.csv', run_cases.CASE_FIELDS, rows)
+                with self.assertRaisesRegex(ValueError, 'Unsupported CI resources'):
+                    reconcile_results.load_selections(self.input)
+                with self.assertRaisesRegex(ValueError, 'Unsupported CI resources'):
+                    self.reconcile()
+                self.assertFalse((self.root / 'public-1').exists())
+
+    def test_unsupported_card_counts_are_rejected(self):
+        suites = run_cases._read_csv(self.input / 'suites.csv', run_cases.SUITE_FIELDS)
+        suites[0]['cards_per_node'] = '16'
+        self.write_csv('suites.csv', run_cases.SUITE_FIELDS, suites)
+        with self.assertRaisesRegex(ValueError, 'cards_per_node=16'):
+            self.reconcile()
+
+    def test_missing_scheduled_group_is_rejected(self):
+        cases = run_cases._read_csv(self.input / 'standard.csv', run_cases.CASE_FIELDS)
+        self.write_csv('standard.csv', run_cases.CASE_FIELDS,
+                       [case for case in cases if case['suite'] != 'cluster'])
+        with self.assertRaisesRegex(ValueError, 'cluster: no Cases'):
+            reconcile_results.load_selections(self.input)
+
     def test_duplicate_and_unexpected_case_keys_are_rejected_even_with_matching_totals(self):
         path = self.results / 'standard/results.csv'
         rows = run_cases._read_csv(path, run_cases.RESULT_FIELDS)

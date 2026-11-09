@@ -26,12 +26,16 @@ env:
 jobs:
   precheck:
     name: Pre-check (Secret Scan)
-    if: github.event_name == 'pull_request'
+    if: >-
+      github.event_name == 'pull_request' && github.repository == 't-head/pccl' &&
+      github.event.pull_request.head.repo.full_name == github.repository
     uses: t-head/.github/.github/workflows/user-precheck.yml@main
 
   commit-checks:
     name: Pre-check (Commit Message & DCO)
-    if: github.event_name == 'pull_request'
+    if: >-
+      github.event_name == 'pull_request' && github.repository == 't-head/pccl' &&
+      github.event.pull_request.head.repo.full_name == github.repository
     permissions:
       contents: read
     runs-on: ubuntu-latest
@@ -135,7 +139,7 @@ jobs:
           import sys
 
           sys.path.insert(0, 'tests/xtest')
-          import run_cases
+          import reconcile_results
           from artifact_cache import PCCL_TESTS_REVISION, RUNNER_HASHES
 
           runner = Path('../pccl-tests').resolve()
@@ -145,11 +149,13 @@ jobs:
               assert hashlib.sha256((runner / name).read_bytes()).hexdigest() == expected
           metadata = json.loads(Path('tests/xtest/minimal-csv/export.json').read_text())
           assert metadata['runner_revision'] == revision
-          expected = {('standard', 1): 71, ('standard', 2): 1, ('notsm', 1): 37}
-          for (profile, nodes), count in expected.items():
-              selected = run_cases.load_inputs(Path('tests/xtest/minimal-csv'), profile, nodes)
+          selections = reconcile_results.load_selections(
+              Path('tests/xtest/minimal-csv'), int(os.environ['VALIDATION_CARDS']))
+          expected = {'standard': 71, 'cluster': 1, 'notsm': 37}
+          for name, count in expected.items():
+              selected = selections[name]
               assert len(selected['cases']) == count
-              print(f'{profile} {nodes}-node selection: {count} Cases')
+              print(f'{name} selection: {count} Cases')
           assert subprocess.check_output(['git', 'rev-parse', 'HEAD'], text=True).strip() == os.environ['GITHUB_SHA']
           PY
       - name: Stage the pinned benchmark dependency
@@ -643,23 +649,68 @@ jobs:
               --expected-sha256 '${{ env.EXPECTED_SHA }}' \
               --output "$RESULT_ROOT"
 
-  summary:
-    name: PCCL Tests Gate
+  results:
+    name: Reconcile hardware results and clean NAS
     needs: [precheck, commit-checks, prepare, ai-code-review, human-review, build-standard, build-notsm, stage-cache, single-node, two-node]
-    if: always()
-    runs-on: >-
-      ${{ (
-        github.repository == 't-head/pccl' &&
-        ((github.event_name == 'pull_request' &&
-          github.event.pull_request.head.repo.full_name == github.repository) ||
-         github.event_name == 'workflow_dispatch' || github.event_name == 'push')
-      ) && 'k8s-runner-group-cpu-thead' || 'ubuntu-24.04' }}
+    if: >-
+      always() && needs.prepare.result == 'success' &&
+      github.repository == 't-head/pccl' &&
+      ((github.event_name == 'pull_request' &&
+        github.event.pull_request.head.repo.full_name == github.repository) ||
+       github.event_name == 'workflow_dispatch' || github.event_name == 'push') &&
+      (github.event_name != 'pull_request' ||
+        (needs.precheck.result == 'success' && needs.commit-checks.result == 'success' &&
+         needs.ai-code-review.result == 'success' && needs.human-review.result == 'success'))
+    permissions:
+      contents: read
+    runs-on: k8s-runner-group-cpu-thead
     container:
       image: ghcr.io/actions/actions-runner:latest
     timeout-minutes: 30
     steps:
+      - id: checkout
+        uses: actions/checkout@v4
+        with:
+          path: pccl
+          persist-credentials: false
+      - id: reconcile
+        name: Reconcile all selected hardware results
+        run: |
+          python3 -S -B pccl/tests/xtest/reconcile_results.py \
+            --input pccl/tests/xtest/minimal-csv \
+            --results /wl_nas/devops/pccl-artifact-cache-${{ github.run_id }}/results \
+            --public public-results \
+            --pccl-revision '${{ github.sha }}' \
+            --standard-sha256 '${{ needs.build-standard.outputs.artifact_sha256 }}' \
+            --notsm-sha256 '${{ needs.build-notsm.outputs.artifact_sha256 }}' \
+            --cards-per-node '${{ env.VALIDATION_CARDS }}'
+      - uses: actions/upload-artifact@v4
+        if: always() && steps.reconcile.outcome == 'success'
+        with:
+          name: single-node-source-sanity-results
+          path: public-results/
+          if-no-files-found: error
+          overwrite: true
+          retention-days: 7
+      - id: cleanup
+        name: Remove run-owned NAS build artifacts
+        if: always() && steps.checkout.outcome == 'success'
+        run: |
+          python3 -S -B pccl/tests/xtest/artifact_cache.py cleanup \
+            --root /wl_nas/devops/pccl-artifact-cache-${{ github.run_id }} \
+            --run-id '${{ github.run_id }}'
+
+  summary:
+    name: PCCL Tests Gate
+    needs: [precheck, commit-checks, prepare, ai-code-review, human-review, build-standard, build-notsm, stage-cache, single-node, two-node, results]
+    if: always()
+    permissions: {}
+    runs-on: ubuntu-24.04
+    timeout-minutes: 5
+    steps:
       - id: support
         name: Reject unsupported repository or event
+        shell: bash
         env:
           SUPPORTED: >-
             ${{
@@ -669,41 +720,10 @@ jobs:
              github.event_name == 'workflow_dispatch' || github.event_name == 'push')
             }}
         run: |
-          if [[ "$SUPPORTED" != 'true' ]]; then
+          if [ "$SUPPORTED" != 'true' ]; then
             echo '::error::source-sanity supports same-repository pull requests, main pushes and manual dispatch only.'
             exit 1
           fi
-      - uses: actions/checkout@v4
-        if: always() && steps.support.outcome == 'success'
-        with:
-          path: pccl
-          persist-credentials: false
-      - id: reconcile
-        name: Reconcile all selected hardware results
-        if: always() && steps.support.outcome == 'success'
-        run: |
-          python3 -S -B pccl/tests/xtest/reconcile_results.py \
-            --input pccl/tests/xtest/minimal-csv \
-            --results /wl_nas/devops/pccl-artifact-cache-${{ github.run_id }}/results \
-            --public public-results \
-            --pccl-revision '${{ github.sha }}' \
-            --standard-sha256 '${{ needs.build-standard.outputs.artifact_sha256 }}' \
-            --notsm-sha256 '${{ needs.build-notsm.outputs.artifact_sha256 }}'
-      - uses: actions/upload-artifact@v4
-        if: always() && steps.support.outcome == 'success'
-        with:
-          name: single-node-source-sanity-results
-          path: public-results/
-          if-no-files-found: error
-          overwrite: true
-          retention-days: 7
-      - id: cleanup
-        name: Remove run-owned NAS build artifacts
-        if: always() && steps.support.outcome == 'success'
-        run: |
-          python3 -S -B pccl/tests/xtest/artifact_cache.py cleanup \
-            --root /wl_nas/devops/pccl-artifact-cache-${{ github.run_id }} \
-            --run-id '${{ github.run_id }}'
       - name: Require successful results, cleanup and all prerequisite jobs
         if: always() && steps.support.outcome == 'success'
         env:
@@ -722,13 +742,9 @@ jobs:
               for name in ('precheck', 'commit-checks', 'ai-code-review', 'human-review'):
                   if needs[name]['result'] != 'success':
                       failed[name] = needs[name]['result']
-          for name in ('prepare', 'build-standard', 'build-notsm', 'stage-cache', 'single-node', 'two-node'):
+          for name in ('prepare', 'build-standard', 'build-notsm', 'stage-cache', 'single-node', 'two-node', 'results'):
               if needs[name]['result'] != 'success':
                   failed[name] = needs[name]['result']
-          outcomes = {'reconcile': '${{ steps.reconcile.outcome }}', 'cleanup': '${{ steps.cleanup.outcome }}'}
-          for name, result in outcomes.items():
-              if result != 'success':
-                  failed[name] = result
           for name, result in failed.items():
               print(f'::error::{name}: {result}')
           sys.exit(bool(failed))

@@ -40,6 +40,11 @@ python3 -S -B tests/xtest/run_cases.py \
 
 Use `--nodes 1` for single-node Cases and `--nodes 2` for the established
 two-node Case; without a filter, every Case in the profile is selected.
+CI preparation and result reconciliation both validate the complete exports
+before selecting jobs. The supported layout is standard/one-node,
+standard/two-node and notsm/one-node, with `VALIDATION_CARDS` cards per node.
+Any exported Case outside that layout fails explicitly; it is never silently
+dropped by a node filter.
 `--hostfile` is required only when the selected profile contains multi-node
 Cases. `test_root` may either contain `run_test.py` directly or contain a
 `pccl-tests` checkout. Each Case gets a separate working directory with
@@ -85,6 +90,15 @@ Each hardware consumer also validates the cache before allocating a worker.
 After a failed run has been cleaned, “Re-run failed jobs” can therefore
 download the retained build artifact and atomically republish the same
 validated cache without rerunning the successful build or staging jobs.
+Publication uses a persistent per-cache advisory lock outside the replaceable
+directory. Revalidation, invalid-cache removal and publication hold the same
+lock, so concurrent retry consumers cannot delete another publisher's valid
+cache. Lock acquisition has a five-minute timeout. The NAS must support shared
+`flock` locks; these helpers target the Linux CI environment.
+Before publication, the cache root, profile parent and cache directories are
+set to `0755` and artifact files to `0644`, allowing hardware workers with a
+different NAS identity to traverse and read them. The run root and results
+permissions are left unchanged so workers can still write their results.
 
 Build-time NAS staging is removed after the required artifact upload. After
 result reconciliation, a final `always()` cleanup removes only this run's
@@ -92,9 +106,20 @@ result reconciliation, a final `always()` cleanup removes only this run's
 logs remain intact. Cache reuse is content-verified; file existence alone is
 never sufficient.
 
-The final `PCCL Tests Gate` loads the selected CSV Cases again. It rejects
+The internal `results` job loads the selected CSV Cases again. It rejects
 missing, duplicate or unexpected Case keys, empty raw logs, missing or
 inconsistent per-Case `result.json` records, and missing, empty or inconsistent
 performance metrics. It also compares every retained build identity with the
 build-job outputs, including requiring standard single-node and two-node
 results to use the same archive SHA-256.
+
+For pull requests, this internal job requires successful secret scanning,
+commit checks, AI review, human approval and preparation. Approved runs still
+reconcile and clean up after build or hardware failures. Cleanup runs after a
+successful checkout even if reconciliation or artifact publication fails.
+
+The final `PCCL Tests Gate` always runs on a GitHub-hosted runner with no token
+permissions, checkout, repository-script execution or NAS access. It rejects
+unsupported events and requires every build, hardware, result and cleanup job
+to succeed. PR-only review skips are accepted only for main pushes and manual
+dispatch; failed, cancelled or unexpectedly skipped required jobs fail the gate.
