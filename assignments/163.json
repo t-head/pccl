@@ -1,0 +1,21 @@
+{
+  "classification": {
+    "base_sha": "77af125652fd1ffc532bf519022f709b9df510fd",
+    "head_sha": "878f1d7b100d5569606ce35d677519391cb059a1",
+    "input_fingerprint": "8f489f80ed3845d60798e3a01aba067d00ea42cd3aaba871188db129bb93c3c9",
+    "pr_number": 163,
+    "proposal": {
+      "modules": [
+        "enqueue",
+        "kernels",
+        "kernel-plugin"
+      ],
+      "reason": "Main change is a rebase of device collective kernel implementations and dispatch generation (new generator, function tables, primitives/reduction semantics, and removal of hand-written per-op .cu instantiations). Also needs enqueue review because host-side funcId mapping/dispatch and redop encoding were reworked to match generated kernel IDs. Include kernel-plugin because ext-kernel device redop enum changed (Max/Min folded to MinMax), affecting extension-kernel ABI expectations and plugin compatibility."
+    }
+  },
+  "reviewers": {
+    "enqueue": 341349555,
+    "kernel-plugin": 341751581,
+    "kernels": 340404662
+  }
+}
