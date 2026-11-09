@@ -54,6 +54,50 @@ is passed to `ncclLaunchKernel`; use a separate runtime trace if launch-level
 confirmation is required. This tool does not compare payload contents, partition
 offsets, proxy steps, or timing. Keep benchmark correctness checks enabled.
 
+## Nonregistered boundary checker
+
+`boundaries.cc` validates every received byte and surrounding guard bytes for
+one-way, asymmetric duplex, same-peer grouped messages, zero-byte operations,
+self-copy, short LL messages and partition/network tails. It uses ordinary
+`hggcMalloc` buffers and does not register them. It requires Open MPI and either
+2 or 4 ranks; `OMPI_COMM_WORLD_LOCAL_RANK` selects the visible device ordinal.
+With 4 ranks on two hosts, place 2 ranks on each host so the paired peers cross
+hosts. Reserve and check the selected devices before any run.
+
+Build on the authorized PPU environment, with the SDK environment sourced and
+`PCCL_HOME` pointing to the library build being tested:
+
+```sh
+mpicxx -std=c++14 -O2 \
+  -I "$PCCL_HOME/include" -I "$PPU_SDK_HOME/include" \
+  -I "$PPU_SDK_HOME/CUDA_SDK/include" boundaries.cc \
+  -L "$PCCL_HOME/lib" -L "$PPU_SDK_HOME/lib" \
+  -L "$PPU_SDK_HOME/CUDA_SDK/lib" -lpccl -lhggc_wrapper -o boundaries
+export LD_LIBRARY_PATH="$PCCL_HOME/lib:$LD_LIBRARY_PATH"
+export PCCL_ENABLE_EXT_KERNEL=0 PCCL_WIN_ENABLE=0 PCCL_GRAPH_REGISTER=0
+export PCCL_PROTO=Simple PCCL_P2P_LL_THRESHOLD=32768
+export PCCL_ALLOC_P2P_NET_LL_BUFFERS=1
+export PCCL_MIN_P2P_NCHANNELS=8 PCCL_MAX_P2P_NCHANNELS=8
+export PCCL_P2P_NCHANNELS_PER_PEER=4
+```
+
+Launch with the site's authorized host, transport and affinity configuration.
+Seven `PASS` lines and a zero exit status are required. Confirm actual LL
+selection in P2P logs; the case name alone does not prove protocol coverage.
+Repeat with these independent configurations:
+
+- Four channels and `PCCL_WORK_ARGS_BYTES=160` to force FIFO storage.
+- The same FIFO setting plus `P2P_CHECK_GRAPH=1` to capture the asymmetric case
+  and replay it twice with different payloads. Require `GRAPH_OK`; keep graph
+  registration disabled.
+- 24 total/per-peer channels, first with Simple and then SimpleBulk, to cover
+  PCCL's non-power-of-two channel permutation and partial final partitions.
+
+Use `PCCL_DEBUG_SUBSYS=INIT,NET,P2P,COLL` and `PCCL_DUMP_WORK_ELEMS=1` for path
+verification. These checker runs are correctness diagnostics, not performance
+measurements. The launch settings, actual library hash, device state, protocol
+logs and complete output should be retained together.
+
 ## Performance acceptance
 
 For the existing non-registered AlltoAll, Gather and Scatter matrix, retain

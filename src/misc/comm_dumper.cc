@@ -81,14 +81,15 @@ ncclResult_t dumpTreeToFile(FILE* file, struct ncclTree* tree, int indentLevel) 
 ncclResult_t dumpP2pWorkToFile(FILE* file, struct ncclDevWorkP2p* work, uint16_t index, int indentLevel) {
   const char* indentStr = getIndentStr(indentLevel);
   fprintf(file, "%s%d: ", indentStr, index);
-  fprintf(file, "sendRegUsed:%d, recvRegUsed:%d sendbuff %p recvbuff %p ",
-    work->sendRegUsed, work->recvRegUsed, work->sendbuff, work->recvbuff);
+  fprintf(file, "sendIpcReg:%d, recvIpcReg:%d sendAddr %p recvAddr %p ",
+    work->sendIpcReg, work->recvIpcReg, work->sendAddr, work->recvAddr);
   fprintf(file, "p2p, ");
-  fprintf(file, "sendRank:%d, recvRank:%d, sendCount:%ld, recvCount:%ld, sendChunkSize:%d, recvChunkSize:%d, ",
-    work->sendRank, work->recvRank, work->sendCount, work->recvCount, work->sendChunkSize, work->recvChunkSize);
-  if (work->sendParts || work->recvParts) {
-    fprintf(file, "channelBase:%u sendParts:%u recvParts:%u sendPartSteps:%u recvPartSteps:%u ",
-        work->channelBase, work->sendParts, work->recvParts, work->sendPartSteps, work->recvPartSteps);
+  fprintf(file, "sendRank:%d, recvRank:%d, sendBytes:%zu, recvBytes:%zu, sendChunkSize:%d, recvChunkSize:%d, nSendChannels:%u, nRecvChannels:%u, ",
+    work->sendRank, work->recvRank, work->sendBytes, work->recvBytes, work->sendChunkSize, work->recvChunkSize,
+    work->nSendChannels, work->nRecvChannels);
+  if (work->sharedWork) {
+    fprintf(file, "channelBase:%u sharedWork:1 sendPartSteps:%u recvPartSteps:%u ",
+        work->channelBase, work->sendPartSteps, work->recvPartSteps);
   }
   fprintf(file, "\n");
   return ncclSuccess;

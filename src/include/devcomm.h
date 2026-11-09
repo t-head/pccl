@@ -213,19 +213,21 @@ struct alignas(16) ncclDevChannel {
 struct ncclKernelComm;
 
 struct alignas(16) ncclDevWorkP2p {
-  // Header
-  struct ncclKernelComm* comm;
-  uint8_t sendRegUsed:1, recvRegUsed:1, sendProtoLL:1, recvProtoLL:1, profilerEnabled:1;
-  // Both part counts are zero for an already sliced, single-channel work.
-  uint8_t channelBase, sendParts, recvParts;
-  uint16_t sendPartSteps, recvPartSteps; // Stride in base-protocol buffer steps.
-
-  const void * sendbuff;
-  void * recvbuff;
-
-  ssize_t sendCount, recvCount;
+  // NCCL-style byte ranges and direction state. A zero channel count means
+  // absent; zero bytes with one channel is an explicit synchronization.
+  const void* sendAddr;
+  void* recvAddr;
+  size_t sendBytes, recvBytes;
   int sendRank, recvRank;
   int sendChunkSize, recvChunkSize;
+
+  // PCCL extensions: keep exact chunk sizes, context and partition strides.
+  struct ncclKernelComm* comm;
+  uint8_t sendIpcReg:1, recvIpcReg:1, sendProtoLL:1, recvProtoLL:1, profilerEnabled:1, sharedWork:1;
+  // Device preprocessing turns shared ranges into private ranges and normalizes
+  // each channel count to 0 or 1 in the channel-local copy only.
+  uint8_t channelBase, nSendChannels, nRecvChannels;
+  uint16_t sendPartSteps, recvPartSteps;
 };
 static_assert(sizeof(ncclDevWorkP2p) == 64, "P2P partition metadata must fit in the existing work header");
 

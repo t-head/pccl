@@ -269,7 +269,7 @@ class PrimitivesSimpleBase {
     }
     if (role & ROLE_WAIT_RECV) {
       buff = (T*)conn->buffs[NCCL_PROTO_SIMPLE];
-      if (DIRECT && ((P2P ? ((p2pWork != nullptr && p2pWork->recvRegUsed)) : (collWork != nullptr && collWork->recvRegUsed)) && (conn->direct & NCCL_DIRECT_GPU))) {
+      if (DIRECT && ((P2P ? ((p2pWork != nullptr && p2pWork->recvIpcReg)) : (collWork != nullptr && collWork->recvRegUsed)) && (conn->direct & NCCL_DIRECT_GPU))) {
         hangSpins = spins = 0;
         void **slot = conn->ptrExchange;
         void *ptr;
@@ -307,7 +307,7 @@ class PrimitivesSimpleBase {
     }
     if (role & ROLE_WAIT_SEND) {
       buff = (T*)conn->buffs[NCCL_PROTO_SIMPLE];
-      if (DIRECT && ((P2P ? ((p2pWork != nullptr && p2pWork->sendRegUsed)) : (collWork != nullptr && collWork->sendRegUsed)) && (conn->direct & NCCL_DIRECT_GPU))) {
+      if (DIRECT && ((P2P ? ((p2pWork != nullptr && p2pWork->sendIpcReg)) : (collWork != nullptr && collWork->sendRegUsed)) && (conn->direct & NCCL_DIRECT_GPU))) {
         hangSpins = spins = 0;
         void **slot = conn->ptrExchange;
         void *ptr = NULL;

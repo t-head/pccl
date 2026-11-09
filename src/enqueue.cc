@@ -167,14 +167,15 @@ ncclResult_t dumpP2pWork(char* lineBuff, struct ncclDevWorkP2p* work, uint16_t i
   const char* indentStr = " ";
   int offset = strlen(lineBuff);
   offset += sprintf(lineBuff + offset, "%s%d: ", indentStr, index);
-  offset += sprintf(lineBuff + offset, "sendRegUsed:%d, recvRegUsed:%d sendbuff %p recvbuff %p ",
-    work->sendRegUsed, work->recvRegUsed, work->sendbuff, work->recvbuff);
+  offset += sprintf(lineBuff + offset, "sendIpcReg:%d, recvIpcReg:%d sendAddr %p recvAddr %p ",
+    work->sendIpcReg, work->recvIpcReg, work->sendAddr, work->recvAddr);
   offset += sprintf(lineBuff + offset, "p2p, ");
-  offset += sprintf(lineBuff + offset, "sendRank:%d, recvRank:%d, sendCount:%ld, recvCount:%ld, sendChunkSize:%d, recvChunkSize:%d, ",
-    work->sendRank, work->recvRank, work->sendCount, work->recvCount, work->sendChunkSize, work->recvChunkSize);
-  if (work->sendParts || work->recvParts) {
-    offset += sprintf(lineBuff + offset, "channelBase:%u sendParts:%u recvParts:%u sendPartSteps:%u recvPartSteps:%u ",
-        work->channelBase, work->sendParts, work->recvParts, work->sendPartSteps, work->recvPartSteps);
+  offset += sprintf(lineBuff + offset, "sendRank:%d, recvRank:%d, sendBytes:%zu, recvBytes:%zu, sendChunkSize:%d, recvChunkSize:%d, nSendChannels:%u, nRecvChannels:%u, ",
+    work->sendRank, work->recvRank, work->sendBytes, work->recvBytes, work->sendChunkSize, work->recvChunkSize,
+    work->nSendChannels, work->nRecvChannels);
+  if (work->sharedWork) {
+    offset += sprintf(lineBuff + offset, "channelBase:%u sharedWork:1 sendPartSteps:%u recvPartSteps:%u ",
+        work->channelBase, work->sendPartSteps, work->recvPartSteps);
   }
   offset += sprintf(lineBuff + offset, "\n");
   return ncclSuccess;
@@ -1366,12 +1367,12 @@ static void appendP2pWork(
   const ncclDevWorkP2p* first = parts.shared;
   const bool reuse = first &&
       (config.bytes[1] < 0 || (first->sendChunkSize == config.chunkDataSize[1] &&
-                              first->sendRegUsed == config.ipcRegistered[1] &&
+                              first->sendIpcReg == config.ipcRegistered[1] &&
                               first->sendProtoLL == config.protoLL[1])) &&
       (config.bytes[0] < 0 || (first->recvChunkSize == config.chunkDataSize[0] &&
-                              first->recvRegUsed == config.ipcRegistered[0] &&
+                              first->recvIpcReg == config.ipcRegistered[0] &&
                               first->recvProtoLL == config.protoLL[0] &&
-                              uintptr_t(first->recvbuff) + config.offsets[0] == uintptr_t(config.addrs[0])));
+                              uintptr_t(first->recvAddr) + config.offsets[0] == uintptr_t(config.addrs[0])));
   uint32_t workOffset = parts.sharedOffset;
   if (!reuse) {
     auto* node = ncclMemoryStackAllocInlineArray<ncclWorkList, ncclDevWorkP2p>(&comm->memScoped, 1);
@@ -1382,27 +1383,30 @@ static void appendP2pWork(
     plan->workBytes += node->size;
     auto* work = (ncclDevWorkP2p*)(node+1);
     work->comm = comm->devComm;
-    work->sendbuff = config.addrs[1];
+    work->sendAddr = config.addrs[1];
     work->sendChunkSize = config.chunkDataSize[1];
-    work->sendCount = config.bytes[1];
-    work->sendRegUsed = config.ipcRegistered[1];
+    work->sendBytes = config.bytes[1] < 0 ? 0 : config.bytes[1];
+    work->nSendChannels = config.bytes[1] < 0 ? 0 : 1;
+    work->sendIpcReg = config.ipcRegistered[1];
     work->sendProtoLL = config.protoLL[1];
     work->sendRank = sendRank;
-    work->recvbuff = config.addrs[0];
+    work->recvAddr = config.addrs[0];
     work->recvChunkSize = config.chunkDataSize[0];
-    work->recvCount = config.bytes[0];
+    work->recvBytes = config.bytes[0] < 0 ? 0 : config.bytes[0];
+    work->nRecvChannels = config.bytes[0] < 0 ? 0 : 1;
     work->recvRank = recvRank;
-    work->recvRegUsed = config.ipcRegistered[0];
+    work->recvIpcReg = config.ipcRegistered[0];
     work->recvProtoLL = config.protoLL[0];
     work->profilerEnabled = ncclProfilerPluginLoaded() &&
         ((p2pTasks[0] ? p2pTasks[0] : p2pTasks[1])->eActivationMask & ncclProfileKernelCh);
     if (part == 0 && parts.canShare) {
       plan->p2pPreprocess = true;
+      work->sharedWork = true;
       work->channelBase = config.channelId;
-      work->sendCount = config.totBytes[1];
-      work->recvCount = config.totBytes[0];
-      work->sendParts = parts.count[1];
-      work->recvParts = parts.count[0];
+      work->sendBytes = config.totBytes[1] < 0 ? 0 : config.totBytes[1];
+      work->recvBytes = config.totBytes[0] < 0 ? 0 : config.totBytes[0];
+      work->nSendChannels = parts.count[1];
+      work->nRecvChannels = parts.count[0];
       work->sendPartSteps = parts.strideSteps[1];
       work->recvPartSteps = parts.strideSteps[0];
       parts.shared = work;

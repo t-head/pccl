@@ -63,18 +63,22 @@ __device__ __noinline__ void preprocessP2pWork(struct ncclDevWorkP2p* work) {
     bool isSend = threadIdx.x >= WARP_SIZE/2;
     if (workIx < shmem->nWorks) {
       ncclDevWorkP2p* partWork = &work[workIx];
-      if (partWork->sendParts || partWork->recvParts) {
+      if (partWork->sharedWork) {
         const int part = ncclP2pChannelToPart(partWork->comm, partWork->channelBase, shmem->channelId);
         const size_t step = comm->buffSizes[Proto::Id] / NCCL_STEPS;
         size_t offset;
         if (isSend) {
-          partWork->sendCount = ncclP2pPartBytes(partWork->sendCount, step * partWork->sendPartSteps,
-              partWork->sendParts, part, &offset);
-          if (offset) partWork->sendbuff = (const char*)partWork->sendbuff + offset;
+          ssize_t bytes = ncclP2pPartBytes(partWork->sendBytes, step * partWork->sendPartSteps,
+              partWork->nSendChannels, part, &offset);
+          partWork->sendBytes = bytes < 0 ? 0 : bytes;
+          partWork->nSendChannels = bytes < 0 ? 0 : 1;
+          if (offset) partWork->sendAddr = (const char*)partWork->sendAddr + offset;
         } else {
-          partWork->recvCount = ncclP2pPartBytes(partWork->recvCount, step * partWork->recvPartSteps,
-              partWork->recvParts, part, &offset);
-          if (offset) partWork->recvbuff = (char*)partWork->recvbuff + offset;
+          ssize_t bytes = ncclP2pPartBytes(partWork->recvBytes, step * partWork->recvPartSteps,
+              partWork->nRecvChannels, part, &offset);
+          partWork->recvBytes = bytes < 0 ? 0 : bytes;
+          partWork->nRecvChannels = bytes < 0 ? 0 : 1;
+          if (offset) partWork->recvAddr = (char*)partWork->recvAddr + offset;
         }
       }
     }
@@ -109,10 +113,10 @@ __device__ __forceinline__ void runSendRecv(struct ncclDevWorkP2p* work) {
       const int nThreads = (kProtoNeedsExtraWarp && nThreadsSegment > 128) ? nThreadsSegment-WARP_SIZE : nThreadsSegment;
 
       // Compute pointers
-      const T* sendbuff = (const T*)work->sendbuff;
-      T* recvbuff = (T*)work->recvbuff;
-      const ssize_t sendCount = work->sendCount;
-      const ssize_t recvCount = work->recvCount;
+      const T* sendbuff = (const T*)work->sendAddr;
+      T* recvbuff = (T*)work->recvAddr;
+      const ssize_t sendCount = work->sendBytes;
+      const ssize_t recvCount = work->recvBytes;
 
       if (work->sendRank == comm->rank) {
         if (tid < nThreads && sendbuff != recvbuff) {
@@ -130,8 +134,8 @@ __device__ __forceinline__ void runSendRecv(struct ncclDevWorkP2p* work) {
         int nThreadsSplit = nThreads/2;
         const bool recvLL = kAllowLLSwitch && work->recvProtoLL;
         const bool sendLL = kAllowLLSwitch && work->sendProtoLL;
-        if ((tid < nThreadsSplit) && recvCount >= 0) {
-          const int chunkSize = work->recvRegUsed ? NCCL_MAX_NET_SIZE : work->recvChunkSize/sizeof(T);
+        if ((tid < nThreadsSplit) && work->nRecvChannels != 0) {
+          const int chunkSize = work->recvIpcReg ? NCCL_MAX_NET_SIZE : work->recvChunkSize/sizeof(T);
           int peer = work->recvRank;
           int nt = nThreadsSplit;
           if (recvLL) {
@@ -140,8 +144,8 @@ __device__ __forceinline__ void runSendRecv(struct ncclDevWorkP2p* work) {
             runRecv<FUNC, T, Proto>(tid, nt, peer, recvbuff, recvCount, chunkSize, comm, groupRecv, work);
           }
         }
-        if ((tid >= nThreadsSplit) && sendCount >= 0) {
-          const int chunkSize = work->sendRegUsed ? NCCL_MAX_NET_SIZE : work->sendChunkSize/sizeof(T);
+        if ((tid >= nThreadsSplit) && work->nSendChannels != 0) {
+          const int chunkSize = work->sendIpcReg ? NCCL_MAX_NET_SIZE : work->sendChunkSize/sizeof(T);
           int peer = work->sendRank;
           int nt = sendLL ? (nThreadsSegment - nThreadsSplit) : (nThreads - nThreadsSplit);
           if (sendLL) {
