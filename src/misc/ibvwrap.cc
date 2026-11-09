@@ -15,6 +15,8 @@
 
 static enum { ibvUninitialized, ibvInitializing, ibvInitialized, ibvError } ibvState = ibvUninitialized;
 
+NCCL_PARAM(IbQueryPortSpeed, "IB_QUERY_PORT_SPEED", 1);
+
 /*Function Pointers*/
 int (*ibv_internal_fork_init)(void);
 struct ibv_device** (*ibv_internal_get_device_list)(int *num_devices);
@@ -26,6 +28,7 @@ int (*ibv_internal_get_async_event)(struct ibv_context *context, struct ibv_asyn
 void (*ibv_internal_ack_async_event)(struct ibv_async_event *event);
 int (*ibv_internal_query_device)(struct ibv_context *context, struct ibv_device_attr *device_attr);
 int (*ibv_internal_query_port)(struct ibv_context *context, uint8_t port_num, struct ibv_port_attr *port_attr);
+int (*ibv_internal_query_port_speed)(struct ibv_context *context, uint8_t port_num, uint64_t *speed);
 int (*ibv_internal_query_gid)(struct ibv_context *context, uint8_t port_num, int index, union ibv_gid *gid);
 int (*ibv_internal_query_qp)(struct ibv_qp *qp, struct ibv_qp_attr *attr, int attr_mask, struct ibv_qp_init_attr *init_attr);
 struct ibv_pd * (*ibv_internal_alloc_pd)(struct ibv_context *context);
@@ -94,6 +97,9 @@ ncclResult_t wrap_ibv_symbols(void) {
   LOAD_SYM(ibvhandle, "ibv_ack_async_event", ibv_internal_ack_async_event);
   LOAD_SYM(ibvhandle, "ibv_query_device", ibv_internal_query_device);
   LOAD_SYM(ibvhandle, "ibv_query_port", ibv_internal_query_port);
+  // Optional since IBVERBS_1.16; older libraries use the port attributes instead.
+  ibv_internal_query_port_speed = (int (*)(struct ibv_context*, uint8_t, uint64_t*))
+      dlvsym(ibvhandle, "ibv_query_port_speed", "IBVERBS_1.16");
   LOAD_SYM(ibvhandle, "ibv_query_gid", ibv_internal_query_gid);
   LOAD_SYM(ibvhandle, "ibv_query_qp", ibv_internal_query_qp);
   LOAD_SYM(ibvhandle, "ibv_alloc_pd", ibv_internal_alloc_pd);
@@ -131,6 +137,7 @@ teardown:
   ibv_internal_ack_async_event = NULL;
   ibv_internal_query_device = NULL;
   ibv_internal_query_port = NULL;
+  ibv_internal_query_port_speed = NULL;
   ibv_internal_query_gid = NULL;
   ibv_internal_query_qp = NULL;
   ibv_internal_alloc_pd = NULL;
@@ -253,7 +260,22 @@ ncclResult_t wrap_ibv_query_device(struct ibv_context *context, struct ibv_devic
 }
 
 ncclResult_t wrap_ibv_query_port(struct ibv_context *context, uint8_t port_num, struct ibv_port_attr *port_attr) { /*returns 0 on success, or the value of errno on failure (which indicates the failure reason)*/
+  // Old providers may only fill the legacy prefix of the extended attributes.
+  memset(port_attr, 0, sizeof(*port_attr));
+  if (ibv_query_port_ex(context, port_num, port_attr) == 0) return ncclSuccess;
+  memset(port_attr, 0, sizeof(*port_attr));
   IBV_INT_CHECK_RET_ERRNO(ibv_internal_query_port, ibv_internal_query_port(context, port_num, port_attr), 0, "ibv_query_port");
+}
+
+ncclResult_t wrap_ibv_query_port_speed(struct ibv_context *context, uint8_t port_num, uint64_t *speed) {
+  if (!ncclParamIbQueryPortSpeed() || ibv_internal_query_port_speed == NULL) return ncclSystemError;
+  int ret = ibv_internal_query_port_speed(context, port_num, speed);
+  if (ret != 0) {
+    // Allow safe fallback to port attributes: ERROR can hang here when PCCL_ERROR_YIELD=1.
+    WARN("Call to ibv_query_port_speed failed: %s", strerror(ret));
+    return ncclSystemError;
+  }
+  return ncclSuccess;
 }
 
 ncclResult_t wrap_ibv_query_gid(struct ibv_context *context, uint8_t port_num, int index, union ibv_gid *gid) {

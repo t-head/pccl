@@ -187,7 +187,8 @@ static int ibvSpeeds[] = {
         14000, /* FDR */
         25000, /* EDR */
         50000, /* HDR */
-        100000 /* NDR */ };
+        100000, /* NDR */
+        200000  /* XDR */ };
 
 static int firstBitSet(int val, int max) {
   int i = 0;
@@ -231,8 +232,18 @@ static ncclResult_t ncclIbQueryOooRqSize(struct ibv_device* device, struct ibv_c
   return ncclSuccess;
 }
 
-static ncclResult_t ncclIbGetSpeed(char* ifName, const struct ibv_port_attr *portAttr, int *ibSpeed) {
-  *ibSpeed = ncclIbSpeed(portAttr->active_speed) * ncclIbWidth(portAttr->active_width) * pcclParamIbNicSpeedScalingFactor();
+static ncclResult_t ncclIbGetSpeed(struct ibv_context* context, uint8_t port, char* ifName,
+                                  const struct ibv_port_attr *portAttr, int *ibSpeed) {
+  uint64_t querySpeed = 0;
+  if (wrap_ibv_query_port_speed(context, port, &querySpeed) == ncclSuccess) {
+    // ibv_query_port_speed returns the full port rate in units of 100 Mb/s.
+    *ibSpeed = querySpeed * 100;
+    return ncclSuccess;
+  }
+  // Only the attribute-based fallback needs VF scaling and the bonding speed override.
+  int portSpeed = portAttr->active_speed_ex ? portAttr->active_speed_ex : portAttr->active_speed;
+  *ibSpeed = ncclIbSpeed(portSpeed) * ncclIbWidth(portAttr->active_width);
+  *ibSpeed *= pcclParamIbNicSpeedScalingFactor();
   if (pcclParamIbDisableAccBondingPort() != 0 || strlen(ifName) <= 0 || strncmp("N/A", ifName, 2) == 0) return ncclSuccess;
 
   char realPath[PATH_MAX];
@@ -366,7 +377,8 @@ ncclResult_t ncclIbInit(ncclDebugLogger_t logFunction) {
           if (ncclIbBondIfName != NULL) strcpy(ncclIbDevs[ncclNIbDevs].ifName, ncclIbBondIfName+d*(MAX_IF_NAME_SIZE+1));
           NCCLCHECK(ncclIbGetGidIndex(context, port, portAttr.gid_tbl_len, &ncclIbDevs[ncclNIbDevs].gidIndex));
           NCCLCHECK(ncclIbGetPciPath(ncclIbDevs[ncclNIbDevs].devName, &ncclIbDevs[ncclNIbDevs].pciPath, &ncclIbDevs[ncclNIbDevs].realPort));
-          NCCLCHECK(ncclIbGetSpeed(ncclIbDevs[ncclNIbDevs].ifName, &portAttr, &ncclIbDevs[ncclNIbDevs].speed));
+          NCCLCHECK(ncclIbGetSpeed(context, port, ncclIbDevs[ncclNIbDevs].ifName,
+                                 &portAttr, &ncclIbDevs[ncclNIbDevs].speed));
           ncclIbDevs[ncclNIbDevs].maxQp = devAttr.max_qp;
           ncclIbDevs[ncclNIbDevs].maxQpInitRdAtom = devAttr.max_qp_init_rd_atom;
           ncclIbDevs[ncclNIbDevs].maxQpRdAtom = devAttr.max_qp_rd_atom;
