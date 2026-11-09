@@ -31,10 +31,15 @@ starting `ERROR:` with the reason. Do not return a partial message.
 
 Follow the Commit Messages and Signed Commits sections of `CONTRIBUTING.md`
 read at the expected base SHA, without adding stricter formatting rules.
-Summarize the complete final diff rather than the intermediate revisions.
+Summarize the complete final diff by purpose and resulting behavior.
 
-- Write new summary text as plain text. Refer to paths, commands and identifiers
-  directly, without inline backticks or Markdown emphasis.
+- Group related changes into concise points. Explain the problem or reason when
+  supported by the source material; do not invent intent.
+- Cover substantive outcomes without a file-by-file inventory, intermediate
+  revisions or incidental cleanup. Mention paths, commands or identifiers only
+  when needed to explain behavior, a key mechanism or a compatibility constraint.
+- Write new summary text as plain text, without inline backticks or Markdown
+  emphasis.
 - Preserve original issue references, including every target in lists and full
   URLs. Keep their existing Refs/closing intent; do not turn a reference into a
   closing request. Copy reference clauses without unrelated historical prose.
