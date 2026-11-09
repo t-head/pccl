@@ -1,14 +1,14 @@
 {
   "classification": {
     "base_sha": "77af125652fd1ffc532bf519022f709b9df510fd",
-    "head_sha": "52c8d6573c44c574d5dc88189bef488431ed065a",
-    "input_fingerprint": "d22d42eaf86d5f35e85836eb21ff674319286ed470f3f2afb66fa9a582c61914",
+    "head_sha": "ac2a4f477b5dfa95d155def423ec5b16146d29fe",
+    "input_fingerprint": "1c4d9e897a8d3e012a3d8d109511fdccdd278dced53ef5f23e0f369caf041d8a",
     "pr_number": 155,
     "proposal": {
       "modules": [
         "gin"
       ],
-      "reason": "Main change is GIN-specific backend integration: adds new GPI GIN device/host implementation, extends GIN backend/type dispatch and backend-mask logic, and updates GIN connection/context/progress lifecycle handling. Other touched headers/macros are compatibility plumbing for this same GIN backend work, not independent module changes."
+      "reason": "Adds the new GPI backend within the GIN subsystem: backend type recognition, GIN device-side implementation/specializations, backend-mask and resource-sharing updates, GIN enum/compat wiring, and host/plugin integration safeguards; the remaining edits are supporting plumbing for this same GIN feature, not separate module-level changes."
     }
   },
   "reviewers": {
