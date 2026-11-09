@@ -64,7 +64,7 @@ jobs:
               assert hashlib.sha256((runner / name).read_bytes()).hexdigest() == expected
           metadata = json.loads(Path('tests/xtest/daily-minimal-csv/export.json').read_text())
           assert metadata['runner_revision'] == revision
-          expected = {('standard', 1): 6}
+          expected = {('standard', 1): 6, ('standard', 2): 1}
           for (profile, nodes), count in expected.items():
               selected = run_cases.load_inputs(Path('tests/xtest/daily-minimal-csv'), profile, nodes)
               assert len(selected['cases']) == count
@@ -293,9 +293,96 @@ jobs:
               --mpi-interface "$MPI_INTERFACE" \
               --output "$RESULT_ROOT"
 
+  two-node:
+    name: Two-node master-only daily smoke (16 ranks)
+    needs: [prepare, build-standard, stage-cache]
+    env:
+      EXPECTED_SHA: ${{ needs.build-standard.outputs.artifact_sha256 }}
+    runs-on: k8s-runner-group-cpu-thead
+    container:
+      image: ghcr.io/actions/actions-runner:latest
+    timeout-minutes: 360
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          path: pccl
+          persist-credentials: false
+      - uses: actions/download-artifact@v4
+        with:
+          name: m890p-daily-python-deps
+          path: deps
+      - name: Restore the shared NAS cache and run on master
+        uses: t-head/ci-infra/cluster-run@40165c945cba33ac7b16b41c4485fe53b68f581f
+        with:
+          image: ${{ env.VALIDATION_IMAGE }}
+          launch_mode: master
+          nnodes: 2
+          nproc_per_node: ${{ env.VALIDATION_CARDS }}
+          node_selector: ${{ env.VALIDATION_NODE_SELECTOR }}
+          namespace: ppu-sched
+          timeout_minutes: 300
+          cleanup_policy: always
+          container_options: |
+            privileged: true
+          host_volumes: /dev/infiniband:/dev/infiniband
+          setup_command: |
+            set -euo pipefail
+            source /usr/local/PPU_SDK/envsetup.sh
+            test -d /dev/infiniband
+            test -r /proc/net/route
+            set -- /dev/infiniband/*
+            test -e "$1"
+          command: |
+            set -euo pipefail
+            umask 022
+            cd "$SOURCE_DIR"
+            CACHE_DIR=/mnt/wl_nas/devops/pccl-artifact-cache-${{ github.run_id }}/cache/standard/${{ env.EXPECTED_SHA }}
+            SHARED_ROOT=/mnt/wl_nas/devops/pccl-artifact-cache-${{ github.run_id }}/shared-standard/${{ env.EXPECTED_SHA }}
+            export build_output="$SHARED_ROOT/output_standard"
+            RESULT_ROOT=/mnt/wl_nas/devops/pccl-artifact-cache-${{ github.run_id }}/results/cluster
+            rm -rf "$RESULT_ROOT" "$SHARED_ROOT"
+            mkdir -p "$(dirname "$RESULT_ROOT")" "$SHARED_ROOT"
+            cleanup_shared_build() {
+              rm -rf "$SHARED_ROOT"
+            }
+            trap cleanup_shared_build EXIT
+            unset PIP_INDEX_URL PIP_EXTRA_INDEX_URL 2>/dev/null || true
+            git config --global --unset-all url.https://ai-gerrit.eng.t-head.cn/Public/Github/.insteadOf 2>/dev/null || true
+            git config --global --add safe.directory "$SOURCE_DIR"
+            git config --global --add safe.directory '*'
+            python3 -S -B pccl/tests/xtest/artifact_cache.py validate \
+              --directory "$CACHE_DIR" --profile standard \
+              --pccl-revision '${{ github.sha }}' --pccl-tests-revision '${{ env.PCCL_TESTS_REVISION }}' \
+              --expected-sha256 '${{ env.EXPECTED_SHA }}'
+            tar -xzf "$CACHE_DIR/output_standard.tar.gz" -C "$SHARED_ROOT"
+            test "$(git -C "$build_output/pccl" rev-parse HEAD)" = '${{ github.sha }}'
+            test "$(git -C "$build_output/pccl-tests" rev-parse HEAD)" = '${{ env.PCCL_TESTS_REVISION }}'
+            python3 -m venv /workspace/minimal-csv-cluster-env
+            /workspace/minimal-csv-cluster-env/bin/python -m pip install --disable-pip-version-check \
+              --no-index --find-links "$SOURCE_DIR/deps" \
+              -r "$build_output/pccl/tests/xtest/requirements.txt"
+            /workspace/minimal-csv-cluster-env/bin/python -m pip check
+            source /usr/local/PPU_SDK/envsetup.sh
+            unset PCCL_PATH
+            export OMPI_MCA_plm_rsh_agent=cluster-ssh
+            export OMPI_MCA_orte_base_help_aggregate=0
+            MPI_INTERFACE=$(awk '$2 == "00000000" {print $1; exit}' /proc/net/route)
+            test -n "$MPI_INTERFACE"
+            echo "MPI TCP interface: $MPI_INTERFACE"
+            test "$(wc -l < "$CLUSTER_HOSTS_FILE")" -eq 2
+            /workspace/minimal-csv-cluster-env/bin/python -B \
+              "$build_output/pccl/tests/xtest/run_cases.py" \
+              --input "$build_output/pccl/tests/xtest/daily-minimal-csv" \
+              --profile standard --nodes 2 \
+              --test-root "$build_output" \
+              --binary-dir "$build_output/pccl-tests/build" \
+              --hostfile "$CLUSTER_HOSTS_FILE" \
+              --mpi-interface "$MPI_INTERFACE" \
+              --output "$RESULT_ROOT"
+
   summary:
     name: Artifact cache hardware gate and NAS cleanup
-    needs: [prepare, build-standard, stage-cache, single-node]
+    needs: [prepare, build-standard, stage-cache, single-node, two-node]
     if: always()
     runs-on: k8s-runner-group-cpu-thead
     container:
@@ -321,7 +408,7 @@ jobs:
           root = Path('/wl_nas/devops/pccl-artifact-cache-${{ github.run_id }}/results')
           public = Path('public-results')
           public.mkdir()
-          expected = {'standard': 6}
+          expected = {'standard': 6, 'cluster': 1}
           errors = []
           for name, count in expected.items():
               source = root / name
@@ -385,7 +472,7 @@ jobs:
           needs = json.loads(os.environ['NEEDS'])
           failed = {name: value['result'] for name, value in needs.items()
                     if value['result'] not in ('success', 'skipped')}
-          for name in ('prepare', 'build-standard', 'stage-cache', 'single-node'):
+          for name in ('prepare', 'build-standard', 'stage-cache', 'single-node', 'two-node'):
               if needs[name]['result'] != 'success':
                   failed[name] = needs[name]['result']
           outcomes = {'reconcile': '${{ steps.reconcile.outcome }}', 'cleanup': '${{ steps.cleanup.outcome }}'}
