@@ -2,13 +2,13 @@
   "classification": {
     "base_sha": "77af125652fd1ffc532bf519022f709b9df510fd",
     "head_sha": "30cb51e4bc70e5aa8da44f72a6b134ff1743147c",
-    "input_fingerprint": "03d58b7b87f4b533097e11941d5a010366f5560d154f25cf29cbe7dd2ed94bbe",
+    "input_fingerprint": "c6c368c2a1090028336a34ce592903d76d16bf5fdc68c406cb3f1b1f10a50c21",
     "pr_number": 157,
     "proposal": {
       "modules": [
         "workflow"
       ],
-      "reason": "Updates PR review/merge automation behavior: reviewer notice text now handles Maintainer-as-author without self-review requests, Copilot module classification now sends full prompts via stdin (removing size-limit truncation), and squash-message guidance is refined to summarize substantive behavior-focused changes."
+      "reason": "Changes are to review/merge automation policy and messaging: reviewer notice behavior now handles PR authors who are Maintainers without self-review requests, Copilot classification input handling now passes full prompt via stdin for large complete diffs, and squash-message guidance is updated to summarize by purpose/behavior. These are contribution/review workflow and squash automation changes, not CI test execution logic."
     }
   },
   "reviewers": {
