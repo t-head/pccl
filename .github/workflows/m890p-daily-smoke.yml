@@ -64,7 +64,7 @@ jobs:
               assert hashlib.sha256((runner / name).read_bytes()).hexdigest() == expected
           metadata = json.loads(Path('tests/xtest/daily-minimal-csv/export.json').read_text())
           assert metadata['runner_revision'] == revision
-          expected = {('standard', 1): 6, ('standard', 2): 1}
+          expected = {('standard', 1): 6, ('standard', 2): 2}
           for (profile, nodes), count in expected.items():
               selected = run_cases.load_inputs(Path('tests/xtest/daily-minimal-csv'), profile, nodes)
               assert len(selected['cases']) == count
@@ -408,7 +408,7 @@ jobs:
           root = Path('/wl_nas/devops/pccl-artifact-cache-${{ github.run_id }}/results')
           public = Path('public-results')
           public.mkdir()
-          expected = {'standard': 6, 'cluster': 1}
+          expected = {'standard': 6, 'cluster': 2}
           errors = []
           for name, count in expected.items():
               source = root / name
