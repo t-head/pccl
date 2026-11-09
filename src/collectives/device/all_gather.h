@@ -12,7 +12,7 @@
 
 namespace {
   template<class FUNC, typename T, int UNROLL, typename Proto>
-  __device__ __forceinline__ void runRing(struct ncclDevWorkColl* work, struct ncclRing* inputRing=NULL, int* inputUserRanks=NULL) {
+  __device__ __forceinline__ void runRing(struct ncclDevWorkColl* work) {
     const int tid = threadIdx.x;
     int nthreads;
     if (Proto::Id == NCCL_PROTO_LL || Proto::Id == NCCL_PROTO_LL128) {
@@ -31,7 +31,7 @@ namespace {
     bid = bid % nChannels;
     struct ncclKernelComm* comm = getShmemComm(work);
     struct ncclDevChannel* channel = &(getShmemPtr(comm)->channel);
-    struct ncclRing* ring = (inputRing == NULL) ? &channel->ring : inputRing;
+    struct ncclRing* ring = &channel->ring;
     int stepSize;
     ssize_t chunkSize;
     ssize_t minChunkSize;
@@ -46,7 +46,7 @@ namespace {
       stepSize = comm->buffSizes[NCCL_PROTO_SIMPLE] / (sizeof(T)*NCCL_STEPS);
       chunkSize = stepSize * ALLGATHER_CHUNKSTEPS;
     }
-    const int nranks = (inputRing == NULL) ? comm->nRanks : inputRing->nRanks;
+    const int nranks = comm->nRanks;
     const ssize_t loopSize = nChannels*(ssize_t)chunkSize;
     const ssize_t size = work->count;
 
@@ -78,7 +78,7 @@ namespace {
       /////////////// begin AllGather steps ///////////////
 
       // step 0: push data to next GPU
-      int rankDest = (inputRing == NULL) ? ring->devUserRanks[0] : inputUserRanks[ring->devUserRanks[0]]; // inputUsersRanks not shift
+      int rankDest = ring->devUserRanks[0];
       ssize_t offset = chunkOffset + rankDest * size;
 
       if (thisInput + chunkOffset == thisOutput + offset) { // In place
@@ -89,14 +89,14 @@ namespace {
 
       // k-2 steps: copy to next GPU
       for (int j=1; j<nranks-1; ++j) {
-        rankDest = (inputRing == NULL) ? ring->devUserRanks[nranks-j] : inputUserRanks[ring->devUserRanks[nranks-j]]; // inputUsersRanks not shift
+        rankDest = ring->devUserRanks[nranks-j];
         offset = chunkOffset + rankDest * size;
 
         prims.directRecvCopySend(thisOutput+offset, offset, nelem);
       }
 
       // Make final copy from buffer to dest.
-      rankDest = (inputRing == NULL) ? ring->devUserRanks[1] : inputUserRanks[ring->devUserRanks[1]]; // inputUsersRanks not shift
+      rankDest = ring->devUserRanks[1];
       offset = chunkOffset + rankDest * size;
 
       // Final wait/copy.
@@ -178,9 +178,9 @@ namespace {
 template<class FUNC, typename T, int UNROLL>
 class RunWorkColl<ncclFuncAllGather, NCCL_ALGO_RING, NCCL_PROTO_SIMPLE, FUNC, T, UNROLL> {
   public:
-    __device__ void run(struct ncclDevWorkColl* work, struct ncclRing* inputRing=NULL, int* inputUserRanks=NULL) {
+    __device__ void run(struct ncclDevWorkColl* work) {
       using Proto = ProtoSimple<UNROLL, ALLGATHER_CHUNKSTEPS/ALLGATHER_SLICESTEPS, ALLGATHER_SLICESTEPS>;
-      runRing<FUNC, T, UNROLL, Proto>(work, inputRing, inputUserRanks);
+      runRing<FUNC, T, UNROLL, Proto>(work);
     }
 };
 
@@ -196,8 +196,8 @@ class RunWorkColl<ncclFuncAllGather, NCCL_ALGO_FC, NCCL_PROTO_SIMPLE, FUNC, T, U
 template<class FUNC, typename T, int UNROLL>
 class RunWorkColl<ncclFuncAllGather, NCCL_ALGO_RING, NCCL_PROTO_LL, FUNC, T, UNROLL> {
   public:
-    __device__ void run(struct ncclDevWorkColl* work, struct ncclRing* inputRing=NULL, int* inputUserRanks=NULL) {
-      runRing<FUNC, T, UNROLL, ProtoLL>(work, inputRing, inputUserRanks);
+    __device__ void run(struct ncclDevWorkColl* work) {
+      runRing<FUNC, T, UNROLL, ProtoLL>(work);
     }
 };
 
@@ -212,24 +212,24 @@ class RunWorkColl<ncclFuncAllGather, NCCL_ALGO_FC, NCCL_PROTO_LL, FUNC, T, UNROL
 template<class FUNC, typename T, int UNROLL>
 class RunWorkColl<ncclFuncAllGather, NCCL_ALGO_RING, NCCL_PROTO_LL128, FUNC, T, UNROLL> {
   public:
-    __device__ void run(struct ncclDevWorkColl* work, struct ncclRing* inputRing=NULL, int* inputUserRanks=NULL) {
-      runRing<FUNC, T, UNROLL, ProtoLL128>(work, inputRing, inputUserRanks);
+    __device__ void run(struct ncclDevWorkColl* work) {
+      runRing<FUNC, T, UNROLL, ProtoLL128>(work);
     }
 };
 
 template<class FUNC, typename T, int UNROLL>
 class RunWorkColl<ncclFuncAllGather, NCCL_ALGO_RING, NCCL_PROTO_SIGNAL, FUNC, T, UNROLL> {
   public:
-    __device__ void run(struct ncclDevWorkColl* work, struct ncclRing* inputRing=NULL, int* inputUserRanks=NULL) {
+    __device__ void run(struct ncclDevWorkColl* work) {
       using Proto = ProtoSignal<UNROLL, ALLGATHER_CHUNKSTEPS/ALLGATHER_SLICESTEPS, ALLGATHER_SLICESTEPS>;
-      runRing<FUNC, T, UNROLL, Proto>(work, inputRing, inputUserRanks);
+      runRing<FUNC, T, UNROLL, Proto>(work);
     }
 };
 
 template<class FUNC, typename T, int UNROLL>
 class RunWorkColl<ncclFuncAllGather, NCCL_ALGO_RING, NCCL_PROTO_SIMPLE_BULK, FUNC, T, UNROLL> {
   public:
-    __device__ void run(struct ncclDevWorkColl* work, struct ncclRing* inputRing=NULL, int* inputUserRanks=NULL) {
+    __device__ void run(struct ncclDevWorkColl* work) {
       struct ncclKernelComm* comm = getShmemComm(work);
       const ncclConn_t sendConnType = getShmemPtr(comm)->channel.ring.sendConnType;
 
@@ -237,10 +237,10 @@ class RunWorkColl<ncclFuncAllGather, NCCL_ALGO_RING, NCCL_PROTO_SIMPLE_BULK, FUN
 
       if (sendConnType == CONN_ICN) {
         using Proto = ProtoSimpleBulk<UNROLL, ALLGATHER_CHUNKSTEPS/ALLGATHER_SLICESTEPS, ALLGATHER_SLICESTEPS, CONN_ICN, CONN_ICN>;
-        runRing<FUNC, T, UNROLL, Proto>(work, inputRing, inputUserRanks);
+        runRing<FUNC, T, UNROLL, Proto>(work);
       } else {
         using Proto = ProtoSimpleBulk<UNROLL, ALLGATHER_CHUNKSTEPS/ALLGATHER_SLICESTEPS, ALLGATHER_SLICESTEPS, CONN_NORMAL, CONN_ICN>;
-        runRing<FUNC, T, UNROLL, Proto> (work, inputRing, inputUserRanks);
+        runRing<FUNC, T, UNROLL, Proto> (work);
       }
     }
 };
@@ -264,19 +264,19 @@ class RunWorkColl<ncclFuncAllGather, NCCL_ALGO_FC, NCCL_PROTO_SIMPLE_BULK, FUNC,
 template<class FUNC, typename T, int UNROLL>
 class RunWorkColl<ncclFuncAllGather, NCCL_ALGO_RING, NCCL_PROTO_SIGNAL_BULK, FUNC, T, UNROLL> {
   public:
-    __device__ void run(struct ncclDevWorkColl* work, struct ncclRing* inputRing=NULL, int* inputUserRanks=NULL) {
+    __device__ void run(struct ncclDevWorkColl* work) {
       using Proto = ProtoSignalBulk<UNROLL, ALLGATHER_CHUNKSTEPS/ALLGATHER_SLICESTEPS, ALLGATHER_SLICESTEPS>;
-      runRing<FUNC, T, UNROLL, Proto>(work, inputRing, inputUserRanks);
+      runRing<FUNC, T, UNROLL, Proto>(work);
     }
 };
 
 template<class FUNC, typename T, int UNROLL>
 class RunWorkColl<ncclFuncAllGather, NCCL_ALGO_RING, NCCL_PROTO_SIMPLE_BULK_AR, FUNC, T, UNROLL> {
   public:
-    __device__ void run(struct ncclDevWorkColl* work, struct ncclRing* inputRing=NULL, int* inputUserRanks=NULL) {
+    __device__ void run(struct ncclDevWorkColl* work) {
 #if defined(__HGGC_ARCH__) && __HGGC_ARCH__ >= 150
       using Proto = ProtoSimpleBulkAR<UNROLL, ALLGATHER_CHUNKSTEPS/ALLGATHER_SLICESTEPS, ALLGATHER_SLICESTEPS, CONN_ICN, CONN_ICN>;
-      runRing<FUNC, T, UNROLL, Proto>(work, inputRing, inputUserRanks);
+      runRing<FUNC, T, UNROLL, Proto>(work);
 #endif
     }
 };
