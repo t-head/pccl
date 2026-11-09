@@ -8,7 +8,7 @@
       "modules": [
         "gin"
       ],
-      "reason": "Adds the new GPI backend within the GIN subsystem: backend type recognition, GIN device-side implementation/specializations, backend-mask and resource-sharing updates, GIN enum/compat wiring, and host/plugin integration safeguards; the remaining edits are supporting plumbing for this same GIN feature, not separate module-level changes."
+      "reason": "Main change is GIN-specific backend integration: adds new GPI device/host backend implementation, extends GIN backend/type enums and dispatch/mask handling, and updates GIN host/plugin setup/validation paths for the new backend while keeping existing ABI compatibility."
     }
   },
   "reviewers": {
