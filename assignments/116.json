@@ -1,15 +1,15 @@
 {
   "classification": {
     "base_sha": "77af125652fd1ffc532bf519022f709b9df510fd",
-    "head_sha": "fe6b41538a544182bdf607f79649aa881f09d393",
-    "input_fingerprint": "6cd532b8d2252164faa2be291c321db057b4ae61bc72e6fadb9dd1f38e136426",
+    "head_sha": "b1ab7d75fe2dacf60f57ce39e5758efba41838d3",
+    "input_fingerprint": "dcd81246b62f5528e724089f2111374069670f2ac7020d6344f4c3d18b160e3b",
     "pr_number": 116,
     "proposal": {
       "modules": [
         "device-topology",
         "transport"
       ],
-      "reason": "Main change is in transport setup/connection behavior: P2P/SHM connect path selection, stream synchronization/progress reporting, IPC registered-address handling, and shared-memory descriptor lifecycle for P2P Copy Engine resources. Also requires device-topology review because new GPU\u2194NET path evaluation and bandwidth-based ncclTopoCheckNet logic changes how intra-node transport preference is decided."
+      "reason": "Primary change is in transport/P2P-SHM connection behavior: setup synchronization and progress accounting, on-demand IPC registered-address handling, and shared-memory descriptor lifecycle for P2P CE control buffers. Also includes a substantive topology-path policy change (ncclTopoCheckNet and NET_DISABLE_INTRA) that computes GPU\u2194NET bandwidth and steers intra-node transport eligibility, which falls under device-topology."
     }
   },
   "reviewers": {
