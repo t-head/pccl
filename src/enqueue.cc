@@ -170,8 +170,8 @@ ncclResult_t dumpP2pWork(char* lineBuff, struct ncclDevWorkP2p* work, uint16_t i
   offset += sprintf(lineBuff + offset, "sendIpcReg:%d, recvIpcReg:%d sendAddr %p recvAddr %p ",
     work->sendIpcReg, work->recvIpcReg, work->sendAddr, work->recvAddr);
   offset += sprintf(lineBuff + offset, "p2p, ");
-  offset += sprintf(lineBuff + offset, "sendRank:%d, recvRank:%d, sendBytes:%zu, recvBytes:%zu, sendChunkSize:%d, recvChunkSize:%d, nSendChannels:%u, nRecvChannels:%u, ",
-    work->sendRank, work->recvRank, work->sendBytes, work->recvBytes, work->sendChunkSize, work->recvChunkSize,
+  offset += sprintf(lineBuff + offset, "sendRank:%d, recvRank:%d, sendBytes:%zu, recvBytes:%zu, sendChunkSize:%u, recvChunkSize:%u, nSendChannels:%u, nRecvChannels:%u, ",
+    work->sendRank, work->recvRank, work->sendBytes, work->recvBytes, work->sendChunkSize(), work->recvChunkSize(),
     work->nSendChannels, work->nRecvChannels);
   if (work->sharedWork) {
     offset += sprintf(lineBuff + offset, "channelBase:%u sharedWork:1 sendPartSteps:%u recvPartSteps:%u ",
@@ -1366,10 +1366,10 @@ static void appendP2pWork(
   // mapping may require this channel to keep its own slice.
   const ncclDevWorkP2p* first = parts.shared;
   const bool reuse = first &&
-      (config.bytes[1] < 0 || (first->sendChunkSize == config.chunkDataSize[1] &&
+      (config.bytes[1] < 0 || (first->sendChunkSize() == config.chunkDataSize[1] &&
                               first->sendIpcReg == config.ipcRegistered[1] &&
                               first->sendProtoLL == config.protoLL[1])) &&
-      (config.bytes[0] < 0 || (first->recvChunkSize == config.chunkDataSize[0] &&
+      (config.bytes[0] < 0 || (first->recvChunkSize() == config.chunkDataSize[0] &&
                               first->recvIpcReg == config.ipcRegistered[0] &&
                               first->recvProtoLL == config.protoLL[0] &&
                               uintptr_t(first->recvAddr) + config.offsets[0] == uintptr_t(config.addrs[0])));
@@ -1382,16 +1382,17 @@ static void appendP2pWork(
     workOffset = plan->workBytes;
     plan->workBytes += node->size;
     auto* work = (ncclDevWorkP2p*)(node+1);
-    work->comm = comm->devComm;
+    work->nP2pChannels = comm->p2pnChannels;
+    work->sendNetReg = work->recvNetReg = false;
     work->sendAddr = config.addrs[1];
-    work->sendChunkSize = config.chunkDataSize[1];
+    work->setSendChunkSize(config.chunkDataSize[1]);
     work->sendBytes = config.bytes[1] < 0 ? 0 : config.bytes[1];
     work->nSendChannels = config.bytes[1] < 0 ? 0 : 1;
     work->sendIpcReg = config.ipcRegistered[1];
     work->sendProtoLL = config.protoLL[1];
     work->sendRank = sendRank;
     work->recvAddr = config.addrs[0];
-    work->recvChunkSize = config.chunkDataSize[0];
+    work->setRecvChunkSize(config.chunkDataSize[0]);
     work->recvBytes = config.bytes[0] < 0 ? 0 : config.bytes[0];
     work->nRecvChannels = config.bytes[0] < 0 ? 0 : 1;
     work->recvRank = recvRank;

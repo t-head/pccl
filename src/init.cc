@@ -835,7 +835,6 @@ static ncclResult_t devCommSetup(ncclComm_t comm) {
   }
 
   // Duplicate the dev comm on the device
-  comm->hostDevComm.nP2pChannels = comm->p2pnChannels;
   for (int part = 0; part < std::min(comm->p2pnChannels, comm->p2pnChannelsPerPeer); part++) {
     comm->hostDevComm.p2pPartForDelta[comm->p2pChannels[part]] = part;
   }

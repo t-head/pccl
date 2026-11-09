@@ -28,11 +28,11 @@ __inline__ __device__ struct ncclShmemData* getShmemPtr(struct ncclKernelComm* c
 #endif
 }
 
-__inline__ __device__ struct ncclKernelComm* getShmemComm(struct ncclDevWorkP2p* work) {
+__inline__ __device__ struct ncclKernelComm* getShmemComm(struct ncclShmemData* shmem) {
 #ifdef NO_TSM
-  return work->comm;
+  return shmem->args.comm;
 #else
-  return &pcclShmem.comm;
+  return &shmem->comm;
 #endif
 }
 

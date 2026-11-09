@@ -236,7 +236,7 @@ class RunWorkColl {
 template <ncclFunc_t FUNCTION, int ALGO, int PROTO, class REDOP, typename T, int UNROLL>
 class RunWorkP2p {
   public:
-  __device__ void run(struct ncclDevWorkP2p* work) {}
+  __device__ void run(struct ncclDevWorkP2p* work, struct ncclShmemData* shmem) {}
 };
 
 template <ncclFunc_t FUNCTION, int ALGO, int PROTO, class REDOP, typename T, int UNROLL>
@@ -277,7 +277,7 @@ class RunWorkBatch {
       }
     } else {
       ncclDevWorkP2p* work = (ncclDevWorkP2p*)pShmem->workStorage;
-      RunWorkP2p<FUNCTION, ALGO, PROTO, REDOP, T, UNROLL>().run(work);
+      RunWorkP2p<FUNCTION, ALGO, PROTO, REDOP, T, UNROLL>().run(work, pShmem);
     }
   }
 };

@@ -90,6 +90,8 @@ Repeat with these independent configurations:
 - The same FIFO setting plus `P2P_CHECK_GRAPH=1` to capture the asymmetric case
   and replay it twice with different payloads. Require `GRAPH_OK`; keep graph
   registration disabled.
+- `PCCL_BUFFSIZE=5275648` with 8 channels, including two-host and graph cases,
+  to exercise exact non-FP8 chunk sizes and the proxy/device chunk bound.
 - 24 total/per-peer channels, first with Simple and then SimpleBulk, to cover
   PCCL's non-power-of-two channel permutation and partial final partitions.
 
@@ -97,6 +99,14 @@ Use `PCCL_DEBUG_SUBSYS=INIT,NET,P2P,COLL` and `PCCL_DUMP_WORK_ELEMS=1` for path
 verification. These checker runs are correctness diagnostics, not performance
 measurements. The launch settings, actual library hash, device state, protocol
 logs and complete output should be retained together.
+
+`chunks.cc` is a CPU-only internal layout/encoding check. Build it in the same
+authorized SDK environment, adding `-I src/include` and `-I build/include` to
+the include paths above. It checks every size below 1 MiB, all FP8 code points
+and their neighbors, the largest uint32 value, and both directions independently.
+It requires exact round trips, fallback reset, a 64-byte work and the NCCL prefix
+offsets. Run it without `NDEBUG`; it uses assertions. This check does not replace
+on-device nonstandard-buffer and communication tests.
 
 ## Performance acceptance
 
@@ -123,7 +133,7 @@ peer for 16 ranks), the recorded times were:
 | A, before shared work | `ed532b3a4a3f2b543689688bbcd71972a3a40a57` | 535.61, 222.91, 300.97 | 300.97 |
 | B, shared work | `d1dcb7ce6e51bb5d30b2a85938ed68e3fc99d435` | 584.21, 589.20, 590.42 | 589.20 |
 
-The +95.8% median difference remains unresolved. A has substantial variability;
+At the time of this initial scan, the +95.8% median difference was unresolved. A has substantial variability;
 the data do not establish whether the difference is caused by the patch.
 The separate IPC-registration fix is absent from both A and B.
 
@@ -147,8 +157,8 @@ Library SHA-256:
 
 The benchmark derives from pccl-tests `394556512e87259e9ffa25225632c46b0a0bbcd5`
 with the previously used per-size warmup change. No timing claim is made from
-the work-dump runs. Baseline stability and the complete 5% acceptance gate are
-still pending.
+the work-dump runs. Baseline stability and the complete 5% acceptance gate were
+still pending at this point; later linear-barrier measurements are recorded below.
 
 ## Enqueue refactor comparison (2026-11-09)
 
@@ -171,4 +181,84 @@ SHA-256 values were checked on both hosts before execution:
 - Enqueue refactor: `cf941a91b50f83a8166395fdf807ad114f93820801d07d6582ad071b1cc865cb`
 
 This is limited structural and correctness coverage. Full boundary/protocol
-coverage and the 5% performance acceptance matrix remain pending.
+coverage and the 5% performance acceptance matrix were pending at this point.
+
+## Further NCCL work alignment (2026-11-10)
+
+The reference is NCCL `v2.27.3-1`
+(`72d2432094d6ae36abd6e511c3a16a2d052dbf94`). The device work now follows its
+address/byte, rank, channel-count, FP8-chunk and flag prefix. The communicator
+comes from the explicit shared context, including the `NO_TSM` path. Zero
+channels denotes an absent direction; zero bytes with one channel still denotes
+synchronization. Preprocessing only changes channel-local copies, retains active
+channel counts, and clears directions whose part is out of range.
+
+PCCL's inverse channel permutation and buffer-step partition strides remain.
+Exact raw chunk fallbacks handle sizes not representable by FP8, so the complete
+work stays 64 bytes rather than NCCL's 48. NET registration flags remain zero;
+this does not add NET registration support. Existing IPC behavior is unchanged.
+Private-only plans skip partition preprocessing and its barrier. Shared plans
+use an out-of-line helper to reduce live state in the execution path.
+
+Each send/recv primitive now receives `min(chunkSize, remainingBytes)`. The old
+upward thread alignment could exceed the proxy receive bound. With
+`PCCL_BUFFSIZE=5275648`, the pre-encoding implementation sent 165888 bytes against
+a 164864-byte IB receive. The exact bound fixes this independently of FP8.
+
+The existing PCCL thread assignment remains. A separate NCCL-style assignment
+experiment increased the Simple stack from 412 to 440 bytes and was stopped at
+the resource gate, without device or performance execution. It is not part of
+this implementation and is not a measured runtime regression.
+
+The final source was built remotely for PPU 1.5 in normal and `NO_TSM` modes.
+`NO_TSM` has compile coverage only. All 63 nonregistered boundary cases passed:
+six standard configurations and three custom-buffer configurations, seven cases
+each. Actual LL selection, FIFO storage, 24 channels, SimpleBulk and two graph
+replays with changed payloads were verified. The Simple kernel stack is 412
+bytes, versus 580 before these three alignment steps; register and shared-memory
+allocation did not increase.
+
+The nonregistered performance scan covers AlltoAll, Gather and Scatter at all
+27 sizes from 128 B through 8 GiB, using the default 20 iterations and linear
+MPI barrier, on one-node 2/4/8 devices and two-node 16 devices over ICN and IB.
+The fixed baseline is `ed532b3a4a3f2b543689688bbcd71972a3a40a57`. There are 405
+size/configuration comparisons. Most use three interleaved launches per version;
+Gather on local 2/4 devices and both two-node transports retains eight launches
+per version, including the initial samples and independent five-round rechecks.
+
+**The overall 5% performance gate is not yet passed.** 404 comparisons are within
+5%; IB Gather on 16 devices at 512 KiB has a combined median of 24.225 -> 25.485 us
+(+5.20%). Its independent five-round recheck is 24.26 -> 24.95 us (+2.84%). Slow
+samples remain in both the raw results and combined statistics. The cause is
+not established. Follow-up instrumentation was stopped before the candidate
+launch when another container acquired the devices. No performance result from
+that incomplete diagnostic is used for acceptance.
+
+All AlltoAll and Scatter configurations are within the measured median gate.
+For AlltoAll at 8 MiB, ICN medians are 74.11 -> 72.72 us and IB medians are
+223.84 -> 222.62 us. These small differences do not establish a broad throughput
+gain. Earlier Gather/Scatter outliers did not reproduce consistently; their
+recovery cannot be attributed to the final metadata-store cleanup.
+
+Final structural dumps match the baseline at every observed rank/channel:
+AlltoAll on ICN at 8 MiB and 128 MiB has three uploaded plans per rank and eight
+channels per plan, with one execution batch containing respectively 2 and 4
+works per channel. At 128 MiB, 32 references use 16 unique 64-byte descriptors
+instead of 32, reducing descriptor storage from 2048 to 1024 bytes. Gather on
+four local devices matches all 81 uploaded plans per rank over the full scan.
+These are upload/work-dump observations, not a separate driver-launch trace.
+
+Final library SHA-256:
+`6eca9e087eeabe3cabb30d5c562cc014659870e544b7572ede636fa3ca024389`.
+Source archive SHA-256:
+`a2274181700968d53d6bf9a48b9763b00472157374be5502724d662569606fec`.
+The source archive contains the same tracked `src` content as this implementation;
+validation/documentation changes are maintained separately.
+
+An independent five-round full-range IB Gather reproduction on another idle
+pair of the same device/driver type passed all 27 median comparisons: the largest
+increase was 0.24% at 2 GiB, and 512 KiB was 24.95 -> 23.95 us (-4.01%). All ten
+launches passed correctness, ownership and driver-health checks. These samples
+are kept separate from the original pair. They do not reproduce a stable
+regression, but do not waive the original +5.20% result or establish its cause.
+The branch is available for review; overall performance acceptance stays pending.

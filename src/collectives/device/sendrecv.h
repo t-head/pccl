@@ -24,11 +24,8 @@ __device__ __forceinline__ void runRecv(
   if (recvCount == 0) {
     prims.recv(recvbuff, 0);
   } else for (ssize_t offset = 0; offset < recvCount; offset += chunkSize) {
-    int realChunkSize = min(chunkSize, recvCount-offset);
-    if (Proto::Id != NCCL_PROTO_LL) {
-      ALIGN_SIZE(realChunkSize, nt*sizeof(uint64_t)/sizeof(T));
-    }
-    int nelem = min(realChunkSize, recvCount-offset);
+    // Match the proxy's exact chunk bound, including non-power-of-two sizes.
+    int nelem = min(chunkSize, recvCount-offset);
     prims.directRecv(recvbuff+offset, offset, nelem);
   }
 }
@@ -42,42 +39,39 @@ __device__ __forceinline__ void runSend(
   if (sendCount == 0) {
     prims.send(sendbuff, 0);
   } else for (ssize_t offset = 0; offset < sendCount; offset += chunkSize) {
-    int realChunkSize = min(chunkSize, sendCount-offset);
-    if (Proto::Id != NCCL_PROTO_LL) {
-      ALIGN_SIZE(realChunkSize, nt*sizeof(uint64_t)/sizeof(T));
-    }
-    int nelem = min(realChunkSize, sendCount-offset);
+    // Match the proxy's exact chunk bound, including non-power-of-two sizes.
+    int nelem = min(chunkSize, sendCount-offset);
     prims.directSend(sendbuff+offset, offset, nelem);
   }
 }
 
 template<typename Proto>
-__device__ __noinline__ void preprocessP2pWork(struct ncclDevWorkP2p* work) {
-  struct ncclKernelComm* comm = getShmemComm(work);
-  struct ncclShmemData* shmem = getShmemPtr(comm);
+__device__ __noinline__ void preprocessP2pWork(struct ncclDevWorkP2p* work, struct ncclShmemData* shmem) {
+  struct ncclKernelComm* comm = getShmemComm(shmem);
   // Like NCCL, partition this channel's shared-memory work copies once before
   // assigning threads to send/recv. Keep the host's stride and channel mapping.
-  // Each lane owns one direction; already sliced private works need no changes.
+  // Each lane owns one direction; private works and absent directions need no changes.
+  // Active directions retain their channel count; only an out-of-range part clears it.
   if (threadIdx.x < WARP_SIZE) {
     int workIx = threadIdx.x % (WARP_SIZE/2);
     bool isSend = threadIdx.x >= WARP_SIZE/2;
     if (workIx < shmem->nWorks) {
       ncclDevWorkP2p* partWork = &work[workIx];
       if (partWork->sharedWork) {
-        const int part = ncclP2pChannelToPart(partWork->comm, partWork->channelBase, shmem->channelId);
+        const int part = ncclP2pChannelToPart(shmem->args.comm, partWork->nP2pChannels, partWork->channelBase, shmem->channelId);
         const size_t step = comm->buffSizes[Proto::Id] / NCCL_STEPS;
         size_t offset;
-        if (isSend) {
+        if (isSend && partWork->nSendChannels != 0) {
           ssize_t bytes = ncclP2pPartBytes(partWork->sendBytes, step * partWork->sendPartSteps,
               partWork->nSendChannels, part, &offset);
           partWork->sendBytes = bytes < 0 ? 0 : bytes;
-          partWork->nSendChannels = bytes < 0 ? 0 : 1;
+          if (bytes < 0) partWork->nSendChannels = 0;
           if (offset) partWork->sendAddr = (const char*)partWork->sendAddr + offset;
-        } else {
+        } else if (!isSend && partWork->nRecvChannels != 0) {
           ssize_t bytes = ncclP2pPartBytes(partWork->recvBytes, step * partWork->recvPartSteps,
               partWork->nRecvChannels, part, &offset);
           partWork->recvBytes = bytes < 0 ? 0 : bytes;
-          partWork->nRecvChannels = bytes < 0 ? 0 : 1;
+          if (bytes < 0) partWork->nRecvChannels = 0;
           if (offset) partWork->recvAddr = (char*)partWork->recvAddr + offset;
         }
       }
@@ -87,14 +81,14 @@ __device__ __noinline__ void preprocessP2pWork(struct ncclDevWorkP2p* work) {
 }
 
 template<class FUNC, typename T, int UNROLL, typename Proto>
-__device__ __forceinline__ void runSendRecv(struct ncclDevWorkP2p* work) {
+__device__ __forceinline__ void runSendRecv(struct ncclDevWorkP2p* work, struct ncclShmemData* shmem) {
   static_assert(sizeof(T) == 1, "P2P partition strides are in bytes");
   static_assert(NCCL_MAX_DEV_WORK_P2P_PER_BATCH <= WARP_SIZE/2, "One warp partitions both directions");
-  if (getShmemPtr(getShmemComm(work))->args.p2pPreprocess) preprocessP2pWork<Proto>(work);
+  if (shmem->args.p2pPreprocess) preprocessP2pWork<Proto>(work, shmem);
   // Execution state is read after preprocessing, not kept live across its barrier.
   int tid = threadIdx.x;
-  struct ncclKernelComm* comm = getShmemComm(work);
-  int nWorks = getShmemPtr(comm)->nWorks;
+  struct ncclKernelComm* comm = getShmemComm(shmem);
+  int nWorks = shmem->nWorks;
 
   int group = 0;
   constexpr bool kProtoNeedsExtraWarp = (Proto::Id != NCCL_PROTO_LL);
@@ -135,7 +129,7 @@ __device__ __forceinline__ void runSendRecv(struct ncclDevWorkP2p* work) {
         const bool recvLL = kAllowLLSwitch && work->recvProtoLL;
         const bool sendLL = kAllowLLSwitch && work->sendProtoLL;
         if ((tid < nThreadsSplit) && work->nRecvChannels != 0) {
-          const int chunkSize = work->recvIpcReg ? NCCL_MAX_NET_SIZE : work->recvChunkSize/sizeof(T);
+          const int chunkSize = work->recvIpcReg ? NCCL_MAX_NET_SIZE : work->recvChunkSize()/sizeof(T);
           int peer = work->recvRank;
           int nt = nThreadsSplit;
           if (recvLL) {
@@ -145,7 +139,7 @@ __device__ __forceinline__ void runSendRecv(struct ncclDevWorkP2p* work) {
           }
         }
         if ((tid >= nThreadsSplit) && work->nSendChannels != 0) {
-          const int chunkSize = work->sendIpcReg ? NCCL_MAX_NET_SIZE : work->sendChunkSize/sizeof(T);
+          const int chunkSize = work->sendIpcReg ? NCCL_MAX_NET_SIZE : work->sendChunkSize()/sizeof(T);
           int peer = work->sendRank;
           int nt = sendLL ? (nThreadsSegment - nThreadsSplit) : (nThreads - nThreadsSplit);
           if (sendLL) {
@@ -167,46 +161,46 @@ __device__ __forceinline__ void runSendRecv(struct ncclDevWorkP2p* work) {
 template<class FUNC, typename T, int UNROLL>
 class RunWorkP2p<ncclFuncSendRecv, NCCL_ALGO_RING, NCCL_PROTO_SIMPLE, FUNC, T, UNROLL> {
   public:
-    __device__ void run(struct ncclDevWorkP2p* work) {
+    __device__ void run(struct ncclDevWorkP2p* work, struct ncclShmemData* shmem) {
       using Proto = ProtoSimple<UNROLL, 1, 1>;
-      runSendRecv<FUNC, T, UNROLL, Proto>(work);
+      runSendRecv<FUNC, T, UNROLL, Proto>(work, shmem);
     }
 };
 
 template<class FUNC, typename T, int UNROLL>
 class RunWorkP2p<ncclFuncSendRecv, NCCL_ALGO_RING, NCCL_PROTO_SIMPLE_BULK, FUNC, T, UNROLL> {
   public:
-    __device__ void run(struct ncclDevWorkP2p* work) {
+    __device__ void run(struct ncclDevWorkP2p* work, struct ncclShmemData* shmem) {
       using Proto = ProtoSimpleBulk<UNROLL, 1, 1>;
-      runSendRecv<FUNC, T, UNROLL, Proto>(work);
+      runSendRecv<FUNC, T, UNROLL, Proto>(work, shmem);
     }
 };
 
 template<class FUNC, typename T, int UNROLL>
 class RunWorkP2p<ncclFuncSendRecv, NCCL_ALGO_RING, NCCL_PROTO_SIGNAL, FUNC, T, UNROLL> {
   public:
-    __device__ void run(struct ncclDevWorkP2p* work) {
+    __device__ void run(struct ncclDevWorkP2p* work, struct ncclShmemData* shmem) {
       using Proto = ProtoSignal<UNROLL, 1, 1>;
-      runSendRecv<FUNC, T, UNROLL, Proto>(work);
+      runSendRecv<FUNC, T, UNROLL, Proto>(work, shmem);
     }
 };
 
 template<class FUNC, typename T, int UNROLL>
 class RunWorkP2p<ncclFuncSendRecv, NCCL_ALGO_RING, NCCL_PROTO_SIGNAL_BULK, FUNC, T, UNROLL> {
   public:
-    __device__ void run(struct ncclDevWorkP2p* work) {
+    __device__ void run(struct ncclDevWorkP2p* work, struct ncclShmemData* shmem) {
       using Proto = ProtoSignalBulk<UNROLL, 1, 1>;
-      runSendRecv<FUNC, T, UNROLL, Proto>(work);
+      runSendRecv<FUNC, T, UNROLL, Proto>(work, shmem);
     }
 };
 
 template<class FUNC, typename T, int UNROLL>
 class RunWorkP2p<ncclFuncSendRecv, NCCL_ALGO_RING, NCCL_PROTO_SIMPLE_BULK_AR, FUNC, T, UNROLL> {
   public:
-    __device__ void run(struct ncclDevWorkP2p* work) {
+    __device__ void run(struct ncclDevWorkP2p* work, struct ncclShmemData* shmem) {
 #if defined(__HGGC_ARCH__) && __HGGC_ARCH__ >= 150
       using Proto = ProtoSimpleBulkAR<UNROLL, 1, 1>;
-      runSendRecv<FUNC, T, UNROLL, Proto>(work);
+      runSendRecv<FUNC, T, UNROLL, Proto>(work, shmem);
 #endif
     }
 };

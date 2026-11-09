@@ -213,21 +213,37 @@ struct alignas(16) ncclDevChannel {
 struct ncclKernelComm;
 
 struct alignas(16) ncclDevWorkP2p {
-  // NCCL-style byte ranges and direction state. A zero channel count means
-  // absent; zero bytes with one channel is an explicit synchronization.
   const void* sendAddr;
   void* recvAddr;
   size_t sendBytes, recvBytes;
   int sendRank, recvRank;
-  int sendChunkSize, recvChunkSize;
+  uint8_t nP2pChannels, channelBase;
+  // Zero channels means absent; zero bytes with one channel is a synchronization.
+  // Preprocessing clears out-of-range directions in the channel-local copy only.
+  uint8_t nSendChannels, nRecvChannels;
+  uint8_t sendChunkSize_u32fp8, recvChunkSize_u32fp8;
+  uint8_t sendProtoLL:1, recvProtoLL:1, sendNetReg:1, recvNetReg:1;
+  uint8_t sendIpcReg:1, recvIpcReg:1, profilerEnabled:1, sharedWork:1;
 
-  // PCCL extensions: keep exact chunk sizes, context and partition strides.
-  struct ncclKernelComm* comm;
-  uint8_t sendIpcReg:1, recvIpcReg:1, sendProtoLL:1, recvProtoLL:1, profilerEnabled:1, sharedWork:1;
-  // Device preprocessing turns shared ranges into private ranges and normalizes
-  // each channel count to 0 or 1 in the channel-local copy only.
-  uint8_t channelBase, nSendChannels, nRecvChannels;
+  // PCCL extensions: preserve partition strides and exact non-FP8 chunk sizes.
+  // The NET registration bits above stay zero: this path only supports IPC.
   uint16_t sendPartSteps, recvPartSteps;
+  uint32_t sendChunkSizeRaw, recvChunkSizeRaw;
+
+  __host__ __device__ uint32_t sendChunkSize() const {
+    return sendChunkSizeRaw ? sendChunkSizeRaw : u32fp8Decode(sendChunkSize_u32fp8);
+  }
+  __host__ __device__ uint32_t recvChunkSize() const {
+    return recvChunkSizeRaw ? recvChunkSizeRaw : u32fp8Decode(recvChunkSize_u32fp8);
+  }
+  void setSendChunkSize(uint32_t bytes) {
+    sendChunkSize_u32fp8 = u32fp8Encode(bytes);
+    sendChunkSizeRaw = u32fp8Decode(sendChunkSize_u32fp8) == bytes ? 0 : bytes;
+  }
+  void setRecvChunkSize(uint32_t bytes) {
+    recvChunkSize_u32fp8 = u32fp8Encode(bytes);
+    recvChunkSizeRaw = u32fp8Decode(recvChunkSize_u32fp8) == bytes ? 0 : bytes;
+  }
 };
 static_assert(sizeof(ncclDevWorkP2p) == 64, "P2P partition metadata must fit in the existing work header");
 
@@ -383,17 +399,16 @@ struct alignas(16) ncclKernelCommAndChannels {
   struct ncclDevChannel channels[MAXCHANNELS];
   // Inverse of the host's p2pChannels permutation before the round's rotation.
   uint8_t p2pPartForDelta[MAXCHANNELS];
-  uint8_t nP2pChannels;
 };
 
 // Invert pcclP2pChannelId for a channel participating in this work. Unlike NCCL's
 // linear mapping, PCCL uses a permutation and supports non-power-of-two channel counts.
-// comm must be work->comm, whose allocation includes the layout, not the shared-memory copy.
+// comm must be kernelArgs.comm, whose allocation includes the layout, not the shared-memory copy.
 __device__ __forceinline__ int ncclP2pChannelToPart(
-    const ncclKernelComm* comm, int base, int channel) {
+    const ncclKernelComm* comm, int nP2pChannels, int base, int channel) {
   const auto* layout = reinterpret_cast<const ncclKernelCommAndChannels*>(comm);
   int delta = channel - base;
-  if (delta < 0) delta += layout->nP2pChannels;
+  if (delta < 0) delta += nP2pChannels;
   return layout->p2pPartForDelta[delta];
 }
 
