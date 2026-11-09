@@ -1,16 +1,15 @@
 {
   "classification": {
     "base_sha": "77af125652fd1ffc532bf519022f709b9df510fd",
-    "head_sha": "b1ab7d75fe2dacf60f57ce39e5758efba41838d3",
-    "input_fingerprint": "27ba0b505bb33c9ef76efcf47560a7658f0bf8129b818719da22268b6259cd2c",
+    "head_sha": "9daca94f5f4ded6047b7002f8af5bce0407d2e51",
+    "input_fingerprint": "783f1b80dcf1983814d4516f8fbf5fedb54d0882af7c292581577b27b53765d9",
     "pr_number": 116,
     "proposal": {
       "modules": [
         "device-topology",
-        "transport",
-        "memory"
+        "transport"
       ],
-      "reason": "Primary change is in transport: P2P/SHM connection setup, synchronization/progress reporting, and NET-vs-local transport selection integration. device-topology is also needed because new topology logic computes GPU\u2194NET path bandwidth and adds NET_DISABLE_INTRA policy via ncclTopoCheckNet. memory is needed for substantive shared-memory descriptor/handle lifecycle and registered-address table allocation/update behavior changes for collective vs P2P registration."
+      "reason": "Primary change is transport behavior: P2P/SHM connection setup, synchronization/progress reporting, and shared-memory descriptor lifecycle were reworked in transport and transport-adjacent SHM code. Added device-topology because transport selection now depends on new topology-level NET-vs-P2P/SHM path-speed checks (`ncclTopoCheckNet`) and related intra-node NET preference gating."
     }
   },
   "reviewers": {
