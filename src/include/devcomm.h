@@ -408,6 +408,7 @@ struct alignas(16) pcclDevKernelArgs {
   uint32_t workMask;
   enum ncclDevWorkStorageType workStorageType;
   bool persistent;
+  bool p2pPreprocess; // Uniform across the plan; private-only plans need no partition barrier.
   void* workBuf;
   // A channel's first batch is at `blosckIdx.x`. Use `nextJump` to follow rest of list.
   // struct ncclDevWorkBatch batches[];

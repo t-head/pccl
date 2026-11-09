@@ -252,6 +252,7 @@ struct ncclKernelPlan {
   bool isSymColl;
   bool isCeColl;
   bool isCeP2p;
+  bool p2pPreprocess; // At least one P2P work needs device-side partitioning.
   enum ncclDevWorkStorageType workStorageType;
   void *kernelFn;
   uint16_t funcIndex;

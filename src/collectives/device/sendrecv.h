@@ -51,25 +51,20 @@ __device__ __forceinline__ void runSend(
   }
 }
 
-template<class FUNC, typename T, int UNROLL, typename Proto>
-__device__ __forceinline__ void runSendRecv(struct ncclDevWorkP2p* work) {
-  static_assert(sizeof(T) == 1, "P2P partition strides are in bytes");
-  static_assert(NCCL_MAX_DEV_WORK_P2P_PER_BATCH <= WARP_SIZE/2, "One warp partitions both directions");
-  int tid = threadIdx.x;
+template<typename Proto>
+__device__ __noinline__ void preprocessP2pWork(struct ncclDevWorkP2p* work) {
   struct ncclKernelComm* comm = getShmemComm(work);
-  int nWorks = getShmemPtr(comm)->nWorks;
-  const int channelId = getShmemPtr(comm)->channelId;
-
+  struct ncclShmemData* shmem = getShmemPtr(comm);
   // Like NCCL, partition this channel's shared-memory work copies once before
   // assigning threads to send/recv. Keep the host's stride and channel mapping.
   // Each lane owns one direction; already sliced private works need no changes.
-  if (tid < WARP_SIZE) {
-    int workIx = tid % (WARP_SIZE/2);
-    bool isSend = tid >= WARP_SIZE/2;
-    if (workIx < nWorks) {
+  if (threadIdx.x < WARP_SIZE) {
+    int workIx = threadIdx.x % (WARP_SIZE/2);
+    bool isSend = threadIdx.x >= WARP_SIZE/2;
+    if (workIx < shmem->nWorks) {
       ncclDevWorkP2p* partWork = &work[workIx];
       if (partWork->sendParts || partWork->recvParts) {
-        const int part = ncclP2pChannelToPart(partWork->comm, partWork->channelBase, channelId);
+        const int part = ncclP2pChannelToPart(partWork->comm, partWork->channelBase, shmem->channelId);
         const size_t step = comm->buffSizes[Proto::Id] / NCCL_STEPS;
         size_t offset;
         if (isSend) {
@@ -85,6 +80,17 @@ __device__ __forceinline__ void runSendRecv(struct ncclDevWorkP2p* work) {
     }
   }
   __syncthreads(); // Publish the sliced work before any execution thread reads it.
+}
+
+template<class FUNC, typename T, int UNROLL, typename Proto>
+__device__ __forceinline__ void runSendRecv(struct ncclDevWorkP2p* work) {
+  static_assert(sizeof(T) == 1, "P2P partition strides are in bytes");
+  static_assert(NCCL_MAX_DEV_WORK_P2P_PER_BATCH <= WARP_SIZE/2, "One warp partitions both directions");
+  if (getShmemPtr(getShmemComm(work))->args.p2pPreprocess) preprocessP2pWork<Proto>(work);
+  // Execution state is read after preprocessing, not kept live across its barrier.
+  int tid = threadIdx.x;
+  struct ncclKernelComm* comm = getShmemComm(work);
+  int nWorks = getShmemPtr(comm)->nWorks;
 
   int group = 0;
   constexpr bool kProtoNeedsExtraWarp = (Proto::Id != NCCL_PROTO_LL);

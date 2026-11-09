@@ -1397,6 +1397,7 @@ static void appendP2pWork(
     work->profilerEnabled = ncclProfilerPluginLoaded() &&
         ((p2pTasks[0] ? p2pTasks[0] : p2pTasks[1])->eActivationMask & ncclProfileKernelCh);
     if (part == 0 && parts.canShare) {
+      plan->p2pPreprocess = true;
       work->channelBase = config.channelId;
       work->sendCount = config.totBytes[1];
       work->recvCount = config.totBytes[0];
@@ -1872,6 +1873,7 @@ static ncclResult_t finishPlan(ncclComm_t comm, struct ncclKernelPlan* plan) {
   plan->kernelArgs->channelMask = plan->channelMask;
   plan->kernelArgs->workStorageType = plan->workStorageType;
   plan->kernelArgs->persistent = plan->persistent;
+  plan->kernelArgs->p2pPreprocess = plan->p2pPreprocess;
   INFO(NCCL_COLL, "workStorageType %d, persistent %d", plan->workStorageType, plan->persistent);
 
   // Put batches into the kernel arguments. The first batch for each channel
