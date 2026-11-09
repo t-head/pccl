@@ -2,14 +2,14 @@
   "classification": {
     "base_sha": "77af125652fd1ffc532bf519022f709b9df510fd",
     "head_sha": "9daca94f5f4ded6047b7002f8af5bce0407d2e51",
-    "input_fingerprint": "783f1b80dcf1983814d4516f8fbf5fedb54d0882af7c292581577b27b53765d9",
+    "input_fingerprint": "5e19fa26c230f00b39593fd81096e1d70b7bde29eb58f991da7fd55babea46d5",
     "pr_number": 116,
     "proposal": {
       "modules": [
         "device-topology",
         "transport"
       ],
-      "reason": "Primary change is transport behavior: P2P/SHM connection setup, synchronization/progress reporting, and shared-memory descriptor lifecycle were reworked in transport and transport-adjacent SHM code. Added device-topology because transport selection now depends on new topology-level NET-vs-P2P/SHM path-speed checks (`ncclTopoCheckNet`) and related intra-node NET preference gating."
+      "reason": "Primary change is in transport behavior: P2P/SHM connection setup/cleanup, host/device stream synchronization, connect-progress accounting, IPC registration/address-table handling, and CE control shared-memory descriptor lifecycle. Additional device-topology review is needed because new NET-vs-P2P/SHM bandwidth checks (including NET_DISABLE_INTRA and ncclTopoCheckNet path logic) materially change intra-node path eligibility."
     }
   },
   "reviewers": {
