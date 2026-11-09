@@ -2,13 +2,13 @@
   "classification": {
     "base_sha": "77af125652fd1ffc532bf519022f709b9df510fd",
     "head_sha": "224f0a04809c3931c22fe2c335813f59d8f121d9",
-    "input_fingerprint": "c4c9af7696981ccc59cf63699c9d7f91564f2a14582657793b74b6fb10d34b02",
+    "input_fingerprint": "ec944e6bac79173bf67de0775f932fb42e28c347bcab8a534499ce87b579ee3f",
     "pr_number": 157,
     "proposal": {
       "modules": [
         "workflow"
       ],
-      "reason": "Main change is to review/merge automation: reviewer notice policy now handles PR-author Maintainer exemptions without self-review requests, module classification now processes complete diffs via stdin instead of a size cap, and squash-message guidance is updated to summarize by purpose/behavior."
+      "reason": "PR changes reviewer-assignment/approval notice behavior (including author Maintainer exemption messaging without self-review) and squash-message automation guidance, plus classification prompt handling in review automation; these are contribution/review workflow mechanics, not CI test execution or build/runtime modules."
     }
   },
   "reviewers": {
