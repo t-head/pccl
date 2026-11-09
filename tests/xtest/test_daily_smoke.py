@@ -16,13 +16,13 @@ WORKFLOW = ROOT / '.github/workflows/m890p-daily-smoke.yml'
 
 
 class DailySmokeTests(unittest.TestCase):
-    def test_six_supported_single_node_suites_are_selected(self):
+    def test_seven_supported_single_node_suites_are_selected(self):
         selected = run_cases.load_inputs(INPUT, 'standard', nodes=1)
-        self.assertEqual(len(selected['cases']), 6)
-        self.assertEqual(len({(row['plan'], row['suite']) for row in selected['cases']}), 6)
+        self.assertEqual(len(selected['cases']), 7)
+        self.assertEqual(len({(row['plan'], row['suite']) for row in selected['cases']}), 7)
         cluster = run_cases.load_inputs(INPUT, 'standard', nodes=2)
-        self.assertEqual(len(cluster['cases']), 2)
-        self.assertEqual(len({(row['plan'], row['suite']) for row in cluster['cases']}), 2)
+        self.assertEqual(len(cluster['cases']), 3)
+        self.assertEqual(len({(row['plan'], row['suite']) for row in cluster['cases']}), 3)
         self.assertTrue(all(row['suite_spec']['nodes'] == 2 for row in cluster['cases']))
         register = next(row for row in cluster['cases']
                         if row['suite'] == 'register_test_shm_multi_nodes2_suite')
@@ -30,10 +30,17 @@ class DailySmokeTests(unittest.TestCase):
         self.assertIn('--nprocs 8', register['cmd'])
         self.assertIn('--nnodes 2', register['cmd'])
         self.assertIn('--hostfile {hostfile}', register['cmd'])
+        copyengine = next(row for row in cluster['cases']
+                          if row['suite'] == 'copyengine_perf_shm_multi_nodes2_suite')
+        self.assertIn('-np 16', copyengine['cmd'])
+        self.assertIn('-npernode 8', copyengine['cmd'])
+        self.assertIn('--hostfile {hostfile}', copyengine['cmd'])
+        sanity = next(row for row in selected['cases'] if row['suite'] == 'sanity_m890p_register_suite')
+        self.assertIn('--register 1', sanity['cmd'])
         self.assertEqual(sum(row['check'] == 'performance' for row in selected['cases']), 1)
-        self.assertEqual(sum(row['check'] == 'exit_code' for row in selected['cases']), 5)
+        self.assertEqual(sum(row['check'] == 'exit_code' for row in selected['cases']), 6)
         self.assertTrue(all(row['suite_spec']['nodes'] == 1 for row in selected['cases']))
-        self.assertEqual({row['suite_spec']['timeout'] for row in selected['cases']}, {300, 3600})
+        self.assertEqual({row['suite_spec']['timeout'] for row in selected['cases']}, {300, 3600, 7200})
 
     def test_daily_commands_use_only_documented_runtime_bindings(self):
         with (INPUT / 'standard.csv').open(newline='') as stream:
@@ -44,10 +51,10 @@ class DailySmokeTests(unittest.TestCase):
             self.assertNotIn('/home/image', row['cmd'])
             self.assertNotIn('unit_test.py', row['cmd'])
         self.assertEqual(sum('{python_env}' in row['cmd'] for row in rows), 1)
-        self.assertEqual(sum(row['cmd'].startswith('python3 run_test.py') for row in rows), 2)
+        self.assertEqual(sum(row['cmd'].startswith('python3 run_test.py') for row in rows), 3)
         single_node_rows = run_cases.load_inputs(INPUT, 'standard', nodes=1)['cases']
         self.assertEqual(sum(row['cmd'].startswith('mpirun ') for row in single_node_rows), 4)
-        self.assertEqual(sum(row['cmd'].startswith('mpirun ') for row in rows), 5)
+        self.assertEqual(sum(row['cmd'].startswith('mpirun ') for row in rows), 6)
 
     def test_daily_metadata_and_empty_notsm_are_explicit(self):
         metadata = json.loads((INPUT / 'export.json').read_text())
@@ -62,7 +69,7 @@ class DailySmokeTests(unittest.TestCase):
         text = WORKFLOW.read_text()
         self.assertIn('branches: [ci/m890p-daily-csv]', text)
         self.assertIn('tests/xtest/daily-minimal-csv', text)
-        self.assertIn("expected = {'standard': 6, 'cluster': 2}", text)
+        self.assertIn("expected = {'standard': 7, 'cluster': 3}", text)
         self.assertIn('len(metrics) != 1', text)
         self.assertIn('artifact_cache.py cleanup', text)
         self.assertIn('NEEDS: ${{ toJSON(needs) }}', text)
