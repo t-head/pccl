@@ -2,14 +2,14 @@
   "classification": {
     "base_sha": "4784d0ad1b4def7ad4b5d686c73e7d16f24fc018",
     "head_sha": "2b12c9c8edc807afeb59863cfa34f12b4c4ce751",
-    "input_fingerprint": "1f692bcb607df07eaf8a0effc23d0bface0cb9f3ed2610834ae9834ab4487379",
+    "input_fingerprint": "6d9deca68af5a125455520f6513fd9176af773a1f735293957a0708930ad04b4",
     "pr_number": 147,
     "proposal": {
       "modules": [
         "build",
         "ci"
       ],
-      "reason": "Main change adds a new GitHub Actions pipeline (schedule/push/dispatch triggers, matrix fanout, artifact merge/summary, runner orchestration), which is CI workflow behavior. It also makes substantive packaging/build-system changes in tar build scripts (SDK/toolchain setup, build invocation, tarball assembly/layout, package naming), so build expertise is additionally required."
+      "reason": "Main change is a new PPU tarball packaging/build pipeline: added and heavily expanded tar-build scripts to install SDK/toolchains, compile PCCL/pccl-tests, and produce release/internal artifacts. Also includes an independently substantive GitHub Actions workflow (schedule, matrix fan-out, artifact merge/publish, runner orchestration) that changes CI execution infrastructure."
     }
   },
   "reviewers": {
