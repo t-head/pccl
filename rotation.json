@@ -9,10 +9,10 @@
   "gin": 341353320,
   "kernel-plugin": 335730053,
   "kernels": 341349555,
-  "memory": 341349555,
+  "memory": 340404662,
   "network": 341355176,
   "symmetric": 341349555,
-  "transport": 341355176,
+  "transport": 341341178,
   "tuning": 341751581,
   "workflow": 333277982
 }

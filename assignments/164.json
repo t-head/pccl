@@ -1,0 +1,19 @@
+{
+  "classification": {
+    "base_sha": "05be5e2c803354e5e5dd40f7126ff2381d31b375",
+    "head_sha": "251c69779a8a627944fd587cc9014a2d1325e59f",
+    "input_fingerprint": "42ee7a3cf4bca4590e8c322c496b2dd5e42c52200ccaa64d4f314dc1715a5ad8",
+    "pr_number": 164,
+    "proposal": {
+      "modules": [
+        "transport",
+        "memory"
+      ],
+      "reason": "Primary change makes memory allocation zero-initialization opt-in via PCCL_NO_MEMSET (default 1), updating allocation helper behavior and related global flag wiring. It also substantively changes the P2P shareable-buffer allocation path in src/transport/p2p.cc to apply the same policy, requiring transport review for that resource setup path."
+    }
+  },
+  "reviewers": {
+    "memory": 340404662,
+    "transport": 341341178
+  }
+}
