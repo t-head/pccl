@@ -45,10 +45,15 @@ namespace {
       chunkSize = stepSize * REDUCESCATTER_CHUNKSTEPS;
     }
 
+    const bool continuous = (Proto::Id == NCCL_PROTO_SIMPLE || Proto::Id == NCCL_PROTO_LL || Proto::Id == NCCL_PROTO_LL128);
+    if (continuous && Proto::Id != NCCL_PROTO_SIMPLE) {
+      // Match the host's whole-line/whole-warp payload and proxy loop count.
+      chunkSize = ncclRingChunkPayload(Proto::Id, comm->buffSizes[Proto::Id] / NCCL_STEPS) / sizeof(T);
+    }
     const int nranks = comm->nRanks;
     const ssize_t size = work->count; // Full rank segment stride, in elements.
     ssize_t begin = 0, end = size, loopSize = nChannels * chunkSize;
-    if (Proto::Id == NCCL_PROTO_SIMPLE) {
+    if (continuous) {
       work->channelBounds(getShmemPtr(comm)->channelId, &begin, &end);
       loopSize = chunkSize;
     }
@@ -62,7 +67,7 @@ namespace {
 
     for (ssize_t gridOffset = begin; gridOffset < end; gridOffset += loopSize) {
       int realChunkSize;
-      if (Proto::Id == NCCL_PROTO_SIMPLE) {
+      if (continuous) {
         realChunkSize = chunkSize;
       } else if (Proto::Id == NCCL_PROTO_LL) {
         if (size-gridOffset < loopSize) {
@@ -78,7 +83,7 @@ namespace {
       }
 
       ssize_t chunkOffset = gridOffset;
-      if (Proto::Id != NCCL_PROTO_SIMPLE) chunkOffset += bid * realChunkSize;
+      if (!continuous) chunkOffset += bid * realChunkSize;
 
       /////////////// begin ReduceScatter steps ///////////////
       ssize_t offset;

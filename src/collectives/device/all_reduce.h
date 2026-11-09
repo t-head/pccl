@@ -50,7 +50,11 @@ namespace {
       chunkSize = stepSize * ALLREDUCE_CHUNKSTEPS;
     }
 
-    const bool continuous = Proto::Id == NCCL_PROTO_SIMPLE && inputRing == nullptr;
+    const bool continuous = (Proto::Id == NCCL_PROTO_SIMPLE || Proto::Id == NCCL_PROTO_LL || Proto::Id == NCCL_PROTO_LL128) && inputRing == nullptr;
+    if (continuous && Proto::Id != NCCL_PROTO_SIMPLE) {
+      // Match the host's whole-line/whole-warp payload and proxy loop count.
+      chunkSize = ncclRingChunkPayload(Proto::Id, comm->buffSizes[Proto::Id] / NCCL_STEPS) / sizeof(T);
+    }
     ssize_t begin = 0, end = work->count;
     if (continuous) work->channelBounds(getShmemPtr(comm)->channelId, &begin, &end);
     const ssize_t loopSize = nranks * (continuous ? chunkSize : nChannels * chunkSize);
@@ -68,9 +72,15 @@ namespace {
       if (continuous) {
         chunkCount = chunkSize;
         if (remaining < loopSize) {
-          chunkCount = DIVUP(remaining, nranks);
-          ALIGN_SIZE(chunkCount, (nChannels == 1 ? nthreads * sizeof(uint64_t) : 16) / sizeof(T));
-          chunkCount = min(chunkCount, chunkSize);
+          if (Proto::Id == NCCL_PROTO_LL || Proto::Id == NCCL_PROTO_LL128) {
+            // Keep the protocol's tail grain within each channel range. A
+            // 16-byte grain creates extra nonempty rank chunks on small tails.
+            chunkCount = min(DIVUP(remaining, nranks * minChunkSize) * minChunkSize, chunkSize);
+          } else {
+            chunkCount = DIVUP(remaining, nranks);
+            ALIGN_SIZE(chunkCount, (nChannels == 1 ? nthreads * sizeof(uint64_t) : 16) / sizeof(T));
+            chunkCount = min(chunkCount, chunkSize);
+          }
         }
         chunkBase = gridOffset;
         chunkStride = chunkCount;

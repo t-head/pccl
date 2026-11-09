@@ -1659,9 +1659,8 @@ static ncclResult_t scheduleCollTasksToPlan(ncclComm_t comm, struct ncclKernelPl
       const bool rooted = info.coll == ncclFuncBroadcast || info.coll == ncclFuncReduce;
       const bool allReduce = info.coll == ncclFuncAllReduce;
       const bool continuous = info.algorithm == NCCL_ALGO_RING &&
-          ((info.coll == ncclFuncAllGather && (info.protocol == NCCL_PROTO_SIMPLE || info.protocol == NCCL_PROTO_LL ||
-                                              info.protocol == NCCL_PROTO_LL128)) ||
-           ((info.coll == ncclFuncReduceScatter || rooted || allReduce) && info.protocol == NCCL_PROTO_SIMPLE));
+          (info.coll == ncclFuncAllGather || info.coll == ncclFuncReduceScatter || rooted || allReduce) &&
+          (info.protocol == NCCL_PROTO_SIMPLE || info.protocol == NCCL_PROTO_LL || info.protocol == NCCL_PROTO_LL128);
       if (continuous) {
         if (info.nChannels <= 0) return ncclInternalError;
         // Use whole-element cells representing at least 16 KiB of traffic across ranks.
@@ -1669,6 +1668,14 @@ static ncclResult_t scheduleCollTasksToPlan(ncclComm_t comm, struct ncclKernelPl
         if (allReduce) trafficPerByte = 2; // ReduceScatter followed by AllGather.
         if (info.protocol == NCCL_PROTO_LL) trafficPerByte *= 4;
         size_t cellSize = ROUNDUP(DIVUP(16u << 10, trafficPerByte), 16);
+        if (info.protocol == NCCL_PROTO_LL128 && (rooted || allReduce)) {
+          // Keep tiny LL128 tails from activating additional data channels
+          // below the protocol's existing worker-thread grain on PPU.
+          size_t tailGrain = size_t(info.nThreads) * NCCL_LL128_SHMEM_ELEMS_PER_THREAD *
+              NCCL_LL128_DATAELEMS * sizeof(uint64_t) / NCCL_LL128_LINEELEMS;
+          if (allReduce) tailGrain /= 2;
+          cellSize = std::max(cellSize, tailGrain);
+        }
         size_t cellCount = cellSize / ncclTypeSize(info.datatype);
         size_t cells = DIVUP(info.count, cellCount);
         devWork->partCellCount = cellCount;

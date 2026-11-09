@@ -46,7 +46,11 @@ namespace {
 
     const int nranks = comm->nRanks;
     const ssize_t size = work->count;
-    const bool continuous = Proto::Id == NCCL_PROTO_SIMPLE;
+    const bool continuous = (Proto::Id == NCCL_PROTO_SIMPLE || Proto::Id == NCCL_PROTO_LL || Proto::Id == NCCL_PROTO_LL128);
+    if (continuous && Proto::Id != NCCL_PROTO_SIMPLE) {
+      // Match the host's whole-line/whole-warp payload and proxy loop count.
+      chunkSize = ncclRingChunkPayload(Proto::Id, comm->buffSizes[Proto::Id] / NCCL_STEPS) / sizeof(T);
+    }
     ssize_t begin = 0, end = size;
     if (continuous) work->channelBounds(getShmemPtr(comm)->channelId, &begin, &end);
     const ssize_t loopSize = continuous ? chunkSize : nChannels * chunkSize;
