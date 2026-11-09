@@ -1,14 +1,14 @@
 {
   "classification": {
     "base_sha": "77af125652fd1ffc532bf519022f709b9df510fd",
-    "head_sha": "f462aa7a0ad7a9371a0bd8ef4a8a9f590bde15a0",
-    "input_fingerprint": "eb799e37d774e7a12b7a604a25557a7ae7da668e4c2e3efe4a0b7980a21f999f",
+    "head_sha": "52c8d6573c44c574d5dc88189bef488431ed065a",
+    "input_fingerprint": "d22d42eaf86d5f35e85836eb21ff674319286ed470f3f2afb66fa9a582c61914",
     "pr_number": 155,
     "proposal": {
       "modules": [
         "gin"
       ],
-      "reason": "Main functional change is adding and wiring a new GIN backend (GPI): device/host GIN API implementation, backend type/descriptor definitions, plugin/device-handle compatibility checks, GIN connect/context/register cleanup paths, and GIN-specific IB property hookup. Changes in shared files are feature-specific GIN integration rather than separate module policy changes."
+      "reason": "Main change is end-to-end GIN backend expansion for GPI: host-side GIN connection/context/progress-thread handling in gin_host, new GPI device/backend implementation and shared GPI host-device structures, plus GIN-specific backend/type dispatch and compatibility constants. Other edits are supporting plumbing for this same GIN feature, not independent changes to another catalog module."
     }
   },
   "reviewers": {
