@@ -105,3 +105,26 @@ The benchmark derives from pccl-tests `394556512e87259e9ffa25225632c46b0a0bbcd5`
 with the previously used per-size warmup change. No timing claim is made from
 the work-dump runs. Baseline stability and the complete 5% acceptance gate are
 still pending.
+
+## Enqueue refactor comparison (2026-11-09)
+
+Compared the device-preprocessing build (`aaaab9b3e134c413efeaa174142f0467af3d51e4`)
+with the same tree plus the pair-oriented enqueue refactor, using the structural
+command above at 8 MiB and 128 MiB. All four 16-rank launches completed with zero
+incorrect values and passed the host/device health checks. Both builds retain
+the same IPC fix, and registration is disabled in these tests.
+
+At both sizes the comparator found identical structures across all 16 ranks:
+three uploaded plans per rank and eight active channels per plan. At 8 MiB each
+channel executes one batch with `nWorks=2`; at 128 MiB it executes two batches,
+each with `nWorks=2`. The 128 MiB dumps contain shared-partition metadata, so this
+case exercises shared work in addition to the private-work case at 8 MiB.
+
+Both versions built remotely for PPU 1.5 with SendRecv int8 kernels. Library
+SHA-256 values were checked on both hosts before execution:
+
+- Device preprocessing: `a186a8dc72f115050842309335ecfaf016b23a5754610887162ed570d2cda7d1`
+- Enqueue refactor: `cf941a91b50f83a8166395fdf807ad114f93820801d07d6582ad071b1cc865cb`
+
+This is limited structural and correctness coverage. Full boundary/protocol
+coverage and the 5% performance acceptance matrix remain pending.
