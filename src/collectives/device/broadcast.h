@@ -11,7 +11,7 @@
 #include "primitives.h"
 namespace {
   template<class FUNC, typename T, int UNROLL, typename Proto>
-  __device__ __forceinline__ void runRing(struct ncclDevWorkColl* work, struct ncclRing* inputRing=NULL, int inputRank=-1, int inputNextRank=-1, int inputRoot=-1) {
+  __device__ __forceinline__ void runRing(struct ncclDevWorkColl* work) {
     const int tid = threadIdx.x;
     int nthreads;
     if (Proto::Id == NCCL_PROTO_LL || Proto::Id == NCCL_PROTO_LL128) {
@@ -27,7 +27,7 @@ namespace {
     bid = bid % nChannels;
     struct ncclKernelComm* comm = getShmemComm(work);
     struct ncclDevChannel* channel = &(getShmemPtr(comm)->channel);
-    struct ncclRing* ring = (inputRing == NULL) ? &channel->ring : inputRing;
+    struct ncclRing* ring = &channel->ring;
 
     int stepSize;
     ssize_t chunkSize;
@@ -44,7 +44,7 @@ namespace {
       chunkSize = stepSize * BROADCAST_CHUNKSTEPS;
     }
     const ssize_t size = work->count;
-    const bool continuous = (Proto::Id == NCCL_PROTO_SIMPLE || Proto::Id == NCCL_PROTO_LL || Proto::Id == NCCL_PROTO_LL128) && inputRing == nullptr;
+    const bool continuous = (Proto::Id == NCCL_PROTO_SIMPLE || Proto::Id == NCCL_PROTO_LL || Proto::Id == NCCL_PROTO_LL128);
     if (continuous && Proto::Id != NCCL_PROTO_SIMPLE) {
       // Match the host's whole-line/whole-warp payload and proxy loop count.
       chunkSize = ncclRingChunkPayload(Proto::Id, comm->buffSizes[Proto::Id] / NCCL_STEPS) / sizeof(T);
@@ -52,9 +52,9 @@ namespace {
     ssize_t begin = 0, end = size;
     if (continuous) work->channelBounds(getShmemPtr(comm)->channelId, &begin, &end);
     const ssize_t loopSize = continuous ? chunkSize : nChannels * chunkSize;
-    const int rank = (inputRank == -1) ? ring->devUserRanks[0] : inputRank;
-    const int nextRank = (inputNextRank == -1) ? ring->devUserRanks[1] : inputNextRank;
-    const int root = (inputRoot == -1) ? work->root : inputRoot;
+    const int rank = ring->devUserRanks[0];
+    const int nextRank = ring->devUserRanks[1];
+    const int root = work->root;
 
     // Compute pointers
     const T * __restrict__ thisInput = (const T*)work->sendbuff;
@@ -169,41 +169,41 @@ namespace {
 template<class FUNC, typename T, int UNROLL>
 class RunWorkColl<ncclFuncBroadcast, NCCL_ALGO_RING, NCCL_PROTO_SIMPLE, FUNC, T, UNROLL> {
   public:
-    __device__ void run(struct ncclDevWorkColl* work, struct ncclRing* inputRing=NULL, int inputRank=-1, int inputNextRank=-1, int inputRoot=-1) {
+    __device__ void run(struct ncclDevWorkColl* work) {
       using Proto = ProtoSimple<UNROLL, BROADCAST_CHUNKSTEPS/BROADCAST_SLICESTEPS, BROADCAST_SLICESTEPS>;
-      runRing<FUNC, T, UNROLL, Proto>(work, inputRing, inputRank, inputNextRank, inputRoot);
+      runRing<FUNC, T, UNROLL, Proto>(work);
     }
 };
 
 template<class FUNC, typename T, int UNROLL>
 class RunWorkColl<ncclFuncBroadcast, NCCL_ALGO_RING, NCCL_PROTO_LL, FUNC, T, UNROLL> {
   public:
-    __device__ void run(struct ncclDevWorkColl* work, struct ncclRing* inputRing=NULL, int inputRank=-1, int inputNextRank=-1, int inputRoot=-1) {
-      runRing<FUNC, T, UNROLL, ProtoLL>(work, inputRing, inputRank, inputNextRank, inputRoot);
+    __device__ void run(struct ncclDevWorkColl* work) {
+      runRing<FUNC, T, UNROLL, ProtoLL>(work);
     }
 };
 
 template<class FUNC, typename T, int UNROLL>
 class RunWorkColl<ncclFuncBroadcast, NCCL_ALGO_RING, NCCL_PROTO_LL128, FUNC, T, UNROLL> {
   public:
-    __device__ void run(struct ncclDevWorkColl* work, struct ncclRing* inputRing=NULL, int inputRank=-1, int inputNextRank=-1, int inputRoot=-1) {
-      runRing<FUNC, T, UNROLL, ProtoLL128>(work, inputRing, inputRank, inputNextRank, inputRoot);
+    __device__ void run(struct ncclDevWorkColl* work) {
+      runRing<FUNC, T, UNROLL, ProtoLL128>(work);
     }
 };
 
 template<class FUNC, typename T, int UNROLL>
 class RunWorkColl<ncclFuncBroadcast, NCCL_ALGO_RING, NCCL_PROTO_SIGNAL, FUNC, T, UNROLL> {
   public:
-    __device__ void run(struct ncclDevWorkColl* work, struct ncclRing* inputRing=NULL, int inputRank=-1, int inputNextRank=-1, int inputRoot=-1) {
+    __device__ void run(struct ncclDevWorkColl* work) {
       using Proto = ProtoSignal<UNROLL, BROADCAST_CHUNKSTEPS/BROADCAST_SLICESTEPS, BROADCAST_SLICESTEPS>;
-      runRing<FUNC, T, UNROLL, Proto>(work, inputRing, inputRank, inputNextRank, inputRoot);
+      runRing<FUNC, T, UNROLL, Proto>(work);
     }
 };
 
 template<class FUNC, typename T, int UNROLL>
 class RunWorkColl<ncclFuncBroadcast, NCCL_ALGO_RING, NCCL_PROTO_SIMPLE_BULK, FUNC, T, UNROLL> {
   public:
-    __device__ void run(struct ncclDevWorkColl* work, struct ncclRing* inputRing=NULL, int inputRank=-1, int inputNextRank=-1, int inputRoot=-1) {
+    __device__ void run(struct ncclDevWorkColl* work) {
       struct ncclKernelComm* comm = getShmemComm(work);
       struct ncclDevChannel* channel = &(getShmemPtr(comm)->channel);
       const ncclConn_t sendConnType = channel->ring.sendConnType;
@@ -211,10 +211,10 @@ class RunWorkColl<ncclFuncBroadcast, NCCL_ALGO_RING, NCCL_PROTO_SIMPLE_BULK, FUN
 
       if (sendConnType == CONN_ICN) {
         using Proto = ProtoSimpleBulk<UNROLL, BROADCAST_CHUNKSTEPS/BROADCAST_SLICESTEPS, BROADCAST_SLICESTEPS, CONN_ICN, CONN_ICN>;
-        runRing<FUNC, T, UNROLL, Proto>(work, inputRing, inputRank, inputNextRank, inputRoot);
+        runRing<FUNC, T, UNROLL, Proto>(work);
       } else {
         using Proto = ProtoSimpleBulk<UNROLL, BROADCAST_CHUNKSTEPS/BROADCAST_SLICESTEPS, BROADCAST_SLICESTEPS, CONN_NORMAL, CONN_ICN>;
-        runRing<FUNC, T, UNROLL, Proto>(work, inputRing, inputRank, inputNextRank, inputRoot);
+        runRing<FUNC, T, UNROLL, Proto>(work);
       }
     }
 };
@@ -222,19 +222,19 @@ class RunWorkColl<ncclFuncBroadcast, NCCL_ALGO_RING, NCCL_PROTO_SIMPLE_BULK, FUN
 template<class FUNC, typename T, int UNROLL>
 class RunWorkColl<ncclFuncBroadcast, NCCL_ALGO_RING, NCCL_PROTO_SIGNAL_BULK, FUNC, T, UNROLL> {
   public:
-    __device__ void run(struct ncclDevWorkColl* work, struct ncclRing* inputRing=NULL, int inputRank=-1, int inputNextRank=-1, int inputRoot=-1) {
+    __device__ void run(struct ncclDevWorkColl* work) {
       using Proto = ProtoSignalBulk<UNROLL, BROADCAST_CHUNKSTEPS/BROADCAST_SLICESTEPS, BROADCAST_SLICESTEPS>;
-      runRing<FUNC, T, UNROLL, Proto>(work, inputRing, inputRank, inputNextRank, inputRoot);
+      runRing<FUNC, T, UNROLL, Proto>(work);
     }
 };
 
 template<class FUNC, typename T, int UNROLL>
 class RunWorkColl<ncclFuncBroadcast, NCCL_ALGO_RING, NCCL_PROTO_SIMPLE_BULK_AR, FUNC, T, UNROLL> {
   public:
-    __device__ void run(struct ncclDevWorkColl* work, struct ncclRing* inputRing=NULL, int inputRank=-1, int inputNextRank=-1, int inputRoot=-1) {
+    __device__ void run(struct ncclDevWorkColl* work) {
 #if defined(__HGGC_ARCH__) && __HGGC_ARCH__ >= 150
       using Proto = ProtoSimpleBulkAR<UNROLL, BROADCAST_CHUNKSTEPS/BROADCAST_SLICESTEPS, BROADCAST_SLICESTEPS, CONN_ICN, CONN_ICN>;
-      runRing<FUNC, T, UNROLL, Proto>(work, inputRing, inputRank, inputNextRank, inputRoot);
+      runRing<FUNC, T, UNROLL, Proto>(work);
 #endif
     }
 };
