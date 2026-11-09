@@ -15,30 +15,22 @@ namespace {
     const int tid = threadIdx.x;
     int nthreads;
     if (Proto::Id == NCCL_PROTO_LL || Proto::Id == NCCL_PROTO_LL128) {
-      nthreads = work->nThreads;
+      nthreads = (work->nWarps * WARP_SIZE);
     } else {
 #ifndef NO_EXTRA_WARP
-      nthreads = work->nThreads-WARP_SIZE;
+      nthreads = (work->nWarps * WARP_SIZE)-WARP_SIZE;
 #else
-      nthreads = work->nThreads;
+      nthreads = (work->nWarps * WARP_SIZE);
 #endif
     }
-    const int nChannels = work->nChannels;
     struct ncclKernelComm* comm = getShmemComm(work);
     struct ncclDevChannel* channel = &(getShmemPtr(comm)->channel);
     struct ncclRing* ring = &channel->ring;
     const int nranks = comm->nRanks;
 
-    const ssize_t chunkSize = work->chunkCount;
-    ssize_t minChunkSize = 0;
-    if (Proto::Id == NCCL_PROTO_LL) {
-      minChunkSize = nthreads * sizeof(uint64_t) / sizeof(T);
-    } else if (Proto::Id == NCCL_PROTO_LL128) {
-      minChunkSize = (NCCL_LL128_SHMEM_ELEMS_PER_THREAD*nthreads*NCCL_LL128_DATAELEMS*sizeof(uint64_t))/(NCCL_LL128_LINEELEMS*sizeof(T))/2;
-    }
-    ssize_t begin, end;
-    // Use the physical channel ID: compact launch blocks may map across wraparound.
-    work->channelBounds(getShmemPtr(comm)->channelId, &begin, &end);
+    ssize_t size, begin, partCount, chunkSize, tailGrain;
+    ncclCollCbdPart(work, getShmemPtr(comm)->channelId, &size, &begin, &partCount, &chunkSize, &tailGrain);
+    const ssize_t end = begin + partCount;
     const ssize_t loopSize = nranks * chunkSize;
 
     // Compute pointers
@@ -52,14 +44,9 @@ namespace {
       const ssize_t remaining = end - gridOffset;
       ssize_t chunkCount = chunkSize;
       if (remaining < loopSize) {
-        if (Proto::Id == NCCL_PROTO_LL || Proto::Id == NCCL_PROTO_LL128) {
-          // Preserve the protocol's tail grain to avoid additional nonempty rank chunks.
-          chunkCount = min(DIVUP(remaining, nranks * minChunkSize) * minChunkSize, chunkSize);
-        } else {
-          chunkCount = DIVUP(remaining, nranks);
-          ALIGN_SIZE(chunkCount, (nChannels == 1 ? nthreads * sizeof(uint64_t) : 16) / sizeof(T));
-          chunkCount = min(chunkCount, chunkSize);
-        }
+        chunkCount = DIVUP(remaining, nranks);
+        ALIGN_SIZE(chunkCount, tailGrain);
+        chunkCount = min(chunkCount, chunkSize);
       }
 
       ssize_t offset;
@@ -115,18 +102,18 @@ namespace {
     const int tid = threadIdx.x;
     int nthreads;
     if (Proto::Id == NCCL_PROTO_LL || Proto::Id == NCCL_PROTO_LL128) {
-      nthreads = work->nThreads;
+      nthreads = (work->nWarps * WARP_SIZE);
     } else {
 #ifndef NO_EXTRA_WARP
-      nthreads = work->nThreads-WARP_SIZE;
+      nthreads = (work->nWarps * WARP_SIZE)-WARP_SIZE;
 #else
-      nthreads = work->nThreads;
+      nthreads = (work->nWarps * WARP_SIZE);
 #endif
     }
-    const int nChannels = work->nChannels;
-    int bid = (blockIdx.x >= work->startChannelId) ?
-      (blockIdx.x - work->startChannelId) :
-      (blockIdx.x + work->commNChannels - work->startChannelId);
+    const int nChannels = (work->channelHi - work->channelLo + 1);
+    int bid = (blockIdx.x >= work->channelLo) ?
+      (blockIdx.x - work->channelLo) :
+      (blockIdx.x + work->commNChannels - work->channelLo);
     bid = bid % nChannels;
     struct ncclKernelComm* comm = getShmemComm(work);
     struct ncclDevChannel* channel = &(getShmemPtr(comm)->channel);
@@ -147,7 +134,7 @@ namespace {
     }
     const int nranks = comm->nRanks;
     const ssize_t loopSize = nChannels*(ssize_t)chunkSize;
-    const ssize_t size = work->count;
+    const ssize_t size = work->collnet.count;
     int chunk = fc->rank;
 
     // Compute pointers
@@ -197,23 +184,23 @@ namespace {
   __device__ __forceinline__ void runTreeUpDown(struct ncclDevWorkColl* work) {
     const int tid = threadIdx.x;
 #ifndef NO_EXTRA_WARP
-    const int nthreads = work->nThreads-2*WARP_SIZE;
+    const int nthreads = (work->nWarps * WARP_SIZE)-2*WARP_SIZE;
 #else
-    const int nthreads = work->nThreads;
+    const int nthreads = (work->nWarps * WARP_SIZE);
 #endif
-    const int nChannels = work->nChannels;
-    int bid = (blockIdx.x >= work->startChannelId) ?
-      (blockIdx.x - work->startChannelId) :
-      (blockIdx.x + work->commNChannels - work->startChannelId);
+    const int nChannels = (work->channelHi - work->channelLo + 1);
+    int bid = (blockIdx.x >= work->channelLo) ?
+      (blockIdx.x - work->channelLo) :
+      (blockIdx.x + work->commNChannels - work->channelLo);
     bid = bid % nChannels;
     struct ncclKernelComm* comm = getShmemComm(work);
     struct ncclDevChannel* channel = &(getShmemPtr(comm)->channel);
     struct ncclTree* tree = &channel->tree;
     const int stepSize = comm->buffSizes[NCCL_PROTO_SIMPLE] / (sizeof(T)*NCCL_STEPS);
-    int chunkSize = work->lastChunkSize;
+    int chunkSize = work->collnet.chunkCount;
     const ssize_t minChunkSize = nthreads*8*sizeof(uint64_t) / sizeof(T);
     const ssize_t loopSize = nChannels*chunkSize;
-    const ssize_t size = work->count;
+    const ssize_t size = work->collnet.count;
 
     if (loopSize > size) {
       chunkSize = DIVUP(size, nChannels*minChunkSize)*minChunkSize;
@@ -285,17 +272,17 @@ namespace {
     int nthreads;
 #ifndef NO_EXTRA_WARP
     if (upProto::Id == NCCL_PROTO_LL || upProto::Id == NCCL_PROTO_LL128) {
-      nthreads = work->nThreads;
+      nthreads = (work->nWarps * WARP_SIZE);
     } else {
-      nthreads = work->nThreads-2*WARP_SIZE;
+      nthreads = (work->nWarps * WARP_SIZE)-2*WARP_SIZE;
     }
 #else
-    nthreads = work->nThreads;
+    nthreads = (work->nWarps * WARP_SIZE);
 #endif
-    const int nChannels = work->nChannels;
-    int bid = (blockIdx.x >= work->startChannelId) ?
-      (blockIdx.x - work->startChannelId) :
-      (blockIdx.x + work->commNChannels - work->startChannelId);
+    const int nChannels = (work->channelHi - work->channelLo + 1);
+    int bid = (blockIdx.x >= work->channelLo) ?
+      (blockIdx.x - work->channelLo) :
+      (blockIdx.x + work->commNChannels - work->channelLo);
     bid = bid % nChannels;
     struct ncclKernelComm* comm = getShmemComm(work);
     struct ncclDevChannel* channel = &(getShmemPtr(comm)->channel);
@@ -310,16 +297,16 @@ namespace {
       minChunkSize = nthreads*sizeof(uint64_t) / sizeof(T);
     } else if (upProto::Id == NCCL_PROTO_LL128) {
       stepSize = comm->buffSizes[NCCL_PROTO_LL128] / (sizeof(uint64_t)*NCCL_STEPS);
-      chunkSize = work->lastChunkSize;
+      chunkSize = work->collnet.chunkCount;
       minChunkSize = (NCCL_LL128_SHMEM_ELEMS_PER_THREAD*nthreads*NCCL_LL128_DATAELEMS*sizeof(uint64_t))/(NCCL_LL128_LINEELEMS*sizeof(T))/8;
     } else {
       stepSize = comm->buffSizes[NCCL_PROTO_SIMPLE] / (sizeof(T)*NCCL_STEPS);
-      chunkSize = work->lastChunkSize;
+      chunkSize = work->collnet.chunkCount;
       minChunkSize = nthreads*8*sizeof(uint64_t) / sizeof(T);
     }
 
     const ssize_t loopSize = nChannels*chunkSize;
-    const ssize_t size = work->count;
+    const ssize_t size = work->collnet.count;
 
     if (loopSize > size) {
       chunkSize = DIVUP(size, nChannels*minChunkSize)*minChunkSize;
@@ -425,23 +412,23 @@ class RunWorkColl<ncclFuncAllReduce, NCCL_ALGO_COLLNET, NCCL_PROTO_SIMPLE, FUNC,
   __device__ void run(struct ncclDevWorkColl* work) {
     const int tid = threadIdx.x;
 #ifndef NO_EXTRA_WARP
-    const int nthreads = work->nThreads-WARP_SIZE;
+    const int nthreads = (work->nWarps * WARP_SIZE)-WARP_SIZE;
 #else
-    const int nthreads = work->nThreads;
+    const int nthreads = (work->nWarps * WARP_SIZE);
 #endif
-    const int nChannels = work->nChannels;
-    int bid = (blockIdx.x >= work->startChannelId) ?
-      (blockIdx.x - work->startChannelId) :
-      (blockIdx.x + work->commNChannels - work->startChannelId);
+    const int nChannels = (work->channelHi - work->channelLo + 1);
+    int bid = (blockIdx.x >= work->channelLo) ?
+      (blockIdx.x - work->channelLo) :
+      (blockIdx.x + work->commNChannels - work->channelLo);
     bid = bid % nChannels;
     struct ncclKernelComm* comm = getShmemComm(work);
     struct ncclDevChannel* channel = &(getShmemPtr(comm)->channel);
     struct ncclTree* tree = &channel->collTree;
     const int stepSize = comm->buffSizes[NCCL_PROTO_SIMPLE] / (sizeof(T)*NCCL_STEPS);
-    int chunkSize = work->lastChunkSize;
+    int chunkSize = work->collnet.chunkCount;
     const ssize_t minChunkSize = nthreads*8*sizeof(uint64_t) / sizeof(T);
     const ssize_t loopSize = nChannels*chunkSize;
-    const ssize_t size = work->count;
+    const ssize_t size = work->collnet.count;
 
     if (loopSize > size) {
       chunkSize = DIVUP(size, nChannels*minChunkSize)*minChunkSize;
@@ -510,11 +497,11 @@ class RunWorkColl<ncclFuncAllReduce, NCCL_ALGO_TREE, NCCL_PROTO_LL, FUNC, T, UNR
   public:
   __device__ void run(struct ncclDevWorkColl* work) {
     const int tid = threadIdx.x;
-    const int nthreads = work->nThreads;
-    const int nChannels = work->nChannels;
-    int bid = (blockIdx.x >= work->startChannelId) ?
-      (blockIdx.x - work->startChannelId) :
-      (blockIdx.x + work->commNChannels - work->startChannelId);
+    const int nthreads = (work->nWarps * WARP_SIZE);
+    const int nChannels = (work->channelHi - work->channelLo + 1);
+    int bid = (blockIdx.x >= work->channelLo) ?
+      (blockIdx.x - work->channelLo) :
+      (blockIdx.x + work->commNChannels - work->channelLo);
     bid = bid % nChannels;
     struct ncclKernelComm* comm = getShmemComm(work);
     struct ncclDevChannel* channel = &(getShmemPtr(comm)->channel);
@@ -523,7 +510,7 @@ class RunWorkColl<ncclFuncAllReduce, NCCL_ALGO_TREE, NCCL_PROTO_LL, FUNC, T, UNR
     ssize_t chunkSize = stepLines * sizeof(uint64_t) / sizeof(T);
     const ssize_t minChunkSize = nthreads*sizeof(uint64_t) / sizeof(T);
     const ssize_t loopSize = nChannels*chunkSize;
-    const ssize_t size = work->count;
+    const ssize_t size = work->collnet.count;
 
     if (loopSize > size) {
       chunkSize = DIVUP(size, nChannels*minChunkSize)*minChunkSize;
@@ -583,11 +570,11 @@ class RunWorkColl<ncclFuncAllReduce, NCCL_ALGO_COLLNET, NCCL_PROTO_LL, FUNC, T, 
   public:
   __device__ void run(struct ncclDevWorkColl* work) {
     const int tid = threadIdx.x;
-    const int nthreads = work->nThreads;
-    const int nChannels = work->nChannels;
-    int bid = (blockIdx.x >= work->startChannelId) ?
-      (blockIdx.x - work->startChannelId) :
-      (blockIdx.x + work->commNChannels - work->startChannelId);
+    const int nthreads = (work->nWarps * WARP_SIZE);
+    const int nChannels = (work->channelHi - work->channelLo + 1);
+    int bid = (blockIdx.x >= work->channelLo) ?
+      (blockIdx.x - work->channelLo) :
+      (blockIdx.x + work->commNChannels - work->channelLo);
     bid = bid % nChannels;
     struct ncclKernelComm* comm = getShmemComm(work);
     struct ncclDevChannel* channel = &(getShmemPtr(comm)->channel);
@@ -596,7 +583,7 @@ class RunWorkColl<ncclFuncAllReduce, NCCL_ALGO_COLLNET, NCCL_PROTO_LL, FUNC, T, 
     ssize_t chunkSize = stepLines * sizeof(uint64_t) / sizeof(T);
     const ssize_t minChunkSize = nthreads*sizeof(uint64_t) / sizeof(T);
     const ssize_t loopSize = nChannels*chunkSize;
-    const ssize_t size = work->count;
+    const ssize_t size = work->collnet.count;
 
     if (loopSize > size) {
       chunkSize = DIVUP(size, nChannels*minChunkSize)*minChunkSize;

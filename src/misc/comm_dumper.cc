@@ -94,11 +94,13 @@ ncclResult_t dumpCollWorkToFile(FILE* file, struct ncclDevWorkColl* work, uint16
 
   const char* indentStr = getIndentStr(indentLevel);
   fprintf(file, "%s%d: ", indentStr, index);
-  fprintf(file, "work nThreads:%d ", work->nThreads);
+  fprintf(file, "work nThreads:%d ", (work->nWarps * WARP_SIZE));
   fprintf(file, "sendRegUsed:%d, recvRegUsed:%d sendbuff %p recvbuff %p ",
     work->sendRegUsed, work->recvRegUsed, work->sendbuff, work->recvbuff);
-  fprintf(file, "coll, count:%ld, lastChunkSize:%ld, root:%d, startChannelId:%d, nChannels:%d, commNChannels:%d, ",
-    work->count, work->lastChunkSize, work->root, work->startChannelId, work->nChannels, work->commNChannels);
+  fprintf(file, "coll, cbd:%u, countLo/count:%zu, countMid/chunk:%zu, countHi:%zu, chunkCount:%u, root:%u, channelLo:%u, channelHi:%u, commNChannels:%u, ",
+    work->isCbd, work->isCbd ? work->cbd.countLo : work->collnet.count,
+    work->isCbd ? work->cbd.countMid : work->collnet.chunkCount, work->isCbd ? work->cbd.countHi : 0,
+    work->isCbd ? work->cbd.chunkCount : 0, work->root, work->channelLo, work->channelHi, work->commNChannels);
   fprintf(file, "\n");
 
   return ncclSuccess;

@@ -214,51 +214,70 @@ struct alignas(16) ncclDevWorkP2p {
 };
 
 struct alignas(16) ncclDevWorkColl {
-  // Header
-  struct ncclKernelComm* comm;
-
-  const void * sendbuff;
-  void * recvbuff;
-
-  ssize_t count;
-  union {
-    size_t lastChunkSize;
-    size_t partBaseCount; // Elements assigned to each channel before distributing the remainder.
-  };
+  // channelHi is inclusive and may wrap past commNChannels. Keeping the
+  // unwrapped interval preserves the scheduler's selected channel count.
+  uint32_t channelLo:7, channelHi:7, nWarps:6, commNChannels:7;
+  uint32_t redOpArgIsPtr:1, sendRegUsed:1, recvRegUsed:1, profilerEnabled:1, isCbd:1;
   uint32_t root;
-
-  uint16_t nThreads;
-  uint8_t sendRegUsed:1, recvRegUsed:1, redOpArgIsPtr:1;
-  uint8_t profilerEnabled:1;
-  uint8_t startChannelId;
-  uint8_t nChannels;
-  uint8_t commNChannels;
-  uint16_t partCellCount;
-  uint8_t partExtraChannels; // Leading channels receive one additional cell.
-
-  // in nccl 2.23, ncclWorkRegElem is used for NVLS to keep a separate dnInput/dnOutput
-  // for normal direct, it add sendbuffRmtAddrs/recvbuffRmtAddrs to WorkElem directly.
-  // for pccl to keep WorkElem Size, move sendbuffRmtAddrs/recvbuffRmtAddrs here.
+  void* recvbuff;
+  const void* sendbuff;
   uintptr_t sendbuffOffset;
   uintptr_t recvbuffOffset;
   uintptr_t* sendbuffRmtAddrs;
   uintptr_t* recvbuffRmtAddrs;
-
+  union {
+    // NCCL continuous-byte distribution: equal middle channels and two ends.
+    struct {
+      size_t countLo, countMid, countHi;
+      // All three regions currently use the same host-computed payload.
+      // Element units preserve custom FIFO sizes without grain rounding.
+      uint32_t chunkCount;
+      uint32_t tailGrain; // AllReduce tail alignment in elements, computed by the host.
+    } cbd;
+    // Existing non-Ring algorithms retain their count and chunk semantics.
+    struct {
+      size_t count;
+      size_t chunkCount;
+    } collnet;
+  };
   uint64_t redOpArg;
-  uint32_t chunkCount; // Ring chunk payload in elements, computed by the host.
-
-  __host__ __device__ size_t partOffset(unsigned part) const {
-    size_t extra = part < partExtraChannels ? part : partExtraChannels;
-    size_t offset = part * partBaseCount + extra * partCellCount;
-    return offset < (size_t)count ? offset : (size_t)count;
-  }
-
-  __device__ void channelBounds(int channelId, ssize_t* begin, ssize_t* end) const {
-    int part = (channelId - startChannelId + commNChannels) % commNChannels;
-    *begin = partOffset(part);
-    *end = partOffset(part + 1);
-  }
+#ifdef NO_TSM
+  // Without thread shared memory, device primitives locate comm via work.
+  struct ncclKernelComm* comm;
+#endif
 };
+static_assert(MAXCHANNELS <= 64, "Collective channel interval must fit in seven bits");
+static_assert(NCCL_MAX_NTHREADS / WARP_SIZE < 64, "Collective nWarps must fit in six bits");
+#ifndef NO_TSM
+static_assert(sizeof(ncclDevWorkColl) == 96, "Collective work must remain 96 bytes");
+#else
+static_assert(sizeof(ncclDevWorkColl) == 112, "NO_TSM collective work includes comm");
+#endif
+
+template<typename Int>
+__host__ __device__ inline void ncclCollCbdPart(
+    const struct ncclDevWorkColl* work, uint32_t channelId,
+    Int* count, Int* partOffset, Int* partCount, Int* chunkCount, Int* tailGrain = nullptr) {
+  // Convert the physical ID to the descriptor's unwrapped channel interval.
+  if (channelId < work->channelLo) channelId += work->commNChannels;
+  int nMidChannels = int(work->channelHi) - int(work->channelLo) - 1;
+  // A single-channel work has countMid == countHi == 0.
+  if (count != nullptr) {
+    *count = work->cbd.countLo + work->cbd.countMid * nMidChannels + work->cbd.countHi;
+  }
+  if (channelId == work->channelLo) {
+    *partOffset = 0;
+    *partCount = work->cbd.countLo;
+  } else if (channelId == work->channelHi) {
+    *partOffset = work->cbd.countLo + nMidChannels * work->cbd.countMid;
+    *partCount = work->cbd.countHi;
+  } else {
+    *partOffset = work->cbd.countLo + (channelId - work->channelLo - 1) * work->cbd.countMid;
+    *partCount = work->cbd.countMid;
+  }
+  *chunkCount = work->cbd.chunkCount;
+  if (tailGrain != nullptr) *tailGrain = work->cbd.tailGrain;
+}
 
 // unused now
 struct alignas(16) ncclDevWorkCollReg {

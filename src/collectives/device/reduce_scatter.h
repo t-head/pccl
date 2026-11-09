@@ -16,20 +16,18 @@ namespace {
     const int tid = threadIdx.x;
     int nthreads;
     if (Proto::Id == NCCL_PROTO_LL || Proto::Id == NCCL_PROTO_LL128) {
-      nthreads = work->nThreads;
+      nthreads = (work->nWarps * WARP_SIZE);
     } else {
-      nthreads = work->nThreads-WARP_SIZE;
+      nthreads = (work->nWarps * WARP_SIZE)-WARP_SIZE;
     }
     struct ncclKernelComm* comm = getShmemComm(work);
     struct ncclDevChannel* channel = &(getShmemPtr(comm)->channel);
     struct ncclRing* ring = &channel->ring;
 
-    const ssize_t chunkSize = work->chunkCount;
     const int nranks = comm->nRanks;
-    const ssize_t size = work->count; // Full rank segment stride, in elements.
-    ssize_t begin, end;
-    // Use the physical channel ID: compact launch blocks may map across wraparound.
-    work->channelBounds(getShmemPtr(comm)->channelId, &begin, &end);
+    ssize_t size, begin, partCount, chunkSize;
+    ncclCollCbdPart(work, getShmemPtr(comm)->channelId, &size, &begin, &partCount, &chunkSize);
+    const ssize_t end = begin + partCount;
     const ssize_t loopSize = chunkSize;
 
     // Compute pointers
@@ -74,14 +72,14 @@ namespace {
     const int tid = threadIdx.x;
     int nthreads;
     if (Proto::Id == NCCL_PROTO_LL || Proto::Id == NCCL_PROTO_LL128) {
-      nthreads = work->nThreads;
+      nthreads = (work->nWarps * WARP_SIZE);
     } else {
-      nthreads = work->nThreads - WARP_SIZE;
+      nthreads = (work->nWarps * WARP_SIZE) - WARP_SIZE;
     }
-    const int nChannels = work->nChannels;
-    int bid = (blockIdx.x >= work->startChannelId) ?
-      (blockIdx.x - work->startChannelId) :
-      (blockIdx.x + work->commNChannels - work->startChannelId);
+    const int nChannels = (work->channelHi - work->channelLo + 1);
+    int bid = (blockIdx.x >= work->channelLo) ?
+      (blockIdx.x - work->channelLo) :
+      (blockIdx.x + work->commNChannels - work->channelLo);
     bid = bid % nChannels;
     struct ncclKernelComm* comm = getShmemComm(work);
     struct ncclDevChannel* channel = &(getShmemPtr(comm)->channel);
@@ -104,7 +102,7 @@ namespace {
       chunkSize = stepSize * REDUCESCATTER_CHUNKSTEPS;
     }
     const ssize_t loopSize = nChannels * chunkSize;
-    const ssize_t size = work->count;
+    const ssize_t size = work->collnet.count;
 
     const T* __restrict__ thisInput = (const T*)work->sendbuff;
     T* __restrict__ thisOutput = (T*)work->recvbuff;
@@ -240,20 +238,20 @@ namespace {
     const int rank = comm->rank;
 
     const int tid = threadIdx.x;
-    const int nthreads = work->nThreads;
+    const int nthreads = (work->nWarps * WARP_SIZE);
 
-    const int nChannels = work->nChannels;
-    int bid = (blockIdx.x >= work->startChannelId) ?
-      (blockIdx.x - work->startChannelId) :
-      (blockIdx.x + work->commNChannels - work->startChannelId);
+    const int nChannels = (work->channelHi - work->channelLo + 1);
+    int bid = (blockIdx.x >= work->channelLo) ?
+      (blockIdx.x - work->channelLo) :
+      (blockIdx.x + work->commNChannels - work->channelLo);
     bid = bid % nChannels;
 
-    const ssize_t count = work->count;
+    const ssize_t count = work->collnet.count;
     ssize_t channelCount = (count + nChannels - 1) / nChannels;
     ssize_t channelOffset = bid * channelCount;
     if (channelOffset + channelCount > count) channelCount = count - channelOffset;
 
-    const int chunkCount = work->lastChunkSize;
+    const int chunkCount = work->collnet.chunkCount;
 
     static constexpr int nworkers = NCCL_PAT_NWORKERS;
     struct ncclPatShmem* shmem = ncclPatShmemPtr(comm);

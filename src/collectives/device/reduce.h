@@ -16,19 +16,18 @@ namespace {
     const int tid = threadIdx.x;
     int nthreads;
     if (Proto::Id == NCCL_PROTO_LL || Proto::Id == NCCL_PROTO_LL128) {
-      nthreads = work->nThreads;
+      nthreads = (work->nWarps * WARP_SIZE);
     } else {
-      nthreads = work->nThreads-WARP_SIZE;
+      nthreads = (work->nWarps * WARP_SIZE)-WARP_SIZE;
     }
     struct ncclKernelComm* comm = getShmemComm(work);
     struct ncclDevChannel* channel = &(getShmemPtr(comm)->channel);
     struct ncclRing* ring = &channel->ring;
 
-    const ssize_t chunkSize = work->chunkCount;
     const int nranks = comm->nRanks;
-    ssize_t begin, end;
-    // Use the physical channel ID: compact launch blocks may map across wraparound.
-    work->channelBounds(getShmemPtr(comm)->channelId, &begin, &end);
+    ssize_t size, begin, partCount, chunkSize;
+    ncclCollCbdPart(work, getShmemPtr(comm)->channelId, &size, &begin, &partCount, &chunkSize);
+    const ssize_t end = begin + partCount;
     const ssize_t loopSize = chunkSize;
     const int rank = ring->devUserRanks[0];
     const int prevRank = ring->devUserRanks[nranks-1];
@@ -58,10 +57,10 @@ namespace {
   template<class FUNC, typename T, int UNROLL, typename Proto>
   __device__ __forceinline__ void runFC(struct ncclDevWorkColl* work) {
     const int tid = threadIdx.x;
-    const int nChannels = work->nChannels;
-    int bid = (blockIdx.x >= work->startChannelId) ?
-      (blockIdx.x - work->startChannelId) :
-      (blockIdx.x + work->commNChannels - work->startChannelId);
+    const int nChannels = (work->channelHi - work->channelLo + 1);
+    int bid = (blockIdx.x >= work->channelLo) ?
+      (blockIdx.x - work->channelLo) :
+      (blockIdx.x + work->commNChannels - work->channelLo);
     bid = bid % nChannels;
     struct ncclKernelComm* comm = getShmemComm(work);
     struct ncclDevChannel* channel = &(getShmemPtr(comm)->channel);
@@ -69,7 +68,7 @@ namespace {
     const int rank = comm->rank;
     int root = work->root;
 
-    int nthreads = work->nThreads, nworkers = work->nThreads;
+    int nthreads = (work->nWarps * WARP_SIZE), nworkers = (work->nWarps * WARP_SIZE);
 #ifndef NO_EXTRA_WARP
     if (Proto::Id != NCCL_PROTO_LL && Proto::Id != NCCL_PROTO_LL128) {
       // root recvs only, other ranks' nthreads will increase later
@@ -90,7 +89,7 @@ namespace {
       chunkSize = stepSize * REDUCE_CHUNKSTEPS;
     }
     const ssize_t loopSize = nChannels*(ssize_t)chunkSize;
-    const ssize_t size = work->count;
+    const ssize_t size = work->collnet.count;
 
     const T* __restrict__ thisInput = (const T*)work->sendbuff;
     T* __restrict__ thisOutput = (T*)work->recvbuff;

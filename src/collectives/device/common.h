@@ -268,9 +268,9 @@ class RunWorkBatch {
         struct ncclDevWorkColl* work = (struct ncclDevWorkColl*)(pShmem->workStorage + w*pShmem->workSize);
         if (w != 0) {
           struct ncclDevWorkColl* workPrev = (struct ncclDevWorkColl*)(pShmem->workStorage + (w-1)*pShmem->workSize);
-          if (work->nThreads != workPrev->nThreads) __syncthreads();
+          if ((work->nWarps * WARP_SIZE) != (workPrev->nWarps * WARP_SIZE)) __syncthreads();
         }
-        int subtn = work->nThreads;
+        int subtn = (work->nWarps * WARP_SIZE);
         if (tid < subtn) {
           RunWorkColl<FUNCTION, ALGO, PROTO, REDOP, T, UNROLL>().run(work);
         }
