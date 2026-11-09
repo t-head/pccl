@@ -8,7 +8,7 @@
       "modules": [
         "gin"
       ],
-      "reason": "Main change is GIN-specific backend expansion by adding a new GPI device/host implementation, wiring GPI type/version/handle validation into GIN connect/setup/register flows, and extending GIN backend enums/masks and transport-net GIN property handling. The dev_runtime and shared-header edits are feature-coupled integration points for this GIN functionality, not separate module policy changes."
+      "reason": "Main functional change is adding and wiring a new GIN backend (GPI): device/host GIN API implementation, backend type/descriptor definitions, plugin/device-handle compatibility checks, GIN connect/context/register cleanup paths, and GIN-specific IB property hookup. Changes in shared files are feature-specific GIN integration rather than separate module policy changes."
     }
   },
   "reviewers": {
