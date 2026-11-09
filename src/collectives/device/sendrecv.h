@@ -53,10 +53,39 @@ __device__ __forceinline__ void runSend(
 
 template<class FUNC, typename T, int UNROLL, typename Proto>
 __device__ __forceinline__ void runSendRecv(struct ncclDevWorkP2p* work) {
+  static_assert(sizeof(T) == 1, "P2P partition strides are in bytes");
+  static_assert(NCCL_MAX_DEV_WORK_P2P_PER_BATCH <= WARP_SIZE/2, "One warp partitions both directions");
   int tid = threadIdx.x;
   struct ncclKernelComm* comm = getShmemComm(work);
   int nWorks = getShmemPtr(comm)->nWorks;
   const int channelId = getShmemPtr(comm)->channelId;
+
+  // Like NCCL, partition this channel's shared-memory work copies once before
+  // assigning threads to send/recv. Keep the host's stride and channel mapping.
+  // Each lane owns one direction; already sliced private works need no changes.
+  if (tid < WARP_SIZE) {
+    int workIx = tid % (WARP_SIZE/2);
+    bool isSend = tid >= WARP_SIZE/2;
+    if (workIx < nWorks) {
+      ncclDevWorkP2p* partWork = &work[workIx];
+      if (partWork->sendParts || partWork->recvParts) {
+        const int part = ncclP2pChannelToPart(partWork->comm, partWork->channelBase, channelId);
+        const size_t step = comm->buffSizes[Proto::Id] / NCCL_STEPS;
+        size_t offset;
+        if (isSend) {
+          partWork->sendCount = ncclP2pPartBytes(partWork->sendCount, step * partWork->sendPartSteps,
+              partWork->sendParts, part, &offset);
+          if (offset) partWork->sendbuff = (const char*)partWork->sendbuff + offset;
+        } else {
+          partWork->recvCount = ncclP2pPartBytes(partWork->recvCount, step * partWork->recvPartSteps,
+              partWork->recvParts, part, &offset);
+          if (offset) partWork->recvbuff = (char*)partWork->recvbuff + offset;
+        }
+      }
+    }
+  }
+  __syncthreads(); // Publish the sliced work before any execution thread reads it.
+
   int group = 0;
   constexpr bool kProtoNeedsExtraWarp = (Proto::Id != NCCL_PROTO_LL);
   constexpr bool kAllowLLSwitch = (Proto::Id == NCCL_PROTO_SIMPLE || Proto::Id == NCCL_PROTO_SIMPLE_BULK || Proto::Id == NCCL_PROTO_SIMPLE_BULK_AR);
@@ -76,18 +105,8 @@ __device__ __forceinline__ void runSendRecv(struct ncclDevWorkP2p* work) {
       // Compute pointers
       const T* sendbuff = (const T*)work->sendbuff;
       T* recvbuff = (T*)work->recvbuff;
-      ssize_t sendCount = work->sendCount;
-      ssize_t recvCount = work->recvCount;
-      if (work->sendParts || work->recvParts) {
-        static_assert(sizeof(T) == 1, "P2P partition strides are in bytes");
-        const int part = ncclP2pChannelToPart(work->comm, work->channelBase, channelId);
-        const size_t step = comm->buffSizes[Proto::Id] / NCCL_STEPS;
-        size_t sendOffset, recvOffset;
-        sendCount = ncclP2pPartBytes(sendCount, step * work->sendPartSteps, work->sendParts, part, &sendOffset);
-        recvCount = ncclP2pPartBytes(recvCount, step * work->recvPartSteps, work->recvParts, part, &recvOffset);
-        if (sendOffset) sendbuff += sendOffset;
-        if (recvOffset) recvbuff += recvOffset;
-      }
+      const ssize_t sendCount = work->sendCount;
+      const ssize_t recvCount = work->recvCount;
 
       if (work->sendRank == comm->rank) {
         if (tid < nThreads && sendbuff != recvbuff) {
