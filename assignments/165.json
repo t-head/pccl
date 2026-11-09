@@ -1,0 +1,17 @@
+{
+  "classification": {
+    "base_sha": "77af125652fd1ffc532bf519022f709b9df510fd",
+    "head_sha": "b0a4fdf97b607043443703869ac5e5bad9a2dddc",
+    "input_fingerprint": "1698b982b5663d6fd3a0e3b4e871e28cfc7107c33ab922365d6721521f7e62b5",
+    "pr_number": 165,
+    "proposal": {
+      "modules": [
+        "kernels"
+      ],
+      "reason": "Main substantive change is in built-in device collective kernels (AllGather/AllReduce/Broadcast ring paths): it removes unused custom ring/rank/root override parameters and always uses channel ring and work root defaults, simplifying device-side execution without changing public APIs."
+    }
+  },
+  "reviewers": {
+    "kernels": 341371372
+  }
+}
