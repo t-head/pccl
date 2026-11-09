@@ -67,12 +67,30 @@ class CsvRunnerTests(unittest.TestCase):
         self.write_csv(f'{profile}.csv', run_cases.CASE_FIELDS, rows)
         return run_cases.load_inputs(self.input, profile)
 
-    def execute(self, inputs, hostfile=None, mpi_interface=None):
+    def execute(self, inputs, hostfile=None, mpi_interface=None, build_identity=None):
         self.output_number += 1
+        if build_identity is None:
+            build_identity = {'schema_version': 1, 'pccl_revision': 'c' * 40,
+                              'pccl_tests_revision': inputs['metadata']['runner_revision'],
+                              'build_profile': inputs['profile'], 'artifact_sha256': 'd' * 64}
         return run_cases.run_all(inputs, self.test_root, self.binary,
                                  self.root / f'output-{self.output_number}', hostfile,
                                  {'PATH': '/usr/bin:/bin', 'LD_LIBRARY_PATH': '', 'PPU_HOME': '/sdk'},
-                                 mpi_interface=mpi_interface)
+                                 mpi_interface=mpi_interface, build_identity=build_identity)
+
+    def test_verified_build_identity_is_retained_with_results(self):
+        inputs = self.inputs([{'cmd': 'printf "build identity\\n"'}])
+        record = {'schema_version': 1, 'pccl_revision': 'c' * 40, 'pccl_tests_revision': RUNNER,
+                  'build_profile': 'standard', 'artifact_sha256': 'd' * 64}
+        path = self.root / 'output_standard.build.json'
+        path.write_text(json.dumps(record))
+        identity = run_cases._verified_build_identity(inputs, path, 'c' * 40, 'd' * 64)
+        rows = self.execute(inputs, build_identity=identity)
+        self.assertEqual(rows[0]['status'], 'PASSED')
+        retained = json.loads((self.root / 'output-1/build.json').read_text())
+        self.assertEqual(retained, record)
+        with self.assertRaisesRegex(ValueError, 'Build record differs'):
+            run_cases._verified_build_identity(inputs, path, 'e' * 40, 'd' * 64)
 
     def test_csv_shell_text_and_raw_log_are_preserved(self):
         command = "printf '%s\\n' 'USER=root NCCL WARN https://example.invalid/a,b \"quoted\" @tag'"

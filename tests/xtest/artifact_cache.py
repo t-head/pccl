@@ -126,7 +126,18 @@ def publish(download, cache, profile, pccl_revision, pccl_tests_revision, expect
                 shutil.rmtree(cache)
             else:
                 return cache
-        os.replace(temporary, cache)
+        try:
+            os.replace(temporary, cache)
+        except OSError:
+            # A retried single-node and two-node consumer may restore the same
+            # standard cache concurrently. Accept only the identical, fully
+            # validated winner; never ignore other publication failures.
+            try:
+                validate(cache, profile, pccl_revision, pccl_tests_revision, expected_sha)
+            except (OSError, ValueError, json.JSONDecodeError):
+                raise
+            else:
+                return cache
         validate(cache, profile, pccl_revision, pccl_tests_revision, expected_sha)
         return cache
     finally:

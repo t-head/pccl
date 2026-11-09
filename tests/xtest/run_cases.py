@@ -21,6 +21,8 @@ import subprocess
 import sys
 import time
 
+import artifact_cache
+
 
 FORMAT_VERSION = 1
 SAFE_NAME = re.compile(r"[A-Za-z0-9_.-]+\Z")
@@ -35,6 +37,8 @@ CASE_FIELDS = ["plan", "suite", "name", "check", "cmd"]
 CHECKS = {"exit_code", "validation_summary", "performance"}
 RESULT_FIELDS = ["plan", "suite", "name", "check", "status", "return_code",
                  "duration_seconds", "error", "raw_log"]
+METRIC_FIELDS = ["size", "count", "type", "redop", "root", "placement", "time_kind",
+                 "time", "algbw", "busbw", "wrong", "source_line"]
 
 
 def _read_csv(path, fields):
@@ -376,10 +380,8 @@ def run_case(case, runtime, interrupted):
                     pass
         metrics = _check_result(case, return_code, log_path)
         if metrics:
-            fields = ["size", "count", "type", "redop", "root", "placement", "time_kind",
-                      "time", "algbw", "busbw", "wrong", "source_line"]
             with (directory / "metrics.csv").open("w", newline="", encoding="utf-8") as stream:
-                writer = csv.DictWriter(stream, fieldnames=fields, lineterminator="\n")
+                writer = csv.DictWriter(stream, fieldnames=METRIC_FIELDS, lineterminator="\n")
                 writer.writeheader()
                 writer.writerows(metrics)
         row = _result_row(case, "PASSED", started, return_code=return_code)
@@ -427,7 +429,8 @@ def _write_summary(output, rows):
     _write_json(output / "summary.json", {"total": len(rows), "counts": counts})
 
 
-def run_all(inputs, test_root, binary_dir, output, hostfile=None, base_environment=None, mpi_interface=None):
+def run_all(inputs, test_root, binary_dir, output, hostfile=None, base_environment=None, mpi_interface=None,
+            *, build_identity):
     test_root = Path(test_root).resolve()
     binary_dir = Path(binary_dir).resolve() if binary_dir else _runner_root(test_root) / "build"
     output = Path(output).resolve()
@@ -443,6 +446,7 @@ def run_all(inputs, test_root, binary_dir, output, hostfile=None, base_environme
         if hostfile is None or not hostfile.is_file():
             raise ValueError("Multi-node Cases require an allocated hostfile")
     output.mkdir(parents=True, exist_ok=False)
+    _write_json(output / "build.json", build_identity)
     runtime = {"test_root": test_root, "binary_dir": binary_dir, "runner_root": _runner_root(test_root),
                "output": output, "hostfile": hostfile, "input": inputs["directory"],
                "python_bin": _stage_interpreter(output), "mpi_interface": mpi_interface,
@@ -480,6 +484,17 @@ def run_all(inputs, test_root, binary_dir, output, hostfile=None, base_environme
     return rows
 
 
+def _verified_build_identity(inputs, record_path, pccl_revision, expected_sha):
+    """Bind execution results to the archive identity already validated by the workflow."""
+    record = artifact_cache.read_record(record_path)
+    expected = {"schema_version": 1, "pccl_revision": pccl_revision,
+                "pccl_tests_revision": inputs["metadata"]["runner_revision"],
+                "build_profile": inputs["profile"], "artifact_sha256": expected_sha}
+    if record != expected:
+        raise ValueError("Build record differs from the selected profile, source or verified archive")
+    return record
+
+
 def main():
     parser = argparse.ArgumentParser(description=__doc__)
     parser.add_argument("--input", type=Path, required=True)
@@ -490,6 +505,9 @@ def main():
     parser.add_argument("--output", type=Path)
     parser.add_argument("--hostfile", type=Path)
     parser.add_argument("--mpi-interface", help="Actual TCP interface for an exported {mpi_interface} binding")
+    parser.add_argument("--build-record", type=Path, help="Verified output_PROFILE.build.json from the restored archive")
+    parser.add_argument("--pccl-revision", help="PCCL revision verified in the build record")
+    parser.add_argument("--expected-sha256", help="Archive SHA-256 verified in the build record")
     parser.add_argument("--validate-only", action="store_true")
     args = parser.parse_args()
     try:
@@ -502,8 +520,12 @@ def main():
             return 0
         if args.test_root is None or args.output is None:
             raise ValueError("Execution requires --test-root and --output")
+        if args.build_record is None or args.pccl_revision is None or args.expected_sha256 is None:
+            raise ValueError("Execution requires --build-record, --pccl-revision and --expected-sha256")
+        build_identity = _verified_build_identity(
+            inputs, args.build_record, args.pccl_revision, args.expected_sha256)
         rows = run_all(inputs, args.test_root, args.binary_dir, args.output, args.hostfile,
-                       mpi_interface=args.mpi_interface)
+                       mpi_interface=args.mpi_interface, build_identity=build_identity)
         return 0 if all(row["status"] == "PASSED" for row in rows) else 1
     except (OSError, ValueError, json.JSONDecodeError) as error:
         parser.error(str(error))

@@ -44,6 +44,48 @@ class WorkflowContractTests(unittest.TestCase):
                         self.text.index('name: Remove run-owned NAS build artifacts'))
         self.assertIn("needs: [precheck, commit-checks, prepare, ai-code-review, human-review", self.text)
 
+    def test_required_gate_is_preserved_and_support_check_always_runs(self):
+        self.assertIn('  summary:\n    name: PCCL Tests Gate\n', self.text)
+        support = self.text[self.text.index('      - id: support'):self.text.index('      - uses: actions/checkout@v4',
+                                                                                  self.text.index('      - id: support'))]
+        self.assertNotIn('        if:', support)
+        self.assertIn('if [[ "$SUPPORTED" != \'true\' ]]', support)
+        self.assertNotIn('42478314103', self.text)
+        self.assertNotIn('42480089838', self.text)
+
+    def test_non_pr_review_skips_do_not_skip_hardware_jobs(self):
+        expected = "(github.event_name != 'pull_request' && needs.human-review.result == 'skipped')"
+        self.assertEqual(self.text.count(expected), 4)
+        single = self.text[self.text.index('  single-node:'):self.text.index('  two-node:')]
+        cluster = self.text[self.text.index('  two-node:'):self.text.index('  summary:')]
+        for section in (single, cluster):
+            self.assertIn(expected, section)
+            self.assertIn("needs.stage-cache.result == 'success'", section)
+
+    def test_retried_consumers_restore_a_verified_cache_and_record_build_identity(self):
+        single = self.text[self.text.index('  single-node:'):self.text.index('  two-node:')]
+        cluster = self.text[self.text.index('  two-node:'):self.text.index('  summary:')]
+        for section in (single, cluster):
+            self.assertIn('name: Check the NAS cache before hardware allocation', section)
+            self.assertIn('name: Restore a cleaned NAS cache from the build artifact', section)
+            self.assertIn('artifact_cache.py publish', section)
+            self.assertIn('path: build-download', section)
+            self.assertIn('--build-record "$CACHE_DIR/output_', section)
+            self.assertIn("--pccl-revision '${{ github.sha }}'", section)
+            self.assertIn("--expected-sha256 '${{ env.EXPECTED_SHA }}'", section)
+
+    def test_final_reconciliation_uses_exact_case_and_build_identity_checks(self):
+        summary = self.text[self.text.index('  summary:'):]
+        for expected in ('tests/xtest/reconcile_results.py',
+                         '--pccl-revision',
+                         '--standard-sha256',
+                         '--notsm-sha256'):
+            self.assertIn(expected, summary)
+        self.assertNotIn("expected = {'standard': 71", summary)
+        prepare = self.text[self.text.index('  prepare:'):self.text.index('  ai-code-review:')]
+        self.assertIn("test_reconcile_results.py", prepare)
+        self.assertIn("test_workflow_contract.py", prepare)
+
     def test_shared_build_is_cleaned_only_by_master_and_results_are_separate(self):
         self.assertIn('SHARED_ROOT=/mnt/wl_nas/devops/pccl-artifact-cache-${{ github.run_id }}/shared-standard/', self.text)
         self.assertIn('RESULT_ROOT=/mnt/wl_nas/devops/pccl-artifact-cache-${{ github.run_id }}/results/', self.text)

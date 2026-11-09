@@ -124,6 +124,8 @@ jobs:
           python3 -S -B -W error::ResourceWarning -m unittest discover \
             -s tests/xtest -p 'test_run_cases.py' -v
           python3 -S -B -m unittest discover -s tests/xtest -p 'test_artifact_cache.py' -v
+          python3 -S -B -m unittest discover -s tests/xtest -p 'test_reconcile_results.py' -v
+          python3 -S -B -m unittest discover -s tests/xtest -p 'test_workflow_contract.py' -v
           python3 -S -B - <<'PY'
           import hashlib
           import json
@@ -232,8 +234,6 @@ jobs:
             export build_output=/workspace/source/output_standard
             STAGING=/mnt/wl_nas/devops/pccl-artifact-cache-${{ github.run_id }}/staging/standard
             RUN_ROOT=/mnt/wl_nas/devops/pccl-artifact-cache-${{ github.run_id }}
-            rm -rf /mnt/wl_nas/devops/pccl-artifact-cache/42478314103
-            rm -rf /mnt/wl_nas/devops/pccl-artifact-cache-42480089838/shared-standard
             mkdir -p "$build_output" "$STAGING"
             unset PIP_INDEX_URL PIP_EXTRA_INDEX_URL 2>/dev/null || true
             git config --global --unset-all url.https://ai-gerrit.eng.t-head.cn/Public/Github/.insteadOf 2>/dev/null || true
@@ -363,6 +363,9 @@ jobs:
   stage-cache:
     name: Stage ${{ matrix.profile }} from artifact or valid NAS cache
     needs: [build-standard, build-notsm]
+    if: >-
+      !cancelled() && needs.build-standard.result == 'success' &&
+      needs.build-notsm.result == 'success'
     strategy:
       fail-fast: false
       matrix:
@@ -418,6 +421,12 @@ jobs:
   single-node:
     name: Single-node CSV (${{ matrix.profile }})
     needs: [prepare, human-review, build-standard, build-notsm, stage-cache]
+    if: >-
+      !cancelled() && needs.prepare.result == 'success' &&
+      (needs.human-review.result == 'success' ||
+        (github.event_name != 'pull_request' && needs.human-review.result == 'skipped')) &&
+      needs.build-standard.result == 'success' && needs.build-notsm.result == 'success' &&
+      needs.stage-cache.result == 'success'
     strategy:
       fail-fast: false
       matrix:
@@ -437,6 +446,33 @@ jobs:
         with:
           name: minimal-csv-artifact-python-deps
           path: deps
+      - id: build-cache
+        name: Check the NAS cache before hardware allocation
+        env:
+          CACHE_DIR: /wl_nas/devops/pccl-artifact-cache-${{ github.run_id }}/cache/${{ matrix.profile }}/${{ env.EXPECTED_SHA }}
+        run: |
+          if python3 -S -B pccl/tests/xtest/artifact_cache.py validate \
+            --directory "$CACHE_DIR" --profile '${{ matrix.profile }}' \
+            --pccl-revision '${{ github.sha }}' --pccl-tests-revision '${{ env.PCCL_TESTS_REVISION }}' \
+            --expected-sha256 '${{ env.EXPECTED_SHA }}'; then
+            echo 'state=hit' >> "$GITHUB_OUTPUT"
+          else
+            echo 'state=miss' >> "$GITHUB_OUTPUT"
+          fi
+      - uses: actions/download-artifact@v4
+        if: steps.build-cache.outputs.state == 'miss'
+        with:
+          name: pccl-build-${{ matrix.profile }}
+          path: build-download
+      - name: Restore a cleaned NAS cache from the build artifact
+        if: steps.build-cache.outputs.state == 'miss'
+        env:
+          CACHE_DIR: /wl_nas/devops/pccl-artifact-cache-${{ github.run_id }}/cache/${{ matrix.profile }}/${{ env.EXPECTED_SHA }}
+        run: |
+          python3 -S -B pccl/tests/xtest/artifact_cache.py publish \
+            --download build-download --cache "$CACHE_DIR" --profile '${{ matrix.profile }}' \
+            --pccl-revision '${{ github.sha }}' --pccl-tests-revision '${{ env.PCCL_TESTS_REVISION }}' \
+            --expected-sha256 '${{ env.EXPECTED_SHA }}'
       - name: Restore the NAS cache and run single-node Cases
         uses: t-head/ppu-scheduler-action@aac83e464f2a3fcbddddc60c8016021c996092a6
         with:
@@ -480,11 +516,19 @@ jobs:
               --profile '${{ matrix.profile }}' --nodes 1 \
               --test-root "$build_output" \
               --binary-dir "$build_output/pccl-tests/build" \
+              --build-record "$CACHE_DIR/output_${{ matrix.profile }}.build.json" \
+              --pccl-revision '${{ github.sha }}' \
+              --expected-sha256 '${{ env.EXPECTED_SHA }}' \
               --output "$RESULT_ROOT"
 
   two-node:
     name: Two-node master-only CSV (16 ranks)
     needs: [prepare, human-review, build-standard, stage-cache]
+    if: >-
+      !cancelled() && needs.prepare.result == 'success' &&
+      (needs.human-review.result == 'success' ||
+        (github.event_name != 'pull_request' && needs.human-review.result == 'skipped')) &&
+      needs.build-standard.result == 'success' && needs.stage-cache.result == 'success'
     env:
       EXPECTED_SHA: ${{ needs.build-standard.outputs.artifact_sha256 }}
     runs-on: k8s-runner-group-cpu-thead
@@ -500,6 +544,33 @@ jobs:
         with:
           name: minimal-csv-artifact-python-deps
           path: deps
+      - id: build-cache
+        name: Check the NAS cache before hardware allocation
+        env:
+          CACHE_DIR: /wl_nas/devops/pccl-artifact-cache-${{ github.run_id }}/cache/standard/${{ env.EXPECTED_SHA }}
+        run: |
+          if python3 -S -B pccl/tests/xtest/artifact_cache.py validate \
+            --directory "$CACHE_DIR" --profile standard \
+            --pccl-revision '${{ github.sha }}' --pccl-tests-revision '${{ env.PCCL_TESTS_REVISION }}' \
+            --expected-sha256 '${{ env.EXPECTED_SHA }}'; then
+            echo 'state=hit' >> "$GITHUB_OUTPUT"
+          else
+            echo 'state=miss' >> "$GITHUB_OUTPUT"
+          fi
+      - uses: actions/download-artifact@v4
+        if: steps.build-cache.outputs.state == 'miss'
+        with:
+          name: pccl-build-standard
+          path: build-download
+      - name: Restore a cleaned NAS cache from the build artifact
+        if: steps.build-cache.outputs.state == 'miss'
+        env:
+          CACHE_DIR: /wl_nas/devops/pccl-artifact-cache-${{ github.run_id }}/cache/standard/${{ env.EXPECTED_SHA }}
+        run: |
+          python3 -S -B pccl/tests/xtest/artifact_cache.py publish \
+            --download build-download --cache "$CACHE_DIR" --profile standard \
+            --pccl-revision '${{ github.sha }}' --pccl-tests-revision '${{ env.PCCL_TESTS_REVISION }}' \
+            --expected-sha256 '${{ env.EXPECTED_SHA }}'
       - name: Restore the shared NAS cache and run on master
         uses: t-head/ci-infra/cluster-run@40165c945cba33ac7b16b41c4485fe53b68f581f
         with:
@@ -567,10 +638,13 @@ jobs:
               --binary-dir "$build_output/pccl-tests/build" \
               --hostfile "$CLUSTER_HOSTS_FILE" \
               --mpi-interface "$MPI_INTERFACE" \
+              --build-record "$CACHE_DIR/output_standard.build.json" \
+              --pccl-revision '${{ github.sha }}' \
+              --expected-sha256 '${{ env.EXPECTED_SHA }}' \
               --output "$RESULT_ROOT"
 
   summary:
-    name: Artifact cache hardware gate and NAS cleanup
+    name: PCCL Tests Gate
     needs: [precheck, commit-checks, prepare, ai-code-review, human-review, build-standard, build-notsm, stage-cache, single-node, two-node]
     if: always()
     runs-on: >-
@@ -586,16 +660,19 @@ jobs:
     steps:
       - id: support
         name: Reject unsupported repository or event
-        if: >-
-          always() && !(
+        env:
+          SUPPORTED: >-
+            ${{
             github.repository == 't-head/pccl' &&
             ((github.event_name == 'pull_request' &&
               github.event.pull_request.head.repo.full_name == github.repository) ||
              github.event_name == 'workflow_dispatch' || github.event_name == 'push')
-          )
+            }}
         run: |
-          echo '::error::source-sanity supports same-repository pull requests, main pushes and manual dispatch only.'
-          exit 1
+          if [[ "$SUPPORTED" != 'true' ]]; then
+            echo '::error::source-sanity supports same-repository pull requests, main pushes and manual dispatch only.'
+            exit 1
+          fi
       - uses: actions/checkout@v4
         if: always() && steps.support.outcome == 'success'
         with:
@@ -605,51 +682,13 @@ jobs:
         name: Reconcile all selected hardware results
         if: always() && steps.support.outcome == 'success'
         run: |
-          python3 - <<'PY'
-          import csv
-          import json
-          from pathlib import Path
-          import shutil
-          import sys
-
-          root = Path('/wl_nas/devops/pccl-artifact-cache-${{ github.run_id }}/results')
-          public = Path('public-results')
-          public.mkdir()
-          expected = {'standard': 71, 'notsm': 37, 'cluster': 1}
-          errors = []
-          for name, count in expected.items():
-              source = root / name
-              target = public / name
-              target.mkdir()
-              try:
-                  summary = json.loads((source / 'summary.json').read_text())
-                  with (source / 'results.csv').open(newline='') as stream:
-                      rows = list(csv.DictReader(stream))
-                  if summary.get('total') != count or len(rows) != count:
-                      errors.append(f'{name}: expected {count} results, got {summary.get("total")}/{len(rows)}')
-                  if summary.get('counts', {}).get('PASSED') != count:
-                      errors.append(f'{name}: results are not all PASSED: {summary.get("counts")}')
-                  for row in rows:
-                      if row['status'] != 'PASSED':
-                          errors.append(f'{name}: {row["plan"]}/{row["suite"]}/{row["name"]}: {row["status"]}')
-                      elif not (source / row['plan'] / row['suite'] / row['name'] / 'raw.log').is_file():
-                          errors.append(f'{name}: missing raw log for {row["name"]}')
-                  for filename in ('summary.json', 'results.csv'):
-                      shutil.copyfile(source / filename, target / filename)
-                  print(f'{name}: {summary.get("counts", {}).get("PASSED", 0)}/{count} passed')
-              except (OSError, ValueError, json.JSONDecodeError) as error:
-                  errors.append(f'{name}: missing or invalid results: {error}')
-          metrics = list((root / 'standard').glob('*/*/*/metrics.csv'))
-          if len(metrics) != 3:
-              errors.append(f'standard: expected 3 performance metrics files, got {len(metrics)}')
-          for source in metrics:
-              target = public / 'standard' / source.parent.relative_to(root / 'standard')
-              target.mkdir(parents=True, exist_ok=True)
-              shutil.copyfile(source, target / 'metrics.csv')
-          for error in errors:
-              print(f'::error::{error}')
-          sys.exit(bool(errors))
-          PY
+          python3 -S -B pccl/tests/xtest/reconcile_results.py \
+            --input pccl/tests/xtest/minimal-csv \
+            --results /wl_nas/devops/pccl-artifact-cache-${{ github.run_id }}/results \
+            --public public-results \
+            --pccl-revision '${{ github.sha }}' \
+            --standard-sha256 '${{ needs.build-standard.outputs.artifact_sha256 }}' \
+            --notsm-sha256 '${{ needs.build-notsm.outputs.artifact_sha256 }}'
       - uses: actions/upload-artifact@v4
         if: always() && steps.support.outcome == 'success'
         with:

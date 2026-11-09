@@ -6,6 +6,7 @@ import json
 from pathlib import Path
 import tempfile
 import unittest
+from unittest import mock
 
 import artifact_cache
 
@@ -81,6 +82,19 @@ class ArtifactCacheTests(unittest.TestCase):
         artifact_cache.publish(self.download, cache, "standard", PCCL, RUNNER, self.sha)
         self.validate(cache)
         self.assertFalse((cache / "partial").exists())
+
+    def test_concurrent_identical_publisher_is_accepted_after_validation(self):
+        cache = self.root / "cache" / self.sha
+
+        def competing_publish(source, destination):
+            destination.mkdir()
+            for path in artifact_cache.paths(self.download, "standard"):
+                (destination / path.name).write_bytes(path.read_bytes())
+            raise OSError("another publisher installed the cache first")
+
+        with mock.patch("artifact_cache.os.replace", side_effect=competing_publish):
+            artifact_cache.publish(self.download, cache, "standard", PCCL, RUNNER, self.sha)
+        self.validate(cache)
 
     def test_cleanup_preserves_results_and_other_runs(self):
         root = self.root / "devops" / "pccl-artifact-cache-12345"

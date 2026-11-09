@@ -31,6 +31,9 @@ python3 -S -B tests/xtest/run_cases.py \
   --input tests/xtest/minimal-csv --profile standard --nodes 1 \
   --test-root /workspace/build-output \
   --binary-dir /workspace/build-output/pccl-tests/build \
+  --build-record /workspace/build-cache/output_standard.build.json \
+  --pccl-revision 0123456789abcdef0123456789abcdef01234567 \
+  --expected-sha256 0123456789abcdef0123456789abcdef0123456789abcdef0123456789abcdef \
   --hostfile /workspace/hosts.cfg \
   --output /workspace/results/standard
 ```
@@ -50,6 +53,10 @@ Only literal `{test_root}`, `{binary_dir}`, `{result_dir}`, `{path}`,
 The last four are bound only when needed. Use `--mpi-interface` to supply the
 allocated worker's actual TCP interface when the command contains that binding. Environment files are parsed as data and are never
 sourced. Commands alone are passed to `/bin/sh -c`.
+
+Execution requires the build record that was validated with the restored
+archive. The executor checks its PCCL and runner revisions, build profile and
+archive SHA-256, then retains the identity as `build.json` beside the results.
 
 ## Result semantics
 
@@ -74,8 +81,20 @@ validates a run-scoped NAS cache or downloads the artifact once, verifies its
 source revisions, profile and SHA-256, and publishes it for all consumers. The
 standard single-node and two-node jobs therefore share one download.
 
+Each hardware consumer also validates the cache before allocating a worker.
+After a failed run has been cleaned, “Re-run failed jobs” can therefore
+download the retained build artifact and atomically republish the same
+validated cache without rerunning the successful build or staging jobs.
+
 Build-time NAS staging is removed after the required artifact upload. After
 result reconciliation, a final `always()` cleanup removes only this run's
 `staging/`, `cache/` and `shared-standard/` directories. `results/` and its raw
 logs remain intact. Cache reuse is content-verified; file existence alone is
 never sufficient.
+
+The final `PCCL Tests Gate` loads the selected CSV Cases again. It rejects
+missing, duplicate or unexpected Case keys, empty raw logs, missing or
+inconsistent per-Case `result.json` records, and missing, empty or inconsistent
+performance metrics. It also compares every retained build identity with the
+build-job outputs, including requiring standard single-node and two-node
+results to use the same archive SHA-256.
