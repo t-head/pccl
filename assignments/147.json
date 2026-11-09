@@ -1,15 +1,15 @@
 {
   "classification": {
-    "base_sha": "3a96d26465317339888c6c85b47ef3b4b897b3e3",
-    "head_sha": "5b4b9439d6918abbc100d880284a35a4faa225d8",
-    "input_fingerprint": "abd323570fdbbdd412cb17f1353641bdd6effa8f52fcc9bd79d3704eaf436de7",
+    "base_sha": "4784d0ad1b4def7ad4b5d686c73e7d16f24fc018",
+    "head_sha": "2b12c9c8edc807afeb59863cfa34f12b4c4ce751",
+    "input_fingerprint": "1f692bcb607df07eaf8a0effc23d0bface0cb9f3ed2610834ae9834ab4487379",
     "pr_number": 147,
     "proposal": {
       "modules": [
         "build",
         "ci"
       ],
-      "reason": "Main change adds a new scheduled/manual GitHub Actions pipeline that expands OS\u00d7HGGCRT matrices, runs containerized jobs, and merges/publishes tarball artifacts, which is CI workflow orchestration. Additional build review is needed because the two tar build scripts now implement substantive toolchain/SDK setup, compiler/runtime compatibility handling, and packaging outputs that change how PCCL distribution artifacts are produced."
+      "reason": "Main change adds a new GitHub Actions pipeline (schedule/push/dispatch triggers, matrix fanout, artifact merge/summary, runner orchestration), which is CI workflow behavior. It also makes substantive packaging/build-system changes in tar build scripts (SDK/toolchain setup, build invocation, tarball assembly/layout, package naming), so build expertise is additionally required."
     }
   },
   "reviewers": {
