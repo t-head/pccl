@@ -20,34 +20,17 @@ namespace {
     } else {
       nthreads = work->nThreads-WARP_SIZE;
     }
-    const int nChannels = work->nChannels;
-    int bid = (blockIdx.x >= work->startChannelId) ?
-      (blockIdx.x - work->startChannelId) :
-      (blockIdx.x + work->commNChannels - work->startChannelId);
-    bid = bid % nChannels;
     struct ncclKernelComm* comm = getShmemComm(work);
     struct ncclDevChannel* channel = &(getShmemPtr(comm)->channel);
     struct ncclRing* ring = &channel->ring;
 
-    int stepSize;
-    ssize_t chunkSize;
-    ssize_t minChunkSize;
-    if (Proto::Id == NCCL_PROTO_LL) {
-      stepSize= comm->buffSizes[NCCL_PROTO_LL] / (sizeof(union ncclLLFifoLine)*NCCL_STEPS);
-      chunkSize = stepSize * sizeof(uint64_t) / sizeof(T);
-    } else if (Proto::Id == NCCL_PROTO_LL128) {
-      stepSize = comm->buffSizes[NCCL_PROTO_LL128] / (sizeof(uint64_t)*NCCL_STEPS);
-      chunkSize = stepSize*NCCL_LL128_DATAELEMS*sizeof(uint64_t) / (NCCL_LL128_LINEELEMS*sizeof(T));
-      // We should not need the final /2 but it makes performance much, much smoother. Might be a bug somewhere.
-      minChunkSize = (NCCL_LL128_SHMEM_ELEMS_PER_THREAD*nthreads*NCCL_LL128_DATAELEMS*sizeof(uint64_t))/(NCCL_LL128_LINEELEMS*sizeof(T))/2;
-    } else {
-      stepSize = comm->buffSizes[NCCL_PROTO_SIMPLE] / (sizeof(T)*NCCL_STEPS);
-      chunkSize = stepSize * REDUCESCATTER_CHUNKSTEPS;
-    }
-
+    const ssize_t chunkSize = work->chunkCount;
     const int nranks = comm->nRanks;
-    const ssize_t loopSize = nChannels*(ssize_t)chunkSize;
-    const ssize_t size = work->count;
+    const ssize_t size = work->count; // Full rank segment stride, in elements.
+    ssize_t begin, end;
+    // Use the physical channel ID: compact launch blocks may map across wraparound.
+    work->channelBounds(getShmemPtr(comm)->channelId, &begin, &end);
+    const ssize_t loopSize = chunkSize;
 
     // Compute pointers
     const T * __restrict__ thisInput = (const T*)work->sendbuff;
@@ -56,27 +39,12 @@ namespace {
     Primitives<T, FUNC, Proto, 1, 1, 0, 0>
       prims(tid, nthreads, &ring->prev, &ring->next, NULL, comm, work->redOpArg, getShmemPtr(comm)->groups, 0, 0, 0, NULL);
 
-    for (ssize_t gridOffset = 0; gridOffset < size; gridOffset += loopSize) {
-      int realChunkSize;
-      if (Proto::Id == NCCL_PROTO_LL) {
-        if (size-gridOffset < loopSize) {
-          chunkSize = work->lastChunkSize;
-        }
-        realChunkSize = chunkSize;
-      } else if (Proto::Id == NCCL_PROTO_LL128) {
-        chunkSize = min(DIVUP(size-gridOffset, nChannels*minChunkSize)*minChunkSize, chunkSize);
-        realChunkSize = chunkSize;
-      } else {
-        realChunkSize = min(chunkSize, DIVUP(size-gridOffset,nChannels));
-        ALIGN_SIZE(realChunkSize, nthreads*sizeof(uint64_t)/sizeof(T));
-      }
-
-
-      ssize_t chunkOffset = gridOffset + bid*realChunkSize;
+    for (ssize_t gridOffset = begin; gridOffset < end; gridOffset += loopSize) {
+      const ssize_t chunkOffset = gridOffset;
 
       /////////////// begin ReduceScatter steps ///////////////
       ssize_t offset;
-      int nelem = min(realChunkSize, size-chunkOffset);
+      int nelem = min(chunkSize, end-chunkOffset);
       int rankDest;
 
       // step 0: push data to next GPU

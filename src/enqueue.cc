@@ -834,7 +834,8 @@ static ncclResult_t getLoopInfo(struct ncclInfo* info) {
   return ncclSuccess;
 }
 
-static ncclResult_t computeColl(struct ncclInfo* info /* input */, struct ncclDevWorkColl* work, struct ncclProxyOp* proxyOp /* output */) {
+static ncclResult_t computeColl(struct ncclInfo* info, struct ncclDevWorkColl* work, struct ncclProxyOp* proxyOp,
+                                bool partitionedRing) {
   work->comm = info->comm->devComm;
 
   // Set nstepsPerLoop and nchunksPerLoop
@@ -851,14 +852,12 @@ static ncclResult_t computeColl(struct ncclInfo* info /* input */, struct ncclDe
   work->redOpArg = info->opFull.scalarArg;
 
   int stepSize   = info->comm->buffSizes[info->protocol]/NCCL_STEPS;
-  int chunkSteps = ((info->protocol == NCCL_PROTO_SIMPLE || info->protocol == NCCL_PROTO_SIGNAL
-        || info->protocol == NCCL_PROTO_SIMPLE_BULK || info->protocol == NCCL_PROTO_SIGNAL_BULK
-        || info->protocol == NCCL_PROTO_SIMPLE_BULK_AR)
-      && info->algorithm == NCCL_ALGO_RING) ? info->chunkSteps : 1;
-  int sliceSteps = ((info->protocol == NCCL_PROTO_SIMPLE || info->protocol == NCCL_PROTO_SIGNAL
-        || info->protocol == NCCL_PROTO_SIMPLE_BULK || info->protocol == NCCL_PROTO_SIGNAL_BULK
-        || info->protocol == NCCL_PROTO_SIMPLE_BULK_AR)
-      && info->algorithm == NCCL_ALGO_RING) ? info->sliceSteps : 1;
+  const bool useTaskSteps = info->algorithm == NCCL_ALGO_RING &&
+      (info->protocol == NCCL_PROTO_SIMPLE || info->protocol == NCCL_PROTO_SIGNAL ||
+       info->protocol == NCCL_PROTO_SIMPLE_BULK || info->protocol == NCCL_PROTO_SIGNAL_BULK ||
+       info->protocol == NCCL_PROTO_SIMPLE_BULK_AR);
+  int chunkSteps = useTaskSteps ? info->chunkSteps : 1;
+  int sliceSteps = useTaskSteps ? info->sliceSteps : 1;
   int chunkSize  = stepSize*chunkSteps;
 
   // Compute lastChunkSize
@@ -892,7 +891,7 @@ static ncclResult_t computeColl(struct ncclInfo* info /* input */, struct ncclDe
     while (chunkSize*info->nChannels*32 > info->nBytes && chunkSize > 65536) chunkSize /= 2;
     // Use lastChunkSize as chunkSize
     work->lastChunkSize = chunkSize / ncclTypeSize(info->datatype);
-  } else if (info->protocol == NCCL_PROTO_LL) {
+  } else if (info->protocol == NCCL_PROTO_LL && !partitionedRing) {
     const ssize_t sliceSize = stepSize*sizeof(uint64_t)/sizeof(union ncclLLFifoLine);
     const ssize_t loopSize = info->nChannels*info->nchunksPerLoop*(ssize_t)sliceSize;
     work->lastChunkSize = DIVUP((info->nBytes-(info->nBytes/loopSize)*loopSize), info->nChannels*info->nchunksPerLoop);
@@ -910,8 +909,27 @@ static ncclResult_t computeColl(struct ncclInfo* info /* input */, struct ncclDe
 
   // Compute nSteps for proxies
   int chunkEffectiveSize = chunkSize;
-  if (info->protocol == NCCL_PROTO_LL) chunkEffectiveSize /= 2;
-  if (info->protocol == NCCL_PROTO_LL128) chunkEffectiveSize = (chunkSize / NCCL_LL128_LINEELEMS) * NCCL_LL128_DATAELEMS;
+  if (partitionedRing) {
+    // Compute the payload once for both the device loop and proxy progress.
+    int typeSize = ncclTypeSize(info->datatype);
+    chunkEffectiveSize = (stepSize / typeSize) * typeSize * chunkSteps;
+    if (info->protocol == NCCL_PROTO_LL) {
+      chunkEffectiveSize = (chunkEffectiveSize / sizeof(union ncclLLFifoLine)) * sizeof(uint64_t);
+    } else if (info->protocol == NCCL_PROTO_LL128) {
+      constexpr int wireSlice = WARP_SIZE * NCCL_LL128_SHMEM_ELEMS_PER_THREAD * sizeof(uint64_t);
+      constexpr int dataSlice = wireSlice / NCCL_LL128_LINEELEMS * NCCL_LL128_DATAELEMS;
+      chunkEffectiveSize = (chunkEffectiveSize / wireSlice) * dataSlice;
+    }
+    if (chunkEffectiveSize == 0) {
+      WARN("Ring %s %s FIFO chunk is too small (%d bytes)", ncclFuncToString(info->coll), ncclProtoStr[info->protocol], chunkSize);
+      return ncclInvalidArgument;
+    }
+    work->chunkCount = chunkEffectiveSize / typeSize;
+  } else if (info->protocol == NCCL_PROTO_LL) {
+    chunkEffectiveSize /= 2;
+  } else if (info->protocol == NCCL_PROTO_LL128) {
+    chunkEffectiveSize = (chunkSize / NCCL_LL128_LINEELEMS) * NCCL_LL128_DATAELEMS;
+  }
   if (info->comm->rank == 0) VERBOSE(NCCL_COLL, "Coll %d, size %ld -> nChannels: %d nThreads: %d, chunkSize %d (algo %d proto %d)\n",
       info->coll, info->nBytes, info->nChannels, info->nThreads, chunkSize, info->algorithm, info->protocol);
   int nLoops = (int)(DIVUP(info->nBytes, (((size_t)(info->nChannels))*info->nchunksPerLoop*chunkEffectiveSize)));
@@ -1640,6 +1658,31 @@ static ncclResult_t scheduleCollTasksToPlan(ncclComm_t comm, struct ncclKernelPl
       channelUsed += info.nChannels;
     }
     if (!plan->usingExtKernel) {
+      const bool rooted = info.coll == ncclFuncBroadcast || info.coll == ncclFuncReduce;
+      const bool allReduce = info.coll == ncclFuncAllReduce;
+      const bool partitionedRing = info.algorithm == NCCL_ALGO_RING &&
+          (info.coll == ncclFuncAllGather || info.coll == ncclFuncReduceScatter || rooted || allReduce);
+      if (partitionedRing) {
+        if (info.nChannels <= 0) return ncclInternalError;
+        // Use whole-element cells representing at least 16 KiB of traffic across ranks.
+        size_t trafficPerByte = rooted ? 1 : comm->nRanks;
+        if (allReduce) trafficPerByte = 2; // ReduceScatter followed by AllGather.
+        if (info.protocol == NCCL_PROTO_LL) trafficPerByte *= 4;
+        size_t cellSize = ROUNDUP(DIVUP(16u << 10, trafficPerByte), 16);
+        if (info.protocol == NCCL_PROTO_LL128 && (rooted || allReduce)) {
+          // Keep tiny LL128 tails from activating additional data channels
+          // below the protocol's existing worker-thread grain on PPU.
+          size_t tailGrain = size_t(info.nThreads) * NCCL_LL128_SHMEM_ELEMS_PER_THREAD *
+              NCCL_LL128_DATAELEMS * sizeof(uint64_t) / NCCL_LL128_LINEELEMS;
+          if (allReduce) tailGrain /= 2;
+          cellSize = std::max(cellSize, tailGrain);
+        }
+        size_t cellCount = cellSize / ncclTypeSize(info.datatype);
+        size_t cells = DIVUP(info.count, cellCount);
+        devWork->partCellCount = cellCount;
+        devWork->partBaseCount = (cells / info.nChannels) * cellCount;
+        devWork->partExtraChannels = cells % info.nChannels;
+      }
       // Ensure room for worst case of one new batch per channel
       if (!testBudget(budget, plan->nWorkBatches + info.nChannels, plan->workBytes + workNode->size)) {
         return ncclSuccess;
@@ -1649,7 +1692,7 @@ static ncclResult_t scheduleCollTasksToPlan(ncclComm_t comm, struct ncclKernelPl
 
       struct ncclProxyOp proxyOp = {};
       info.funcIndex = FUNC_INDEX(info.coll, info.opFull.op, info.datatype, info.algorithm, info.protocol);
-      NCCLCHECK(computeColl(&info, devWork, &proxyOp));
+      NCCLCHECK(computeColl(&info, devWork, &proxyOp, partitionedRing));
 
       int nChannels = devWork->nChannels;
       int nSubChannels = (proxyOp.pattern == ncclPatternCollTreeUp || proxyOp.pattern == ncclPatternCollTreeDown) ? 2 : 1;
@@ -1664,6 +1707,19 @@ static ncclResult_t scheduleCollTasksToPlan(ncclComm_t comm, struct ncclKernelPl
       }
       for (int bid=0; bid<nChannels*nSubChannels; bid++) {
         int channelId = comm->lastChannel % comm->nChannels;
+        if (partitionedRing) {
+          size_t eltSize = ncclTypeSize(info.datatype);
+          size_t offset = devWork->partOffset(bid) * eltSize;
+          size_t bytes = devWork->partOffset(bid + 1) * eltSize - offset;
+          // AllReduce processes one chunk per rank in a channel loop.
+          size_t partPayloadBytes = size_t(devWork->chunkCount) * eltSize;
+          size_t loopBytes = partPayloadBytes * (allReduce ? comm->nRanks : 1);
+          proxyOp.nsteps = DIVUP(bytes, loopBytes) * info.nstepsPerLoop * proxyOp.chunkSteps;
+          VERBOSE(NCCL_COLL, "Ring %s %s: start %u channels %d/%d channel %d offset %zu bytes %zu payload %zu steps %d chunkCount %u workBytes %zu",
+                  ncclFuncToString(info.coll), ncclProtoStr[info.protocol], (unsigned)devWork->startChannelId,
+                  nChannels, comm->nChannels, channelId, offset, bytes, partPayloadBytes, proxyOp.nsteps,
+                  devWork->chunkCount, sizeof(*devWork));
+        }
         // Proxy
         proxyOp.task.coll = head;
         proxyOp.coll = info.coll;

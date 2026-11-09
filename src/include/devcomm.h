@@ -221,7 +221,10 @@ struct alignas(16) ncclDevWorkColl {
   void * recvbuff;
 
   ssize_t count;
-  size_t lastChunkSize;
+  union {
+    size_t lastChunkSize;
+    size_t partBaseCount; // Elements assigned to each channel before distributing the remainder.
+  };
   uint32_t root;
 
   uint16_t nThreads;
@@ -230,6 +233,8 @@ struct alignas(16) ncclDevWorkColl {
   uint8_t startChannelId;
   uint8_t nChannels;
   uint8_t commNChannels;
+  uint16_t partCellCount;
+  uint8_t partExtraChannels; // Leading channels receive one additional cell.
 
   // in nccl 2.23, ncclWorkRegElem is used for NVLS to keep a separate dnInput/dnOutput
   // for normal direct, it add sendbuffRmtAddrs/recvbuffRmtAddrs to WorkElem directly.
@@ -240,6 +245,19 @@ struct alignas(16) ncclDevWorkColl {
   uintptr_t* recvbuffRmtAddrs;
 
   uint64_t redOpArg;
+  uint32_t chunkCount; // Ring chunk payload in elements, computed by the host.
+
+  __host__ __device__ size_t partOffset(unsigned part) const {
+    size_t extra = part < partExtraChannels ? part : partExtraChannels;
+    size_t offset = part * partBaseCount + extra * partCellCount;
+    return offset < (size_t)count ? offset : (size_t)count;
+  }
+
+  __device__ void channelBounds(int channelId, ssize_t* begin, ssize_t* end) const {
+    int part = (channelId - startChannelId + commNChannels) % commNChannels;
+    *begin = partOffset(part);
+    *end = partOffset(part + 1);
+  }
 };
 
 // unused now
