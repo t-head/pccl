@@ -21,8 +21,8 @@ class DailySmokeTests(unittest.TestCase):
         self.assertEqual(len(selected['cases']), 7)
         self.assertEqual(len({(row['plan'], row['suite']) for row in selected['cases']}), 7)
         cluster = run_cases.load_inputs(INPUT, 'standard', nodes=2)
-        self.assertEqual(len(cluster['cases']), 3)
-        self.assertEqual(len({(row['plan'], row['suite']) for row in cluster['cases']}), 3)
+        self.assertEqual(len(cluster['cases']), 7)
+        self.assertEqual(len({(row['plan'], row['suite']) for row in cluster['cases']}), 7)
         self.assertTrue(all(row['suite_spec']['nodes'] == 2 for row in cluster['cases']))
         register = next(row for row in cluster['cases']
                         if row['suite'] == 'register_test_shm_multi_nodes2_suite')
@@ -35,6 +35,12 @@ class DailySmokeTests(unittest.TestCase):
         self.assertIn('-np 16', copyengine['cmd'])
         self.assertIn('-npernode 8', copyengine['cmd'])
         self.assertIn('--hostfile {hostfile}', copyengine['cmd'])
+        direct_multi = [row for row in cluster['cases'] if row['cmd'].startswith('mpirun ')]
+        self.assertEqual(len(direct_multi), 6)
+        for row in direct_multi:
+            self.assertIn('-np 16', row['cmd'])
+            self.assertIn('-npernode 8', row['cmd'])
+            self.assertIn('--hostfile {hostfile}', row['cmd'])
         sanity = next(row for row in selected['cases'] if row['suite'] == 'sanity_m890p_register_suite')
         self.assertIn('--register 1', sanity['cmd'])
         self.assertEqual(sum(row['check'] == 'performance' for row in selected['cases']), 1)
@@ -54,7 +60,7 @@ class DailySmokeTests(unittest.TestCase):
         self.assertEqual(sum(row['cmd'].startswith('python3 run_test.py') for row in rows), 3)
         single_node_rows = run_cases.load_inputs(INPUT, 'standard', nodes=1)['cases']
         self.assertEqual(sum(row['cmd'].startswith('mpirun ') for row in single_node_rows), 4)
-        self.assertEqual(sum(row['cmd'].startswith('mpirun ') for row in rows), 6)
+        self.assertEqual(sum(row['cmd'].startswith('mpirun ') for row in rows), 10)
 
     def test_daily_metadata_and_empty_notsm_are_explicit(self):
         metadata = json.loads((INPUT / 'export.json').read_text())
@@ -69,7 +75,7 @@ class DailySmokeTests(unittest.TestCase):
         text = WORKFLOW.read_text()
         self.assertIn('branches: [ci/m890p-daily-csv]', text)
         self.assertIn('tests/xtest/daily-minimal-csv', text)
-        self.assertIn("expected = {'standard': 7, 'cluster': 3}", text)
+        self.assertIn("expected = {'standard': 7, 'cluster': 7}", text)
         self.assertIn('len(metrics) != 1', text)
         self.assertIn('artifact_cache.py cleanup', text)
         self.assertIn('NEEDS: ${{ toJSON(needs) }}', text)
