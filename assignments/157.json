@@ -1,0 +1,17 @@
+{
+  "classification": {
+    "base_sha": "77af125652fd1ffc532bf519022f709b9df510fd",
+    "head_sha": "30cb51e4bc70e5aa8da44f72a6b134ff1743147c",
+    "input_fingerprint": "03d58b7b87f4b533097e11941d5a010366f5560d154f25cf29cbe7dd2ed94bbe",
+    "pr_number": 157,
+    "proposal": {
+      "modules": [
+        "workflow"
+      ],
+      "reason": "Updates PR review/merge automation behavior: reviewer notice text now handles Maintainer-as-author without self-review requests, Copilot module classification now sends full prompts via stdin (removing size-limit truncation), and squash-message guidance is refined to summarize substantive behavior-focused changes."
+    }
+  },
+  "reviewers": {
+    "workflow": 333277982
+  }
+}
