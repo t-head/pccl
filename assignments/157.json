@@ -2,13 +2,13 @@
   "classification": {
     "base_sha": "77af125652fd1ffc532bf519022f709b9df510fd",
     "head_sha": "3acca9a198eb67f7fd59a84e7c684c6487ffd3fa",
-    "input_fingerprint": "57f42be49bd5326353d9e40a23fc63337480c53e561b3f6830ec99a784371f41",
+    "input_fingerprint": "d34bf20199dcde63300a42753631e4dd620807d5e298e0c5666d664dfcb4322a",
     "pr_number": 157,
     "proposal": {
       "modules": [
         "workflow"
       ],
-      "reason": "Substantive changes are to contribution/review automation: reviewer notice and Maintainer-exemption policy messaging, complete-diff module classification behavior in review_automation, and squash-message generation guidance focused on purpose/behavior."
+      "reason": "Changes are centered on review/merge automation: reviewer notice and Maintainer-exemption messaging logic, module-classification prompt handling for complete diffs, and squash-message generation guidance. These are substantive updates to contribution/review workflow policy and automation behavior, not independent CI/build/runtime system changes."
     }
   },
   "reviewers": {
