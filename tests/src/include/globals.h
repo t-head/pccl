@@ -44,7 +44,7 @@ void* ncclPerfmodelDevicePtr[8];
 size_t ncclPerfmodelMemOffset[8];
 int ncclPerfmodelNeedCopy[8];
 
-int ncclParamNoMemsetFlag;
+int pcclParamNoMemsetFlag;
 int ncclParamSingleHostCrossNodeTestFlag;
 int ncclParamChannelShuffleFlag;
 int useMemcpy;

@@ -345,7 +345,7 @@ ncclResult_t buildConnectionForExtKernelPlugin(ncclComm_t comm) {
 
 NCCL_PARAM(CollNetEnable, "COLLNET_ENABLE", 0);
 PCCL_PARAM(MNNVLFakeAdvancedFeature, "MNNVL_FAKE_ADVANCED_FEATURE", 0);
-PCCL_PARAM(NoMemset, "NO_MEMSET", 0);
+PCCL_PARAM(NoMemset, "NO_MEMSET", 1);
 PCCL_PARAM(SingleHostCrossNodeTest, "SINGLE_HOST_CROSS_NODE_TEST", 0);
 PCCL_PARAM(PerfmodelSpeedup, "PERFMODEL_SPEEDUP", 0);
 PCCL_PARAM(ChannelShuffle, "CHANNEL_SHUFFLE", -2);
@@ -362,7 +362,7 @@ void* ncclPerfmodelDevicePtr[8];
 size_t ncclPerfmodelMemOffset[8];
 int ncclPerfmodelNeedCopy[8];
 
-int ncclParamNoMemsetFlag;
+int pcclParamNoMemsetFlag;
 int ncclParamSingleHostCrossNodeTestFlag;
 int ncclParamStateMonitorLevelFlag;
 int ncclParamMnnvlFakeAdvancedFeatureFlag;
@@ -373,7 +373,7 @@ enum ncclLaunchMode ncclParamLaunchMode;
 int useMemcpy;
 
 static void initGlobalVars() {
-  ncclParamNoMemsetFlag = pcclParamNoMemset();
+  pcclParamNoMemsetFlag = pcclParamNoMemset();
   ncclParamSingleHostCrossNodeTestFlag = pcclParamSingleHostCrossNodeTest();
   ncclParamStateMonitorLevelFlag = pcclParamStateMonitorDisable() ? 0 : pcclParamStateMonitorLevel();
   ncclParamMnnvlFakeAdvancedFeatureFlag = pcclParamMNNVLFakeAdvancedFeature();
@@ -1132,7 +1132,7 @@ static ncclResult_t ncclP2pSchedule(ncclComm_t comm) {
         groupSize = NCCL_MAX_DEV_WORK_P2P_PER_BATCH;
       } else {
         groupSize = 2;
-        while (comm->nRanks > comm->p2pnChannels * groupSize && groupSize * 2 <= NCCL_MAX_DEV_WORK_P2P_PER_BATCH) { 
+        while (comm->nRanks > comm->p2pnChannels * groupSize && groupSize * 2 <= NCCL_MAX_DEV_WORK_P2P_PER_BATCH) {
           groupSize *= 2;
         }
       }
