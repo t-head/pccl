@@ -8,7 +8,7 @@
       "modules": [
         "gin"
       ],
-      "reason": "Main functional change is integrating a new GPI backend into the existing GIN stack: new GPI device/host common implementation, backend/type dispatch enablement, GIN host setup/finalization checks, and GIN plugin/version wiring. Compatibility alias and enum additions are supporting this same GIN backend integration, not separate module-owned behavior."
+      "reason": "Main change adds a new GIN-specific GPI backend (device/host implementation, backend dispatch, resource-sharing mode, descriptor alignment, and plugin/type integration), with related enum/compat alias updates serving that same GIN functionality rather than an independent module change."
     }
   },
   "reviewers": {
