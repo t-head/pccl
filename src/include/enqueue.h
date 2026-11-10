@@ -19,6 +19,7 @@ ncclResult_t ncclLaunchPrepare(ncclComm_t comm);
 ncclResult_t ncclLaunchKernelBefore_NoUncapturedHggc(ncclComm_t comm, struct ncclKernelPlan* plan);
 ncclResult_t ncclLaunchKernel(ncclComm_t comm, struct ncclKernelPlan* plan);
 ncclResult_t ncclLaunchKernelAfter_NoHggc(ncclComm_t comm, struct ncclKernelPlan* plan);
+ncclResult_t pcclLaunchRecordWorkFifo(ncclComm_t comm);
 ncclResult_t ncclLaunchFinish(ncclComm_t comm);
 ncclResult_t ncclLaunchReset(ncclComm_t comm);
 ncclResult_t ncclPrepareTasks(ncclComm_t comm, bool* algoNeedConnect, bool* needConnect, ncclSimInfo_t* simInfo = NULL);

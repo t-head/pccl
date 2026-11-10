@@ -14,3 +14,4 @@ bash run_nonblocking_test.sh
 bash run_copyengine_test.sh
 bash run_customAllreduce_test.sh
 bash run_lsa_test.sh
+bash run_plan_launch_test.sh

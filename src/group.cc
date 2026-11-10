@@ -277,52 +277,62 @@ static ncclResult_t doLaunches(ncclComm_t head) {
     NCCLCHECKGOTO(ncclLaunchPrepare(comm), ret, end);
   }
 
-  // all comm ncclLaunchKernelBefore_NoUncapturedHggc are done before ncclLaunchKernel
-  // in order to configure ncclWork before the first launch to avoid acu range mode hang.
-  for (comm = head; comm != nullptr; comm = comm->groupNext[ncclGroupTaskTypeCollective]) {
-    HGGCCHECKGOTO(hggcSetDevice(comm->hggcDev), ret, end);
-    struct ncclKernelPlan* plan = comm->planner.unlaunchedPlansHead;
-    while (plan != nullptr) {
-      NCCLCHECKGOTO(ncclLaunchKernelBefore_NoUncapturedHggc(comm, plan), ret, end);
-      plan = plan->next;
-    }
-    if (useBarrier) ncclCommIntraBarrierIn(comm, 1);
-  }
-
   while (true) {
+    // Configure this round's work for every local comm before its first launch
+    // to retain the ACU range-mode ordering. Uploading all rounds up front can
+    // exhaust the FIFO before any kernel is launched to consume it.
+    for (comm = head; comm != nullptr; comm = comm->groupNext[ncclGroupTaskTypeCollective]) {
+      struct ncclKernelPlan* plan = comm->planner.unlaunchedPlansHead;
+      if (plan != nullptr) {
+        HGGCCHECKGOTO(hggcSetDevice(comm->hggcDev), ret, end);
+        NCCLCHECKGOTO(ncclLaunchKernelBefore_NoUncapturedHggc(comm, plan), ret, end);
+      }
+      // Include exhausted comms until all their intra-process peers are done.
+      if (useBarrier && !comm->planner.launchBarrierDone) {
+        ncclCommIntraBarrierIn(comm, plan != nullptr ? 1 : 0);
+      }
+    }
+
     bool moreRounds = false;
     for (comm = head; comm != nullptr; comm = comm->groupNext[ncclGroupTaskTypeCollective]) {
       if (useBarrier) {
-        moreRounds = 0 != ncclCommIntraBarrierOut(comm);
+        // Different intra-process cliques can finish in different rounds.
+        if (!comm->planner.launchBarrierDone) {
+          comm->planner.launchBarrierDone = ncclCommIntraBarrierOut(comm) == 0;
+          moreRounds |= !comm->planner.launchBarrierDone;
+        }
       } else {
         moreRounds |= comm->planner.unlaunchedPlansHead != nullptr;
       }
-      if (moreRounds) {
-        // Pop next unlaunched kernel
-        struct ncclKernelPlan* plan = comm->planner.unlaunchedPlansHead;
-        if (plan != nullptr) {
-          comm->planner.unlaunchedPlansHead = plan->next;
-          HGGCCHECKGOTO(hggcSetDevice(comm->hggcDev), ret, end);
-          if (plan->isCeColl) {
-            NCCLCHECKGOTO(ncclLaunchCeColl(comm, plan), ret, end);
-          } else if (plan->isCeP2p) {
-            NCCLCHECKGOTO(pcclP2pDmaLaunch(comm, plan), ret, end);
-          } else {
-            NCCLCHECKGOTO(ncclLaunchKernel(comm, plan), ret, end);
-          }
-        }
-        // Barrier reduction input indicates if we require further rounds.
-        if (useBarrier) ncclCommIntraBarrierIn(comm, comm->planner.unlaunchedPlansHead != nullptr ? 1 : 0);
-        if (plan != nullptr) {
-          NCCLCHECKGOTO(ncclLaunchKernelAfter_NoHggc(comm, plan), ret, end);
-        }
-      } else { // Final round.
+      struct ncclKernelPlan* plan = comm->planner.unlaunchedPlansHead;
+      if (plan != nullptr) {
+        comm->planner.unlaunchedPlansHead = plan->next;
         HGGCCHECKGOTO(hggcSetDevice(comm->hggcDev), ret, end);
-        NCCLCHECKGOTO(ncclLaunchFinish(comm), ret, end);
-        NCCLCHECKGOTO(ncclLaunchReset(comm), ret, end);
+        if (plan->isCeColl) {
+          NCCLCHECKGOTO(ncclLaunchCeColl(comm, plan), ret, end);
+        } else if (plan->isCeP2p) {
+          NCCLCHECKGOTO(pcclP2pDmaLaunch(comm, plan), ret, end);
+        } else {
+          NCCLCHECKGOTO(ncclLaunchKernel(comm, plan), ret, end);
+        }
+        NCCLCHECKGOTO(ncclLaunchKernelAfter_NoHggc(comm, plan), ret, end);
       }
     }
     if (!moreRounds) break;
+
+    // All local kernels and their proxy work have been submitted. Publish FIFO
+    // completion events now so the next round can wait for space without
+    // depending on ncclLaunchFinish at the end of this group.
+    for (comm = head; comm != nullptr; comm = comm->groupNext[ncclGroupTaskTypeCollective]) {
+      HGGCCHECKGOTO(hggcSetDevice(comm->hggcDev), ret, end);
+      NCCLCHECKGOTO(pcclLaunchRecordWorkFifo(comm), ret, end);
+    }
+  }
+
+  for (comm = head; comm != nullptr; comm = comm->groupNext[ncclGroupTaskTypeCollective]) {
+    HGGCCHECKGOTO(hggcSetDevice(comm->hggcDev), ret, end);
+    NCCLCHECKGOTO(ncclLaunchFinish(comm), ret, end);
+    NCCLCHECKGOTO(ncclLaunchReset(comm), ret, end);
   }
 
   goto end;

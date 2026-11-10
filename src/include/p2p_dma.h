@@ -110,6 +110,9 @@ ncclResult_t pcclP2pDmaFinalize(struct pcclComm* comm);
 // Take at most pcclP2pDmaOpsPerPeer operations per peer, leaving the remainder queued.
 ncclResult_t pcclP2pDmaBuildPlan(struct pcclComm* comm, struct ncclKernelPlan* plan);
 
+// Upload the staged work list before any communicator launches this round.
+ncclResult_t pcclP2pDmaUploadPlan(struct pcclComm* comm, struct ncclKernelPlan* plan);
+
 ncclResult_t pcclP2pDmaLaunch(struct pcclComm* comm, struct ncclKernelPlan* plan);
 
 ////////////////////////////////////////////////////////////////////////////////

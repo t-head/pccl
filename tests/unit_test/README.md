@@ -32,6 +32,30 @@ cd pccl/tests/unit_test && ./build.sh
 
 ## Usage
 
+### Grouped Plan Launch Regression
+
+`pcclPlanLaunchTest [operations=1024] [threaded|graph]` uses two assigned devices
+and two communicator cliques. One clique queues the requested number of
+AllReduces while the other queues one. Each operation has a separate input and
+output slice; three repetitions check all outputs, including untouched slices.
+`threaded` uses one host thread per rank; `graph` captures once and replays three
+times after warming up transports.
+
+On an authorized, idle PPU allocation, run with `PCCL_ALGO=Ring`,
+`PCCL_PROTO=Simple`, `PCCL_ENABLE_EXT_KERNEL=0`, `PCCL_SYM_NOWIN_ENABLE=0`,
+`PCCL_WORK_ARGS_BYTES=1024`, and `PCCL_WORK_FIFO_BYTES=4096`. Sweep operation
+counts 1, 4, 8, 16, and 1024 with both `PCCL_LAUNCH_MODE=PARALLEL` and `GROUP`.
+The 1024-operation group exceeds the entire 4 KiB work FIFO (work metadata,
+not payload bytes) and requires multiple launches; the small cases cross the
+Args/FIFO transition. Also run the threaded and graph variants at 1024.
+The CI runner `run_plan_launch_test.sh` checks storage-type logs and is included
+in `casecmd.list`; failure stops the script without retrying.
+
+This regression does not cover CE/symmetric windows, cross-node proxy traffic,
+mixed captured/non-captured communicator groups, or unequal per-rank P2P plan
+counts. Those require additional remote validation. ACU range-mode behavior
+also requires a hardware run; source ordering alone is not proof.
+
 ### Single Process PCCL Collective Kernel Test
 
 #### Examples

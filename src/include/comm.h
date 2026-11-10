@@ -309,15 +309,12 @@ struct ncclKernelPlanner {
   bool persistent;
   bool isCeColl;
   bool isExtKernel;
-  // Sequential counter used to stamp a distinct kernelIdx per plan in uploadWork.
-  // Reset to 0 at the start of each launch (ncclLaunchPrepare) and advanced once
-  // per uploadWork call. A group is split into multiple plans (each plan == one
-  // launch == one kernel); Phase B runs uploadWork for every plan before Phase C
-  // launches any, so comm->kernelNum stays fixed during Phase B and a naive
-  // kernelNum+1 stamps the same value on every plan. Adding this per-launch offset
-  // makes plan i get kernelNum+1+i, matching the launch order (== FIFO slot+1), so
-  // the PCCL_DUMP_WORK_ELEMS trace shows sequential kernelIdx instead of duplicates.
+  // Absolute upload cursor, initialized from kernelNum for each group. It also
+  // provides distinct work-dump indices when state monitoring is disabled.
   uint64_t uploadKernelSeq;
+  // Stop entering this clique's barrier once all its ranks have exhausted plans,
+  // even if other cliques in the same thread still have launches remaining.
+  bool launchBarrierDone;
 
   // The list of user streams aggregated over all tasks present.
   ncclCudaStreamList* streams;

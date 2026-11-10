@@ -73,6 +73,9 @@ mkdir -p ${build_output}/include
 cp -arv ${source_home}/pccl/build/include/* ${build_output}/include/
 export PCCL_HOME=${source_home}/pccl/build
 
+make -C "${source_home}/pccl/tests/unit_test/src" PPU_ARCHS=ppu_10,ppu_15 \
+    ../build/pcclPlanLaunchTest
+
 echo "######################### $(date +%Y%m%d%H%M%S) Build pccl-tests ##########################"
 cd ${source_home}/pccl-tests
 bash build.sh --use_mpi

@@ -595,6 +595,29 @@ namespace {
   }
 }
 
+ncclResult_t pcclLaunchRecordWorkFifo(ncclComm_t comm) {
+  // Captured plans use Args or persistent storage, never this FIFO. Record
+  // every advancing round: a following CE P2P plan may need the entire FIFO.
+  if (ncclCudaGraphValid(comm->planner.capturingGraph) ||
+      comm->workFifoProduced == comm->workFifoProducedLastRecorded) return ncclSuccess;
+
+  ncclResult_t result = ncclSuccess;
+  struct KernelFinishCallback* cb;
+  NCCLCHECK(ncclCalloc(&cb, 1));
+  HGGCCHECKGOTO(hggcEventCreateWithFlags(&cb->base.event, hggcEventDisableTiming), result, fail);
+  HGGCCHECKGOTO(hggcEventRecord(cb->base.event, comm->planner.streams->stream), result, fail);
+  cb->base.fn = KernelFinishCallback_fn;
+  cb->workFifoConsumed = comm->workFifoProduced;
+  ncclIntruQueueEnqueue(&comm->eventCallbackQueue, &cb->base);
+  comm->workFifoProducedLastRecorded = comm->workFifoProduced;
+  return ncclSuccess;
+
+fail:
+  if (cb->base.event) HGGCCHECKIGNORE(hggcEventDestroy(cb->base.event));
+  NCCLCHECK(ncclFree(cb));
+  return result;
+}
+
 ncclResult_t ncclLaunchFinish(ncclComm_t comm) {
   ncclResult_t result = ncclSuccess;
   struct ncclKernelPlanner* planner = &(comm->planner);
@@ -609,25 +632,6 @@ ncclResult_t ncclLaunchFinish(ncclComm_t comm) {
   ncclIntruQueueConstruct(&planner->planQueue);
 
   hggcStream_t launchStream = planner->streams->stream; // First user stream gets launch
-
-  if (comm->workFifoProduced - comm->workFifoProducedLastRecorded > comm->workFifoBytes/8) {
-    hggcEvent_t finishedEvent = comm->sharedRes->scratchEvent;
-    HGGCCHECK(hggcEventRecord(finishedEvent, launchStream));
-
-    comm->workFifoProducedLastRecorded = comm->workFifoProduced;
-    struct KernelFinishCallback* cb;
-    NCCLCHECK(ncclCalloc(&cb, 1));
-    cb->base.event = finishedEvent;
-    cb->base.fn = KernelFinishCallback_fn;
-    cb->workFifoConsumed = comm->workFifoProduced;
-    ncclIntruQueueEnqueue(&comm->eventCallbackQueue, &cb->base);
-
-    // We just stole scratchEvent so must create a new one.
-    // coverity[leaked_storage]
-    HGGCCHECK(hggcEventCreateWithFlags(&comm->sharedRes->scratchEvent, hggcEventDisableTiming));
-
-    // coverity[leaked_storage]
-  }
 
   // Enqueue event after NCCL kernel
 
@@ -1034,10 +1038,9 @@ namespace {
 }
 
 static ncclResult_t uploadWork(ncclComm_t comm, struct ncclKernelPlan* plan) {
-  // isCeP2p plans carry no ncclDevKernelArgs at all (kernelArgs is null);
-  // their device-visible work list was already reserved from the work FIFO
-  // and filled by pcclP2pDmaBuildPlan.
-  if (plan->isSymColl || plan->isCeColl || plan->isCeP2p) return ncclSuccess;
+  // CE P2P also reserves FIFO space only for the round about to be launched.
+  if (plan->isCeP2p) return pcclP2pDmaUploadPlan(comm, plan);
+  if (plan->isSymColl || plan->isCeColl) return ncclSuccess;
 
   size_t workBytes = plan->workBytes;
   size_t batchBytes = plan->nWorkBatches*sizeof(struct ncclDevWorkBatch);
@@ -1101,7 +1104,10 @@ static ncclResult_t uploadWork(ncclComm_t comm, struct ncclKernelPlan* plan) {
     workNode = workNode->next;
   }
 
-  plan->kernelArgs->kernelIdx = comm->kernelNum + 1 + comm->planner.uploadKernelSeq++;
+  // Previous rounds may already have advanced kernelNum. Keep a separate
+  // cursor for work dumps when monitoring (and hence kernelNum) is disabled.
+  comm->planner.uploadKernelSeq = std::max(comm->kernelNum, comm->planner.uploadKernelSeq) + 1;
+  plan->kernelArgs->kernelIdx = comm->planner.uploadKernelSeq;
   if (pcclParamDumpWorkElems() == 1) {
     for(int i = 0; i < MAXCHANNELS; i++) {
       comm->channelWorks[i] += plan->channelWorks[i];
@@ -1159,9 +1165,8 @@ static ncclResult_t uploadWork(ncclComm_t comm, struct ncclKernelPlan* plan) {
 }
 
 ncclResult_t ncclLaunchKernelBefore_NoUncapturedHggc(ncclComm_t comm, struct ncclKernelPlan* plan) {
-  // This code is called after we've checked in to the intra-process barrier
-  // but before launching the kernel. We are not allowed to call HGGC unless the
-  // kernel launch is captured.
+  // Upload one round before checking in to the intra-process launch barrier.
+  // FIFO waits may poll HGGC completion events from already submitted rounds.
   NCCLCHECK(uploadWork(comm, plan));
   return ncclSuccess;
 }
@@ -1833,7 +1838,8 @@ ncclResult_t ncclLaunchPrepare(ncclComm_t comm) {
   struct ncclKernelPlanner* planner = &comm->planner;
   bool persistent = ncclCudaGraphValid(planner->capturingGraph);
   planner->persistent = persistent;
-  planner->uploadKernelSeq = 0;
+  planner->uploadKernelSeq = comm->kernelNum;
+  planner->launchBarrierDone = false;
   int nPlans = 0;
   hggcStream_t launchStream = planner->streams->stream;
   struct ncclKernelPlan* planHead = nullptr;

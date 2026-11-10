@@ -12,6 +12,7 @@
 #include "bootstrap.h"
 #include "dev_runtime.h"
 #include "alloc.h"
+#include "gdrwrap.h"
 #include "symmetric.h"
 #include "bitops.h"
 #include "utils.h"
@@ -187,6 +188,16 @@ static ncclResult_t p2pDmaReserveWorks(ncclComm_t comm, size_t bytes, struct pcc
   // ring end, skip to the next lap. workFifoBytes is power-of-two checked at
   // comm init.
   if (((off & mask) + bytes) > comm->workFifoBytes) {
+    size_t padding = comm->workFifoBytes - (off & mask);
+    if (padding + bytes > comm->workFifoBytes) {
+      // A large contiguous batch plus the skipped tail cannot fit even in an
+      // otherwise empty FIFO. Drain prior rounds, then retire the unused tail
+      // on the host; no kernel will consume those padding bytes.
+      NCCLCHECK(p2pDmaWaitWorkFifoAvailable(comm, off + comm->workFifoBytes));
+      comm->workFifoConsumed = off + padding;
+      comm->workFifoProduced = off + padding;
+      comm->workFifoProducedLastRecorded = off + padding;
+    }
     off = alignUp((off + comm->workFifoBytes) & ~mask, 16);
     NCCLCHECK(p2pDmaWaitWorkFifoAvailable(comm, off + bytes));
   }
@@ -246,6 +257,7 @@ static bool p2pDmaDetectWindows(struct pcclComm* comm, struct ncclDevrWindow** o
 
 struct pcclP2pDmaPlanArgs {
   struct pcclP2pDmaArgs devArgs;
+  struct pcclP2pDmaWork* worksHost;
   int nDies;
   int nThreads;
 };
@@ -309,10 +321,10 @@ ncclResult_t pcclP2pDmaBuildPlan(struct pcclComm* comm, struct ncclKernelPlan* p
   uint32_t stride4G = sendWinHost->stride4G;
 
   struct pcclP2pDmaPlanArgs* planArgs = ncclMemoryStackAlloc<struct pcclP2pDmaPlanArgs>(&comm->memScoped);
-  struct pcclP2pDmaWork* worksHost = nullptr;
-  struct pcclP2pDmaWork* worksDev = nullptr;
-  NCCLCHECK(p2pDmaReserveWorks(comm, (size_t)(numSends + numRecvs) * sizeof(struct pcclP2pDmaWork),
-                               &worksHost, &worksDev));
+  // Plan generation must not reserve FIFO space for unlaunched rounds.
+  struct pcclP2pDmaWork* worksHost =
+      ncclMemoryStackAlloc<struct pcclP2pDmaWork>(&comm->memScoped, numSends + numRecvs);
+  planArgs->worksHost = worksHost;
   struct pcclP2pDmaWork* sendWorks = worksHost;
   struct pcclP2pDmaWork* recvWorks = worksHost ? worksHost + numSends : nullptr;
 
@@ -384,7 +396,7 @@ ncclResult_t pcclP2pDmaBuildPlan(struct pcclComm* comm, struct ncclKernelPlan* p
   planArgs->devArgs.abortFlag = comm->abortFlagDev;
   planArgs->devArgs.nSend = numSends;
   planArgs->devArgs.nRecv = numRecvs;
-  planArgs->devArgs.works = worksDev;
+  planArgs->devArgs.works = nullptr; // Filled by pcclP2pDmaUploadPlan.
   planArgs->nDies = p2pDmaDies();
   planArgs->devArgs.nDoneSignallers = planArgs->nDies;
 #if PCCL_HGGC_VERSION >= PCCL_HGGC_DRIVER_VERSION(2, 2, 0)
@@ -426,6 +438,18 @@ ncclResult_t pcclP2pDmaBuildPlan(struct pcclComm* comm, struct ncclKernelPlan* p
 
 ////////////////////////////////////////////////////////////////////////////////
 // Submission
+
+ncclResult_t pcclP2pDmaUploadPlan(struct pcclComm* comm, struct ncclKernelPlan* plan) {
+  struct pcclP2pDmaPlanArgs* pa = (struct pcclP2pDmaPlanArgs*)plan->kernelSymkArgs;
+  size_t bytes = (size_t)(pa->devArgs.nSend + pa->devArgs.nRecv) * sizeof(struct pcclP2pDmaWork);
+  struct pcclP2pDmaWork* worksHost;
+  struct pcclP2pDmaWork* worksDev;
+  NCCLCHECK(p2pDmaReserveWorks(comm, bytes, &worksHost, &worksDev));
+  memcpy(worksHost, pa->worksHost, bytes);
+  pa->devArgs.works = worksDev;
+  if (comm->workFifoBufGdrHandle != nullptr) wc_store_fence();
+  return ncclSuccess;
+}
 
 #if PCCL_HGGC_VERSION >= PCCL_HGGC_DRIVER_VERSION(2, 2, 0)
 static ncclResult_t p2pDmaLaunchOki(struct pcclComm* comm, struct pcclP2pDmaPlanArgs* pa, hggcStream_t stream) {

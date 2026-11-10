@@ -57,7 +57,7 @@ define build_func_rdc
   fi
 endef
 
-BIN_FILES_LIST := collPcclUnit sendRecvPcclUnit hggcGraphUnit pcclCommAbort pcclGroupSimulateEnd pcclCommMemManager
+BIN_FILES_LIST := collPcclUnit sendRecvPcclUnit hggcGraphUnit pcclCommAbort pcclGroupSimulateEnd pcclCommMemManager pcclPlanLaunch
 ifeq ($(MPI), 1)
 BIN_FILES_LIST += pcclCommShrink
 endif
@@ -89,6 +89,11 @@ ${BUILDDIR}/collPcclUnitTest: collPcclUnitTest.cu
 
 ${BUILDDIR}/hggcGraphUnitTest: hggcGraphUnitTest.cu
 	$(call build_func, $@, hggcGraphUnitTest)
+
+${BUILDDIR}/pcclPlanLaunchTest: HGFLAGS += -Xcompiler -pthread
+${BUILDDIR}/pcclPlanLaunchTest: HGLDFLAGS += -Xcompiler -pthread
+${BUILDDIR}/pcclPlanLaunchTest: pcclPlanLaunchTest.cu
+	$(call build_func, $@, pcclPlanLaunchTest)
 
 ifeq ($(MPI), 1)
 ${BUILDDIR}/pcclCommShrinkTest: pcclCommShrinkTest.cu
