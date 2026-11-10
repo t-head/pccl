@@ -1,15 +1,15 @@
 {
   "classification": {
     "base_sha": "bb1ecedd525723dbb986710831d2db19552050b4",
-    "head_sha": "920080b31c56df03860f415c6f4ac4ee1b97d06f",
-    "input_fingerprint": "ce4512515cc74fe7e700325c7ba9bce68635604df8d9d684284fce70ea311778",
+    "head_sha": "85db0ecda895f27d2b0afe740f0493870bc62353",
+    "input_fingerprint": "79ef758aebd80a23403563919b52f74ef0356eae8285bb73e2dd8df6ea55b77f",
     "pr_number": 147,
     "proposal": {
       "modules": [
         "build",
         "ci"
       ],
-      "reason": "Primary change is a new scheduled GitHub Actions matrix workflow that orchestrates runner selection, fan-out/fan-in artifact handling, and run summaries for tarball production, which is CI workflow execution. Added tar-build scripts also introduce substantive build/packaging behavior (SDK/toolchain setup, build.sh invocation parameters, and tarball assembly rules), so build expertise is independently required beyond orchestration."
+      "reason": "Adds a new scheduled GitHub Actions matrix workflow for building and publishing PPU tarball artifacts, and implements the tar build scripts with substantive toolchain/SDK setup and packaging logic for PCCL and pccl-tests outputs."
     }
   },
   "reviewers": {
