@@ -83,6 +83,8 @@ class DailySmokeTests(unittest.TestCase):
         self.assertIn('name: m890p-daily-build-standard', text)
         self.assertIn('name: m890p-daily-build-${{ matrix.profile }}', text)
         self.assertIn('Two-node master-only daily smoke', text)
+        self.assertIn('/sys/class/infiniband:/sys/class/infiniband', text)
+        self.assertIn('gid_attrs/types', text)
         self.assertNotIn('human-review', text)
         self.assertNotIn('build-notsm', text)
         self.assertNotIn("expected = {('standard', 1): 71", text)
