@@ -1,14 +1,14 @@
 {
   "classification": {
-    "base_sha": "77af125652fd1ffc532bf519022f709b9df510fd",
-    "head_sha": "e284339f9544a2902709ff44c55486e1ab32a562",
-    "input_fingerprint": "e41900544f2bbf893b404e36575db4665bb207f3d84c51df6a13725c92f8c7c1",
+    "base_sha": "bb1ecedd525723dbb986710831d2db19552050b4",
+    "head_sha": "4ba925f2d98d4397c2baab0d2a47cd2d5e6b19fe",
+    "input_fingerprint": "b022d8cc7f1306a7a42a9c1d783ee76eb8c2143768f1ea1f9460032c9d555120",
     "pr_number": 130,
     "proposal": {
       "modules": [
         "gin"
       ],
-      "reason": "Main functional change is GIN-specific LAG-aware QP affinity and connection sequencing for GDAKI/PROXY traffic balancing (including capability checks and per-context/per-peer port rotation), plus related GIN proxy behavior adjustment. Other edits (mlx5 wrapper/symbol plumbing) are supporting implementation for this same GIN behavior, not an independent module change."
+      "reason": "Main functional change is GIN-specific P2P traffic balancing across LAG members in both GDAKI and PROXY paths (QP affinity selection/rotation, capability gating, and read-back validation), plus related GIN context/setup behavior updates (including PROXY accepting nonzero queue depth). The mlx5/DOCA wrapper additions are enabling plumbing for this same GIN networking behavior, not an independent module change."
     }
   },
   "reviewers": {
