@@ -1,0 +1,17 @@
+{
+  "classification": {
+    "base_sha": "3b6cc5f83d2b5257c658c3e6404e194754522a65",
+    "head_sha": "c10fb8bb91867446be8e43fcc823844eda843de2",
+    "input_fingerprint": "cc04db1ddf9062a21d2881c2283343f1aa736c350641b021974cc1c171b33d60",
+    "pr_number": 171,
+    "proposal": {
+      "modules": [
+        "ci"
+      ],
+      "reason": "Replaces the executor action used by the PR PPU test workflow (.github/workflows/pr-test-ppu.yml) while keeping test commands and parameters the same, which is a CI workflow execution/infrastructure change."
+    }
+  },
+  "reviewers": {
+    "ci": 333302477
+  }
+}
