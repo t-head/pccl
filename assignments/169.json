@@ -2,7 +2,7 @@
   "classification": {
     "base_sha": "3b6cc5f83d2b5257c658c3e6404e194754522a65",
     "head_sha": "ac4f39b0b4c9cc8c83471680f84d0efcd7588b92",
-    "input_fingerprint": "9bb9fe377599708e5c5d423598fd1251bab5560279f6bbf7c29a6d37ba5bc93e",
+    "input_fingerprint": "595cfed8ca29cbfedbb1b4c2572aedbac6594386ec51c24cec14f67e1191470c",
     "pr_number": 169,
     "proposal": {
       "modules": [
@@ -10,7 +10,7 @@
         "transport",
         "network"
       ],
-      "reason": "Main change is in **network**: proxy progress batching/abort-aware control and intra-node NET selection behavior are updated. **device-topology** is additionally needed because PATH_NET and GPU\u2194NET path computation/trimming/cleanup semantics are introduced to drive that decision. **transport** is additionally needed because P2P/SHM canConnect policy is substantively changed to yield to the new NET-vs-local path check."
+      "reason": "Primary change is in network: proxy progress batching, shutdown/abort socket handling, and proxy op pool sizing, plus NET canConnect behavior. Device-topology is also required because new PATH_NET semantics and ncclTopoCheckNet add topology/affinity-based intra-node NET reachability logic. Transport is additionally needed because P2P and SHM canConnect paths now independently consume that topology decision to disable local transports when NET is preferred."
     }
   },
   "reviewers": {
