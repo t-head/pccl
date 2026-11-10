@@ -2,14 +2,13 @@
   "classification": {
     "base_sha": "3b6cc5f83d2b5257c658c3e6404e194754522a65",
     "head_sha": "9e2f9bf0e1c30d0c25d8aa3ba02af8ba232bfa72",
-    "input_fingerprint": "23e55c27449db4822e8f4832b35130e0dd2ac5c26b2191bbdcaa2b67eecb4899",
+    "input_fingerprint": "c2f2ac4a7889c1a54691d548368bbdac366edefbf40d10358b75e1c51295f3dc",
     "pr_number": 103,
     "proposal": {
       "modules": [
-        "network",
-        "gin"
+        "network"
       ],
-      "reason": "Main change is in network transport internals: IB send-QP TX affinity loading, per-device slot accounting, and affinity assignment during NET QP bring-up. Add gin because Proxy GIN behavior is independently specialized by treating only QP0 as a data QP for affinity/slot consumption, changing GIN connection semantics beyond a mechanical signature update."
+      "reason": "Adds NET/IB transmit-affinity logic in the network backend: optional libafed symbol loading, per-device atomic round-robin LAG-port assignment for send data QPs during QP setup, and integration in send-check paths (including proxy-GIN call sites). The GIN-file edit is a supporting hookup to this backend behavior, not a separate GIN module policy change."
     }
   },
   "reviewers": {
