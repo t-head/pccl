@@ -324,6 +324,8 @@ jobs:
           cleanup_policy: always
           container_options: |
             privileged: true
+            host_network: true
+            dns_policy: ClusterFirstWithHostNet
           host_volumes: /dev/infiniband:/dev/infiniband
           extra_env: NCCL_NET=IB,NCCL_IB_DISABLE=0,NCCL_MNNVL_ENABLE=0,NCCL_NET_GDR_LEVEL=SYS,NCCL_IB_QPS_PER_CONNECTION=8,NCCL_DEBUG=INFO,NCCL_DEBUG_SUBSYS=INIT
           setup_command: |
@@ -333,19 +335,39 @@ jobs:
             ulimit -s 65536
             echo 'Host runtime limits:'
             ulimit -a
-            echo 'Pod network addresses:'
-            hostname -I || true
+            echo 'Host network addresses:'
+            hostname -I
+            if ! command -v ibv_devinfo >/dev/null || ! command -v show_gids >/dev/null || ! command -v rdma >/dev/null; then
+              export DEBIAN_FRONTEND=noninteractive
+              apt-get update
+              apt-get install -y --no-install-recommends rdma-core ibverbs-utils perftest
+            fi
+            command -v ibv_devinfo
+            command -v show_gids
+            command -v rdma
+            command -v ib_write_bw
             echo 'RDMA device information:'
-            command -v ibv_devinfo || true
-            ibv_devinfo -v || true
-            command -v show_gids || true
-            show_gids || true
-            command -v rdma || true
-            rdma link show || true
+            ibv_devinfo -v
+            show_gids
+            rdma link show
             for gid in /sys/class/infiniband/*/ports/*/gids/*; do
               echo "RDMA GID: $gid"
-              cat "$gid" || true
+              cat "$gid"
             done
+            python3 - <<'PY'
+            import ipaddress
+            from pathlib import Path
+
+            valid = []
+            for path in Path('/sys/class/infiniband').glob('*/ports/*/gids/*'):
+                value = path.read_text().strip()
+                if value and not ipaddress.IPv6Address(value).is_link_local and int(value.replace(':', ''), 16) != 0:
+                    valid.append((str(path), value))
+            if not valid:
+                raise SystemExit('No non-zero RoCE GID is visible inside the worker')
+            for path, value in valid:
+                print(f'Valid RoCE GID: {path} -> {value}')
+            PY
             test -d /dev/infiniband
             test -r /proc/net/route
             set -- /dev/infiniband/*
