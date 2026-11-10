@@ -2,14 +2,14 @@
   "classification": {
     "base_sha": "3b6cc5f83d2b5257c658c3e6404e194754522a65",
     "head_sha": "9e2f9bf0e1c30d0c25d8aa3ba02af8ba232bfa72",
-    "input_fingerprint": "0048c09ec63b98a555164cf14e14b9077e87b3f1edc5fbfed00162da9ea7fc7a",
+    "input_fingerprint": "23e55c27449db4822e8f4832b35130e0dd2ac5c26b2191bbdcaa2b67eecb4899",
     "pr_number": 103,
     "proposal": {
       "modules": [
         "network",
         "gin"
       ],
-      "reason": "Primary change is in the IB network transport backend: it adds optional libafed loading and applies round-robin TX affinity to send data QPs during NET connection setup using a per-device atomic slot counter. An additional GIN module review is needed because proxy GIN connection setup is substantively adjusted to classify only QP0 as a data QP for affinity slot consumption while still bringing all QPs to RTS."
+      "reason": "Main change is in the IB network backend: add optional libafed TX-affinity loading and round-robin LAG-port assignment for send data QPs during NET connection bring-up. Include gin because Proxy GIN connection behavior is explicitly specialized (only qps[0] consumes affinity slots via the updated send-check path), which is a substantive GIN-path policy change rather than a pure mechanical rename/format edit."
     }
   },
   "reviewers": {
