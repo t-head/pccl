@@ -1,15 +1,15 @@
 {
   "classification": {
     "base_sha": "4784d0ad1b4def7ad4b5d686c73e7d16f24fc018",
-    "head_sha": "a29a26cd0b22df5d1748b2259d5eaa43ee2425d8",
-    "input_fingerprint": "8c74ac6dfffc9925e36373493f63e1281d40ad248e0bcdc33139155e0b8af42b",
+    "head_sha": "ba0b2ee0171360b1f15097e6792e2a956069b594",
+    "input_fingerprint": "c08054047b87d97c771780445ea386083c4692d23035ca6913147abddfa1a718",
     "pr_number": 147,
     "proposal": {
       "modules": [
         "build",
         "ci"
       ],
-      "reason": "Main change is a new GitHub Actions pipeline for scheduled/on-demand PPU tarball builds, matrix execution, artifact merge/publish, and runner orchestration (ci). It also makes substantive packaging/build-process changes in tar build scripts (SDK/toolchain setup, compile/link behavior, and tarball contents/naming), which falls under build artifact generation (build)."
+      "reason": "Main change adds a new GitHub Actions pipeline for scheduled/dispatch tarball production, matrix execution, artifact merge/publish, and run summaries, which is CI workflow orchestration. Also includes substantive tarball build-script implementation changes (SDK/toolchain setup, compiler/linker handling, packaging outputs, and artifact contents), so build expertise is needed beyond CI wiring."
     }
   },
   "reviewers": {
