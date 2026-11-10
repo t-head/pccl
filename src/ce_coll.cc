@@ -14,6 +14,7 @@
 #include "cudawrap.h"
 #include "graph/topo.h"
 #include "ce_coll.h"
+#include "p2p_dma.h"
 #if PCCL_HGGC_VERSION >= PCCL_HGGC_DRIVER_VERSION(2, 2, 0)
 #include "ce_coll_oki.h"
 #endif
@@ -39,7 +40,6 @@ static constexpr int64_t ceAllGatherGraphThreshold = 16 * 1024 * 1024;
 static PCCL_PARAM(SymCeThresholdGraph, "SYM_CE_THRESHOLD", ceAllGatherGraphThreshold);
 static PCCL_PARAM(SymCeThresholdKernelDefault, "SYM_CE_THRESHOLD", -1);
 PCCL_PARAM(CeAg2StageMinSize, "CE_AG_2STAGE_MIN_SIZE", 0);
-PCCL_PARAM(CeCollOneStream, "CE_COLL_ONE_STREAM", 0);
 PCCL_PARAM(CeAg2StageOptMinSize, "CE_AG_2STAGE_OPT_MIN_SIZE", 0);
 PCCL_PARAM(CeEnableAr, "CE_ENABLE_AR", 0);
 PCCL_PARAM(CeEnableRs, "CE_ENABLE_RS", 0);
@@ -49,6 +49,25 @@ PCCL_PARAM(CeDieByRank, "CE_DIE_BY_RANK", 1);
 static PCCL_PARAM(CeDieByRankGraphAllGather, "CE_DIE_BY_RANK", 0);
 
 static constexpr bool ceOkiAllGatherSupported = false;
+
+bool pcclCeUsesOkiRings(ncclComm_t comm) {
+#if PCCL_HGGC_VERSION >= PCCL_HGGC_DRIVER_VERSION(2, 2, 0)
+  return comm->okiSupport;
+#else
+  return false;
+#endif
+}
+
+ncclResult_t pcclCeHintMemcpyStream(hggcStream_t stream, int ringId) {
+  // The driver invalidates capture if a channel hint is changed, even in relaxed
+  // mode. Captured work retains the hints set by an eager enqueue before capture.
+  hggcStreamCaptureStatus captureStatus;
+  HGGCCHECK(hggcStreamIsCapturing(stream, &captureStatus));
+  if (captureStatus != hggcStreamCaptureStatusNone) return ncclSuccess;
+  HGGCCHECK(hggcEitInterface::getInstance().wrapHggcStreamHintChannel(stream, HG_STREAM_CHANNEL_PEER, ringId));
+  HGGCCHECK(hggcEitInterface::getInstance().wrapHggcStreamHintChannel(stream, HG_STREAM_CHANNEL_COPY, ringId));
+  return ncclSuccess;
+}
 
 static int64_t pcclCeAllGatherThreshold(ncclComm_t comm, bool inPlace) {
   // Two-rank in-place CE wins above 24 MiB output in both eager and graph mode.
@@ -85,20 +104,11 @@ bool pcclCeShouldUseCollective(ncclComm_t comm, ncclFunc_t coll, size_t count,
   return threshold >= 0 && count > static_cast<uint64_t>(threshold);
 }
 
-bool ncclCeOkiRequested() {
-  return pcclParamCeEnableAr() == 1 ||
-         pcclParamCeEnableRs() == 1 ||
-         (ceOkiAllGatherSupported && pcclParamCeOkiEnableAg() == 1);
-}
-
-bool pcclOkiArchSupported(ncclComm_t comm) {
-  if (comm->compCap < 89 || comm->peerInfo == nullptr) return false;
-  // All ranks must agree before either CE reductions or P2P DMA can use OKI.
-  // peerInfo contains the capabilities exchanged by initTransportsRank.
-  for (int r = 0; r < comm->nRanks; r++) {
-    if (comm->peerInfo[r].hggcCompCap < 89) return false;
-  }
-  return true;
+uint8_t pcclCeOkiRequestedFeatures() {
+  return ((pcclParamCeEnableAr() == 1) << 0) |
+         ((pcclParamCeEnableRs() == 1) << 1) |
+         ((ceOkiAllGatherSupported && pcclParamCeOkiEnableAg() == 1) << 2) |
+         ((pcclParamP2pDmaEnable() != 0) << 3);
 }
 
 // Machine types that support two-stage topology optimization for CE allgather
@@ -607,8 +617,7 @@ ncclResult_t ncclCeLaunchBatchOps(ncclComm_t comm, struct ncclCeCollArgs* args,
   bool byRank = pcclCeUseRankPartition(comm, args, dividenNum);
 
   if (params->numOps == 0) return ncclSuccess;
-  // Streams are arranged as [remote partitions][local partitions]. Single-rank
-  // communicators only need the local group. Validate before submitting work.
+  // Stream groups use [remote partitions][local partitions].
   if (dividenNum < 1 || dividenNum > comm->ceStreamsNum / (comm->nRanks > 1 ? 2 : 1)) {
     return ncclInvalidArgument;
   }
@@ -623,11 +632,11 @@ ncclResult_t ncclCeLaunchBatchOps(ncclComm_t comm, struct ncclCeCollArgs* args,
   }
 #endif
 
-  // Fork once, then submit local and remote copies on independent stream groups.
+  // Fork once, then submit copies on the selected stream groups.
   // dividenNum controls both the data partition count and streams per group;
   // the caller configures how these stream slots map to hardware channels.
   HGGCCHECKGOTO(hggcEventRecord(comm->ceSyncEvent, stream), ret, fail);
-  // Start local copies first without adding a dependency on their completion.
+  // Start local copies first without waiting for their completion.
   for (int local = 1; local >= 0; local--) {
     for (int part = 0; part < dividenNum; part++) {
       // A one-rank communicator has no remote group.
@@ -690,12 +699,8 @@ fail:
 
 ncclResult_t pcclCeLaunchBatchOpsImpl(ncclComm_t comm, struct ncclCeCollArgs* args,
                                       struct ncclCeBatchOpsParams* params, hggcStream_t stream) {
-  // SM89 always separates local and remote copies, including graph capture.
-  // init.cc maps each stream group across the dies: with two dies, dividenNum=2
-  // selects remote channels 0/8 and local channels 1/9.
-  if (comm->compCap == 89 || pcclParamCeCollOneStream() > 0) {
-    int dividenNum = ppuDiesNum;
-    return ncclCeLaunchBatchOps(comm, args, params, stream, dividenNum);
+  if (pcclCeUsesOkiRings(comm)) {
+    return ncclCeLaunchBatchOps(comm, args, params, stream, ppuDiesNum);
   }
   return pcclCeLaunchBatchOpsMultiStream(comm, args, params, stream);
 }

@@ -78,6 +78,9 @@ struct ncclCeBatchOpsParams {
 ncclResult_t ncclCeInitBatchOpsParams(struct ncclCeBatchOpsParams* params, int nRanks);
 ncclResult_t ncclCeFreeBatchOpsParams(struct ncclCeBatchOpsParams* params);
 
+bool pcclCeUsesOkiRings(ncclComm_t comm);
+ncclResult_t pcclCeHintMemcpyStream(hggcStream_t stream, int ringId);
+
 static inline int ceArDtypeToIndex(pcclDataType_t dtype) {
   if (dtype == pcclHalf) return 0;
   else if (dtype == pcclBfloat16) return 1;
@@ -118,8 +121,7 @@ static int localReduceFuncIndex(pcclDataType_t dtype, int nRanks, int/*ncclRedOp
 bool pcclCeAutoAllGatherSupported(ncclComm_t comm);
 bool pcclCeShouldUseCollective(ncclComm_t comm, ncclFunc_t coll, size_t count,
                              bool ceAvailable, bool hasSysmemSegment, bool inPlace);
-bool ncclCeOkiRequested();
-bool pcclOkiArchSupported(ncclComm_t comm);
+uint8_t pcclCeOkiRequestedFeatures();
 bool ncclCeReduceEnabled(ncclFunc_t coll);
 bool ncclCeAvailable(ncclComm_t comm, ncclFunc_t coll, int/*ncclRedOp_t*/ red, ncclDataType_t ty, size_t count, ncclSymRegType_t winRegType, const void* recvbuff);
 
