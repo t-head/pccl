@@ -9,7 +9,7 @@
         "network",
         "gin"
       ],
-      "reason": "Main change adds an independent TROCE built-in GIN backend end-to-end (device API specializations, host context lifecycle, MR registration, CQ/SQ progress, dynamic libtroce provider wiring, and GIN type/device-type integration). It also makes an independently substantive shared-network change by updating net_ib provider classification/detection logic (including TROCE provider identity in common/init paths), which affects network transport policy beyond incidental wiring."
+      "reason": "Primary change is adding a full independent TROCE GIN backend (host/device APIs, context lifecycle, memory registration, progress/error handling, plugin registration, and new GIN/device-type enums). Also requires network review because shared IB transport/provider plumbing is changed in common net_ib infrastructure (provider enum and device-provider detection in init), which affects backend selection behavior outside a single GIN file."
     }
   },
   "reviewers": {
