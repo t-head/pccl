@@ -1,15 +1,15 @@
 {
   "classification": {
     "base_sha": "77af125652fd1ffc532bf519022f709b9df510fd",
-    "head_sha": "fb9b54694898dd09d8ba59865b8bda609fd69a8b",
-    "input_fingerprint": "91db9e0910269c79d29608a4da33610e3528bc1602c1b37a2ee24a3bc9322482",
+    "head_sha": "7bef87c26e5f5667cf177154bccfd1a482e68779",
+    "input_fingerprint": "991faf543e9555a64755c67a4c582c8e708833d412e9d445516641d80f628137",
     "pr_number": 150,
     "proposal": {
       "modules": [
         "workflow",
         "ci"
       ],
-      "reason": "Main change is a full rewrite of open-source test execution to a CSV-driven CI pipeline (`source-sanity.yml`) with new public executors/reconcilers, artifact-cache publish/validate/cleanup flow, and replacement of `pr-test-ppu.yml`. Add `workflow` because the same PR introduces substantive review-policy wiring changes (PR-only secret scan/commit checks/AI+human approval gates and explicit unsupported fork PR rejection) beyond pure test execution."
+      "reason": "Primary change is a full CI pipeline redesign: replacing pr-test-ppu with source-sanity, adding CSV-driven case execution/reconciliation tooling, artifact-backed build/cache staging, and new CI validation tests/contracts for job orchestration and result gating. Add workflow because the PR also substantively changes contribution/review policy wiring (secret-scan/commit checks, AI+human approval gates, and explicit fork/unsupported-event handling) beyond mechanical CI execution edits."
     }
   },
   "reviewers": {
