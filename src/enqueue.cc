@@ -1668,6 +1668,8 @@ static ncclResult_t scheduleCollTasksToPlan(ncclComm_t comm, struct ncclKernelPl
     node = node->next;
   }
   const size_t trafficPerChannel = std::max(minTrafficPerChannel, trafficBytes / std::max(1, nChannels));
+  // Grouped tasks share a traffic budget; coarsening their cells can concentrate work on the last channel.
+  const bool tuneSingleColl = planner->nTasksColl == 1;
   int channelId = 0;
   size_t currentTraffic = 0;
   while (nPlanColls != 0 && !ncclIntruQueueEmpty(&planner->collTaskQueue)) {
@@ -1698,7 +1700,21 @@ static ncclResult_t scheduleCollTasksToPlan(ncclComm_t comm, struct ncclKernelPl
       if (partitionedRing) {
         const size_t eltSize = ncclTypeSize(info.datatype);
         const size_t trafficPerByte = collTrafficPerByte(info.coll, comm->nRanks, info.protocol);
-        const size_t cellSize = ROUNDUP(DIVUP(minTrafficPerChannel, trafficPerByte), 16);
+        size_t cellSize = ROUNDUP(DIVUP(minTrafficPerChannel, trafficPerByte), 16);
+        if (tuneSingleColl && comm->nNodes > 1 && info.coll == ncclFuncAllGather && info.protocol == NCCL_PROTO_LL128 &&
+            !devWork->sendRegUsed && !devWork->recvRegUsed && pcclParamUseStaticLaunchGrid() != 1) {
+          // Small inter-node LL128 transfers pay for each nonempty channel and its slice padding.
+          // Reuse PPU's half-CTA payload grain as the minimum partition, not a fixed channel cap.
+          const size_t minPartBytes = size_t(info.nThreads) * ncclProtoGrainSize(info.protocol) / (2 * WARP_SIZE);
+          const size_t stepPayloadBytes = size_t(comm->buffSizes[info.protocol]) / NCCL_STEPS /
+              NCCL_LL128_LINEELEMS * NCCL_LL128_DATAELEMS;
+          const size_t bytes = info.count * eltSize;
+          // Keep this tuning within one payload chunk, even if the task uses only one channel.
+          if (bytes <= stepPayloadBytes && minPartBytes <= stepPayloadBytes &&
+              bytes <= minPartBytes * info.nChannels) {
+            cellSize = std::max(cellSize, ROUNDUP(minPartBytes, size_t(16)));
+          }
+        }
         elementsPerCell = cellSize / eltSize;
         trafficPerElement = eltSize * trafficPerByte;
         const size_t trafficPerCell = cellSize * trafficPerByte;
