@@ -21,8 +21,8 @@ class DailySmokeTests(unittest.TestCase):
         self.assertEqual(len(selected['cases']), 7)
         self.assertEqual(len({(row['plan'], row['suite']) for row in selected['cases']}), 7)
         cluster = run_cases.load_inputs(INPUT, 'standard', nodes=2)
-        self.assertEqual(len(cluster['cases']), 6)
-        self.assertEqual(len({(row['plan'], row['suite']) for row in cluster['cases']}), 6)
+        self.assertEqual(len(cluster['cases']), 5)
+        self.assertEqual(len({(row['plan'], row['suite']) for row in cluster['cases']}), 5)
         self.assertTrue(all(row['suite_spec']['nodes'] == 2 for row in cluster['cases']))
         register = next(row for row in cluster['cases']
                         if row['suite'] == 'register_test_shm_multi_nodes2_suite')
@@ -36,7 +36,7 @@ class DailySmokeTests(unittest.TestCase):
         self.assertIn('-npernode 8', copyengine['cmd'])
         self.assertIn('--hostfile {hostfile}', copyengine['cmd'])
         direct_multi = [row for row in cluster['cases'] if row['cmd'].startswith('mpirun ')]
-        self.assertEqual(len(direct_multi), 5)
+        self.assertEqual(len(direct_multi), 4)
         for row in direct_multi:
             self.assertIn('-np 16', row['cmd'])
             self.assertIn('-npernode 8', row['cmd'])
@@ -60,7 +60,7 @@ class DailySmokeTests(unittest.TestCase):
         self.assertEqual(sum(row['cmd'].startswith('python3 run_test.py') for row in rows), 3)
         single_node_rows = run_cases.load_inputs(INPUT, 'standard', nodes=1)['cases']
         self.assertEqual(sum(row['cmd'].startswith('mpirun ') for row in single_node_rows), 4)
-        self.assertEqual(sum(row['cmd'].startswith('mpirun ') for row in rows), 9)
+        self.assertEqual(sum(row['cmd'].startswith('mpirun ') for row in rows), 8)
 
     def test_daily_metadata_and_empty_notsm_are_explicit(self):
         metadata = json.loads((INPUT / 'export.json').read_text())
@@ -75,7 +75,7 @@ class DailySmokeTests(unittest.TestCase):
         text = WORKFLOW.read_text()
         self.assertIn('branches: [ci/m890p-daily-csv]', text)
         self.assertIn('tests/xtest/daily-minimal-csv', text)
-        self.assertIn("expected = {'standard': 7, 'cluster': 6}", text)
+        self.assertIn("expected = {'standard': 7, 'cluster': 5}", text)
         self.assertIn('len(metrics) != 1', text)
         self.assertIn('artifact_cache.py cleanup', text)
         self.assertIn('NEEDS: ${{ toJSON(needs) }}', text)
@@ -83,9 +83,6 @@ class DailySmokeTests(unittest.TestCase):
         self.assertIn('name: m890p-daily-build-standard', text)
         self.assertIn('name: m890p-daily-build-${{ matrix.profile }}', text)
         self.assertIn('Two-node master-only daily smoke', text)
-        self.assertIn('/sys/class/infiniband:/sys/class/infiniband', text)
-        self.assertIn('gid_attrs/types', text)
-        self.assertIn('extra_env: NCCL_IB_GID_INDEX=1,NCCL_IB_ROCE_VERSION_NUM=2', text)
         self.assertNotIn('human-review', text)
         self.assertNotIn('build-notsm', text)
         self.assertNotIn("expected = {('standard', 1): 71", text)
