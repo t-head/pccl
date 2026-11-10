@@ -1,15 +1,15 @@
 {
   "classification": {
-    "base_sha": "bb1ecedd525723dbb986710831d2db19552050b4",
-    "head_sha": "88b1edcb2bd04d05c206a7513aa05587ed02a4e1",
-    "input_fingerprint": "d433b4df8dbacd5ccf3a11eaa1dc70ff128a696fc1453587950ac9e608a26ae6",
+    "base_sha": "e3b0139c540d1a167f6f3aa53e803fb2c61bccb5",
+    "head_sha": "02f1c9f9851b5490e6b355a9b76cbe5d57ea3112",
+    "input_fingerprint": "2648c17e942682af58b99efd4ca00aa30c416aa79d1b1c7ce8414ca43209191e",
     "pr_number": 147,
     "proposal": {
       "modules": [
         "build",
         "ci"
       ],
-      "reason": "Primary change adds a new GitHub Actions pipeline (prepare/build/publish/summary jobs, triggers, matrix, runner/concurrency, artifact merge/reporting), which is CI workflow execution. Additional build review is needed because the tar-build scripts were substantially implemented to control SDK/toolchain setup and the actual PCCL/pccl-tests tarball packaging outputs and versioning behavior."
+      "reason": "Main change is a new distributable tarball build/packaging path: the hggcrt12/13 build scripts and test-bundle script now perform real SDK/toolchain setup, compile, validate, and package PCCL/pccl-tests artifacts across OS/runtime variants (build). The PR also adds a substantial GitHub Actions matrix pipeline with scheduling, fan-out, artifact merge/publish, and runner/concurrency controls, which is independent CI workflow execution logic (ci)."
     }
   },
   "reviewers": {
