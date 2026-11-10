@@ -3,7 +3,7 @@
   "build": 341355176,
   "ci": 333302477,
   "copy-engine": 333277982,
-  "device-topology": 341355176,
+  "device-topology": 335834228,
   "dispatch": 341355176,
   "enqueue": 341355176,
   "gin": 341353320,
@@ -12,7 +12,7 @@
   "memory": 340404662,
   "network": 341355176,
   "symmetric": 333277982,
-  "transport": 341341178,
+  "transport": 340104201,
   "tuning": 341751581,
   "workflow": 335730053
 }

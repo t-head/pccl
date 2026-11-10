@@ -1,0 +1,21 @@
+{
+  "classification": {
+    "base_sha": "3b6cc5f83d2b5257c658c3e6404e194754522a65",
+    "head_sha": "ac4f39b0b4c9cc8c83471680f84d0efcd7588b92",
+    "input_fingerprint": "2900b6722a6e07b2918b26e90b5582b8de07ac79e5268be067549fc576a99cf6",
+    "pr_number": 169,
+    "proposal": {
+      "modules": [
+        "device-topology",
+        "transport",
+        "network"
+      ],
+      "reason": "Main change is transport-selection behavior: intra-node P2P/SHM now defer to NET when topology bandwidth/affinity checks say NET is better, wired through p2p/shm/net canConnect paths. There is also an independent network/proxy change (batched proxy op intake, larger per-peer proxy pool, abort-aware proxy socket init, and shutdown progress behavior). Topology/path handling is substantively changed as well (new PATH_NET classification, reordered path computation/trim semantics, and path-array cleanup on node removal), requiring device-topology review."
+    }
+  },
+  "reviewers": {
+    "device-topology": 335834228,
+    "network": 341355176,
+    "transport": 340104201
+  }
+}
