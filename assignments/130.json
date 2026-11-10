@@ -2,13 +2,13 @@
   "classification": {
     "base_sha": "bb1ecedd525723dbb986710831d2db19552050b4",
     "head_sha": "4ba925f2d98d4397c2baab0d2a47cd2d5e6b19fe",
-    "input_fingerprint": "b022d8cc7f1306a7a42a9c1d783ee76eb8c2143768f1ea1f9460032c9d555120",
+    "input_fingerprint": "77003a219d909776625a927d11fa16018685fa8dea5c3b29c3408b01b33f7e19",
     "pr_number": 130,
     "proposal": {
       "modules": [
         "gin"
       ],
-      "reason": "Main change is GIN-specific networking behavior: GDAKI and GIN IB PROXY now apply LAG-aware QP port affinity/capability checks to spread multi-context P2P traffic across bonded NIC members while preserving context-0 default behavior."
+      "reason": "Main functional change is in GIN-specific networking backends: adding LAG-aware QP TX-port affinity and context/peer rotation for GDAKI and PROXY connection setup, plus allowing nonzero PROXY queue depth. The mlx5 symbol/wrapper and DOCA verbs updates are supporting plumbing for this GIN behavior, not an independent non-GIN subsystem change."
     }
   },
   "reviewers": {
