@@ -9,7 +9,7 @@
         "workflow",
         "ci"
       ],
-      "reason": "Main change is a full rewrite of open-source test execution orchestration: replacing the old PPU PR test workflow with source-sanity, CSV-driven case selection/execution, artifact-backed build/cache staging, and result reconciliation scripts/tests. Add workflow because the PR also makes independently substantive contribution/review-gate policy changes (PR prechecks, AI+human approval sequencing, and final hosted gate requirements) beyond normal test execution."
+      "reason": "Main change overhauls open-source test execution by replacing the legacy PR workflow with a new CSV-driven source-sanity pipeline (case selection/execution, artifact publish/cache validation, hardware run orchestration, reconciliation, and gate reporting). It also introduces independent contribution/review policy gating (hosted prechecks plus AI/human approval before self-hosted/internal jobs), which requires workflow-module review in addition to ci."
     }
   },
   "reviewers": {
