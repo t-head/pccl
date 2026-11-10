@@ -8,7 +8,7 @@
       "modules": [
         "gin"
       ],
-      "reason": "Main change is GIN-specific backend integration: adds a new GPI GIN backend implementation and wiring (device-side GPI API/ops, backend dispatch mask/type enums, GIN host setup/type detection, and GIN plugin compatibility hooks). Edits in shared compatibility/core/net-device headers are feature-coupled enum/ABI extensions for this same GIN backend, not separate substantive module changes."
+      "reason": "Main substantive change is integrating a new GPI backend into the GIN stack: host-side GIN type/context handling, plugin-version wiring, new device-side GPI backend implementation and shared GPI protocol/layout types, plus corresponding GIN device-type/resource-sharing enums. Other edits are compatibility/plumbing for this same GIN feature, not independent module changes."
     }
   },
   "reviewers": {
