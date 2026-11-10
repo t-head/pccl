@@ -1,14 +1,14 @@
 {
   "classification": {
     "base_sha": "4784d0ad1b4def7ad4b5d686c73e7d16f24fc018",
-    "head_sha": "b4413846dc8a892b0736b58ddc9c5349bf904d63",
-    "input_fingerprint": "6d57c5fff75051528a6172e504e73000d85310e21e638b15f48fafd03fc8915e",
+    "head_sha": "5ac16509b27c4d34d2cfb26f8eb39004fd0fd3af",
+    "input_fingerprint": "6aedcc099cdfb8d014c9b0bd80a4168dc1a27d1a4b2ec8fff7406b6deaec0e62",
     "pr_number": 155,
     "proposal": {
       "modules": [
         "gin"
       ],
-      "reason": "Main substantive change is integrating a new GPI backend into the GIN stack: host-side GIN type/context handling, plugin-version wiring, new device-side GPI backend implementation and shared GPI protocol/layout types, plus corresponding GIN device-type/resource-sharing enums. Other edits are compatibility/plumbing for this same GIN feature, not independent module changes."
+      "reason": "Main functional change is integrating a new GPI backend into the existing GIN stack: new GPI device/host common implementation, backend/type dispatch enablement, GIN host setup/finalization checks, and GIN plugin/version wiring. Compatibility alias and enum additions are supporting this same GIN backend integration, not separate module-owned behavior."
     }
   },
   "reviewers": {
