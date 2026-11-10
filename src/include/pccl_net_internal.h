@@ -23,6 +23,7 @@
 
 #define NCCL_NET_SIGNAL_OP_INC 0x1
 #define NCCL_NET_SIGNAL_OP_ADD 0x2
+#define NCCL_NET_SIGNAL_OP_SET 0x4
 
 // Maximum number of requests per comm object
 #define NCCL_NET_MAX_REQUESTS 8

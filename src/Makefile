@@ -22,6 +22,7 @@ LIBSRCFILES := $(filter-out ce_coll_oki.cc,$(wildcard *.cc)) \
                $(wildcard transport/*.cc) \
                $(wildcard transport/net_ib/*.cc) \
                $(wildcard transport/net_ib/gdaki/*.cc) \
+               $(wildcard transport/net_ib/troce/*.cc) \
                $(wildcard scheduler/*.cc) \
                $(wildcard plugin/*.cc) \
                $(wildcard plugin/profiler/*.cc) \

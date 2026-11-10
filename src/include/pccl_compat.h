@@ -23,8 +23,10 @@
 #define NCCL_GIN_TYPE_GDAKI                      PCCL_GIN_TYPE_GDAKI
 #define NCCL_GIN_TYPE_NONE                       PCCL_GIN_TYPE_NONE
 #define NCCL_GIN_TYPE_PROXY                      PCCL_GIN_TYPE_PROXY
+#define NCCL_GIN_TYPE_TROCE                      PCCL_GIN_TYPE_TROCE
 #define NCCL_NET_DEVICE_GIN_GDAKI                PCCL_NET_DEVICE_GIN_GDAKI
 #define NCCL_NET_DEVICE_GIN_PROXY                PCCL_NET_DEVICE_GIN_PROXY
+#define NCCL_NET_DEVICE_GIN_TROCE                PCCL_NET_DEVICE_GIN_TROCE
 #define NCCL_NET_DEVICE_HOST                     PCCL_NET_DEVICE_HOST
 #define NCCL_WIN_STRICT_ORDERING                 PCCL_WIN_STRICT_ORDERING
 #define ncclCommProperties_t                     pcclCommProperties_t
@@ -65,6 +67,7 @@
 #define ncclGinProxyOpWithInline                 pcclGinProxyOpWithInline
 #define ncclGinProxyOpWithSignalAdd              pcclGinProxyOpWithSignalAdd
 #define ncclGinProxyOpWithSignalInc              pcclGinProxyOpWithSignalInc
+#define ncclGinProxyOpWithSignalSet              pcclGinProxyOpWithSignalSet
 #define ncclGinProxyOp_t                         pcclGinProxyOp_t
 #define ncclGinProxyQword_t                      pcclGinProxyQword_t
 #define ncclGinSignal_t                          pcclGinSignal_t
@@ -73,6 +76,7 @@
 #define ncclGinWindow_t                          pcclGinWindow_t
 #define ncclGin_SignalAdd                        pcclGin_SignalAdd
 #define ncclGin_SignalInc                        pcclGin_SignalInc
+#define ncclGin_SignalSet                        pcclGin_SignalSet
 #define ncclLLA2AHandle                          pcclLLA2AHandle
 #define ncclMultimemHandle_t                     pcclMultimemHandle_t
 #define ncclNetDeviceHandle_t                    pcclNetDeviceHandle_t

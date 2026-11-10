@@ -375,7 +375,10 @@ ncclResult_t ncclIbInit(ncclDebugLogger_t logFunction) {
             ncclIbDevs[ncclNIbDevs].ar = ncclParamIbAdaptiveRouting();
           }
           ncclIbDevs[ncclNIbDevs].oooRqSize = oooRqSize;
-          ncclIbDevs[ncclNIbDevs].ibProvider = IB_PROVIDER_MLX5;
+          ncclIbDevs[ncclNIbDevs].ibProvider = strncmp(devices[d]->name, "troce", 5) == 0 ?
+              IB_PROVIDER_TROCE :
+              (wrap_mlx5dv_symbols() == ncclSuccess && wrap_mlx5dv_is_supported(devices[d]) ?
+               IB_PROVIDER_MLX5 : IB_PROVIDER_NONE);
           ncclIbDevs[ncclNIbDevs].pd = NULL;
           ncclIbDevs[ncclNIbDevs].dmaBufSupported = -1;
           NCCLCHECK(ncclIbStatsInit(&ncclIbDevs[ncclNIbDevs].stats));

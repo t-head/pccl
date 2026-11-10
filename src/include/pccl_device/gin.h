@@ -22,6 +22,7 @@ struct pcclGin_None {};
 
 struct pcclGin_VASignalInc { pcclWindow_t signalWindow; size_t signalOffset; };
 struct pcclGin_VASignalAdd { pcclWindow_t signalWindow; size_t signalOffset; uint64_t value; };
+struct pcclGin_VASignalSet { pcclWindow_t signalWindow; size_t signalOffset; uint64_t value; };
 
 struct pcclGin_SignalAdd { pcclGinSignal_t signal; uint64_t value; };
 // SignalInc: equivalent to SignalAdd{+1} except it may not be mixed with any
@@ -29,8 +30,9 @@ struct pcclGin_SignalAdd { pcclGinSignal_t signal; uint64_t value; };
 // given signal, all operations between successive reset()'s of that signal must
 // either all be SignalInc or all not SignalInc.
 struct pcclGin_SignalInc { pcclGinSignal_t signal; };
-// Support deferred:
-// struct pcclGin_SignalSet { pcclGinSignal_t signal; uint64_t value; };
+// SignalSet publishes an absolute value after earlier puts to this peer/context
+// have settled. It is not an accumulating operation for multiple writers.
+struct pcclGin_SignalSet { pcclGinSignal_t signal; uint64_t value; };
 struct pcclGin_CounterInc { pcclGinCounter_t counter; };
 
 struct pcclGin_DescriptorSmem { pcclGinDescriptorSmem* descriptor; };

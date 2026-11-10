@@ -44,15 +44,13 @@ static ncclResult_t ncclGinIbGdrSupport(bool* gdrSupport, bool gdaki) {
 }
 
 // Check the current GPU supports GDR for GIN. This is run during connect().
-static ncclResult_t ncclGinIbGdrGpuSupport(bool gdaki) {
+// The caller supplies peer-memory support for its registration path.
+ncclResult_t ncclGinIbGdrGpuSupport(bool peerMemSupport) {
   int hggcDev;
   HGGCCHECK(hggcGetDevice(&hggcDev));
   int dmaBufSupportOnDevice = 0;
   if (ncclParamDmaBufEnable())
     HGCHECK(hgDeviceGetAttribute(&dmaBufSupportOnDevice, HG_DEVICE_ATTRIBUTE_DMA_BUF_SUPPORTED, hggcDev));
-  bool peerMemSupport =
-      gdaki ? ncclIbPeerMemSupport() == ncclSuccess
-            : ncclIbGdrSupport() == ncclSuccess;
   if (dmaBufSupportOnDevice == 1) {
     INFO_ONCE(NCCL_INIT|NCCL_NET, "GIN prefers DMA-BUF over alixpu_peermem to map GPU memory for RDMA.");
     return ncclSuccess;
@@ -147,7 +145,7 @@ ncclResult_t ncclGinIbFinalize(void* ctx) {
 }
 
 // Copy v6 IB device properties into the v12 GIN-facing property struct.
-static void ncclGinIbFillV12Properties(const ncclNetProperties_v6_t& src, ncclNetProperties_v12_t* dst) {
+void ncclGinIbFillV12Properties(const ncclNetProperties_v6_t& src, ncclNetProperties_v12_t* dst) {
   dst->name = src.name;
   dst->pciPath = src.pciPath;
   dst->guid = src.guid;
@@ -361,7 +359,7 @@ ncclResult_t ncclGinIbGdakiListen(void* /*ctx*/, int dev, void* opaqueHandle, vo
 
 ncclResult_t ncclGinIbGdakiConnect(void* ctx, void* handles[], int nranks, int rank,
                                    void* listenComm, void** collComm) {
-  NCCLCHECK(ncclGinIbGdrGpuSupport(/*gdaki*/ true));
+  NCCLCHECK(ncclGinIbGdrGpuSupport(ncclIbPeerMemSupport() == ncclSuccess));
   NCCLCHECK(ncclGinIbConnect(ctx, handles, nranks, rank, listenComm, collComm));
 
   struct ncclGinIbCollComm* cComm = (struct ncclGinIbCollComm*)*collComm;
@@ -401,7 +399,7 @@ ncclResult_t ncclGinIbGdakiQueryLastError(void* ginCtx, bool* hasError) {
 }
 
 // Adapter so the v13 listen-close signature matches the v6 IB closeListen.
-static ncclResult_t ncclGinIbCloseListen(void* listenComm) {
+ncclResult_t ncclGinIbCloseListen(void* listenComm) {
   return ncclNetIb.closeListen(listenComm);
 }
 
@@ -463,7 +461,7 @@ ncclResult_t ncclGinIbProxyListen(void* /*ctx*/, int dev, void* opaqueHandle, vo
 
 ncclResult_t ncclGinIbProxyConnect(void* ctx, void* handles[], int nranks, int rank,
                                    void* listenComm, void** collComm) {
-  NCCLCHECK(ncclGinIbGdrGpuSupport(/*gdaki*/ false));
+  NCCLCHECK(ncclGinIbGdrGpuSupport(ncclIbGdrSupport() == ncclSuccess));
   NCCLCHECK(ncclGinIbConnect(ctx, handles, nranks, rank, listenComm, collComm));
   return ncclSuccess;
 }
@@ -735,7 +733,8 @@ ncclResult_t ncclGinIbProxyIPutSignal(void* ginCtx, int context, uint64_t srcOff
                                       size_t size, uint64_t dstOff, void* dstMhandle, uint32_t rank,
                                       uint64_t signalOff, void* signalMhandle, uint64_t signalValue,
                                       uint32_t signalOp, void** request) {
-  if (signalOp != NCCL_NET_SIGNAL_OP_INC && signalOp != NCCL_NET_SIGNAL_OP_ADD) {
+  if (signalOp != NCCL_NET_SIGNAL_OP_INC && signalOp != NCCL_NET_SIGNAL_OP_ADD &&
+      signalOp != NCCL_NET_SIGNAL_OP_SET) {
     WARN("pcclGinIbProxyIPutSignal: Unsupported signalOp %u", signalOp);
     return ncclInvalidArgument;
   }
@@ -749,9 +748,15 @@ ncclResult_t ncclGinIbProxyIPutSignal(void* ginCtx, int context, uint64_t srcOff
   struct ncclIbSendComm* comm = (struct ncclIbSendComm*)ginProxyCtx->fullSendComm[rank];
   struct ibv_qp* qp = comm->base.qps[0];
 
+  const bool signalSet = signalOp == NCCL_NET_SIGNAL_OP_SET;
+  if (signalSet && ncclIbDevs[comm->dev.base.ibDevN].ibProvider != IB_PROVIDER_TROCE) {
+    WARN("GIN/IB SignalSet requires the TROCE flush-write operation");
+    return ncclInvalidUsage;
+  }
+
   struct ncclIbRequest* req;
   NCCLCHECK(ncclIbGetRequest(&comm->base, &req));
-  // See ncclGinIbProxyIPut. Only the atomic WQE is signaled, so one completion either way.
+  // See ncclGinIbProxyIPut. Only the signal WQE requests a completion.
   req->events = 0;
   req->ginProxyCtx = ginProxyCtx;
   req->type = NCCL_NET_IB_REQ_GIN_IPUT;
@@ -788,19 +793,31 @@ ncclResult_t ncclGinIbProxyIPutSignal(void* ginCtx, int context, uint64_t srcOff
   void* signalPtr = (void*)(signalMrHandle->base_vas[rank] + signalOff);
   uint32_t signalRkey = signalMrHandle->rkeys[rank];
 
-  wr[1].opcode                = IBV_WR_ATOMIC_FETCH_AND_ADD;
   wr[1].send_flags            = IBV_SEND_SIGNALED;
   wr[1].wr_id                 = req - comm->base.reqs;
   wr[1].next                  = NULL;
-  wr[1].wr.atomic.remote_addr = (uint64_t)signalPtr;
-  wr[1].wr.atomic.compare_add = signalOp == NCCL_NET_SIGNAL_OP_INC ? 1 : signalValue;
-  wr[1].wr.atomic.rkey        = signalRkey;
   wr[1].sg_list = &sge[1];
   wr[1].num_sge = 1;
 
-  sge[1].addr = (uintptr_t)&comm->putSignalScratchpad;
-  sge[1].length = sizeof(comm->putSignalScratchpad);
-  sge[1].lkey = comm->dev.putSignalScratchpadMr->lkey;
+  if (signalSet) {
+    // TROCE UMD maps SEND_WITH_INV to inline flush write using wr.rdma.
+    // It settles earlier writes on this QP before storing the flag value.
+    wr[1].opcode = IBV_WR_SEND_WITH_INV;
+    wr[1].send_flags |= IBV_SEND_INLINE;
+    wr[1].wr.rdma.remote_addr = (uint64_t)signalPtr;
+    wr[1].wr.rdma.rkey = signalRkey;
+    sge[1].addr = (uintptr_t)&signalValue;
+    sge[1].length = sizeof(signalValue);
+    sge[1].lkey = 0;
+  } else {
+    wr[1].opcode = IBV_WR_ATOMIC_FETCH_AND_ADD;
+    wr[1].wr.atomic.remote_addr = (uint64_t)signalPtr;
+    wr[1].wr.atomic.compare_add = signalOp == NCCL_NET_SIGNAL_OP_INC ? 1 : signalValue;
+    wr[1].wr.atomic.rkey = signalRkey;
+    sge[1].addr = (uintptr_t)&comm->putSignalScratchpad;
+    sge[1].length = sizeof(comm->putSignalScratchpad);
+    sge[1].lkey = comm->dev.putSignalScratchpadMr->lkey;
+  }
 
   struct ibv_send_wr* bad_wr;
   NCCLCHECK(wrap_ibv_post_send(qp, size > 0 ? &wr[0] : &wr[1], &bad_wr));

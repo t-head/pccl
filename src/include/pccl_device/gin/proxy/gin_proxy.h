@@ -152,6 +152,10 @@ __device__ __forceinline__ void constructProxyOp(pcclGinProxyOp_t& op, bool isGe
       case pcclGinSignalAdd:
         op = static_cast<pcclGinProxyOp_t>(static_cast<uint16_t>(op) | static_cast<uint16_t>(pcclGinProxyOpWithSignalAdd));
         break;
+      case pcclGinSignalSet:
+        op = static_cast<pcclGinProxyOp_t>(static_cast<uint16_t>(op) |
+                                          static_cast<uint16_t>(pcclGinProxyOpWithSignalSet));
+        break;
       default:
         __builtin_unreachable();
     }

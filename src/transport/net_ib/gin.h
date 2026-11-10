@@ -12,6 +12,7 @@
 #include <stddef.h>
 #include <stdint.h>
 #include "pccl_internal.h"
+#include "pccl_gin.h"
 
 struct ncclGinIbCollComm {
   void*         ctx;
@@ -29,5 +30,13 @@ struct ncclGinIbCollComm {
   ncclResult_t (*allToAll)(struct ncclGinIbCollComm *cComm, void *srcBuf, void *recvBuf, size_t len);
   ncclResult_t (*getGidIndex)(struct ibv_context *context, uint8_t portNum, struct ibv_port_attr* portAttr, int *gidIndex);
 };
+
+ncclResult_t ncclGinIbGdrGpuSupport(bool peerMemSupport);
+void ncclGinIbFillV12Properties(const ncclNetProperties_v6_t& src, ncclNetProperties_v12_t* dst);
+ncclResult_t ncclGinIbConnect(void* ctx, void* handles[], int nranks, int rank,
+                               void* listenComm, void** collComm);
+ncclResult_t ncclGinIbCloseColl(void* collComm);
+ncclResult_t ncclGinIbCloseListen(void* listenComm);
+ncclResult_t ncclGinIbFinalize(void* ctx);
 
 #endif

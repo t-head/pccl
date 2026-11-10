@@ -397,6 +397,7 @@ const char* ibvWrOpcodeStr(enum ibv_wr_opcode opcode) {
     case IBV_WR_RDMA_READ:           return "IBV_WR_RDMA_READ";
     case IBV_WR_ATOMIC_CMP_AND_SWP:  return "IBV_WR_ATOMIC_CMP_AND_SWP";
     case IBV_WR_ATOMIC_FETCH_AND_ADD: return "IBV_WR_ATOMIC_FETCH_AND_ADD";
+    case IBV_WR_SEND_WITH_INV:       return "IBV_WR_SEND_WITH_INV";
     default:                          return "UNKNOWN_OPCODE";
   }
 }

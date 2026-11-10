@@ -201,6 +201,18 @@ PCCL_DEVICE_INLINE constexpr pcclGinSignalOp_t pcclGin_getSignalOp(pcclGin_Signa
 }
 PCCL_DEVICE_INLINE constexpr uint64_t pcclGin_getSignalOpArg(pcclGin_SignalAdd arg) { return arg.value; }
 
+PCCL_DEVICE_INLINE constexpr pcclGinSignalDescriptor pcclGin_getSignalDescriptor(
+    pcclGin const& net, pcclGin_SignalSet arg) {
+  pcclGinSignalDescriptor desc{};
+  desc.type = PCCL_GIN_SIGNAL_TYPE_INDEXED;
+  desc.indexedSignal.signalId = arg.signal;
+  return desc;
+}
+PCCL_DEVICE_INLINE constexpr pcclGinSignalOp_t pcclGin_getSignalOp(pcclGin_SignalSet) {
+  return pcclGinSignalSet;
+}
+PCCL_DEVICE_INLINE constexpr uint64_t pcclGin_getSignalOpArg(pcclGin_SignalSet arg) { return arg.value; }
+
 PCCL_DEVICE_INLINE pcclGinSignalDescriptor pcclGin_getSignalDescriptor(pcclGin const& net, pcclGin_VASignalInc arg) {
   pcclGinSignalDescriptor desc{};
   desc.type = PCCL_GIN_SIGNAL_TYPE_VA;
@@ -226,6 +238,19 @@ PCCL_DEVICE_INLINE constexpr pcclGinSignalOp_t pcclGin_getSignalOp(pcclGin_VASig
   return pcclGinSignalAdd;
 }
 PCCL_DEVICE_INLINE constexpr uint64_t pcclGin_getSignalOpArg(pcclGin_VASignalAdd arg) { return arg.value; }
+
+PCCL_DEVICE_INLINE pcclGinSignalDescriptor pcclGin_getSignalDescriptor(pcclGin const& net, pcclGin_VASignalSet arg) {
+  pcclGinSignalDescriptor desc{};
+  desc.type = PCCL_GIN_SIGNAL_TYPE_VA;
+  desc.vaSignal.signalWindow = pccl::gin::internal::getGinWindow(arg.signalWindow, net.connectionId);
+  desc.vaSignal.signalOffset = pccl::gin::internal::windowOffsetToGinOffset(arg.signalWindow, arg.signalOffset);
+  desc.vaSignal.pcclWindow = arg.signalWindow;
+  return desc;
+}
+PCCL_DEVICE_INLINE constexpr pcclGinSignalOp_t pcclGin_getSignalOp(pcclGin_VASignalSet) {
+  return pcclGinSignalSet;
+}
+PCCL_DEVICE_INLINE constexpr uint64_t pcclGin_getSignalOpArg(pcclGin_VASignalSet arg) { return arg.value; }
 
 
 ////////////////////////////////////////////////////////////////////////////////

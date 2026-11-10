@@ -27,7 +27,7 @@ NCCL_PARAM(GinPluginRefCount, "GIN_PLUGIN_REF_COUNT", 0);
 int ncclGinVersion[NCCL_GIN_VERSION_COUNT] = {13, 12, 11};
 getNcclGin_t* getNcclGin[NCCL_GIN_VERSION_COUNT] = {getNcclGin_v13, getNcclGin_v12, getNcclGin_v11};
 
-#define NCCL_GIN_NUM_INTERNAL_PLUGINS 1
+#define NCCL_GIN_NUM_INTERNAL_PLUGINS 2
 
 typedef enum ncclGinPluginState {
   ncclGinPluginStateDisabled        = -2,       // Plugin library failed to initialize
@@ -196,13 +196,20 @@ static void initPluginLibsOnceFunc() {
   }
 
   // Also check if the NET plugin has GIN support
-  if ((ginPluginLibs[pluginCounter].dlHandle = ncclGetNetPluginLib(ncclPluginTypeGin)) != NULL) {
+  if (pluginCounter < NCCL_GIN_MAX_PLUGINS - NCCL_GIN_NUM_INTERNAL_PLUGINS &&
+      (ginPluginLibs[pluginCounter].dlHandle = ncclGetNetPluginLib(ncclPluginTypeGin)) != NULL) {
     ginPluginLibs[pluginCounter].ncclGinPluginState = ncclGinPluginStateLoadReady;
     pluginCounter++;
   }
 
   // Add internal ib plugin
   ginPluginLibs[pluginCounter].ncclGin = &ncclGinIb;
+  ginPluginLibs[pluginCounter].ncclGinPluginState = ncclGinPluginStateInitReady;
+  ginPluginLibs[pluginCounter].ncclGinVersion = ncclGinVersion[0];
+  pluginCounter++;
+
+  // Add internal TROCE plugin
+  ginPluginLibs[pluginCounter].ncclGin = &ncclGinTroce;
   ginPluginLibs[pluginCounter].ncclGinPluginState = ncclGinPluginStateInitReady;
   ginPluginLibs[pluginCounter].ncclGinVersion = ncclGinVersion[0];
   pluginCounter++;

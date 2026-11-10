@@ -24,6 +24,7 @@ typedef enum {
   pcclGinProxyOpVASignal = 1 << 5, // VA signals do not include put.
   pcclGinProxyOpGet = 1 << 6,
   pcclGinProxyOpFlush = 1 << 7,
+  pcclGinProxyOpWithSignalSet = 1 << 8,
 } pcclGinProxyOp_t;
 
 static_assert(sizeof(void *) == sizeof(uint64_t) && sizeof(size_t) == sizeof(uint64_t),
