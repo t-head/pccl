@@ -1,14 +1,14 @@
 {
   "classification": {
-    "base_sha": "77af125652fd1ffc532bf519022f709b9df510fd",
-    "head_sha": "ac2a4f477b5dfa95d155def423ec5b16146d29fe",
-    "input_fingerprint": "1c4d9e897a8d3e012a3d8d109511fdccdd278dced53ef5f23e0f369caf041d8a",
+    "base_sha": "4784d0ad1b4def7ad4b5d686c73e7d16f24fc018",
+    "head_sha": "b4413846dc8a892b0736b58ddc9c5349bf904d63",
+    "input_fingerprint": "6d57c5fff75051528a6172e504e73000d85310e21e638b15f48fafd03fc8915e",
     "pr_number": 155,
     "proposal": {
       "modules": [
         "gin"
       ],
-      "reason": "Main change is GIN-specific backend integration: adds new GPI device/host backend implementation, extends GIN backend/type enums and dispatch/mask handling, and updates GIN host/plugin setup/validation paths for the new backend while keeping existing ABI compatibility."
+      "reason": "Main change is GIN-specific backend integration: adds a new GPI GIN backend implementation and wiring (device-side GPI API/ops, backend dispatch mask/type enums, GIN host setup/type detection, and GIN plugin compatibility hooks). Edits in shared compatibility/core/net-device headers are feature-coupled enum/ABI extensions for this same GIN backend, not separate substantive module changes."
     }
   },
   "reviewers": {
