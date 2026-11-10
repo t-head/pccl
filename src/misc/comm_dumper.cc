@@ -90,15 +90,19 @@ ncclResult_t dumpP2pWorkToFile(FILE* file, struct ncclDevWorkP2p* work, uint16_t
   return ncclSuccess;
 }
 
-ncclResult_t dumpCollWorkToFile(FILE* file, struct ncclDevWorkColl* work, uint16_t index, int indentLevel) {
-
+ncclResult_t dumpCollWorkToFile(FILE* file, struct ncclDevWorkColl* work, uint16_t index, int indentLevel, uint16_t funcId) {
+  const bool isRing = (funcId - NUM_P2P_FUNC) / NCCL_NUM_PROTOCOLS % NCCL_NUM_ALGORITHMS == NCCL_ALGO_RING;
   const char* indentStr = getIndentStr(indentLevel);
   fprintf(file, "%s%d: ", indentStr, index);
-  fprintf(file, "work nThreads:%d ", work->nThreads);
+  fprintf(file, "work nThreads:%d ", (work->nWarps * WARP_SIZE));
   fprintf(file, "sendRegUsed:%d, recvRegUsed:%d sendbuff %p recvbuff %p ",
     work->sendRegUsed, work->recvRegUsed, work->sendbuff, work->recvbuff);
-  fprintf(file, "coll, count:%ld, lastChunkSize:%ld, root:%d, startChannelId:%d, nChannels:%d, commNChannels:%d, ",
-    work->count, work->lastChunkSize, work->root, work->startChannelId, work->nChannels, work->commNChannels);
+  fprintf(file, "coll, cbd:%u, countLo/count:%zu, countMid/chunk:%zu, countHi:%zu, chunkGrainsLo/Mid/Hi:%u/%u/%u, root:%u, channelLo:%u, channelHi:%u, ",
+    unsigned(isRing), isRing ? work->cbd.countLo : work->collnet.count,
+    isRing ? work->cbd.countMid : work->collnet.chunkCount, isRing ? work->cbd.countHi : 0,
+    isRing ? unsigned(work->cbd.chunkGrainsLo) : 0,
+    isRing ? unsigned(work->cbd.chunkGrainsMid) : 0,
+    isRing ? unsigned(work->cbd.chunkGrainsHi) : 0, work->root, work->channelLo, work->channelHi);
   fprintf(file, "\n");
 
   return ncclSuccess;
@@ -108,7 +112,7 @@ ncclResult_t dumpCollRegWorkToFile(FILE* file, struct ncclDevWorkCollReg* work, 
   return ncclSuccess;
 }
 
-ncclResult_t dumpWorkToFile(FILE* file, uint32_t workType, uint64_t offsetBitset, const struct DevWorkStorageRef& storage, int indentLevel) {
+ncclResult_t dumpWorkToFile(FILE* file, uint32_t workType, uint16_t funcId, uint64_t offsetBitset, const struct DevWorkStorageRef& storage, int indentLevel) {
   int workIdx = 0;;
   alignas(16) char localWork[sizeof(struct ncclDevWorkCollReg)];
   const size_t workSize = ncclDevWorkSize((enum ncclDevWorkType)workType);
@@ -125,7 +129,7 @@ ncclResult_t dumpWorkToFile(FILE* file, uint32_t workType, uint64_t offsetBitset
         }
         case ncclDevWorkTypeColl: {
           ncclDevWorkColl* collWork = (ncclDevWorkColl*)workPtr;
-          NCCLCHECK(dumpCollWorkToFile(file, collWork, workIdx, indentLevel));
+          NCCLCHECK(dumpCollWorkToFile(file, collWork, workIdx, indentLevel, funcId));
           break;
         }
         case ncclDevWorkTypeCollReg:
@@ -164,7 +168,7 @@ ncclResult_t dumpChannelWorkBatchToFile(FILE* file, ncclComm_t comm, ncclDevKern
 
     if (kernelArgs->workStorageType != ncclDevWorkStorageTypePersistent) {
       struct DevWorkStorageRef storage = { workPtrBase, batch.offsetBase, kernelArgs->workMask, kernelArgs->workStorageType };
-      NCCLCHECK(dumpWorkToFile(file, batch.workType, batch.offsetBitset, storage, indentLevel + 1));
+      NCCLCHECK(dumpWorkToFile(file, batch.workType, batch.funcId, batch.offsetBitset, storage, indentLevel + 1));
     }
 
     if (batch.nextExtends) {

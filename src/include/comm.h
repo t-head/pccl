@@ -525,7 +525,6 @@ struct pcclComm {
   struct ncclInfo* asyncOps;
   int asyncOpCount;
   size_t asyncTotalSize;
-  int lastChannel;
 
   int localPersistentRefs;
 
