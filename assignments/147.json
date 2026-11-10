@@ -1,15 +1,15 @@
 {
   "classification": {
     "base_sha": "4784d0ad1b4def7ad4b5d686c73e7d16f24fc018",
-    "head_sha": "ba0b2ee0171360b1f15097e6792e2a956069b594",
-    "input_fingerprint": "c08054047b87d97c771780445ea386083c4692d23035ca6913147abddfa1a718",
+    "head_sha": "6de39c3b30e3831cbff354419eac5879eefac264",
+    "input_fingerprint": "f637ff84c027b66ef715d7352a2a9ca05da948f87611f8a50115972914a0c103",
     "pr_number": 147,
     "proposal": {
       "modules": [
         "build",
         "ci"
       ],
-      "reason": "Main change adds a new GitHub Actions pipeline for scheduled/dispatch tarball production, matrix execution, artifact merge/publish, and run summaries, which is CI workflow orchestration. Also includes substantive tarball build-script implementation changes (SDK/toolchain setup, compiler/linker handling, packaging outputs, and artifact contents), so build expertise is needed beyond CI wiring."
+      "reason": "Adds a new GitHub Actions matrix workflow for scheduled/manual PPU tarball build execution, artifact merging, and run summaries (ci), and substantially rewrites the tar build scripts to handle SDK/toolchain setup plus PCCL/pccl-tests packaging logic across OS/HGGCRT variants (build)."
     }
   },
   "reviewers": {
