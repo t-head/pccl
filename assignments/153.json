@@ -2,13 +2,13 @@
   "classification": {
     "base_sha": "4784d0ad1b4def7ad4b5d686c73e7d16f24fc018",
     "head_sha": "d52f956eee182d44fd382e7623a1a2aa9337780c",
-    "input_fingerprint": "d844b3d2f586bf820598e17cb3e21d8c64a29fe67a68046ac1ea7a735cfa59c5",
+    "input_fingerprint": "a88fef1efc4b402f351d14fa98db594ba966ecef7695e44954965b11845976e8",
     "pr_number": 153,
     "proposal": {
       "modules": [
         "enqueue"
       ],
-      "reason": "Main change is in runtime launch sequencing: kernel plans now launch with their packed argument buffer pointer and actual byte size, and argument snapshot copy is bounded to monitor record capacity. The utils macro and CE/OKI/P2P DMA edits are mechanical call-site/signature adaptations, not independent copy-engine behavior changes."
+      "reason": "Main functional change is in runtime kernel launch/enqueue behavior: regular plans now launch with packed argument buffers sized to each plan\u2019s actual populated bytes, plus bounded kernel-arg monitor copying in enqueue. The utils macro update and CE/P2P callsite edits are interface plumbing/mechanical signature updates, not independent subsystem behavior changes."
     }
   },
   "reviewers": {
