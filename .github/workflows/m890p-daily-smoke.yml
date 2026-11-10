@@ -337,18 +337,21 @@ jobs:
             ulimit -a
             echo 'Host network addresses:'
             hostname -I
-            if ! command -v ibv_devinfo >/dev/null || ! command -v show_gids >/dev/null || ! command -v rdma >/dev/null; then
+            if ! command -v ibv_devinfo >/dev/null || ! command -v rdma >/dev/null || ! command -v ib_write_bw >/dev/null; then
               export DEBIAN_FRONTEND=noninteractive
               apt-get update
               apt-get install -y --no-install-recommends rdma-core ibverbs-utils perftest
             fi
             command -v ibv_devinfo
-            command -v show_gids
             command -v rdma
             command -v ib_write_bw
             echo 'RDMA device information:'
             ibv_devinfo -v
-            show_gids
+            if command -v show_gids >/dev/null; then
+              show_gids
+            else
+              echo 'show_gids is unavailable in this distribution; using ibv_devinfo and sysfs.'
+            fi
             rdma link show
             for gid in /sys/class/infiniband/*/ports/*/gids/*; do
               echo "RDMA GID: $gid"
