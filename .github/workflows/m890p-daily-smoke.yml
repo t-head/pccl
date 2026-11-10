@@ -335,7 +335,7 @@ jobs:
             echo 'Host runtime limits:'
             ulimit -a
             echo 'Host network addresses:'
-            ip -brief address
+            hostname -I || true
             test -d /dev/infiniband
             test -r /proc/net/route
             set -- /dev/infiniband/*

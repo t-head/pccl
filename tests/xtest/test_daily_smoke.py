@@ -86,6 +86,7 @@ class DailySmokeTests(unittest.TestCase):
         self.assertIn('host_ipc: true', text)
         self.assertIn('host_network: true', text)
         self.assertIn('ulimit -l unlimited', text)
+        self.assertIn('hostname -I || true', text)
         self.assertNotIn('human-review', text)
         self.assertNotIn('build-notsm', text)
         self.assertNotIn("expected = {('standard', 1): 71", text)
