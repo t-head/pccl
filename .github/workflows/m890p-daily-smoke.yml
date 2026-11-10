@@ -2,7 +2,7 @@ name: M890P daily smoke (experimental)
 
 on:
   push:
-    branches: [ci/m890p-daily-csv]
+    branches: [ci/m890p-daily-csv, experiment/m890p-host-runtime]
 
 permissions:
   contents: read
@@ -324,10 +324,18 @@ jobs:
           cleanup_policy: always
           container_options: |
             privileged: true
+            host_ipc: true
+            host_network: true
           host_volumes: /dev/infiniband:/dev/infiniband
           setup_command: |
             set -euo pipefail
             source /usr/local/PPU_SDK/envsetup.sh
+            ulimit -l unlimited
+            ulimit -s 65536
+            echo 'Host runtime limits:'
+            ulimit -a
+            echo 'Host network addresses:'
+            ip -brief address
             test -d /dev/infiniband
             test -r /proc/net/route
             set -- /dev/infiniband/*

@@ -73,7 +73,7 @@ class DailySmokeTests(unittest.TestCase):
 
     def test_daily_workflow_has_matching_gate_and_cleanup(self):
         text = WORKFLOW.read_text()
-        self.assertIn('branches: [ci/m890p-daily-csv]', text)
+        self.assertIn('branches: [ci/m890p-daily-csv, experiment/m890p-host-runtime]', text)
         self.assertIn('tests/xtest/daily-minimal-csv', text)
         self.assertIn("expected = {'standard': 7, 'cluster': 7}", text)
         self.assertIn('len(metrics) != 1', text)
@@ -83,6 +83,9 @@ class DailySmokeTests(unittest.TestCase):
         self.assertIn('name: m890p-daily-build-standard', text)
         self.assertIn('name: m890p-daily-build-${{ matrix.profile }}', text)
         self.assertIn('Two-node master-only daily smoke', text)
+        self.assertIn('host_ipc: true', text)
+        self.assertIn('host_network: true', text)
+        self.assertIn('ulimit -l unlimited', text)
         self.assertNotIn('human-review', text)
         self.assertNotIn('build-notsm', text)
         self.assertNotIn("expected = {('standard', 1): 71", text)
