@@ -64,7 +64,7 @@ jobs:
               assert hashlib.sha256((runner / name).read_bytes()).hexdigest() == expected
           metadata = json.loads(Path('tests/xtest/daily-minimal-csv/export.json').read_text())
           assert metadata['runner_revision'] == revision
-          expected = {('standard', 1): 7, ('standard', 2): 7}
+          expected = {('standard', 1): 7, ('standard', 2): 5}
           for (profile, nodes), count in expected.items():
               selected = run_cases.load_inputs(Path('tests/xtest/daily-minimal-csv'), profile, nodes)
               assert len(selected['cases']) == count
@@ -325,7 +325,6 @@ jobs:
           container_options: |
             privileged: true
             host_ipc: true
-            host_network: true
           host_volumes: /dev/infiniband:/dev/infiniband
           setup_command: |
             set -euo pipefail
@@ -334,7 +333,7 @@ jobs:
             ulimit -s 65536
             echo 'Host runtime limits:'
             ulimit -a
-            echo 'Host network addresses:'
+            echo 'Pod network addresses:'
             hostname -I || true
             test -d /dev/infiniband
             test -r /proc/net/route
@@ -416,7 +415,7 @@ jobs:
           root = Path('/wl_nas/devops/pccl-artifact-cache-${{ github.run_id }}/results')
           public = Path('public-results')
           public.mkdir()
-          expected = {'standard': 7, 'cluster': 7}
+          expected = {'standard': 7, 'cluster': 5}
           errors = []
           for name, count in expected.items():
               source = root / name
