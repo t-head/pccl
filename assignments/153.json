@@ -1,16 +1,14 @@
 {
   "classification": {
-    "base_sha": "77af125652fd1ffc532bf519022f709b9df510fd",
-    "head_sha": "31bf0d9f3c788688f916797f41cb7b3672a87935",
-    "input_fingerprint": "14e5bf69360e89b9e74fd17e89d143bbd5265b0f532cef3ea1fb17347ef666aa",
+    "base_sha": "4784d0ad1b4def7ad4b5d686c73e7d16f24fc018",
+    "head_sha": "a2cd312edd6e9c77e4b6cb930075665716c4e2ab",
+    "input_fingerprint": "2c3134e886c86935b04cc78dca4d66f16f3beebac8ec91aa22148b7e45b688f4",
     "pr_number": 153,
     "proposal": {
       "modules": [
-        "enqueue",
-        "kernels",
-        "symmetric"
+        "enqueue"
       ],
-      "reason": "Main change is in runtime launch/enqueue: regular plans now launch with explicit argument-buffer pointer and actual size, and the shared kernel-arg storage budget is raised to 4 KiB. Include kernels because collective kernel entry signatures/types are updated from 1 KiB to 4 KiB argument storage. Include symmetric because its scheduler adds an explicit 1 KiB grouping budget cap to preserve symmetric multi-task packing behavior despite the larger regular-plan budget."
+      "reason": "Main change is in runtime enqueue/launch behavior: regular kernel plans now pass an explicit argument-buffer pointer and actual size (enabling up to 4 KiB) and enqueue-side arg copying is adjusted accordingly. Other file edits are mechanical LAUNCH_KERNEL call-site signature updates."
     }
   },
   "reviewers": {
