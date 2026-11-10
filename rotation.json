@@ -2,7 +2,7 @@
   "bootstrap": 340104201,
   "build": 341355176,
   "ci": 333302477,
-  "copy-engine": 341341178,
+  "copy-engine": 333277982,
   "device-topology": 341355176,
   "dispatch": 341355176,
   "enqueue": 341355176,
@@ -11,7 +11,7 @@
   "kernels": 341355176,
   "memory": 340404662,
   "network": 341355176,
-  "symmetric": 341349555,
+  "symmetric": 333277982,
   "transport": 341341178,
   "tuning": 341751581,
   "workflow": 335730053

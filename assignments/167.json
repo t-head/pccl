@@ -1,0 +1,19 @@
+{
+  "classification": {
+    "base_sha": "3b6cc5f83d2b5257c658c3e6404e194754522a65",
+    "head_sha": "eb14e6a8d7ef912d6002ec23fa0b7890dbee38b7",
+    "input_fingerprint": "73386c1f6d0c14cabba0e0d3804154f0ed2bfe0be0f5324ac56b14754acfaab3",
+    "pr_number": 167,
+    "proposal": {
+      "modules": [
+        "symmetric",
+        "copy-engine"
+      ],
+      "reason": "Primary change is in CE/DMA execution policy: reserving memcpy rings, retargeting CE/ltOki queue IDs, enforcing stream hinting, and using a single reserved CE stream for SM89+OKI to avoid mixed graph/eager hangs. Also includes an independently substantive symmetric-kernel fix to AR/RS ltOki DMA tail sizing/clamping so partial tails send only remaining elements."
+    }
+  },
+  "reviewers": {
+    "copy-engine": 333277982,
+    "symmetric": 333277982
+  }
+}
