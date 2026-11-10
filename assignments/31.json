@@ -1,0 +1,17 @@
+{
+  "classification": {
+    "base_sha": "4784d0ad1b4def7ad4b5d686c73e7d16f24fc018",
+    "head_sha": "70c0b7d88b9b4662cb7ab0367d60aad40a3e9d93",
+    "input_fingerprint": "d7d4e168a1cf638315971884f4696fdba16d9b8f154aad2f253fc2f6bed3e082",
+    "pr_number": 31,
+    "proposal": {
+      "modules": [
+        "gin"
+      ],
+      "reason": "Main change is adding a new built-in GIN backend (TROCE) end-to-end: new GIN host/device backend implementations, GIN plugin registration, provider loading, backend selection enums/masks, and GIN-specific connect/progress/memory-registration paths. Build and shared-header edits are supporting wiring for this backend, not independent module changes."
+    }
+  },
+  "reviewers": {
+    "gin": 333277982
+  }
+}
