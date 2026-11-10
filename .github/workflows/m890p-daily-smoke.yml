@@ -340,7 +340,7 @@ jobs:
             if ! command -v ibv_devinfo >/dev/null || ! command -v rdma >/dev/null || ! command -v ib_write_bw >/dev/null; then
               export DEBIAN_FRONTEND=noninteractive
               apt-get update
-              apt-get install -y --no-install-recommends rdma-core ibverbs-utils perftest
+              apt-get install -y --no-install-recommends rdma-core ibverbs-utils perftest iproute2
             fi
             command -v ibv_devinfo
             command -v rdma
