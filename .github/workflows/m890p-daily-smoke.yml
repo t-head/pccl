@@ -325,6 +325,7 @@ jobs:
           container_options: |
             privileged: true
           host_volumes: /dev/infiniband:/dev/infiniband,/sys/class/infiniband:/sys/class/infiniband
+          extra_env: NCCL_IB_GID_INDEX=1,NCCL_IB_ROCE_VERSION_NUM=2
           setup_command: |
             set -euo pipefail
             source /usr/local/PPU_SDK/envsetup.sh
@@ -332,10 +333,13 @@ jobs:
             test -r /proc/net/route
             set -- /dev/infiniband/*
             test -e "$1"
-            set -- /sys/class/infiniband/*/ports/*/gid_attrs/types/*
-            test -e "$1"
-            test -r "$1"
-            echo "RDMA GID type candidate: $1=$(cat "$1")"
+            for gid_type in /sys/class/infiniband/*/ports/*/gid_attrs/types/*; do
+              test -e "$gid_type"
+              echo "RDMA GID type candidate: $gid_type"
+              cat "$gid_type" || true
+            done
+            echo "NCCL_IB_GID_INDEX=$NCCL_IB_GID_INDEX"
+            echo "NCCL_IB_ROCE_VERSION_NUM=$NCCL_IB_ROCE_VERSION_NUM"
             grep -E 'alixpu_peermem|ib_' /proc/modules || true
           command: |
             set -euo pipefail
