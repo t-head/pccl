@@ -48,7 +48,8 @@ class WorkflowContractTests(unittest.TestCase):
             expression = expression.replace(key, repr(value))
         expression = re.sub(r'needs\.([\w-]+)\.result',
                             lambda match: repr(needs[match.group(1)]['result']), expression)
-        expression = expression.replace('always()', 'True').replace('&&', ' and ').replace('||', ' or ')
+        expression = (expression.replace('always()', 'True').replace('!cancelled()', 'True')
+                      .replace('&&', ' and ').replace('||', ' or '))
 
         def evaluate(node):
             if isinstance(node, ast.Constant):
@@ -80,10 +81,10 @@ class WorkflowContractTests(unittest.TestCase):
                          't-head/.github/.github/workflows/user-precheck.yml@main',
                          't-head/.github/.github/workflows/ai-code-review.yml@main',
                          't-head/.github/.github/workflows/human-review.yml@main',
-                         'github.event.pull_request.head.repo.full_name == github.repository',
                          'Reject unsupported repository or event',
                          'Require successful results, cleanup and all prerequisite jobs'):
             self.assertIn(expected, self.text)
+        self.assertNotIn('github.event.pull_request.head.repo.full_name', self.text)
 
     def test_artifact_upload_download_retention_and_cleanup_are_connected(self):
         for expected in ('name: pccl-build-standard', 'name: pccl-build-notsm',
@@ -128,7 +129,7 @@ class WorkflowContractTests(unittest.TestCase):
         dependencies = re.search(r'    needs: \[(.+)\]', summary).group(1).split(', ')
         self.assertEqual(set(dependencies), set(PR_JOBS + REQUIRED_JOBS))
 
-    def test_internal_results_reject_unapproved_prs_and_unsupported_events(self):
+    def test_internal_results_require_pr_approval_and_supported_events(self):
         self.assertTrue(self.results_eligible(self.needs()))
         for name in PR_JOBS + ('prepare',):
             for status in ('failure', 'cancelled', 'skipped'):
@@ -136,7 +137,7 @@ class WorkflowContractTests(unittest.TestCase):
                     needs = self.needs()
                     needs[name]['result'] = status
                     self.assertFalse(self.results_eligible(needs))
-        self.assertFalse(self.results_eligible(self.needs(), head_repository='someone/fork'))
+        self.assertTrue(self.results_eligible(self.needs(), head_repository='someone/fork'))
         self.assertFalse(self.results_eligible(self.needs(), repository='someone/pccl'))
         self.assertFalse(self.results_eligible(self.needs(), event='pull_request_target'))
         for event in ('push', 'workflow_dispatch'):
@@ -148,11 +149,16 @@ class WorkflowContractTests(unittest.TestCase):
         results = self.job('results')
         self.assertIn("if: always() && steps.checkout.outcome == 'success'", results)
 
-    def test_unsupported_forks_do_not_checkout_in_prechecks(self):
+    def test_fork_prs_run_hosted_prechecks_and_require_approval(self):
         for job in ('precheck', 'commit-checks'):
             self.assertTrue(self.results_eligible(self.needs(), job=job))
-            self.assertFalse(self.results_eligible(self.needs(), head_repository='someone/fork', job=job))
+            self.assertTrue(self.results_eligible(self.needs(), head_repository='someone/fork', job=job))
             self.assertFalse(self.results_eligible(self.needs(), event='workflow_dispatch', job=job))
+        for job in ('build-standard', 'build-notsm'):
+            self.assertTrue(self.results_eligible(self.needs(), head_repository='someone/fork', job=job))
+            needs = self.needs()
+            needs['human-review']['result'] = 'failure'
+            self.assertFalse(self.results_eligible(needs, head_repository='someone/fork', job=job))
 
     def test_final_gate_rejects_failed_cancelled_or_skipped_required_jobs(self):
         self.assertEqual(self.run_gate(self.needs()).returncode, 0)

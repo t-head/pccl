@@ -27,15 +27,13 @@ jobs:
   precheck:
     name: Pre-check (Secret Scan)
     if: >-
-      github.event_name == 'pull_request' && github.repository == 't-head/pccl' &&
-      github.event.pull_request.head.repo.full_name == github.repository
+      github.event_name == 'pull_request' && github.repository == 't-head/pccl'
     uses: t-head/.github/.github/workflows/user-precheck.yml@main
 
   commit-checks:
     name: Pre-check (Commit Message & DCO)
     if: >-
-      github.event_name == 'pull_request' && github.repository == 't-head/pccl' &&
-      github.event.pull_request.head.repo.full_name == github.repository
+      github.event_name == 'pull_request' && github.repository == 't-head/pccl'
     permissions:
       contents: read
     runs-on: ubuntu-latest
@@ -102,8 +100,7 @@ jobs:
       (needs.precheck.result == 'success' || needs.precheck.result == 'skipped') &&
       (needs.commit-checks.result == 'success' || needs.commit-checks.result == 'skipped') &&
       github.repository == 't-head/pccl' &&
-      ((github.event_name == 'pull_request' &&
-        github.event.pull_request.head.repo.full_name == github.repository) ||
+      (github.event_name == 'pull_request' ||
        github.event_name == 'workflow_dispatch' ||
        github.event_name == 'push')
     runs-on: ubuntu-24.04
@@ -179,8 +176,7 @@ jobs:
     needs: [precheck, commit-checks]
     if: >-
       github.event_name == 'pull_request' &&
-      github.repository == 't-head/pccl' &&
-      github.event.pull_request.head.repo.full_name == github.repository
+      github.repository == 't-head/pccl'
     uses: t-head/.github/.github/workflows/ai-code-review.yml@main
     secrets: inherit
 
@@ -189,8 +185,7 @@ jobs:
     needs: [prepare, ai-code-review]
     if: >-
       github.event_name == 'pull_request' &&
-      github.repository == 't-head/pccl' &&
-      github.event.pull_request.head.repo.full_name == github.repository
+      github.repository == 't-head/pccl'
     uses: t-head/.github/.github/workflows/human-review.yml@main
     secrets: inherit
 
@@ -202,8 +197,7 @@ jobs:
       (needs.human-review.result == 'success' ||
         (github.event_name != 'pull_request' && needs.human-review.result == 'skipped')) &&
       github.repository == 't-head/pccl' &&
-      ((github.event_name == 'pull_request' &&
-        github.event.pull_request.head.repo.full_name == github.repository) ||
+      (github.event_name == 'pull_request' ||
        github.event_name == 'workflow_dispatch' ||
        github.event_name == 'push')
     outputs:
@@ -288,8 +282,7 @@ jobs:
       (needs.human-review.result == 'success' ||
         (github.event_name != 'pull_request' && needs.human-review.result == 'skipped')) &&
       github.repository == 't-head/pccl' &&
-      ((github.event_name == 'pull_request' &&
-        github.event.pull_request.head.repo.full_name == github.repository) ||
+      (github.event_name == 'pull_request' ||
        github.event_name == 'workflow_dispatch' ||
        github.event_name == 'push')
     outputs:
@@ -655,8 +648,7 @@ jobs:
     if: >-
       always() && needs.prepare.result == 'success' &&
       github.repository == 't-head/pccl' &&
-      ((github.event_name == 'pull_request' &&
-        github.event.pull_request.head.repo.full_name == github.repository) ||
+      (github.event_name == 'pull_request' ||
        github.event_name == 'workflow_dispatch' || github.event_name == 'push') &&
       (github.event_name != 'pull_request' ||
         (needs.precheck.result == 'success' && needs.commit-checks.result == 'success' &&
@@ -715,8 +707,7 @@ jobs:
           SUPPORTED: >-
             ${{
             github.repository == 't-head/pccl' &&
-            ((github.event_name == 'pull_request' &&
-              github.event.pull_request.head.repo.full_name == github.repository) ||
+            (github.event_name == 'pull_request' ||
              github.event_name == 'workflow_dispatch' || github.event_name == 'push')
             }}
         run: |
