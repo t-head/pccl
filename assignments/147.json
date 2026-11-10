@@ -1,15 +1,15 @@
 {
   "classification": {
     "base_sha": "bb1ecedd525723dbb986710831d2db19552050b4",
-    "head_sha": "85db0ecda895f27d2b0afe740f0493870bc62353",
-    "input_fingerprint": "79ef758aebd80a23403563919b52f74ef0356eae8285bb73e2dd8df6ea55b77f",
+    "head_sha": "88b1edcb2bd04d05c206a7513aa05587ed02a4e1",
+    "input_fingerprint": "d433b4df8dbacd5ccf3a11eaa1dc70ff128a696fc1453587950ac9e608a26ae6",
     "pr_number": 147,
     "proposal": {
       "modules": [
         "build",
         "ci"
       ],
-      "reason": "Adds a new scheduled GitHub Actions matrix workflow for building and publishing PPU tarball artifacts, and implements the tar build scripts with substantive toolchain/SDK setup and packaging logic for PCCL and pccl-tests outputs."
+      "reason": "Primary change adds a new GitHub Actions pipeline (prepare/build/publish/summary jobs, triggers, matrix, runner/concurrency, artifact merge/reporting), which is CI workflow execution. Additional build review is needed because the tar-build scripts were substantially implemented to control SDK/toolchain setup and the actual PCCL/pccl-tests tarball packaging outputs and versioning behavior."
     }
   },
   "reviewers": {
