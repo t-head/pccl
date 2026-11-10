@@ -11,15 +11,15 @@ SRCDIR ?= $(abspath ../../../src)
 BUILDDIR ?= $(abspath ../../../build)
 OBJDIR := $(BUILDDIR)/obj/collectives/device
 
-LIBSRCFILES := all_reduce.cu broadcast.cu reduce.cu all_gather.cu reduce_scatter.cu sendrecv.cu
-
-LIBSRCFILES += functions.cu
-
-DEPFILES   := $(patsubst %.cu, $(OBJDIR)/%.d, $(LIBSRCFILES))
-DEPENDFILES:= $(DEPFILES:%.d=%.dep)
+# Every device source is generated: generate.py emits one translation unit per
+# instantiated (collective, reduction op, data type), the two dispatch tables,
+# and $(DEVICE_RULES_FILE), which compiles them and defines GENOBJS,
+# GENTABLEOBJS and GENDEPFILES.
 STATICLIB  := $(OBJDIR)/colldevice.a
 DEVOBJ     := $(OBJDIR)/devlink.o
-RULESFILE  := $(OBJDIR)/Makefile.rules
+
+DEVICE_GENSRC_DIR := $(OBJDIR)/gensrc/device
+DEVICE_RULES_FILE := $(DEVICE_GENSRC_DIR)/rules.mk
 
 SYMMETRIC_GENSRC_DIR := $(OBJDIR)/gensrc/symmetric
 SYMMETRIC_GENOBJ_DIR := $(OBJDIR)/genobj/symmetric
@@ -46,9 +46,6 @@ endif
 
 all: $(STATICLIB)
 
-# Dummy rule so that the extra dependency (%.dep) files are preserved by make
-all_deps: $(DEPENDFILES)
-
 $(SYMMETRIC_GENSRC_DIR): symmetric/generate.py
 	@printf "Generating %-35s > %s\n" symmetric-sources $@
 	@mkdir -p $@
@@ -71,19 +68,28 @@ ifdef TEST_OP
 else
   COLL_OPs = none
 endif
-$(RULESFILE) :
-	@printf "Generating %-35s > %s\n" rules $@
-	@mkdir -p $(OBJDIR)
-	@./gen_rules.sh --obj_dir $(OBJDIR) --coll_ops $(COLL_OPs) --data_types $(DATA_TYPES) --keep $(KEEP) > $@
+$(DEVICE_GENSRC_DIR): generate.py
+	@printf "Generating %-35s > %s\n" device-sources $@
+	@mkdir -p $@
+	(which python3 >/dev/null || \
+	  (bar='!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!'; \
+	   printf "\n$${bar}\nERROR: Building NCCL requires a Python 3 installation invokable as 'python3'.\n$${bar}\n\n" 1>&2; \
+	   exit 1)) \
+	&& ./generate.py $@ --obj_dir $(OBJDIR) --coll_ops $(COLL_OPs) --data_types $(DATA_TYPES) --keep $(KEEP)
 
--include $(RULESFILE)
+$(DEVICE_RULES_FILE): $(DEVICE_GENSRC_DIR) ;
+
+-include $(DEVICE_RULES_FILE)
 
 # "SYMMETRIC_RULES_FILE" populates $(LIB_OBJS_SYM_GEN)
 -include $(SYMMETRIC_RULES_FILE)
 
-LIBOBJ     := $(GENOBJS) $(LIB_OBJS_SYM_GEN) $(OBJDIR)/functions.o $(OBJDIR)/onerank.o $(OBJDIR)/ce_kernel.o
+# Dummy rule so that the extra dependency (%.dep) files are preserved by make
+all_deps: $(GENDEPFILES)
 
--include $(DEPFILES)
+LIBOBJ     := $(GENOBJS) $(GENTABLEOBJS) $(LIB_OBJS_SYM_GEN) $(OBJDIR)/onerank.o $(OBJDIR)/ce_kernel.o
+
+-include $(GENDEPFILES:.dep=.d)
 
 -include $(wildcard $(OBJDIR)/genobj/symmetric/*.d)
 
@@ -97,8 +103,8 @@ $(STATICLIB): $(LIBOBJ) $(DEVOBJ)
 # So we only provide targets for .dep which will produce .dep and .d,
 # with only .d being included, and .dep keeping track of what needs to
 # be regenerated.
-$(OBJDIR)/%.dep : %.cu
-	@mkdir -p $(dir $@)
+$(OBJDIR)/%.dep : $(DEVICE_GENSRC_DIR)/%
+	@mkdir -p $(OBJDIR)
 	$(HGCC) $(HGFLAGS) -M $< -o $@.tmp
 	@sed "0,/^.*:/s//$(subst /,\/,$@):/" $@.tmp > $@
 	@sed -e 's/.*://' -e 's/\\$$//' < $@.tmp | fmt -1 | \
@@ -120,20 +126,26 @@ $(SYMMETRIC_GENOBJ_DIR)/%.cc.o : $(SYMMETRIC_GENSRC_DIR)/%.cc $(SYMMETRIC_GENOBJ
 	@mkdir -p $(dir $@)
 	$(HGCC) $(HGFLAGS) -c $< -o $@
 
-# Compiled kernels and collectives with relocatable device code ...
-$(OBJDIR)/functions.o : functions.cu $(OBJDIR)/functions.dep
-	@printf "Compiling  %-35s > %s\n" $< $@
-	mkdir -p `dirname $@`
-	$(HGCC) $(HGFLAGS) -c $< -o ${OBJDIR}/functions.o
-
 $(OBJDIR)/onerank.o : onerank.cu
 	@printf "Compiling  %-35s > %s\n" $< $@
 	mkdir -p `dirname $@`
 	$(HGCC) $(HGFLAGS) -c $< -o ${OBJDIR}/onerank.o
 
+# ce_kernel.cu is handwritten and lives in symmetric/, not in the generated
+# device directory, so it needs its own dependency-file rule.
+$(OBJDIR)/symmetric/%.dep : symmetric/%.cu
+	@mkdir -p $(dir $@)
+	$(HGCC) $(HGFLAGS) -M $< -o $@.tmp
+	@sed "0,/^.*:/s//$(subst /,\/,$@):/" $@.tmp > $@
+	@sed -e 's/.*://' -e 's/\\$$//' < $@.tmp | fmt -1 | \
+		sed -e 's/^ *//' -e 's/$$/:/' >> $@
+	@rm -f $@.tmp
+	@cp $@ $(@:.dep=.d)
+
 # ce_kernel.o picks up header changes through an auto-generated .dep, the same
-# way functions.o does (below), so edits to ce_kernel_oki.cuh, p2p_dma_kernel.cuh
-# or p2p_dma_oki.cuh trigger a rebuild without listing headers here by hand.
+# way the generated collectives do, so edits to ce_kernel_oki.cuh,
+# p2p_dma_kernel.cuh or p2p_dma_oki.cuh trigger a rebuild without listing
+# headers here by hand.
 $(OBJDIR)/ce_kernel.o : symmetric/ce_kernel.cu $(OBJDIR)/symmetric/ce_kernel.dep
 	@printf "Compiling  %-35s > %s\n" $< $@
 	mkdir -p `dirname $@`
@@ -147,7 +159,7 @@ $(DEVOBJ) : $(LIBOBJ)
 	$(HGCC) -dlink -Xcompiler -fPIC $(DEVLINK_FLAGS) $(HGLDFLAGS) $(OKI_DEV_LIB) $^ -o $@
 
 clean:
-	rm -f $(LIBOBJ) $(DEVOBJ) $(DEPFILES) $(DEPENDFILES) $(RULESFILE) $(STATICLIB)
+	rm -f $(LIBOBJ) $(DEVOBJ) $(GENDEPFILES) $(GENDEPFILES:.dep=.d) $(STATICLIB)
 	rm -f *.o *.s *.hgfb *.hggci *.lk *.bc a.out*
-	rm -rf $(SYMMETRIC_GENSRC_DIR) $(SYMMETRIC_GENOBJ_DIR)
+	rm -rf $(DEVICE_GENSRC_DIR) $(SYMMETRIC_GENSRC_DIR) $(SYMMETRIC_GENOBJ_DIR)
 

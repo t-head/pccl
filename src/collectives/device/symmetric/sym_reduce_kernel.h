@@ -6,8 +6,12 @@
  * See LICENSE.txt for more license information
  *************************************************************************/
 
-#ifndef NCCL_REDUCE_KERNEL_H_
-#define NCCL_REDUCE_KERNEL_H_
+#ifdef NCCL_REDUCE_KERNEL_H_
+#error "symmetric/sym_reduce_kernel.h and collectives/device/reduce_kernel.h define the same names with incompatible functor contracts; include at most one per translation unit"
+#endif
+
+#ifndef PCCL_SYM_REDUCE_KERNEL_H_
+#define PCCL_SYM_REDUCE_KERNEL_H_
 
 #include "sym_op128.h"
 #include <limits>
@@ -669,4 +673,4 @@ struct Apply_Store<16, false, CachePolicy, Rtmd> {
   }
 };
 
-#endif // REDUCE_KERNEL_H_
+#endif // PCCL_SYM_REDUCE_KERNEL_H_

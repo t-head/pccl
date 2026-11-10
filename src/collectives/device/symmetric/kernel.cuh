@@ -24,5 +24,5 @@ template<template<typename> class Red, typename T>
 __device__ __forceinline__ void pccl_symRun_ReduceScatter_LL(struct ncclSymDevArgs const* args);
 template<template<typename> class Red, typename T>
 __device__ __forceinline__ void pccl_symRun_ReduceScatter_LD(struct ncclSymDevArgs const* args);
-template<template<typename> class Red, typename T>
+
 #endif

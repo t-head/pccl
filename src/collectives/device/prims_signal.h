@@ -10,12 +10,14 @@
 #define NCCL_PRIMS_SIGNAL_H_
 
 // Implementation of primitive types
-template <int UNROLL, int SLICESPERCHUNK, int SLICESTEPS, typename T, int NRECV, int NSEND, int DIRECT, class FUNC, int P2P>
-class Primitives<T, FUNC, ProtoSignal<UNROLL, SLICESPERCHUNK, SLICESTEPS>, NRECV, NSEND, DIRECT, P2P> :
-    public PrimitivesSimpleBase<T, NRECV, NSEND, FUNC, UNROLL, SLICESPERCHUNK, SLICESTEPS, DIRECT,
-      ProtoSignal<UNROLL, SLICESPERCHUNK, SLICESTEPS>,
-      Primitives<T, FUNC, ProtoSignal<UNROLL, SLICESPERCHUNK, SLICESTEPS>, NRECV, NSEND, DIRECT, P2P>, P2P> {
+template <typename T, typename Fan, typename RedOp, int SlicePerChunk, int StepPerSlice, int Unroll, int Direct, int P2p, bool isNetOffload>
+class Primitives<T, RedOp, Fan, Direct, ProtoSignal<SlicePerChunk, StepPerSlice, Unroll>, P2p, isNetOffload> :
+    public PrimitivesSimpleBase<T, Fan, RedOp, SlicePerChunk, StepPerSlice, Unroll, Direct,
+      ProtoSignal<SlicePerChunk, StepPerSlice, Unroll>,
+      Primitives<T, RedOp, Fan, Direct, ProtoSignal<SlicePerChunk, StepPerSlice, Unroll>, P2p, isNetOffload>, P2p> {
  private:
+  static_assert(!isNetOffload, "isNetOffload is not implemented on PPU");
+
   uint32_t minPathNum = 0;
   volatile uint32_t* signalMarkerPtr = NULL;
   uint32_t signalMarkerCache; // Cache last seen value
@@ -35,9 +37,9 @@ class Primitives<T, FUNC, ProtoSignal<UNROLL, SLICESPERCHUNK, SLICESTEPS>, NRECV
     signalMarkerPtr = conn->signalMarker;
   }
 
-  using Base = PrimitivesSimpleBase<T, NRECV, NSEND, FUNC, UNROLL, SLICESPERCHUNK, SLICESTEPS, DIRECT,
-                 ProtoSignal<UNROLL, SLICESPERCHUNK, SLICESTEPS>,
-                 Primitives<T, FUNC, ProtoSignal<UNROLL, SLICESPERCHUNK, SLICESTEPS>, NRECV, NSEND, DIRECT, P2P>, P2P>;
+  using Base = PrimitivesSimpleBase<T, Fan, RedOp, SlicePerChunk, StepPerSlice, Unroll, Direct,
+                 ProtoSignal<SlicePerChunk, StepPerSlice, Unroll>,
+                 Primitives<T, RedOp, Fan, Direct, ProtoSignal<SlicePerChunk, StepPerSlice, Unroll>, P2p, isNetOffload>, P2p>;
   using Base::conn;
   using Base::connOffsFifoPtr;
   using Base::connTailPtr;
@@ -57,21 +59,21 @@ class Primitives<T, FUNC, ProtoSignal<UNROLL, SLICESPERCHUNK, SLICESTEPS>, NRECV
 
  public:
   __device__ __forceinline__ Primitives(
-      const int tid, const int nworkers, int* recvPeers, int* sendPeers,
+      const int tid, const int nthreads, int* recvPeers, int* sendPeers,
       T* directBuff, struct ncclKernelComm* comm, uint64_t redOpArg, struct ncclShmemGroup* ptrs,
       int group, uint8_t connIndexRecv=0, uint8_t connIndexSend=0, struct ncclDevWorkColl* collWork = nullptr,
-      struct ncclDevWorkP2p* p2pWork=nullptr, int ncclSteps=NCCL_STEPS, bool noRed=false
-    ): PrimitivesSimpleBase<T, NRECV, NSEND, FUNC, UNROLL, SLICESPERCHUNK, SLICESTEPS, DIRECT,
-        ProtoSignal<UNROLL, SLICESPERCHUNK, SLICESTEPS>,
-        Primitives<T, FUNC, ProtoSignal<UNROLL, SLICESPERCHUNK, SLICESTEPS>, NRECV, NSEND, DIRECT, P2P>, P2P>
-        (tid, nworkers, recvPeers, sendPeers, directBuff, comm, redOpArg, ptrs, group, connIndexRecv, connIndexSend, collWork, p2pWork, ncclSteps, noRed) {
+      struct ncclDevWorkP2p* p2pWork=nullptr, int stepSize_=0, const uint64_t ncclSteps=NCCL_STEPS, bool noRed=false
+    ): PrimitivesSimpleBase<T, Fan, RedOp, SlicePerChunk, StepPerSlice, Unroll, Direct,
+        ProtoSignal<SlicePerChunk, StepPerSlice, Unroll>,
+        Primitives<T, RedOp, Fan, Direct, ProtoSignal<SlicePerChunk, StepPerSlice, Unroll>, P2p, isNetOffload>, P2p>
+        (tid, nthreads, recvPeers, sendPeers, directBuff, comm, redOpArg, ptrs, group, connIndexRecv, connIndexSend, collWork, p2pWork, stepSize_, ncclSteps, noRed) {
     if (role & (ROLE_WAIT_RECV|ROLE_POST_RECV))
       loadRecvConnExtra(getShmemPtr(comm)->channel.peers[peer], connIndexRecv, directBuff);
     if (role & ROLE_POST_SEND)
       loadSendConnExtra(getShmemPtr(comm)->channel.peers[peer]);
   }
 
-  template <int SRC, int DIRECTRECV>
+  template <int Src, int DirectRecv>
   inline __device__ void waitRecv(ssize_t directOffset) {
     hangSpins = spins = 0;
     do {
@@ -79,16 +81,16 @@ class Primitives<T, FUNC, ProtoSignal<UNROLL, SLICESPERCHUNK, SLICESTEPS>, NRECV
       if (internalCheckAbort(spins, hangSpins)) break;
     } while (signalMarkerCache != minPathNum); // check if marker ready for all possible route paths
     signalMarkerPtr[step%NCCL_STEPS] = 0;
-    if (connOffsFifoPtr) srcs[SRC+index] = buff + loadInt(connOffsFifoPtr + (step%NCCL_STEPS))/sizeof(T);
-    else srcs[SRC+index] = this->template directPtr<DIRECTRECV>(directOffset);
-    step += SLICESTEPS;
+    if (connOffsFifoPtr) srcs[Src+index] = buff + loadInt(connOffsFifoPtr + (step%NCCL_STEPS))/sizeof(T);
+    else srcs[Src+index] = this->template directPtr<DirectRecv>(directOffset);
+    step += StepPerSlice;
   }
 
-  template<int SEND>
+  template<int Send>
   __device__ __forceinline__ void memoryFence(int size) {
-    if (SEND && (role & ROLE_POST_SEND)) {
+    if (Send && (role & ROLE_POST_SEND)) {
       #pragma unroll
-      for (int i = 0; i < NSEND; i++) {
+      for (int i = 0; i < Fan::MaxSend; i++) {
         if (index == i) __ppu_signal_peer(&signalMarkerPtr[step%NCCL_STEPS]);
       }
     }

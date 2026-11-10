@@ -283,7 +283,7 @@ int64_t pcclDevKernelArgsFifoDepth();
 ncclResult_t pcclCommDump(ncclComm_t comm, pcclCommDumpMaskType pcclCommDumpMask,
                           struct pcclCommDiagCollector* collector = nullptr);
 ncclResult_t getGlobalCommDumpMask(pcclCommDumpMaskType* pcclCommDumpMask);
-void getKerFuncStr(const int funcIndexIn, char *funcStr, int *funcType=NULL, int *dataType=NULL);
+void getKerFuncStr(const int funcId, char *funcStr);
 
 ////////////////////////////////////////////////////////////////////////////////
 /* ncclMemoryStack: Pools memory for fast LIFO ordered allocation. Note that

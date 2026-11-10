@@ -21,81 +21,6 @@
 #include "ce_coll.h"
 #include "comm_dumper.h"
 
-// Only generate inline kernels for LL
-#define NCCL_FUNC5(func, algo, devredop, dtype) \
-  (void*)NCCL_KERN_NAME(func, algo, LL, devredop, dtype), \
-  (void*)NCCL_KERN_NAME(func, algo, LL, devredop, dtype), \
-  (void*)NCCL_KERN_NAME(func, algo, LL, devredop, dtype), \
-  (void*)NCCL_KERN_NAME(func, algo, LL, devredop, dtype), \
-  (void*)NCCL_KERN_NAME(func, algo, LL, devredop, dtype), \
-  (void*)NCCL_KERN_NAME(func, algo, LL, devredop, dtype), \
-  (void*)NCCL_KERN_NAME(func, algo, LL, devredop, dtype)
-
-#define NCCL_FUNC4(func, devredop, type) \
-  (void*)NCCL_FUNC5(func, TREE,    devredop, type), \
-  (void*)NCCL_FUNC5(func, RING,    devredop, type), \
-  (void*)NCCL_FUNC5(func, COLLNET, devredop, type), \
-  (void*)NCCL_FUNC5(func, FC,      devredop, type), \
-  (void*)NCCL_FUNC5(func, PAT,     devredop, type)
-
-// Must be consistent with ncclDataType_t
-#define NCCL_FUNCS3A(func, devredop) \
-  (void*)NCCL_FUNC4(func, devredop, int8_t), \
-  (void*)NCCL_FUNC4(func, devredop, uint8_t), \
-  (void*)NCCL_FUNC4(func, devredop, int32_t), \
-  (void*)NCCL_FUNC4(func, devredop, uint32_t), \
-  (void*)NCCL_FUNC4(func, devredop, int64_t), \
-  (void*)NCCL_FUNC4(func, devredop, uint64_t), \
-  (void*)NCCL_FUNC4(func, devredop, half), \
-  (void*)NCCL_FUNC4(func, devredop, float), \
-  (void*)NCCL_FUNC4(func, devredop, double), \
-  (void*)NCCL_FUNC4(func, devredop, __ppu_bfloat16), \
-  (void*)NCCL_FUNC4(func, devredop, __hg_fp8_e4m3), \
-  (void*)NCCL_FUNC4(func, devredop, __hg_fp8_e5m2)
-#define NCCL_FUNCS3B(func, devredop) \
-  (void*)NCCL_FUNC4(func, devredop, int8_t), \
-  (void*)NCCL_FUNC4(func, devredop, int8_t), \
-  (void*)NCCL_FUNC4(func, devredop, int8_t), \
-  (void*)NCCL_FUNC4(func, devredop, int8_t), \
-  (void*)NCCL_FUNC4(func, devredop, int8_t), \
-  (void*)NCCL_FUNC4(func, devredop, int8_t), \
-  (void*)NCCL_FUNC4(func, devredop, int8_t), \
-  (void*)NCCL_FUNC4(func, devredop, int8_t), \
-  (void*)NCCL_FUNC4(func, devredop, int8_t), \
-  (void*)NCCL_FUNC4(func, devredop, int8_t), \
-  (void*)NCCL_FUNC4(func, devredop, int8_t), \
-  (void*)NCCL_FUNC4(func, devredop, int8_t)
-
-// Must be consistent with ncclRedOp_t -- but we only generate kernel for sums.
-#define NCCL_FUNCS2A(func) \
-  NCCL_FUNCS3A(func, Sum), /*Sum*/  \
-  NCCL_FUNCS3A(func, Sum), /*Prod*/ \
-  NCCL_FUNCS3A(func, Sum), /*Max*/  \
-  NCCL_FUNCS3A(func, Sum), /*Min*/  \
-  NCCL_FUNCS3A(func, Sum), /*PreMulSum*/ \
-  NCCL_FUNCS3A(func, Sum)  /*SumPostDiv*/
-#define NCCL_FUNCS2B(func) \
-  NCCL_FUNCS3B(func, Sum), \
-  NCCL_FUNCS3B(func, Sum), \
-  NCCL_FUNCS3B(func, Sum), \
-  NCCL_FUNCS3B(func, Sum), \
-  NCCL_FUNCS3B(func, Sum), \
-  NCCL_FUNCS3B(func, Sum)
-
-// Must be consistent with the ncclFuncSet enum
-static void* const ncclKerns[NUM_P2P_FUNC+NCCL_NUM_FUNCTIONS*ncclNumDevRedOps*ncclNumTypes*NCCL_NUM_ALGORITHMS*NCCL_NUM_PROTOCOLS] = {
-  (void*)NCCL_KERN_NAME(SendRecv, RING, SIMPLE, Sum, int8_t),
-  (void*)NCCL_KERN_NAME(SendRecv, RING, SIMPLE_BULK, Sum, int8_t),
-  (void*)NCCL_KERN_NAME(SendRecv, RING, SIGNAL, Sum, int8_t),
-  (void*)NCCL_KERN_NAME(SendRecv, RING, SIGNAL_BULK, Sum, int8_t),
-  (void*)NCCL_KERN_NAME(SendRecv, RING, SIMPLE_BULK_AR, Sum, int8_t),
-  NCCL_FUNCS2B(Broadcast),
-  NCCL_FUNCS2A(Reduce),
-  NCCL_FUNCS2B(AllGather),
-  NCCL_FUNCS2A(ReduceScatter),
-  NCCL_FUNCS2A(AllReduce)
-};
-
 enum { P2P_Segment=1, Coll_Segment=2 };
 
 static ncclResult_t ncclScanKernelMaxStackSize(void* const* kernels, int count, void* lru[2], size_t* maxStackSize) {
@@ -117,12 +42,12 @@ static ncclResult_t ncclScanKernelMaxStackSize(void* const* kernels, int count, 
 
 // Returns maximum kernel stack size of all HGGC kernels
 ncclResult_t ncclInitKernelsForDevice(size_t* maxStackSize) {
-  constexpr int KernelCount = sizeof(ncclKerns)/sizeof(ncclKerns[0]);
+  const int KernelCount = pcclFuncIdCount;
   if (maxStackSize) *maxStackSize = 0;
   // Keep track if we already visited a function pointer.
   void* lru[2] = {nullptr, nullptr};
   NCCLCHECK(ncclScanKernelMaxStackSize(ncclKerns, KernelCount, lru, maxStackSize));
-  NCCLCHECK(ncclScanKernelMaxStackSize(ncclSymkKernelList, ncclSymkKernelCount, lru, maxStackSize));
+  NCCLCHECK(ncclScanKernelMaxStackSize(ncclSymkKernelList, (int)ncclSymkKernelId_Count, lru, maxStackSize));
   return ncclSuccess;
 }
 
@@ -155,7 +80,7 @@ static ncclResult_t ncclSetDispatchStrategy(const void* ncclKernFunc, ncclComm_t
   } else {
     getKerFuncStr(funcIndex, funcStr);
   }
-  funcIndex = isSymmetric ? funcIndex + TOTAL_FUNCS_NUM : funcIndex;
+  funcIndex = isSymmetric ? funcIndex + pcclFuncIdCount : funcIndex;
   dispatchInfo dInfo = {comm->collType, comm->nNodes, nChannels, comm->nBytes};
   NCCLCHECK(setNativeDispatchStrategy(ncclKernFunc, comm->funcStrategy+funcIndex, comm->defaultStrategy, funcStr, comm->compCap, dInfo));
   launchConfig = comm->funcStrategy[funcIndex].launchConfig;
@@ -239,7 +164,7 @@ static ncclResult_t dumpChannelWorkBatch(ncclComm_t comm, struct ncclKernelPlan*
     int offset = 0;
     struct ncclDevWorkBatch batch = ((struct ncclDevWorkBatch*)(plan->kernelArgs+1))[batchIx];
     char func_str[128] = {0};
-    getKerFuncStr(batch.funcId, func_str, NULL, NULL);
+    getKerFuncStr(batch.funcId, func_str);
     offset += sprintf(lineBuff + offset, "%s batchIx %u workType:%u, funcId:%u(%s), nextJump:%u, nextExtends:%u ",
       lineHeader, batchIx, batch.workType, batch.funcId, func_str, batch.nextJump, batch.nextExtends);
     offset += sprintf(lineBuff + offset, "offsetBase:%x, offsetBitset:%lx ", batch.offsetBase, batch.offsetBitset);
@@ -1272,21 +1197,17 @@ static ncclResult_t addP2pToPlan(
   }
 
   // Arrays indexed by dir where recv=0, send=1:
-  int protocol[2];
-  int stepSize[2];
-  int chunkSize[2];
-  int chunkDataSize[2];
+  int protocol[2], stepSize[2], chunkSize[2], chunkDataSize[2];
   bool ipcRegistered[2] = {false, false};
   ssize_t llThreshold = ncclParamP2pLLThreshold() >= 0 ? ncclParamP2pLLThreshold() :
-                                                         (comm->compCap < 89 ? PCCL_DEFAULT_LL_THRESHOLD : PCCL_DEFAULT_LL_THRESHOLD_PPU0015);
-  for (int dir = 0; dir < 2; dir++) { // 0=recv, 1=send
+      (comm->compCap < 89 ? PCCL_DEFAULT_LL_THRESHOLD : PCCL_DEFAULT_LL_THRESHOLD_PPU0015);
+  for (int dir = 0; dir < 2; dir++) {
     // Only SIMPLE/SIMPLE_BULK kernels host the runtime LL switch.
     protoLL[dir] &= (baseProtocol == NCCL_PROTO_SIMPLE || baseProtocol == NCCL_PROTO_SIMPLE_BULK || baseProtocol == NCCL_PROTO_SIMPLE_BULK_AR);
     // Runtime LL switch gated by NCCL_P2P_LL_THRESHOLD on the total p2p payload across channels.
     protoLL[dir] &= totBytes[dir] <= llThreshold;
     protocol[dir] = protoLL[dir] ? NCCL_PROTO_LL : baseProtocol;
-
-    stepSize[dir]  = comm->buffSizes[protocol[dir]] / NCCL_STEPS / SENDRECV_SLICEFACTOR;
+    stepSize[dir] = comm->buffSizes[protocol[dir]] / NCCL_STEPS / SENDRECV_SLICEFACTOR;
     chunkSize[dir] = stepSize[dir];
     if (network[dir]) {
       // Tune chunk size for the network
@@ -1295,23 +1216,19 @@ static ncclResult_t addP2pToPlan(
     }
     chunkDataSize[dir] = chunkSize[dir];
     if (protocol[dir] == NCCL_PROTO_LL) chunkDataSize[dir] /= 2;
-
     if (bytes[dir] > 0 && addrs[dir] && PROTO_IS_SIMPLE_CLASS(protocol[dir]) && !selfSend) {
       int peerRank = dir ? sendRank : recvRank;
       int regFlag = 0;
       struct ncclChannelPeer** channelPeers = comm->channels[channelId].peers;
-      struct ncclConnector* conn = dir ? &channelPeers[peerRank]->send[connIndex]
-        : &channelPeers[peerRank]->recv[connIndex];
+      struct ncclConnector* conn = dir ? &channelPeers[peerRank]->send[connIndex] : &channelPeers[peerRank]->recv[connIndex];
       void* regAddr = NULL;
       if (conn->conn.direct & NCCL_DIRECT_GPU) {
         // We require users registering buffers on both sides
         // as we do not use direct_read for now, send side only need set regUsed flag.
         NCCLCHECK(ncclRegisterP2pIpcBuffer(comm, addrs[dir], bytes[dir], peerRank, &regFlag, &regAddr, &plan->cleanupQueue));
-        if (regFlag) {
-          if (dir == 0) recvAddr = regAddr;
-        }
+        if (regFlag && dir == 0) recvAddr = regAddr;
       }
-      ipcRegistered[dir] = regFlag ? true : false;
+      ipcRegistered[dir] = regFlag != 0;
     }
   }
 
@@ -1326,19 +1243,18 @@ static ncclResult_t addP2pToPlan(
   ncclIntruQueueEnqueue(&plan->workQueue, workNode);
   uint32_t workOffset = plan->workBytes;
   plan->workBytes += sizeof(struct ncclDevWorkP2p);
-
   struct ncclDevWorkP2p* work = (struct ncclDevWorkP2p*)(workNode+1);
   work->comm = comm->devComm;
   work->sendbuff = sendAddr;
-  work->sendChunkSize = chunkSize[1];
   work->sendCount = sendBytes;
+  work->sendChunkSize = chunkSize[1];
   work->sendRegUsed = ipcRegistered[1];
   work->sendProtoLL = protoLL[1];
   work->sendRank = sendRank;
   work->recvbuff = recvAddr;
-  work->recvChunkSize = chunkSize[0];
   work->recvCount = recvBytes;
   work->recvRank = recvRank;
+  work->recvChunkSize = chunkSize[0];
   work->recvRegUsed = ipcRegistered[0];
   work->recvProtoLL = protoLL[0];
   work->profilerEnabled = ncclProfilerPluginLoaded() && ((p2pTasks[0] ? p2pTasks[0] : p2pTasks[1])->eActivationMask & ncclProfileKernelCh);
@@ -1348,7 +1264,6 @@ static ncclResult_t addP2pToPlan(
   addWorkBatchToPlan(comm, plan, channelId, ncclDevWorkTypeP2p, funcIndex, workOffset, p2pRound, maxP2pWorkPerBatch, p2pEpoch);
   plan->channelWorks[channelId]++;
   plan->threadPerBlock = std::max<unsigned>(plan->threadPerBlock, NCCL_MAX_NTHREADS);
-
   // Record the first kernel to launch
   // Just for HGGC kernel to know this is a P2P operation
   // The HGGC kernel does not use the inlined first work element as fastpath argument
@@ -1408,7 +1323,6 @@ static ncclResult_t addP2pToPlan(
       NCCLCHECK(addProfilerProxyOpIfNeeded(comm, &proxyOps[dir]));
     }
   }
-
   return ncclSuccess;
 }
 
@@ -1499,19 +1413,14 @@ static ncclResult_t scheduleP2pTasksToPlan(ncclComm_t comm, int* p2pEpoch, int* 
   struct ncclKernelPlanner* planner = &comm->planner;
   int nRanks = comm->nRanks;
   struct ncclKernelPlanner::Peer* peers = planner->peers;
-
   int protocol;
   NCCLCHECK(ncclComputeP2pProto(comm, &protocol));
   int funcIndex = ncclComputeP2pFuncIndex(protocol);
-
-  // Compute how much to split operations
-  // Natural step size matching buffer steps.
   ssize_t stepSize = comm->buffSizes[protocol] / NCCL_STEPS;
-  // Try to use all channels
   int nChannelsMax = comm->p2pnChannelsPerPeer;
   int nChannelsMin = nChannelsMax;
   // Try to use all channels, but one channel per operation.
-  while (nChannelsMin*comm->nRanks > comm->p2pnChannels && nChannelsMin > 1) nChannelsMin /= 2;
+  while (nChannelsMin*nRanks > comm->p2pnChannels && nChannelsMin > 1) nChannelsMin /= 2;
   // Avoid overloading channels with 8+ operations as we loose the sync warp, hence a bit of bandwidth.
   while (nChannelsMax*comm->nRanks > comm->p2pnChannels*4 && nChannelsMax > 1) nChannelsMax /= 2;
 
@@ -1651,7 +1560,13 @@ static ncclResult_t scheduleCollTasksToPlan(ncclComm_t comm, struct ncclKernelPl
       NCCLCHECK(ncclUserBuffAlignmentCheck(&info));
 
       struct ncclProxyOp proxyOp = {};
-      info.funcIndex = FUNC_INDEX(info.coll, info.opFull.op, info.datatype, info.algorithm, info.protocol);
+      int funcId = pcclDevFuncId(info.coll, info.opFull.op, info.datatype, info.algorithm, info.protocol);
+      if (funcId < 0) {
+        WARN("No kernel was built for %s/%s/%s", ncclFuncToString(info.coll),
+             ncclAlgoToString(info.algorithm), ncclProtoToString(info.protocol));
+        return ncclInternalError;
+      }
+      info.funcIndex = funcId;
       NCCLCHECK(computeColl(&info, devWork, &proxyOp));
 
       int nChannels = devWork->nChannels;
@@ -2099,7 +2014,6 @@ static ncclResult_t p2pTaskAppend(
     }
   }
   ncclProfilerStopP2pApiEvent();
-  // Mark channels that need pre-connect
   return ncclSuccess;
 }
 
@@ -2188,18 +2102,35 @@ static ncclResult_t hostToDevRedOp(
   };
   u64 = 0;
   opFull->scalarArgIsPtr = false;
+  bool datatype_signed = false;
+
+  int nbits = 8*ncclTypeSize(datatype);
+  if (nbits <= 0) return ncclInvalidArgument;
+  uint64_t allBits = uint64_t(-1)>>(64-nbits);
+  uint64_t signBit = allBits^(allBits>>1);
 
   switch (int(op)) {
   case ncclSum:  opFull->op = ncclDevSum;  break;
   case ncclProd: opFull->op = ncclDevProd; break;
-  case ncclMax:  opFull->op = ncclDevMax;  break;
-  case ncclMin:  opFull->op = ncclDevMin;  break;
+  case ncclMin:
+  case ncclMax:
+    opFull->op = ncclDevMinMax;
+    opFull->scalarArg = 0;
+    // The xormask used by FuncMinMax<[u]int> is the XOR of the sign bit
+    // for signed (opposed to unsigned) types and all the bits for max (opposed to min).
+    if (datatype==ncclInt8 || datatype==ncclInt32 || datatype==ncclInt64) {
+      opFull->scalarArg ^= signBit;
+    }
+    opFull->scalarArg ^= (op == ncclMax) ? allBits : 0;
+    break;
   case ncclAvg:
     switch ((int)datatype) {
     case ncclInt8:  case ncclInt32:  case ncclInt64:
+      datatype_signed = true;
+      // no break, we want to fall through...
     case ncclUint8: case ncclUint32: case ncclUint64:
       opFull->op = ncclDevSumPostDiv;
-      u64 = comm->nRanks;
+      u64 = comm->nRanks << 1 | datatype_signed;
       break;
 #if defined(__HGGC_FP8_TYPES_EXIST__)
     case ncclFloat8e4m3:
