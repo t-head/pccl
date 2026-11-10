@@ -2,14 +2,14 @@
   "classification": {
     "base_sha": "3b6cc5f83d2b5257c658c3e6404e194754522a65",
     "head_sha": "db7576ad8b03ee460346a166fcbdd976c2ea806e",
-    "input_fingerprint": "05726008896460995f01263d94c93ced3b41fcd712d36740a9cd26d05c3c4c65",
+    "input_fingerprint": "42727c77889841e8dc96b04533e205117ab94888e7ba994fadadb1d99e79fe74",
     "pr_number": 31,
     "proposal": {
       "modules": [
         "network",
         "gin"
       ],
-      "reason": "Main change is a new built-in TROCE GIN backend (type 16) with substantial host/device GIN implementation: backend registration, context lifecycle, MR handling, device API specializations, and TROCE-specific queue/CQ progress logic. Added network because the PR also makes independently substantive net_ib provider-layer changes (new IB provider type, provider detection in init, shared IB helper exposure, and optional libtroce provider wiring) that affect shared transport/backend setup beyond mechanical call-site edits."
+      "reason": "Main change is a new built-in TROCE GIN backend (type 16) with substantial GIN host/device implementation, GIN plugin wiring, context/memory-registration lifecycle, and device API specializations. Added network because net_ib shared provider detection/classification and exported IB helper reuse in common transport code are independently substantive changes to shared network transport behavior, not just caller-side wiring."
     }
   },
   "reviewers": {
