@@ -1,14 +1,14 @@
 {
   "classification": {
     "base_sha": "4784d0ad1b4def7ad4b5d686c73e7d16f24fc018",
-    "head_sha": "a2cd312edd6e9c77e4b6cb930075665716c4e2ab",
-    "input_fingerprint": "80930d8a1ddf488fea35283f43045335f7c226142d09f270af2ae0a2549b520e",
+    "head_sha": "d52f956eee182d44fd382e7623a1a2aa9337780c",
+    "input_fingerprint": "3d791d907ab46a59c50b799a793ee35c9be6376183676822ccc6670e0aef2c5d",
     "pr_number": 153,
     "proposal": {
       "modules": [
         "enqueue"
       ],
-      "reason": "Main behavior change is in runtime kernel launch/enqueue flow: `ncclLaunchKernel` now passes packed argument buffer pointer+actual byte size to HGGC, and enqueue-side argument snapshot copy is size-bounded for larger fixed-size symmetric params. Other touched files are mechanical launch-macro call-site updates without independent subsystem behavior changes."
+      "reason": "Main functional change is in runtime kernel launch sequencing: enqueue now launches plans with packed argument buffer pointer+actual byte size and bounds kernel-arg monitor snapshot copies for larger symmetric argument payloads; updates in copy-engine call sites are mechanical macro-signature adjustments, not independent behavior changes."
     }
   },
   "reviewers": {
