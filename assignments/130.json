@@ -8,7 +8,7 @@
       "modules": [
         "gin"
       ],
-      "reason": "Main functional change is GIN-specific P2P traffic balancing across LAG members in both GDAKI and PROXY paths (QP affinity selection/rotation, capability gating, and read-back validation), plus related GIN context/setup behavior updates (including PROXY accepting nonzero queue depth). The mlx5/DOCA wrapper additions are enabling plumbing for this same GIN networking behavior, not an independent module change."
+      "reason": "Main change is GIN-specific networking behavior: GDAKI and GIN IB PROXY now apply LAG-aware QP port affinity/capability checks to spread multi-context P2P traffic across bonded NIC members while preserving context-0 default behavior."
     }
   },
   "reviewers": {
