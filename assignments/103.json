@@ -2,13 +2,13 @@
   "classification": {
     "base_sha": "3b6cc5f83d2b5257c658c3e6404e194754522a65",
     "head_sha": "9e2f9bf0e1c30d0c25d8aa3ba02af8ba232bfa72",
-    "input_fingerprint": "c2f2ac4a7889c1a54691d548368bbdac366edefbf40d10358b75e1c51295f3dc",
+    "input_fingerprint": "00368b90fd3e897f946dc459e92af9ed8f84c5a74ade550bfbfb7142b127aea7",
     "pr_number": 103,
     "proposal": {
       "modules": [
         "network"
       ],
-      "reason": "Adds NET/IB transmit-affinity logic in the network backend: optional libafed symbol loading, per-device atomic round-robin LAG-port assignment for send data QPs during QP setup, and integration in send-check paths (including proxy-GIN call sites). The GIN-file edit is a supporting hookup to this backend behavior, not a separate GIN module policy change."
+      "reason": "Main functional change is in the IB network transport backend: optional libafed symbol loading plus send-QP TX affinity assignment across LAG ports, wired into QP bring-up/send-check paths. The proxy GIN call-site edit only supplies the data-QP count for this same transport behavior and is not an independent GIN policy/protocol change."
     }
   },
   "reviewers": {
