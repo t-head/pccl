@@ -41,6 +41,10 @@ class DailySmokeTests(unittest.TestCase):
             self.assertIn('-np 16', row['cmd'])
             self.assertIn('-npernode 8', row['cmd'])
             self.assertIn('--hostfile {hostfile}', row['cmd'])
+        local_register = next(row for row in direct_multi
+                              if row['suite'] == 'local_register_perf_shm_multi_nodes2_suite')
+        self.assertIn('all_reduce_perf', local_register['cmd'])
+        self.assertIn('-d float', local_register['cmd'])
         sanity = next(row for row in selected['cases'] if row['suite'] == 'sanity_m890p_register_suite')
         self.assertIn('--register 1', sanity['cmd'])
         self.assertEqual(sum(row['check'] == 'performance' for row in selected['cases']), 1)
