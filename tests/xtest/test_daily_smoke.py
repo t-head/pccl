@@ -30,6 +30,7 @@ class DailySmokeTests(unittest.TestCase):
         self.assertIn('-npernode 8', rdma['cmd'])
         self.assertIn('--hostfile {hostfile}', rdma['cmd'])
         self.assertIn('NCCL_MNNVL_ENABLE=0', rdma['cmd'])
+        self.assertIn('all_reduce_perf', rdma['cmd'])
         direct_multi = [row for row in cluster['cases'] if row['cmd'].startswith('mpirun ')]
         self.assertEqual(len(direct_multi), 1)
         for row in direct_multi:
@@ -78,9 +79,11 @@ class DailySmokeTests(unittest.TestCase):
         self.assertIn('name: m890p-daily-build-standard', text)
         self.assertIn('name: m890p-daily-build-${{ matrix.profile }}', text)
         self.assertIn('Two-node master-only daily smoke', text)
-        self.assertIn('host_ipc: true', text)
-        self.assertIn('host_network: true', text)
+        self.assertNotIn('host_ipc: true', text)
+        self.assertNotIn('host_network: true', text)
         self.assertIn('ulimit -l unlimited', text)
+        self.assertIn('extra_env: NCCL_NET=IB', text)
+        self.assertIn('ibv_devinfo -v', text)
         self.assertNotIn('human-review', text)
         self.assertNotIn('build-notsm', text)
         self.assertNotIn("expected = {('standard', 1): 71", text)

@@ -324,9 +324,8 @@ jobs:
           cleanup_policy: always
           container_options: |
             privileged: true
-            host_ipc: true
-            host_network: true
           host_volumes: /dev/infiniband:/dev/infiniband
+          extra_env: NCCL_NET=IB,NCCL_IB_DISABLE=0,NCCL_MNNVL_ENABLE=0,NCCL_NET_GDR_LEVEL=SYS,NCCL_IB_QPS_PER_CONNECTION=8,NCCL_DEBUG=INFO,NCCL_DEBUG_SUBSYS=INIT
           setup_command: |
             set -euo pipefail
             source /usr/local/PPU_SDK/envsetup.sh
@@ -336,6 +335,17 @@ jobs:
             ulimit -a
             echo 'Pod network addresses:'
             hostname -I || true
+            echo 'RDMA device information:'
+            command -v ibv_devinfo || true
+            ibv_devinfo -v || true
+            command -v show_gids || true
+            show_gids || true
+            command -v rdma || true
+            rdma link show || true
+            for gid in /sys/class/infiniband/*/ports/*/gids/*; do
+              echo "RDMA GID: $gid"
+              cat "$gid" || true
+            done
             test -d /dev/infiniband
             test -r /proc/net/route
             set -- /dev/infiniband/*
