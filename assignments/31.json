@@ -8,7 +8,7 @@
       "modules": [
         "gin"
       ],
-      "reason": "Main change is adding a new built-in GIN backend (TROCE) end-to-end: new GIN host/device backend implementations, GIN plugin registration, provider loading, backend selection enums/masks, and GIN-specific connect/progress/memory-registration paths. Build and shared-header edits are supporting wiring for this backend, not independent module changes."
+      "reason": "Adds a new built-in TROCE GIN backend end-to-end (host context lifecycle, memory registration, device-side GIN API specializations, plugin registration/selection, and TROCE provider wiring). Build-file and shared enum/header edits are supporting integration for this GIN backend, not independent module changes."
     }
   },
   "reviewers": {
