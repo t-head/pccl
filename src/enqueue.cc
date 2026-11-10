@@ -1742,7 +1742,7 @@ static ncclResult_t finishPlan(ncclComm_t comm, struct ncclKernelPlan* plan) {
   // budget (device-side loadWorkBatchToShmem indexes batches without any
   // bounds check, so a too-large table would silently corrupt following
   // args/work bytes).
-  constexpr size_t kMaxKernelArgsBytes = ncclMaxKernelArgsSize(); // 1<<10 = 1024
+  constexpr size_t kMaxKernelArgsBytes = ncclMaxKernelArgsSize();
   VERBOSE(NCCL_COLL,
        "finishPlan sizes: sizeof(pcclDevKernelArgs)=%zu batchBytes=%zu workBytes=%zu "
        "nWorkBatches=%d workArgsBytes=%zu kernelArgsBudget=%zu",
