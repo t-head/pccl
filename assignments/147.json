@@ -1,14 +1,15 @@
 {
   "classification": {
     "base_sha": "4784d0ad1b4def7ad4b5d686c73e7d16f24fc018",
-    "head_sha": "fc76b77c0c2123fb689ceb9e731e12fdd4fe23cd",
-    "input_fingerprint": "2f6d825182d77c1966f5871a12e6d243ea98df309f30dc4114d55d864f11339c",
+    "head_sha": "a29a26cd0b22df5d1748b2259d5eaa43ee2425d8",
+    "input_fingerprint": "8c74ac6dfffc9925e36373493f63e1281d40ad248e0bcdc33139155e0b8af42b",
     "pr_number": 147,
     "proposal": {
       "modules": [
+        "build",
         "ci"
       ],
-      "reason": "Main substantive change is a new scheduled/on-demand GitHub Actions pipeline for building and publishing PPU tarball artifacts, plus major updates to workflow build scripts that install toolchains/SDKs, run matrix builds, package outputs, and merge artifacts; this is CI orchestration and execution behavior rather than library runtime module changes."
+      "reason": "Main change is a new GitHub Actions pipeline for scheduled/on-demand PPU tarball builds, matrix execution, artifact merge/publish, and runner orchestration (ci). It also makes substantive packaging/build-process changes in tar build scripts (SDK/toolchain setup, compile/link behavior, and tarball contents/naming), which falls under build artifact generation (build)."
     }
   },
   "reviewers": {
