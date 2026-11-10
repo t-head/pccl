@@ -2350,6 +2350,10 @@ ncclResult_t ncclEnqueueCheck(struct ncclInfo* info) {
   info->nChannels = 0;
   NCCLCHECKGOTO(ArgsCheck(info), ret, fail);
 
+  // Every enqueue path, including single-rank and P2P work, shares runtime
+  // memcpy ring 0 for both local and ICN traffic on the user stream.
+  NCCLCHECKGOTO(pcclCeHintMemcpyStream(info->stream, 0), ret, fail);
+
   INFO(NCCL_COLL,"%s: opCount %lx sendbuff %p recvbuff %p count %zi datatype %d op %d root %d comm %p [nranks=%d] stream %p rank %d",
       info->opName, info->comm->opCount, info->sendbuff, info->recvbuff, info->count,
       info->datatype, info->op, info->root, info->comm, info->comm->nRanks, info->stream, info->comm->rank);

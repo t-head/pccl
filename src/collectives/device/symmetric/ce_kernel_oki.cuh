@@ -116,10 +116,11 @@ static __device__ __inline__ void okiReduceDmaCmd(const struct pcclCeOkiReduceAr
 
   for (int iter=0; iter < loopCnt; iter++) {
     uint32_t sect = iter % 2;
+    int64_t remainingElts = targetRankElts - iter * splitElts;
     int64_t perChunkSize = 0;
 
-    if (targetRankElts > splitElts) perChunkSize = pcclCeReduceChunkSize;
-    else perChunkSize = targetRankElts * eltSize;
+    if (remainingElts > splitElts) perChunkSize = pcclCeReduceChunkSize;
+    else perChunkSize = remainingElts * eltSize;
 
     uint8_t* mySendBuff = (uint8_t*)sendBuff + rankOffset + iter * splitElts * eltSize;
 
@@ -163,6 +164,7 @@ static __device__ __inline__ void okiReduceDmaCmd(const struct pcclCeOkiReduceAr
     uint32_t preCount = 1;
     int64_t preElts = (broadcast && loopCnt > 1) ? preCount * pcclCeReduceChunkSize / eltSize : 0;
     int64_t myRankElts = okiReduceSliceOf(nElts, chunkElts, myRank).elts;
+    if (preElts > myRankElts) preElts = myRankElts;
     int64_t restElts = myRankElts - preElts;
     int64_t preBytes = preElts * eltSize;
 
