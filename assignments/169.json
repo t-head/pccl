@@ -2,15 +2,14 @@
   "classification": {
     "base_sha": "3b6cc5f83d2b5257c658c3e6404e194754522a65",
     "head_sha": "011a8ee5f86d59b36acc7a0379b7a060e32e00d3",
-    "input_fingerprint": "ee895a5bd3f6db52fb7445acf6055d7b8845131eb41072ae84a413a4a498933e",
+    "input_fingerprint": "fea06dbc03edb24d4d8deb31004ccef57c8749a6f44295aec757dca709ddf994",
     "pr_number": 169,
     "proposal": {
       "modules": [
         "device-topology",
-        "transport",
         "network"
       ],
-      "reason": "Main change is in **network**: proxy progress/stop behavior is reworked and NET request capacities are increased for built-in NET backends. Add **device-topology** because it introduces new topology semantics (`PATH_NET`) and `ncclTopoCheckNet` bandwidth/affinity logic that determines intra-node NET preference. Add **transport** because P2P/SHM connection eligibility now depends on that new NET-selection decision, changing generic transport selection behavior."
+      "reason": "Primary change is in network transport behavior: proxy progress batching/shutdown handling, abort-aware proxy sockets, and larger built-in NET request capacity. Additional device-topology review is needed because intra-node NET vs P2P/SHM selection is newly decided from topology path bandwidth/affinity via ncclTopoCheckNet and PATH_NET path semantics used during path computation/trimming."
     }
   },
   "reviewers": {
