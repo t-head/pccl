@@ -2,13 +2,13 @@
   "classification": {
     "base_sha": "4784d0ad1b4def7ad4b5d686c73e7d16f24fc018",
     "head_sha": "d52f956eee182d44fd382e7623a1a2aa9337780c",
-    "input_fingerprint": "3d791d907ab46a59c50b799a793ee35c9be6376183676822ccc6670e0aef2c5d",
+    "input_fingerprint": "b16303c35fde6d211f9eea2bf21944cf2dfbb6a8ae22fdc46fb59afe39128f6a",
     "pr_number": 153,
     "proposal": {
       "modules": [
         "enqueue"
       ],
-      "reason": "Main functional change is in runtime kernel launch sequencing: enqueue now launches plans with packed argument buffer pointer+actual byte size and bounds kernel-arg monitor snapshot copies for larger symmetric argument payloads; updates in copy-engine call sites are mechanical macro-signature adjustments, not independent behavior changes."
+      "reason": "Main functional change is in runtime kernel launch path: enqueue now submits each plan\u2019s packed argument buffer with its actual byte size (and bounds monitor snapshot copy), affecting host-side kernel planning/launch behavior. Updates in copy-engine callers and shared launch macro wiring are mechanical adaptations to the new launch signature, not independent module changes."
     }
   },
   "reviewers": {
