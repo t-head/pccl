@@ -2,14 +2,14 @@
   "classification": {
     "base_sha": "bb1ecedd525723dbb986710831d2db19552050b4",
     "head_sha": "8798b855f5569a3b4102508dbe9df47d73ca886f",
-    "input_fingerprint": "b04bcf5835b4d975b7ce08569fbaf7db258c5851b152a892f195fd222edcd503",
+    "input_fingerprint": "71fcb8925f5a29d5f61755c48793d99af9a2094c102b34ce658a3901a775ac63",
     "pr_number": 166,
     "proposal": {
       "modules": [
         "enqueue",
         "kernels"
       ],
-      "reason": "Main functional change increases kernel argument capacity from 1 KiB to 4 KiB via ncclMaxKernelArgsSize(), which changes runtime plan sizing/splitting behavior owned by enqueue. A separate substantive change updates regular collective kernel signatures/storage types (and related shared structs) to 4 KiB, needing kernels review for launch-argument ABI consistency."
+      "reason": "Primary change increases regular device-kernel argument storage/signatures from 1 KiB to 4 KiB (dev kernel args type and collective kernel declarations/definitions), which is a kernels-level behavior change. Add enqueue because the raised shared max-args constant changes runtime plan argument-budgeting/splitting behavior (even though enqueue.cc itself only drops a stale comment)."
     }
   },
   "reviewers": {
