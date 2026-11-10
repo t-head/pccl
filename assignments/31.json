@@ -1,17 +1,19 @@
 {
   "classification": {
-    "base_sha": "4784d0ad1b4def7ad4b5d686c73e7d16f24fc018",
-    "head_sha": "70c0b7d88b9b4662cb7ab0367d60aad40a3e9d93",
-    "input_fingerprint": "8b5fb6d37c5eed798dba017ce7a9306ec051df0ee001d7ed52433e032e274098",
+    "base_sha": "3b6cc5f83d2b5257c658c3e6404e194754522a65",
+    "head_sha": "fc5c80703920ac486446c5c45c8e9da9c6fd9fb1",
+    "input_fingerprint": "2f2f12f7abb62aeb937d94aacba0a49644653e195f1a0eda06d5c3c8b333669f",
     "pr_number": 31,
     "proposal": {
       "modules": [
+        "network",
         "gin"
       ],
-      "reason": "Adds a new independent TROCE GIN backend end-to-end (host lifecycle, provider loading, context/memory registration, device-side GIN API specializations, backend selection/type wiring, and IB integration). Other edits like Makefile and shared enum/compat declarations are supporting integration for this same GIN change, not separate module-owned behavior."
+      "reason": "Main change adds an independent TROCE built-in GIN backend end-to-end (device API specializations, host context lifecycle, MR registration, CQ/SQ progress, dynamic libtroce provider wiring, and GIN type/device-type integration). It also makes an independently substantive shared-network change by updating net_ib provider classification/detection logic (including TROCE provider identity in common/init paths), which affects network transport policy beyond incidental wiring."
     }
   },
   "reviewers": {
-    "gin": 333277982
+    "gin": 333277982,
+    "network": 341355176
   }
 }
