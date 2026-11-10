@@ -86,6 +86,8 @@ class DailySmokeTests(unittest.TestCase):
         self.assertIn('extra_env: NCCL_NET=IB', text)
         self.assertIn('ibv_devinfo -v', text)
         self.assertIn("raise SystemExit('No non-zero RoCE GID is visible inside the worker')", text)
+        self.assertIn("timeout 30s cluster-ssh", text)
+        self.assertIn("timeout 60s mpirun", text)
         self.assertNotIn('human-review', text)
         self.assertNotIn('build-notsm', text)
         self.assertNotIn("expected = {('standard', 1): 71", text)

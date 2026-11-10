@@ -413,6 +413,19 @@ jobs:
             test -n "$MPI_INTERFACE"
             echo "MPI TCP interface: $MPI_INTERFACE"
             test "$(wc -l < "$CLUSTER_HOSTS_FILE")" -eq 2
+            echo 'Allocated hostfile:'
+            cat "$CLUSTER_HOSTS_FILE"
+            while read -r host _; do
+              echo "Checking cluster SSH and DNS for $host"
+              getent hosts "$host"
+              timeout 30s cluster-ssh "$host" 'hostname; hostname -I'
+            done < "$CLUSTER_HOSTS_FILE"
+            echo 'Checking two-rank MPI launch before the RDMA Case:'
+            set -x
+            timeout 60s mpirun --allow-run-as-root \
+              --hostfile "$CLUSTER_HOSTS_FILE" -np 2 -npernode 1 \
+              -mca btl_tcp_if_include "$MPI_INTERFACE" hostname
+            set +x
             /workspace/minimal-csv-cluster-env/bin/python -B \
               "$build_output/pccl/tests/xtest/run_cases.py" \
               --input "$build_output/pccl/tests/xtest/daily-minimal-csv" \
