@@ -9,7 +9,7 @@
         "network",
         "gin"
       ],
-      "reason": "Main change is in the IB network backend: add optional libafed TX-affinity loading and round-robin LAG-port assignment for send data QPs during NET connection bring-up. Include gin because Proxy GIN connection behavior is explicitly specialized (only qps[0] consumes affinity slots via the updated send-check path), which is a substantive GIN-path policy change rather than a pure mechanical rename/format edit."
+      "reason": "Main change is in network transport internals: IB send-QP TX affinity loading, per-device slot accounting, and affinity assignment during NET QP bring-up. Add gin because Proxy GIN behavior is independently specialized by treating only QP0 as a data QP for affinity/slot consumption, changing GIN connection semantics beyond a mechanical signature update."
     }
   },
   "reviewers": {
