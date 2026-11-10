@@ -2,13 +2,13 @@
   "classification": {
     "base_sha": "4784d0ad1b4def7ad4b5d686c73e7d16f24fc018",
     "head_sha": "a2cd312edd6e9c77e4b6cb930075665716c4e2ab",
-    "input_fingerprint": "1546c2e21f5e1eebfa9787993a4ab8da720e391404813196c52d50ace90b9ce4",
+    "input_fingerprint": "80930d8a1ddf488fea35283f43045335f7c226142d09f270af2ae0a2549b520e",
     "pr_number": 153,
     "proposal": {
       "modules": [
         "enqueue"
       ],
-      "reason": "Main functional change is in runtime kernel launch: ncclLaunchKernel now passes each plan\u2019s packed argument buffer pointer and actual byte size to HGGC, and enqueue-side monitor snapshot copying is bounded to monitor-record capacity for larger symmetric args. The src/include/utils.h and copy-engine call-site edits are supporting macro-signature plumbing, not independent module behavior changes."
+      "reason": "Main behavior change is in runtime kernel launch/enqueue flow: `ncclLaunchKernel` now passes packed argument buffer pointer+actual byte size to HGGC, and enqueue-side argument snapshot copy is size-bounded for larger fixed-size symmetric params. Other touched files are mechanical launch-macro call-site updates without independent subsystem behavior changes."
     }
   },
   "reviewers": {
