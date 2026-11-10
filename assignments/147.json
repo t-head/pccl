@@ -2,14 +2,14 @@
   "classification": {
     "base_sha": "4784d0ad1b4def7ad4b5d686c73e7d16f24fc018",
     "head_sha": "07ea08c0002f548f7dccffec821c9c30d329ccb8",
-    "input_fingerprint": "65f6bcd045de7b6cc04be1bfbe5de48d6a73d4cea7e6c19e5adbe0eae14e1e2f",
+    "input_fingerprint": "7f33d9baa1bdb7344e7f51f0e5f48991933db9859c8ad3e937e4e4cc063307ba",
     "pr_number": 147,
     "proposal": {
       "modules": [
         "build",
         "ci"
       ],
-      "reason": "Adds a new Actions-based distribution pipeline (scheduled/push/manual matrix execution, runner/container orchestration, artifact merge and summaries), which is a CI workflow change. It also substantially changes tarball build/packaging scripts (SDK/toolchain setup, build invocation, output packaging and validation), so build-system packaging expertise is additionally needed."
+      "reason": "Primary change is a new scheduled/manual GitHub Actions pipeline that defines build matrix expansion, runner/container execution, artifact merge/publish, concurrency, and summary reporting for tarball production. Also includes substantive packaging/build-script implementation changes (SDK/toolchain bootstrap, build invocation, tarball layout/versioning, and emitted package artifacts), which affect build artifact generation beyond incidental workflow wiring."
     }
   },
   "reviewers": {
