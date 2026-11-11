@@ -2,19 +2,20 @@
   "classification": {
     "base_sha": "d2e86b965a5b55b373ac8e504a392a0d7e30f68b",
     "head_sha": "95ba7ff581051c0166b810093e2eac9646640ff2",
-    "input_fingerprint": "9db4bed20ed80aa00c55d1ce42c9845e341e85d352662f6f5f59bb2eff174b44",
+    "input_fingerprint": "d8202c8d44a89e40fbb1ff5bf99f8aeb1da8b87fce5ec2f1bc081bfb92217c17",
     "pr_number": 169,
     "proposal": {
       "modules": [
         "device-topology",
-        "transport",
+        "memory",
         "network"
       ],
-      "reason": "Main change is in network/proxy behavior: per-communicator NET/COLLNET backend selection/lifecycle, proxy progress batching and shutdown/abort handling, and larger NET request capacities. Additional review is needed for device-topology because intra-node NET-vs-P2P/SHM decisions now depend on topology bandwidth/affinity path modeling, and for transport because P2P/SHM/NET canConnect and connection-type routing were changed to enforce that new selection policy."
+      "reason": "Main change is in network/proxy behavior: per-communicator NET/CollNet backend selection and lifecycle, proxy append/progress/stop handling, and expanded NET request capacity. Add device-topology because intra-node NET vs P2P/SHM selection is now topology/affinity driven (new PATH_NET checks, NET reachability/path updates, PXN gating by backend version). Add memory for the new shared-memory handle/refcount API and ownership/unlink/close semantics used by proxy pools, which is an independently substantive resource-lifecycle change."
     }
   },
   "reviewers": {
     "device-topology": 335834228,
+    "memory": 341349555,
     "network": 341355176,
     "transport": 340104201
   }
