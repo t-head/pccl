@@ -48,6 +48,12 @@ jobs:
             command -v mpirun
             mpirun --version
             ompi_info --parsable --all | grep -E 'oob_tcp_if_include|btl_tcp_if_include|plm_rsh_agent' || true
+            if ! command -v strace >/dev/null; then
+              export DEBIAN_FRONTEND=noninteractive
+              apt-get update
+              apt-get install -y --no-install-recommends strace
+            fi
+            strace -V
           command: |
             set -uo pipefail
             export OMPI_MCA_orte_base_help_aggregate=0
@@ -104,27 +110,9 @@ jobs:
             }
 
             overall=0
-            worker0=$(sed -n '1p' "$CLUSTER_HOSTS_FILE")
-            worker1=$(sed -n '2p' "$CLUSTER_HOSTS_FILE")
-            printf '%s\n' "$worker0" > /tmp/master-only-hosts
-            run_probe local \
-              timeout -k 2s 15s mpirun --allow-run-as-root --tag-output \
-              -np 1 --mca orte_base_verbose 20 --mca plm_base_verbose 20 \
-              --mca oob_base_verbose 20 hostname || overall=1
-            run_probe self \
-              timeout -k 2s 15s mpirun --allow-run-as-root --tag-output \
-              --hostfile /tmp/master-only-hosts -np 1 --display-map \
-              --mca orte_base_verbose 20 --mca plm_base_verbose 20 \
-              --mca oob_base_verbose 20 hostname || overall=1
-            run_probe remote \
-              timeout -k 2s 20s mpirun --allow-run-as-root --tag-output \
-              --host "$worker1" -np 1 --display-map \
-              --mca orte_base_verbose 20 --mca plm_base_verbose 20 \
-              --mca oob_base_verbose 20 hostname || overall=1
-            run_probe dual \
-              timeout -k 2s 20s mpirun --allow-run-as-root --tag-output \
-              --hostfile "$CLUSTER_HOSTS_FILE" -np 2 -npernode 1 --display-map \
-              --mca orte_base_verbose 20 --mca plm_base_verbose 20 \
-              --mca oob_base_verbose 20 --mca oob_tcp_if_include "$MPI_INTERFACE" \
-              hostname || overall=1
+            run_probe local-strace \
+              timeout -k 2s 15s strace -f -tt -s 200 -o /tmp/local.strace \
+              mpirun --allow-run-as-root --tag-output -np 1 hostname || overall=1
+            echo 'Last local Open MPI system calls:'
+            tail -150 /tmp/local.strace
             exit "$overall"
