@@ -1,14 +1,14 @@
 {
   "classification": {
-    "base_sha": "3b6cc5f83d2b5257c658c3e6404e194754522a65",
-    "head_sha": "c10fb8bb91867446be8e43fcc823844eda843de2",
-    "input_fingerprint": "69b805d72d131f92d23abba672a3d09659b353653f2bb0dc11f466bfc520bec6",
+    "base_sha": "cc05ee8b19fb5aea8424f1e3cb1e552daa5c1261",
+    "head_sha": "4f77311a4a4992626b9e45c838b6c9a6c3361374",
+    "input_fingerprint": "ee78155469e1208d9c7b2b4dcc99a4c87ab5bfa78470a928cc620b30cc2fc991",
     "pr_number": 171,
     "proposal": {
       "modules": [
         "ci"
       ],
-      "reason": "Replaces the Action used to run existing PPU build/test jobs in `.github/workflows/pr-test-ppu.yml` (`ppu-scheduler-action` -> `ci-infra/cluster-run`) without changing review policy, module code, or workflow governance logic."
+      "reason": "Migrates three source-sanity CI job steps from the legacy scheduler Action to shared cluster-run calls and updates CI contract tests to enforce those execution references; this is a test/workflow execution change, not review-policy automation."
     }
   },
   "reviewers": {
