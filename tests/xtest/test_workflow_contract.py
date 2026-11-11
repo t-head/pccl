@@ -218,6 +218,23 @@ class WorkflowContractTests(unittest.TestCase):
         self.assertIn('--build-record "$CACHE_DIR/output_standard.build.json"', cluster)
         self.assertIn("--expected-sha256 '${{ env.EXPECTED_SHA }}'", cluster)
 
+    def test_single_node_rdma_runtime_runs_inside_the_scheduler_command(self):
+        single = self.text[self.text.index('  single-node:'):self.text.index('  two-node:')]
+        self.assertIn('host_network: true', single)
+        self.assertIn('dns_policy: ClusterFirstWithHostNet', single)
+        self.assertIn('host_volumes: /dev/infiniband:/dev/infiniband', single)
+        self.assertNotIn('setup_command:', single)
+        for setting in ('export HWLOC_COMPONENTS=-gl',
+                        'export OMPI_MCA_orte_keep_fqdn_hostnames=1',
+                        'export OMPI_MCA_oob_tcp_if_include="$MPI_INTERFACE"',
+                        'export OMPI_MCA_btl_tcp_if_include="$MPI_INTERFACE"',
+                        'export NCCL_SOCKET_IFNAME="$MPI_INTERFACE"'):
+            self.assertIn(setting, single)
+        self.assertIn("raise SystemExit('No non-zero RoCE GID is visible inside the worker')", single)
+        self.assertIn('--mpi-interface "$MPI_INTERFACE"', single)
+        self.assertIn('--build-record "$CACHE_DIR/output_', single)
+        self.assertIn("--expected-sha256 '${{ env.EXPECTED_SHA }}'", single)
+
     def test_final_reconciliation_uses_exact_case_and_build_identity_checks(self):
         results = self.job('results')
         for expected in ('tests/xtest/reconcile_results.py',

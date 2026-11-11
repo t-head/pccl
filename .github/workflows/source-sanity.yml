@@ -482,8 +482,47 @@ jobs:
           namespace: ppu-sched
           timeout_minutes: 300
           cleanup_policy: always
+          container_options: |
+            privileged: true
+            host_network: true
+            dns_policy: ClusterFirstWithHostNet
+          host_volumes: /dev/infiniband:/dev/infiniband
           command: |
             set -euo pipefail
+            source /usr/local/PPU_SDK/envsetup.sh
+            MPI_INTERFACE=$(awk '$2 == "00000000" {print $1; exit}' /proc/net/route)
+            test -n "$MPI_INTERFACE"
+            export HWLOC_COMPONENTS=-gl
+            export OMPI_MCA_orte_base_help_aggregate=0
+            export OMPI_MCA_orte_keep_fqdn_hostnames=1
+            export OMPI_MCA_oob_tcp_if_include="$MPI_INTERFACE"
+            export OMPI_MCA_btl_tcp_if_include="$MPI_INTERFACE"
+            export NCCL_SOCKET_IFNAME="$MPI_INTERFACE"
+            ulimit -l unlimited
+            ulimit -s 65536
+            if ! command -v ibv_devinfo >/dev/null || ! command -v rdma >/dev/null || ! command -v ip >/dev/null; then
+              export DEBIAN_FRONTEND=noninteractive
+              apt-get update
+              apt-get install -y --no-install-recommends rdma-core ibverbs-utils iproute2
+            fi
+            echo "MPI and NCCL control interface: $MPI_INTERFACE"
+            ip -4 -o addr show dev "$MPI_INTERFACE"
+            ibv_devinfo
+            rdma link show
+            python3 - <<'PY'
+            import ipaddress
+            from pathlib import Path
+
+            valid = []
+            for path in Path('/sys/class/infiniband').glob('*/ports/*/gids/*'):
+                value = path.read_text().strip()
+                if value and not ipaddress.IPv6Address(value).is_link_local and int(value.replace(':', ''), 16) != 0:
+                    valid.append((str(path), value))
+            if not valid:
+                raise SystemExit('No non-zero RoCE GID is visible inside the worker')
+            for path, value in valid:
+                print(f'Valid RoCE GID: {path} -> {value}')
+            PY
             umask 022
             cd /workspace/source
             export build_output=/workspace/source/output_${{ matrix.profile }}
@@ -509,12 +548,17 @@ jobs:
             /workspace/minimal-csv-env/bin/python -m pip check
             source /usr/local/PPU_SDK/envsetup.sh
             unset PCCL_PATH
+            MPI_INTERFACE=$(awk '$2 == "00000000" {print $1; exit}' /proc/net/route)
+            test -n "$MPI_INTERFACE"
+            test "$NCCL_SOCKET_IFNAME" = "$MPI_INTERFACE"
+            test "$OMPI_MCA_orte_keep_fqdn_hostnames" = 1
             /workspace/minimal-csv-env/bin/python -B \
               "$build_output/pccl/tests/xtest/run_cases.py" \
               --input "$build_output/pccl/tests/xtest/minimal-csv" \
               --profile '${{ matrix.profile }}' --nodes 1 \
               --test-root "$build_output" \
               --binary-dir "$build_output/pccl-tests/build" \
+              --mpi-interface "$MPI_INTERFACE" \
               --build-record "$CACHE_DIR/output_${{ matrix.profile }}.build.json" \
               --pccl-revision '${{ github.sha }}' \
               --expected-sha256 '${{ env.EXPECTED_SHA }}' \
