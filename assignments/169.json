@@ -1,16 +1,15 @@
 {
   "classification": {
-    "base_sha": "d2e86b965a5b55b373ac8e504a392a0d7e30f68b",
-    "head_sha": "95ba7ff581051c0166b810093e2eac9646640ff2",
-    "input_fingerprint": "fc12129d22c66ed36a01f57af5c29bce1f360f066abc2e49b48a92b7e11402bd",
+    "base_sha": "cc05ee8b19fb5aea8424f1e3cb1e552daa5c1261",
+    "head_sha": "6649a83ad1322c57b5fcdf3cfc0e448497b3e753",
+    "input_fingerprint": "322176738eabb7a9ef9d2a83a0fa7d07e2e54e2bceb0ab7254ea91beab81925e",
     "pr_number": 169,
     "proposal": {
       "modules": [
         "device-topology",
-        "transport",
         "network"
       ],
-      "reason": "Primary change is in network/proxy behavior: communicator-scoped NET/CollNet backend selection (`config.netName`), NET plugin lifecycle per communicator, larger NET request/pool limits, and proxy op-pool/progress SHM handling and batching. `device-topology` is additionally needed because intra-node path logic now compares GPU-vs-NIC bandwidth/affinity (`ncclTopoCheckNet`) and introduces `PATH_NET` topology semantics. `transport` is also substantive because P2P/SHM/NET connect eligibility and connection-type selection are changed to follow the new topology/network decisions."
+      "reason": "Main change is to network transport/plugin/proxy behavior: communicator-specific NET/CollNet backend selection and lifetime, NET/CollNet operation routing through per-comm backends, and substantive proxy progress/operation-pool handling updates. Add device-topology because topology/path construction now depends on the selected communicator backend/version (NIC discovery, PXN disable logic, and EIC-dependent path handling), which is a separate substantive behavior change."
     }
   },
   "reviewers": {
