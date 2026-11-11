@@ -13,6 +13,7 @@
 #include "info.h"
 #include "socket.h"
 #include "ipcsocket.h"
+#include "pccl_net_internal.h"
 #include <pthread.h>
 #include "p2p.h"
 
@@ -293,6 +294,10 @@ struct ncclProxyState {
   int buffSizes[NCCL_NUM_PROTOCOLS];
   volatile uint32_t* abortFlag;
   bool directMode;
+  ncclNet_t* ncclNet;
+  ncclCollNet_t* ncclCollNet;
+  int useU2mmHost;
+  int useU2mmDev;
   // Service thread
   pthread_t thread;
   pthread_t threadUDS;

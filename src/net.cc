@@ -7,20 +7,18 @@
  *************************************************************************/
 
 #include "net.h"
-#include "bootstrap.h"
+#include "comm.h"
 #include "transport.h"
 #include "param.h"
 // #include "checks.h"
 
 #include <string.h>
+#include <strings.h>
 // #include <errno.h>
 #include <dlfcn.h>
 //#include <sys/types.h>
 //#include <sys/stat.h>
 //#include <unistd.h>
-
-ncclNet_t *ncclNet;
-ncclCollNet_t *ncclCollNet;
 
 static ncclNet_v6_t ncclNet_v4_as_v6;
 static ncclNet_v6_t ncclNet_v5_as_v6;
@@ -168,9 +166,21 @@ static ncclResult_t ncclCollNet_v5_as_v6_init(ncclDebugLogger_t logfn) {
 }
 
 static pthread_mutex_t netPluginLock = PTHREAD_MUTEX_INITIALIZER;
-// Counts live comms holding a reference on the external plugin (ncclNetRetain/ncclNetFinalize)
+// All live communicators retain the plugin library, including users of built-in networks.
+// Plugin ABI flags can also be used outside the selected network's callbacks.
 static int netPluginRefCount = 0;
 static void* netPluginLib = NULL;
+static ncclNet_t* ncclNets[3] = { nullptr, &ncclNetIb, &ncclNetSocket };
+static ncclCollNet_t* ncclCollNets[3] = { nullptr, nullptr, nullptr };
+
+enum {
+  ncclNetStateInit = 0,
+  ncclNetStateEnabled = 1,
+  ncclNetStateDisabled = 2,
+};
+
+static int ncclNetStates[3] = { ncclNetStateInit, ncclNetStateInit, ncclNetStateInit };
+static int ncclCollNetStates[3] = { ncclNetStateInit, ncclNetStateInit, ncclNetStateInit };
 
 enum {
   netPluginLoadFailed  = -1,
@@ -182,12 +192,43 @@ static int netPluginStatus = netPluginLoadReady;
 
 PCCL_PARAM(NetPluginEnable, "NET_PLUGIN_ENABLE", 1);
 
-static ncclResult_t ncclNetPluginLoad(ncclNet_v6_t** net, ncclCollNet_v6_t** collnet) {
+// Called with netPluginLock held and no live communicator references.
+static ncclResult_t ncclNetPluginUnload() {
+  if (netPluginLib != nullptr) {
+    INFO(NCCL_NET, "NET/Plugin: Unload net plugin");
+    if (dlclose(netPluginLib) != 0) {
+      WARN("NET/Plugin: Failed to unload net plugin: %s", dlerror());
+      return ncclSystemError;
+    }
+    netPluginLib = nullptr;
+  }
+  ncclNets[0] = nullptr;
+  ncclCollNets[0] = nullptr;
+  ncclNet_v4 = nullptr;
+  ncclNet_v5 = nullptr;
+  ncclCollNet_v4 = nullptr;
+  ncclCollNet_v5 = nullptr;
+  memset(&ncclNet_v4_as_v6, 0, sizeof(ncclNet_v4_as_v6));
+  memset(&ncclNet_v5_as_v6, 0, sizeof(ncclNet_v5_as_v6));
+  memset(&ncclCollNet_v4_as_v6, 0, sizeof(ncclCollNet_v4_as_v6));
+  memset(&ncclCollNet_v5_as_v6, 0, sizeof(ncclCollNet_v5_as_v6));
+  for (int i = 0; i < 3; i++) {
+    ncclNetStates[i] = ncclCollNetStates[i] = ncclNetStateInit;
+  }
+  nccl_use_u2mm_host = nccl_use_u2mm_dev = 0;
+  nccl_eic_gpu_offset = 0;
+  netPluginStatus = netPluginLoadReady;
+  return ncclSuccess;
+}
+
+// Loading and candidate initialization are serialized with communicator retain/release.
+static ncclResult_t ncclNetPluginLoad() {
+  ncclResult_t ret = ncclSuccess;
+  ncclNet_v6_t** net = &ncclNets[0];
+  ncclCollNet_v6_t** collnet = &ncclCollNets[0];
 
   char ncclNetPluginName[128];
   const char* envPluginName = pcclGetEnvWithDualPrefix("PCCL_NET_PLUGIN");
-
-  pthread_mutex_lock(&netPluginLock);
 
   if (netPluginLoadFailed == netPluginStatus) {
     goto exit;
@@ -268,113 +309,70 @@ static ncclResult_t ncclNetPluginLoad(ncclNet_v6_t** net, ncclCollNet_v6_t** col
   netPluginStatus = netPluginLoadSuccess;
 
 exit:
-  pthread_mutex_unlock(&netPluginLock);
-  return ncclSuccess;
+  return ret;
 
 fail:
-  if (netPluginLib != nullptr) {
-    dlclose(netPluginLib);
-    netPluginLib = nullptr;
-  }
+  ret = ncclNetPluginUnload();
   netPluginStatus = netPluginLoadFailed;
   goto exit;
 }
 
-// netInitLock protects netInitialized and serializes full (re)initialization
-// against per-comm retain/release. Lock order: netInitLock -> netPluginLock.
-static pthread_mutex_t netInitLock = PTHREAD_MUTEX_INITIALIZER;
-static bool netInitialized = false;
-
-static ncclResult_t ncclNetPluginUnload() {
+ncclResult_t ncclNetInit(ncclComm_t comm) {
+  ncclResult_t ret = ncclSuccess;
+  const char* netName = comm->config.netName;
   pthread_mutex_lock(&netPluginLock);
-  if (netPluginLib && netPluginRefCount > 0 && 0 == (--netPluginRefCount)) {
-    INFO(NCCL_NET, "NET/Plugin: Unload net plugin");
-    dlclose(netPluginLib);
-    netPluginLib = nullptr;
-    netPluginStatus = netPluginLoadReady;
-    // Drop pointers into the unloaded library and force a full re-init
-    // (dlopen + network selection) on the next comm creation.
-    ncclNet = nullptr;
-    ncclCollNet = nullptr;
-    netInitialized = false;
+  if (comm->netPluginRetained) goto exit;
+  comm->ncclNet = nullptr;
+  comm->ncclCollNet = nullptr;
+  NCCLCHECKGOTO(ncclNetPluginLoad(), ret, exit);
+
+  for (int i = 0; i < 3; i++) {
+    if (ncclNets[i] == nullptr) continue;
+    if (netName && strcasecmp(netName, ncclNets[i]->name) != 0) continue;
+
+    if (ncclNetStates[i] == ncclNetStateInit) {
+      int ndev = 0;
+      ncclNetStates[i] = ncclNetStateDisabled;
+      if (ncclNets[i]->init(ncclDebugLogForPlugin) == ncclSuccess &&
+          ncclNets[i]->devices(&ndev) == ncclSuccess && ndev > 0) {
+        ncclNetStates[i] = ncclNetStateEnabled;
+      }
+    }
+    if (ncclNetStates[i] != ncclNetStateEnabled) continue;
+
+    if (ncclCollNets[i] && ncclCollNetStates[i] == ncclNetStateInit) {
+      int ndev = 0;
+      ncclCollNetStates[i] = ncclNetStateDisabled;
+      if (ncclCollNets[i]->init(ncclDebugLogForPlugin) == ncclSuccess &&
+          ncclCollNets[i]->devices(&ndev) == ncclSuccess && ndev > 0) {
+        ncclCollNetStates[i] = ncclNetStateEnabled;
+      }
+    }
+    comm->ncclNet = ncclNets[i];
+    if (ncclCollNetStates[i] == ncclNetStateEnabled) comm->ncclCollNet = ncclCollNets[i];
+    netPluginRefCount++;
+    comm->netPluginRetained = true;
+    goto exit;
+  }
+
+  WARN("Error: network %s not found.", netName ? netName : "");
+  ret = ncclInvalidUsage;
+  if (netPluginRefCount == 0) NCCLCHECKIGNORE(ncclNetPluginUnload(), ret);
+exit:
+  pthread_mutex_unlock(&netPluginLock);
+  return ret;
+}
+
+ncclResult_t ncclNetFinalize(ncclComm_t comm) {
+  ncclResult_t ret = ncclSuccess;
+  pthread_mutex_lock(&netPluginLock);
+  comm->ncclNet = nullptr;
+  comm->ncclCollNet = nullptr;
+  if (comm->netPluginRetained) {
+    comm->netPluginRetained = false;
+    if (--netPluginRefCount == 0) ret = ncclNetPluginUnload();
   }
   pthread_mutex_unlock(&netPluginLock);
-  return ncclSuccess;
-}
-
-// Must be called with netInitLock held.
-static ncclResult_t ncclNetInitLocked() {
-  // Initialize main communication network
-  ncclNet_t* nets[3] = { nullptr, &ncclNetIb, &ncclNetSocket };
-  ncclCollNet_t* collNets[3] = { nullptr, nullptr, nullptr };
-  ncclNetPluginLoad(&nets[0], &collNets[0]);
-  const char* netName = pcclGetEnvWithDualPrefix("PCCL_NET");
-  bool ok = false;
-
-  for (int i=0; i<3; i++) {
-    if (nets[i] == nullptr) continue;
-    if (netName && strcmp(netName, nets[i]->name) != 0) continue;
-
-    // net plugin is already initialized
-    int ndev;
-    if (nets[i]->init(ncclDebugLogForPlugin) != ncclSuccess) continue;
-    if (nets[i]->devices(&ndev) != ncclSuccess) continue;
-    if (ndev <= 0) continue;
-    ncclNet = nets[i];
-    ok = true;
-
-    if (collNets[i]) {
-      do {
-        if (collNets[i]->init(ncclDebugLogForPlugin) != ncclSuccess) break;
-        if (collNets[i]->devices(&ndev) != ncclSuccess) break;
-        if (ndev <= 0) break;
-        ncclCollNet = collNets[i];
-      } while(0);
-    }
-    break;
-  }
-
-  if (!ok) {
-    WARN("Error: network %s not found.", netName ? netName : "");
-    return ncclInvalidUsage;
-  }
-  netInitialized = true;
-  return ncclSuccess;
-}
-
-ncclResult_t ncclNetInit() {
-  // Always initialize bootstrap network
-  NCCLCHECK(bootstrapNetInit());
-
-  ncclResult_t ret = ncclSuccess;
-  pthread_mutex_lock(&netInitLock);
-  if (!netInitialized) ret = ncclNetInitLocked();
-  pthread_mutex_unlock(&netInitLock);
-  return ret;
-}
-
-// Per-comm reference on the net plugin, paired with ncclNetFinalize() in commFree.
-// (Re)initializes the network when this is the first comm after startup or after
-// the plugin was fully unloaded by the last comm destroy.
-ncclResult_t ncclNetRetain() {
-  NCCLCHECK(bootstrapNetInit());
-
-  ncclResult_t ret = ncclSuccess;
-  pthread_mutex_lock(&netInitLock);
-  if (!netInitialized) ret = ncclNetInitLocked();
-  if (ret == ncclSuccess) {
-    pthread_mutex_lock(&netPluginLock);
-    if (netPluginLib != nullptr) ++netPluginRefCount;
-    pthread_mutex_unlock(&netPluginLock);
-  }
-  pthread_mutex_unlock(&netInitLock);
-  return ret;
-}
-
-ncclResult_t ncclNetFinalize() {
-  pthread_mutex_lock(&netInitLock);
-  ncclResult_t ret = ncclNetPluginUnload();
-  pthread_mutex_unlock(&netInitLock);
   return ret;
 }
 
@@ -387,14 +385,10 @@ ncclResult_t ncclGpuGdrSupport(int* gdrSupport) {
   return ncclSuccess;
 }
 
-int ncclNetVersion() {
-  return (ncclNet == &ncclNet_v4_as_v6) ? 4 : ((ncclNet == &ncclNet_v5_as_v6) ? 5 : 6);
+int ncclNetVersion(ncclComm_t comm) {
+  return (comm->ncclNet == &ncclNet_v4_as_v6) ? 4 : ((comm->ncclNet == &ncclNet_v5_as_v6) ? 5 : 6);
 }
 
-bool ncclEicNet() {
-  if (ncclNet) {
-    if (strcmp(ncclNetName(), EIC_PLUGIN_NAME) == 0)
-      return true;
-  }
-  return false;
+bool ncclEicNet(ncclNet_t* net) {
+  return net && strcmp(net->name, EIC_PLUGIN_NAME) == 0;
 }

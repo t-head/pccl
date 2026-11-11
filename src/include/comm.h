@@ -617,8 +617,13 @@ struct pcclComm {
   // Flag indicating if this communicator shares resources with parent or children
   bool shareResources;
 
-  // Flag indicating this comm holds a reference on the net plugin,
-  // taken by ncclNetRetain() in commAlloc and released by ncclNetFinalize() in commFree
+  // Backend and allocation modes selected for this communicator.
+  ncclNet_t* ncclNet;
+  ncclCollNet_t* ncclCollNet;
+  int useU2mmHost;
+  int useU2mmDev;
+
+  // Reference taken by ncclNetInit() and released by ncclNetFinalize().
   bool netPluginRetained;
 
   bool symmetricSupport;

@@ -121,7 +121,8 @@ static int ncclTopoGraphTreePattern(ncclComm_t comm, ncclTopoSystem *system) {
   return pattern;
 }
 
-ncclResult_t testGraphSearch(std::vector<int> ppuList, const char *topoFile, const char *graphFile, int nNodes, AlgoMode algoMode) {
+ncclResult_t testGraphSearch(std::vector<int> ppuList, const char *topoFile, const char *graphFile, int nNodes,
+                           AlgoMode algoMode, bool useEic = false) {
   NCCLCHECK(setEnvs(topoFile, graphFile));
 
   ncclTopoSystem *system;
@@ -163,7 +164,7 @@ ncclResult_t testGraphSearch(std::vector<int> ppuList, const char *topoFile, con
   NCCLCHECK(pcclTopoSetNetAffinityPPUs(xml, ppuCount, netCount));
   NCCLCHECK(ncclTopoTrimXml(xml));
 
-  NCCLCHECK(ncclTopoGetSystemFromXml(xml, &system, getHostHash()));
+  NCCLCHECK(ncclTopoGetSystemFromXml(xml, &system, getHostHash(), useEic));
   ncclComm_t comm;
   NCCLCHECK(ncclCalloc(&comm, 1));
   comm->rank = 0;
@@ -208,29 +209,9 @@ ncclResult_t testGraphSearch(std::vector<int> ppuList, const char *topoFile, con
   return ncclSuccess;
 }
 
-class ScopedEicNet {
- public:
-  ScopedEicNet() : savedNet(ncclNet), savedUseEic(nccl_use_eic) {
-    // Graph search only reads the plugin name; no network transport callbacks are invoked.
-    eicNet.name = EIC_PLUGIN_NAME;
-    ncclNet = &eicNet;
-    nccl_use_eic = true;
-  }
-  ~ScopedEicNet() {
-    ncclNet = savedNet;
-    nccl_use_eic = savedUseEic;
-  }
-
- private:
-  ncclNet_t eicNet = {};
-  ncclNet_t* savedNet;
-  bool savedUseEic;
-};
-
 ncclResult_t testGraphSearchWithEic(std::vector<int> ppuList, const char *topoFile, const char *graphFile, int nNodes, AlgoMode algoMode) {
-  // Simulate doubled NIC PCI bandwidth and EIC proxy balancing, restoring global state on exit.
-  ScopedEicNet eicNet;
-  return testGraphSearch(ppuList, topoFile, graphFile, nNodes, algoMode);
+  // Simulate doubled NIC PCI bandwidth and EIC proxy balancing for this topology.
+  return testGraphSearch(ppuList, topoFile, graphFile, nNodes, algoMode, true);
 }
 
 // 8PPU 4CX7

@@ -539,48 +539,37 @@ static ncclResult_t getUDS(uint64_t* peerUDS) {
 }
 
 #define MAX_OOB_DEVS 16
-static ncclResult_t netGetDevice(int rank, ncclComm_t comm, int* dev) {
-  static int devOOB = -1;
-  if (devOOB < 0) {
-    pthread_mutex_lock(&bootstrapNetLock);
-    if (devOOB < 0) {
-      const char* userIfEnv = pcclGetEnvWithDualPrefix("PCCL_OOB_NET_IFNAME");
-      if (userIfEnv && strlen(userIfEnv) > 0) {
-        INFO(NCCL_BOOTSTRAP | NCCL_ENV, "PCCL_OOB_NET_IFNAME set to %s", userIfEnv);
-        bool searchNot = userIfEnv && userIfEnv[0] == '^';
-        if (searchNot) userIfEnv++;
-        bool searchExact = userIfEnv && userIfEnv[0] == '=';
-        if (searchExact) userIfEnv++;
-        struct netIf userIfs[MAX_OOB_DEVS];
-        int nUserIfs = parseStringList(userIfEnv, userIfs, MAX_OOB_DEVS);
-        // loop over the device and return the first one matching
-        int devId = 0;
-        int nDev = 0;
-        NCCLCHECK(ncclNet->devices(&nDev));
-        while (devId < nDev) {
-          ncclNetProperties_t props;
-          ncclNet->getProperties(devId, &props);
-          // check against user specified HCAs/ports
-          bool found = matchIfList(props.name, props.port, userIfs, nUserIfs, searchExact) ^ searchNot;
-          if (found) {
-            devOOB = devId;
-            break;
-          }
-          devId++;
-        }
-        if (devOOB == -1) {
-          WARN("no device found matching PCCL_OOB_NET_IFNAME=%s, ignoring", userIfEnv);
-          goto noEnv;
-        }
-      } else {
-      noEnv:
-        // default choice is device 0
-        devOOB = 0;
+static ncclResult_t netGetDevice(ncclNet_t* net, int* dev) {
+  int devOOB = -1;
+  const char* userIfEnv = pcclGetEnvWithDualPrefix("PCCL_OOB_NET_IFNAME");
+  if (userIfEnv && strlen(userIfEnv) > 0) {
+    INFO(NCCL_BOOTSTRAP | NCCL_ENV, "PCCL_OOB_NET_IFNAME set to %s", userIfEnv);
+    bool searchNot = userIfEnv && userIfEnv[0] == '^';
+    if (searchNot) userIfEnv++;
+    bool searchExact = userIfEnv && userIfEnv[0] == '=';
+    if (searchExact) userIfEnv++;
+    struct netIf userIfs[MAX_OOB_DEVS];
+    int nUserIfs = parseStringList(userIfEnv, userIfs, MAX_OOB_DEVS);
+    // Device indexes belong to this communicator's backend.
+    int nDev = 0;
+    NCCLCHECK(net->devices(&nDev));
+    for (int devId = 0; devId < nDev; devId++) {
+      ncclNetProperties_t props;
+      NCCLCHECK(net->getProperties(devId, &props));
+      // check against user specified HCAs/ports
+      bool found = matchIfList(props.name, props.port, userIfs, nUserIfs, searchExact) ^ searchNot;
+      if (found) {
+        devOOB = devId;
+        break;
       }
-      INFO(NCCL_BOOTSTRAP, "choose OOB net device %d", devOOB);
     }
-    pthread_mutex_unlock(&bootstrapNetLock);
+    if (devOOB == -1) {
+      WARN("no device found matching PCCL_OOB_NET_IFNAME=%s, ignoring", userIfEnv);
+    }
   }
+  // default choice is device 0
+  if (devOOB == -1) devOOB = 0;
+  INFO(NCCL_BOOTSTRAP, "choose OOB net device %d", devOOB);
   *dev = devOOB;
   return ncclSuccess;
 }
@@ -694,7 +683,7 @@ ncclResult_t bootstrapInit(int nHandles, void* handles, ncclComm_t comm, ncclCom
   state->nranks = nranks;
   state->hggcDev = comm->hggcDev;
   state->abortFlag = comm->abortFlag;
-  state->net = ncclNet;
+  state->net = comm->ncclNet;
   comm->bootstrap = state;
   if (handles != NULL) {
     comm->magic = state->magic = BOOTSTRAP_HANDLE(handles, 0)->magic;
@@ -717,7 +706,7 @@ ncclResult_t bootstrapInit(int nHandles, void* handles, ncclComm_t comm, ncclCom
   BOOTSTRAP_PROF_OPEN(timers[BOOTSTRAP_INIT_TIME_CREATE]);
   if (ncclParamBootstrapNetEnable()) {
     // Create net interface for other ranks to contact me (all gather)
-    NCCLCHECK(netGetDevice(rank, comm, &STATE_LISTEN(state, net.dev)));
+    NCCLCHECK(netGetDevice(state->net, &STATE_LISTEN(state, net.dev)));
     NCCLCHECK(state->net->listen(STATE_LISTEN(state, net.dev), STATE_LISTEN(state, net.handle), &STATE_LISTEN(state, net.comm)));
     memcpy(info.connectInfo.handle, STATE_LISTEN(state, net.handle), NCCL_NET_HANDLE_MAXSIZE);
   } else {
@@ -885,7 +874,7 @@ ncclResult_t bootstrapSplit(uint64_t magic, ncclComm_t comm, ncclComm_t parent, 
   state->nranks = nranks;
   state->hggcDev = comm->hggcDev;
   state->abortFlag = comm->abortFlag;
-  state->net = ncclNet;
+  state->net = comm->ncclNet;
   comm->magic = state->magic = magic;
   comm->bootstrap = state;
 
@@ -897,7 +886,7 @@ ncclResult_t bootstrapSplit(uint64_t magic, ncclComm_t comm, ncclComm_t parent, 
 
   // create a handle for the others to reach out to me
   if (ncclParamBootstrapNetEnable()) {
-    NCCLCHECKGOTO(netGetDevice(rank, comm, &STATE_LISTEN(state, net.dev)), res, fail);
+    NCCLCHECKGOTO(netGetDevice(state->net, &STATE_LISTEN(state, net.dev)), res, fail);
     NCCLCHECKGOTO(state->net->listen(STATE_LISTEN(state, net.dev), STATE_LISTEN(state, net.handle), &STATE_LISTEN(state, net.comm)), res, fail);
     memcpy(info.handle, STATE_LISTEN(state, net.handle), NCCL_NET_HANDLE_MAXSIZE);
   } else {
