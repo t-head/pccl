@@ -2,7 +2,7 @@
   "classification": {
     "base_sha": "cc05ee8b19fb5aea8424f1e3cb1e552daa5c1261",
     "head_sha": "6649a83ad1322c57b5fcdf3cfc0e448497b3e753",
-    "input_fingerprint": "a073741048314c85e9c94d1184d85ea5be556c9da6f833342ee0b6879e6b21ca",
+    "input_fingerprint": "fc843cfdefa732257125fc672b2f621933649c8229434d048c39d3d2e337d9ca",
     "pr_number": 169,
     "proposal": {
       "modules": [
@@ -11,7 +11,7 @@
         "communicator",
         "network"
       ],
-      "reason": "Main change is in network: NET/CollNet backend selection and plugin lifetime move from global to per-communicator state, and NET/proxy paths now execute via communicator-selected backends (including proxy batching/shutdown behavior). communicator is additionally needed because init/free/split lifecycle now owns netName config, backend compatibility checks for shared parent/child communicators, and per-comm finalize semantics. device-topology is additionally needed because NIC discovery/topology construction now depends on communicator-selected NET/CollNet backends and per-topology EIC mode. graph-search is additionally needed because PXN disable and graph comparison decisions were changed to be communicator/topology-specific (per-backend behavior), affecting channel/path selection logic."
+      "reason": "Primary change is in network transport/proxy: NET/CollNet backend selection moved to per-communicator state, plugin init/finalize is per-comm, and proxy posting/progress/shutdown behavior is updated. communicator also needs review because init/free/split now own backend config/reference lifetime and enforce parent-child backend compatibility for shared resources. device-topology and graph-search need review because EIC/PXN path/build and graph comparison decisions now key off communicator-selected backend state instead of prior global NET state."
     }
   },
   "reviewers": {
