@@ -313,30 +313,31 @@ ncclResult_t ncclTasksRegAndEnqueue(ncclComm_t comm) {
     struct ncclDevWorkColl devWork = {};
 
     NCCLCHECK(ncclRegisterCollBuffers(comm, task, regBufSend, regBufRecv, &comm->planner.collCleanupQueue));
-    devWork.sendbuff = (void*)task->sendbuff;
-    devWork.recvbuff = (void*)task->recvbuff;
-    devWork.sendbuffOffset = task->sendbuffOffset;
-    devWork.recvbuffOffset = task->recvbuffOffset;
-    devWork.sendbuffRmtAddrs = task->sendbuffRmtAddrs;
-    devWork.recvbuffRmtAddrs = task->recvbuffRmtAddrs;
-    devWork.root = task->root;
-    devWork.profilerEnabled = ncclProfilerPluginLoaded() && (task->eActivationMask & ncclProfileKernelCh);
+    if (task->regBufType & NCCL_IPC_REG_BUFFER) {
+      // External kernels consume registration state through pcclExtTaskColl.
+      task->regUsed = 1;
+    }
 
     // Common standard-kernel metadata is independent of plan channel assignment.
-    // External kernels own their launch parameters.
+    // External kernels build their parameters directly from task below.
     if (!task->isExtKernel) {
+      devWork.sendbuff = (void*)task->sendbuff;
+      devWork.recvbuff = (void*)task->recvbuff;
+      devWork.sendbuffOffset = task->sendbuffOffset;
+      devWork.recvbuffOffset = task->recvbuffOffset;
+      devWork.sendbuffRmtAddrs = task->sendbuffRmtAddrs;
+      devWork.recvbuffRmtAddrs = task->recvbuffRmtAddrs;
+      devWork.root = task->root;
+      devWork.profilerEnabled = ncclProfilerPluginLoaded() && (task->eActivationMask & ncclProfileKernelCh);
       devWork.comm = comm->devComm;
       devWork.count = (ssize_t)task->count;
       devWork.nThreads = task->nThreads;
       devWork.redOpArgIsPtr = task->opDev.scalarArgIsPtr;
       devWork.redOpArg = task->opDev.scalarArg;
-    }
-
-    if (task->regBufType & NCCL_IPC_REG_BUFFER) {
-      // task->regUsed is used by kernelPluginBuildParams
-      task->regUsed = 1;
-      devWork.sendRegUsed = 1;
-      devWork.recvRegUsed = 1;
+      if (task->regBufType & NCCL_IPC_REG_BUFFER) {
+        devWork.sendRegUsed = 1;
+        devWork.recvRegUsed = 1;
+      }
     }
 
     workNode = ncclMemoryStackAllocInlineArray<ncclWorkList, ncclDevWorkColl>(&comm->memScoped, 1);
