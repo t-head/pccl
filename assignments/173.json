@@ -2,13 +2,13 @@
   "classification": {
     "base_sha": "e3b0139c540d1a167f6f3aa53e803fb2c61bccb5",
     "head_sha": "9e15a7a516d5fbdab16442be2f847c1711a0ae13",
-    "input_fingerprint": "bd9ad452bc520cc137cbaa34c3485fe92231805ea0deb159de8f4e788175d333",
+    "input_fingerprint": "cf66085577ec637ded7289c9353e47bed588e37c9792f0b0baef121566e66103",
     "pr_number": 173,
     "proposal": {
       "modules": [
         "other"
       ],
-      "reason": "Single non-behavioral include swap in unlisted HGTX SDK-facing header (`driver_types.h` -> `hggc_runtime.h`) to prepare external header renaming; this does not map cleanly to a cataloged PCCL module scope."
+      "reason": "The only substantive edit is swapping an SDK include (`driver_types.h` -> `hggc_runtime.h`) in `src/include/hgtx3/hgToolsExtHggcRt.h` (plus copyright text), which is outside the cataloged PCCL module scopes and does not indicate a functional change in a listed module."
     }
   },
   "reviewers": {
