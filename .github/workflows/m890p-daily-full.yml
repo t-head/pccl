@@ -1,0 +1,464 @@
+name: M890P daily full (experimental)
+
+on:
+  push:
+    branches: [ci/m890p-daily-csv]
+    paths: [.github/workflows/m890p-daily-full.yml]
+  workflow_dispatch:
+    inputs:
+      nodes:
+        description: Nodes allocated once for the selected Suite
+        required: true
+        default: '1'
+        type: choice
+        options: ['1', '2', '4', '8', '16']
+      suite:
+        description: Exact Suite name from daily-full-csv
+        required: true
+        default: device_api_shm_single_node_single_process_suite
+        type: string
+
+permissions:
+  contents: read
+
+concurrency:
+  group: m890p-daily-full-${{ github.ref }}-${{ inputs.nodes || '1' }}-${{ inputs.suite || 'device_api_shm_single_node_single_process_suite' }}
+  cancel-in-progress: false
+
+env:
+  VALIDATION_IMAGE: download.t-head.cn/docker_release/ppu:sdk2.2.0-hggcrt3-ubuntu24.04-py312-20261005
+  VALIDATION_NODE_SELECTOR: board-type=ZW-M890P
+  VALIDATION_CARDS: '8'
+  PCCL_TESTS_REVISION: 394556512e87259e9ffa25225632c46b0a0bbcd5
+
+jobs:
+  prepare:
+    name: Validate the selected daily Suite
+    runs-on: ubuntu-24.04
+    timeout-minutes: 20
+    outputs:
+      case_count: ${{ steps.selection.outputs.case_count }}
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          path: pccl
+          persist-credentials: false
+      - uses: actions/checkout@v4
+        with:
+          repository: t-head/pccl-tests
+          ref: ${{ env.PCCL_TESTS_REVISION }}
+          path: pccl-tests
+          persist-credentials: false
+      - uses: actions/setup-python@v5
+        with:
+          python-version: '3.12'
+      - id: selection
+        name: Test contracts and validate the exact selection
+        working-directory: pccl
+        env:
+          NODES: ${{ inputs.nodes || '1' }}
+          SUITE: ${{ inputs.suite || 'device_api_shm_single_node_single_process_suite' }}
+        run: |
+          python3 -S -B -W error::ResourceWarning -m unittest discover \
+            -s tests/xtest -p 'test_run_cases.py' -v
+          python3 -S -B -m unittest discover -s tests/xtest -p 'test_artifact_cache.py' -v
+          python3 -S -B -m unittest discover -s tests/xtest -p 'test_daily_smoke.py' -v
+          python3 -S -B -m unittest discover -s tests/xtest -p 'test_reconcile_results.py' -v
+          python3 -S -B - <<'PY'
+          import hashlib
+          import os
+          from pathlib import Path
+          import subprocess
+          import sys
+
+          sys.path.insert(0, 'tests/xtest')
+          import run_cases
+          from artifact_cache import PCCL_TESTS_REVISION, RUNNER_HASHES
+
+          nodes = int(os.environ['NODES'])
+          suite = os.environ['SUITE']
+          if nodes not in (1, 2, 4, 8, 16):
+              raise ValueError('Unsupported node count')
+          selected = run_cases.load_inputs(Path('tests/xtest/daily-full-csv'), 'standard', nodes, suite)
+          keys = {(case['plan'], case['suite']) for case in selected['cases']}
+          if len(keys) != 1:
+              raise ValueError(f'Expected exactly one Plan/Suite selection, got {sorted(keys)}')
+          runner = Path('../pccl-tests').resolve()
+          revision = subprocess.check_output(['git', '-C', str(runner), 'rev-parse', 'HEAD'], text=True).strip()
+          assert revision == PCCL_TESTS_REVISION == os.environ['PCCL_TESTS_REVISION']
+          for name, expected in RUNNER_HASHES.items():
+              assert hashlib.sha256((runner / name).read_bytes()).hexdigest() == expected
+          assert selected['metadata']['runner_revision'] == revision
+          assert subprocess.check_output(['git', 'rev-parse', 'HEAD'], text=True).strip() == os.environ['GITHUB_SHA']
+          print(f'Selected {len(selected["cases"])} Cases from {next(iter(keys))} on {nodes} nodes')
+          with open(os.environ['GITHUB_OUTPUT'], 'a') as output:
+              output.write(f'case_count={len(selected["cases"])}\n')
+          PY
+      - name: Stage the pinned benchmark dependency
+        run: |
+          mkdir -p deps
+          python3 -m pip download --disable-pip-version-check --only-binary=:all: --no-deps \
+            --dest deps filelock==3.20.3
+          printf '%s  %s\n' \
+            '4b0dda527ee31078689fc205ec4f1c1bf7d56cf88b6dc9426c4f230e46c2dce1' \
+            'deps/filelock-3.20.3-py3-none-any.whl' | sha256sum --check -
+      - uses: actions/upload-artifact@v4
+        with:
+          name: m890p-daily-full-python-deps
+          path: deps/
+          if-no-files-found: error
+          overwrite: true
+          retention-days: 3
+
+  build-standard:
+    name: Build and upload standard
+    needs: [prepare]
+    if: needs.prepare.result == 'success'
+    outputs:
+      artifact_sha256: ${{ steps.identity.outputs.artifact_sha256 }}
+    runs-on: k8s-runner-group-cpu-thead
+    container:
+      image: ghcr.io/actions/actions-runner:latest
+    timeout-minutes: 360
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          path: pccl
+          persist-credentials: false
+      - uses: actions/checkout@v4
+        with:
+          repository: t-head/pccl-tests
+          ref: ${{ env.PCCL_TESTS_REVISION }}
+          path: pccl-tests
+          persist-credentials: false
+      - name: Build standard output
+        uses: t-head/ppu-scheduler-action@aac83e464f2a3fcbddddc60c8016021c996092a6
+        with:
+          image: ${{ env.VALIDATION_IMAGE }}
+          nnodes: 0
+          nproc_per_node: ${{ env.VALIDATION_CARDS }}
+          node_selector: ${{ env.VALIDATION_NODE_SELECTOR }}
+          namespace: ppu-sched
+          timeout_minutes: 300
+          cleanup_policy: on_success
+          command: |
+            set -euo pipefail
+            cd /workspace/source
+            export source_home=/workspace/source
+            export build_output=/workspace/source/output_standard
+            STAGING=/mnt/wl_nas/devops/pccl-artifact-cache-${{ github.run_id }}/staging/standard
+            RUN_ROOT=/mnt/wl_nas/devops/pccl-artifact-cache-${{ github.run_id }}
+            mkdir -p "$build_output" "$STAGING"
+            unset PIP_INDEX_URL PIP_EXTRA_INDEX_URL 2>/dev/null || true
+            git config --global --unset-all url.https://ai-gerrit.eng.t-head.cn/Public/Github/.insteadOf 2>/dev/null || true
+            git config --global --add safe.directory /workspace/source
+            git config --global --add safe.directory '*'
+            bash pccl/.github/workflows/scripts/build.sh
+            tar -czf "$STAGING/output_standard.tar.gz" -C /workspace/source output_standard
+            sha256sum "$STAGING/output_standard.tar.gz" > "$STAGING/output_standard.tar.gz.sha256"
+            python3 -S -B "$build_output/pccl/tests/xtest/artifact_cache.py" create \
+              --archive "$STAGING/output_standard.tar.gz" \
+              --pccl-revision "$(git -C "$build_output/pccl" rev-parse HEAD)" \
+              --pccl-tests-revision "$(git -C "$build_output/pccl-tests" rev-parse HEAD)" \
+              --profile standard --output "$STAGING/output_standard.build.json"
+            chmod -R a+rwX "$RUN_ROOT"
+      - id: identity
+        name: Validate the standard artifact before upload
+        env:
+          STAGING: /wl_nas/devops/pccl-artifact-cache-${{ github.run_id }}/staging/standard
+        run: |
+          EXPECTED_SHA=$(python3 -c 'import json, os; print(json.load(open(os.path.join(os.environ["STAGING"], "output_standard.build.json")))["artifact_sha256"])')
+          python3 -S -B pccl/tests/xtest/artifact_cache.py validate \
+            --directory "$STAGING" --profile standard \
+            --pccl-revision '${{ github.sha }}' --pccl-tests-revision '${{ env.PCCL_TESTS_REVISION }}' \
+            --expected-sha256 "$EXPECTED_SHA"
+          echo "artifact_sha256=$EXPECTED_SHA" >> "$GITHUB_OUTPUT"
+      - uses: actions/upload-artifact@v4
+        with:
+          name: m890p-daily-full-build-standard
+          path: /wl_nas/devops/pccl-artifact-cache-${{ github.run_id }}/staging/standard/
+          if-no-files-found: error
+          overwrite: true
+          retention-days: 3
+      - name: Remove transient standard NAS staging
+        if: always()
+        run: |
+          python3 - <<'PY'
+          import shutil
+          shutil.rmtree('/wl_nas/devops/pccl-artifact-cache-${{ github.run_id }}/staging/standard', ignore_errors=True)
+          PY
+
+  stage-cache:
+    name: Stage standard from artifact or valid NAS cache
+    needs: [build-standard]
+    env:
+      EXPECTED_SHA: ${{ needs.build-standard.outputs.artifact_sha256 }}
+    runs-on: k8s-runner-group-cpu-thead
+    container:
+      image: ghcr.io/actions/actions-runner:latest
+    timeout-minutes: 60
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          path: pccl
+          persist-credentials: false
+      - id: cache
+        name: Check for a valid NAS cache
+        env:
+          CACHE_DIR: /wl_nas/devops/pccl-artifact-cache-${{ github.run_id }}/cache/standard/${{ env.EXPECTED_SHA }}
+        run: |
+          if python3 -S -B pccl/tests/xtest/artifact_cache.py validate \
+            --directory "$CACHE_DIR" --profile standard \
+            --pccl-revision '${{ github.sha }}' --pccl-tests-revision '${{ env.PCCL_TESTS_REVISION }}' \
+            --expected-sha256 '${{ env.EXPECTED_SHA }}'; then
+            echo 'state=hit' >> "$GITHUB_OUTPUT"
+          else
+            echo 'state=miss' >> "$GITHUB_OUTPUT"
+          fi
+      - uses: actions/download-artifact@v4
+        if: steps.cache.outputs.state == 'miss'
+        with:
+          name: m890p-daily-full-build-standard
+          path: download
+      - name: Publish the validated artifact to NAS
+        if: steps.cache.outputs.state == 'miss'
+        env:
+          CACHE_DIR: /wl_nas/devops/pccl-artifact-cache-${{ github.run_id }}/cache/standard/${{ env.EXPECTED_SHA }}
+        run: |
+          python3 -S -B pccl/tests/xtest/artifact_cache.py publish \
+            --download download --cache "$CACHE_DIR" --profile standard \
+            --pccl-revision '${{ github.sha }}' --pccl-tests-revision '${{ env.PCCL_TESTS_REVISION }}' \
+            --expected-sha256 '${{ env.EXPECTED_SHA }}'
+      - name: Confirm the final NAS cache
+        env:
+          CACHE_DIR: /wl_nas/devops/pccl-artifact-cache-${{ github.run_id }}/cache/standard/${{ env.EXPECTED_SHA }}
+        run: |
+          chmod -R a+rwX "$CACHE_DIR"
+          python3 -S -B pccl/tests/xtest/artifact_cache.py validate \
+            --directory "$CACHE_DIR" --profile standard \
+            --pccl-revision '${{ github.sha }}' --pccl-tests-revision '${{ env.PCCL_TESTS_REVISION }}' \
+            --expected-sha256 '${{ env.EXPECTED_SHA }}'
+
+  execute:
+    name: Run ${{ inputs.suite || 'device_api_shm_single_node_single_process_suite' }} on ${{ inputs.nodes || '1' }} node(s)
+    needs: [prepare, build-standard, stage-cache]
+    env:
+      EXPECTED_SHA: ${{ needs.build-standard.outputs.artifact_sha256 }}
+      NODES: ${{ inputs.nodes || '1' }}
+      SUITE: ${{ inputs.suite || 'device_api_shm_single_node_single_process_suite' }}
+    runs-on: k8s-runner-group-cpu-thead
+    container:
+      image: ghcr.io/actions/actions-runner:latest
+    timeout-minutes: 720
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          path: pccl
+          persist-credentials: false
+      - uses: actions/download-artifact@v4
+        with:
+          name: m890p-daily-full-python-deps
+          path: deps
+      - name: Run the single-node Suite
+        if: env.NODES == '1'
+        uses: t-head/ppu-scheduler-action@aac83e464f2a3fcbddddc60c8016021c996092a6
+        with:
+          image: ${{ env.VALIDATION_IMAGE }}
+          nnodes: 0
+          nproc_per_node: ${{ env.VALIDATION_CARDS }}
+          node_selector: ${{ env.VALIDATION_NODE_SELECTOR }}
+          namespace: ppu-sched
+          timeout_minutes: 720
+          cleanup_policy: always
+          command: |
+            set -euo pipefail
+            umask 022
+            cd /workspace/source
+            export build_output=/workspace/source/output_standard
+            CACHE_DIR=/mnt/wl_nas/devops/pccl-artifact-cache-${{ github.run_id }}/cache/standard/${{ env.EXPECTED_SHA }}
+            RESULT_ROOT=/mnt/wl_nas/devops/pccl-artifact-cache-${{ github.run_id }}/results/full
+            rm -rf "$RESULT_ROOT"
+            mkdir -p "$(dirname "$RESULT_ROOT")"
+            unset PIP_INDEX_URL PIP_EXTRA_INDEX_URL 2>/dev/null || true
+            git config --global --unset-all url.https://ai-gerrit.eng.t-head.cn/Public/Github/.insteadOf 2>/dev/null || true
+            git config --global --add safe.directory /workspace/source
+            git config --global --add safe.directory '*'
+            python3 -S -B pccl/tests/xtest/artifact_cache.py validate \
+              --directory "$CACHE_DIR" --profile standard \
+              --pccl-revision '${{ github.sha }}' --pccl-tests-revision '${{ env.PCCL_TESTS_REVISION }}' \
+              --expected-sha256 '${{ env.EXPECTED_SHA }}'
+            tar -xzf "$CACHE_DIR/output_standard.tar.gz" -C /workspace/source
+            test "$(git -C "$build_output/pccl" rev-parse HEAD)" = '${{ github.sha }}'
+            test "$(git -C "$build_output/pccl-tests" rev-parse HEAD)" = '${{ env.PCCL_TESTS_REVISION }}'
+            python3 -m venv /workspace/minimal-csv-env
+            /workspace/minimal-csv-env/bin/python -m pip install --disable-pip-version-check \
+              --no-index --find-links /workspace/source/deps \
+              -r "$build_output/pccl/tests/xtest/requirements.txt"
+            /workspace/minimal-csv-env/bin/python -m pip check
+            source /usr/local/PPU_SDK/envsetup.sh
+            unset PCCL_PATH
+            MPI_INTERFACE=$(awk '$2 == "00000000" {print $1; exit}' /proc/net/route)
+            test -n "$MPI_INTERFACE"
+            /workspace/minimal-csv-env/bin/python -B \
+              "$build_output/pccl/tests/xtest/run_cases.py" \
+              --input "$build_output/pccl/tests/xtest/daily-full-csv" \
+              --profile standard --nodes "$NODES" --suite "$SUITE" \
+              --test-root "$build_output" \
+              --binary-dir "$build_output/pccl-tests/build" \
+              --mpi-interface "$MPI_INTERFACE" \
+              --output "$RESULT_ROOT"
+      - name: Run the multi-node Suite on master
+        if: env.NODES != '1'
+        uses: t-head/ci-infra/cluster-run@40165c945cba33ac7b16b41c4485fe53b68f581f
+        with:
+          image: ${{ env.VALIDATION_IMAGE }}
+          launch_mode: master
+          nnodes: ${{ inputs.nodes || '1' }}
+          nproc_per_node: ${{ env.VALIDATION_CARDS }}
+          node_selector: ${{ env.VALIDATION_NODE_SELECTOR }}
+          namespace: ppu-sched
+          timeout_minutes: 720
+          cleanup_policy: always
+          container_options: |
+            privileged: true
+            host_network: true
+            dns_policy: ClusterFirstWithHostNet
+          host_volumes: /dev/infiniband:/dev/infiniband
+          setup_command: |
+            set -euo pipefail
+            source /usr/local/PPU_SDK/envsetup.sh
+            MPI_INTERFACE=$(awk '$2 == "00000000" {print $1; exit}' /proc/net/route)
+            test -n "$MPI_INTERFACE"
+            export HWLOC_COMPONENTS=-gl
+            export OMPI_MCA_plm_rsh_agent=cluster-ssh
+            export OMPI_MCA_orte_base_help_aggregate=0
+            export OMPI_MCA_orte_keep_fqdn_hostnames=1
+            export OMPI_MCA_oob_tcp_if_include="$MPI_INTERFACE"
+            export OMPI_MCA_btl_tcp_if_include="$MPI_INTERFACE"
+            export NCCL_SOCKET_IFNAME="$MPI_INTERFACE"
+            ulimit -l unlimited
+            ulimit -s 65536
+            if ! command -v ibv_devinfo >/dev/null || ! command -v rdma >/dev/null || ! command -v ip >/dev/null; then
+              export DEBIAN_FRONTEND=noninteractive
+              apt-get update
+              apt-get install -y --no-install-recommends rdma-core ibverbs-utils iproute2
+            fi
+            ibv_devinfo
+            rdma link show
+            test -d /dev/infiniband
+          command: |
+            set -euo pipefail
+            umask 022
+            cd "$SOURCE_DIR"
+            CACHE_DIR=/mnt/wl_nas/devops/pccl-artifact-cache-${{ github.run_id }}/cache/standard/${{ env.EXPECTED_SHA }}
+            SHARED_ROOT=/mnt/wl_nas/devops/pccl-artifact-cache-${{ github.run_id }}/shared-standard/${{ env.EXPECTED_SHA }}
+            export build_output="$SHARED_ROOT/output_standard"
+            RESULT_ROOT=/mnt/wl_nas/devops/pccl-artifact-cache-${{ github.run_id }}/results/full
+            rm -rf "$RESULT_ROOT" "$SHARED_ROOT"
+            mkdir -p "$(dirname "$RESULT_ROOT")" "$SHARED_ROOT"
+            trap 'rm -rf "$SHARED_ROOT"' EXIT
+            unset PIP_INDEX_URL PIP_EXTRA_INDEX_URL 2>/dev/null || true
+            git config --global --unset-all url.https://ai-gerrit.eng.t-head.cn/Public/Github/.insteadOf 2>/dev/null || true
+            git config --global --add safe.directory "$SOURCE_DIR"
+            git config --global --add safe.directory '*'
+            python3 -S -B pccl/tests/xtest/artifact_cache.py validate \
+              --directory "$CACHE_DIR" --profile standard \
+              --pccl-revision '${{ github.sha }}' --pccl-tests-revision '${{ env.PCCL_TESTS_REVISION }}' \
+              --expected-sha256 '${{ env.EXPECTED_SHA }}'
+            tar -xzf "$CACHE_DIR/output_standard.tar.gz" -C "$SHARED_ROOT"
+            test "$(git -C "$build_output/pccl" rev-parse HEAD)" = '${{ github.sha }}'
+            test "$(git -C "$build_output/pccl-tests" rev-parse HEAD)" = '${{ env.PCCL_TESTS_REVISION }}'
+            python3 -m venv /workspace/minimal-csv-cluster-env
+            /workspace/minimal-csv-cluster-env/bin/python -m pip install --disable-pip-version-check \
+              --no-index --find-links "$SOURCE_DIR/deps" \
+              -r "$build_output/pccl/tests/xtest/requirements.txt"
+            /workspace/minimal-csv-cluster-env/bin/python -m pip check
+            source /usr/local/PPU_SDK/envsetup.sh
+            unset PCCL_PATH
+            MPI_INTERFACE=$(awk '$2 == "00000000" {print $1; exit}' /proc/net/route)
+            test -n "$MPI_INTERFACE"
+            test "$NCCL_SOCKET_IFNAME" = "$MPI_INTERFACE"
+            test "$OMPI_MCA_orte_keep_fqdn_hostnames" = 1
+            test "$(wc -l < "$CLUSTER_HOSTS_FILE")" -eq "$NODES"
+            checked_hosts=0
+            while read -r host _; do
+              timeout -k 5s 30s cluster-ssh "$host" 'hostname' < /dev/null
+              checked_hosts=$((checked_hosts + 1))
+            done < "$CLUSTER_HOSTS_FILE"
+            test "$checked_hosts" -eq "$NODES"
+            timeout -k 10s 60s mpirun --allow-run-as-root \
+              --hostfile "$CLUSTER_HOSTS_FILE" -np "$NODES" -npernode 1 hostname
+            /workspace/minimal-csv-cluster-env/bin/python -B \
+              "$build_output/pccl/tests/xtest/run_cases.py" \
+              --input "$build_output/pccl/tests/xtest/daily-full-csv" \
+              --profile standard --nodes "$NODES" --suite "$SUITE" \
+              --test-root "$build_output" \
+              --binary-dir "$build_output/pccl-tests/build" \
+              --hostfile "$CLUSTER_HOSTS_FILE" \
+              --mpi-interface "$MPI_INTERFACE" \
+              --output "$RESULT_ROOT"
+
+  summary:
+    name: Daily full result summary and NAS cleanup
+    needs: [prepare, build-standard, stage-cache, execute]
+    if: always()
+    runs-on: k8s-runner-group-cpu-thead
+    container:
+      image: ghcr.io/actions/actions-runner:latest
+    timeout-minutes: 30
+    steps:
+      - uses: actions/checkout@v4
+        if: always()
+        with:
+          path: pccl
+          persist-credentials: false
+      - id: reconcile
+        name: Reconcile the exact selected Cases
+        if: always()
+        env:
+          NODES: ${{ inputs.nodes || '1' }}
+          SUITE: ${{ inputs.suite || 'device_api_shm_single_node_single_process_suite' }}
+        run: |
+          python3 -S -B pccl/tests/xtest/reconcile_results.py \
+            --input pccl/tests/xtest/daily-full-csv \
+            --profile standard --nodes "$NODES" --suite "$SUITE" \
+            --results /wl_nas/devops/pccl-artifact-cache-${{ github.run_id }}/results/full \
+            --output public-results
+      - uses: actions/upload-artifact@v4
+        if: always()
+        with:
+          name: m890p-daily-full-results
+          path: public-results/
+          if-no-files-found: error
+          overwrite: true
+          retention-days: 7
+      - id: cleanup
+        name: Remove run-owned NAS build artifacts
+        if: always()
+        run: |
+          python3 -S -B pccl/tests/xtest/artifact_cache.py cleanup \
+            --root /wl_nas/devops/pccl-artifact-cache-${{ github.run_id }} \
+            --run-id '${{ github.run_id }}'
+      - name: Report daily execution and cleanup failures
+        if: always()
+        env:
+          NEEDS: ${{ toJSON(needs) }}
+        run: |
+          python3 - <<'PY'
+          import json
+          import os
+          import sys
+
+          needs = json.loads(os.environ['NEEDS'])
+          failed = {}
+          for name in ('prepare', 'build-standard', 'stage-cache', 'execute'):
+              if needs[name]['result'] != 'success':
+                  failed[name] = needs[name]['result']
+          outcomes = {'reconcile': '${{ steps.reconcile.outcome }}', 'cleanup': '${{ steps.cleanup.outcome }}'}
+          for name, result in outcomes.items():
+              if result != 'success':
+                  failed[name] = result
+          for name, result in failed.items():
+              print(f'::error::{name}: {result}')
+          sys.exit(bool(failed))
+          PY

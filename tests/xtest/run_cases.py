@@ -66,7 +66,7 @@ def _read_metadata(path):
     return data
 
 
-def load_inputs(directory, profile, nodes=None):
+def load_inputs(directory, profile, nodes=None, suite=None):
     """Read and fully validate one profile before allocating or running anything."""
     directory = Path(directory)
     if profile not in ("standard", "notsm"):
@@ -116,8 +116,12 @@ def load_inputs(directory, profile, nodes=None):
         if type(nodes) is not int or nodes <= 0:
             raise ValueError("Node filter must be a positive integer")
         cases = [case for case in cases if case["suite_spec"]["nodes"] == nodes]
+    if suite is not None:
+        if not SAFE_NAME.fullmatch(suite):
+            raise ValueError("Suite filter must be a portable Suite name")
+        cases = [case for case in cases if case["suite"] == suite]
     if not cases:
-        raise ValueError("Profile contains no Cases for the requested node count")
+        raise ValueError("Profile contains no Cases for the requested node count and Suite")
     return {"metadata": metadata, "suites": suites, "cases": cases, "profile": profile,
             "directory": directory}
 
@@ -491,10 +495,11 @@ def main():
     parser.add_argument("--output", type=Path)
     parser.add_argument("--hostfile", type=Path)
     parser.add_argument("--mpi-interface", help="Actual TCP interface for an exported {mpi_interface} binding")
+    parser.add_argument("--suite", help="Execute only the exact Suite name")
     parser.add_argument("--validate-only", action="store_true")
     args = parser.parse_args()
     try:
-        inputs = load_inputs(args.input, args.profile, args.nodes)
+        inputs = load_inputs(args.input, args.profile, args.nodes, suite=args.suite)
         if args.validate_only:
             if args.output is not None or args.test_root is not None:
                 raise ValueError("--validate-only does not accept execution paths")

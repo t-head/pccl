@@ -214,6 +214,12 @@ class CsvRunnerTests(unittest.TestCase):
         cluster = run_cases.load_inputs(self.input, 'standard', nodes=2)
         self.assertEqual([case['name'] for case in single['cases']], ['single'])
         self.assertEqual([case['name'] for case in cluster['cases']], ['cluster'])
+        selected = run_cases.load_inputs(self.input, 'standard', nodes=1, suite='suite')
+        self.assertEqual([case['name'] for case in selected['cases']], ['single'])
+        with self.assertRaisesRegex(ValueError, 'no Cases'):
+            run_cases.load_inputs(self.input, 'standard', nodes=1, suite='missing')
+        with self.assertRaisesRegex(ValueError, 'portable'):
+            run_cases.load_inputs(self.input, 'standard', suite='bad suite')
         self.assertEqual(self.execute(single)[0]['status'], 'PASSED')
         self.assertEqual(self.execute(cluster, hostfile)[0]['status'], 'PASSED')
         missing = self.inputs([{'cmd': 'printf {mpi_interface}', 'name': 'missing_interface'}], nodes=2)

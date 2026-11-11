@@ -14,6 +14,7 @@ ROOT = Path(__file__).resolve().parents[2]
 INPUT = ROOT / 'tests/xtest/daily-minimal-csv'
 FULL_INPUT = ROOT / 'tests/xtest/daily-full-csv'
 WORKFLOW = ROOT / '.github/workflows/m890p-daily-smoke.yml'
+FULL_WORKFLOW = ROOT / '.github/workflows/m890p-daily-full.yml'
 BUILD_SCRIPT = ROOT / '.github/workflows/scripts/build.sh'
 
 
@@ -157,6 +158,26 @@ class DailySmokeTests(unittest.TestCase):
         self.assertIn('PPU_ARCHS=ppu_10,ppu_15 MPI=1', text)
         self.assertIn('cp ${COMM_ABORT_BUILD}/pcclCommAbortTest ${source_home}/pccl-tests/build/', text)
         self.assertGreater(text.index('Build PCCL CommAbort test'), text.index('Build pccl-tests'))
+
+    def test_full_workflow_is_grouped_daily_execution_not_a_pr_gate(self):
+        text = FULL_WORKFLOW.read_text()
+        self.assertIn('workflow_dispatch:', text)
+        self.assertIn('paths: [.github/workflows/m890p-daily-full.yml]', text)
+        self.assertIn('default: device_api_shm_single_node_single_process_suite', text)
+        self.assertIn('cancel-in-progress: false', text)
+        self.assertIn("nnodes: ${{ inputs.nodes || '1' }}", text)
+        self.assertIn('--profile standard --nodes "$NODES" --suite "$SUITE"', text)
+        self.assertIn('reconcile_results.py', text)
+        self.assertIn('Daily full result summary and NAS cleanup', text)
+        selected = run_cases.load_inputs(FULL_INPUT, 'standard', nodes=1,
+                                        suite='device_api_shm_single_node_single_process_suite')
+        self.assertEqual(len(selected['cases']), 26)
+        self.assertNotIn('pull_request:', text)
+        self.assertNotIn('pull-requests: write', text)
+        self.assertNotIn('statuses: write', text)
+        self.assertNotIn('PCCL Tests Gate', text)
+        self.assertNotIn('schedule:', text)
+        self.assertNotIn('build-notsm', text)
 
 
 if __name__ == '__main__':
