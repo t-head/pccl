@@ -2,19 +2,22 @@
   "classification": {
     "base_sha": "cc05ee8b19fb5aea8424f1e3cb1e552daa5c1261",
     "head_sha": "6649a83ad1322c57b5fcdf3cfc0e448497b3e753",
-    "input_fingerprint": "322176738eabb7a9ef9d2a83a0fa7d07e2e54e2bceb0ab7254ea91beab81925e",
+    "input_fingerprint": "0b4e8651d927b4246ebfcc6096be0e4a06d9701e5887a72afc13706486803841",
     "pr_number": 169,
     "proposal": {
       "modules": [
         "device-topology",
+        "graph-search",
+        "communicator",
         "network"
       ],
-      "reason": "Main change is to network transport/plugin/proxy behavior: communicator-specific NET/CollNet backend selection and lifetime, NET/CollNet operation routing through per-comm backends, and substantive proxy progress/operation-pool handling updates. Add device-topology because topology/path construction now depends on the selected communicator backend/version (NIC discovery, PXN disable logic, and EIC-dependent path handling), which is a separate substantive behavior change."
+      "reason": "Primary change is in network: NET/CollNet backend selection and plugin lifetime move to per-communicator state, and proxy progress/shutdown/connect behavior is reworked. communicator is additionally required because comm init/free/split now own netName/config copying, backend compatibility for shared resources, and per-comm backend flags. graph-search is additionally required because PXN-disable and graph comparison decisions now depend on communicator-specific NET/EIC state. device-topology is additionally required because topology XML/system construction and NIC/EIC width handling now use per-comm backend/collnet properties and a new per-topology useEic field."
     }
   },
   "reviewers": {
     "communicator": 335730053,
     "device-topology": 335834228,
+    "graph-search": 335834228,
     "memory": 341349555,
     "network": 341355176,
     "transport": 340104201
