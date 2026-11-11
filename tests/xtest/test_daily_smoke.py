@@ -89,6 +89,9 @@ class DailySmokeTests(unittest.TestCase):
         self.assertIn('host_network: true', text)
         self.assertIn('dns_policy: ClusterFirstWithHostNet', text)
         self.assertIn('ulimit -l unlimited', text)
+        two_node = text.split('  two-node:\n', 1)[1].split('  summary:\n', 1)[0]
+        two_node_setup = two_node.split('setup_command: |', 1)[1].split('\n          command: |', 1)[0]
+        self.assertIn('export HWLOC_COMPONENTS=-gl', two_node_setup)
         self.assertIn('extra_env: NCCL_NET=IB', text)
         self.assertIn('ibv_devinfo -v', text)
         self.assertIn("raise SystemExit('No non-zero RoCE GID is visible inside the worker')", text)
@@ -108,16 +111,22 @@ class DailySmokeTests(unittest.TestCase):
         text = MPI_PROBE_WORKFLOW.read_text()
         self.assertIn('Two-node hostname launch without PCCL', text)
         self.assertIn('host_network: true', text)
-        self.assertIn('export HWLOC_COMPONENTS=-gl', text)
-        self.assertIn('timeout -k 2s 25s', text)
+        setup = text.split('setup_command: |', 1)[1].split('\n          command: |', 1)[0]
+        self.assertIn('export HWLOC_COMPONENTS=-gl', setup)
         self.assertIn('cluster-ssh "$host"', text)
         self.assertIn('< /dev/null || exit 1', text)
+        self.assertIn('getent ahosts "$short"', text)
         self.assertIn('run_probe local-no-gl', text)
-        self.assertIn('run_probe dual-no-gl', text)
+        for name in ('dual-pinned', 'dual-pinned-fqdn'):
+            body = text.split(f'run_probe {name} ', 1)[1].split('run_probe ', 1)[0]
+            self.assertIn('timeout -k 2s 40s', body)
+            self.assertIn('--mca oob_tcp_if_include "$MPI_INTERFACE"', body)
+            self.assertIn('--mca btl_tcp_if_include "$MPI_INTERFACE"', body)
+            self.assertIn('|| overall=1', body)
+        fqdn = text.split('run_probe dual-pinned-fqdn ', 1)[1]
+        self.assertIn('--mca orte_keep_fqdn_hostnames 1', fqdn)
         self.assertNotIn('run_cases.py', text)
         self.assertNotIn('build-standard', text)
-        dual_probe = text.split('run_probe dual-no-gl', 1)[1]
-        self.assertIn('btl_tcp_if_include "$MPI_INTERFACE"', dual_probe)
 
 
 if __name__ == '__main__':

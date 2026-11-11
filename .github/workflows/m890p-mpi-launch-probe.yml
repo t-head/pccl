@@ -49,7 +49,13 @@ jobs:
             ulimit -s 65536
             command -v mpirun
             mpirun --version
-            ompi_info --parsable --all | grep -E 'oob_tcp_if_include|btl_tcp_if_include|plm_rsh_agent' || true
+            ompi_info --parsable --all | grep -E 'oob_tcp_if_include|btl_tcp_if_include|plm_rsh_agent|keep_fqdn' || true
+            if ! command -v strace >/dev/null; then
+              export DEBIAN_FRONTEND=noninteractive
+              apt-get update
+              apt-get install -y --no-install-recommends strace
+            fi
+            strace -V
           command: |
             set -uo pipefail
             export OMPI_MCA_orte_base_help_aggregate=0
@@ -64,7 +70,15 @@ jobs:
               echo "Checking $host"
               getent hosts "$host"
               timeout -k 5s 30s cluster-ssh "$host" \
-                'hostname; command -v orted; mpirun --version' < /dev/null || exit 1
+                'hostname; command -v orted; mpirun --version; printf "HWLOC_COMPONENTS=%s\n" "${HWLOC_COMPONENTS-<unset>}"' < /dev/null || exit 1
+            done < "$CLUSTER_HOSTS_FILE"
+            echo 'Resolver configuration:'
+            cat /etc/resolv.conf
+            # Open MPI 4 shortens hostfile names to the first label unless orte_keep_fqdn_hostnames is set.
+            while read -r host _; do
+              short=${host%%.*}
+              echo "Resolving shortened hostfile name $short"
+              time timeout 20s getent ahosts "$short" || echo "Unresolved within 20s: $short"
             done < "$CLUSTER_HOSTS_FILE"
 
             cat > /tmp/cluster-ssh-trace <<'EOF'
@@ -86,6 +100,11 @@ jobs:
                 grep -E '(mpirun|orted|cluster-ssh|/usr/bin/ssh|timeout -k)' | grep -v grep || true
               echo 'Recorded launcher calls:'
               cat /tmp/cluster-ssh-trace.log
+              for task in /proc/[0-9]*/task/*; do
+                case $(cat "$task/comm" 2>/dev/null) in
+                  mpirun|orterun|orted) echo "${task#/proc/} wchan=$(cat "$task/wchan" 2>/dev/null) syscall=$(cat "$task/syscall" 2>/dev/null)" ;;
+                esac
+              done
               for mpi_pid in $(ps -eo pid=,comm= | awk '$2 == "mpirun" {print $1}'); do
                 awk '$6 ~ /^\// {print $6}' "/proc/$mpi_pid/maps" 2>/dev/null
               done | sort -u | grep -E 'libX|libxcb|libuc|libverbs|libopen|libpmix' || true
@@ -112,9 +131,23 @@ jobs:
             run_probe local-no-gl \
               timeout -k 2s 15s \
               mpirun --allow-run-as-root --tag-output -np 1 hostname || overall=1
-            run_probe dual-no-gl \
-              timeout -k 2s 25s \
+            run_probe dual-pinned \
+              timeout -k 2s 40s strace -f -tt -e trace=execve,connect -s 200 -o /tmp/dual.strace \
               mpirun --allow-run-as-root --tag-output \
-              --hostfile "$CLUSTER_HOSTS_FILE" -np 2 -npernode 1 \
-              -mca btl_tcp_if_include "$MPI_INTERFACE" hostname || overall=1
+              --hostfile "$CLUSTER_HOSTS_FILE" -np 2 -npernode 1 --display-map \
+              --mca oob_tcp_if_include "$MPI_INTERFACE" \
+              --mca btl_tcp_if_include "$MPI_INTERFACE" \
+              --mca plm_base_verbose 10 --mca ras_base_verbose 10 \
+              hostname || overall=1
+            echo 'Launcher and connection calls:'
+            tail -200 /tmp/dual.strace
+            run_probe dual-pinned-fqdn \
+              timeout -k 2s 40s \
+              mpirun --allow-run-as-root --tag-output \
+              --hostfile "$CLUSTER_HOSTS_FILE" -np 2 -npernode 1 --display-map \
+              --mca orte_keep_fqdn_hostnames 1 \
+              --mca oob_tcp_if_include "$MPI_INTERFACE" \
+              --mca btl_tcp_if_include "$MPI_INTERFACE" \
+              --mca plm_base_verbose 10 --mca ras_base_verbose 10 \
+              hostname || overall=1
             exit "$overall"

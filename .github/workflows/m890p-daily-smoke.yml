@@ -331,6 +331,8 @@ jobs:
           setup_command: |
             set -euo pipefail
             source /usr/local/PPU_SDK/envsetup.sh
+            # hwloc's GL plugin probes X display :0 over TCP and [::1]:6000 never answers on the host network.
+            export HWLOC_COMPONENTS=-gl
             ulimit -l unlimited
             ulimit -s 65536
             echo 'Host runtime limits:'
