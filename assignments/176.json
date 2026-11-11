@@ -1,14 +1,14 @@
 {
   "classification": {
     "base_sha": "cc05ee8b19fb5aea8424f1e3cb1e552daa5c1261",
-    "head_sha": "ffa95441b1797546a9977c3eb984a717c39e43c7",
-    "input_fingerprint": "196c478f3d8ed98b3684f19b85d5bbdb2497c420deb5adfe3f73674a76fe8685",
+    "head_sha": "5ca58ed7d51515290d21ce769195c1cb79742f01",
+    "input_fingerprint": "ec4cf7fbc2245d1f900feb18a452f0dbe06a5727ce804fc19a17ad4b0d0df8dc",
     "pr_number": 176,
     "proposal": {
       "modules": [
         "ras"
       ],
-      "reason": "Adds and refactors RAS hang diagnostics to attribute Ring forwarding-stall boundaries from captured head/step snapshots, including new ring-trace analysis flow, diagnostic wire/snapshot format extensions, offline dump replay compatibility handling, and RAS-side communicator filtering/reporting behavior."
+      "reason": "Main functional change is RAS hang diagnostics: new Ring forwarding-boundary attribution, richer snapshot/wire-format fields, analyzer/offline-dump compatibility handling, and monitor gating for valid diagnostic reads. The init/collectives atomic-state and selection-path edits are supporting synchronization/filtering for this RAS workflow, not independent communicator/network behavior changes."
     }
   },
   "reviewers": {
