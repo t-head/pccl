@@ -6,10 +6,9 @@
     "pr_number": 31,
     "proposal": {
       "modules": [
-        "network",
         "gin"
       ],
-      "reason": "Main change is adding a full independent TROCE GIN backend (new host/device GIN implementation, plugin registration, GIN type/device-type wiring, context/memory registration/progress logic). Also needs network review because shared IB transport/provider plumbing is changed (provider detection/classification in net_ib init/common and shared IB GDR/property helper behavior), which can affect broader network transport behavior beyond the new backend."
+      "reason": "Main functional change is adding a new built-in GIN backend (TROCE) with host/device GIN implementation, backend selection/type wiring, provider loading, context/registration lifecycle, and GIN plugin integration; other edits (e.g., Makefile/source wiring and shared IB helper exposure) are support for this GIN-specific backend rather than independent module policy changes."
     }
   },
   "reviewers": {
