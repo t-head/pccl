@@ -1,0 +1,25 @@
+{
+  "classification": {
+    "base_sha": "d2e86b965a5b55b373ac8e504a392a0d7e30f68b",
+    "head_sha": "6dbf8ed076d81d379974cf4941c311085b52d594",
+    "input_fingerprint": "ea9020ff30d409105e6bc413aa849b2a9c658b54db8195549982ce6d1656cc58",
+    "pr_number": 174,
+    "proposal": {
+      "modules": [
+        "graph-search",
+        "tuning",
+        "network",
+        "kernels",
+        "tuner-plugin"
+      ],
+      "reason": "Primary change removes CollNet collective-network support end-to-end (plugin ABI/loading, proxy/network paths). Additional substantive changes remove CollNet topology graph construction/connection, reindex and rebalance algorithm selection/cost tables (Tree/Ring/FC/PAT), delete CollNet device-kernel specializations/function-table entries, and introduce a breaking external tuner ABI/config migration to v2 to keep algorithm-ID semantics correct."
+    }
+  },
+  "reviewers": {
+    "graph-search": 341355176,
+    "kernels": 341349555,
+    "network": 341353320,
+    "tuner-plugin": 335730053,
+    "tuning": 341349555
+  }
+}
