@@ -50,7 +50,6 @@ jobs:
             ompi_info --parsable --all | grep -E 'oob_tcp_if_include|btl_tcp_if_include|plm_rsh_agent' || true
           command: |
             set -uo pipefail
-            export OMPI_MCA_plm_rsh_agent=cluster-ssh
             export OMPI_MCA_orte_base_help_aggregate=0
             unset OMPI_MCA_btl_tcp_if_include OMPI_MCA_oob_tcp_if_include
             MPI_INTERFACE=$(awk '$2 == "00000000" {print $1; exit}' /proc/net/route)
@@ -63,28 +62,69 @@ jobs:
               echo "Checking $host"
               getent hosts "$host"
               timeout -k 5s 30s cluster-ssh "$host" \
-                'hostname; hostname -I; cat /proc/net/route' < /dev/null || exit 1
+                'hostname; command -v orted; orted --version' < /dev/null || exit 1
             done < "$CLUSTER_HOSTS_FILE"
 
-            echo 'Probe A: no BTL interface restriction; verbose launcher and OOB logs'
-            set -x
-            timeout -k 5s 45s mpirun --allow-run-as-root --tag-output \
-              --hostfile "$CLUSTER_HOSTS_FILE" -np 2 -npernode 1 \
-              --mca plm_base_verbose 10 --mca oob_base_verbose 10 \
-              hostname
-            without_btl=$?
-            set +x
-            echo "Probe A exit status: $without_btl"
-            if test "$without_btl" -ne 0; then
-              echo 'Probe B: restrict the OOB control network to the default-route interface'
-              set -x
-              timeout -k 5s 45s mpirun --allow-run-as-root --tag-output \
-                --hostfile "$CLUSTER_HOSTS_FILE" -np 2 -npernode 1 \
-                --mca plm_base_verbose 10 --mca oob_base_verbose 10 \
-                --mca oob_tcp_if_include "$MPI_INTERFACE" \
-                hostname
-              with_oob=$?
-              set +x
-              echo "Probe B exit status: $with_oob"
-              test "$with_oob" -eq 0
-            fi
+            cat > /tmp/cluster-ssh-trace <<'EOF'
+            #!/bin/bash
+            {
+              printf '%s' "$(date -Is)"
+              printf ' %q' "$@"
+              printf '\n'
+            } >> /tmp/cluster-ssh-trace.log
+            exec /run/cluster/bin/cluster-ssh "$@"
+            EOF
+            chmod 755 /tmp/cluster-ssh-trace
+            : > /tmp/cluster-ssh-trace.log
+            export OMPI_MCA_plm_rsh_agent=/tmp/cluster-ssh-trace
+
+            snapshot_processes() {
+              echo 'Relevant master processes:'
+              ps -eo pid,ppid,stat,wchan:28,args | \
+                grep -E '(mpirun|orted|cluster-ssh|/usr/bin/ssh|timeout -k)' | grep -v grep || true
+              echo 'Recorded launcher calls:'
+              cat /tmp/cluster-ssh-trace.log
+            }
+            run_probe() {
+              local name=$1
+              shift
+              local log="/tmp/${name}.log"
+              : > "$log"
+              echo "Starting $name: $*"
+              "$@" > "$log" 2>&1 &
+              local pid=$!
+              sleep 5
+              snapshot_processes
+              wait "$pid"
+              local rc=$?
+              echo "Output from $name:"
+              cat "$log"
+              echo "$name exit status: $rc"
+              test "$rc" -eq 0
+            }
+
+            overall=0
+            worker0=$(sed -n '1p' "$CLUSTER_HOSTS_FILE")
+            worker1=$(sed -n '2p' "$CLUSTER_HOSTS_FILE")
+            printf '%s\n' "$worker0" > /tmp/master-only-hosts
+            run_probe local \
+              timeout -k 2s 15s mpirun --allow-run-as-root --tag-output \
+              -np 1 --mca orte_base_verbose 20 --mca plm_base_verbose 20 \
+              --mca oob_base_verbose 20 hostname || overall=1
+            run_probe self \
+              timeout -k 2s 15s mpirun --allow-run-as-root --tag-output \
+              --hostfile /tmp/master-only-hosts -np 1 --display-map \
+              --mca orte_base_verbose 20 --mca plm_base_verbose 20 \
+              --mca oob_base_verbose 20 hostname || overall=1
+            run_probe remote \
+              timeout -k 2s 20s mpirun --allow-run-as-root --tag-output \
+              --host "$worker1" -np 1 --display-map \
+              --mca orte_base_verbose 20 --mca plm_base_verbose 20 \
+              --mca oob_base_verbose 20 hostname || overall=1
+            run_probe dual \
+              timeout -k 2s 20s mpirun --allow-run-as-root --tag-output \
+              --hostfile "$CLUSTER_HOSTS_FILE" -np 2 -npernode 1 --display-map \
+              --mca orte_base_verbose 20 --mca plm_base_verbose 20 \
+              --mca oob_base_verbose 20 --mca oob_tcp_if_include "$MPI_INTERFACE" \
+              hostname || overall=1
+            exit "$overall"
