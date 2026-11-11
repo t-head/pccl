@@ -218,7 +218,7 @@ jobs:
           path: pccl-tests
           persist-credentials: false
       - name: Build standard output
-        uses: t-head/ppu-scheduler-action@aac83e464f2a3fcbddddc60c8016021c996092a6
+        uses: t-head/ci-infra/cluster-run@main
         with:
           image: ${{ env.VALIDATION_IMAGE }}
           nnodes: 0
@@ -303,7 +303,7 @@ jobs:
           path: pccl-tests
           persist-credentials: false
       - name: Build notsm output
-        uses: t-head/ppu-scheduler-action@aac83e464f2a3fcbddddc60c8016021c996092a6
+        uses: t-head/ci-infra/cluster-run@main
         with:
           image: ${{ env.VALIDATION_IMAGE }}
           nnodes: 0
@@ -473,7 +473,7 @@ jobs:
             --pccl-revision '${{ github.sha }}' --pccl-tests-revision '${{ env.PCCL_TESTS_REVISION }}' \
             --expected-sha256 '${{ env.EXPECTED_SHA }}'
       - name: Restore the NAS cache and run single-node Cases
-        uses: t-head/ppu-scheduler-action@aac83e464f2a3fcbddddc60c8016021c996092a6
+        uses: t-head/ci-infra/cluster-run@main
         with:
           image: ${{ env.VALIDATION_IMAGE }}
           nnodes: 0
