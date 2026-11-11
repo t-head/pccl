@@ -179,6 +179,7 @@ class DailySmokeTests(unittest.TestCase):
         self.assertIn('--profile "$PROFILE"', text)
         self.assertIn('results/full/$GROUP_ID', text)
         self.assertIn('shared-standard/${{ env.EXPECTED_SHA }}/$GROUP_ID', text)
+        self.assertIn('rmdir "$SHARED_PARENT" "$SHARED_BASE"', text)
         self.assertIn("groups = json.loads(Path('case-groups/groups.json').read_text())", text)
         self.assertIn('reconcile_results.py', text)
         self.assertIn('Daily grouped result summary and NAS cleanup', text)

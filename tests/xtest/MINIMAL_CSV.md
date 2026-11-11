@@ -79,6 +79,8 @@ the full dataset must be selected explicitly.
 - `validation_summary`: command success plus a successful validation summary.
 - `performance`: the above plus a valid performance table and `metrics.csv`.
   There is no baseline, bandwidth, latency or sample-stability gate.
+  Sizes, counts and times must be positive. Bandwidth may be zero when a small
+  measurement rounds to the table's displayed precision, but cannot be negative.
 - A single-node failure does not prevent later Cases from running.
 - A multi-node failure stops later Cases because local process cleanup cannot
   prove remote MPI rank cleanup. Multi-node commands run only on the master.

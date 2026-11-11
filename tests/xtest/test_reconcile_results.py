@@ -117,6 +117,21 @@ class ReconcileResultsTests(unittest.TestCase):
         self.assertFalse(report["ok"])
         self.assertTrue(any("non-positive" in error for error in report["errors"]))
 
+    def test_negative_bandwidth_is_rejected(self):
+        case = self.cases[1]
+        metrics = self.results / case["plan"] / case["suite"] / case["name"] / "metrics.csv"
+        metrics.write_text(metrics.read_text().replace(",1.0,1.0,0,10", ",-0.01,1.0,0,10"))
+        report = self.reconcile()
+        self.assertFalse(report["ok"])
+        self.assertTrue(any("negative" in error for error in report["errors"]))
+
+    def test_zero_bandwidth_from_small_measurement_rounding_is_accepted(self):
+        case = self.cases[1]
+        metrics = self.results / case["plan"] / case["suite"] / case["name"] / "metrics.csv"
+        metrics.write_text(metrics.read_text().replace(",1.0,1.0,0,10", ",0.00,0.00,0,10"))
+        report = self.reconcile()
+        self.assertTrue(report["ok"])
+
 
 if __name__ == "__main__":
     unittest.main()

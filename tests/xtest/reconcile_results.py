@@ -34,6 +34,14 @@ def _positive(value):
     return number.is_finite() and number > 0
 
 
+def _nonnegative(value):
+    try:
+        number = Decimal(value)
+    except (InvalidOperation, TypeError):
+        return False
+    return number.is_finite() and number >= 0
+
+
 def _check_metrics(directory, errors):
     path = directory / "metrics.csv"
     try:
@@ -45,8 +53,10 @@ def _check_metrics(directory, errors):
         if not rows:
             raise ValueError("Performance metrics are empty")
         for row in rows:
-            if any(not _positive(row[key]) for key in ("size", "count", "time", "algbw", "busbw")):
-                raise ValueError("Performance metrics contain a non-positive or invalid number")
+            if any(not _positive(row[key]) for key in ("size", "count", "time")):
+                raise ValueError("Performance metrics contain a non-positive or invalid size/count/time")
+            if any(not _nonnegative(row[key]) for key in ("algbw", "busbw")):
+                raise ValueError("Performance metrics contain a negative or invalid bandwidth")
             if row["wrong"] != "0" or not row["source_line"].isdigit() or int(row["source_line"]) <= 0:
                 raise ValueError("Performance metrics contain invalid validation metadata")
     except (OSError, ValueError) as error:
