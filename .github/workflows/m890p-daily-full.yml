@@ -1,4 +1,4 @@
-name: M890P daily full (experimental)
+name: M890P daily grouped execution (experimental)
 
 on:
   push:
@@ -6,23 +6,31 @@ on:
     paths: [.github/workflows/m890p-daily-full.yml]
   workflow_dispatch:
     inputs:
-      nodes:
-        description: Nodes allocated once for the selected Suite
+      dataset:
+        description: Exported Case selection to execute
         required: true
-        default: '1'
+        default: smoke
         type: choice
-        options: ['1', '2', '4', '8', '16']
-      suite:
-        description: Exact Suite name from daily-full-csv
+        options: [smoke, full]
+      max_cases_per_group:
+        description: Maximum Cases in each automatic same-environment shard
         required: true
-        default: device_api_shm_single_node_single_process_suite
+        default: 500
+        type: number
+      nodes:
+        description: Optional debug node filter; empty selects every exported node count
+        required: false
+        type: string
+      suite:
+        description: Optional exact Suite debug filter; empty selects every Suite
+        required: false
         type: string
 
 permissions:
   contents: read
 
 concurrency:
-  group: m890p-daily-full-${{ github.ref }}-${{ inputs.nodes || '1' }}-${{ inputs.suite || 'device_api_shm_single_node_single_process_suite' }}
+  group: m890p-daily-full-${{ github.ref }}
   cancel-in-progress: false
 
 env:
@@ -33,11 +41,13 @@ env:
 
 jobs:
   prepare:
-    name: Validate the selected daily Suite
+    name: Build automatic daily execution groups
     runs-on: ubuntu-24.04
     timeout-minutes: 20
     outputs:
       case_count: ${{ steps.selection.outputs.case_count }}
+      group_count: ${{ steps.selection.outputs.group_count }}
+      groups: ${{ steps.selection.outputs.groups }}
     steps:
       - uses: actions/checkout@v4
         with:
@@ -56,44 +66,88 @@ jobs:
         name: Test contracts and validate the exact selection
         working-directory: pccl
         env:
-          NODES: ${{ inputs.nodes || '1' }}
-          SUITE: ${{ inputs.suite || 'device_api_shm_single_node_single_process_suite' }}
+          DATASET: ${{ inputs.dataset || 'smoke' }}
+          MAX_CASES: ${{ inputs.max_cases_per_group || 500 }}
+          NODES: ${{ inputs.nodes || '' }}
+          SUITE: ${{ inputs.suite || '' }}
         run: |
           python3 -S -B -W error::ResourceWarning -m unittest discover \
             -s tests/xtest -p 'test_run_cases.py' -v
+          python3 -S -B -m unittest discover -s tests/xtest -p 'test_group_cases.py' -v
           python3 -S -B -m unittest discover -s tests/xtest -p 'test_artifact_cache.py' -v
           python3 -S -B -m unittest discover -s tests/xtest -p 'test_daily_smoke.py' -v
           python3 -S -B -m unittest discover -s tests/xtest -p 'test_reconcile_results.py' -v
           python3 -S -B - <<'PY'
           import hashlib
+          import json
           import os
           from pathlib import Path
           import subprocess
           import sys
 
           sys.path.insert(0, 'tests/xtest')
+          import group_cases
           import run_cases
           from artifact_cache import PCCL_TESTS_REVISION, RUNNER_HASHES
 
-          nodes = int(os.environ['NODES'])
-          suite = os.environ['SUITE']
-          if nodes not in (1, 2, 4, 8, 16):
+          dataset = os.environ['DATASET']
+          if dataset not in ('smoke', 'full'):
+              raise ValueError('Unsupported daily dataset')
+          input_directory = Path(f'tests/xtest/daily-{dataset if dataset == "full" else "minimal"}-csv')
+          nodes = int(os.environ['NODES']) if os.environ['NODES'] else None
+          suite = os.environ['SUITE'] or None
+          if nodes is not None and nodes not in (1, 2, 4, 8, 16):
               raise ValueError('Unsupported node count')
-          selected = run_cases.load_inputs(Path('tests/xtest/daily-full-csv'), 'standard', nodes, suite)
-          keys = {(case['plan'], case['suite']) for case in selected['cases']}
-          if len(keys) != 1:
-              raise ValueError(f'Expected exactly one Plan/Suite selection, got {sorted(keys)}')
+          groups = group_cases.build_groups(
+              input_directory, int(os.environ['MAX_CASES']), nodes=nodes, suite=suite)
+          group_cases.write_groups(groups, Path('case-groups'), input_directory)
+          manifest = json.loads(Path('case-groups/groups.json').read_text())
+          expected = set()
+          for profile in ('standard', 'notsm'):
+              try:
+                  selected = run_cases.load_inputs(input_directory, profile, nodes=nodes, suite=suite)
+              except ValueError as error:
+                  if 'no Cases' not in str(error):
+                      raise
+                  continue
+              expected.update((case['plan'], case['suite'], case['name']) for case in selected['cases'])
+          actual = []
+          for group in manifest:
+              selected = run_cases.load_inputs(Path('case-groups') / group['id'], group['profile'])
+              keys = [[case['plan'], case['suite'], case['name']] for case in selected['cases']]
+              assert keys == group['case_keys']
+              assert all(case['suite_spec']['nodes'] == group['nodes'] for case in selected['cases'])
+              actual.extend(tuple(key) for key in keys)
+          assert len(actual) == len(set(actual)) == len(expected)
+          assert set(actual) == expected
           runner = Path('../pccl-tests').resolve()
           revision = subprocess.check_output(['git', '-C', str(runner), 'rev-parse', 'HEAD'], text=True).strip()
           assert revision == PCCL_TESTS_REVISION == os.environ['PCCL_TESTS_REVISION']
           for name, expected in RUNNER_HASHES.items():
               assert hashlib.sha256((runner / name).read_bytes()).hexdigest() == expected
-          assert selected['metadata']['runner_revision'] == revision
+          assert groups[0]['metadata']['runner_revision'] == revision
           assert subprocess.check_output(['git', 'rev-parse', 'HEAD'], text=True).strip() == os.environ['GITHUB_SHA']
-          print(f'Selected {len(selected["cases"])} Cases from {next(iter(keys))} on {nodes} nodes')
+          matrix = {'include': [
+              {key: group[key] for key in ('id', 'profile', 'nodes', 'cards_per_node', 'env', 'case_count')}
+              for group in manifest
+          ]}
+          print(f'Selected {len(actual)} {dataset} Cases in {len(manifest)} automatic groups')
+          for group in manifest:
+              print(f'{group["id"]}: {group["case_count"]} Cases, {group["nodes"]} nodes, '
+                    f'{group["cards_per_node"]} cards/node, {group["env"]}')
           with open(os.environ['GITHUB_OUTPUT'], 'a') as output:
-              output.write(f'case_count={len(selected["cases"])}\n')
+              output.write(f'case_count={len(actual)}\n')
+              output.write(f'group_count={len(manifest)}\n')
+              output.write('groups<<GROUPS\n')
+              output.write(json.dumps(matrix, separators=(',', ':')) + '\nGROUPS\n')
           PY
+      - uses: actions/upload-artifact@v4
+        with:
+          name: m890p-daily-case-groups
+          path: pccl/case-groups/
+          if-no-files-found: error
+          overwrite: true
+          retention-days: 3
       - name: Stage the pinned benchmark dependency
         run: |
           mkdir -p deps
@@ -240,12 +294,17 @@ jobs:
             --expected-sha256 '${{ env.EXPECTED_SHA }}'
 
   execute:
-    name: Run ${{ inputs.suite || 'device_api_shm_single_node_single_process_suite' }} on ${{ inputs.nodes || '1' }} node(s)
+    name: Run ${{ matrix.id }} on ${{ matrix.nodes }} node(s), ${{ matrix.case_count }} Cases
     needs: [prepare, build-standard, stage-cache]
+    strategy:
+      fail-fast: false
+      max-parallel: 2
+      matrix: ${{ fromJSON(needs.prepare.outputs.groups) }}
     env:
       EXPECTED_SHA: ${{ needs.build-standard.outputs.artifact_sha256 }}
-      NODES: ${{ inputs.nodes || '1' }}
-      SUITE: ${{ inputs.suite || 'device_api_shm_single_node_single_process_suite' }}
+      GROUP_ID: ${{ matrix.id }}
+      PROFILE: ${{ matrix.profile }}
+      NODES: ${{ matrix.nodes }}
     runs-on: k8s-runner-group-cpu-thead
     container:
       image: ghcr.io/actions/actions-runner:latest
@@ -259,13 +318,17 @@ jobs:
         with:
           name: m890p-daily-full-python-deps
           path: deps
-      - name: Run the single-node Suite
+      - uses: actions/download-artifact@v4
+        with:
+          name: m890p-daily-case-groups
+          path: case-groups
+      - name: Run the automatic group on one node
         if: env.NODES == '1'
         uses: t-head/ppu-scheduler-action@aac83e464f2a3fcbddddc60c8016021c996092a6
         with:
           image: ${{ env.VALIDATION_IMAGE }}
           nnodes: 0
-          nproc_per_node: ${{ env.VALIDATION_CARDS }}
+          nproc_per_node: ${{ matrix.cards_per_node }}
           node_selector: ${{ env.VALIDATION_NODE_SELECTOR }}
           namespace: ppu-sched
           timeout_minutes: 720
@@ -317,7 +380,7 @@ jobs:
             cd /workspace/source
             export build_output=/workspace/source/output_standard
             CACHE_DIR=/mnt/wl_nas/devops/pccl-artifact-cache-${{ github.run_id }}/cache/standard/${{ env.EXPECTED_SHA }}
-            RESULT_ROOT=/mnt/wl_nas/devops/pccl-artifact-cache-${{ github.run_id }}/results/full
+            RESULT_ROOT=/mnt/wl_nas/devops/pccl-artifact-cache-${{ github.run_id }}/results/full/$GROUP_ID
             rm -rf "$RESULT_ROOT"
             mkdir -p "$(dirname "$RESULT_ROOT")"
             unset PIP_INDEX_URL PIP_EXTRA_INDEX_URL 2>/dev/null || true
@@ -344,20 +407,20 @@ jobs:
             test "$OMPI_MCA_orte_keep_fqdn_hostnames" = 1
             /workspace/minimal-csv-env/bin/python -B \
               "$build_output/pccl/tests/xtest/run_cases.py" \
-              --input "$build_output/pccl/tests/xtest/daily-full-csv" \
-              --profile standard --nodes "$NODES" --suite "$SUITE" \
+              --input "/workspace/source/case-groups/$GROUP_ID" \
+              --profile "$PROFILE" \
               --test-root "$build_output" \
               --binary-dir "$build_output/pccl-tests/build" \
               --mpi-interface "$MPI_INTERFACE" \
               --output "$RESULT_ROOT"
-      - name: Run the multi-node Suite on master
+      - name: Run the automatic multi-node group on master
         if: env.NODES != '1'
         uses: t-head/ci-infra/cluster-run@40165c945cba33ac7b16b41c4485fe53b68f581f
         with:
           image: ${{ env.VALIDATION_IMAGE }}
           launch_mode: master
-          nnodes: ${{ inputs.nodes || '1' }}
-          nproc_per_node: ${{ env.VALIDATION_CARDS }}
+          nnodes: ${{ matrix.nodes }}
+          nproc_per_node: ${{ matrix.cards_per_node }}
           node_selector: ${{ env.VALIDATION_NODE_SELECTOR }}
           namespace: ppu-sched
           timeout_minutes: 720
@@ -394,9 +457,9 @@ jobs:
             umask 022
             cd "$SOURCE_DIR"
             CACHE_DIR=/mnt/wl_nas/devops/pccl-artifact-cache-${{ github.run_id }}/cache/standard/${{ env.EXPECTED_SHA }}
-            SHARED_ROOT=/mnt/wl_nas/devops/pccl-artifact-cache-${{ github.run_id }}/shared-standard/${{ env.EXPECTED_SHA }}
+            SHARED_ROOT=/mnt/wl_nas/devops/pccl-artifact-cache-${{ github.run_id }}/shared-standard/${{ env.EXPECTED_SHA }}/$GROUP_ID
             export build_output="$SHARED_ROOT/output_standard"
-            RESULT_ROOT=/mnt/wl_nas/devops/pccl-artifact-cache-${{ github.run_id }}/results/full
+            RESULT_ROOT=/mnt/wl_nas/devops/pccl-artifact-cache-${{ github.run_id }}/results/full/$GROUP_ID
             rm -rf "$RESULT_ROOT" "$SHARED_ROOT"
             mkdir -p "$(dirname "$RESULT_ROOT")" "$SHARED_ROOT"
             trap 'rm -rf "$SHARED_ROOT"' EXIT
@@ -433,8 +496,8 @@ jobs:
               --hostfile "$CLUSTER_HOSTS_FILE" -np "$NODES" -npernode 1 hostname
             /workspace/minimal-csv-cluster-env/bin/python -B \
               "$build_output/pccl/tests/xtest/run_cases.py" \
-              --input "$build_output/pccl/tests/xtest/daily-full-csv" \
-              --profile standard --nodes "$NODES" --suite "$SUITE" \
+              --input "$SOURCE_DIR/case-groups/$GROUP_ID" \
+              --profile "$PROFILE" \
               --test-root "$build_output" \
               --binary-dir "$build_output/pccl-tests/build" \
               --hostfile "$CLUSTER_HOSTS_FILE" \
@@ -442,7 +505,7 @@ jobs:
               --output "$RESULT_ROOT"
 
   summary:
-    name: Daily full result summary and NAS cleanup
+    name: Daily grouped result summary and NAS cleanup
     needs: [prepare, build-standard, stage-cache, execute]
     if: always()
     runs-on: k8s-runner-group-cpu-thead
@@ -455,18 +518,65 @@ jobs:
         with:
           path: pccl
           persist-credentials: false
-      - id: reconcile
-        name: Reconcile the exact selected Cases
+      - id: groups
+        uses: actions/download-artifact@v4
         if: always()
-        env:
-          NODES: ${{ inputs.nodes || '1' }}
-          SUITE: ${{ inputs.suite || 'device_api_shm_single_node_single_process_suite' }}
+        with:
+          name: m890p-daily-case-groups
+          path: case-groups
+      - id: reconcile
+        name: Reconcile every automatic group
+        if: always()
         run: |
-          python3 -S -B pccl/tests/xtest/reconcile_results.py \
-            --input pccl/tests/xtest/daily-full-csv \
-            --profile standard --nodes "$NODES" --suite "$SUITE" \
-            --results /wl_nas/devops/pccl-artifact-cache-${{ github.run_id }}/results/full \
-            --output public-results
+          python3 -S -B - <<'PY'
+          import json
+          from pathlib import Path
+          import subprocess
+          import sys
+
+          output = Path('public-results')
+          output.mkdir(exist_ok=True)
+          groups = json.loads(Path('case-groups/groups.json').read_text())
+          if not groups:
+              raise ValueError('No automatic groups were prepared')
+          reports = []
+          failed = []
+          counts = {}
+          for group in groups:
+              group_output = output / group['id']
+              completed = subprocess.run([
+                  sys.executable, '-S', '-B', 'pccl/tests/xtest/reconcile_results.py',
+                  '--input', str(Path('case-groups') / group['id']),
+                  '--profile', group['profile'], '--nodes', str(group['nodes']),
+                  '--results', str(Path('/wl_nas/devops/pccl-artifact-cache-${{ github.run_id }}') /
+                                   'results/full' / group['id']),
+                  '--output', str(group_output),
+              ])
+              report_path = group_output / 'reconciliation.json'
+              report = json.loads(report_path.read_text()) if report_path.is_file() else None
+              if completed.returncode or not report or not report.get('ok'):
+                  failed.append(group['id'])
+              reports.append({
+                  'id': group['id'], 'profile': group['profile'], 'nodes': group['nodes'],
+                  'return_code': completed.returncode, 'reconciliation': report,
+              })
+              for status, count in (report or {}).get('counts', {}).items():
+                  counts[status] = counts.get(status, 0) + count
+          summary = {
+              'ok': not failed,
+              'expected': sum((report['reconciliation'] or {}).get('expected', group['case_count'])
+                              for group, report in zip(groups, reports)),
+              'actual': sum((report['reconciliation'] or {}).get('actual', 0) for report in reports),
+              'counts': counts,
+              'failed_groups': failed,
+              'groups': reports,
+          }
+          (output / 'daily-summary.json').write_text(
+              json.dumps(summary, indent=2, sort_keys=True) + '\n')
+          for group_id in failed:
+              print(f'::error::Daily group {group_id} did not reconcile successfully')
+          sys.exit(bool(failed))
+          PY
       - uses: actions/upload-artifact@v4
         if: always()
         with:
@@ -497,7 +607,9 @@ jobs:
           for name in ('prepare', 'build-standard', 'stage-cache', 'execute'):
               if needs[name]['result'] != 'success':
                   failed[name] = needs[name]['result']
-          outcomes = {'reconcile': '${{ steps.reconcile.outcome }}', 'cleanup': '${{ steps.cleanup.outcome }}'}
+          outcomes = {'groups': '${{ steps.groups.outcome }}',
+                      'reconcile': '${{ steps.reconcile.outcome }}',
+                      'cleanup': '${{ steps.cleanup.outcome }}'}
           for name, result in outcomes.items():
               if result != 'success':
                   failed[name] = result

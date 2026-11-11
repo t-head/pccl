@@ -125,7 +125,7 @@ class DailySmokeTests(unittest.TestCase):
         self.assertNotIn('pccl-artifact-cache/42478314103', text)
         self.assertNotIn('pccl-artifact-cache-42480089838', text)
 
-    def test_full_export_is_runner_scoped_and_not_wired_to_hardware(self):
+    def test_full_export_is_runner_scoped_and_available_as_an_explicit_dataset(self):
         coverage = json.loads((FULL_INPUT / 'coverage.json').read_text())
         self.assertEqual(coverage['selected_cases'], 8899)
         self.assertEqual(coverage['skipped_cases'], 3391)
@@ -163,13 +163,27 @@ class DailySmokeTests(unittest.TestCase):
         text = FULL_WORKFLOW.read_text()
         self.assertIn('workflow_dispatch:', text)
         self.assertIn('paths: [.github/workflows/m890p-daily-full.yml]', text)
-        self.assertIn('default: device_api_shm_single_node_single_process_suite', text)
+        self.assertIn('options: [smoke, full]', text)
+        self.assertIn('default: smoke', text)
+        self.assertIn('default: 500', text)
         self.assertIn('cancel-in-progress: false', text)
-        self.assertIn("nnodes: ${{ inputs.nodes || '1' }}", text)
-        self.assertIn('--profile standard --nodes "$NODES" --suite "$SUITE"', text)
+        self.assertIn('group_cases.py', text)
+        self.assertIn('name: m890p-daily-case-groups', text)
+        self.assertIn('matrix: ${{ fromJSON(needs.prepare.outputs.groups) }}', text)
+        self.assertIn('max-parallel: 2', text)
+        self.assertIn('fail-fast: false', text)
+        self.assertIn('nnodes: ${{ matrix.nodes }}', text)
+        self.assertIn('nproc_per_node: ${{ matrix.cards_per_node }}', text)
+        self.assertIn('--input "/workspace/source/case-groups/$GROUP_ID"', text)
+        self.assertIn('--input "$SOURCE_DIR/case-groups/$GROUP_ID"', text)
+        self.assertIn('--profile "$PROFILE"', text)
+        self.assertIn('results/full/$GROUP_ID', text)
+        self.assertIn('shared-standard/${{ env.EXPECTED_SHA }}/$GROUP_ID', text)
+        self.assertIn("groups = json.loads(Path('case-groups/groups.json').read_text())", text)
         self.assertIn('reconcile_results.py', text)
-        self.assertIn('Daily full result summary and NAS cleanup', text)
-        single = text.split('name: Run the single-node Suite', 1)[1].split('name: Run the multi-node Suite', 1)[0]
+        self.assertIn('Daily grouped result summary and NAS cleanup', text)
+        single = text.split('name: Run the automatic group on one node', 1)[1].split(
+            'name: Run the automatic multi-node group on master', 1)[0]
         self.assertIn('host_network: true', single)
         self.assertNotIn('setup_command:', single)
         self.assertIn("raise SystemExit('No non-zero RoCE GID is visible inside the worker')", single)
@@ -183,6 +197,8 @@ class DailySmokeTests(unittest.TestCase):
         self.assertNotIn('PCCL Tests Gate', text)
         self.assertNotIn('schedule:', text)
         self.assertNotIn('build-notsm', text)
+        self.assertNotIn('default: device_api_shm_single_node_single_process_suite', text)
+        self.assertNotIn('--profile standard --nodes "$NODES" --suite "$SUITE"', text)
 
 
 if __name__ == '__main__':

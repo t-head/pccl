@@ -53,6 +53,26 @@ are recognized. The last five are bound only when needed. Use `--mpi-interface` 
 allocated worker's actual TCP interface when the command contains that binding. Environment files are parsed as data and are never
 sourced. Commands alone are passed to `/bin/sh -c`.
 
+## Automatic daily execution groups
+
+`group_cases.py` derives execution groups from an export; there is no separate
+hand-maintained shard list. Cases are grouped by profile, node count, cards per
+node and shared environment, then split deterministically by `--max-cases`.
+Different Suites with the same execution environment share one group and run
+sequentially after one worker allocation.
+
+```bash
+python3 -S -B tests/xtest/group_cases.py \
+  --input tests/xtest/daily-minimal-csv \
+  --output /tmp/daily-case-groups --max-cases 500
+```
+
+Each output group is a self-contained CSV input directory. `groups.json`
+records the exact Case keys and resource selection for execution and final
+reconciliation. `--nodes` and `--suite` are optional debug filters, not shard
+definitions. The experimental daily workflow defaults to the smoke dataset;
+the full dataset must be selected explicitly.
+
 ## Result semantics
 
 - `exit_code`: command success.
