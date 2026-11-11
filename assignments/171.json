@@ -8,7 +8,7 @@
       "modules": [
         "ci"
       ],
-      "reason": "Main functional change updates open-source test workflow execution in .github/workflows/source-sanity.yml by replacing three CI job executor Action references with cluster-run@main while preserving job inputs/commands. The test_workflow_contract.py edits only enforce this CI contract change and do not introduce a separate workflow-policy or reviewer-routing change."
+      "reason": "Migrates the source-sanity test workflow to use the shared cluster-run executor for three CI jobs (standard build, notsm build, single-node run), with test updates only validating that CI contract change."
     }
   },
   "reviewers": {
