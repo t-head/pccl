@@ -226,7 +226,7 @@ class WorkflowContractTests(unittest.TestCase):
         for removed in ('source-catalog.json', 'cluster-source-case.json', 'manifest.py',
                         'cluster_ci.py', 'single_node_ci.py', 'runner_capture.py',
                         'test_migration_contract.py', 'experiment/minimal-csv',
-                        't-head/ci-infra/cluster-run@main'):
+                        't-head/ppu-scheduler-action@'):
             self.assertNotIn(removed, self.text)
         for path in ('catalog.py', 'command.py', 'execute.py', 'manifest.py', 'metrics.py',
                      'runner_capture.py', 'single_node_ci.py', 'cluster_ci.py', 'build_evidence.py',
@@ -254,7 +254,9 @@ class WorkflowContractTests(unittest.TestCase):
                          '# Required by the public run_test.py entry point, not the CSV executor.\n'
                          'filelock==3.20.3')
         self.assertIn('t-head/ci-infra/cluster-run@40165c945cba33ac7b16b41c4485fe53b68f581f', self.text)
-        self.assertIn('t-head/ppu-scheduler-action@aac83e464f2a3fcbddddc60c8016021c996092a6', self.text)
+        for name in ('build-standard', 'build-notsm', 'single-node'):
+            self.assertIn('uses: t-head/ci-infra/cluster-run@main', self.job(name))
+        self.assertEqual(self.text.count('uses: t-head/ci-infra/cluster-run@main'), 3)
 
 
 if __name__ == '__main__':
