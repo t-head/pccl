@@ -125,8 +125,6 @@ jobs:
             export build_output=/workspace/source/output_standard
             STAGING=/mnt/wl_nas/devops/pccl-artifact-cache-${{ github.run_id }}/staging/standard
             RUN_ROOT=/mnt/wl_nas/devops/pccl-artifact-cache-${{ github.run_id }}
-            rm -rf /mnt/wl_nas/devops/pccl-artifact-cache/42478314103
-            rm -rf /mnt/wl_nas/devops/pccl-artifact-cache-42480089838/shared-standard
             mkdir -p "$build_output" "$STAGING"
             unset PIP_INDEX_URL PIP_EXTRA_INDEX_URL 2>/dev/null || true
             git config --global --unset-all url.https://ai-gerrit.eng.t-head.cn/Public/Github/.insteadOf 2>/dev/null || true

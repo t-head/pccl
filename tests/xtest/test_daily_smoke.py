@@ -108,6 +108,8 @@ class DailySmokeTests(unittest.TestCase):
         self.assertNotIn('human-review', text)
         self.assertNotIn('build-notsm', text)
         self.assertNotIn("expected = {('standard', 1): 71", text)
+        self.assertNotIn('pccl-artifact-cache/42478314103', text)
+        self.assertNotIn('pccl-artifact-cache-42480089838', text)
 
 
 if __name__ == '__main__':
