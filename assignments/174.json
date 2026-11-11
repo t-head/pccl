@@ -2,20 +2,22 @@
   "classification": {
     "base_sha": "d2e86b965a5b55b373ac8e504a392a0d7e30f68b",
     "head_sha": "6dbf8ed076d81d379974cf4941c311085b52d594",
-    "input_fingerprint": "ea9020ff30d409105e6bc413aa849b2a9c658b54db8195549982ce6d1656cc58",
+    "input_fingerprint": "be49c2206d0764daa890cdd72eab7acd57b672237ab65a570de1c814ff459989",
     "pr_number": 174,
     "proposal": {
       "modules": [
         "graph-search",
         "tuning",
+        "enqueue",
         "network",
         "kernels",
         "tuner-plugin"
       ],
-      "reason": "Primary change removes CollNet collective-network support end-to-end (plugin ABI/loading, proxy/network paths). Additional substantive changes remove CollNet topology graph construction/connection, reindex and rebalance algorithm selection/cost tables (Tree/Ring/FC/PAT), delete CollNet device-kernel specializations/function-table entries, and introduce a breaking external tuner ABI/config migration to v2 to keep algorithm-ID semantics correct."
+      "reason": "Primary change removes CollNet as a network capability: collective-network plugin ABI/symbols, loading, proxy/transport resources, and related connect paths are deleted. Additional substantive changes remove CollNet graph construction/search/connection logic, delete CollNet device-kernel specializations, update runtime enqueue/planning patterns and channel handling to no longer schedule CollNet flows, compact built-in algorithm/timing/tuning tables to Tree/Ring/FC/PAT IDs, and require tuner-plugin v2 with versioned config parsing to prevent old algorithm-ID misselection."
     }
   },
   "reviewers": {
+    "enqueue": 341349555,
     "graph-search": 341355176,
     "kernels": 341349555,
     "network": 341353320,
