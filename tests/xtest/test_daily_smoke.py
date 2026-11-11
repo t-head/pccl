@@ -32,6 +32,7 @@ class DailySmokeTests(unittest.TestCase):
         self.assertIn('--hostfile {hostfile}', rdma['cmd'])
         self.assertIn('NCCL_MNNVL_ENABLE=0', rdma['cmd'])
         self.assertIn('all_reduce_perf', rdma['cmd'])
+        self.assertIn('-mca orte_keep_fqdn_hostnames 1', rdma['cmd'])
         self.assertIn('-mca oob_tcp_if_include {mpi_interface}', rdma['cmd'])
         self.assertIn('-mca btl_tcp_if_include {mpi_interface}', rdma['cmd'])
         self.assertIn('-x NCCL_SOCKET_IFNAME={mpi_interface}', rdma['cmd'])
@@ -101,6 +102,8 @@ class DailySmokeTests(unittest.TestCase):
         self.assertIn('export OMPI_MCA_oob_tcp_if_include="$MPI_INTERFACE"', text)
         self.assertIn('timeout -k 10s 60s mpirun', text)
         probe = text.split('timeout -k 10s 60s mpirun', 1)[1].split('set +x', 1)[0]
+        self.assertIn('export OMPI_MCA_orte_keep_fqdn_hostnames=1', text)
+        self.assertIn('--mca orte_keep_fqdn_hostnames 1', probe)
         self.assertIn('--mca oob_tcp_if_include "$MPI_INTERFACE"', probe)
         self.assertIn('--mca btl_tcp_if_include "$MPI_INTERFACE"', probe)
         self.assertNotIn('human-review', text)
@@ -117,14 +120,14 @@ class DailySmokeTests(unittest.TestCase):
         self.assertIn('< /dev/null || exit 1', text)
         self.assertIn('getent ahosts "$short"', text)
         self.assertIn('run_probe local-no-gl', text)
-        for name in ('dual-pinned', 'dual-pinned-fqdn'):
-            body = text.split(f'run_probe {name} ', 1)[1].split('run_probe ', 1)[0]
-            self.assertIn('timeout -k 2s 40s', body)
-            self.assertIn('--mca oob_tcp_if_include "$MPI_INTERFACE"', body)
-            self.assertIn('--mca btl_tcp_if_include "$MPI_INTERFACE"', body)
-            self.assertIn('|| overall=1', body)
-        fqdn = text.split('run_probe dual-pinned-fqdn ', 1)[1]
-        self.assertIn('--mca orte_keep_fqdn_hostnames 1', fqdn)
+        self.assertIn('cat > /tmp/cluster-ssh-trace', setup)
+        self.assertNotIn('cat > /tmp/cluster-ssh-trace', text.split('\n          command: |', 1)[1])
+        dual = text.split('run_probe dual-fqdn ', 1)[1]
+        self.assertIn('timeout -k 2s 40s', dual)
+        self.assertIn('--mca orte_keep_fqdn_hostnames 1', dual)
+        self.assertIn('--mca oob_tcp_if_include "$MPI_INTERFACE"', dual)
+        self.assertIn('--mca btl_tcp_if_include "$MPI_INTERFACE"', dual)
+        self.assertIn('|| overall=1', dual)
         self.assertNotIn('run_cases.py', text)
         self.assertNotIn('build-standard', text)
 

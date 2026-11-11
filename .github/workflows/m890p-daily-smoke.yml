@@ -419,6 +419,8 @@ jobs:
             export OMPI_MCA_oob_tcp_if_include="$MPI_INTERFACE"
             export OMPI_MCA_btl_tcp_if_include="$MPI_INTERFACE"
             export NCCL_SOCKET_IFNAME="$MPI_INTERFACE"
+            # Short hostfile names fall through to the host search domains and each lookup times out.
+            export OMPI_MCA_orte_keep_fqdn_hostnames=1
             test "$(wc -l < "$CLUSTER_HOSTS_FILE")" -eq 2
             echo 'Allocated hostfile:'
             cat "$CLUSTER_HOSTS_FILE"
@@ -435,6 +437,7 @@ jobs:
             set -x
             timeout -k 10s 60s mpirun --allow-run-as-root \
               --hostfile "$CLUSTER_HOSTS_FILE" -np 2 -npernode 1 \
+              --mca orte_keep_fqdn_hostnames 1 \
               --mca oob_tcp_if_include "$MPI_INTERFACE" \
               --mca btl_tcp_if_include "$MPI_INTERFACE" \
               --mca plm_base_verbose 5 --mca oob_base_verbose 10 hostname
