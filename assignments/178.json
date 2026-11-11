@@ -2,14 +2,14 @@
   "classification": {
     "base_sha": "cc05ee8b19fb5aea8424f1e3cb1e552daa5c1261",
     "head_sha": "5f65f980e1cab1069760c6807d967b6ebfb14604",
-    "input_fingerprint": "9be6638f493494b21070176763a1a2cae94113a0b1d7f74245c208297abefd7b",
+    "input_fingerprint": "2e1bda7d3d612bf337d420d7b230d5779f92a50279b70b73153f46798ec1cd11",
     "pr_number": 178,
     "proposal": {
       "modules": [
         "network",
         "gin"
       ],
-      "reason": "Main change is in the IB network backend and proxy path: connection handshake/state machine, QoS (TC/SL/FIFO TC), ECE/GRH/FLID handling, receive completion sizing, and per-device MR registration cache/reuse in net_ib and net transport code. Added gin because GIN-specific IB paths were substantively changed to validate/normalize traffic class and use the new IB connect/abort behavior, which is a distinct GIN networking surface."
+      "reason": "Primary change is a substantive overhaul of the IB network transport/proxy path: connect/accept handshake state machine and ready signaling, QoS traffic-class/service-level handling, ECE negotiation, FLID/GRH routing behavior, receive-size reporting semantics, and MR registration cache ownership/cleanup across net_ib, net.cc, proxy, and ibv wrappers. Added gin because the PR also makes independent GIN backend behavior changes (traffic-class normalization/validation, GIN IB/GDAKI connect flow using the new IB connect/abort path, and GIN-specific error cleanup) that require GIN module expertise beyond incidental caller wiring."
     }
   },
   "reviewers": {
