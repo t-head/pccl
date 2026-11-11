@@ -1,14 +1,14 @@
 {
   "classification": {
     "base_sha": "cc05ee8b19fb5aea8424f1e3cb1e552daa5c1261",
-    "head_sha": "51217a26326e3a1018ef688429a3bab0efdb7e28",
-    "input_fingerprint": "d22ac6b7386d5b5c4e262135fca3dc20d2b78261e15d2772f9f0c614ef2de1e4",
+    "head_sha": "4946f9189458786fe07c74e02bfa10cdd55c7b82",
+    "input_fingerprint": "3416fbe3aeeaa3c6ba897514654632c6952206fe0728c399d90c150a8d8050ac",
     "pr_number": 31,
     "proposal": {
       "modules": [
         "gin"
       ],
-      "reason": "Main change is introducing a new built-in GIN backend (TROCE) across host/device GIN APIs, context/memory-registration lifecycle, provider loading, backend selection/type wiring, and GIN plugin integration; other edits (e.g., Makefile and shared IB helper exposure) are supporting changes for that backend rather than independent module changes."
+      "reason": "Main functional change is adding a new built-in TROCE GIN backend (type 16) with host/device GIN context lifecycle, registration, queue/CQ progress, and plugin wiring; other edits (Makefile, shared enums/helpers) are supporting integration for that same GIN feature, not independent module changes."
     }
   },
   "reviewers": {
