@@ -21,15 +21,15 @@ ncclResult_t nccl_u2mm_init(void);
 
 extern pthread_mutex_t nccl_u2mm_lock;
 
-static ncclResult_t u2mmNumaAlloc(void** ptr, size_t size, int netdev) {
+static ncclResult_t u2mmNumaAlloc(void** ptr, size_t size, int netdev, ncclNet_t* net) {
+  *ptr = NULL;
   ncclNetProperties_t props;
-  ncclNetGetProperties(netdev, &props);
+  NCCLCHECK(net->getProperties(netdev, &props));
 
   FILE *fp = NULL;
   char path[512];
   int numa_node = -1;
   struct bitmask *orig = NULL, *cur = NULL, *old = NULL;
-  *ptr = NULL;
 
   snprintf(path, sizeof(path), "%s/numa_node", props.pciPath);
   fp = fopen(path, "r");
@@ -79,9 +79,9 @@ alloc:
 }
 
 template <typename T>
-ncclResult_t nccl_u2mm_host_calloc_debug(T** ptr, size_t nelem, int netdev, const char *filefunc, int line) {
+ncclResult_t nccl_u2mm_host_calloc_debug(T** ptr, size_t nelem, int netdev, ncclNet_t* net, const char *filefunc, int line) {
   ncclResult_t res = ncclSuccess;
-  NCCLCHECKGOTO(u2mmNumaAlloc((void**)ptr, nelem * sizeof(T), netdev), res, fail);
+  NCCLCHECKGOTO(u2mmNumaAlloc((void**)ptr, nelem * sizeof(T), netdev, net), res, fail);
   if (hggcHostRegister(*ptr, nelem * sizeof(T), hggcHostRegisterMapped) != hggcSuccess) {
     ERROR("[U2MM HOST] failed to register: %p size: %zu", *ptr, nelem * sizeof(T));
     res = ncclUnhandledHggcError;
@@ -223,12 +223,12 @@ static ncclResult_t ncclU2mmShmClose(void* shmPtr, void* devShmPtr) {
   return ncclSuccess;
 }
 
-static ncclResult_t ncclU2mmShmCreate(char** mkeyRet, const int size, void** shmPtr, int netdev) {
+static ncclResult_t ncclU2mmShmCreate(char** mkeyRet, const int size, void** shmPtr, int netdev, ncclNet_t* net) {
   ncclResult_t res = ncclSuccess;
   void* ptr = NULL;
   char* mkey = NULL;
   int ret = 0;
-  NCCLCHECKGOTO(u2mmNumaAlloc(&ptr, size, netdev), res, fail);
+  NCCLCHECKGOTO(u2mmNumaAlloc(&ptr, size, netdev, net), res, fail);
 
   pthread_mutex_lock(&nccl_u2mm_lock);
   ret = u2mm_shm_share(ptr, size, &mkey);

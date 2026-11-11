@@ -195,7 +195,7 @@ static ncclResult_t checkCollNetSetup(ncclComm_t comm, int rank, int collNetSetu
     }
   }
   if (collNetSetupFail) {
-    if (rank == 0) WARN("Cannot initialize CollNet, using %s instead", ncclNetName());
+    if (rank == 0) WARN("Cannot initialize CollNet, using %s instead", comm->ncclNet->name);
     // Free collNet resources
     for (int r=0; r<comm->nChannels; r++) {
       struct ncclChannel* channel = comm->channels+r;

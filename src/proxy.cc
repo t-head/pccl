@@ -2011,6 +2011,10 @@ ncclResult_t ncclProxyCreate(ncclComm_t comm) {
     proxyState->nChannels = comm->nChannels;
     proxyState->allocP2pNetLLBuffers = comm->allocP2pNetLLBuffers;
     proxyState->directMode = comm->directMode;
+    proxyState->ncclNet = comm->ncclNet;
+    proxyState->ncclCollNet = comm->ncclCollNet;
+    proxyState->useU2mmHost = comm->useU2mmHost;
+    proxyState->useU2mmDev = comm->useU2mmDev;
     proxyState->profilerContext = comm->profilerContext;
     memcpy(proxyState->buffSizes, comm->buffSizes, sizeof(comm->buffSizes));
 
