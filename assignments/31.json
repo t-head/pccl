@@ -1,14 +1,15 @@
 {
   "classification": {
     "base_sha": "cc05ee8b19fb5aea8424f1e3cb1e552daa5c1261",
-    "head_sha": "4946f9189458786fe07c74e02bfa10cdd55c7b82",
-    "input_fingerprint": "3416fbe3aeeaa3c6ba897514654632c6952206fe0728c399d90c150a8d8050ac",
+    "head_sha": "090818b2c863ba4d50aea467eec03bdbd4a0cce6",
+    "input_fingerprint": "b0574d7c68281da72204e77c15ceb10ed8ef3106a2f06ee7647c2e60400e1afc",
     "pr_number": 31,
     "proposal": {
       "modules": [
+        "network",
         "gin"
       ],
-      "reason": "Adds an independent TROCE GIN backend end-to-end, including host/device GIN implementation, TROCE provider loading, GIN plugin registration, backend/type selection, and GIN-specific connection/registration/progress paths; other edits (build list and shared IB helpers/enums) are supporting changes for this backend rather than separate subsystem policy changes."
+      "reason": "Main change adds a full independent TROCE GIN backend (host lifecycle, device API specializations, registration/progress/error paths, plugin wiring, and new GIN/backend type values). Also updates shared IB provider detection/classification in net_ib (provider enum and init-time provider selection), which is a substantive network-transport behavior change beyond mechanical wiring."
     }
   },
   "reviewers": {
