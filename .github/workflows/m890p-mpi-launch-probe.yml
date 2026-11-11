@@ -1,0 +1,89 @@
+name: M890P MPI launch probe
+
+on:
+  push:
+    branches: [experiment/m890p-host-runtime]
+    paths: [.github/workflows/m890p-mpi-launch-probe.yml]
+
+permissions:
+  contents: read
+
+concurrency:
+  group: m890p-mpi-launch-probe-${{ github.ref }}
+  cancel-in-progress: true
+
+env:
+  VALIDATION_IMAGE: download.t-head.cn/docker_release/ppu:sdk2.2.0-hggcrt3-ubuntu24.04-py312-20261005
+  VALIDATION_NODE_SELECTOR: board-type=ZW-M890P
+
+jobs:
+  launch:
+    name: Two-node hostname launch without PCCL
+    runs-on: k8s-runner-group-cpu-thead
+    container:
+      image: ghcr.io/actions/actions-runner:latest
+    timeout-minutes: 30
+    steps:
+      - name: Compare MPI data and control network settings
+        uses: t-head/ci-infra/cluster-run@40165c945cba33ac7b16b41c4485fe53b68f581f
+        with:
+          image: ${{ env.VALIDATION_IMAGE }}
+          launch_mode: master
+          nnodes: 2
+          nproc_per_node: 8
+          node_selector: ${{ env.VALIDATION_NODE_SELECTOR }}
+          namespace: ppu-sched
+          timeout_minutes: 30
+          cleanup_policy: always
+          container_options: |
+            privileged: true
+            host_network: true
+            dns_policy: ClusterFirstWithHostNet
+          host_volumes: /dev/infiniband:/dev/infiniband
+          setup_command: |
+            set -euo pipefail
+            source /usr/local/PPU_SDK/envsetup.sh
+            ulimit -l unlimited
+            ulimit -s 65536
+            command -v mpirun
+            mpirun --version
+            ompi_info --parsable --all | grep -E 'oob_tcp_if_include|btl_tcp_if_include|plm_rsh_agent' || true
+          command: |
+            set -uo pipefail
+            export OMPI_MCA_plm_rsh_agent=cluster-ssh
+            export OMPI_MCA_orte_base_help_aggregate=0
+            unset OMPI_MCA_btl_tcp_if_include OMPI_MCA_oob_tcp_if_include
+            MPI_INTERFACE=$(awk '$2 == "00000000" {print $1; exit}' /proc/net/route)
+            test -n "$MPI_INTERFACE"
+            echo "Default-route interface: $MPI_INTERFACE"
+            ip -brief address show "$MPI_INTERFACE"
+            test "$(wc -l < "$CLUSTER_HOSTS_FILE")" -eq 2
+            while read -r host _; do
+              echo "Checking $host"
+              getent hosts "$host"
+              timeout -k 5s 30s cluster-ssh "$host" \
+                'hostname; hostname -I; ip -brief address show eth0' < /dev/null || exit 1
+            done < "$CLUSTER_HOSTS_FILE"
+
+            echo 'Probe A: no BTL interface restriction; verbose launcher and OOB logs'
+            set -x
+            timeout -k 5s 45s mpirun --allow-run-as-root --tag-output \
+              --hostfile "$CLUSTER_HOSTS_FILE" -np 2 -npernode 1 \
+              --mca plm_base_verbose 10 --mca oob_base_verbose 10 \
+              hostname
+            without_btl=$?
+            set +x
+            echo "Probe A exit status: $without_btl"
+            if test "$without_btl" -ne 0; then
+              echo 'Probe B: restrict the OOB control network to the default-route interface'
+              set -x
+              timeout -k 5s 45s mpirun --allow-run-as-root --tag-output \
+                --hostfile "$CLUSTER_HOSTS_FILE" -np 2 -npernode 1 \
+                --mca plm_base_verbose 10 --mca oob_base_verbose 10 \
+                --mca oob_tcp_if_include "$MPI_INTERFACE" \
+                hostname
+              with_oob=$?
+              set +x
+              echo "Probe B exit status: $with_oob"
+              test "$with_oob" -eq 0
+            fi

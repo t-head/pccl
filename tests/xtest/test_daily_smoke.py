@@ -13,6 +13,7 @@ import run_cases
 ROOT = Path(__file__).resolve().parents[2]
 INPUT = ROOT / 'tests/xtest/daily-minimal-csv'
 WORKFLOW = ROOT / '.github/workflows/m890p-daily-smoke.yml'
+MPI_PROBE_WORKFLOW = ROOT / '.github/workflows/m890p-mpi-launch-probe.yml'
 
 
 class DailySmokeTests(unittest.TestCase):
@@ -69,7 +70,7 @@ class DailySmokeTests(unittest.TestCase):
 
     def test_daily_workflow_has_matching_gate_and_cleanup(self):
         text = WORKFLOW.read_text()
-        self.assertIn('branches: [ci/m890p-daily-csv, experiment/m890p-host-runtime]', text)
+        self.assertIn('branches: [ci/m890p-daily-csv]', text)
         self.assertIn('tests/xtest/daily-minimal-csv', text)
         self.assertIn("expected = {'standard': 7, 'cluster': 1}", text)
         self.assertIn('len(metrics) != 1', text)
@@ -91,6 +92,19 @@ class DailySmokeTests(unittest.TestCase):
         self.assertNotIn('human-review', text)
         self.assertNotIn('build-notsm', text)
         self.assertNotIn("expected = {('standard', 1): 71", text)
+
+    def test_mpi_probe_does_not_run_pccl_or_trigger_the_full_daily(self):
+        text = MPI_PROBE_WORKFLOW.read_text()
+        self.assertIn('Two-node hostname launch without PCCL', text)
+        self.assertIn('host_network: true', text)
+        self.assertIn('timeout -k 5s 45s mpirun', text)
+        self.assertIn('--mca oob_tcp_if_include "$MPI_INTERFACE"', text)
+        self.assertIn('cluster-ssh "$host"', text)
+        self.assertIn('< /dev/null || exit 1', text)
+        self.assertNotIn('run_cases.py', text)
+        self.assertNotIn('build-standard', text)
+        probe_a = text.split('Probe A:', 1)[1].split('Probe B:', 1)[0]
+        self.assertNotIn('btl_tcp_if_include', probe_a)
 
 
 if __name__ == '__main__':
