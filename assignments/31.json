@@ -8,7 +8,7 @@
       "modules": [
         "gin"
       ],
-      "reason": "Main functional change is adding a new built-in TROCE GIN backend (type 16) with host/device GIN context lifecycle, registration, queue/CQ progress, and plugin wiring; other edits (Makefile, shared enums/helpers) are supporting integration for that same GIN feature, not independent module changes."
+      "reason": "Adds an independent TROCE GIN backend end-to-end, including host/device GIN implementation, TROCE provider loading, GIN plugin registration, backend/type selection, and GIN-specific connection/registration/progress paths; other edits (build list and shared IB helpers/enums) are supporting changes for this backend rather than separate subsystem policy changes."
     }
   },
   "reviewers": {
