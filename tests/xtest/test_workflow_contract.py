@@ -200,6 +200,24 @@ class WorkflowContractTests(unittest.TestCase):
             self.assertIn("--pccl-revision '${{ github.sha }}'", section)
             self.assertIn("--expected-sha256 '${{ env.EXPECTED_SHA }}'", section)
 
+    def test_two_node_rdma_runtime_preserves_the_existing_case_and_identity(self):
+        cluster = self.job('two-node')
+        setup = cluster.split('setup_command: |', 1)[1].split('\n          command: |', 1)[0]
+        self.assertIn('host_network: true', cluster)
+        self.assertIn('dns_policy: ClusterFirstWithHostNet', cluster)
+        self.assertIn('export HWLOC_COMPONENTS=-gl', setup)
+        self.assertIn('export OMPI_MCA_orte_keep_fqdn_hostnames=1', setup)
+        self.assertIn('export OMPI_MCA_oob_tcp_if_include="$MPI_INTERFACE"', setup)
+        self.assertIn('export OMPI_MCA_btl_tcp_if_include="$MPI_INTERFACE"', setup)
+        self.assertIn('export NCCL_SOCKET_IFNAME="$MPI_INTERFACE"', setup)
+        self.assertIn("raise SystemExit('No non-zero RoCE GID is visible inside the worker')", setup)
+        self.assertNotIn('extra_env: NCCL_NET=IB', cluster)
+        self.assertIn('test "$checked_hosts" -eq 2', cluster)
+        probe = cluster.split('timeout -k 10s 60s mpirun', 1)[1].split('/workspace/minimal-csv-cluster-env', 1)[0]
+        self.assertNotIn('--mca', probe)
+        self.assertIn('--build-record "$CACHE_DIR/output_standard.build.json"', cluster)
+        self.assertIn("--expected-sha256 '${{ env.EXPECTED_SHA }}'", cluster)
+
     def test_final_reconciliation_uses_exact_case_and_build_identity_checks(self):
         results = self.job('results')
         for expected in ('tests/xtest/reconcile_results.py',
