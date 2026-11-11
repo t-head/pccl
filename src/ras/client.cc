@@ -36,6 +36,8 @@ static const char* format = "text";
 static bool abortFlag = false;
 static uint32_t dump = false;
 static bool analyzeFlag = false;
+static bool diagnosticsMode = false;
+static bool offlineSelector = false;
 static const char* offlineDir = nullptr;
 static int offlineRound = 1;
 static const char* offlineTime = nullptr;
@@ -46,6 +48,7 @@ static void printUsage(const char* argv0) {
           "Usage: %s [OPTION]...\n"
           "Query the state of a running PCCL job.\n"
           "\nOptions:\n"
+          "  -D, --diagnostics   Run PCCL RAS diagnostics\n"
           "  -f, --format=FMT    Output format: text or json (text by default)\n"
           "  -h, --host=HOST     Host name or IP address of the RAS client socket of the\n"
           "                      PCCL job to connect to (localhost by default)\n"
@@ -77,6 +80,7 @@ static void parseArgs(int argc, char** argv) {
   int c;
   int optIdx = 0;
   struct option longOpts[] = {
+    {"diagnostics", no_argument, NULL, 'D'},
     {"format",  required_argument, NULL, 'f'},
     {"help",    no_argument,       NULL, 'e'},
     {"host",    required_argument, NULL, 'h'},
@@ -94,8 +98,11 @@ static void parseArgs(int argc, char** argv) {
   };
 
   char* endPtr = nullptr;
-  while ((c = getopt_long(argc, argv, "f:h:p:t:d:q:vaO:R:T:", longOpts, &optIdx)) != -1) {
+  while ((c = getopt_long(argc, argv, "Df:h:p:t:d:qvaO:R:T:", longOpts, &optIdx)) != -1) {
     switch (c) {
+      case 'D':
+        diagnosticsMode = true;
+        break;
       case 'f':
         format = optarg;
         if (strcasecmp(format, "text") != 0 && strcasecmp(format, "json") != 0) {
@@ -140,6 +147,7 @@ static void parseArgs(int argc, char** argv) {
         offlineDir = optarg;
         break;
       case 'R': {
+        offlineSelector = true;
         endPtr = nullptr;
         errno = 0;
         long roundVal = strtol(optarg, &endPtr, 10);
@@ -152,6 +160,7 @@ static void parseArgs(int argc, char** argv) {
         break;
       }
       case 'T':
+        offlineSelector = true;
         if (!analyzerTimeArgValid(optarg)) {
           fprintf(stderr, "Invalid time: %s (expected YYYYMMDD-HHMMSS or a shorter prefix)\n", optarg);
           exit(1);
@@ -169,6 +178,14 @@ static void parseArgs(int argc, char** argv) {
         printUsage(argv[0]);
         exit(1);
     }
+  }
+  if (diagnosticsMode && (analyzeFlag || abortFlag || offlineDir || offlineSelector)) {
+    fprintf(stderr, "--diagnostics cannot be combined with --analyze, --dump, --quit or offline options\n");
+    exit(1);
+  }
+  if (diagnosticsMode && strcasecmp(format, "text") != 0) {
+    fprintf(stderr, "--diagnostics only supports text output\n");
+    exit(1);
   }
 }
 
@@ -384,28 +401,9 @@ static int setOutputFormat() {
   return 0;
 }
 
-int getNCCLStatus() {
+static int streamRasResponseToStdout() {
   char msgBuf[4096];
   int bytes;
-
-  // Set the output format.
-  if (setOutputFormat() != 0) {
-    return 1;
-  }
-
-  // Send the status command.
-  if (analyzeFlag) {
-    snprintf(msgBuf, sizeof(msgBuf), "DUMP %d\n", dump);
-  } else {
-    snprintf(msgBuf, sizeof(msgBuf), "%sSTATUS\n", (verbose ? "VERBOSE " : ""));
-  }
-  if (socketWrite(sock, msgBuf, strlen(msgBuf)) != strlen(msgBuf)) {
-    if (errno == EAGAIN || errno == EWOULDBLOCK)
-      fprintf(stderr, "Connection timed out\n");
-    else
-      perror("write to socket");
-    return 1;
-  }
   for (;;) {
     bytes = rasRead(sock, msgBuf, sizeof(msgBuf), /*untileNewLine*/false);
     if (bytes < 0) {
@@ -427,6 +425,34 @@ int getNCCLStatus() {
     }
   }
   return 0;
+}
+
+int getNCCLStatus() {
+  char msgBuf[4096];
+  if (analyzeFlag)
+    snprintf(msgBuf, sizeof(msgBuf), "DUMP %d\n", dump);
+  else
+    snprintf(msgBuf, sizeof(msgBuf), "%sSTATUS\n", (verbose ? "VERBOSE " : ""));
+  if (socketWrite(sock, msgBuf, strlen(msgBuf)) != strlen(msgBuf)) {
+    if (errno == EAGAIN || errno == EWOULDBLOCK)
+      fprintf(stderr, "Connection timed out\n");
+    else
+      perror("write to socket");
+    return 1;
+  }
+  return streamRasResponseToStdout();
+}
+
+static int runNCCLDiagnostics() {
+  const char* command = "DIAGNOSTICS\n";
+  if (socketWrite(sock, command, strlen(command)) != strlen(command)) {
+    if (errno == EAGAIN || errno == EWOULDBLOCK)
+      fprintf(stderr, "Connection timed out\n");
+    else
+      perror("write to socket");
+    return 1;
+  }
+  return streamRasResponseToStdout();
 }
 
 static int runOfflineAnalysis(const char* dir) {
@@ -505,7 +531,20 @@ int main(int argc, char** argv) {
   if (connectToNCCL())
     return 1;
 
-  if (getNCCLStatus()) {
+  // Set the output format.
+  if (setOutputFormat() != 0) {
+    (void)close(sock);
+    return 1;
+  }
+
+  int result;
+  if (diagnosticsMode) {
+    result = runNCCLDiagnostics();
+  } else {
+    result = getNCCLStatus();
+  }
+
+  if (result != 0) {
     (void)close(sock);
     return 1;
   }

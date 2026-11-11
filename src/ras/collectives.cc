@@ -18,6 +18,7 @@
 #include "transport.h"
 #include "utils.h"
 #include "ras_internal.h"
+#include "diagnostics.h"
 
 // The number of recent collectives to keep track of.  Completely arbitrary.
 #define COLL_HISTORY_SIZE 64
@@ -141,6 +142,12 @@ ncclResult_t rasNetSendCollReq(const struct rasCollRequest* req, bool* pAllDone,
       (void)rasCollConnsInit(&reqMod, &reqLen, &coll->data, &coll->nData);
     else if (req->type == RAS_COLL_COMMS)
       (void)rasCollCommsInit(&reqMod, &reqLen, &coll->data, &coll->nData);
+    else if (req->type == RAS_COLL_DIAG) {
+      ncclResult_t ret = rasCollDiagInit(&reqMod, &reqLen, &coll->data, &coll->nData);
+      if (ret != ncclSuccess) {
+        WARN("RAS diagnostics collective initialization failed (%d); continuing with empty local response", ret);
+      }
+    }
   } else { // req->type < RAS_COLL_CONNS
     // Add the info to the collective message history.
     nRasCollHistory = std::min(nRasCollHistory+1, COLL_HISTORY_SIZE);
@@ -276,6 +283,16 @@ exit:
   return ncclSuccess;
 }
 
+// Remember completed or cancelled requests so late ring traffic cannot restart them.
+void rasCollRecordHistory(const struct rasCollective* coll) {
+  if (coll == nullptr) return;
+  nRasCollHistory = std::min(nRasCollHistory+1, COLL_HISTORY_SIZE);
+  memcpy(&rasCollHistory[rasCollHistNextIdx].rootAddr, &coll->rootAddr,
+         sizeof(rasCollHistory[rasCollHistNextIdx].rootAddr));
+  rasCollHistory[rasCollHistNextIdx].rootId = coll->rootId;
+  rasCollHistNextIdx = (rasCollHistNextIdx + 1) % COLL_HISTORY_SIZE;
+}
+
 // Sends a collective response back to the process we received the collective request from.
 // Invoked when we are finished waiting for the collective responses from other peers (i.e., either there weren't
 // any peers (unlikely), the peers sent their responses (likely), or we timed out.
@@ -286,11 +303,7 @@ static ncclResult_t rasCollReadyResp(struct rasCollective* coll) {
                                   coll->peers, coll->nPeers, coll->data, coll->nData, coll->nLegTimeouts));
 
     // Add the identifying info to the collective message history.
-    nRasCollHistory = std::min(nRasCollHistory+1, COLL_HISTORY_SIZE);
-    memcpy(&rasCollHistory[rasCollHistNextIdx].rootAddr, &coll->rootAddr,
-           sizeof(rasCollHistory[rasCollHistNextIdx].rootAddr));
-    rasCollHistory[rasCollHistNextIdx].rootId = coll->rootId;
-    rasCollHistNextIdx = (rasCollHistNextIdx + 1) % COLL_HISTORY_SIZE;
+    rasCollRecordHistory(coll);
 
     rasCollFree(coll);
   } else if (coll->onComplete) {
@@ -376,6 +389,8 @@ ncclResult_t rasMsgHandleCollResp(struct rasMsg* msg, struct rasSocket* sock) {
       NCCLCHECK(rasCollConnsMerge(coll, msg));
     else if (coll->type == RAS_COLL_COMMS)
       NCCLCHECK(rasCollCommsMerge(coll, msg));
+    else if (coll->type == RAS_COLL_DIAG)
+      NCCLCHECK(rasCollDiagMerge(coll, msg));
   }
   // We merge the peers after merging the data, so that the data merge function can rely on peers being unchanged.
   if (msg->collResp.nPeers > 0) {
