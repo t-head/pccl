@@ -43,6 +43,13 @@ jobs:
           setup_command: |
             set -euo pipefail
             source /usr/local/PPU_SDK/envsetup.sh
+            export PROBE_DISPLAY=${DISPLAY-}
+            export PROBE_XAUTHORITY=${XAUTHORITY-}
+            export PROBE_DISPLAY_SET=${DISPLAY+x}
+            export PROBE_XAUTHORITY_SET=${XAUTHORITY+x}
+            printf 'DISPLAY before cleanup: %s\n' "${DISPLAY-<unset>}"
+            printf 'XAUTHORITY before cleanup: %s\n' "${XAUTHORITY-<unset>}"
+            unset DISPLAY XAUTHORITY
             ulimit -l unlimited
             ulimit -s 65536
             command -v mpirun
@@ -90,6 +97,9 @@ jobs:
                 grep -E '(mpirun|orted|cluster-ssh|/usr/bin/ssh|timeout -k)' | grep -v grep || true
               echo 'Recorded launcher calls:'
               cat /tmp/cluster-ssh-trace.log
+              for mpi_pid in $(ps -eo pid=,comm= | awk '$2 == "mpirun" {print $1}'); do
+                awk '$6 ~ /^\// {print $6}' "/proc/$mpi_pid/maps" 2>/dev/null
+              done | sort -u | grep -E 'libX|libxcb|libuc|libverbs|libopen|libpmix' || true
             }
             run_probe() {
               local name=$1
@@ -110,9 +120,23 @@ jobs:
             }
 
             overall=0
-            run_probe local-strace \
-              timeout -k 2s 15s strace -f -tt -s 200 -o /tmp/local.strace \
+            if test "$PROBE_DISPLAY_SET" = x; then export DISPLAY=$PROBE_DISPLAY; else unset DISPLAY; fi
+            if test "$PROBE_XAUTHORITY_SET" = x; then export XAUTHORITY=$PROBE_XAUTHORITY; else unset XAUTHORITY; fi
+            run_probe local-connect-stack \
+              timeout -k 2s 12s strace -f -tt -k -e trace=connect -s 200 \
+              -o /tmp/connect.strace \
               mpirun --allow-run-as-root --tag-output -np 1 hostname || overall=1
-            echo 'Last local Open MPI system calls:'
-            tail -150 /tmp/local.strace
+            echo 'Local connection call stacks:'
+            cat /tmp/connect.strace
+            if run_probe local-without-display \
+              timeout -k 2s 12s env -u DISPLAY -u XAUTHORITY \
+              mpirun --allow-run-as-root --tag-output -np 1 hostname; then
+              run_probe dual-without-display \
+                timeout -k 2s 25s env -u DISPLAY -u XAUTHORITY \
+                mpirun --allow-run-as-root --tag-output \
+                --hostfile "$CLUSTER_HOSTS_FILE" -np 2 -npernode 1 \
+                --mca oob_tcp_if_include "$MPI_INTERFACE" hostname || overall=1
+            else
+              overall=1
+            fi
             exit "$overall"
