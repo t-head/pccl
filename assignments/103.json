@@ -2,13 +2,14 @@
   "classification": {
     "base_sha": "3b6cc5f83d2b5257c658c3e6404e194754522a65",
     "head_sha": "9e2f9bf0e1c30d0c25d8aa3ba02af8ba232bfa72",
-    "input_fingerprint": "00368b90fd3e897f946dc459e92af9ed8f84c5a74ade550bfbfb7142b127aea7",
+    "input_fingerprint": "4d4cea6e76d75c1e1ca4d14821b053d68dee08d28b6157600b471b9dc782fb7a",
     "pr_number": 103,
     "proposal": {
       "modules": [
-        "network"
+        "network",
+        "gin"
       ],
-      "reason": "Main functional change is in the IB network transport backend: optional libafed symbol loading plus send-QP TX affinity assignment across LAG ports, wired into QP bring-up/send-check paths. The proxy GIN call-site edit only supplies the data-QP count for this same transport behavior and is not an independent GIN policy/protocol change."
+      "reason": "Main change is in IB transport connection setup: optional AFED symbol loading and round-robin TX affinity assignment across LAG ports for send data QPs during NET send-QP bring-up. Include gin because proxy GIN connection behavior is explicitly specialized (only qps[0] is treated as a data QP for affinity/slot consumption), which is a substantive GIN-specific networking policy change rather than a purely mechanical caller edit."
     }
   },
   "reviewers": {
