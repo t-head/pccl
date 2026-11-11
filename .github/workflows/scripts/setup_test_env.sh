@@ -5,7 +5,7 @@ set -e
 # This script is sourced by each test runner; it assumes TEST_ROOT points to
 # the build output directory (e.g. /workspace/source/output_hggcrt13).
 
-python3 -m pip install filelock==3.20.0 || true
+python3 -m pip install filelock==3.20.3 || true
 export NCCL_DEBUG=INFO
 source /usr/local/PPU_SDK/envsetup.sh
 export LD_LIBRARY_PATH=${TEST_ROOT}/lib:${LD_LIBRARY_PATH}
