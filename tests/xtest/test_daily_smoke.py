@@ -132,6 +132,7 @@ class DailySmokeTests(unittest.TestCase):
         with (FULL_INPUT / 'standard.csv').open(newline='') as stream:
             rows = list(csv.DictReader(stream))
         self.assertEqual(len(rows), 8883)
+        self.assertIn('!tests/xtest/daily-full-csv/*.csv', (ROOT / '.gitignore').read_text())
         for row in rows:
             self.assertNotIn('no_tsm', row['plan'])
             self.assertNotIn('no_tsm', row['suite'])

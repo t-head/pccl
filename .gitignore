@@ -8,6 +8,7 @@
 CPPLINT.cfg
 *.plist
 *.csv
+!tests/xtest/daily-full-csv/*.csv
 build/
 *.log
 src/collectives/device/*.o
