@@ -56,13 +56,14 @@ jobs:
             MPI_INTERFACE=$(awk '$2 == "00000000" {print $1; exit}' /proc/net/route)
             test -n "$MPI_INTERFACE"
             echo "Default-route interface: $MPI_INTERFACE"
-            ip -brief address show "$MPI_INTERFACE"
+            hostname -I
+            cat /proc/net/route
             test "$(wc -l < "$CLUSTER_HOSTS_FILE")" -eq 2
             while read -r host _; do
               echo "Checking $host"
               getent hosts "$host"
               timeout -k 5s 30s cluster-ssh "$host" \
-                'hostname; hostname -I; ip -brief address show eth0' < /dev/null || exit 1
+                'hostname; hostname -I; cat /proc/net/route' < /dev/null || exit 1
             done < "$CLUSTER_HOSTS_FILE"
 
             echo 'Probe A: no BTL interface restriction; verbose launcher and OOB logs'
