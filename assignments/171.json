@@ -8,7 +8,7 @@
       "modules": [
         "ci"
       ],
-      "reason": "Migrates three source-sanity CI job steps from the legacy scheduler Action to shared cluster-run calls and updates CI contract tests to enforce those execution references; this is a test/workflow execution change, not review-policy automation."
+      "reason": "Migrates three source-sanity CI job executions from the legacy scheduler Action to cluster-run and updates workflow-contract tests to enforce the new CI invocation pattern; this is a substantive test-workflow execution change, not review-policy automation."
     }
   },
   "reviewers": {
