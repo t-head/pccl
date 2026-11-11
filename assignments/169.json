@@ -2,7 +2,7 @@
   "classification": {
     "base_sha": "cc05ee8b19fb5aea8424f1e3cb1e552daa5c1261",
     "head_sha": "6649a83ad1322c57b5fcdf3cfc0e448497b3e753",
-    "input_fingerprint": "0b4e8651d927b4246ebfcc6096be0e4a06d9701e5887a72afc13706486803841",
+    "input_fingerprint": "a073741048314c85e9c94d1184d85ea5be556c9da6f833342ee0b6879e6b21ca",
     "pr_number": 169,
     "proposal": {
       "modules": [
@@ -11,7 +11,7 @@
         "communicator",
         "network"
       ],
-      "reason": "Primary change is in network: NET/CollNet backend selection and plugin lifetime move to per-communicator state, and proxy progress/shutdown/connect behavior is reworked. communicator is additionally required because comm init/free/split now own netName/config copying, backend compatibility for shared resources, and per-comm backend flags. graph-search is additionally required because PXN-disable and graph comparison decisions now depend on communicator-specific NET/EIC state. device-topology is additionally required because topology XML/system construction and NIC/EIC width handling now use per-comm backend/collnet properties and a new per-topology useEic field."
+      "reason": "Main change is in network: NET/CollNet backend selection and plugin lifetime move from global to per-communicator state, and NET/proxy paths now execute via communicator-selected backends (including proxy batching/shutdown behavior). communicator is additionally needed because init/free/split lifecycle now owns netName config, backend compatibility checks for shared parent/child communicators, and per-comm finalize semantics. device-topology is additionally needed because NIC discovery/topology construction now depends on communicator-selected NET/CollNet backends and per-topology EIC mode. graph-search is additionally needed because PXN disable and graph comparison decisions were changed to be communicator/topology-specific (per-backend behavior), affecting channel/path selection logic."
     }
   },
   "reviewers": {
