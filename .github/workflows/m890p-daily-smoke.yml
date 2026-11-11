@@ -2,7 +2,7 @@ name: M890P daily smoke (experimental)
 
 on:
   push:
-    branches: [ci/m890p-daily-csv]
+    branches: [ci/m890p-daily-csv, experiment/m890p-host-runtime]
 
 permissions:
   contents: read

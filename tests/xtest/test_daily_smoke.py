@@ -76,7 +76,7 @@ class DailySmokeTests(unittest.TestCase):
 
     def test_daily_workflow_has_matching_gate_and_cleanup(self):
         text = WORKFLOW.read_text()
-        self.assertIn('branches: [ci/m890p-daily-csv]', text)
+        self.assertIn('branches: [ci/m890p-daily-csv, experiment/m890p-host-runtime]', text)
         self.assertIn('tests/xtest/daily-minimal-csv', text)
         self.assertIn("expected = {'standard': 7, 'cluster': 1}", text)
         self.assertIn('len(metrics) != 1', text)
