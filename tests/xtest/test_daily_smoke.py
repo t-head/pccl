@@ -32,6 +32,11 @@ class DailySmokeTests(unittest.TestCase):
         self.assertIn('--hostfile {hostfile}', rdma['cmd'])
         self.assertIn('NCCL_MNNVL_ENABLE=0', rdma['cmd'])
         self.assertIn('all_reduce_perf', rdma['cmd'])
+        self.assertIn('-mca oob_tcp_if_include {mpi_interface}', rdma['cmd'])
+        self.assertIn('-mca btl_tcp_if_include {mpi_interface}', rdma['cmd'])
+        self.assertIn('-x NCCL_SOCKET_IFNAME={mpi_interface}', rdma['cmd'])
+        self.assertIn('-x NCCL_NET=IB', rdma['cmd'])
+        self.assertNotIn('NCCL_IB_GID_INDEX', rdma['cmd'])
         direct_multi = [row for row in cluster['cases'] if row['cmd'].startswith('mpirun ')]
         self.assertEqual(len(direct_multi), 1)
         for row in direct_multi:
@@ -87,8 +92,14 @@ class DailySmokeTests(unittest.TestCase):
         self.assertIn('extra_env: NCCL_NET=IB', text)
         self.assertIn('ibv_devinfo -v', text)
         self.assertIn("raise SystemExit('No non-zero RoCE GID is visible inside the worker')", text)
-        self.assertIn("timeout 30s cluster-ssh", text)
-        self.assertIn("timeout 60s mpirun", text)
+        self.assertIn('timeout -k 5s 30s cluster-ssh "$host"', text)
+        self.assertIn('ip -4 -o addr show dev $MPI_INTERFACE" < /dev/null', text)
+        self.assertIn('test "$checked_hosts" -eq 2', text)
+        self.assertIn('export OMPI_MCA_oob_tcp_if_include="$MPI_INTERFACE"', text)
+        self.assertIn('timeout -k 10s 60s mpirun', text)
+        probe = text.split('timeout -k 10s 60s mpirun', 1)[1].split('set +x', 1)[0]
+        self.assertIn('--mca oob_tcp_if_include "$MPI_INTERFACE"', probe)
+        self.assertIn('--mca btl_tcp_if_include "$MPI_INTERFACE"', probe)
         self.assertNotIn('human-review', text)
         self.assertNotIn('build-notsm', text)
         self.assertNotIn("expected = {('standard', 1): 71", text)

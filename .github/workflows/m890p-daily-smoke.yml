@@ -412,19 +412,30 @@ jobs:
             MPI_INTERFACE=$(awk '$2 == "00000000" {print $1; exit}' /proc/net/route)
             test -n "$MPI_INTERFACE"
             echo "MPI TCP interface: $MPI_INTERFACE"
+            ip -4 -o addr show dev "$MPI_INTERFACE"
+            # Host networking also exposes docker0, cni0 and flannel.1, so pin both MPI control and data traffic.
+            export OMPI_MCA_oob_tcp_if_include="$MPI_INTERFACE"
+            export OMPI_MCA_btl_tcp_if_include="$MPI_INTERFACE"
+            export NCCL_SOCKET_IFNAME="$MPI_INTERFACE"
             test "$(wc -l < "$CLUSTER_HOSTS_FILE")" -eq 2
             echo 'Allocated hostfile:'
             cat "$CLUSTER_HOSTS_FILE"
+            checked_hosts=0
             while read -r host _; do
               echo "Checking cluster SSH and DNS for $host"
               getent hosts "$host"
-              timeout 30s cluster-ssh "$host" 'hostname; hostname -I'
+              timeout -k 5s 30s cluster-ssh "$host" \
+                "hostname; hostname -I; ip -4 -o addr show dev $MPI_INTERFACE" < /dev/null
+              checked_hosts=$((checked_hosts + 1))
             done < "$CLUSTER_HOSTS_FILE"
+            test "$checked_hosts" -eq 2
             echo 'Checking two-rank MPI launch before the RDMA Case:'
             set -x
-            timeout 60s mpirun --allow-run-as-root \
+            timeout -k 10s 60s mpirun --allow-run-as-root \
               --hostfile "$CLUSTER_HOSTS_FILE" -np 2 -npernode 1 \
-              -mca btl_tcp_if_include "$MPI_INTERFACE" hostname
+              --mca oob_tcp_if_include "$MPI_INTERFACE" \
+              --mca btl_tcp_if_include "$MPI_INTERFACE" \
+              --mca plm_base_verbose 5 --mca oob_base_verbose 10 hostname
             set +x
             /workspace/minimal-csv-cluster-env/bin/python -B \
               "$build_output/pccl/tests/xtest/run_cases.py" \
