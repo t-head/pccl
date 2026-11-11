@@ -1,0 +1,19 @@
+{
+  "classification": {
+    "base_sha": "cc05ee8b19fb5aea8424f1e3cb1e552daa5c1261",
+    "head_sha": "5f65f980e1cab1069760c6807d967b6ebfb14604",
+    "input_fingerprint": "9be6638f493494b21070176763a1a2cae94113a0b1d7f74245c208297abefd7b",
+    "pr_number": 178,
+    "proposal": {
+      "modules": [
+        "network",
+        "gin"
+      ],
+      "reason": "Main change is in the IB network backend and proxy path: connection handshake/state machine, QoS (TC/SL/FIFO TC), ECE/GRH/FLID handling, receive completion sizing, and per-device MR registration cache/reuse in net_ib and net transport code. Added gin because GIN-specific IB paths were substantively changed to validate/normalize traffic class and use the new IB connect/abort behavior, which is a distinct GIN networking surface."
+    }
+  },
+  "reviewers": {
+    "gin": 262349997,
+    "network": 341355176
+  }
+}
