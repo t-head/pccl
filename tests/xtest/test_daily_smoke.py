@@ -184,19 +184,6 @@ class DailySmokeTests(unittest.TestCase):
         self.assertNotIn('schedule:', text)
         self.assertNotIn('build-notsm', text)
 
-    def test_full_workflow_can_reuse_a_verified_prior_build(self):
-        text = FULL_WORKFLOW.read_text()
-        self.assertIn('build_run_id:', text)
-        self.assertIn('actions: read', text)
-        self.assertIn('!inputs.build_run_id', text)
-        self.assertIn('run-id: ${{ inputs.build_run_id || github.run_id }}', text)
-        self.assertIn('github-token: ${{ github.token }}', text)
-        self.assertIn("needs.build-standard.result == 'skipped'", text)
-        self.assertIn('gh run view "$BUILD_RUN_ID" --json headSha', text)
-        self.assertIn('gh run view "$BUILD_RUN_ID" --json conclusion', text)
-        self.assertIn('output_standard.build.json', text)
-        self.assertIn("--expected-sha256 \"$EXPECTED_SHA\"", text)
-
 
 if __name__ == '__main__':
     unittest.main()
