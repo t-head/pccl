@@ -12,14 +12,15 @@ import run_cases
 
 ROOT = Path(__file__).resolve().parents[2]
 INPUT = ROOT / 'tests/xtest/daily-minimal-csv'
+FULL_INPUT = ROOT / 'tests/xtest/daily-full-csv'
 WORKFLOW = ROOT / '.github/workflows/m890p-daily-smoke.yml'
 
 
 class DailySmokeTests(unittest.TestCase):
-    def test_seven_supported_single_node_suites_are_selected(self):
+    def test_ten_supported_single_node_suites_are_selected(self):
         selected = run_cases.load_inputs(INPUT, 'standard', nodes=1)
-        self.assertEqual(len(selected['cases']), 7)
-        self.assertEqual(len({(row['plan'], row['suite']) for row in selected['cases']}), 7)
+        self.assertEqual(len(selected['cases']), 10)
+        self.assertEqual(len({(row['plan'], row['suite']) for row in selected['cases']}), 10)
         cluster = run_cases.load_inputs(INPUT, 'standard', nodes=2)
         self.assertEqual(len(cluster['cases']), 7)
         self.assertEqual(len({(row['plan'], row['suite']) for row in cluster['cases']}), 7)
@@ -46,6 +47,9 @@ class DailySmokeTests(unittest.TestCase):
         self.assertIn('NCCL_MNNVL_ENABLE=0', rdma['cmd'])
         self.assertNotIn('orte_keep_fqdn_hostnames', rdma['cmd'])
         self.assertNotIn('NCCL_SOCKET_IFNAME', rdma['cmd'])
+        for suite in ('device_api_shm_single_node_single_process_suite',
+                      'f8_test_shm_single_node_suite', 'sym_test_shm_single_node_suite'):
+            self.assertIn(suite, {row['suite'] for row in selected['cases']})
         for suite in ('local_register_perf_shm_multi_nodes2_suite',
                       'symetric_perf_shm_multi_nodes2_suite'):
             case = next(row for row in cluster['cases'] if row['suite'] == suite)
@@ -55,7 +59,7 @@ class DailySmokeTests(unittest.TestCase):
         sanity = next(row for row in selected['cases'] if row['suite'] == 'sanity_m890p_register_suite')
         self.assertIn('--register 1', sanity['cmd'])
         self.assertEqual(sum(row['check'] == 'performance' for row in selected['cases']), 1)
-        self.assertEqual(sum(row['check'] == 'exit_code' for row in selected['cases']), 6)
+        self.assertEqual(sum(row['check'] == 'exit_code' for row in selected['cases']), 9)
         self.assertTrue(all(row['suite_spec']['nodes'] == 1 for row in selected['cases']))
         self.assertEqual({row['suite_spec']['timeout'] for row in selected['cases']}, {300, 3600, 7200})
 
@@ -68,7 +72,7 @@ class DailySmokeTests(unittest.TestCase):
             self.assertNotIn('/home/image', row['cmd'])
             self.assertNotIn('unit_test.py', row['cmd'])
         self.assertEqual(sum('{python_env}' in row['cmd'] for row in rows), 1)
-        self.assertEqual(sum(row['cmd'].startswith('python3 run_test.py') for row in rows), 3)
+        self.assertEqual(sum(row['cmd'].startswith('python3 run_test.py') for row in rows), 5)
         single_node_rows = run_cases.load_inputs(INPUT, 'standard', nodes=1)['cases']
         self.assertEqual(sum(row['cmd'].startswith('mpirun ') for row in single_node_rows), 4)
         self.assertEqual(sum(row['cmd'].startswith('mpirun ') for row in rows), 10)
@@ -86,7 +90,7 @@ class DailySmokeTests(unittest.TestCase):
         text = WORKFLOW.read_text()
         self.assertIn('branches: [ci/m890p-daily-csv]', text)
         self.assertIn('tests/xtest/daily-minimal-csv', text)
-        self.assertIn("expected = {'standard': 7, 'cluster': 7}", text)
+        self.assertIn("expected = {'standard': 10, 'cluster': 7}", text)
         self.assertIn('len(metrics) != 1', text)
         self.assertIn('artifact_cache.py cleanup', text)
         self.assertIn('NEEDS: ${{ toJSON(needs) }}', text)
@@ -110,6 +114,31 @@ class DailySmokeTests(unittest.TestCase):
         self.assertNotIn("expected = {('standard', 1): 71", text)
         self.assertNotIn('pccl-artifact-cache/42478314103', text)
         self.assertNotIn('pccl-artifact-cache-42480089838', text)
+
+    def test_full_export_is_runner_scoped_and_not_wired_to_hardware(self):
+        coverage = json.loads((FULL_INPUT / 'coverage.json').read_text())
+        self.assertEqual(coverage['selected_cases'], 8883)
+        self.assertEqual(coverage['skipped_cases'], 3407)
+        self.assertEqual(len(coverage['selected_suites']), 32)
+        self.assertEqual(len(coverage['skipped_suites']), 12)
+        skipped = {record['suite']: record['reasons'] for record in coverage['skipped_suites']}
+        self.assertIn('outside PCCL scope', skipped['sailucx_test_shm_single_node_suite'][0])
+        self.assertIn('outside PCCL scope', skipped['sailbandwidth_perf_shm_multi_nodes2_suite'][0])
+        self.assertIn('PCCL composite_test binary', skipped['composite_test_shm_single_node_suite'][0])
+        expected = {1: 4557, 2: 1916, 4: 1691, 8: 710, 16: 9}
+        for nodes, count in expected.items():
+            selected = run_cases.load_inputs(FULL_INPUT, 'standard', nodes=nodes)
+            self.assertEqual(len(selected['cases']), count)
+        with (FULL_INPUT / 'standard.csv').open(newline='') as stream:
+            rows = list(csv.DictReader(stream))
+        self.assertEqual(len(rows), 8883)
+        for row in rows:
+            self.assertNotIn('no_tsm', row['plan'])
+            self.assertNotIn('no_tsm', row['suite'])
+            for token in ('unit_test.py', 'composite_test', 'sailbandwidth',
+                          'ucx_perftest', 'pcclCommAbortTest', 'p2pBandwidthLatencyTest'):
+                self.assertNotIn(token, row['cmd'])
+        self.assertNotIn('tests/xtest/daily-full-csv', WORKFLOW.read_text())
 
 
 if __name__ == '__main__':
