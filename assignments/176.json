@@ -1,14 +1,14 @@
 {
   "classification": {
     "base_sha": "cc05ee8b19fb5aea8424f1e3cb1e552daa5c1261",
-    "head_sha": "b4127411d43b20534b546699fe63b23c5aac3882",
-    "input_fingerprint": "e16f5b834bdd7cc492fb204e3683cd90c7ffc67dcbe6f0f85e8d349b473e6087",
+    "head_sha": "ffa95441b1797546a9977c3eb984a717c39e43c7",
+    "input_fingerprint": "d9e01240ed25f525c3946c128cc94e3d84e81d5b8ffba8a10d26057c5d430283",
     "pr_number": 176,
     "proposal": {
       "modules": [
         "ras"
       ],
-      "reason": "Main change adds RAS hang-diagnostics logic to attribute suspected mid-kernel Ring forwarding stall boundaries, including new ring trace analysis, stricter counter-read validity handling, and updated diagnostic snapshot/wire/offline-dump formats. Edits in init/collector paths are supporting synchronization for reliable RAS capture, not independent behavior changes in other modules."
+      "reason": "Main functional change is RAS hang diagnostics: adds Ring forwarding-boundary attribution from captured head/step snapshots, extends diag wire/snapshot formats (including offline replay compatibility handling), and updates analyzer summary/report logic for suspect/inconclusive Ring stall analysis; init-state atomics and monitor gating are supporting changes to keep RAS reads safe/valid."
     }
   },
   "reviewers": {
