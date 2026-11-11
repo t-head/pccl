@@ -1,5 +1,6 @@
 /*
  * SPDX-FileCopyrightText: Copyright (c) 2009-2025 NVIDIA CORPORATION & AFFILIATES. All rights reserved.
+ * SPDX-FileCopyrightText: Modifications Copyright (c) 2026 T-Head (Shanghai) Semiconductor Co., Ltd. All rights reserved.
  * SPDX-License-Identifier: Apache-2.0 WITH LLVM-exception
  *
  * Licensed under the Apache License, Version 2.0 (the "License");
@@ -38,7 +39,7 @@
 #include "hgToolsExt.h"
 
 #include "hggc.h"
-#include "driver_types.h"
+#include "hggc_runtime.h"
 
 #ifndef HGTOOLSEXT_HGGCRT_V3
 #define HGTOOLSEXT_HGGCRT_V3
