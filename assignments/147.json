@@ -1,15 +1,15 @@
 {
   "classification": {
-    "base_sha": "e3b0139c540d1a167f6f3aa53e803fb2c61bccb5",
-    "head_sha": "02f1c9f9851b5490e6b355a9b76cbe5d57ea3112",
-    "input_fingerprint": "2648c17e942682af58b99efd4ca00aa30c416aa79d1b1c7ce8414ca43209191e",
+    "base_sha": "cc05ee8b19fb5aea8424f1e3cb1e552daa5c1261",
+    "head_sha": "762e34354ede0cd992bde29cd670ad0e3fc94534",
+    "input_fingerprint": "446f6c079ee919c5270b4cc04b477941cb0cec993956a049a11f55fece75d95d",
     "pr_number": 147,
     "proposal": {
       "modules": [
         "build",
         "ci"
       ],
-      "reason": "Main change is a new distributable tarball build/packaging path: the hggcrt12/13 build scripts and test-bundle script now perform real SDK/toolchain setup, compile, validate, and package PCCL/pccl-tests artifacts across OS/runtime variants (build). The PR also adds a substantial GitHub Actions matrix pipeline with scheduling, fan-out, artifact merge/publish, and runner/concurrency controls, which is independent CI workflow execution logic (ci)."
+      "reason": "Main change adds a scheduled GitHub Actions matrix workflow that builds and publishes PPU tarball artifacts (CI orchestration, runners, triggers, artifact merging). It also makes substantive packaging/build-script changes (SDK/toolchain setup, build invocation, and tarball/bundle contents), which require build-system review."
     }
   },
   "reviewers": {
