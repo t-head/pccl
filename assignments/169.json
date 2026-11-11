@@ -2,15 +2,15 @@
   "classification": {
     "base_sha": "d2e86b965a5b55b373ac8e504a392a0d7e30f68b",
     "head_sha": "95ba7ff581051c0166b810093e2eac9646640ff2",
-    "input_fingerprint": "8ea35f6c055cbebc4b98fa03656f1c291c5c53c2375c3fb4bb6e97979cffdef5",
+    "input_fingerprint": "fc12129d22c66ed36a01f57af5c29bce1f360f066abc2e49b48a92b7e11402bd",
     "pr_number": 169,
     "proposal": {
       "modules": [
         "device-topology",
-        "communicator",
+        "transport",
         "network"
       ],
-      "reason": "Primary change is in network transport/proxy behavior: per-communicator NET/CollNet backend selection and lifecycle, NET plugin/request-limit updates, proxy progress batching, and proxy SHM pool-handle management. Add communicator because communicator config/lifecycle now owns netName/backend pointers and enforces parent-child shared-resource backend consistency. Add device-topology because intra-node NET-vs-P2P/SHM path-speed decisions (PATH_NET, net-affinity-aware checks) change topology path classification used for transport choice."
+      "reason": "Primary change is in network/proxy behavior: communicator-scoped NET/CollNet backend selection (`config.netName`), NET plugin lifecycle per communicator, larger NET request/pool limits, and proxy op-pool/progress SHM handling and batching. `device-topology` is additionally needed because intra-node path logic now compares GPU-vs-NIC bandwidth/affinity (`ncclTopoCheckNet`) and introduces `PATH_NET` topology semantics. `transport` is also substantive because P2P/SHM/NET connect eligibility and connection-type selection are changed to follow the new topology/network decisions."
     }
   },
   "reviewers": {
