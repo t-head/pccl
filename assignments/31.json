@@ -8,7 +8,7 @@
       "modules": [
         "gin"
       ],
-      "reason": "Main change is adding TROCE as a new built-in GIN backend end-to-end (host/device APIs, backend dispatch, plugin registration, context/memory lifecycle, and GIN type/device-type integration). Other edits are supporting wiring for this GIN backend rather than independent module changes."
+      "reason": "Main change is adding a new GIN-specific TROCE backend end-to-end (device API specializations, host context/connect/progress, provider loading, backend selection/type wiring, and GIN plugin registration). Other edits (Makefile inclusion and shared IB helper refactors) are supporting integration for this backend, not independent build/network policy changes."
     }
   },
   "reviewers": {
