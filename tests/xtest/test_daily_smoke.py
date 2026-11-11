@@ -171,6 +171,7 @@ class DailySmokeTests(unittest.TestCase):
         self.assertIn('Daily full result summary and NAS cleanup', text)
         single = text.split('name: Run the single-node Suite', 1)[1].split('name: Run the multi-node Suite', 1)[0]
         self.assertIn('host_network: true', single)
+        self.assertNotIn('setup_command:', single)
         self.assertIn("raise SystemExit('No non-zero RoCE GID is visible inside the worker')", single)
         self.assertIn('alixpu_peermem is not loaded; DMA-BUF support is still possible', single)
         selected = run_cases.load_inputs(FULL_INPUT, 'standard', nodes=1,
