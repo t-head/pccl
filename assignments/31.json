@@ -1,14 +1,15 @@
 {
   "classification": {
     "base_sha": "cc05ee8b19fb5aea8424f1e3cb1e552daa5c1261",
-    "head_sha": "037c55df7f7d54f7368c78debfc02856e82a80f5",
-    "input_fingerprint": "8a0e04bd317b2db6308605104bc1f6b89af0b474d22a9f1f5e3a8a7146224a2d",
+    "head_sha": "c5c5459fa056c89a5e895565cb4f674baf6ecac7",
+    "input_fingerprint": "6581e8aedad241c3cfd2ab1ef28333ce671c145f552cd6870b8848f12f2d1c68",
     "pr_number": 31,
     "proposal": {
       "modules": [
+        "network",
         "gin"
       ],
-      "reason": "Main change is adding a new GIN-specific TROCE backend end-to-end (device API specializations, host context/connect/progress, provider loading, backend selection/type wiring, and GIN plugin registration). Other edits (Makefile inclusion and shared IB helper refactors) are supporting integration for this backend, not independent build/network policy changes."
+      "reason": "Primary change is a new built-in TROCE GIN backend (type 16) with full GIN host/device context lifecycle, registration, plugin wiring, and device-side GIN API specializations. Add network because the PR also changes shared net_ib provider detection/classification and common IB provider definitions used beyond a single GIN implementation."
     }
   },
   "reviewers": {
