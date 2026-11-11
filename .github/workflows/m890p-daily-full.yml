@@ -17,9 +17,15 @@ on:
         required: true
         default: device_api_shm_single_node_single_process_suite
         type: string
+      build_run_id:
+        description: Optional successful prior run whose verified build is reused
+        required: false
+        default: ''
+        type: string
 
 permissions:
   contents: read
+  actions: read
 
 concurrency:
   group: m890p-daily-full-${{ github.ref }}-${{ inputs.nodes || '1' }}-${{ inputs.suite || 'device_api_shm_single_node_single_process_suite' }}
@@ -58,7 +64,14 @@ jobs:
         env:
           NODES: ${{ inputs.nodes || '1' }}
           SUITE: ${{ inputs.suite || 'device_api_shm_single_node_single_process_suite' }}
+          BUILD_RUN_ID: ${{ inputs.build_run_id }}
+          GH_TOKEN: ${{ github.token }}
         run: |
+          if test -n "$BUILD_RUN_ID"; then
+            [[ "$BUILD_RUN_ID" =~ ^[0-9]+$ ]]
+            test "$(gh run view "$BUILD_RUN_ID" --json headSha --jq .headSha)" = "$GITHUB_SHA"
+            test "$(gh run view "$BUILD_RUN_ID" --json conclusion --jq .conclusion)" = success
+          fi
           python3 -S -B -W error::ResourceWarning -m unittest discover \
             -s tests/xtest -p 'test_run_cases.py' -v
           python3 -S -B -m unittest discover -s tests/xtest -p 'test_artifact_cache.py' -v
@@ -113,7 +126,7 @@ jobs:
   build-standard:
     name: Build and upload standard
     needs: [prepare]
-    if: needs.prepare.result == 'success'
+    if: needs.prepare.result == 'success' && !inputs.build_run_id
     outputs:
       artifact_sha256: ${{ steps.identity.outputs.artifact_sha256 }}
     runs-on: k8s-runner-group-cpu-thead
@@ -190,7 +203,8 @@ jobs:
 
   stage-cache:
     name: Stage standard from artifact or valid NAS cache
-    needs: [build-standard]
+    needs: [prepare, build-standard]
+    if: needs.prepare.result == 'success' && (needs.build-standard.result == 'success' || needs.build-standard.result == 'skipped')
     env:
       EXPECTED_SHA: ${{ needs.build-standard.outputs.artifact_sha256 }}
     runs-on: k8s-runner-group-cpu-thead
@@ -207,10 +221,13 @@ jobs:
         env:
           CACHE_DIR: /wl_nas/devops/pccl-artifact-cache-${{ github.run_id }}/cache/standard/${{ env.EXPECTED_SHA }}
         run: |
-          if python3 -S -B pccl/tests/xtest/artifact_cache.py validate \
+          EXPECTED_SHA='${{ env.EXPECTED_SHA }}'
+          if test -n '${{ inputs.build_run_id }}'; then
+            echo 'state=miss' >> "$GITHUB_OUTPUT"
+          elif python3 -S -B pccl/tests/xtest/artifact_cache.py validate \
             --directory "$CACHE_DIR" --profile standard \
             --pccl-revision '${{ github.sha }}' --pccl-tests-revision '${{ env.PCCL_TESTS_REVISION }}' \
-            --expected-sha256 '${{ env.EXPECTED_SHA }}'; then
+            --expected-sha256 "$EXPECTED_SHA"; then
             echo 'state=hit' >> "$GITHUB_OUTPUT"
           else
             echo 'state=miss' >> "$GITHUB_OUTPUT"
@@ -220,24 +237,38 @@ jobs:
         with:
           name: m890p-daily-full-build-standard
           path: download
+          run-id: ${{ inputs.build_run_id || github.run_id }}
+          github-token: ${{ github.token }}
       - name: Publish the validated artifact to NAS
         if: steps.cache.outputs.state == 'miss'
         env:
           CACHE_DIR: /wl_nas/devops/pccl-artifact-cache-${{ github.run_id }}/cache/standard/${{ env.EXPECTED_SHA }}
         run: |
+          EXPECTED_SHA='${{ env.EXPECTED_SHA }}'
+          if test -z "$EXPECTED_SHA"; then
+            EXPECTED_SHA=$(python3 -c 'import json; print(json.load(open("download/output_standard.build.json"))["artifact_sha256"])')
+          fi
+          test -n "$EXPECTED_SHA"
+          CACHE_DIR=/wl_nas/devops/pccl-artifact-cache-${{ github.run_id }}/cache/standard/$EXPECTED_SHA
           python3 -S -B pccl/tests/xtest/artifact_cache.py publish \
             --download download --cache "$CACHE_DIR" --profile standard \
             --pccl-revision '${{ github.sha }}' --pccl-tests-revision '${{ env.PCCL_TESTS_REVISION }}' \
-            --expected-sha256 '${{ env.EXPECTED_SHA }}'
+            --expected-sha256 "$EXPECTED_SHA"
       - name: Confirm the final NAS cache
         env:
           CACHE_DIR: /wl_nas/devops/pccl-artifact-cache-${{ github.run_id }}/cache/standard/${{ env.EXPECTED_SHA }}
         run: |
+          EXPECTED_SHA='${{ env.EXPECTED_SHA }}'
+          if test -z "$EXPECTED_SHA"; then
+            EXPECTED_SHA=$(python3 -c 'import json; print(json.load(open("download/output_standard.build.json"))["artifact_sha256"])')
+          fi
+          test -n "$EXPECTED_SHA"
+          CACHE_DIR=/wl_nas/devops/pccl-artifact-cache-${{ github.run_id }}/cache/standard/$EXPECTED_SHA
           chmod -R a+rwX "$CACHE_DIR"
           python3 -S -B pccl/tests/xtest/artifact_cache.py validate \
             --directory "$CACHE_DIR" --profile standard \
             --pccl-revision '${{ github.sha }}' --pccl-tests-revision '${{ env.PCCL_TESTS_REVISION }}' \
-            --expected-sha256 '${{ env.EXPECTED_SHA }}'
+            --expected-sha256 "$EXPECTED_SHA"
 
   execute:
     name: Run ${{ inputs.suite || 'device_api_shm_single_node_single_process_suite' }} on ${{ inputs.nodes || '1' }} node(s)
@@ -316,7 +347,12 @@ jobs:
             umask 022
             cd /workspace/source
             export build_output=/workspace/source/output_standard
-            CACHE_DIR=/mnt/wl_nas/devops/pccl-artifact-cache-${{ github.run_id }}/cache/standard/${{ env.EXPECTED_SHA }}
+            EXPECTED_SHA='${{ env.EXPECTED_SHA }}'
+            if test -z "$EXPECTED_SHA"; then
+              EXPECTED_SHA=$(basename "$(dirname "$(find /mnt/wl_nas/devops/pccl-artifact-cache-${{ github.run_id }}/cache/standard -name output_standard.build.json -print -quit)")")
+            fi
+            test -n "$EXPECTED_SHA"
+            CACHE_DIR=/mnt/wl_nas/devops/pccl-artifact-cache-${{ github.run_id }}/cache/standard/$EXPECTED_SHA
             RESULT_ROOT=/mnt/wl_nas/devops/pccl-artifact-cache-${{ github.run_id }}/results/full
             rm -rf "$RESULT_ROOT"
             mkdir -p "$(dirname "$RESULT_ROOT")"
@@ -327,7 +363,7 @@ jobs:
             python3 -S -B pccl/tests/xtest/artifact_cache.py validate \
               --directory "$CACHE_DIR" --profile standard \
               --pccl-revision '${{ github.sha }}' --pccl-tests-revision '${{ env.PCCL_TESTS_REVISION }}' \
-              --expected-sha256 '${{ env.EXPECTED_SHA }}'
+              --expected-sha256 "$EXPECTED_SHA"
             tar -xzf "$CACHE_DIR/output_standard.tar.gz" -C /workspace/source
             test "$(git -C "$build_output/pccl" rev-parse HEAD)" = '${{ github.sha }}'
             test "$(git -C "$build_output/pccl-tests" rev-parse HEAD)" = '${{ env.PCCL_TESTS_REVISION }}'
@@ -393,8 +429,13 @@ jobs:
             set -euo pipefail
             umask 022
             cd "$SOURCE_DIR"
-            CACHE_DIR=/mnt/wl_nas/devops/pccl-artifact-cache-${{ github.run_id }}/cache/standard/${{ env.EXPECTED_SHA }}
-            SHARED_ROOT=/mnt/wl_nas/devops/pccl-artifact-cache-${{ github.run_id }}/shared-standard/${{ env.EXPECTED_SHA }}
+            EXPECTED_SHA='${{ env.EXPECTED_SHA }}'
+            if test -z "$EXPECTED_SHA"; then
+              EXPECTED_SHA=$(basename "$(dirname "$(find /mnt/wl_nas/devops/pccl-artifact-cache-${{ github.run_id }}/cache/standard -name output_standard.build.json -print -quit)")")
+            fi
+            test -n "$EXPECTED_SHA"
+            CACHE_DIR=/mnt/wl_nas/devops/pccl-artifact-cache-${{ github.run_id }}/cache/standard/$EXPECTED_SHA
+            SHARED_ROOT=/mnt/wl_nas/devops/pccl-artifact-cache-${{ github.run_id }}/shared-standard/$EXPECTED_SHA
             export build_output="$SHARED_ROOT/output_standard"
             RESULT_ROOT=/mnt/wl_nas/devops/pccl-artifact-cache-${{ github.run_id }}/results/full
             rm -rf "$RESULT_ROOT" "$SHARED_ROOT"
@@ -407,7 +448,7 @@ jobs:
             python3 -S -B pccl/tests/xtest/artifact_cache.py validate \
               --directory "$CACHE_DIR" --profile standard \
               --pccl-revision '${{ github.sha }}' --pccl-tests-revision '${{ env.PCCL_TESTS_REVISION }}' \
-              --expected-sha256 '${{ env.EXPECTED_SHA }}'
+              --expected-sha256 "$EXPECTED_SHA"
             tar -xzf "$CACHE_DIR/output_standard.tar.gz" -C "$SHARED_ROOT"
             test "$(git -C "$build_output/pccl" rev-parse HEAD)" = '${{ github.sha }}'
             test "$(git -C "$build_output/pccl-tests" rev-parse HEAD)" = '${{ env.PCCL_TESTS_REVISION }}'
@@ -494,9 +535,11 @@ jobs:
 
           needs = json.loads(os.environ['NEEDS'])
           failed = {}
-          for name in ('prepare', 'build-standard', 'stage-cache', 'execute'):
+          for name in ('prepare', 'stage-cache', 'execute'):
               if needs[name]['result'] != 'success':
                   failed[name] = needs[name]['result']
+          if needs['build-standard']['result'] not in ('success', 'skipped'):
+              failed['build-standard'] = needs['build-standard']['result']
           outcomes = {'reconcile': '${{ steps.reconcile.outcome }}', 'cleanup': '${{ steps.cleanup.outcome }}'}
           for name, result in outcomes.items():
               if result != 'success':
