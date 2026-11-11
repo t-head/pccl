@@ -1,14 +1,14 @@
 {
   "classification": {
     "base_sha": "cc05ee8b19fb5aea8424f1e3cb1e552daa5c1261",
-    "head_sha": "7ddcf30273cb8a10997ede1c582aa2e282b3d742",
-    "input_fingerprint": "3e18d40b67d48a1bcce2565272ef47b8075803843769d56af3ee9c625f951d32",
+    "head_sha": "51217a26326e3a1018ef688429a3bab0efdb7e28",
+    "input_fingerprint": "d22ac6b7386d5b5c4e262135fca3dc20d2b78261e15d2772f9f0c614ef2de1e4",
     "pr_number": 31,
     "proposal": {
       "modules": [
         "gin"
       ],
-      "reason": "Main functional change is adding an independent TROCE GIN backend: new GIN host lifecycle/connect/registration/progress paths, device-side GIN API implementation, backend type enums, and internal GIN plugin wiring. The Makefile and net_ib provider-detection edits are supporting integration for this backend rather than independent changes to another module."
+      "reason": "Main change is introducing a new built-in GIN backend (TROCE) across host/device GIN APIs, context/memory-registration lifecycle, provider loading, backend selection/type wiring, and GIN plugin integration; other edits (e.g., Makefile and shared IB helper exposure) are supporting changes for that backend rather than independent module changes."
     }
   },
   "reviewers": {
