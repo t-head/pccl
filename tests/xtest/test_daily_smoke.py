@@ -97,17 +97,16 @@ class DailySmokeTests(unittest.TestCase):
         text = MPI_PROBE_WORKFLOW.read_text()
         self.assertIn('Two-node hostname launch without PCCL', text)
         self.assertIn('host_network: true', text)
-        self.assertIn('timeout -k 2s 12s strace', text)
-        self.assertIn('cat /tmp/connect.strace', text)
+        self.assertIn('export HWLOC_COMPONENTS=-gl', text)
+        self.assertIn('timeout -k 2s 25s', text)
         self.assertIn('cluster-ssh "$host"', text)
         self.assertIn('< /dev/null || exit 1', text)
-        self.assertIn('run_probe local-connect-stack', text)
-        self.assertIn('run_probe local-without-display', text)
-        self.assertIn('run_probe dual-without-display', text)
+        self.assertIn('run_probe local-no-gl', text)
+        self.assertIn('run_probe dual-no-gl', text)
         self.assertNotIn('run_cases.py', text)
         self.assertNotIn('build-standard', text)
-        local_probe = text.split('run_probe local-connect-stack', 1)[1]
-        self.assertNotIn('btl_tcp_if_include', local_probe)
+        dual_probe = text.split('run_probe dual-no-gl', 1)[1]
+        self.assertIn('btl_tcp_if_include "$MPI_INTERFACE"', dual_probe)
 
 
 if __name__ == '__main__':
