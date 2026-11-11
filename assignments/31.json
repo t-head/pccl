@@ -2,13 +2,14 @@
   "classification": {
     "base_sha": "fb3ac5cc39779fcf2f8c24b217aedbc3c7317158",
     "head_sha": "dcdf0209463f0ca8577e5e90928d9695a822a645",
-    "input_fingerprint": "489524a195291c55cb5fa142b26bd3f96b2f805dcc446e312910888df6523180",
+    "input_fingerprint": "fdf1cadf12b11799fd4c3c93b0e5fdbf9d58e2272049af4fda6487d1a4b0b31d",
     "pr_number": 31,
     "proposal": {
       "modules": [
+        "network",
         "gin"
       ],
-      "reason": "Main change adds an independent built-in TROCE GIN backend (type 16), including GIN plugin wiring, backend selection/properties, host context lifecycle, memory registration, error/progress handling, and device-side GIN API/backend dispatch. The net_ib/common enum/init and Makefile updates are supporting plumbing for this GIN backend rather than separate network/build behavior changes."
+      "reason": "Main change adds a full independent TROCE GIN backend (new host/device GIN implementation, plugin registration, GIN type/device enums, context/MR lifecycle, and device-side put/get/flush/wait paths). Additional network review is needed because shared net_ib infrastructure is substantively changed (provider classification in init, common GDR-support helper/interface refactor, and shared IB/GIN connection helpers) beyond purely local caller wiring."
     }
   },
   "reviewers": {
