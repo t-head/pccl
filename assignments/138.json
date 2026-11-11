@@ -1,14 +1,14 @@
 {
   "classification": {
-    "base_sha": "77af125652fd1ffc532bf519022f709b9df510fd",
-    "head_sha": "392370b9c5fc2e4d9a076e141caccae62f2121ba",
-    "input_fingerprint": "5795e52e384813b4502cd07d72a86f207c7ec62a33e9c33d027af75d83132e02",
+    "base_sha": "d2e86b965a5b55b373ac8e504a392a0d7e30f68b",
+    "head_sha": "8a7c7667ddaef15cc8713e6d6114cac8ba42658f",
+    "input_fingerprint": "23360f791b0fda3e008b8c2747aadd3e458d322520aeeb34d145f45112d5d74c",
     "pr_number": 138,
     "proposal": {
       "modules": [
         "ras"
       ],
-      "reason": "Adds a new passive RAS diagnostics flow end-to-end: client CLI `--diagnostics` command handling, asynchronous diagnostics request lifecycle over RAS collectives (`RAS_COLL_DIAG`), per-rank environment snapshot gather/merge/summarization, and related cleanup/error handling for diagnostics control traffic."
+      "reason": "Adds on-demand passive RAS diagnostics: new DIAGNOSTICS client/server command path, new RAS_COLL_DIAG collective gather/merge lifecycle, and environment snapshot comparison/reporting logic in RAS diagnostics control traffic."
     }
   },
   "reviewers": {
