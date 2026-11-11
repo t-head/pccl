@@ -1,4 +1,6 @@
 plan,suite,nodes,cards_per_node,timeout,env
+pccl_shm_commabort_test_multi_node2_plan,commabort_test_shm_multi_nodes2_suite,2,8,300,op_perf.env
+pccl_shm_commabort_test_single_node1_plan,commabort_test_shm_single_node_suite,1,8,300,op_perf.env
 pccl_shm_copyengine_perf_multi_node2_plan,copyengine_perf_shm_multi_nodes2_suite,2,8,300,op_perf.env
 pccl_shm_copyengine_perf_single_node1_plan,copyengine_perf_shm_single_node_suite,1,8,300,op_perf.env
 pccl_shm_device_api_multi_node2_plan,device_api_shm_multi_nodes2_suite,2,8,300,op_perf.env

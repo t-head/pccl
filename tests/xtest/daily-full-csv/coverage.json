@@ -1,6 +1,26 @@
 {
-  "selected_cases": 8883,
+  "selected_cases": 8899,
   "selected_suites": [
+    {
+      "cards_per_node": 8,
+      "cases": 8,
+      "nodes": 2,
+      "plan": "pccl_shm_commabort_test_multi_node2_plan",
+      "runner_types": [
+        "pccl_perf.MpiCommabortMultiRunner"
+      ],
+      "suite": "commabort_test_shm_multi_nodes2_suite"
+    },
+    {
+      "cards_per_node": 8,
+      "cases": 8,
+      "nodes": 1,
+      "plan": "pccl_shm_commabort_test_single_node1_plan",
+      "runner_types": [
+        "pccl_perf.MpiCommabortSingleRunner"
+      ],
+      "suite": "commabort_test_shm_single_node_suite"
+    },
     {
       "cards_per_node": 8,
       "cases": 26,
@@ -322,34 +342,8 @@
       "suite": "sanity_m890p_register_suite"
     }
   ],
-  "skipped_cases": 3407,
+  "skipped_cases": 3391,
   "skipped_suites": [
-    {
-      "cards_per_node": 8,
-      "cases": 8,
-      "nodes": 2,
-      "plan": "pccl_shm_commabort_test_multi_node2_plan",
-      "reasons": [
-        "unsupported Runner types: pccl_perf.MpiCommabortMultiRunner"
-      ],
-      "runner_types": [
-        "pccl_perf.MpiCommabortMultiRunner"
-      ],
-      "suite": "commabort_test_shm_multi_nodes2_suite"
-    },
-    {
-      "cards_per_node": 8,
-      "cases": 8,
-      "nodes": 1,
-      "plan": "pccl_shm_commabort_test_single_node1_plan",
-      "reasons": [
-        "unsupported Runner types: pccl_perf.MpiCommabortSingleRunner"
-      ],
-      "runner_types": [
-        "pccl_perf.MpiCommabortSingleRunner"
-      ],
-      "suite": "commabort_test_shm_single_node_suite"
-    },
     {
       "cards_per_node": 8,
       "cases": 4,
