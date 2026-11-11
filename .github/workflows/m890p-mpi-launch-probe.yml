@@ -62,7 +62,7 @@ jobs:
               echo "Checking $host"
               getent hosts "$host"
               timeout -k 5s 30s cluster-ssh "$host" \
-                'hostname; command -v orted; orted --version' < /dev/null || exit 1
+                'hostname; command -v orted; mpirun --version' < /dev/null || exit 1
             done < "$CLUSTER_HOSTS_FILE"
 
             cat > /tmp/cluster-ssh-trace <<'EOF'
