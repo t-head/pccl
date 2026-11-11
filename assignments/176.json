@@ -1,14 +1,14 @@
 {
   "classification": {
     "base_sha": "cc05ee8b19fb5aea8424f1e3cb1e552daa5c1261",
-    "head_sha": "5ca58ed7d51515290d21ce769195c1cb79742f01",
-    "input_fingerprint": "ec4cf7fbc2245d1f900feb18a452f0dbe06a5727ce804fc19a17ad4b0d0df8dc",
+    "head_sha": "9f8d4ef8499d949a20952a38909230225763a4be",
+    "input_fingerprint": "6cf7d7cea8d7ffabc5050ddc727509c2b541bde75362488f44937ad648e68e5d",
     "pr_number": 176,
     "proposal": {
       "modules": [
         "ras"
       ],
-      "reason": "Main functional change is RAS hang diagnostics: new Ring forwarding-boundary attribution, richer snapshot/wire-format fields, analyzer/offline-dump compatibility handling, and monitor gating for valid diagnostic reads. The init/collectives atomic-state and selection-path edits are supporting synchronization/filtering for this RAS workflow, not independent communicator/network behavior changes."
+      "reason": "The PR is a substantive expansion of RAS hang diagnostics and offline analysis: it adds Ring forwarding-boundary attribution, richer per-peer/channel validity metadata, new ring backtrace logic, diagnostic snapshot/replay format updates, and monitor/read-safety gating for initialized communicators. Changes in shared files (e.g., init/comm dumper hooks) support this diagnostic behavior rather than introducing independent transport, kernel, or communicator-policy changes."
     }
   },
   "reviewers": {
