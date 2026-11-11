@@ -2,16 +2,18 @@
   "classification": {
     "base_sha": "cc05ee8b19fb5aea8424f1e3cb1e552daa5c1261",
     "head_sha": "93198c05ddcf471425b23a989e547a2a03af83af",
-    "input_fingerprint": "d52cb273e0e4ea45217853db0dff2826e536ad0e8d6b75d8d46e72aaa589f439",
+    "input_fingerprint": "bfc697deffcbebdc28407f5911336c9ff4754593ddacf02fecb06cadf6482f22",
     "pr_number": 174,
     "proposal": {
       "modules": [
         "graph-search",
+        "tuning",
+        "enqueue",
         "network",
         "kernels",
         "tuner-plugin"
       ],
-      "reason": "Primary change removes CollNet runtime execution and plugin/proxy integration (network). Additional substantive changes remove CollNet topology graph construction/search/connection paths (graph-search), delete CollNet device-kernel specializations and dispatch table entries (kernels), and add v1 external tuner algorithm-ID translation/fallback to preserve ABI compatibility while internal IDs are compacted (tuner-plugin)."
+      "reason": "Main change is removing CollNet runtime transport/plugin/proxy execution paths and collective-network wiring (`network`). Also removes CollNet device kernel specializations and function-table entries (`kernels`), deletes CollNet topology graph construction/connection/search behavior (`graph-search`), updates host planning/pattern/channel scheduling and fallback handling after CollNet path removal (`enqueue`), compacts internal algorithm IDs and rewrites built-in cost/default-selection tables accordingly (`tuning`), and adds explicit v1 external tuner-ID translation/fallback at the ABI boundary while keeping plugin v1 compatibility (`tuner-plugin`)."
     }
   },
   "reviewers": {
