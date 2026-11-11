@@ -1,15 +1,15 @@
 {
   "classification": {
-    "base_sha": "fb3ac5cc39779fcf2f8c24b217aedbc3c7317158",
-    "head_sha": "dcdf0209463f0ca8577e5e90928d9695a822a645",
-    "input_fingerprint": "fdf1cadf12b11799fd4c3c93b0e5fdbf9d58e2272049af4fda6487d1a4b0b31d",
+    "base_sha": "d2e86b965a5b55b373ac8e504a392a0d7e30f68b",
+    "head_sha": "dc93e5adb8161d8b70ca772265a48e9fae2f5891",
+    "input_fingerprint": "7217b6889763be1752a06e826f982e694f40b370e6fd1eee4e3bb768c337bde6",
     "pr_number": 31,
     "proposal": {
       "modules": [
         "network",
         "gin"
       ],
-      "reason": "Main change adds a full independent TROCE GIN backend (new host/device GIN implementation, plugin registration, GIN type/device enums, context/MR lifecycle, and device-side put/get/flush/wait paths). Additional network review is needed because shared net_ib infrastructure is substantively changed (provider classification in init, common GDR-support helper/interface refactor, and shared IB/GIN connection helpers) beyond purely local caller wiring."
+      "reason": "Main change is adding a full independent TROCE GIN backend (new host/device GIN implementation, plugin registration, GIN type/device-type wiring, context/memory registration/progress logic). Also needs network review because shared IB transport/provider plumbing is changed (provider detection/classification in net_ib init/common and shared IB GDR/property helper behavior), which can affect broader network transport behavior beyond the new backend."
     }
   },
   "reviewers": {
