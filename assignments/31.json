@@ -6,10 +6,9 @@
     "pr_number": 31,
     "proposal": {
       "modules": [
-        "network",
         "gin"
       ],
-      "reason": "Primary change is a new built-in TROCE GIN backend (type 16) with full GIN host/device context lifecycle, registration, plugin wiring, and device-side GIN API specializations. Add network because the PR also changes shared net_ib provider detection/classification and common IB provider definitions used beyond a single GIN implementation."
+      "reason": "Main functional change is adding a new built-in TROCE GIN backend end-to-end (plugin registration, GIN host lifecycle, GIN device API specializations, device/host shared ABI, and TROCE-specific queue/CQ progress and memory-registration paths). The Makefile, enum, and shared IB helper updates are supporting integration for this GIN backend rather than separate substantive changes in build or generic network modules."
     }
   },
   "reviewers": {
