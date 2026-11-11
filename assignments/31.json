@@ -2,14 +2,14 @@
   "classification": {
     "base_sha": "e3b0139c540d1a167f6f3aa53e803fb2c61bccb5",
     "head_sha": "04cbec457a59196b2a0db8144e1a171c69a1499f",
-    "input_fingerprint": "c7a8683c9be837bc404f076adeb6aaf6a206f4f79c06c58eee6dfa8bd041c104",
+    "input_fingerprint": "da56b2982803a3cec8db386673c258951ea398d6e6c7c8c2c82c32df3a62ce1d",
     "pr_number": 31,
     "proposal": {
       "modules": [
         "network",
         "gin"
       ],
-      "reason": "Main change adds a full new GIN backend (TROCE): new device/host GIN backend implementation, GIN type/device enums, GIN API specializations, and internal GIN plugin wiring. Additional network review is needed because shared net_ib transport code is substantively changed (provider detection/classification and exported IB helper paths) in ways that can affect broader network backend behavior beyond purely local file additions."
+      "reason": "Primary change adds a full TROCE GIN backend (device API specializations, host context lifecycle, MR registration, provider loading, and GIN plugin exposure with new GIN type/device enums). Include network because shared net_ib provider detection/type plumbing in common/init is substantively changed and can affect broader IB transport behavior beyond the new backend."
     }
   },
   "reviewers": {
