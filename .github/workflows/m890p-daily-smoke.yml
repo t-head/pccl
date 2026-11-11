@@ -64,7 +64,7 @@ jobs:
               assert hashlib.sha256((runner / name).read_bytes()).hexdigest() == expected
           metadata = json.loads(Path('tests/xtest/daily-minimal-csv/export.json').read_text())
           assert metadata['runner_revision'] == revision
-          expected = {('standard', 1): 7, ('standard', 2): 4}
+          expected = {('standard', 1): 7, ('standard', 2): 5}
           for (profile, nodes), count in expected.items():
               selected = run_cases.load_inputs(Path('tests/xtest/daily-minimal-csv'), profile, nodes)
               assert len(selected['cases']) == count
@@ -324,10 +324,47 @@ jobs:
           cleanup_policy: always
           container_options: |
             privileged: true
+            host_network: true
+            dns_policy: ClusterFirstWithHostNet
           host_volumes: /dev/infiniband:/dev/infiniband
           setup_command: |
             set -euo pipefail
             source /usr/local/PPU_SDK/envsetup.sh
+            MPI_INTERFACE=$(awk '$2 == "00000000" {print $1; exit}' /proc/net/route)
+            test -n "$MPI_INTERFACE"
+            # Avoid the hwloc GL/X11 probe, preserve hostfile FQDNs and use the management route.
+            export HWLOC_COMPONENTS=-gl
+            export OMPI_MCA_plm_rsh_agent=cluster-ssh
+            export OMPI_MCA_orte_base_help_aggregate=0
+            export OMPI_MCA_orte_keep_fqdn_hostnames=1
+            export OMPI_MCA_oob_tcp_if_include="$MPI_INTERFACE"
+            export OMPI_MCA_btl_tcp_if_include="$MPI_INTERFACE"
+            export NCCL_SOCKET_IFNAME="$MPI_INTERFACE"
+            ulimit -l unlimited
+            ulimit -s 65536
+            if ! command -v ibv_devinfo >/dev/null || ! command -v rdma >/dev/null || ! command -v ip >/dev/null; then
+              export DEBIAN_FRONTEND=noninteractive
+              apt-get update
+              apt-get install -y --no-install-recommends rdma-core ibverbs-utils iproute2
+            fi
+            echo "MPI and NCCL control interface: $MPI_INTERFACE"
+            ip -4 -o addr show dev "$MPI_INTERFACE"
+            ibv_devinfo
+            rdma link show
+            python3 - <<'PY'
+            import ipaddress
+            from pathlib import Path
+
+            valid = []
+            for path in Path('/sys/class/infiniband').glob('*/ports/*/gids/*'):
+                value = path.read_text().strip()
+                if value and not ipaddress.IPv6Address(value).is_link_local and int(value.replace(':', ''), 16) != 0:
+                    valid.append((str(path), value))
+            if not valid:
+                raise SystemExit('No non-zero RoCE GID is visible inside the worker')
+            for path, value in valid:
+                print(f'Valid RoCE GID: {path} -> {value}')
+            PY
             test -d /dev/infiniband
             test -r /proc/net/route
             set -- /dev/infiniband/*
@@ -364,12 +401,22 @@ jobs:
             /workspace/minimal-csv-cluster-env/bin/python -m pip check
             source /usr/local/PPU_SDK/envsetup.sh
             unset PCCL_PATH
-            export OMPI_MCA_plm_rsh_agent=cluster-ssh
-            export OMPI_MCA_orte_base_help_aggregate=0
             MPI_INTERFACE=$(awk '$2 == "00000000" {print $1; exit}' /proc/net/route)
             test -n "$MPI_INTERFACE"
-            echo "MPI TCP interface: $MPI_INTERFACE"
+            test "$NCCL_SOCKET_IFNAME" = "$MPI_INTERFACE"
+            test "$OMPI_MCA_orte_keep_fqdn_hostnames" = 1
             test "$(wc -l < "$CLUSTER_HOSTS_FILE")" -eq 2
+            checked_hosts=0
+            while read -r host _; do
+              timeout -k 5s 30s cluster-ssh "$host" \
+                "hostname; test \"\$NCCL_SOCKET_IFNAME\" = \"$MPI_INTERFACE\"; test \"\$OMPI_MCA_orte_keep_fqdn_hostnames\" = 1; test \"\$HWLOC_COMPONENTS\" = -gl" \
+                < /dev/null
+              checked_hosts=$((checked_hosts + 1))
+            done < "$CLUSTER_HOSTS_FILE"
+            test "$checked_hosts" -eq 2
+            echo 'Checking the exported runtime environment with a two-rank launch:'
+            timeout -k 10s 60s mpirun --allow-run-as-root \
+              --hostfile "$CLUSTER_HOSTS_FILE" -np 2 -npernode 1 hostname
             /workspace/minimal-csv-cluster-env/bin/python -B \
               "$build_output/pccl/tests/xtest/run_cases.py" \
               --input "$build_output/pccl/tests/xtest/daily-minimal-csv" \
@@ -408,7 +455,7 @@ jobs:
           root = Path('/wl_nas/devops/pccl-artifact-cache-${{ github.run_id }}/results')
           public = Path('public-results')
           public.mkdir()
-          expected = {'standard': 7, 'cluster': 4}
+          expected = {'standard': 7, 'cluster': 5}
           errors = []
           for name, count in expected.items():
               source = root / name

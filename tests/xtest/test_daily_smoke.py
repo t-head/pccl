@@ -21,8 +21,8 @@ class DailySmokeTests(unittest.TestCase):
         self.assertEqual(len(selected['cases']), 7)
         self.assertEqual(len({(row['plan'], row['suite']) for row in selected['cases']}), 7)
         cluster = run_cases.load_inputs(INPUT, 'standard', nodes=2)
-        self.assertEqual(len(cluster['cases']), 4)
-        self.assertEqual(len({(row['plan'], row['suite']) for row in cluster['cases']}), 4)
+        self.assertEqual(len(cluster['cases']), 5)
+        self.assertEqual(len({(row['plan'], row['suite']) for row in cluster['cases']}), 5)
         self.assertTrue(all(row['suite_spec']['nodes'] == 2 for row in cluster['cases']))
         register = next(row for row in cluster['cases']
                         if row['suite'] == 'register_test_shm_multi_nodes2_suite')
@@ -36,11 +36,16 @@ class DailySmokeTests(unittest.TestCase):
         self.assertIn('-npernode 8', copyengine['cmd'])
         self.assertIn('--hostfile {hostfile}', copyengine['cmd'])
         direct_multi = [row for row in cluster['cases'] if row['cmd'].startswith('mpirun ')]
-        self.assertEqual(len(direct_multi), 3)
+        self.assertEqual(len(direct_multi), 4)
         for row in direct_multi:
             self.assertIn('-np 16', row['cmd'])
             self.assertIn('-npernode 8', row['cmd'])
             self.assertIn('--hostfile {hostfile}', row['cmd'])
+        rdma = next(row for row in cluster['cases']
+                    if row['suite'] == 'op_perf_rdma_shm_multi_nodes2_suite')
+        self.assertIn('NCCL_MNNVL_ENABLE=0', rdma['cmd'])
+        self.assertNotIn('orte_keep_fqdn_hostnames', rdma['cmd'])
+        self.assertNotIn('NCCL_SOCKET_IFNAME', rdma['cmd'])
         sanity = next(row for row in selected['cases'] if row['suite'] == 'sanity_m890p_register_suite')
         self.assertIn('--register 1', sanity['cmd'])
         self.assertEqual(sum(row['check'] == 'performance' for row in selected['cases']), 1)
@@ -60,7 +65,7 @@ class DailySmokeTests(unittest.TestCase):
         self.assertEqual(sum(row['cmd'].startswith('python3 run_test.py') for row in rows), 3)
         single_node_rows = run_cases.load_inputs(INPUT, 'standard', nodes=1)['cases']
         self.assertEqual(sum(row['cmd'].startswith('mpirun ') for row in single_node_rows), 4)
-        self.assertEqual(sum(row['cmd'].startswith('mpirun ') for row in rows), 7)
+        self.assertEqual(sum(row['cmd'].startswith('mpirun ') for row in rows), 8)
 
     def test_daily_metadata_and_empty_notsm_are_explicit(self):
         metadata = json.loads((INPUT / 'export.json').read_text())
@@ -75,7 +80,7 @@ class DailySmokeTests(unittest.TestCase):
         text = WORKFLOW.read_text()
         self.assertIn('branches: [ci/m890p-daily-csv]', text)
         self.assertIn('tests/xtest/daily-minimal-csv', text)
-        self.assertIn("expected = {'standard': 7, 'cluster': 4}", text)
+        self.assertIn("expected = {'standard': 7, 'cluster': 5}", text)
         self.assertIn('len(metrics) != 1', text)
         self.assertIn('artifact_cache.py cleanup', text)
         self.assertIn('NEEDS: ${{ toJSON(needs) }}', text)
@@ -83,6 +88,17 @@ class DailySmokeTests(unittest.TestCase):
         self.assertIn('name: m890p-daily-build-standard', text)
         self.assertIn('name: m890p-daily-build-${{ matrix.profile }}', text)
         self.assertIn('Two-node master-only daily smoke', text)
+        two_node = text.split('  two-node:\n', 1)[1].split('  summary:\n', 1)[0]
+        setup = two_node.split('setup_command: |', 1)[1].split('\n          command: |', 1)[0]
+        self.assertIn('host_network: true', two_node)
+        self.assertIn('export HWLOC_COMPONENTS=-gl', setup)
+        self.assertIn('export OMPI_MCA_orte_keep_fqdn_hostnames=1', setup)
+        self.assertIn('export OMPI_MCA_oob_tcp_if_include="$MPI_INTERFACE"', setup)
+        self.assertIn('export OMPI_MCA_btl_tcp_if_include="$MPI_INTERFACE"', setup)
+        self.assertIn('export NCCL_SOCKET_IFNAME="$MPI_INTERFACE"', setup)
+        self.assertNotIn('extra_env: NCCL_NET=IB', two_node)
+        probe = two_node.split('timeout -k 10s 60s mpirun', 1)[1].split('/workspace/minimal-csv-cluster-env', 1)[0]
+        self.assertNotIn('--mca', probe)
         self.assertNotIn('human-review', text)
         self.assertNotIn('build-notsm', text)
         self.assertNotIn("expected = {('standard', 1): 71", text)
