@@ -8,7 +8,7 @@
       "modules": [
         "ras"
       ],
-      "reason": "The PR is a substantive expansion of RAS hang diagnostics and offline analysis: it adds Ring forwarding-boundary attribution, richer per-peer/channel validity metadata, new ring backtrace logic, diagnostic snapshot/replay format updates, and monitor/read-safety gating for initialized communicators. Changes in shared files (e.g., init/comm dumper hooks) support this diagnostic behavior rather than introducing independent transport, kernel, or communicator-policy changes."
+      "reason": "Main change extends RAS hang diagnostics to attribute mid-kernel Ring forwarding stalls using captured head/step metadata, with new ring-trace analysis, snapshot/wire-format extensions, offline replay support, and monitor/read-validity handling. Non-RAS edits (init-state atomics and request plumbing) are tightly coupled support for reliable RAS capture rather than independent subsystem changes."
     }
   },
   "reviewers": {
