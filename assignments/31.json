@@ -1,15 +1,14 @@
 {
   "classification": {
     "base_sha": "e3b0139c540d1a167f6f3aa53e803fb2c61bccb5",
-    "head_sha": "04cbec457a59196b2a0db8144e1a171c69a1499f",
-    "input_fingerprint": "da56b2982803a3cec8db386673c258951ea398d6e6c7c8c2c82c32df3a62ce1d",
+    "head_sha": "af2ad5bb46b0ecd6ee9015711733cd1b060f719b",
+    "input_fingerprint": "6da3b9f57a2da1215abffe967a1109e72fcb39a9606fc36c028a83c2d6d09773",
     "pr_number": 31,
     "proposal": {
       "modules": [
-        "network",
         "gin"
       ],
-      "reason": "Primary change adds a full TROCE GIN backend (device API specializations, host context lifecycle, MR registration, provider loading, and GIN plugin exposure with new GIN type/device enums). Include network because shared net_ib provider detection/type plumbing in common/init is substantively changed and can affect broader IB transport behavior beyond the new backend."
+      "reason": "Main change is adding a full independent TROCE GIN backend (host lifecycle, device API specializations, provider loading, memory registration, QP/CQ progress, plugin wiring, and GIN type/device-type integration). Build and net_ib touchpoints are supporting plumbing for this GIN-specific backend rather than separate substantive changes to build/CI or generic network transport policy."
     }
   },
   "reviewers": {
