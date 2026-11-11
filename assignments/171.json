@@ -1,14 +1,14 @@
 {
   "classification": {
     "base_sha": "cc05ee8b19fb5aea8424f1e3cb1e552daa5c1261",
-    "head_sha": "4f77311a4a4992626b9e45c838b6c9a6c3361374",
-    "input_fingerprint": "6d6f9145825f2a7a0fdfd467a9bf52dcc148367bb930ce09968598872a210fa0",
+    "head_sha": "242c72f94de5f8b93ee3cccd05d2e49e6154e620",
+    "input_fingerprint": "be8578a1c6e85fce55d9a0ba2cac20f7473701a3a3b1398b32f19828e6c0b228",
     "pr_number": 171,
     "proposal": {
       "modules": [
         "ci"
       ],
-      "reason": "Migrates the source-sanity CI workflow\u2019s three remaining job executor calls from the legacy scheduler Action to cluster-run, changing CI execution wiring/runners while preserving job inputs and commands; accompanying test updates only validate this CI contract change."
+      "reason": "Main functional change updates open-source test workflow execution in .github/workflows/source-sanity.yml by replacing three CI job executor Action references with cluster-run@main while preserving job inputs/commands. The test_workflow_contract.py edits only enforce this CI contract change and do not introduce a separate workflow-policy or reviewer-routing change."
     }
   },
   "reviewers": {
