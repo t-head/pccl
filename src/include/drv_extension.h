@@ -447,6 +447,7 @@ struct ncclFuncDispatchStrategy {
   uint64_t dispMask;
   uint32_t kernelControl;
   struct dispatchStrategyExAD launchConfig;
+  bool applied;
 };
 
 typedef enum {
@@ -501,8 +502,9 @@ bool checkIcnDispatchMask(int icnDispatchMask, PPU_TYPE ppuType);
 bool checkFullCeLeft(int icnDispatchMask, PPU_TYPE ppuType);
 bool checkFullCeRight(int icnDispatchMask, PPU_TYPE ppuType);
 ncclResult_t initDefaultDispatchStrategy(ncclComm_t comm, int nDies);
-ncclResult_t setNativeDispatchStrategy(const void* func, struct ncclFuncDispatchStrategy* oldStrategy, struct ncclDispatchStrategy defaultStrategy, const char* funcName,
-                                int compCap, dispatchInfo dInfo);
+ncclResult_t invalidateDispatchStrategyCache();
+ncclResult_t setNativeDispatchStrategy(const void* func, struct ncclDispatchStrategy defaultStrategy, const char* funcName,
+                                int compCap, dispatchInfo dInfo, struct dispatchStrategyExAD* launchConfig);
 ncclResult_t setUserDispatchStrategy(const struct pcclDispatchFunc* fn, const char* policyName, int compCap,
                                      int oneBatchPerCe, int tbPerCu, int d2dDispPingPongEn,
                                      int cuMaskPolicy, uint64_t cuMask, uint32_t ceMask);

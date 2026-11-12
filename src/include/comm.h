@@ -575,9 +575,10 @@ struct pcclComm {
   // buffer registration cache
   struct ncclRegCache regCache;
 
-  // list of func dispatch strategy.
+  // Per-comm dispatch inputs consumed when computing the expected strategy
+  // at each launch; last-applied values live in the process-wide g_dispCache
+  // (see src/misc/drv_extension.cc).
   struct smResourceConfig_t smResConfig;
-  struct ncclFuncDispatchStrategy *funcStrategy;
   struct ncclDispatchStrategy defaultStrategy;
   ncclFunc_t collType;
   size_t nBytes;
