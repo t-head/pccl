@@ -2,14 +2,14 @@
   "classification": {
     "base_sha": "cc05ee8b19fb5aea8424f1e3cb1e552daa5c1261",
     "head_sha": "5f65f980e1cab1069760c6807d967b6ebfb14604",
-    "input_fingerprint": "99afabeba1da43f9bc7ea3d3c7c94489dc6cc54791a6e8faba1b592def50e3af",
+    "input_fingerprint": "6990b74650944a46107048e7f8d8160fe7f16550be665a1486d51cf2c180a113",
     "pr_number": 178,
     "proposal": {
       "modules": [
         "network",
         "gin"
       ],
-      "reason": "Primary change is in the IB network backend: connection handshake/state machine, QP/ECE negotiation, QoS traffic-class/service-level handling, FLID/GID routing, receive-size reporting, connect/abort cleanup, and MR registration cache behavior. Added gin because GIN IB paths are independently updated (traffic-class normalization/validation, connect flow integration with new IB connect/abort semantics), not just incidental call-site edits."
+      "reason": "Main change is IB backend transport behavior in connection setup/ready handshake, QoS (TC/SL/FIFO TC), ECE/FLID/GID handling, receive-size reporting, and MR registration caching across net_ib/proxy paths. Added gin because GIN-specific IB connect/context paths were substantively updated to use the new traffic-class validation/connect-abort flow, not just incidental call-site churn."
     }
   },
   "reviewers": {
