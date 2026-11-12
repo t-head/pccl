@@ -1,15 +1,15 @@
 {
   "classification": {
     "base_sha": "dcc16f7527444230dbd33cca1f348760c2df7e97",
-    "head_sha": "b9fa2d8763136a1b6e9af9ac60818123a91cb5ae",
-    "input_fingerprint": "b60f228133fc26c4fcd2b27fadb92b951100225c56c82087c1b6e9be51f4859d",
+    "head_sha": "215ca9ed62e51526d2ec8d667740cce38fc6eadf",
+    "input_fingerprint": "4cfea161218d89b963f8359839722a26cadf5ad13c248d9d76625bd143e6aaf2",
     "pr_number": 31,
     "proposal": {
       "modules": [
         "network",
         "gin"
       ],
-      "reason": "Primary change is adding a new built-in TROCE GIN backend (device/host GIN APIs, context lifecycle, registration, dispatch, and SignalSet/flush semantics), which squarely belongs to gin. Add network because the PR also makes independently substantive shared IB transport changes (provider detection/classification, provider enum expansion, and QP inline/verbs behavior in common net_ib paths) beyond a purely local caller update."
+      "reason": "Main change is a new built-in TROCE GIN backend (discovery, connect/context lifecycle, device API dispatch, SignalSet semantics, and GIN plugin wiring), which squarely falls under gin. Include network because the PR also makes substantive shared net_ib transport changes (provider detection, QP inline policy, proxy signal op handling, and verbs opcode support) that can affect broader network transport behavior beyond TROCE-specific files."
     }
   },
   "reviewers": {
