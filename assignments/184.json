@@ -1,14 +1,14 @@
 {
   "classification": {
     "base_sha": "dcc16f7527444230dbd33cca1f348760c2df7e97",
-    "head_sha": "0255924d7246b5abbcf1c1b1b38cd985b461f14d",
-    "input_fingerprint": "f1df508dafb87200f9a6ce4cf7c01119994c2a83cc8a52de14291b6c2d41866f",
+    "head_sha": "404780d89430b15bd0528e23bdd44fcc1a705b21",
+    "input_fingerprint": "6c256f511a70a82a6448ba9647a18ff27899029857cc9fc60eb4a06b4515c2d0",
     "pr_number": 184,
     "proposal": {
       "modules": [
         "dispatch"
       ],
-      "reason": "Fixes CU/CE dispatch policy application by replacing per-comm/FUNC_INDEX mirrors with a process-wide cache keyed by (device, kernel), shared across native/user paths, so strategy/mask re-apply decisions track the actual last-applied kernel state; enqueue/init/comm edits are supporting call-site and lifecycle wiring for this dispatch behavior change."
+      "reason": "Main functional change is in CU/CE dispatch policy application: strategy cache is moved from per-comm/per-FUNC_INDEX mirrors to a process-wide cache keyed by (device, kernel), with applied-state tracking to ensure correct re-application and launchConfig retrieval. Changes in enqueue/comm/init are supporting call-site and storage cleanup for this dispatch behavior, not independent module changes."
     }
   },
   "reviewers": {
