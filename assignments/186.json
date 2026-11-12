@@ -1,14 +1,14 @@
 {
   "classification": {
-    "base_sha": "dcc16f7527444230dbd33cca1f348760c2df7e97",
-    "head_sha": "03e74bb00c2710e70726a40e7446ae987df53c58",
-    "input_fingerprint": "d9bf782af3aa4466eedc218d6254c0134fc98a9befbb11cd7e202bcf08263bc8",
+    "base_sha": "a909809e63dbf891101c88d45c0b78bfe628fab6",
+    "head_sha": "ad6852f98c378985bfc6eced1ab30f96ad771070",
+    "input_fingerprint": "9beabe4b526768b6d7311a2f31cf497072f53236df1a66a121d66b986f05e086",
     "pr_number": 186,
     "proposal": {
       "modules": [
         "workflow"
       ],
-      "reason": "Reviewer-routing automation now builds classification input from native Git diffs (with per-file patch omission handling and uncertainty surfacing) and updates the classification skill guidance to match; these are contribution/review workflow behavior changes, not runtime modules."
+      "reason": "Updates review-routing automation and classification guidance to keep all PR file records when GitHub omits patch bodies, validate available patches, and surface omitted diffs for human review without changing reviewer selection/approval logic."
     }
   },
   "reviewers": {
