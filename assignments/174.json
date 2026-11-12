@@ -1,20 +1,19 @@
 {
   "classification": {
     "base_sha": "dcc16f7527444230dbd33cca1f348760c2df7e97",
-    "head_sha": "0d188201bae0272766133a2c02bd5878ab4a95f4",
-    "input_fingerprint": "a058ed8a961ce9c1f7a1606fc36f4b7d96d3b00f4e3407c4c7f94d4739fe4180",
+    "head_sha": "b79bfa31586e00fc869f1012c41e3d5ad041dd23",
+    "input_fingerprint": "507262fba11c65adef24fb69e0bfcaf81aae94be312ae72fc13d713437a097c0",
     "pr_number": 174,
     "proposal": {
       "modules": [
-        "device-topology",
         "graph-search",
         "transport",
         "tuning",
-        "enqueue",
         "network",
-        "kernels"
+        "kernels",
+        "tuner-plugin"
       ],
-      "reason": "Main change removes CollNet as a runtime feature, primarily in network plugin/proxy loading and collective-network paths. Additional modules are needed for independently substantive removals in transport connection/resource management, topology graph construction/search and NIC topology attributes, device-kernel/function-table CollNet execution slots, built-in algorithm cost/enable tuning tables, and enqueue-time algorithm/pattern/planning plus external-tuner fallback handling."
+      "reason": "Primary change is in tuning: CollNet is retired from algorithm/protocol selection while keeping slot 2 reserved and forcing safe fallback when tuner selections are CollNet or invalid. Additional substantive changes remove executable CollNet device kernels and function-table entries (kernels), remove CollNet topology graph construction/search/connection paths (graph-search), remove CollNet plugin loading and proxy/network-side handling (network), remove CollNet transport setup/connect/resource flows and transport registry wiring (transport), and update v1 external tuner-facing algorithm constants/compatibility semantics without ABI layout changes (tuner-plugin)."
     }
   },
   "reviewers": {
