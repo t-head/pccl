@@ -2,14 +2,14 @@
   "classification": {
     "base_sha": "dcc16f7527444230dbd33cca1f348760c2df7e97",
     "head_sha": "50d8a1019319c5ad52e835c3f097675867d2bb4d",
-    "input_fingerprint": "167078b5a23b94777b9c43da2bb21f4161ccc830eef7419f38dcf649b5075d79",
+    "input_fingerprint": "33d1ba8b06e6fbaa478b0f121130e04f78b41aaed7d1bac871b9bd59ad50f2e8",
     "pr_number": 142,
     "proposal": {
       "modules": [
         "transport",
-        "network"
+        "memory"
       ],
-      "reason": "Main change is in P2P transport registration flow: it now registers full cached ranges that span multiple physical segments, exports/imports per-segment handles, tracks segment counts, and updates deregistration/cleanup paths in transport/p2p. An additional network review is needed because proxy/UDS behavior changed independently (batch FD query API, per-connection imported-handle tracking queue, and proxy-side lifecycle teardown), which affects network proxy resource/protocol handling."
+      "reason": "Main change is in P2P transport IPC registration/deregistration to support multi-segment buffers (segment-wise export/import, proxy FD batch conversion, per-connection handle tracking, and cleanup). Added memory-module review because allocation/registration ownership semantics changed in shared HG memory free/unmap helpers (multi-segment map/unmap, granularity/range handling, and release behavior), which is independently substantive."
     }
   },
   "reviewers": {
