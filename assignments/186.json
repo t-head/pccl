@@ -1,14 +1,14 @@
 {
   "classification": {
     "base_sha": "a909809e63dbf891101c88d45c0b78bfe628fab6",
-    "head_sha": "b739b66b5aae01cc5f50cffb8f5b96c90feb5d81",
-    "input_fingerprint": "fa4b4cf0114277b543880c52c4732037da2fa1e9c751a842c903d383764356f1",
+    "head_sha": "a035d46c4922bc01cc43c8aa1ab7d883f6cc61c8",
+    "input_fingerprint": "b79e48e1c24770f9062182f2f2bc548faa3f247bb53f5044cf793e2339e161fa",
     "pr_number": 186,
     "proposal": {
       "modules": [
         "workflow"
       ],
-      "reason": "Main change is to review/merge automation: module classification now keeps complete file records and flags omitted patches for human review, maintainer-approval status reports missing approvers with module mapping, and squash preview generation is narrowed to commit body handling; docs/skill/workflow text updates support this same workflow behavior."
+      "reason": "Main change updates contribution/review automation: module classification now retains patch-omitted files for human review, maintainer-approval status reports missing approvers by login and module, and squash preview generation is narrowed to commit body content and related workflow/skill guidance."
     }
   },
   "reviewers": {
