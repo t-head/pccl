@@ -2,13 +2,13 @@
   "classification": {
     "base_sha": "dcc16f7527444230dbd33cca1f348760c2df7e97",
     "head_sha": "d2434660458b481590aa1ee416f634f69f5a1a66",
-    "input_fingerprint": "c1a2ec89e65049cbf812fd3da2594f0a71b3d4adfa7c79e972b6bec8d6a44e21",
+    "input_fingerprint": "45fd7e847561c039de5eb5f870195c3aedfb9f601aea9c58f3fe49aa9b024690",
     "pr_number": 167,
     "proposal": {
       "modules": [
         "copy-engine"
       ],
-      "reason": "Main functional change is in CE/DMA execution and queue ownership: it separates CE memcpy rings from ltOki DMA rings, updates CE/OKI stream and QP ring assignment to avoid mixed AllGather+OKI AR/RS hangs, and fixes AR/RS DMA chunk-tail sizing/clamping. Shared init/enqueue edits are feature wiring for this same CE path, while added tests/Makefile are supporting validation only."
+      "reason": "Main functional change is CE/OKI DMA behavior: reserving/hinting memcpy rings and stream channels, remapping ltOki queue/ring usage to avoid CE/ltOki contention, and fixing AR/RS DMA tail sizing/clamping for partial chunks. Changes in enqueue/init and added unit tests are supporting this same copy-engine operation change, not separate module-owned behavior."
     }
   },
   "reviewers": {
