@@ -448,8 +448,8 @@ static void reportRingTrace(FILE* fp, const ringTraceResult& trace, const analyz
     }
     fprintf(fp, "->%d", channel->ringNext);
   };
-  fprintf(fp, "  [SUSPECT] HeadRingTrace channel %d kernel=%lu: collective=%s protocol=%s candidates=",
-          trace.channelId, trace.kernelIndex, analyzerFuncToString(trace.collective), analyzerProtoToString(trace.protocol));
+  fprintf(fp, "  [SUSPECT] HeadRingTrace channel %d seq=%lu: collective=%s protocol=%s candidates=",
+          trace.channelId, trace.seqNumber, analyzerFuncToString(trace.collective), analyzerProtoToString(trace.protocol));
   for (size_t i = 0; i < trace.candidates.size(); i++) {
     const auto& candidate = trace.candidates[i];
     fprintf(fp, "%s%d->%d", i ? "," : "", candidate.sourceRank, candidate.destinationRank);
@@ -465,7 +465,10 @@ static void reportRingTrace(FILE* fp, const ringTraceResult& trace, const analyz
     printRingEdge(sourceChannel->ringPrev);
     printRingEdge(candidate.sourceRank);
     if (candidate.destinationIsForwarder) printRingEdge(candidate.destinationRank);
-    fprintf(fp, "; transport=%s; ", analyzerConnTypeToString(transport));
+    fprintf(fp, "; rank%d.kernelIndex=%lu rank%d.kernelIndex=%lu; transport=%s; ",
+            candidate.sourceRank, sourceChannel->ringOperation.kernelIndex, candidate.destinationRank,
+            findChannelInRank(ranks[candidate.destinationRank].rh, trace.channelId)->ringOperation.kernelIndex,
+            analyzerConnTypeToString(transport));
     printComparison(candidate.sourceRank, candidate.forwardingGap, ">");
     if (candidate.destinationIsForwarder) {
       fprintf(fp, "; ");
@@ -879,9 +882,9 @@ static ringGraphStatus analyzerCollectRingGraph(uint64_t commHash, const analyze
     if (trace.status != RING_TRACE_SUSPECT) continue;
     const auto& firstCandidate = trace.candidates.front();
     char buf[320];
-    snprintf(buf, sizeof(buf), "HeadRingTrace channel %d kernel=%lu suspect rank%d -> rank%d: collective=%s protocol=%s; "
+    snprintf(buf, sizeof(buf), "HeadRingTrace channel %d seq=%lu suspect rank%d -> rank%d: collective=%s protocol=%s; "
                               "%zu terminal boundary candidate(s), first shown; see detailed report; not physical root cause",
-             trace.channelId, trace.kernelIndex, firstCandidate.sourceRank, firstCandidate.destinationRank,
+             trace.channelId, trace.seqNumber, firstCandidate.sourceRank, firstCandidate.destinationRank,
              analyzerFuncToString(trace.collective), analyzerProtoToString(trace.protocol), trace.candidates.size());
     out.push_back({commHash, buf, true});
   }

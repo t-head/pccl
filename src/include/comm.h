@@ -173,6 +173,9 @@ struct alignas(16) ncclWorkList {
 struct ncclTaskColl {
   struct ncclTaskColl* next;
   ncclFunc_t func;
+  // Host-only identity of the retained work; offset is relative to the plan work buffer.
+  uint32_t workOffset;
+  uint64_t seqNumber;
   void const* sendbuff;
   void* recvbuff;
   size_t count;
@@ -267,6 +270,10 @@ struct ncclKernelPlan {
   uint64_t channelMask; // bitset of which channels are present
   bool hasProxyOps; // does any channel have a non-empty proxyOpQueue
   int threadPerBlock;
+
+  // Protected by comm->kernelInfoMutex: either launch or the host callback may finish first.
+  uint64_t monitorKernelIndex;
+  bool seqNumbersReady;
 
   int collOpCount; // Number of collectives in this plan.
   int nWorkBatches; // Number of work batches.
@@ -375,6 +382,13 @@ typedef enum ncclGroupTaskType {
 
 struct KernelInfoMonitor {
   ncclDevKernelArgs1K kernelArgs;
+  // Only in-args collective works can be retained by this fixed-size record.
+  struct WorkSequence {
+    uint64_t seqNumber;
+    uint32_t workOffset;
+  };
+  WorkSequence workSequences[sizeof(ncclDevKernelArgs1K) / sizeof(ncclDevWorkColl)];
+  int nWorkSequences;
 };
 
 struct pcclComm {
@@ -631,6 +645,8 @@ struct pcclComm {
   void* ginContext;       // per-comm GIN plugin instance context
   int ginPluginIndex;     // index into ginPluginLibs[] in plugin/gin.cc
 
+  pthread_mutex_t kernelInfoMutex;
+  bool kernelInfoMutexInitialized;
   KernelInfoMonitor* kernelInfoMonitorPtr = NULL;
   uint64_t kernelNum = 0;
   uint64_t channelKernelIdx[MAXCHANNELS]; // begin from 1

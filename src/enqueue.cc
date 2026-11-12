@@ -347,17 +347,40 @@ ncclResult_t ncclTasksRegAndEnqueue(ncclComm_t comm) {
   return ncclSuccess;
 }
 
+// Caller holds kernelInfoMutex. Never dereference plan->kernelArgs here: a host
+// callback can run after the scoped kernel argument storage has been released.
+static void saveKernelWorkSequences(ncclComm_t comm, struct ncclKernelPlan* plan) {
+  if (!plan->seqNumbersReady || !plan->monitorKernelIndex || plan->persistent || plan->isSymColl ||
+      plan->isCeColl || plan->isCeP2p || plan->workStorageType != ncclDevWorkStorageTypeArgs) return;
+  auto& monitor = comm->kernelInfoMonitorPtr[(plan->monitorKernelIndex - 1) % pcclDevKernelArgsFifoDepth()];
+  // A delayed callback must not attach old work identities to a reused slot.
+  if (monitor.kernelArgs.args.kernelIdx != plan->monitorKernelIndex) return;
+  size_t workBase = sizeof(ncclDevKernelArgs) + plan->nWorkBatches * sizeof(ncclDevWorkBatch);
+  monitor.nWorkSequences = 0;
+  for (auto* task = ncclIntruQueueHead(&plan->collTaskQueue); task; task = task->next) {
+    size_t workOffset = workBase + task->workOffset;
+    if (workOffset + sizeof(ncclDevWorkColl) > sizeof(monitor.kernelArgs)) continue;
+    if (monitor.nWorkSequences == int(sizeof(monitor.workSequences) / sizeof(monitor.workSequences[0]))) break;
+    monitor.workSequences[monitor.nWorkSequences++] = {task->seqNumber, (uint32_t)workOffset};
+  }
+}
+
 ncclResult_t saveDevKernelArgs(ncclComm_t comm, struct ncclKernelPlan* plan) {
+  PTHREADCHECK(pthread_mutex_lock(&comm->kernelInfoMutex), "pthread_mutex_lock");
   KernelInfoMonitor* kernelInfoMonitorPtr = comm->kernelInfoMonitorPtr + comm->kernelNum % pcclDevKernelArgsFifoDepth();
   // A fixed-size symmetric argument can be larger than the monitor record.
   memcpy(&kernelInfoMonitorPtr->kernelArgs, plan->kernelArgs,
          std::min(plan->kernelArgsSize, sizeof(kernelInfoMonitorPtr->kernelArgs)));
+  kernelInfoMonitorPtr->nWorkSequences = 0;
   comm->kernelNum++;
+  plan->monitorKernelIndex = comm->kernelNum;
+  saveKernelWorkSequences(comm, plan);
   for (int i = 0; i < MAXCHANNELS; i++) {
     if (plan->channelMask & (1L << i)) {
       comm->channelKernelIdx[i] = comm->kernelNum;
     }
   }
+  PTHREADCHECK(pthread_mutex_unlock(&comm->kernelInfoMutex), "pthread_mutex_unlock");
   return ncclSuccess;
 }
 
@@ -553,6 +576,14 @@ static ncclResult_t uploadProxyOps(ncclComm_t comm, struct ncclKernelPlan* plan)
 static ncclResult_t hostStreamPlanTask(ncclComm_t comm, struct ncclKernelPlan* plan) {
   NCCLCHECK(ncclProfilerStartGroupEvent(plan));
   NCCLCHECK(ncclProfilerStartTaskEvents(plan));
+  if (comm->hostDevComm.comm.stateMonitorLevel && !plan->persistent) {
+    // Ordinary launches save arguments first; host callbacks may assign sequences
+    // first. The second participant publishes the association under the same lock.
+    PTHREADCHECK(pthread_mutex_lock(&comm->kernelInfoMutex), "pthread_mutex_lock");
+    plan->seqNumbersReady = true;
+    saveKernelWorkSequences(comm, plan);
+    PTHREADCHECK(pthread_mutex_unlock(&comm->kernelInfoMutex), "pthread_mutex_unlock");
+  }
   NCCLCHECK(uploadProxyOps(comm, plan));
   NCCLCHECK(ncclProxyStart(comm));
 
@@ -1657,6 +1688,7 @@ static ncclResult_t scheduleCollTasksToPlan(ncclComm_t comm, struct ncclKernelPl
       int nChannels = devWork->nChannels;
       int nSubChannels = (proxyOp.pattern == ncclPatternCollTreeUp || proxyOp.pattern == ncclPatternCollTreeDown) ? 2 : 1;
 
+      head->workOffset = plan->workBytes;
       uint64_t opCount = uint64_t(plan->collOpCount++)<<1 | 0;
 
       devWork->startChannelId = comm->lastChannel % comm->nChannels;

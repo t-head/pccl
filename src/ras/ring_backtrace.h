@@ -35,7 +35,7 @@ struct ringTraceCandidate {
 struct ringTraceResult {
   ringTraceStatus status = RING_TRACE_INCONCLUSIVE;
   int channelId = -1;
-  uint64_t kernelIndex = 0;
+  uint64_t seqNumber = 0;
   int stepAlignment = 1;
   int positiveGapCount = 0;
   uint8_t collective = 0;
@@ -55,10 +55,11 @@ static bool isNetConnection(uint8_t type) {
   return type == CONN_GDRDMA || type == CONN_RDMA;
 }
 
-// Compare operation parameters across ranks. Work offsets are rank-local;
-// completion and transport are validated separately.
+// Match collective instances across ranks by their saved per-type sequence.
+// Kernel indices and work offsets are rank-local; completion is checked separately.
 static inline bool isSameRingOperation(const rasDiagRingOperation& first, const rasDiagRingOperation& second) {
-  return first.kernelIndex == second.kernelIndex && first.count == second.count &&
+  return first.seqNumberValid && second.seqNumberValid && first.seqNumber == second.seqNumber &&
+         first.count == second.count &&
          first.lastChunkSize == second.lastChunkSize && first.root == second.root &&
          first.funcId == second.funcId && first.nThreads == second.nThreads && first.nChannels == second.nChannels &&
          first.collective == second.collective && first.protocol == second.protocol;
@@ -87,6 +88,7 @@ static const char* prepareRingTrace(const analyzerRankEntry* ranks, int nRanks, 
   }
   const auto& referenceOperation = rankStates[0].channel->ringOperation;
   if (!referenceOperation.valid || !referenceOperation.kernelIndex) return "no supported single-work native Ring metadata";
+  if (!referenceOperation.seqNumberValid) return "missing per-work collective sequence";
   if (referenceOperation.collective >= NCCL_NUM_FUNCTIONS || referenceOperation.protocol >= NCCL_NUM_PROTOCOLS) {
     return "unknown collective/protocol";
   }
@@ -110,9 +112,9 @@ static const char* prepareRingTrace(const analyzerRankEntry* ranks, int nRanks, 
     // All ranks must refer to this work; each channel has either completed it
     // or completed the immediately preceding work that used that channel.
     if (!operationInfo.valid || !isSameRingOperation(operationInfo, referenceOperation) ||
-        channel->workFifoTail != referenceOperation.kernelIndex || !channel->devCompletedKernelIdxValid ||
-        operationInfo.previousKernelIndex >= referenceOperation.kernelIndex ||
-        (channel->devCompletedKernelIdx != referenceOperation.kernelIndex &&
+        channel->workFifoTail != operationInfo.kernelIndex || !channel->devCompletedKernelIdxValid ||
+        operationInfo.previousKernelIndex >= operationInfo.kernelIndex ||
+        (channel->devCompletedKernelIdx != operationInfo.kernelIndex &&
          channel->devCompletedKernelIdx != operationInfo.previousKernelIndex)) {
       return "mixed/stale operation metadata or preceding kernel unfinished";
     }
@@ -132,7 +134,7 @@ static const char* prepareRingTrace(const analyzerRankEntry* ranks, int nRanks, 
         operationInfo.collective != ncclFuncAllReduce) {
       return "SimpleBulkAR over NET requires AllReduce";
     }
-    hasIncompleteRank |= channel->devCompletedKernelIdx < referenceOperation.kernelIndex;
+    hasIncompleteRank |= channel->devCompletedKernelIdx < operationInfo.kernelIndex;
     auto* otherChannel = rasDiagFirstChannel(ranks[rankIndex].rh);
     for (int c = 0; c < ranks[rankIndex].rh->nChannels; c++, otherChannel = rasDiagNextChannel(otherChannel)) {
       // A kernel can contain distinct works on different channels, even with
@@ -145,8 +147,8 @@ static const char* prepareRingTrace(const analyzerRankEntry* ranks, int nRanks, 
       bool channelStateValid = otherChannel->devHangReportedKernelIdxValid && otherChannel->devCompletedKernelIdxValid;
       timeoutReadsValid &= channelStateValid;
       hasDeviceTimeout |= channelStateValid &&
-                          otherChannel->devHangReportedKernelIdx == referenceOperation.kernelIndex &&
-                          otherChannel->devCompletedKernelIdx < referenceOperation.kernelIndex;
+                          otherChannel->devHangReportedKernelIdx == operationInfo.kernelIndex &&
+                          otherChannel->devCompletedKernelIdx < operationInfo.kernelIndex;
     }
   }
   if (!hasIncompleteRank) {
@@ -207,7 +209,7 @@ static ringTraceResult traceRingHead(const analyzerRankEntry* ranks, int nRanks,
     return result;
   }
   const auto& operation = rankStates[0].channel->ringOperation;
-  result.kernelIndex = operation.kernelIndex;
+  result.seqNumber = operation.seqNumber;
   result.collective = operation.collective;
   result.protocol = operation.protocol;
   const bool isClosedRing = operation.collective >= ncclFuncAllGather;

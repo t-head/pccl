@@ -427,7 +427,7 @@ ncclResult_t ncclProfilerStartTaskEvents(struct ncclKernelPlan* plan) {
     // gives the consistency.
     if (!plan->persistent || (__builtin_expect(ncclProfiler != NULL, 0) && (plan->groupEventHandle || ct->collApiEventHandle) &&
                               (ct->eActivationMask & ncclProfileKernelCh)))
-      __atomic_fetch_add(&plan->comm->seqNumber[ct->func], 1, __ATOMIC_RELAXED);
+      ct->seqNumber = __atomic_fetch_add(&plan->comm->seqNumber[ct->func], 1, __ATOMIC_RELAXED);
     ct = ct->next;
   }
   if (__builtin_expect(ncclProfiler != NULL, 0)) {

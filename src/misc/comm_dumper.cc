@@ -18,7 +18,7 @@
 #include "ras/ras_wire.h"
 
 #define PCCL_DUMP_VERSION_MAJOR 0x02
-#define PCCL_DUMP_VERSION_MINOR 0x01
+#define PCCL_DUMP_VERSION_MINOR 0x02
 #define PCCL_DUMP_VERSION ((PCCL_DUMP_VERSION_MAJOR<<16) + PCCL_DUMP_VERSION_MINOR)
 
 PCCL_PARAM(DevKernelArgsFifoDepth, "DEV_KERNEL_ARGS_FIFO_DEPTH", 2048);
@@ -50,12 +50,9 @@ static bool isRingHeadTransportSupported(const ncclConnector& connector, ncclCon
 
 // Conservative scope: one retained in-args work per channel. FIFO/persistent
 // storage and multi-work execution require additional lifetime/identity checks.
-void readRingOperation(ncclComm_t comm, int channelId, rasDiagRingOperation* info) {
-  *info = {};
-  info->sendProxyRank = -1;
-  info->sendProxyTpRank = -1;
-  // Require retained kernel arguments and a valid channel before reading its kernel index.
-  if (comm->kernelInfoMonitorPtr == nullptr || channelId < 0 || channelId >= comm->nChannels) return;
+static void readRingOperationLocked(ncclComm_t comm, int channelId, rasDiagRingOperation* info) {
+  // Validate the channel before reading its kernel index.
+  if (channelId < 0 || channelId >= comm->nChannels) return;
   uint64_t kernelIndex = comm->channelKernelIdx[channelId];
   int64_t fifoDepth = pcclDevKernelArgsFifoDepth();
   // No submitted kernel or no retention capacity means there is no operation to inspect.
@@ -145,6 +142,14 @@ void readRingOperation(ncclComm_t comm, int channelId, rasDiagRingOperation* inf
 
   info->kernelIndex = kernelIndex;
   info->workOffset = workOffset;
+  const auto& monitor = comm->kernelInfoMonitorPtr[(kernelIndex - 1) % fifoDepth];
+  for (int i = 0; i < monitor.nWorkSequences; i++) {
+    if (monitor.workSequences[i].workOffset == workOffset) {
+      info->seqNumber = monitor.workSequences[i].seqNumber;
+      info->seqNumberValid = 1;
+      break;
+    }
+  }
   info->count = work.count;
   info->root = work.root;
   info->lastChunkSize = work.lastChunkSize;
@@ -167,6 +172,22 @@ void readRingOperation(ncclComm_t comm, int channelId, rasDiagRingOperation* inf
     }
   }
   info->valid = 1;
+}
+
+void readRingOperation(ncclComm_t comm, int channelId, rasDiagRingOperation* info) {
+  *info = {};
+  info->sendProxyRank = info->sendProxyTpRank = -1;
+  if (!comm->kernelInfoMonitorPtr) return;
+  // Dumps can interrupt the publishing thread. Never wait on its monitor lock.
+  int result = pthread_mutex_trylock(&comm->kernelInfoMutex);
+  if (result == EBUSY) return;
+  if (result != 0) {
+    WARN("Ring operation monitor lock failed: %s", strerror(result));
+    return;
+  }
+  readRingOperationLocked(comm, channelId, info);
+  result = pthread_mutex_unlock(&comm->kernelInfoMutex);
+  if (result != 0) WARN("Ring operation monitor unlock failed: %s", strerror(result));
 }
 
 const char* pcclCommDumpMaskStr[] = {"DUMP_ROUGH", "DUMP_RAW", "DUMP_BUFFER", "DUMP_HWINFO"};
@@ -567,11 +588,11 @@ static ncclResult_t dumpChannelToFile(ncclComm_t comm, int channelId, int nRanks
 
   fprintf(file, "%sringHead valid:%u kernel:%lu previous:%lu coll:%u proto:%u funcId:%u root:%d count:%lu "
                 "lastChunkSize:%lu nChannels:%u nThreads:%u sendIsNet:%u sendProxyRank:%d sendProxyTpRank:%d "
-                "workOffset:%u\n",
+                "workOffset:%u seqNumber:%lu seqNumberValid:%u\n",
           indentStr, info.valid, info.kernelIndex, info.previousKernelIndex,
           info.collective, info.protocol, info.funcId, info.root, info.count,
           info.lastChunkSize, info.nChannels, info.nThreads, info.sendIsNet, info.sendProxyRank, info.sendProxyTpRank,
-          info.workOffset);
+          info.workOffset, info.seqNumber, info.seqNumberValid);
 
   return ncclSuccess;
 }

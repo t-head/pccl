@@ -20,7 +20,7 @@
 #include <utility>
 #include <vector>
 
-#define OFFLINE_COMM_DUMP_VERSION_KNOWN 0x20001
+#define OFFLINE_COMM_DUMP_VERSION_KNOWN 0x20002
 
 namespace {
 
@@ -180,6 +180,16 @@ static bool parseRingOperationLine(const char* p, rasDiagRingOperation* operatio
   unsigned workOffset = 0;
   const char* offset = strstr(p + consumed, "workOffset:");
   if (offset && sscanf(offset, "workOffset:%u", &workOffset) != 1) return false;
+  // Older dumps lack a per-work sequence and cannot establish cross-rank identity.
+  unsigned long long seqNumber = 0;
+  unsigned seqNumberValid = 0;
+  const char* sequence = strstr(p + consumed, "seqNumber:");
+  const char* sequenceValidity = strstr(p + consumed, "seqNumberValid:");
+  if (sequence && sscanf(sequence, "seqNumber:%llu", &seqNumber) != 1) return false;
+  if (sequenceValidity && (sscanf(sequenceValidity, "seqNumberValid:%u", &seqNumberValid) != 1 ||
+                           seqNumberValid > 1 || (seqNumberValid && !sequence))) return false;
+  operation->seqNumber = seqNumber;
+  operation->seqNumberValid = seqNumberValid;
   operation->valid = valid;
   operation->kernelIndex = kernel;
   operation->previousKernelIndex = previous;
@@ -615,7 +625,9 @@ int analyzerFormatReportFromCommDumps(FILE* fp, const char* dir, int round, cons
     nFiles++;
 
     unsigned ver = 0;
-    if (sscanf(first, "DUMP VERSION: %x", &ver) != 1 || ver != OFFLINE_COMM_DUMP_VERSION_KNOWN) {
+    // Version 0x20001 predates per-work sequences; retain its legacy checks.
+    if (sscanf(first, "DUMP VERSION: %x", &ver) != 1 ||
+        (ver != OFFLINE_COMM_DUMP_VERSION_KNOWN && ver != 0x20001)) {
       fprintf(stderr, "WARN: %s has dump version 0x%x (expected 0x%x), skipped (unsupported version)\n",
               name.c_str(), ver, OFFLINE_COMM_DUMP_VERSION_KNOWN);
       fclose(f);

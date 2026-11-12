@@ -40,7 +40,7 @@ union ncclSocketAddress {
 
 // Wire-format version of the diag block embedded in rasCollComms.  Mismatched versions are
 // dropped at the analyzer (with a WARN) so a rolling upgrade across the RAS network is safe.
-#define RAS_COMMS_DIAG_WIRE_VERSION 0x00010005u
+#define RAS_COMMS_DIAG_WIRE_VERSION 0x00010006u
 #define RAS_DIAG_WIRE_VERSION RAS_COMMS_DIAG_WIRE_VERSION
 #define RAS_DIAG_CONN_NONE   ((uint8_t)0xFF)
 
@@ -158,6 +158,7 @@ enum rasDiagPeerReadValidity {
 
 struct rasDiagRingOperation {
   uint64_t kernelIndex;
+  uint64_t seqNumber; // Communicator-local sequence within this collective type.
   uint64_t count;
   uint64_t lastChunkSize;
   uint64_t previousKernelIndex;
@@ -166,6 +167,7 @@ struct rasDiagRingOperation {
   uint16_t nThreads;
   uint8_t nChannels;
   uint8_t valid;  // Single native Ring work with supported ICN/IB connectors.
+  uint8_t seqNumberValid; // Zero is a valid sequence; missing identity must remain distinguishable.
   uint8_t collective;
   uint8_t protocol;
   // PXN uses CONN_ICN device primitives but a NET connector.
