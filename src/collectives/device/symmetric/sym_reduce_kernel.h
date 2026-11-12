@@ -248,26 +248,42 @@ struct Apply_Cast<float, __half, /*EltPerPack=*/2> {
 template<>
 struct Apply_Cast<__ppu_bfloat16, float, /*EltPerPack=*/1> {
   __device__ __forceinline__ static BytePack<sizeof(float)> cast(BytePack<sizeof(__ppu_bfloat16)> a) {
+#if defined(PCCL_HAS_SDK_HEADER_REFACTOR)
+    return toPack(__hg_bfloat162float(fromPack<__ppu_bfloat16>(a)));
+#else
     return toPack(__bfloat162float(fromPack<__ppu_bfloat16>(a)));
+#endif
   }
 };
 template<>
 struct Apply_Cast<float, __ppu_bfloat16, /*EltPerPack=*/1> {
   __device__ __forceinline__ static BytePack<sizeof(__ppu_bfloat16)> cast(BytePack<sizeof(float)> a) {
+#if defined(PCCL_HAS_SDK_HEADER_REFACTOR)
+    return toPack(__hg_float2bfloat16(fromPack<float>(a)));
+#else
     return toPack(__float2bfloat16(fromPack<float>(a)));
+#endif
   }
 };
 
 template<>
 struct Apply_Cast<__ppu_bfloat16, float, /*EltPerPack=*/2> {
   __device__ __forceinline__ static BytePack<4*2> cast(BytePack<2*2> a) {
+#if defined(PCCL_HAS_SDK_HEADER_REFACTOR)
+    return toPack(__hg_bfloat1622float2(fromPack<__ppu_bfloat162>(a)));
+#else
     return toPack(__bfloat1622float2(fromPack<__ppu_bfloat162>(a)));
+#endif
   }
 };
 template<>
 struct Apply_Cast<float, __ppu_bfloat16, /*EltPerPack=*/2> {
   __device__ __forceinline__ static BytePack<2*2> cast(BytePack<4*2> a) {
+#if defined(PCCL_HAS_SDK_HEADER_REFACTOR)
+    return toPack(__hg_float22bfloat162_rn(fromPack<float2>(a)));
+#else
     return toPack(__float22bfloat162_rn(fromPack<float2>(a)));
+#endif
   }
 };
 

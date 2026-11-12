@@ -13,8 +13,12 @@
 
 #include <cstdint>
 #include <hggc_runtime.h>
-#include <cooperative_groups.h>
 #include "pccl.h"
+#if defined(PCCL_HAS_SDK_HEADER_REFACTOR)
+#include <sail/cooperative_groups.h>
+#else
+#include <cooperative_groups.h>
+#endif
 #include "pccl_device/gin/gin_device_common.h"
 #include "pccl_device/utility.h"
 #include "../gin_device_host_common.h"
