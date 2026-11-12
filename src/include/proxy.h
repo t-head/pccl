@@ -13,6 +13,7 @@
 #include "info.h"
 #include "socket.h"
 #include "ipcsocket.h"
+#include "pccl_net_internal.h"
 #include <pthread.h>
 #include "p2p.h"
 
@@ -147,7 +148,8 @@ struct ncclProxyArgs {
 // ProxyOps are used to communicate between main thread and service thread
 // Make sure we have enough to store two full rounds of operations on all channels.
 // Otherwise we'd be unable to post half of them to free new elements.
-#define MAX_OPS_PER_PEER (2*MAXCHANNELS*NCCL_MAX_DEV_WORK_P2P_PER_BATCH)
+// Each p2p work contains a send and recv proxy op hence the 2x before it.
+#define MAX_OPS_PER_PEER (2*MAXCHANNELS*2*NCCL_MAX_DEV_WORK_P2P_PER_BATCH)
 #define NCCL_MAX_PROXY_CONNECTIONS (NCCL_MAX_LOCAL_RANKS + 1) // 16 + 1 (one for destroy)
 struct ncclProxyOpsPool {
   struct ncclProxyOp ops[MAX_OPS_PER_PEER*NCCL_MAX_PROXY_CONNECTIONS];
@@ -292,6 +294,10 @@ struct ncclProxyState {
   int buffSizes[NCCL_NUM_PROTOCOLS];
   volatile uint32_t* abortFlag;
   bool directMode;
+  ncclNet_t* ncclNet;
+  ncclCollNet_t* ncclCollNet;
+  int useU2mmHost;
+  int useU2mmDev;
   // Service thread
   pthread_t thread;
   pthread_t threadUDS;

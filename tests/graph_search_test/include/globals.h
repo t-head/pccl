@@ -26,9 +26,6 @@ NCCL_PARAM(CheckPointers, "CHECK_POINTERS", 0);
 
 PCCL_PARAM(DisableAbort, "DISABLE_ABORT", 0);
 
-extern ncclNet_t* ncclNet;
-extern ncclCollNet_t* ncclCollNet;
-
 NCCL_PARAM(CollNetEnable, "COLLNET_ENABLE", 0);
 PCCL_PARAM(NoMemset, "NO_MEMSET", 0);
 PCCL_PARAM(SingleHostCrossNodeTest, "SINGLE_HOST_CROSS_NODE_TEST", 0);
