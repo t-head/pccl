@@ -322,7 +322,7 @@ ncclResult_t ncclIbSetTrafficClass(void* ctx, int trafficClass);
 ncclResult_t ncclIbGetPhysProperties(int dev, ncclNetProperties_t* props);
 ncclResult_t ncclIbRegMrDmaBufInternal(void* comm, void* data, size_t size, int type, uint64_t offset, int fd, uint64_t mrFlags, void** mhandle);
 
-ncclResult_t ncclIbGetGidIndex(struct ibv_context *context, uint8_t portNum, int gidTblLen, int *gidIndex);
+ncclResult_t ncclIbGetGidIndex(struct ibv_context *context, uint8_t portNum, const struct ibv_port_attr* portAttr, int *gidIndex);
 int ncclIbGidIndexFromDevice(int netDev);
 ncclResult_t ncclIbGetRequest(struct ncclIbNetCommBase* base, struct ncclIbRequest** req);
 ncclResult_t ncclIbFreeRequest(struct ncclIbRequest* r);

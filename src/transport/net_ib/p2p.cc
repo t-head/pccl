@@ -34,17 +34,20 @@ ncclResult_t ncclIbFreeRequest(struct ncclIbRequest* r) {
 }
 
 ncclResult_t ncclSendCheck(struct ncclIbSendComm* comm) {
-  struct ncclIbQpInfo remQpInfo;
+  struct ncclIbConnectionMetadata remMeta;
 
   // Do not block on this receive, return if not ready.
   int bytes = 0;
-  NCCLCHECK(ncclSocketProgress(NCCL_SOCKET_RECV, &comm->base.sock, &remQpInfo, sizeof(remQpInfo), &bytes));
+  NCCLCHECK(ncclSocketProgress(NCCL_SOCKET_RECV, &comm->base.sock, &remMeta, sizeof(remMeta), &bytes));
   if (bytes == 0) return ncclSuccess; // Try again later
-  NCCLCHECK(ncclSocketWait(NCCL_SOCKET_RECV, &comm->base.sock, &remQpInfo, sizeof(remQpInfo), &bytes));
+  NCCLCHECK(ncclSocketWait(NCCL_SOCKET_RECV, &comm->base.sock, &remMeta, sizeof(remMeta), &bytes));
 
   for (int q=0; q<comm->base.nqps; q++) {
     struct ibv_qp* qp = comm->base.qps[q];
-    NCCLCHECK(ncclIbRtrQp(qp, remQpInfo.qpn[q], &remQpInfo, ncclIbGidIndexFromDevice(comm->netDev)));
+    if (remMeta.qpInfo[q].ece_supported) {
+      NCCLCHECK(wrap_ibv_set_ece(qp, &remMeta.qpInfo[q].ece, &remMeta.qpInfo[q].ece_supported));
+    }
+    NCCLCHECK(ncclIbRtrQp(qp, remMeta.qpInfo[q].qpn, &remMeta, comm->netDev, remMeta.tc, remMeta.sl));
     NCCLCHECK(ncclIbRtsQp(qp));
   }
   comm->base.ready = 1;
