@@ -2,14 +2,14 @@
   "classification": {
     "base_sha": "dcc16f7527444230dbd33cca1f348760c2df7e97",
     "head_sha": "c3fcb4e1feee899b425bdb93ec88b0459cf8c2db",
-    "input_fingerprint": "c6fb81933fdb21717988fa573ad4e4d6629b5613305345a26f0ce59e9904c1d2",
+    "input_fingerprint": "653fcb364cb35823cbf8a775674cd84a3f3bb07116310e6f6582789dcecd6d09",
     "pr_number": 144,
     "proposal": {
       "modules": [
         "transport",
         "network"
       ],
-      "reason": "Primary change is in proxy/ipc FD-exchange control flow: adds pidfd fallback when UDS send/init fails, new proxy message handling (GetFd/QueryFd/CloseFd), and proxy-side FD/resource cleanup/service-failure behavior in proxy/ipcsocket paths. Additional transport review is needed because P2P transport registration logic in src/transport/p2p.cc now integrates pidfd-imported FD ownership/close behavior for buffer registration."
+      "reason": "Main change is in proxy-based FD exchange logic: adds pidfd fallback when UDS send/recv is unavailable, new proxy message handling (GetFd/QueryFd/CloseFd), and proxy-service lifecycle/cleanup/error-path changes in src/proxy.cc and ipc socket support. transport is additionally required because src/transport/p2p.cc changes P2P registration/import behavior to integrate pidfd-imported FDs and ownership cleanup for registered/user buffers."
     }
   },
   "reviewers": {
