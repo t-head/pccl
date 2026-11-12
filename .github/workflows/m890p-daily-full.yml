@@ -275,7 +275,7 @@ jobs:
           else
             echo 'state=miss' >> "$GITHUB_OUTPUT"
           fi
-      - uses: ./pccl/.github/actions/download-artifact-retry
+      - uses: t-head/pccl/.github/actions/download-artifact-retry@a8e11be343464718f4a317d167a52166ec36143d
         if: steps.cache.outputs.state == 'miss'
         with:
           name: m890p-daily-full-build-standard
@@ -309,7 +309,7 @@ jobs:
           else
             echo 'state=miss' >> "$GITHUB_OUTPUT"
           fi
-      - uses: ./pccl/.github/actions/download-artifact-retry
+      - uses: t-head/pccl/.github/actions/download-artifact-retry@a8e11be343464718f4a317d167a52166ec36143d
         if: steps.groups-cache.outputs.state == 'miss'
         with:
           name: m890p-daily-case-groups
@@ -351,7 +351,7 @@ jobs:
         with:
           path: pccl
           persist-credentials: false
-      - uses: ./pccl/.github/actions/download-artifact-retry
+      - uses: t-head/pccl/.github/actions/download-artifact-retry@a8e11be343464718f4a317d167a52166ec36143d
         with:
           name: m890p-daily-full-python-deps
           path: deps
@@ -366,7 +366,7 @@ jobs:
           else
             echo 'state=miss' >> "$GITHUB_OUTPUT"
           fi
-      - uses: ./pccl/.github/actions/download-artifact-retry
+      - uses: t-head/pccl/.github/actions/download-artifact-retry@a8e11be343464718f4a317d167a52166ec36143d
         if: steps.groups-cache.outputs.state == 'miss'
         with:
           name: m890p-daily-case-groups
@@ -392,7 +392,7 @@ jobs:
           else
             echo 'state=miss' >> "$GITHUB_OUTPUT"
           fi
-      - uses: ./pccl/.github/actions/download-artifact-retry
+      - uses: t-head/pccl/.github/actions/download-artifact-retry@a8e11be343464718f4a317d167a52166ec36143d
         if: steps.build-cache.outputs.state == 'miss'
         with:
           name: m890p-daily-full-build-standard
@@ -638,7 +638,7 @@ jobs:
           else
             echo 'state=miss' >> "$GITHUB_OUTPUT"
           fi
-      - uses: ./pccl/.github/actions/download-artifact-retry
+      - uses: t-head/pccl/.github/actions/download-artifact-retry@a8e11be343464718f4a317d167a52166ec36143d
         if: always() && steps.groups-cache.outputs.state == 'miss'
         with:
           name: m890p-daily-case-groups

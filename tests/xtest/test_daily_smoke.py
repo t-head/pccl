@@ -217,7 +217,8 @@ class DailySmokeTests(unittest.TestCase):
         for workflow, expected in ((FULL_WORKFLOW, 6), (WORKFLOW, 3)):
             text = workflow.read_text()
             self.assertNotIn('uses: actions/download-artifact@v4', text)
-            self.assertEqual(text.count('uses: ./pccl/.github/actions/download-artifact-retry'), expected)
+            self.assertEqual(text.count('uses: t-head/pccl/.github/actions/download-artifact-retry@'
+                                        'a8e11be343464718f4a317d167a52166ec36143d'), expected)
 
 
 if __name__ == '__main__':

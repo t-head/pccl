@@ -196,7 +196,7 @@ jobs:
           else
             echo 'state=miss' >> "$GITHUB_OUTPUT"
           fi
-      - uses: ./pccl/.github/actions/download-artifact-retry
+      - uses: t-head/pccl/.github/actions/download-artifact-retry@a8e11be343464718f4a317d167a52166ec36143d
         if: steps.cache.outputs.state == 'miss'
         with:
           name: m890p-daily-build-${{ matrix.profile }}
@@ -238,7 +238,7 @@ jobs:
         with:
           path: pccl
           persist-credentials: false
-      - uses: ./pccl/.github/actions/download-artifact-retry
+      - uses: t-head/pccl/.github/actions/download-artifact-retry@a8e11be343464718f4a317d167a52166ec36143d
         with:
           name: m890p-daily-python-deps
           path: deps
@@ -305,7 +305,7 @@ jobs:
         with:
           path: pccl
           persist-credentials: false
-      - uses: ./pccl/.github/actions/download-artifact-retry
+      - uses: t-head/pccl/.github/actions/download-artifact-retry@a8e11be343464718f4a317d167a52166ec36143d
         with:
           name: m890p-daily-python-deps
           path: deps
