@@ -2,13 +2,13 @@
   "classification": {
     "base_sha": "dcc16f7527444230dbd33cca1f348760c2df7e97",
     "head_sha": "70de3b604827c3711d774894465aa6ef5b7cb72d",
-    "input_fingerprint": "2b7432cf35a117c50da82bb6a36ae257acc3e5279c258bdd34ea7db08b6864a2",
+    "input_fingerprint": "612e4d705dcf47cbd2510e1b3785f1b0daa390994c76bd1b7c76c9ff81d9ee11",
     "pr_number": 182,
     "proposal": {
       "modules": [
         "enqueue"
       ],
-      "reason": "Refactors host-side collective planning in `src/enqueue.cc` by separating work-descriptor initialization from chunk/proxy calculation (`calcCollChunking`), while keeping scheduling/protocol formulas and external-kernel path behavior aligned with enqueue-time task handling."
+      "reason": "Main functional change is a refactor of collective host-side task setup and chunk/proxy computation in src/enqueue.cc, which is runtime kernel planning/enqueue behavior. The diff preserves existing formulas and interfaces, with no independently substantive policy/ABI/protocol change in other modules."
     }
   },
   "reviewers": {
