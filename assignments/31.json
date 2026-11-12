@@ -1,14 +1,14 @@
 {
   "classification": {
-    "base_sha": "cc05ee8b19fb5aea8424f1e3cb1e552daa5c1261",
-    "head_sha": "c5c5459fa056c89a5e895565cb4f674baf6ecac7",
-    "input_fingerprint": "6581e8aedad241c3cfd2ab1ef28333ce671c145f552cd6870b8848f12f2d1c68",
+    "base_sha": "b8fc204f62dc1d5e8b4da3746d89567edf5cbe57",
+    "head_sha": "60eab6f04c79131d14bdeaab53a8a5705ec95996",
+    "input_fingerprint": "f3280f1aaa8267a90c627dd9c5a108e83b91ded323c917ce2e3382e65b8ac658",
     "pr_number": 31,
     "proposal": {
       "modules": [
         "gin"
       ],
-      "reason": "Main functional change is adding a new built-in TROCE GIN backend end-to-end (plugin registration, GIN host lifecycle, GIN device API specializations, device/host shared ABI, and TROCE-specific queue/CQ progress and memory-registration paths). The Makefile, enum, and shared IB helper updates are supporting integration for this GIN backend rather than separate substantive changes in build or generic network modules."
+      "reason": "Introduces an independent TROCE GIN backend end-to-end (plugin registration, host context lifecycle, device-side GIN API/backend dispatch, and SignalSet/flush semantics), with supporting IB-path updates tied directly to GIN backend behavior rather than separate transport policy changes."
     }
   },
   "reviewers": {
