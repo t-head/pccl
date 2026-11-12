@@ -2,13 +2,13 @@
   "classification": {
     "base_sha": "a909809e63dbf891101c88d45c0b78bfe628fab6",
     "head_sha": "b739b66b5aae01cc5f50cffb8f5b96c90feb5d81",
-    "input_fingerprint": "ab01b9673c52e1b392f26af5d9836fc4771de7f1f0d2cf250f30ce0f77de3378",
+    "input_fingerprint": "fa4b4cf0114277b543880c52c4732037da2fa1e9c751a842c903d383764356f1",
     "pr_number": 186,
     "proposal": {
       "modules": [
         "workflow"
       ],
-      "reason": "Changes are entirely in review/merge automation: module classification input handling for patch-omitted files, Maintainer-approval status messaging, and squash commit preview behavior/documentation (body-only) in GitHub scripts and workflow wiring."
+      "reason": "Main change is to review/merge automation: module classification now keeps complete file records and flags omitted patches for human review, maintainer-approval status reports missing approvers with module mapping, and squash preview generation is narrowed to commit body handling; docs/skill/workflow text updates support this same workflow behavior."
     }
   },
   "reviewers": {
