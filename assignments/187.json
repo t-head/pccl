@@ -1,0 +1,19 @@
+{
+  "classification": {
+    "base_sha": "dcc16f7527444230dbd33cca1f348760c2df7e97",
+    "head_sha": "9e8a8843173c58defdb8268eb25044621035623b",
+    "input_fingerprint": "1a3be6cb37776d4029f8ca87f5da37cc35c50379c9952d2a27f1d05893416820",
+    "pr_number": 187,
+    "proposal": {
+      "modules": [
+        "kernels",
+        "symmetric"
+      ],
+      "reason": "Main functional change is SDK 2.3 compatibility gating for BF16 intrinsic/conversion calls in core device collective code, which falls under kernels. Add symmetric because symmetric-memory kernel implementations were independently updated with their own BF16 conversion paths (ce_kernel and sym_reduce_kernel), a distinct module specialty."
+    }
+  },
+  "reviewers": {
+    "kernels": 341371372,
+    "symmetric": 335730053
+  }
+}
