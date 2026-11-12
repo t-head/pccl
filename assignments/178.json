@@ -1,19 +1,20 @@
 {
   "classification": {
-    "base_sha": "cc05ee8b19fb5aea8424f1e3cb1e552daa5c1261",
-    "head_sha": "5f65f980e1cab1069760c6807d967b6ebfb14604",
-    "input_fingerprint": "6990b74650944a46107048e7f8d8160fe7f16550be665a1486d51cf2c180a113",
+    "base_sha": "dcc16f7527444230dbd33cca1f348760c2df7e97",
+    "head_sha": "185381616dc58fb9dd87d8db62c1f7263f35f478",
+    "input_fingerprint": "71fdc337733e3755efe4927b12fec5968ecab5ee7db24be1da51151c0f39b937",
     "pr_number": 178,
     "proposal": {
       "modules": [
-        "network",
-        "gin"
+        "memory",
+        "network"
       ],
-      "reason": "Main change is IB backend transport behavior in connection setup/ready handshake, QoS (TC/SL/FIFO TC), ECE/FLID/GID handling, receive-size reporting, and MR registration caching across net_ib/proxy paths. Added gin because GIN-specific IB connect/context paths were substantively updated to use the new traffic-class validation/connect-abort flow, not just incidental call-site churn."
+      "reason": "Main change is in the IB network backend: connection handshake/state machine moved into Connect/Accept, QP RTR/RTS setup updated (GID/FLID routing, ECE negotiation, traffic-class handling), and receive-size/completion signaling behavior changed. Also includes an independently substantive memory-registration ownership change via a per-device, reference-counted MR cache for register/deregister reuse and cleanup."
     }
   },
   "reviewers": {
     "gin": 262349997,
+    "memory": 340404662,
     "network": 341355176
   }
 }
