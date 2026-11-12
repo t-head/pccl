@@ -1,11 +1,12 @@
 {
   "classification": {
     "base_sha": "dcc16f7527444230dbd33cca1f348760c2df7e97",
-    "head_sha": "474b19decd23ddc97a01745f326922586ff9a9cf",
-    "input_fingerprint": "7e12b0a67ec8ddb91c6642b5a32eeec86cfda8c5bff4c4a108db70e312b9bc37",
+    "head_sha": "9b0bdfe1e690bbfb8205d4e882535af67336d07d",
+    "input_fingerprint": "68df1469214d70a57a76e4199b036f90cadff28d3465a0e3cf9fda36d48adc3f",
     "pr_number": 174,
     "proposal": {
       "modules": [
+        "device-topology",
         "graph-search",
         "transport",
         "tuning",
@@ -13,7 +14,7 @@
         "network",
         "kernels"
       ],
-      "reason": "Primary change removes CollNet transport setup/connect/free paths and channel-peer handling. Additional independently substantive changes remove CollNet plugin loading and network/proxy state (network), delete CollNet topology graph construction/search/connection (graph-search), remove CollNet device kernels and replace algorithm slot 2 with reserved null entries (kernels), update runtime planning/pattern/channel scheduling plus tuner-selection fallback for retired IDs (enqueue), and disable/zero CollNet algorithm modeling while preserving stable external algorithm IDs (tuning)."
+      "reason": "Main change is removing CollNet execution paths from PCCL\u2019s transport/connect layer (transport/coll_net removal, transport wiring, and connect flows). Additional modules are needed because the PR also independently removes CollNet plugin loading/runtime network hooks (network), deletes CollNet device kernel implementations while reserving null function-table slots (kernels), changes built-in algorithm/protocol cost and availability logic to keep CollNet ID reserved but unselectable (tuning), removes CollNet logical graph construction/connection APIs (graph-search), drops CollNet-related topology detection fields/NIC discovery behavior (device-topology), and updates runtime planning/selection and tuner fallback behavior in collective enqueue logic (enqueue)."
     }
   },
   "reviewers": {
