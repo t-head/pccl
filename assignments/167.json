@@ -1,15 +1,15 @@
 {
   "classification": {
-    "base_sha": "3b6cc5f83d2b5257c658c3e6404e194754522a65",
-    "head_sha": "eb14e6a8d7ef912d6002ec23fa0b7890dbee38b7",
-    "input_fingerprint": "85f6cb957503ef6156d5d526d15d7b204330a0255436e788ef84ad5358077999",
+    "base_sha": "dcc16f7527444230dbd33cca1f348760c2df7e97",
+    "head_sha": "bebc4e8b47b93eabd375aaafa10028f83a8f68ad",
+    "input_fingerprint": "1a7e8f94764932336b815eff1772b3dbe6780f1c1554ef9017af1adc7da87173",
     "pr_number": 167,
     "proposal": {
       "modules": [
         "symmetric",
         "copy-engine"
       ],
-      "reason": "Primary change isolates CE memcpy from ltOki DMA queues/rings and alters CE stream selection/submission plus OKI QP ring mapping to prevent mixed CE/OKI hangs, which is copy-engine ownership. Also includes an independent correctness fix in symmetric OKI reduce DMA kernel chunk/tail and pre-broadcast sizing, requiring symmetric-memory module review."
+      "reason": "Main change is copy-engine ring/queue isolation and CE stream hinting (reserving ring 0, remapping ltOki QPs, and routing CE memcpy submissions), which directly changes CE/DMA stream and queue ownership. Also includes an independently substantive symmetric-kernel fix in ce_kernel_oki for AR/RS tail-size and pre-broadcast clamping logic, so symmetric review is additionally required."
     }
   },
   "reviewers": {
