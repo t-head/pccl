@@ -1,14 +1,14 @@
 {
   "classification": {
     "base_sha": "dcc16f7527444230dbd33cca1f348760c2df7e97",
-    "head_sha": "8fd0efb7d188bcf37ab6381b5743eb6fd0694845",
-    "input_fingerprint": "c2ada50d3df72aa527a9ae5dd3ae245f1e57733527e0b376a5f312589fafa7b6",
+    "head_sha": "7bae525621d90aa6f797b5c28fa45623a88a5781",
+    "input_fingerprint": "ef30c8dad5d75360fc02306b96267a5e565a6f58c07fe6d625650d98fe784bd6",
     "pr_number": 182,
     "proposal": {
       "modules": [
         "enqueue"
       ],
-      "reason": "Refactors collective work setup and chunk/proxy calculation in src/enqueue.cc, including standard-vs-external task initialization and a PAT chunk-size overflow fix, without changing independent module policies or interfaces."
+      "reason": "Refactors host-side collective task planning in `src/enqueue.cc` by separating standard-kernel work initialization from chunk/proxy computation (`calcCollChunking`) while preserving existing algorithm/protocol scheduling behavior; external-kernel handling updates are part of this enqueue-path restructuring rather than an independent plugin/ABI change."
     }
   },
   "reviewers": {
