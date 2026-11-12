@@ -2,13 +2,13 @@
   "classification": {
     "base_sha": "dcc16f7527444230dbd33cca1f348760c2df7e97",
     "head_sha": "f5a8ab079b962dfe0a0337bc8c2475236efdb404",
-    "input_fingerprint": "e610e8e021b3c997a38abaa89acd4262d9e310c2e155ce6aac65fdde0501b393",
+    "input_fingerprint": "62103f447bc745c0639f5cead2cdad1e882caa0fcae78ca2f0bd283489593f3f",
     "pr_number": 184,
     "proposal": {
       "modules": [
         "dispatch"
       ],
-      "reason": "Main functional change is in CU/CE dispatch policy application: strategy caching is moved to a process-wide (device,kernel)-keyed mirror in drv_extension, fixing stale per-slot/per-comm cache aliasing and ensuring correct re-apply/skip decisions with launchConfig returned from that cache; enqueue/comm/init edits are supporting call-site and storage cleanup for this dispatch behavior change."
+      "reason": "Main functional change is in CU/CE dispatch strategy state management: strategy cache moves from per-comm/FUNC_INDEX mirrors to a process-wide cache keyed by (device,kernel), shared across native and user paths, with launch config returned from the cache entry; comm/init/enqueue edits are mechanical wiring for this dispatch behavior fix."
     }
   },
   "reviewers": {
