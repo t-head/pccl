@@ -271,10 +271,6 @@ struct ncclKernelPlan {
   bool hasProxyOps; // does any channel have a non-empty proxyOpQueue
   int threadPerBlock;
 
-  // Protected by comm->kernelInfoMutex: either launch or the host callback may finish first.
-  uint64_t monitorKernelIndex;
-  bool seqNumbersReady;
-
   int collOpCount; // Number of collectives in this plan.
   int nWorkBatches; // Number of work batches.
   size_t workBytes; // Sum size of all work (in the fifo) in bytes.
@@ -645,8 +641,8 @@ struct pcclComm {
   void* ginContext;       // per-comm GIN plugin instance context
   int ginPluginIndex;     // index into ginPluginLibs[] in plugin/gin.cc
 
-  pthread_mutex_t kernelInfoMutex;
-  bool kernelInfoMutexInitialized;
+  // Assigned once on submission, before scheduling. Host callbacks never update it.
+  uint64_t collectiveSeq;
   KernelInfoMonitor* kernelInfoMonitorPtr = NULL;
   uint64_t kernelNum = 0;
   uint64_t channelKernelIdx[MAXCHANNELS]; // begin from 1

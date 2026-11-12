@@ -158,7 +158,7 @@ enum rasDiagPeerReadValidity {
 
 struct rasDiagRingOperation {
   uint64_t kernelIndex;
-  uint64_t seqNumber; // Communicator-local sequence within this collective type.
+  uint64_t seqNumber; // Communicator-local submission sequence for non-persistent native collectives.
   uint64_t count;
   uint64_t lastChunkSize;
   uint64_t previousKernelIndex;

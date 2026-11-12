@@ -526,7 +526,6 @@ static ncclResult_t commFree(ncclComm_t comm) {
   NCCLCHECK(ncclFree(comm->hgtxMessage));
 
   NCCLCHECK(ncclFree(comm->kernelInfoMonitorPtr));
-  if (comm->kernelInfoMutexInitialized) PTHREADCHECK(pthread_mutex_destroy(&comm->kernelInfoMutex), "pthread_mutex_destroy");
 
   if (comm->ceStreams != nullptr) {
     for (int i = 0; i < comm->ceStreamsNum; ++i) {
@@ -766,8 +765,6 @@ static ncclResult_t commAlloc(ncclComm_t comm, ncclComm_t parentComm, int ndev, 
     HGGCCHECK(hggcMemPoolSetAttribute(comm->memPool, hggcMemPoolAttrReleaseThreshold, &releaseThreshold));
   } while (0);
 
-  PTHREADCHECK(pthread_mutex_init(&comm->kernelInfoMutex, nullptr), "pthread_mutex_init");
-  comm->kernelInfoMutexInitialized = true;
   NCCLCHECK(ncclCalloc(&comm->kernelInfoMonitorPtr, pcclDevKernelArgsFifoDepth()));
   comm->kernelNum = 0;
 

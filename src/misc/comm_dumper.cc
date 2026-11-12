@@ -50,16 +50,20 @@ static bool isRingHeadTransportSupported(const ncclConnector& connector, ncclCon
 
 // Conservative scope: one retained in-args work per channel. FIFO/persistent
 // storage and multi-work execution require additional lifetime/identity checks.
-static void readRingOperationLocked(ncclComm_t comm, int channelId, rasDiagRingOperation* info) {
-  // Validate the channel before reading its kernel index.
-  if (channelId < 0 || channelId >= comm->nChannels) return;
+void readRingOperation(ncclComm_t comm, int channelId, rasDiagRingOperation* info) {
+  *info = {};
+  info->sendProxyRank = -1;
+  info->sendProxyTpRank = -1;
+  // Require retained kernel arguments and a valid channel before reading its kernel index.
+  if (comm->kernelInfoMonitorPtr == nullptr || channelId < 0 || channelId >= comm->nChannels) return;
   uint64_t kernelIndex = comm->channelKernelIdx[channelId];
   int64_t fifoDepth = pcclDevKernelArgsFifoDepth();
   // No submitted kernel or no retention capacity means there is no operation to inspect.
   if (kernelIndex == 0 || fifoDepth <= 0) return;
 
-  ncclDevKernelArgs1K savedArgs;
-  memcpy(&savedArgs, &comm->kernelInfoMonitorPtr[(kernelIndex - 1) % fifoDepth].kernelArgs, sizeof(savedArgs));
+  KernelInfoMonitor savedMonitor;
+  memcpy(&savedMonitor, &comm->kernelInfoMonitorPtr[(kernelIndex - 1) % fifoDepth], sizeof(savedMonitor));
+  const ncclDevKernelArgs1K& savedArgs = savedMonitor.kernelArgs;
   const ncclDevKernelArgs& args = savedArgs.args;
   // Reject a reused monitor slot or a channel that advanced while we copied its arguments.
   // Persistent/FIFO work requires lifetime and operation-identity checks beyond this
@@ -142,10 +146,9 @@ static void readRingOperationLocked(ncclComm_t comm, int channelId, rasDiagRingO
 
   info->kernelIndex = kernelIndex;
   info->workOffset = workOffset;
-  const auto& monitor = comm->kernelInfoMonitorPtr[(kernelIndex - 1) % fifoDepth];
-  for (int i = 0; i < monitor.nWorkSequences; i++) {
-    if (monitor.workSequences[i].workOffset == workOffset) {
-      info->seqNumber = monitor.workSequences[i].seqNumber;
+  for (int i = 0; i < savedMonitor.nWorkSequences; i++) {
+    if (savedMonitor.workSequences[i].workOffset == workOffset) {
+      info->seqNumber = savedMonitor.workSequences[i].seqNumber;
       info->seqNumberValid = 1;
       break;
     }
@@ -172,22 +175,6 @@ static void readRingOperationLocked(ncclComm_t comm, int channelId, rasDiagRingO
     }
   }
   info->valid = 1;
-}
-
-void readRingOperation(ncclComm_t comm, int channelId, rasDiagRingOperation* info) {
-  *info = {};
-  info->sendProxyRank = info->sendProxyTpRank = -1;
-  if (!comm->kernelInfoMonitorPtr) return;
-  // Dumps can interrupt the publishing thread. Never wait on its monitor lock.
-  int result = pthread_mutex_trylock(&comm->kernelInfoMutex);
-  if (result == EBUSY) return;
-  if (result != 0) {
-    WARN("Ring operation monitor lock failed: %s", strerror(result));
-    return;
-  }
-  readRingOperationLocked(comm, channelId, info);
-  result = pthread_mutex_unlock(&comm->kernelInfoMutex);
-  if (result != 0) WARN("Ring operation monitor unlock failed: %s", strerror(result));
 }
 
 const char* pcclCommDumpMaskStr[] = {"DUMP_ROUGH", "DUMP_RAW", "DUMP_BUFFER", "DUMP_HWINFO"};
