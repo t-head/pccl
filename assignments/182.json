@@ -2,13 +2,13 @@
   "classification": {
     "base_sha": "dcc16f7527444230dbd33cca1f348760c2df7e97",
     "head_sha": "8fd0efb7d188bcf37ab6381b5743eb6fd0694845",
-    "input_fingerprint": "d9b4a9eaeb8e313205e906c7f942089c0395937d175054ba39818c1abeea2cf1",
+    "input_fingerprint": "c2ada50d3df72aa527a9ae5dd3ae245f1e57733527e0b376a5f312589fafa7b6",
     "pr_number": 182,
     "proposal": {
       "modules": [
         "enqueue"
       ],
-      "reason": "Refactors collective runtime planning in src/enqueue.cc by splitting standard-kernel work descriptor initialization from chunk/proxy computation and wiring the results back into scheduling, while preserving existing chunking/formula behavior; this is an enqueue/planning change rather than a separate tuning, kernels, or plugin-ABI change."
+      "reason": "Main change refactors collective work setup and chunk/proxy calculation flow in src/enqueue.cc (task-to-devWork initialization split from chunking), plus a PAT chunk-size overflow guard; behavior remains in runtime planning/enqueue rather than tuning, kernels, or network policy."
     }
   },
   "reviewers": {
