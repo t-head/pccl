@@ -1,14 +1,14 @@
 {
   "classification": {
     "base_sha": "dcc16f7527444230dbd33cca1f348760c2df7e97",
-    "head_sha": "404780d89430b15bd0528e23bdd44fcc1a705b21",
-    "input_fingerprint": "7e1218b699e37ba06a28302499334bf742117fb9ed0c72fae529827f2745716f",
+    "head_sha": "12a6c269a2be170389c5641d285e3b3f627b6c52",
+    "input_fingerprint": "db803c0bbbdd5561aa2749326e9099db311b1ddca8f871ea96abb21a24a723c2",
     "pr_number": 184,
     "proposal": {
       "modules": [
         "dispatch"
       ],
-      "reason": "Main functional change is CU/CE dispatch state handling: strategy cache is moved to a process-wide mirror keyed by (device,kernel), shared across native/user paths, with re-apply/skip decisions based on actually applied kernel state. Related edits in enqueue/init/comm are supporting caller and lifecycle wiring for this dispatch behavior, not independent module changes."
+      "reason": "Moves dispatch strategy tracking to a process-wide cache keyed by (device, kernel) in drv_extension, updates native/user strategy application and applied-state semantics, and adjusts call sites/init to use cache invalidation and launchConfig out-param behavior."
     }
   },
   "reviewers": {
