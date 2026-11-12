@@ -48,9 +48,4 @@ ncclResult_t ncclIbRtrQp(ibv_qp* qp, uint32_t qpn, struct ncclIbConnectionMetada
                          int tc, int sl, int maxDestRdAtomic = 1);
 ncclResult_t ncclIbRtsQp(ibv_qp* qp, int maxRdAtomic = 1);
 
-// Phase-2 connection setup: complete sender/receiver QP transition.
-// Must be called after ncclIbConnect/ncclIbAccept before posting WRs directly.
-ncclResult_t ncclSendCheck(struct ncclIbSendComm* comm);
-ncclResult_t ncclRecvCheck(struct ncclIbRecvComm* comm);
-
 #endif //NET_IB_CONNECT_H_

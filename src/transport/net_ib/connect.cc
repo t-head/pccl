@@ -39,9 +39,10 @@ ncclResult_t ncclIbInitCommDevBase(int ibDevN, struct ncclIbNetCommDevBase* base
   ncclIbDev* ibDev = ncclIbDevs + ibDevN;
   {
     std::lock_guard<std::mutex> lock(ibDev->mutex);
-    if (0 == ibDev->pdRefs++) {
+    if (ibDev->pdRefs == 0) {
       NCCLCHECK(wrap_ibv_alloc_pd(&ibDev->pd, ibDev->context));
     }
+    ibDev->pdRefs++;
     base->pd = ibDev->pd;
   }
   // Recv requests can generate 2 completions (one for the post FIFO, one for the Recv).
@@ -541,6 +542,8 @@ ncclResult_t ncclIbConnect(int dev, void* opaqueHandle, void** sendComm) {
 
   if (stage->state == ncclIbCommStateConnect) goto ib_connect_check;
   if (stage->state == ncclIbCommStateSend) goto ib_send;
+  if (stage->state == ncclIbCommStateConnecting) goto ib_connect;
+  if (stage->state == ncclIbCommStateConnected) goto ib_send_ready;
   if (stage->state != ncclIbCommStateStart) {
     ERROR("Error: trying to connect already connected sendComm");
     return ncclInternalError;
@@ -554,10 +557,10 @@ ncclResult_t ncclIbConnect(int dev, void* opaqueHandle, void** sendComm) {
   stage->comm = comm;
   stage->state = ncclIbCommStateConnect;
 
-  NCCLCHECK(ncclSocketConnect(&comm->base.sock));
+  NCCLCHECKGOTO(ncclSocketConnect(&comm->base.sock), res, fail);
 
 ib_connect_check:
-  NCCLCHECK(ncclSocketReady(&comm->base.sock, &ready));
+  NCCLCHECKGOTO(ncclSocketReady(&comm->base.sock, &ready), res, fail);
   if (!ready) return ncclSuccess;
 
   NCCLCHECKGOTO(ncclIbMalloc((void**)&stage->buffer, sizeof(struct ncclIbConnectionMetadata)), res, fail);
@@ -584,7 +587,6 @@ ib_connect_check:
   // Send my QP Info to receiver through the socket. Hope this won't block.
   struct ibv_port_attr portAttr;
   NCCLCHECKGOTO(wrap_ibv_query_port(ctx, ib_port, &portAttr), res, fail);
-
   struct ncclIbConnectionMetadata meta;
   memset(&meta, 0, sizeof(meta));
   meta.tc = ncclParamIbTc();
@@ -632,13 +634,38 @@ ib_connect_check:
   memcpy(stage->buffer, &meta, sizeof(meta));
 
 ib_send:
-
-  NCCLCHECK(ncclSocketProgress(NCCL_SOCKET_SEND, &comm->base.sock, stage->buffer, sizeof(meta), &stage->offset));
+  NCCLCHECKGOTO(ncclSocketProgress(NCCL_SOCKET_SEND, &comm->base.sock, stage->buffer, sizeof(meta),
+                                   &stage->offset), res, fail);
   if (stage->offset != sizeof(meta))
     return ncclSuccess;
 
+  stage->state = ncclIbCommStateConnecting;
+  stage->offset = 0;
+ib_connect:
+  NCCLCHECKGOTO(ncclSocketProgress(NCCL_SOCKET_RECV, &comm->base.sock, stage->buffer, sizeof(meta),
+                                   &stage->offset), res, fail);
+  if (stage->offset != sizeof(meta)) return ncclSuccess;
 
+  struct ncclIbConnectionMetadata remMeta;
+  memcpy(&remMeta, stage->buffer, sizeof(remMeta));
+  for (int q = 0; q < comm->base.nqps; q++) {
+    struct ibv_qp* qp = comm->base.qps[q];
+    if (remMeta.qpInfo[q].ece_supported) {
+      NCCLCHECKGOTO(wrap_ibv_set_ece(qp, &remMeta.qpInfo[q].ece, &remMeta.qpInfo[q].ece_supported), res, fail);
+    }
+    NCCLCHECKGOTO(ncclIbRtrQp(qp, remMeta.qpInfo[q].qpn, &remMeta, comm->netDev,
+                               remMeta.tc, remMeta.sl), res, fail);
+    NCCLCHECKGOTO(ncclIbRtsQp(qp), res, fail);
+  }
+
+  comm->base.ready = 1;
   stage->state = ncclIbCommStateConnected;
+  stage->offset = 0;
+ib_send_ready:
+  NCCLCHECKGOTO(ncclSocketProgress(NCCL_SOCKET_SEND, &comm->base.sock, &comm->base.ready, sizeof(int),
+                                   &stage->offset), res, fail);
+  if (stage->offset != sizeof(int)) return ncclSuccess;
+
   *sendComm = comm;
 exit:
   NCCLCHECK(ncclFree(stage->buffer));
@@ -688,6 +715,7 @@ ncclResult_t ncclIbAccept(void* listenComm, void** recvComm) {
   if (stage->state == ncclIbCommStateAccept) goto ib_accept_check;
   if (stage->state == ncclIbCommStateRecv) goto ib_recv;
   if (stage->state == ncclIbCommStateSend) goto ib_send;
+  if (stage->state == ncclIbCommStatePendingReady) goto ib_recv_ready;
   if (stage->state != ncclIbCommStateStart) {
     ERROR("Listencomm in unknown state %d\n", stage->state);
     return ncclInternalError;
@@ -698,11 +726,11 @@ ncclResult_t ncclIbAccept(void* listenComm, void** recvComm) {
   NCCLCHECKGOTO(ncclIbStatsInit(&rComm->base.stats), res, fail);
   stage->comm = rComm;
   stage->state = ncclIbCommStateAccept;
-  NCCLCHECK(ncclSocketInit(&rComm->base.sock));
+  NCCLCHECKGOTO(ncclSocketInit(&rComm->base.sock), res, fail);
 
-  NCCLCHECK(ncclSocketAccept(&rComm->base.sock, &lComm->sock));
+  NCCLCHECKGOTO(ncclSocketAccept(&rComm->base.sock, &lComm->sock), res, fail);
 ib_accept_check:
-  NCCLCHECK(ncclSocketReady(&rComm->base.sock, &ready));
+  NCCLCHECKGOTO(ncclSocketReady(&rComm->base.sock, &ready), res, fail);
   if (!ready) return ncclSuccess;
 
   NCCLCHECKGOTO(ncclIbMalloc((void**)&stage->buffer, sizeof(remMeta)), res, fail);
@@ -710,8 +738,8 @@ ib_accept_check:
   stage->offset = 0;
 
 ib_recv:
-
-  NCCLCHECK(ncclSocketProgress(NCCL_SOCKET_RECV, &rComm->base.sock, stage->buffer, sizeof(remMeta), &stage->offset));
+  NCCLCHECKGOTO(ncclSocketProgress(NCCL_SOCKET_RECV, &rComm->base.sock, stage->buffer, sizeof(remMeta),
+                                   &stage->offset), res, fail);
   if (stage->offset != sizeof(remMeta))
     return ncclSuccess;
 
@@ -817,8 +845,6 @@ ib_recv:
   }
 
   // Fill Handle
-
-
   meta.tc = remMeta.tc;
   meta.sl = remMeta.sl;
   meta.lid=portAttr.lid;
@@ -835,9 +861,16 @@ ib_recv:
   //NCCLCHECK(ncclIbMalloc((void**)&stage->buffer, sizeof(struct ncclIbConnectionMetadata)));
   memcpy(stage->buffer, &meta, sizeof(struct ncclIbConnectionMetadata));
 ib_send:
-
-  NCCLCHECK(ncclSocketProgress(NCCL_SOCKET_SEND, &rComm->base.sock, stage->buffer, sizeof(struct ncclIbConnectionMetadata), &stage->offset));
+  NCCLCHECKGOTO(ncclSocketProgress(NCCL_SOCKET_SEND, &rComm->base.sock, stage->buffer, sizeof(struct ncclIbConnectionMetadata),
+                                   &stage->offset), res, fail);
   if (stage->offset < sizeof(struct ncclIbConnectionMetadata)) return ncclSuccess;
+
+  stage->state = ncclIbCommStatePendingReady;
+  stage->offset = 0;
+ib_recv_ready:
+  NCCLCHECKGOTO(ncclSocketProgress(NCCL_SOCKET_RECV, &rComm->base.sock, &rComm->base.ready, sizeof(int),
+                                   &stage->offset), res, fail);
+  if (stage->offset != sizeof(int)) return ncclSuccess;
 
   /* reset lComm stage */
   stage->state = ncclIbCommStateStart;
@@ -856,6 +889,8 @@ fail:
     // Only the success path above clears this; never leave it pointing at freed memory.
     stage->comm = NULL;
   }
+  stage->state = ncclIbCommStateStart;
+  stage->offset = 0;
   goto exit;
 }
 

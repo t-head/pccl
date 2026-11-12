@@ -33,39 +33,6 @@ ncclResult_t ncclIbFreeRequest(struct ncclIbRequest* r) {
   return ncclSuccess;
 }
 
-ncclResult_t ncclSendCheck(struct ncclIbSendComm* comm) {
-  struct ncclIbConnectionMetadata remMeta;
-
-  // Do not block on this receive, return if not ready.
-  int bytes = 0;
-  NCCLCHECK(ncclSocketProgress(NCCL_SOCKET_RECV, &comm->base.sock, &remMeta, sizeof(remMeta), &bytes));
-  if (bytes == 0) return ncclSuccess; // Try again later
-  NCCLCHECK(ncclSocketWait(NCCL_SOCKET_RECV, &comm->base.sock, &remMeta, sizeof(remMeta), &bytes));
-
-  for (int q=0; q<comm->base.nqps; q++) {
-    struct ibv_qp* qp = comm->base.qps[q];
-    if (remMeta.qpInfo[q].ece_supported) {
-      NCCLCHECK(wrap_ibv_set_ece(qp, &remMeta.qpInfo[q].ece, &remMeta.qpInfo[q].ece_supported));
-    }
-    NCCLCHECK(ncclIbRtrQp(qp, remMeta.qpInfo[q].qpn, &remMeta, comm->netDev, remMeta.tc, remMeta.sl));
-    NCCLCHECK(ncclIbRtsQp(qp));
-  }
-  comm->base.ready = 1;
-  // Block until this is done. It *should* not block indefinitely.
-  NCCLCHECK(ncclSocketSend(&comm->base.sock, &comm->base.ready, sizeof(int)));
-
-  return ncclSuccess;
-}
-
-ncclResult_t ncclRecvCheck(struct ncclIbRecvComm* comm) {
-  // Do not block on this receive, return if not ready.
-  int bytes = 0;
-  NCCLCHECK(ncclSocketProgress(NCCL_SOCKET_RECV, &comm->base.sock, &comm->base.ready, sizeof(int), &bytes));
-  if (bytes == 0) return ncclSuccess; // Try again later
-  NCCLCHECK(ncclSocketWait(NCCL_SOCKET_RECV, &comm->base.sock, &comm->base.ready, sizeof(int), &bytes));
-  return ncclSuccess;
-}
-
 ncclResult_t ncclIbMultiSend(struct ncclIbSendComm* comm, int slot) {
   struct ncclIbRequest** reqs = comm->fifoReqs[slot];
   volatile struct ncclIbSendFifo* slots = comm->ctsFifo[slot];
@@ -170,8 +137,11 @@ ncclResult_t ncclIbMultiSend(struct ncclIbSendComm* comm, int slot) {
 
 ncclResult_t ncclIbIsend(void* sendComm, void* data, int size, int tag, void* mhandle, void** request) {
   struct ncclIbSendComm* comm = (struct ncclIbSendComm*)sendComm;
-  if (comm->base.ready == 0) { NCCLCHECK(ncclSendCheck(comm)); }
-  if (comm->base.ready == 0) { *request = NULL; return ncclSuccess; }
+  if (comm->base.ready == 0) {
+    WARN("NET/IB: ncclIbIsend called before connection is ready");
+    *request = NULL;
+    return ncclInternalError;
+  }
   NCCLCHECK(ncclIbStatsCheckFatalCount(&comm->base.stats, __func__));
 
   struct ibv_mr* mr = (struct ibv_mr*)mhandle;
@@ -310,8 +280,11 @@ ncclResult_t ncclIbPostFifo(struct ncclIbRecvComm* comm, int n, void** data, int
 
 ncclResult_t ncclIbIrecv(void* recvComm, int n, void** data, int* sizes, int* tags, void** mhandles, void** request) {
   struct ncclIbRecvComm* comm = (struct ncclIbRecvComm*)recvComm;
-  if (comm->base.ready == 0) NCCLCHECK(ncclRecvCheck(comm));
-  if (comm->base.ready == 0) { *request = NULL; return ncclSuccess; }
+  if (comm->base.ready == 0) {
+    WARN("NET/IB: ncclIbIrecv called before connection is ready");
+    *request = NULL;
+    return ncclInternalError;
+  }
 
   if (n > NCCL_NET_IB_MAX_RECVS) return ncclInternalError;
   NCCLCHECK(ncclIbStatsCheckFatalCount(&comm->base.stats, __func__));
