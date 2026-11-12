@@ -1,8 +1,8 @@
 {
   "classification": {
     "base_sha": "dcc16f7527444230dbd33cca1f348760c2df7e97",
-    "head_sha": "9b0bdfe1e690bbfb8205d4e882535af67336d07d",
-    "input_fingerprint": "68df1469214d70a57a76e4199b036f90cadff28d3465a0e3cf9fda36d48adc3f",
+    "head_sha": "0d188201bae0272766133a2c02bd5878ab4a95f4",
+    "input_fingerprint": "a058ed8a961ce9c1f7a1606fc36f4b7d96d3b00f4e3407c4c7f94d4739fe4180",
     "pr_number": 174,
     "proposal": {
       "modules": [
@@ -14,7 +14,7 @@
         "network",
         "kernels"
       ],
-      "reason": "Main change is removing CollNet execution paths from PCCL\u2019s transport/connect layer (transport/coll_net removal, transport wiring, and connect flows). Additional modules are needed because the PR also independently removes CollNet plugin loading/runtime network hooks (network), deletes CollNet device kernel implementations while reserving null function-table slots (kernels), changes built-in algorithm/protocol cost and availability logic to keep CollNet ID reserved but unselectable (tuning), removes CollNet logical graph construction/connection APIs (graph-search), drops CollNet-related topology detection fields/NIC discovery behavior (device-topology), and updates runtime planning/selection and tuner fallback behavior in collective enqueue logic (enqueue)."
+      "reason": "Main change removes CollNet as a runtime feature, primarily in network plugin/proxy loading and collective-network paths. Additional modules are needed for independently substantive removals in transport connection/resource management, topology graph construction/search and NIC topology attributes, device-kernel/function-table CollNet execution slots, built-in algorithm cost/enable tuning tables, and enqueue-time algorithm/pattern/planning plus external-tuner fallback handling."
     }
   },
   "reviewers": {
