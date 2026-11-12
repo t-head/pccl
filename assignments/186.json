@@ -1,14 +1,14 @@
 {
   "classification": {
     "base_sha": "a909809e63dbf891101c88d45c0b78bfe628fab6",
-    "head_sha": "a035d46c4922bc01cc43c8aa1ab7d883f6cc61c8",
-    "input_fingerprint": "e99fa7ced1bd2c86c39db5dc9773e5db3c48102dab49c4cb9c9a7812b3ea347d",
+    "head_sha": "8cb7c4b867d30d952654154f46464627f4258435",
+    "input_fingerprint": "99677565ab7f3721be2f2f37b01f33fdb379b2a619bef52df2b56fa935a1c953",
     "pr_number": 186,
     "proposal": {
       "modules": [
         "workflow"
       ],
-      "reason": "The substantive changes are to contribution/review automation: reviewer-routing classification now retains patch-omitted files and reports manual-review gaps, maintainer-approval status now reports missing approvers with module context, and squash-preview generation is changed to body-only with updated workflow/docs wiring. These are review/merge policy and automation behavior changes, not CI test execution or runtime modules."
+      "reason": "Main functional changes are to review/merge automation policy and wiring: reviewer-routing now retains patchless file records for classification summaries and human-review signaling, maintainer-approval status messaging now reports missing approvers with module ownership, and squash-preview automation now publishes only the squash body guidance. These are contribution/review workflow behaviors, not runtime, build, or CI test-selection changes."
     }
   },
   "reviewers": {
