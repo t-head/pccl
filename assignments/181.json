@@ -2,13 +2,13 @@
   "classification": {
     "base_sha": "dcc16f7527444230dbd33cca1f348760c2df7e97",
     "head_sha": "dcd05dc1aeb7575ffdfd4954108f234cb9d39553",
-    "input_fingerprint": "6b1b59ea3e41e770782bf65e4fdf87b7ccb3b5e86f7148da2d2db73c983e45fe",
+    "input_fingerprint": "1ce0e2ac9e47644226fa8f1a0b06d8f92afca8f5d438c61c3250c750dcba2606",
     "pr_number": 181,
     "proposal": {
       "modules": [
         "network"
       ],
-      "reason": "Main functional change is in InfiniBand network backend speed discovery: prefer ibv_query_port_speed with fallback to extended/legacy port attributes (including XDR handling), plus matching IB verbs wrapper updates to support that network-path behavior."
+      "reason": "Main functional change is in InfiniBand network transport speed discovery: net_ib now prefers ibv_query_port_speed (with fallback to extended/legacy port attributes), updates link-rate handling including XDR, and wires supporting ibverbs wrapper changes to preserve compatibility."
     }
   },
   "reviewers": {
