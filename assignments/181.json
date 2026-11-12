@@ -8,7 +8,7 @@
       "modules": [
         "network"
       ],
-      "reason": "Main functional change is in InfiniBand network backend speed detection: it adds ibv_query_port_speed usage with fallback to active_speed_ex/active_speed and XDR handling, plus corresponding ibverbs wrapper support used by net_ib initialization."
+      "reason": "Main functional change is InfiniBand network backend link-speed detection during net_ib initialization: adds optional ibv_query_port_speed usage, attribute-based fallback updates (active_speed_ex/active_speed), and XDR speed handling. The ibv wrapper/header edits are supporting plumbing for this same network transport behavior, not a separate module change."
     }
   },
   "reviewers": {
