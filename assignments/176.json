@@ -1,15 +1,14 @@
 {
   "classification": {
     "base_sha": "dcc16f7527444230dbd33cca1f348760c2df7e97",
-    "head_sha": "979e60cf66b5c36ba73da7dacefd996a458c3a51",
-    "input_fingerprint": "1a78f414b046faadc27f6b21f17e22329fb565f96ccc2895e894ff2ebddc6f4b",
+    "head_sha": "4c8d66e7660422c782a4e29d6ca1c55f93b070a2",
+    "input_fingerprint": "dc53dff06be05fe7fbac209df3c2726f2a151271eba377632d8c7d3df688b0cf",
     "pr_number": 176,
     "proposal": {
       "modules": [
-        "enqueue",
         "ras"
       ],
-      "reason": "Main change is RAS/hang diagnostics: new Ring backtrace attribution, richer diag wire/snapshot formats, offline replay/summary/report logic, and communicator-scoped diag selection to locate mid-kernel forwarding stalls. Added enqueue because it introduces substantive runtime-side operation identity capture (per-work seqNumber/workOffset tagging during task append/scheduling) that RAS now depends on for cross-rank Ring attribution correctness."
+      "reason": "Main functional change is RAS hang diagnostics: new Ring forwarding-boundary attribution, richer channel/peer read-validity capture, updated analyzer summary/report logic, and compatible snapshot/dump wire-format evolution for online/offline diagnosis. Changes in enqueue/comm/init are feature-coupled metadata and state-publication support for this RAS analysis rather than independent runtime, transport, or lifecycle policy changes."
     }
   },
   "reviewers": {
