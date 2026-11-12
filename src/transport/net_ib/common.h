@@ -148,6 +148,8 @@ enum ncclIbCommState {
     ncclIbCommStateSend = 4,
     ncclIbCommStateRecv = 5,
     ncclIbCommStateConnected = 6,
+    ncclIbCommStateConnecting = 7,
+    ncclIbCommStatePendingReady = 8,
 };
 
 enum ncclIbRecvMatchingScheme {
