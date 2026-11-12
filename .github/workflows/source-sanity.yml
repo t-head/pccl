@@ -393,7 +393,7 @@ jobs:
           else
             echo 'state=miss' >> "$GITHUB_OUTPUT"
           fi
-      - uses: ./pccl/.github/actions/download-artifact-retry
+      - uses: t-head/pccl/.github/actions/download-artifact-retry@ad5224f1ca16630f25123441a0946a4c36eedc6c
         if: steps.cache.outputs.state == 'miss'
         with:
           name: pccl-build-${{ matrix.profile }}
@@ -441,7 +441,7 @@ jobs:
         with:
           path: pccl
           persist-credentials: false
-      - uses: ./pccl/.github/actions/download-artifact-retry
+      - uses: t-head/pccl/.github/actions/download-artifact-retry@ad5224f1ca16630f25123441a0946a4c36eedc6c
         with:
           name: minimal-csv-artifact-python-deps
           path: deps
@@ -458,7 +458,7 @@ jobs:
           else
             echo 'state=miss' >> "$GITHUB_OUTPUT"
           fi
-      - uses: ./pccl/.github/actions/download-artifact-retry
+      - uses: t-head/pccl/.github/actions/download-artifact-retry@ad5224f1ca16630f25123441a0946a4c36eedc6c
         if: steps.build-cache.outputs.state == 'miss'
         with:
           name: pccl-build-${{ matrix.profile }}
@@ -539,7 +539,7 @@ jobs:
         with:
           path: pccl
           persist-credentials: false
-      - uses: ./pccl/.github/actions/download-artifact-retry
+      - uses: t-head/pccl/.github/actions/download-artifact-retry@ad5224f1ca16630f25123441a0946a4c36eedc6c
         with:
           name: minimal-csv-artifact-python-deps
           path: deps
@@ -556,7 +556,7 @@ jobs:
           else
             echo 'state=miss' >> "$GITHUB_OUTPUT"
           fi
-      - uses: ./pccl/.github/actions/download-artifact-retry
+      - uses: t-head/pccl/.github/actions/download-artifact-retry@ad5224f1ca16630f25123441a0946a4c36eedc6c
         if: steps.build-cache.outputs.state == 'miss'
         with:
           name: pccl-build-standard

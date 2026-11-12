@@ -34,7 +34,8 @@ class WorkflowContractTests(unittest.TestCase):
         self.assertIn("target.relative_to(workspace)", action)
         workflow = (ROOT / '.github/workflows/source-sanity.yml').read_text()
         self.assertNotIn('uses: actions/download-artifact@v4', workflow)
-        self.assertEqual(workflow.count('uses: ./pccl/.github/actions/download-artifact-retry'), 5)
+        self.assertEqual(workflow.count('uses: t-head/pccl/.github/actions/download-artifact-retry@'
+                                        'ad5224f1ca16630f25123441a0946a4c36eedc6c'), 5)
 
     @classmethod
     def setUpClass(cls):
@@ -101,7 +102,7 @@ class WorkflowContractTests(unittest.TestCase):
     def test_artifact_upload_download_retention_and_cleanup_are_connected(self):
         for expected in ('name: pccl-build-standard', 'name: pccl-build-notsm',
                          'name: Stage ${{ matrix.profile }} from artifact or valid NAS cache',
-                         './pccl/.github/actions/download-artifact-retry', 'retention-days: 3',
+                         't-head/pccl/.github/actions/download-artifact-retry@', 'retention-days: 3',
                          'artifact_cache.py publish', 'artifact_cache.py validate',
                          'artifact_cache.py cleanup', 'trap cleanup_shared_build EXIT'):
             self.assertIn(expected, self.text)
