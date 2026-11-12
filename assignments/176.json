@@ -1,14 +1,14 @@
 {
   "classification": {
-    "base_sha": "cc05ee8b19fb5aea8424f1e3cb1e552daa5c1261",
-    "head_sha": "9f8d4ef8499d949a20952a38909230225763a4be",
-    "input_fingerprint": "6cf7d7cea8d7ffabc5050ddc727509c2b541bde75362488f44937ad648e68e5d",
+    "base_sha": "dcc16f7527444230dbd33cca1f348760c2df7e97",
+    "head_sha": "979e60cf66b5c36ba73da7dacefd996a458c3a51",
+    "input_fingerprint": "fc646cc90714d67520116a30f1239edad5477468a94671ae5ba8e2d8b9f53838",
     "pr_number": 176,
     "proposal": {
       "modules": [
         "ras"
       ],
-      "reason": "Main change extends RAS hang diagnostics to attribute mid-kernel Ring forwarding stalls using captured head/step metadata, with new ring-trace analysis, snapshot/wire-format extensions, offline replay support, and monitor/read-validity handling. Non-RAS edits (init-state atomics and request plumbing) are tightly coupled support for reliable RAS capture rather than independent subsystem changes."
+      "reason": "Implements mid-kernel Ring stall diagnostics in RAS: captures read-valid head/tail/step counters plus retained ring-operation metadata, adds ring backtrace attribution and summary/detail reporting (including offline replay and wire-format/version updates), and guards monitor/snapshot reads on initialized communicators to avoid false conclusions."
     }
   },
   "reviewers": {
