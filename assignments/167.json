@@ -1,15 +1,15 @@
 {
   "classification": {
     "base_sha": "dcc16f7527444230dbd33cca1f348760c2df7e97",
-    "head_sha": "a6841e2cefb36fe97808de8442446cccf32bd4f5",
-    "input_fingerprint": "9f943b63f08c9ce4b1ce363849cd569cf3ff812874230012363aead5bda9d0c1",
+    "head_sha": "4dee0d98edad58f889047d72bc393cd1fb86a0a2",
+    "input_fingerprint": "52abdeaa5ae432d2614d580eeb3bb564b438359d71b3196fd9a6cc7e620faba8",
     "pr_number": 167,
     "proposal": {
       "modules": [
         "symmetric",
         "copy-engine"
       ],
-      "reason": "Main change is in CE/DMA execution: it reserves/retargets CE vs ltOki rings and queue IDs, applies memcpy stream channel hints on enqueue/init, and adjusts CE batch stream-group usage to prevent mixed CE AllGather + ltOki AR/RS hangs. Also requires symmetric review because symmetric OKI CE device-kernel logic changes AR/RS tail sizing and lane split alignment, which is a separate correctness change in symmetric collective kernel code."
+      "reason": "Primary change is CE/DMA execution policy: reserving rings, remapping OKI QPs, and applying memcpy stream channel hints in init/enqueue/CE launch paths to separate CE memcpy from ltOki traffic and avoid mixed-operation hangs. Additional symmetric review is needed for independently substantive fixes in symmetric OKI device-kernel logic (AR/RS tail chunk sizing, pre-broadcast clamp, and lane-slice alignment) that change collective correctness behavior."
     }
   },
   "reviewers": {
