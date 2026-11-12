@@ -890,7 +890,7 @@ static ncclResult_t calcCollChunking(
        || task->protocol == NCCL_PROTO_SIMPLE_BULK || task->protocol == NCCL_PROTO_SIGNAL_BULK
        || task->protocol == NCCL_PROTO_SIMPLE_BULK_AR)) {
     // Optimize chunkSize / nSteps for PAT
-    while (chunkSize*nChannels*32 > nBytes && chunkSize > 65536) chunkSize /= 2;
+    while ((size_t)chunkSize*nChannels*32 > nBytes && chunkSize > 65536) chunkSize /= 2;
     // Use lastChunkSize as chunkSize
     lastChunkSize = chunkSize / ncclTypeSize(task->datatype);
   } else if (task->protocol == NCCL_PROTO_LL) {
