@@ -38,7 +38,7 @@ namespace pccl {
 namespace gin {
 namespace troce {
 
-// Derived from the active GDAKI common device fence helpers.
+// Fence helpers derived from the GDAKI common device utilities.
 template <hggc::thread_scope scope = hggc::thread_scope_device>
 PCCL_DEVICE_INLINE void fenceAcquire() {
   uint32_t dummy;
@@ -63,13 +63,19 @@ PCCL_DEVICE_INLINE void fenceRelease() {
     asm volatile("st.release.sys.u32 [%0], %1;" : : "l"(&dummy), "r"(value));
 }
 
-// TROCE segments contain scalar fields that need not be 16-byte aligned.
-template <typename T>
-PCCL_DEVICE_INLINE void storeRelaxed(T *ptr, T val) {
-  *(volatile T *)ptr = val;
+PCCL_DEVICE_INLINE void storeRelaxed(uint8_t *ptr, uint8_t val) {
+  asm volatile("st.weak.cs.u8 [%0], %1;" : : "l"(ptr), "r"(uint32_t(val)));
 }
 
-// Match GDAKI's current doorbell path: a release fence and a system-scope store.
+PCCL_DEVICE_INLINE void storeRelaxed(uint16_t *ptr, uint16_t val) {
+  asm volatile("st.weak.cs.u16 [%0], %1;" : : "l"(ptr), "r"(uint32_t(val)));
+}
+
+PCCL_DEVICE_INLINE void storeRelaxed(uint32_t *ptr, uint32_t val) {
+  asm volatile("st.weak.cs.u32 [%0], %1;" : : "l"(ptr), "r"(val));
+}
+
+// Publish preceding writes before updating the system-visible doorbell.
 PCCL_DEVICE_INLINE void storeRelease(uint64_t *ptr, uint64_t val) {
   hggc::atomic_ref<uint64_t, hggc::thread_scope_system> ref(*ptr);
   fenceRelease();
@@ -79,6 +85,22 @@ PCCL_DEVICE_INLINE void storeRelease(uint64_t *ptr, uint64_t val) {
 template <typename T>
 PCCL_DEVICE_INLINE T atomicRead(T *ptr) {
   return *(volatile T *)ptr;
+}
+
+template <hggc::thread_scope scope = hggc::thread_scope_device>
+PCCL_DEVICE_INLINE uint64_t loadRelaxed(uint64_t *ptr) {
+  uint64_t value;
+  if (scope == hggc::thread_scope_block)
+    asm volatile("ld.relaxed.cta.b64 %0, [%1];" : "=l"(value) : "l"(ptr));
+  else
+    asm volatile("ld.relaxed.gpu.b64 %0, [%1];" : "=l"(value) : "l"(ptr));
+  return value;
+}
+
+PCCL_DEVICE_INLINE uint32_t loadRelaxedSysGlobal(uint32_t *ptr) {
+  uint32_t value;
+  asm volatile("ld.relaxed.sys.global.b32 %0, [%1];" : "=r"(value) : "l"(ptr));
+  return value;
 }
 
 }  // namespace troce

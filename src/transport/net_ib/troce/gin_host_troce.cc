@@ -32,13 +32,14 @@
 
 #define MAX_PCI_ADDRESS_LEN 32U
 
-// Share the GDAKI override while retaining the validated TROCE queue-depth default.
-PCCL_PARAM(GinTroceQpDepth, "GIN_GDAKI_QP_DEPTH", 1024);
+extern int64_t ncclParamGinGdakiQpDepth();
 extern int64_t ncclParamGinGdakiMaxDestRdAtomic();
 extern int64_t ncclParamGinGdakiMaxQpRdAtomic();
 extern int64_t ncclParamGinErrorQuerySec();
 
 extern int64_t ncclParamIbPkey();
+extern int64_t ncclParamIbTc();
+extern int64_t ncclParamIbSl();
 extern int64_t ncclParamIbDataDirect();
 extern int64_t ncclParamDmaBufEnable();
 extern int64_t ncclParamIbPciRelaxedOrdering();
@@ -330,7 +331,6 @@ struct troceQpHost {
 
   // Tail registers mapped into the GPU address space.
   void *sqDbGpu;
-  void *cqDbGpu;
   uint8_t trafficClass;
 };
 
@@ -353,7 +353,6 @@ struct troceContext {
   int nContexts;
   int nRanks;
   uint32_t sqDepth;
-  uint32_t cqDepth;
 
   struct ncclGinIbCollComm *collComm;
   ncclNetDeviceHandle_t *devHandle;
@@ -368,9 +367,6 @@ struct troceContext {
   // point at.
   TroceHostGpuMem<struct pcclGinTroceGPUContext> *gpuCtx;
   TroceHostGpuMem<struct pcclGinTroceQp> *gpuQps;
-
-  // Mutable SQ/CQ indices, one set per QP, kept in device memory.
-  uint64_t *idxPool;  // PCCL_GIN_TROCE_QP_IDX_WORDS * nContexts * nRanks entries
 
   struct {
     void *addr;
@@ -477,7 +473,6 @@ static ncclResult_t troceCreateQp(struct troceContext *ctx, struct ibv_pd *pd,
 
   // Map the provider's SQ and CQ doorbells for device access.
   NCCLCHECK(troceMapNicRegToGpu(out->qpCtx.sq_tail_reg, TROCE_SQ_UAR_SIZE, &out->sqDbGpu));
-  NCCLCHECK(troceMapNicRegToGpu(out->cqCtx.cq_tail_reg, TROCE_CQ_UAR_SIZE, &out->cqDbGpu));
 
   struct ibv_qp_attr qpAttr;
   memset(&qpAttr, 0, sizeof(qpAttr));
@@ -526,8 +521,6 @@ static ncclResult_t troceDestroyQp(struct troceContext *ctx, struct troceQpHost 
   }
   NCCLCHECK(troceUnmapNicReg(qp->qpCtx.sq_tail_reg));
   qp->qpCtx.sq_tail_reg = nullptr;
-  NCCLCHECK(troceUnmapNicReg(qp->cqCtx.cq_tail_reg));
-  qp->cqCtx.cq_tail_reg = nullptr;
   if (qp->sqBase) {
     HGGCCHECK(hggcFree(qp->sqBase));
     qp->sqBase = nullptr;
@@ -552,7 +545,7 @@ static ncclResult_t troceDestroyQp(struct troceContext *ctx, struct troceQpHost 
 }
 
 static ncclResult_t troceConnectQp(struct troceContext *ctx, struct troceQpHost *qp,
-                                   struct troceExchInfo *remote) {
+                                   struct troceExchInfo *remote, int trafficClass) {
   struct ncclIbQpInfo info;
   memset(&info, 0, sizeof(info));
   info.lid = remote->lid;
@@ -574,8 +567,32 @@ static ncclResult_t troceConnectQp(struct troceContext *ctx, struct troceQpHost 
          (long long)maxDestRdAtomic, (long long)maxRdAtomic);
     return ncclInvalidArgument;
   }
-  NCCLCHECK(ncclIbRtrQp(qp->qp, remote->qpn, &info, ctx->gidIndex,
-                        (uint8_t)maxDestRdAtomic));
+  const int sl = ncclParamIbSl() != -1 ? ncclParamIbSl() :
+                   trafficClass != NCCL_NET_TRAFFIC_CLASS_UNDEF ? trafficClass : 0;
+  const int tc = ncclParamIbTc() != -1 ? ncclParamIbTc() :
+                   trafficClass != NCCL_NET_TRAFFIC_CLASS_UNDEF ? trafficClass : 0;
+  struct ibv_qp_attr attr;
+  memset(&attr, 0, sizeof(attr));
+  attr.qp_state = IBV_QPS_RTR;
+  attr.path_mtu = info.mtu;
+  attr.dest_qp_num = remote->qpn;
+  attr.max_dest_rd_atomic = (uint8_t)maxDestRdAtomic;
+  attr.min_rnr_timer = 12;
+  attr.ah_attr.sl = sl;
+  attr.ah_attr.port_num = info.ib_port;
+  if (info.lid == 0) {
+    attr.ah_attr.is_global = 1;
+    attr.ah_attr.grh.dgid.global.subnet_prefix = info.spn;
+    attr.ah_attr.grh.dgid.global.interface_id = info.iid;
+    attr.ah_attr.grh.sgid_index = ctx->gidIndex;
+    attr.ah_attr.grh.hop_limit = 255;
+    attr.ah_attr.grh.traffic_class = tc;
+  } else {
+    attr.ah_attr.dlid = info.lid;
+  }
+  NCCLCHECK(wrap_ibv_modify_qp(qp->qp, &attr, IBV_QP_STATE | IBV_QP_AV | IBV_QP_PATH_MTU |
+                               IBV_QP_DEST_QPN | IBV_QP_RQ_PSN | IBV_QP_MAX_DEST_RD_ATOMIC |
+                               IBV_QP_MIN_RNR_TIMER));
   // Query the traffic class established by RTR for the device doorbell encoding.
   NCCLCHECK(troceQueryTrafficClass(ctx, qp));
   NCCLCHECK(ncclIbRtsQp(qp->qp, (uint8_t)maxRdAtomic));
@@ -596,7 +613,7 @@ static void troceFillExchInfo(struct troceExchInfo *info, struct troceContext *c
 }
 
 ncclResult_t ncclGinTroceCreateContext(void *collComm, int nSignals, int nCounters, int nContexts,
-                                       int queueDepth, int /*trafficClass*/, void **outGinCtx,
+                                       int queueDepth, int trafficClass, void **outGinCtx,
                                        ncclNetDeviceHandle_t **outDevHandle) {
   if (nCounters != 0) {
     WARN("GIN/TROCE does not support counter resources");
@@ -628,8 +645,8 @@ ncclResult_t ncclGinTroceCreateContext(void *collComm, int nSignals, int nCounte
   ctx->nContexts = nContexts;
   ctx->nRanks = nranks;
   ctx->portNum = 1;  // Provider port used for QP creation.
-  ctx->sqDepth = queueDepth > 0 ? (uint32_t)queueDepth : (uint32_t)pcclParamGinTroceQpDepth();
-  ctx->cqDepth = 1; // IGNORE_OVERRUN collapsed CQ
+  ctx->sqDepth = (uint32_t)std::max<int64_t>(1024, queueDepth > 0 ? queueDepth :
+                                                              ncclParamGinGdakiQpDepth());
   ctx->signalsTable = signalsTable;
   ctx->gpuCtx = gpuCtx;
   ctx->gpuQps = gpuQps;
@@ -647,11 +664,10 @@ ncclResult_t ncclGinTroceCreateContext(void *collComm, int nSignals, int nCounte
   NCCLCHECKGOTO(signalsTable->registerMr(cComm->ib.pd), status, fail);
   NCCLCHECKGOTO(signalsTable->exchangeInfo(cComm), status, fail);
 
-  // Reserve a separate 64-byte atomic return slot for each QP to avoid shared
-  // writeback storage. Returned values are not consumed.
-  NCCLCHECKGOTO(troceAlignedHggcMalloc((void **)&sinkBuffer, (size_t)nqps * 64), status, fail);
-  HGGCCHECKGOTO(hggcMemset(sinkBuffer, 0, (size_t)nqps * 64), status, fail);
-  NCCLCHECKGOTO(troceRegMr(&sinkMr, cComm->ib.pd, sinkBuffer, (size_t)nqps * 64,
+  // Atomic return values are not consumed; all QPs share the sink.
+  NCCLCHECKGOTO(troceAlignedHggcMalloc((void **)&sinkBuffer, sizeof(uint64_t)), status, fail);
+  HGGCCHECKGOTO(hggcMemset(sinkBuffer, 0, sizeof(uint64_t)), status, fail);
+  NCCLCHECKGOTO(troceRegMr(&sinkMr, cComm->ib.pd, sinkBuffer, sizeof(uint64_t),
                            IBV_ACCESS_LOCAL_WRITE | IBV_ACCESS_REMOTE_WRITE |
                            IBV_ACCESS_REMOTE_READ | IBV_ACCESS_REMOTE_ATOMIC),
                 status, fail);
@@ -684,7 +700,7 @@ ncclResult_t ncclGinTroceCreateContext(void *collComm, int nSignals, int nCounte
     NCCLCHECKGOTO(cComm->allToAll(cComm, localExch, remoteExch, sizeof(struct troceExchInfo)),
                   status, fail);
     for (int peer = 0; peer < nranks; peer++) {
-      NCCLCHECKGOTO(troceConnectQp(ctx, &ctx->qps[ctxIdx * nranks + peer], &remoteExch[peer]),
+      NCCLCHECKGOTO(troceConnectQp(ctx, &ctx->qps[ctxIdx * nranks + peer], &remoteExch[peer], trafficClass),
                     status, fail);
       struct pcclGinTroceQp *devQp = &gpuQps->hostBuf[ctxIdx * nranks + peer];
       devQp->sink_rkey = htobe32(remoteExch[peer].sinkRkey);
@@ -694,22 +710,12 @@ ncclResult_t ncclGinTroceCreateContext(void *collComm, int nSignals, int nCounte
     }
   }
 
-  // Mutable SQ/CQ indices live in device memory: resv/ready/prod/cons plus the
-  // CQ progress lock and the doorbell ownership lock.
-  HGGCCHECKGOTO(hggcMalloc((void **)&ctx->idxPool,
-                           (size_t)nqps * PCCL_GIN_TROCE_QP_IDX_WORDS * sizeof(uint64_t)),
-                status, fail);
-  HGGCCHECKGOTO(hggcMemset(ctx->idxPool, 0, (size_t)nqps * PCCL_GIN_TROCE_QP_IDX_WORDS * sizeof(uint64_t)),
-                status, fail);
-
   // Build the device-visible view.
   for (int ctxIdx = 0; ctxIdx < nContexts; ctxIdx++) {
     struct pcclGinTroceGPUContext *devCtx = &gpuCtx->hostBuf[ctxIdx];
     unsigned int bufferStart = 0;
 
     devCtx->qps = gpuQps->gpuBuf + (size_t)ctxIdx * nranks;
-    devCtx->nRanks = nranks;
-    devCtx->sink_buffer = sinkBuffer;
     devCtx->sink_buffer_lkey = htobe32(sinkMr->lkey);
 
     if (nSignals) {
@@ -728,23 +734,17 @@ ncclResult_t ncclGinTroceCreateContext(void *collComm, int nSignals, int nCounte
       // Queue sizing guarantees a power-of-two capacity.
       devQp->nwqes = (uint32_t)(ctx->qps[qpIdx].sqLen / TROCE_SEND_WQE_BB);
       devQp->cqn = ctx->qps[qpIdx].cqCtx.cqn;
-      devQp->ncqes = 1; // One logical CQE within the allocated page.
       devQp->traffic_class = ctx->qps[qpIdx].trafficClass;
       // Device-resident queues and mapped doorbells support direct submission.
       devQp->sq_wqe = ctx->qps[qpIdx].sqBuf;
       devQp->sq_db = ctx->qps[qpIdx].sqDbGpu;
       devQp->cq_cqe = ctx->qps[qpIdx].cqBuf;
-      devQp->cq_db = ctx->qps[qpIdx].cqDbGpu;
-      uint64_t *qpIdxWords = ctx->idxPool + (size_t)qpIdx * PCCL_GIN_TROCE_QP_IDX_WORDS;
-      devQp->resv_head = qpIdxWords + 0;
-      devQp->ready_head = qpIdxWords + 1;
-      devQp->prod_idx = qpIdxWords + 2;
-      devQp->cons_idx = qpIdxWords + 3;
-      devQp->progress_lock = qpIdxWords + 4;
-      devQp->db_lock = qpIdxWords + 5;
-      // Byte offset of this QP's atomic return slot within the IOVA-zero MR.
-      devQp->sink_addr = (uint64_t)qpIdx * 64;
-
+      devQp->resv_head = 0;
+      devQp->ready_head = 0;
+      devQp->prod_idx = 0;
+      devQp->cons_idx = 0;
+      devQp->progress_lock = 0;
+      devQp->db_lock = 0;
     }
   }
 
@@ -761,9 +761,9 @@ ncclResult_t ncclGinTroceCreateContext(void *collComm, int nSignals, int nCounte
 
   INFO(NCCL_INIT | NCCL_NET,
        "GIN/TROCE context ready: rank=%d nranks=%d nContexts=%d nSignals=%d nCounters=%d "
-       "sqDepth=%u gidIndex=%d sqBuf=%p sqDb=%p cqBuf=%p cqDb=%p",
+       "sqDepth=%u gidIndex=%d sqBuf=%p sqDb=%p cqBuf=%p",
        rank, nranks, nContexts, nSignals, nCounters, ctx->sqDepth, ctx->gidIndex,
-       ctx->qps[0].sqBuf, ctx->qps[0].sqDbGpu, ctx->qps[0].cqBuf, ctx->qps[0].cqDbGpu);
+       ctx->qps[0].sqBuf, ctx->qps[0].sqDbGpu, ctx->qps[0].cqBuf);
 
   NCCLCHECK(ncclFree(localExch));
   NCCLCHECK(ncclFree(remoteExch));
@@ -795,9 +795,6 @@ fail:
         return status;
       }
       NCCLCHECKIGNORE(ncclFree(ctx->qps), status);
-    }
-    if (ctx->idxPool) {
-      HGGCCHECKIGNORE(hggcFree(ctx->idxPool));
     }
     NCCLCHECKIGNORE(ncclFree(ctx), status);
   }
@@ -849,9 +846,6 @@ ncclResult_t ncclGinTroceDestroyContext(void *ginCtx) {
   }
   if (ctx->sinkBuffer.addr) {
     HGGCCHECK(hggcFree(ctx->sinkBuffer.addr));
-  }
-  if (ctx->idxPool) {
-    HGGCCHECK(hggcFree(ctx->idxPool));
   }
   if (ctx->devHandle) {
     NCCLCHECK(ncclFree(ctx->devHandle));
