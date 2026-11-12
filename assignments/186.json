@@ -2,13 +2,13 @@
   "classification": {
     "base_sha": "a909809e63dbf891101c88d45c0b78bfe628fab6",
     "head_sha": "a035d46c4922bc01cc43c8aa1ab7d883f6cc61c8",
-    "input_fingerprint": "b79e48e1c24770f9062182f2f2bc548faa3f247bb53f5044cf793e2339e161fa",
+    "input_fingerprint": "e99fa7ced1bd2c86c39db5dc9773e5db3c48102dab49c4cb9c9a7812b3ea347d",
     "pr_number": 186,
     "proposal": {
       "modules": [
         "workflow"
       ],
-      "reason": "Main change updates contribution/review automation: module classification now retains patch-omitted files for human review, maintainer-approval status reports missing approvers by login and module, and squash preview generation is narrowed to commit body content and related workflow/skill guidance."
+      "reason": "The substantive changes are to contribution/review automation: reviewer-routing classification now retains patch-omitted files and reports manual-review gaps, maintainer-approval status now reports missing approvers with module context, and squash-preview generation is changed to body-only with updated workflow/docs wiring. These are review/merge policy and automation behavior changes, not CI test execution or runtime modules."
     }
   },
   "reviewers": {
