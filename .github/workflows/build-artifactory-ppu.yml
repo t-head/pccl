@@ -1,0 +1,623 @@
+name: build_artifactory
+
+# Build the pccl distribution tarballs *and* the pccl-tests perf binaries for every supported
+# OS / HGGCRT combination inside the matching docker image, and publish them as this repository's
+# own Actions artifacts:
+#
+#   comm_internal/<pkg_name>.tar.gz              pccl: lib/, include/, bin/, envsetup.sh
+#   comm_internal/<pccl_tests_pkg_name>.tar.gz   pccl-tests: comm_tools/*_perf
+#   comm_release/<pkg_name>.tar.gz
+#   comm_release/<pccl_tests_pkg_name>.tar.gz
+#
+# Both tarballs come out of the same job: the perf binaries link against the libpccl.so that this
+# very run just built, so one commit, one SDK install and one toolchain setup produce a matched
+# pair, and there is no second workflow that can drift out of step. pccl-tests keeps its own
+# workflow only as a manual (workflow_dispatch) fallback.
+#
+# One extra matrix row compiles ubuntu2404 / hggcrt13 a second time for the test pipeline and names
+# its output pccl_for_test_hggcrt13_ubuntu24, using its own copy of the build script, so that package
+# can diverge without perturbing the release one. That row does not emit pccl / pccl-tests tarballs
+# at all: it ships the whole ${build_output} tree (pccl_build/, comm-internal-testbox/, PPU_SDK/) as
+# one comm_internal/<bundle_name>.tar.gz, which is what the test box consumes.
+#
+# Everything runs on the internal x86-ubuntu2404-8-32 runner pool (8 vCPU / 32 GB): the matching
+# distribution image is started locally with docker and the workspace is bind-mounted at
+# /workspace/source, the layout the build scripts already assume, so no internal k8s cluster,
+# NAS mount or scheduler worker pod is involved.
+#
+# Each matrix entry uploads its own artifact; the publish job merges them into a single
+# "pccl-tarballs-<ref>-<label>" artifact, where <ref> is the branch or tag that triggered the
+# run (characters other than [A-Za-z0-9._-] become "-") and <label> is the UTC+8 "YYYY-MM-DD-HHmm"
+# timestamp shown in the run summary. Nothing is uploaded to an external server, so no
+# Artifactory credentials are required.
+#
+# The artifact label is a UTC+8 (Asia/Shanghai) "YYYY-MM-DD-HHmm" timestamp shared by every
+# job of a run; it is part of the merged artifact name and tags the run summary.
+#
+# Each matrix entry calls one of the tar build scripts in .github/workflows/scripts:
+#   hggcrt 12 -> pccl_hggcrt12_tar_build.sh
+#   hggcrt 13 -> pccl_hggcrt13_tar_build.sh
+#
+# The container images are plain OS base images under download.t-head.cn/docker_base. They no
+# longer ship the PPU SDK, so each matrix row also carries the SDK run package for its OS and
+# HGGCRT runtime: the tar build script downloads sdk_url into sdk_name and installs it under
+# ${source_home}, which lets one base image serve both hggcrt rows. Every enabled row must carry
+# a container image, otherwise the prepare job fails fast.
+#
+# No repository / organization secrets are needed.
+
+on:
+  # Nightly artifact build at 21:00 UTC+8 (13:00 UTC; GitHub cron is always UTC). GitHub only
+  # picks schedule triggers up from the default branch, so this stays dormant until the file
+  # is merged there.
+  schedule:
+    - cron: '0 13 * * *'
+  # Build on every push to the default branch. `paths` keeps ordinary source commits from
+  # burning a full matrix build; the nightly schedule above is what produces regular artifacts.
+  push:
+    branches:
+      - main
+    paths:
+      - .github/workflows/build-artifactory-ppu.yml
+      - .github/workflows/scripts/pccl_hggcrt12_tar_build.sh
+      - .github/workflows/scripts/pccl_hggcrt13_tar_build.sh
+      - .github/workflows/scripts/pccl_for_test_hggcrt13_ubuntu24_build.sh
+  workflow_dispatch:
+    inputs:
+      os_versions:
+        description: 'JSON array of OS labels; every BUILD_TABLE row is enabled: ubuntu2004, ubuntu2204, ubuntu2404, alios7, alios8, alinux3, alinux4'
+        required: true
+        type: string
+        default: '["ubuntu2004","ubuntu2204","ubuntu2404","alios7","alios8","alinux3","alinux4"]'
+      hggcrt_versions:
+        description: 'JSON array of HGGCRT runtime versions; allowed: 12, 13; both are enabled in BUILD_TABLE'
+        required: true
+        type: string
+        default: '["12","13"]'
+      artifact_version:
+        description: 'Label shown in the run summary; empty means the UTC+8 "YYYY-MM-DD-HHmm" timestamp of this run'
+        required: false
+        type: string
+        default: ''
+      package_version:
+        description: 'build.sh --package_version override; empty means "<a.b.c>-<UTC timestamp>"'
+        required: false
+        type: string
+        default: ''
+      cpu_num:
+        description: 'Parallelism passed to build.sh --cpu_num; 0 means one make job per core (nproc)'
+        required: true
+        type: string
+        default: '0'
+      max_parallel:
+        description: 'Matrix rows compiled at once; must not exceed the number of online x86-ubuntu2404-8-32 runners, extra rows just queue'
+        required: false
+        type: string
+        default: '8'
+
+permissions:
+  contents: read
+  # Merging the per-matrix artifacts lists them through the Actions API, so the scope has to
+  # be granted explicitly; an explicit permissions block sets everything else to none.
+  actions: read
+
+concurrency:
+  # The event name is part of the group on purpose: a push or a manual dispatch on main must not
+  # cancel the nightly run that is already building the previous commit.
+  group: build-artifactory-ppu-${{ github.event_name }}-${{ github.ref }}
+  # Within one event type, a newer run on the same ref supersedes whatever is still running: the
+  # superseded run would only hold matrix rows on the runner pool for an obsolete commit.
+  cancel-in-progress: true
+
+jobs:
+  # Expand the OS x HGGCRT matrix and resolve the artifact label once, so every downstream
+  # job and the run summary stay consistent even across re-runs.
+  prepare:
+    name: Prepare build matrix
+    runs-on: x86-ubuntu2404-8-32
+    timeout-minutes: 10
+    outputs:
+      matrix: ${{ steps.matrix.outputs.matrix }}
+      version: ${{ steps.matrix.outputs.version }}
+      buildable: ${{ steps.matrix.outputs.buildable }}
+      max_parallel: ${{ steps.matrix.outputs.max_parallel }}
+      pccl_tests_sha: ${{ steps.pccl_tests.outputs.sha }}
+    steps:
+      - name: Check out source
+        uses: actions/checkout@v4
+        with:
+          fetch-depth: 0
+          path: pccl
+          persist-credentials: false
+
+      - name: Resolve the pccl-tests commit
+        id: pccl_tests
+        # Every row packages pccl-tests, and all rows of one run have to build against the same
+        # commit: resolving it once here keeps them consistent even when main advances while the
+        # rest of the matrix is still queued. The ref stays a value from this file, never an
+        # input, so a scheduled run cannot be pointed at arbitrary branch content.
+        run: |
+          set -euo pipefail
+          sha=""
+          for attempt in 1 2 3; do
+            sha=$(git ls-remote https://github.com/t-head/pccl-tests.git refs/heads/main 2>/dev/null \
+              | awk 'NR==1 {print $1}')
+            if [ -n "${sha}" ]; then
+              break
+            fi
+            echo "::warning::could not resolve the pccl-tests main commit (attempt ${attempt}/3)"
+            sleep 15
+          done
+          if [ -z "${sha}" ]; then
+            echo "::error::could not resolve the pccl-tests main commit"
+            exit 1
+          fi
+          echo "pccl-tests commit: ${sha}"
+          echo "sha=${sha}" >> "$GITHUB_OUTPUT"
+
+      - name: Resolve matrix and artifact version
+        id: matrix
+        shell: bash
+        # `inputs` is only populated for workflow_dispatch/workflow_call; for push events it
+        # is an empty string, so every input needs a `||` fallback matching its declared default.
+        env:
+          OS_VERSIONS: ${{ inputs.os_versions || '["ubuntu2004","ubuntu2204","ubuntu2404","alios7","alios8","alinux3","alinux4"]' }}
+          HGGCRT_VERSIONS: ${{ inputs.hggcrt_versions || '["12","13"]' }}
+          ARTIFACT_VERSION: ${{ inputs.artifact_version || '' }}
+          MAX_PARALLEL: ${{ inputs.max_parallel || '8' }}
+        run: |
+          python3 - <<'PY'
+          import json
+          import os
+          import re
+          import subprocess
+          from datetime import datetime, timedelta, timezone
+          from pathlib import Path
+
+          SOURCE_DIR = Path("pccl")
+
+          # (os label, hggcrt, SDK run package name, container image)
+          # Images are plain OS base images: the SDK .run that matches the OS and the HGGCRT
+          # runtime is downloaded and installed by the tar build script via sdk_url/sdk_name.
+          SDK_BASE_URL = "https://download.t-head.cn/artifactory/ptgai-generic-release/PPU_SDK/v2.2.1"
+          BUILD_TABLE = [
+              ("ubuntu2004", "12", "ppu_hggcrt2_ubuntu2004-2.2.1-184ee6.run",
+               "download.t-head.cn/docker_base/ubuntu:20.04"),
+              ("ubuntu2204", "12", "ppu_hggcrt2_ubuntu2204-2.2.1-184ee6.run",
+               "download.t-head.cn/docker_base/ubuntu:22.04"),
+              ("ubuntu2404", "12", "ppu_hggcrt2_ubuntu2404-2.2.1-184ee6.run",
+               "download.t-head.cn/docker_base/ubuntu:24.04"),
+              ("ubuntu2404", "13", "ppu_hggcrt3_ubuntu2404-2.2.1-184ee6.run",
+               "download.t-head.cn/docker_base/ubuntu:24.04"),
+              ("alios7", "12", "ppu_hggcrt2_alios7u2-2.2.1-184ee6.run",
+               "download.t-head.cn/docker_base/alios7u2-min:20220601"),
+              ("alios7", "13", "ppu_hggcrt3_alios7u2-2.2.1-184ee6.run",
+               "download.t-head.cn/docker_base/alios7u2-min:20220601"),
+              ("alinux3", "12", "ppu_hggcrt2_afa3-2.2.1-184ee6.run",
+               "download.t-head.cn/docker_base/alinux3:latest"),
+              ("alinux3", "13", "ppu_hggcrt3_afa3-2.2.1-184ee6.run",
+               "download.t-head.cn/docker_base/alinux3:latest"),
+              # The alios8u image reports itself as Alibaba Cloud Linux 3, so it installs from the
+              # alinux/3 mirror; alinux4 needs the extra os/ path segment of the v4 mirror layout.
+              ("alios8", "12", "ppu_hggcrt2_alios8u2-2.2.1-184ee6.run",
+               "download.t-head.cn/docker_base/alios8u:latest"),
+              ("alinux4", "12", "ppu_hggcrt2_afa4-2.2.1-184ee6.run",
+               "download.t-head.cn/docker_base/alinux4:latest"),
+              ("alinux4", "13", "ppu_hggcrt3_afa4-2.2.1-184ee6.run",
+               "download.t-head.cn/docker_base/alinux4:latest"),
+              # A second ubuntu2404 / hggcrt13 row whose packages are reserved for the test pipeline.
+              # The optional 5th element pins the package name; the row then builds with
+              # <pkg_name>_build.sh (pccl_for_test_hggcrt13_ubuntu24_build.sh, a copy of
+              # pccl_hggcrt13_tar_build.sh that only targets ubuntu 24.04). Same image and SDK as
+              # the ubuntu2404 / hggcrt13 row above.
+              ("ubuntu2404", "13", "ppu_hggcrt3_ubuntu2404-2.2.1-184ee6.run",
+               "download.t-head.cn/docker_base/ubuntu:24.04", "pccl_for_test_hggcrt13_ubuntu24"),
+          ]
+          OS_LABELS = sorted({row[0] for row in BUILD_TABLE})
+          HGGCRT_LABELS = sorted({row[1] for row in BUILD_TABLE})
+          PATH_PATTERN = r"[A-Za-z0-9][A-Za-z0-9._+-]*"
+
+
+          def fail(message):
+              # Workflow commands are only turned into annotations when printed on stdout.
+              print(f"::error::{message}", flush=True)
+              raise SystemExit(1)
+
+
+          def parse_filter(raw, label, allowed):
+              try:
+                  values = json.loads(raw)
+              except (TypeError, ValueError):
+                  fail(f"{label} must be a JSON array")
+              if not isinstance(values, list) or not values:
+                  fail(f"{label} must be a non-empty JSON array")
+              normalized = []
+              for value in values:
+                  if isinstance(value, int) and label == "hggcrt_versions":
+                      value = str(value)
+                  if value not in allowed:
+                      fail(f"{label} contains unsupported value {value!r}; allowed: {', '.join(allowed)}")
+                  if value not in normalized:
+                      normalized.append(value)
+              return normalized
+
+
+          def resolve_version(raw):
+              # The value ends up in the run summary, so keep it to a single safe token.
+              if raw:
+                  if not re.fullmatch(PATH_PATTERN, raw):
+                      fail("artifact_version must contain only letters, digits and . _ + -")
+                  return raw
+              # One label per run, taken from a single UTC+8 timestamp so every job of the run
+              # reports the same value.
+              return datetime.now(timezone(timedelta(hours=8))).strftime("%Y-%m-%d-%H%M")
+
+
+          selected_os = parse_filter(os.environ["OS_VERSIONS"], "os_versions", OS_LABELS)
+          selected_hggcrt = parse_filter(os.environ["HGGCRT_VERSIONS"], "hggcrt_versions", HGGCRT_LABELS)
+          version = resolve_version(os.environ.get("ARTIFACT_VERSION", "").strip())
+
+          entries = []
+          for row in BUILD_TABLE:
+              os_label, hggcrt, sdk_name, image = row[:4]
+              # Rows carry an optional 5th element: the package name of an extra build that targets
+              # the same OS and runtime for a different consumer. Everything that has to stay
+              # unique per row (artifact, workspace dir, output dir) therefore hangs off this
+              # package name instead of the os/hggcrt pair, which those rows share.
+              pkg_name = row[4] if len(row) > 4 else f"pccl_hggcrt{hggcrt}_{os_label}"
+              for_test = "_for_test_" in pkg_name
+              if os_label not in selected_os or hggcrt not in selected_hggcrt:
+                  continue
+              if not image:
+                  # Job-level `if` cannot reference `matrix`, so empty-image rows must never
+                  # reach the matrix; fail here with an actionable message instead.
+                  fail(f"entry ({os_label}, hggcrt{hggcrt}) is selected but has no container image configured")
+              row_key = pkg_name[len("pccl_"):]
+              entries.append({
+                  "os": os_label,
+                  "hggcrt": hggcrt,
+                  # Identifies the job in the UI; the for-test row must not read like its twin.
+                  "label": f"{os_label} (hggcrt{hggcrt}{' for test' if for_test else ''})",
+                  # Distinct artifact name per matrix row so the merge pattern is unambiguous.
+                  "pkg_name": pkg_name,
+                  # The same job also packages pccl-tests, so one artifact carries both tarballs.
+                  "tests_pkg_name": f"pccl_tests_{row_key}",
+                  # Empty for the regular rows. A for-test row ships one archive holding the whole
+                  # ${build_output} tree instead of the separate pccl-tests tarball.
+                  "bundle_name": f"{pkg_name}_bundle" if for_test else "",
+                  "output_dir": f"output_{row_key}",
+                  "build_script": f"{pkg_name}_build.sh" if for_test else f"pccl_hggcrt{hggcrt}_tar_build.sh",
+                  # The script wgets sdk_url into sdk_name and installs it under ${source_home}.
+                  "sdk_url": f"{SDK_BASE_URL}/{sdk_name}",
+                  "sdk_name": sdk_name,
+                  "image": image,
+              })
+          if not entries:
+              fail("the selected os_versions/hggcrt_versions combination produced an empty matrix")
+
+          buildable = len(entries)
+          print(f"matrix entries: {buildable}, all with container images")
+          print(f"artifact version: {version}")
+          # `max-parallel` is consumed through fromJSON at job level, where a non-numeric value
+          # fails the whole matrix, so normalise the input here instead of trusting the dispatcher.
+          raw_parallel = (os.environ.get("MAX_PARALLEL") or "").strip()
+          try:
+              max_parallel = max(1, int(raw_parallel))
+          except ValueError:
+              max_parallel = 8
+          print(f"max parallel rows: {max_parallel}")
+          with open(os.environ["GITHUB_OUTPUT"], "a", encoding="utf-8") as output:
+              output.write("matrix=" + json.dumps({"include": entries}, separators=(",", ":")) + "\n")
+              output.write(f"version={version}\n")
+              output.write(f"buildable={buildable}\n")
+              output.write(f"max_parallel={max_parallel}\n")
+          PY
+
+  # One job per OS / HGGCRT pair. Compilation only needs CPU, so the distribution image is started
+  # with docker inside the job instead of in a scheduler worker pod.
+  # Note: job-level `if` is evaluated before the matrix is expanded, so it cannot
+  # reference `matrix`; unconfigured rows are rejected in the prepare job instead.
+  build:
+    name: Build ${{ matrix.label }}
+    needs: prepare
+    runs-on: x86-ubuntu2404-8-32
+    timeout-minutes: 360
+    strategy:
+      fail-fast: false
+      # One row per runner: rows beyond the pool size simply stay queued, so this only has to be
+      # kept at or below the number of online x86-ubuntu2404-8-32 runners.
+      max-parallel: ${{ fromJSON(needs.prepare.outputs.max_parallel) }}
+      matrix: ${{ fromJSON(needs.prepare.outputs.matrix) }}
+    defaults:
+      run:
+        shell: bash
+    env:
+      # Paths as seen inside the build container: the workspace is bind-mounted at
+      # /workspace/source, so the checkout shows up as /workspace/source/pccl exactly as it did
+      # under the worker pod, and the build scripts need no change.
+      source_home: /workspace/source
+      build_output: /workspace/source/${{ matrix.output_dir }}
+      # Host-side view of the same directory, used by the verification and upload steps.
+      workspace_output: ${{ github.workspace }}/${{ matrix.output_dir }}
+      # Base images carry no PPU SDK: the tar build script downloads sdk_url as sdk_name and
+      # installs it under ${source_home}, then sources ${source_home}/PPU_SDK/envsetup.sh.
+      sdk_url: ${{ matrix.sdk_url }}
+      sdk_name: ${{ matrix.sdk_name }}
+      pkg_name: ${{ matrix.pkg_name }}
+      # The tar build script packages pccl-tests against the pccl build of this job and writes this
+      # tarball next to the pccl one.
+      pccl_tests_pkg_name: ${{ matrix.tests_pkg_name }}
+      # Set for the for-test row only. The build script then also tars the whole ${build_output}
+      # tree into comm_internal/${bundle_name}.tar.gz, which is the package that row delivers.
+      bundle_name: ${{ matrix.bundle_name }}
+      # Passed to build.sh as --cpu_num; 0 means "as many make jobs as cores", which keeps the
+      # hosted runner's 4 vCPU / 16 GB from being oversubscribed by an unbounded make -j.
+      cpu: ${{ inputs.cpu_num || '0' }}
+      package_version: ${{ inputs.package_version || '' }}
+    steps:
+      - name: Check out source
+        uses: actions/checkout@v4
+        with:
+          fetch-depth: 0
+          path: pccl
+          persist-credentials: false
+
+      # pccl-tests ships from this job (see the header), so its source is checked out next to pccl
+      # and the same tar build script packages both against the library built a moment earlier.
+      - name: Check out pccl-tests
+        uses: actions/checkout@v4
+        with:
+          repository: t-head/pccl-tests
+          # The commit `prepare` resolved from main, not an input: this workflow also runs on
+          # schedule with the default branch's privileges, so a caller-supplied ref would let that
+          # privileged context execute arbitrary branch content (CodeQL cache poisoning / pwn request).
+          ref: ${{ needs.prepare.outputs.pccl_tests_sha }}
+          fetch-depth: 0
+          path: pccl-tests
+          persist-credentials: false
+
+      - name: Reset the staging directory
+        # `actions/checkout` only cleans the two source paths it manages, so on a persistent runner
+        # this row would inherit the previous run's tarballs: the packaging step would sweep them
+        # into the new archive and the upload glob would publish them.
+        run: |
+          set -euo pipefail
+          rm -rf "${workspace_output}" 2>/dev/null || sudo -n rm -rf "${workspace_output}"
+          mkdir -p "${workspace_output}/comm_internal" "${workspace_output}/comm_release"
+
+      - name: Reclaim disk space
+        # Only the GitHub-hosted image carries ~25 GB of preinstalled toolchains this build never
+        # touches. On a self-managed runner those paths may be absent and sudo may not be
+        # passwordless, so neither case may fail the job.
+        run: |
+          set -euo pipefail
+          df -h /
+          for dir in /usr/share/dotnet /usr/local/lib/android /opt/ghc /opt/hostedtoolcache/CodeQL /usr/local/share/boost; do
+            if [ ! -e "${dir}" ]; then
+              continue
+            fi
+            sudo -n rm -rf "${dir}" 2>/dev/null || echo "::warning::could not remove ${dir} (no passwordless sudo)"
+          done
+          df -h /
+
+      - name: Pull the distribution image
+        env:
+          IMAGE: ${{ matrix.image }}
+        run: |
+          set -euo pipefail
+          # Every row may land on a runner that already has the image, but there is no guarantee,
+          # so retry a few times before giving up on one flaky registry answer.
+          for attempt in 1 2 3; do
+            if docker pull "${IMAGE}"; then
+              exit 0
+            fi
+            echo "::warning::docker pull ${IMAGE} failed (attempt ${attempt}/3)"
+            sleep 30
+          done
+          echo "::error::could not pull ${IMAGE}"
+          exit 1
+
+      - name: Build pccl and pccl-tests tarballs in the distribution image
+        # docker rather than a job container: the CentOS 7 based alios7 image cannot run the
+        # node-based actions, so checkout and upload stay on the hosted runner and only the
+        # compilation happens inside the distribution image. The workspace is bind-mounted at
+        # /workspace/source, the path the scheduler used to stage it to, so no script changes.
+        run: |
+          set -euo pipefail
+          # The inner script is written to a file and executed inside the container: the job env
+          # is forwarded with -e, and a heredoc keeps the quoting of the build commands intact.
+          cat > "${RUNNER_TEMP}/build-inside.sh" <<'INSIDE'
+          set -e
+          # Hand the bind-mounted tree back to the runner user even when the build fails: the
+          # container runs as root, and root-owned leftovers make the next actions/checkout clean
+          # fail on a persistent runner.
+          trap 'chown -R "${HOST_UID}:${HOST_GID}" /workspace/source 2>/dev/null || true' EXIT
+          : "${build_output:?build_output must be forwarded into the build container}"
+          cd /workspace/source
+          # The image bakes in unreachable internal PIP / git redirects.
+          unset PIP_INDEX_URL 2>/dev/null || true
+          # Only the older SDK images ship git. The docker_base images have none, and under
+          # `set -e` an unconditional `git config` kills the step before the build starts
+          # (first docker_base run failed with "/bin/bash: line 8: git: command not found").
+          # Both the redirect cleanup and safe.directory are only meaningful when git exists.
+          if command -v git >/dev/null 2>&1; then
+            # Images can bake in a git redirect to an internal mirror. Clear every redirect
+            # generically instead of naming the private endpoint in this public file.
+            while read -r key; do
+              [ -n "${key}" ] || continue
+              git config --global --unset-all "${key}" 2>/dev/null || true
+            done < <(git config --global --get-regexp '^url\..*\.insteadof$' 2>/dev/null | awk '{print $1}')
+            git config --global --add safe.directory '*'
+          fi
+
+          echo "######################### $(date +%Y%m%d%H%M%S) Build ${pkg_name} in ${{ matrix.image }} ##########################"
+          bash "pccl/.github/workflows/scripts/${{ matrix.build_script }}"
+          INSIDE
+          docker run --rm \
+            --user root \
+            -v "${GITHUB_WORKSPACE}:/workspace/source" \
+            -v "${RUNNER_TEMP}/build-inside.sh:/tmp/build-inside.sh:ro" \
+            -w /workspace/source \
+            -e source_home \
+            -e build_output \
+            -e sdk_url \
+            -e sdk_name \
+            -e pkg_name \
+            -e pccl_tests_pkg_name \
+            -e bundle_name \
+            -e package_version \
+            -e cpu \
+            -e HOST_UID="$(id -u)" \
+            -e HOST_GID="$(id -g)" \
+            "${{ matrix.image }}" \
+            bash /tmp/build-inside.sh
+      - name: Verify the expected tarballs were produced
+        # Host-side check on the files the container wrote: the container's EXIT trap already handed
+        # ownership back to the runner user, so this step only has to find the tarballs where the
+        # upload step will read them.
+        run: |
+          set -euo pipefail
+
+          if [ -n "${bundle_name}" ]; then
+            expected="${workspace_output}/comm_internal/${bundle_name}.tar.gz"
+          else
+            expected=""
+            for component in comm_internal comm_release; do
+              for tarball in "${pkg_name}" "${pccl_tests_pkg_name}"; do
+                expected="${expected} ${workspace_output}/${component}/${tarball}.tar.gz"
+              done
+            done
+          fi
+          for tarball in ${expected}; do
+            if [ ! -f "${tarball}" ]; then
+              echo "::error::${tarball} was not produced"
+              ls -la "${workspace_output}/comm_internal" "${workspace_output}/comm_release" 2>&1 | head -n 30 || true
+              exit 1
+            fi
+          done
+
+          echo "######################### $(date +%Y%m%d%H%M%S) Tarballs of ${pkg_name}${bundle_name:+, bundle ${bundle_name}} ##########################"
+          find "${workspace_output}" -maxdepth 2 -name '*.tar.gz' -type f -print
+
+      - name: Upload tarballs as run artifact
+        uses: actions/upload-artifact@v4
+        with:
+          # run_id / run_attempt keep re-runs of the same commit from colliding.
+          name: ${{ matrix.pkg_name }}-${{ github.run_id }}-${{ github.run_attempt }}
+          path: |
+            ${{ matrix.output_dir }}/comm_internal/*.tar.gz
+            ${{ matrix.output_dir }}/comm_release/*.tar.gz
+          if-no-files-found: error
+          compression-level: 0
+          retention-days: 30
+
+  # Merge the per-matrix artifacts into one. The tarballs stay inside this repository's own
+  # Actions artifacts; nothing is pushed to an external server.
+  publish:
+    name: Publish run artifact
+    needs: [prepare, build]
+    if: >-
+      ${{ !cancelled() &&
+          needs.prepare.result == 'success' &&
+          needs.prepare.outputs.buildable != '0' &&
+          (needs.build.result == 'success' || needs.build.result == 'failure') }}
+    runs-on: x86-ubuntu2404-8-32
+    timeout-minutes: 30
+    defaults:
+      run:
+        shell: bash
+    outputs:
+      artifact_name: ${{ steps.name.outputs.artifact_name }}
+    steps:
+      - name: Resolve merged artifact name
+        id: name
+        env:
+          LABEL: ${{ needs.prepare.outputs.version }}
+          REF_NAME: ${{ github.ref_name }}
+        run: |
+          set -euo pipefail
+          # The label is the UTC+8 "YYYY-MM-DD-HHmm" timestamp the prepare job resolves once
+          # per run, so the artifact reads like a release stamp instead of an internal run id
+          # and matches the value shown in the run summary.
+          if [ -z "${LABEL:-}" ]; then
+            echo "::error::the artifact label is empty; the prepare job did not export outputs.version"
+            exit 1
+          fi
+          # The git ref tells main-branch and release-branch builds apart. Branch names contain
+          # "/" and tags may contain other characters an artifact name rejects, so fold anything
+          # outside [A-Za-z0-9._-] into a single "-".
+          ref_slug=$(printf '%s' "${REF_NAME:-unknown}" | sed -e 's/[^A-Za-z0-9._-]/-/g' -e 's/--*/-/g' -e 's/^-//' -e 's/-$//')
+          ref_slug=${ref_slug:-unknown}
+          echo "artifact_name=pccl-tarballs-${ref_slug}-${LABEL}" >> "$GITHUB_OUTPUT"
+
+      - name: Merge tarball artifacts
+        uses: actions/upload-artifact/merge@v4
+        with:
+          name: ${{ steps.name.outputs.artifact_name }}
+          # Matches every per-row artifact of this run, including the for-test one whose package
+          # name starts with pccl_for_test instead of pccl_hggcrt.
+          pattern: pccl*-${{ github.run_id }}-${{ github.run_attempt }}
+          delete-merged: true
+          # The merge republishes a fresh archive and does not inherit the per-row compression-level
+          # (its own default is 6). The inputs are already gzipped tarballs, so store them as they are
+          # instead of spending zlib work on data that cannot shrink further.
+          compression-level: 0
+          retention-days: 30
+
+      - name: Write artifact summary
+        if: always()
+        env:
+          ARTIFACT_NAME: ${{ steps.name.outputs.artifact_name }}
+          RUN_URL: ${{ github.server_url }}/${{ github.repository }}/actions/runs/${{ github.run_id }}
+          PUBLISH_RESULT: ${{ job.status }}
+        run: |
+          {
+            printf '### pccl tarballs\n\n'
+            printf '| item | value |\n| --- | --- |\n'
+            printf '| artifact | `%s` |\n' "${ARTIFACT_NAME}"
+            printf '| download | [run artifacts](%s) |\n' "${RUN_URL}"
+            printf '| result | %s |\n' "${PUBLISH_RESULT}"
+          } >> "$GITHUB_STEP_SUMMARY"
+
+  summary:
+    name: Build summary
+    needs: [prepare, build, publish]
+    if: always()
+    runs-on: x86-ubuntu2404-8-32
+    timeout-minutes: 10
+    steps:
+      - name: Write matrix summary
+        shell: bash
+        env:
+          MATRIX_JSON: ${{ needs.prepare.outputs.matrix }}
+          PREPARE_RESULT: ${{ needs.prepare.result }}
+          VERSION: ${{ needs.prepare.outputs.version }}
+          BUILD_RESULT: ${{ needs.build.result }}
+          PUBLISH_RESULT: ${{ needs.publish.result }}
+          ARTIFACT_NAME: ${{ needs.publish.outputs.artifact_name }}
+        run: |
+          python3 - <<'PY' >> "$GITHUB_STEP_SUMMARY"
+          import json
+          import os
+
+          print("### pccl build artifacts\n")
+          print(f"| item | value |\n| --- | --- |")
+          print(f"| label | {os.environ.get('VERSION') or 'n/a'} |")
+          print(f"| artifact | `{os.environ.get('ARTIFACT_NAME') or 'n/a'}` |")
+          print(f"| prepare | {os.environ.get('PREPARE_RESULT', '')} |")
+          print(f"| build | {os.environ.get('BUILD_RESULT', '')} |")
+          print(f"| publish | {os.environ.get('PUBLISH_RESULT', '')} |")
+
+          raw = os.environ.get("MATRIX_JSON") or ""
+          if not raw:
+              print("\nNo matrix was generated.")
+              raise SystemExit(0)
+          entries = json.loads(raw).get("include", [])
+          # Two rows can share one OS/runtime pair (the extra for-test row does), so the row label
+          # rather than the bare OS name identifies a line.
+          print("\n| row | hggcrt | pccl package | pccl-tests / bundle package | image |\n| --- | --- | --- | --- | --- |")
+          for entry in entries:
+              # The for-test row has no pccl-tests tarball and ships a bundle instead.
+              tests_pkg = entry.get("bundle_name") or entry.get("tests_pkg_name", "n/a")
+              print(f"| {entry.get('label', entry['os'])} | {entry['hggcrt']} | `{entry['pkg_name']}.tar.gz` | `{tests_pkg}.tar.gz` | `{entry['image']}` |")
+          PY
