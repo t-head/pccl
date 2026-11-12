@@ -2,13 +2,13 @@
   "classification": {
     "base_sha": "a909809e63dbf891101c88d45c0b78bfe628fab6",
     "head_sha": "ad6852f98c378985bfc6eced1ab30f96ad771070",
-    "input_fingerprint": "9beabe4b526768b6d7311a2f31cf497072f53236df1a66a121d66b986f05e086",
+    "input_fingerprint": "a57321eacda186cd27588bea3f3a7b17aea27262a4c6fed0b55677bfc854e662",
     "pr_number": 186,
     "proposal": {
       "modules": [
         "workflow"
       ],
-      "reason": "Updates review-routing automation and classification guidance to keep all PR file records when GitHub omits patch bodies, validate available patches, and surface omitted diffs for human review without changing reviewer selection/approval logic."
+      "reason": "Updates review-routing automation to keep all PR file records when GitHub omits patch bodies, validate available patches, and surface omitted diffs for human review while preserving module-classification/invitation flow."
     }
   },
   "reviewers": {
