@@ -6,6 +6,7 @@
  *************************************************************************/
 
 #include "alloc.h"
+#include "bitops.h"
 #include <assert.h>
 #include "pccl_compat.h"
 #include <errno.h>
@@ -394,10 +395,7 @@ static ncclResult_t troceCreateQp(struct troceContext *ctx, struct ibv_pd *pd,
   // SQ indices use bit masks, so their capacities must be
   // powers of two. Round the requested work-request capacity up accordingly.
   if (numWqebb & (numWqebb - 1)) {
-    uint32_t pow2 = 1u;
-    while (pow2 < numWqebb) {
-      pow2 <<= 1;
-    }
+    uint32_t pow2 = pow2Up(numWqebb);
     INFO(NCCL_NET, "GIN/TROCE: rounding queue depth %u up to %u (must be a power of two)",
          numWqebb, pow2);
     numWqebb = pow2;
@@ -406,10 +404,9 @@ static ncclResult_t troceCreateQp(struct troceContext *ctx, struct ibv_pd *pd,
   // Allocate a page-aligned buffer for this entry and enable IGNORE_OVERRUN.
   const int numCqe = 1;
 
-  out->sqLen = ((size_t)numWqebb * TROCE_SEND_WQE_BB * TROCE_SEND_WQE_BB_FACTOR +
-                TROCE_SQ_ALIGN - 1) & ~(TROCE_SQ_ALIGN - 1);
-  out->rqLen = ((size_t)numWqebb * TROCE_RECV_WQE_BB + TROCE_RQ_ALIGN - 1) &
-               ~(TROCE_RQ_ALIGN - 1);
+  out->sqLen = alignUp((size_t)numWqebb * TROCE_SEND_WQE_BB * TROCE_SEND_WQE_BB_FACTOR,
+                       TROCE_SQ_ALIGN);
+  out->rqLen = alignUp((size_t)numWqebb * TROCE_RECV_WQE_BB, TROCE_RQ_ALIGN);
   out->cqLen = TROCE_PAGE_SIZE;
 
   NCCLCHECK(troceCtrlAlloc(&out->sqBase, &out->sqBuf, out->sqLen));
