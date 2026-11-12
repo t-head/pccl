@@ -1,15 +1,15 @@
 {
   "classification": {
     "base_sha": "dcc16f7527444230dbd33cca1f348760c2df7e97",
-    "head_sha": "215ca9ed62e51526d2ec8d667740cce38fc6eadf",
-    "input_fingerprint": "4cfea161218d89b963f8359839722a26cadf5ad13c248d9d76625bd143e6aaf2",
+    "head_sha": "2888b0e87a5000602f6967a3052f083e352e108c",
+    "input_fingerprint": "433e27b32fa4e237221a08fac7e4a19f55e8098b7c37605a7e33434bb94ba65e",
     "pr_number": 31,
     "proposal": {
       "modules": [
         "network",
         "gin"
       ],
-      "reason": "Primary change is a new built-in TROCE GIN backend (host/device GIN APIs, context/registration lifecycle, QP/CQ progress, signal/flush semantics, and internal GIN plugin wiring). Include network because the PR also makes substantive shared net_ib transport changes (provider detection, QP inline policy, verbs opcode support, NET\u2194GIN device mapping, and proxy signal-op handling) that affect network backend behavior beyond purely local refactors."
+      "reason": "Main change is a new independent TROCE GIN backend, including GIN plugin registration, GIN host/device context lifecycle, GIN device API extensions (SignalSet, backend type/version), and TROCE-specific GIN queueing/completion logic. Added network because the PR also makes substantive shared net_ib transport changes (provider detection/type plumbing, QP inline behavior, opcode/signal handling in IB proxy/connect paths) that affect core network transport behavior beyond a pure local rename or test/doc edit."
     }
   },
   "reviewers": {
