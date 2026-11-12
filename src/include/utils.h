@@ -1,7 +1,7 @@
 /*************************************************************************
  * SPDX-FileCopyrightText: Copyright (c) 2016-2026 NVIDIA CORPORATION & AFFILIATES. All rights reserved.
  * SPDX-FileCopyrightText: Modifications Copyright (c) 2020-2026 T-Head (Shanghai) Semiconductor Co., Ltd. All rights reserved.
- * SPDX-License-Identifier: BSD-3-Clause
+ * SPDX-License-Identifier: BSD-3-Clause AND Apache-2.0
  *
  * See LICENSE.txt for more license information
  *************************************************************************/
@@ -405,6 +405,29 @@ inline T* ncclIntruQueueDequeue(ncclIntruQueue<T,next> *me) {
   me->head = ans->*next;
   if (me->head == nullptr) me->tail = nullptr;
   return ans;
+}
+
+template <typename T, T* T::* next>
+inline T* ncclIntruQueueDelete(ncclIntruQueue<T, next>* me, T* x, bool (*cmp)(T*, T*)) {
+  T* prev = nullptr;
+  T* cur = me->head;
+  bool found = false;
+
+  while (cur) {
+    if (cmp(cur, x)) {
+      found = true;
+      break;
+    }
+    prev = cur;
+    cur = cur->*next;
+  }
+
+  if (found) {
+    if (prev == nullptr) me->head = cur->*next;
+    else prev->*next = cur->*next;
+    if (cur == me->tail) me->tail = prev;
+  }
+  return cur;
 }
 
 template<typename T, T *T::*next>

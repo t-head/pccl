@@ -24,6 +24,9 @@
 
 #define NCCL_IPC_SOCKNAME_LEN 64
 
+typedef int ncclIpcFd;
+#define NCCL_INVALID_IPC_FD ((ncclIpcFd) -1)
+
 struct ncclIpcSocket {
   int fd;
   char socketName[NCCL_IPC_SOCKNAME_LEN];
@@ -39,5 +42,7 @@ ncclResult_t ncclIpcSocketSendFd(struct ncclIpcSocket *handle, const int fd, int
 
 ncclResult_t ncclIpcSocketSendMsg(ncclIpcSocket *handle, void *hdr, int hdrLen, const int sendFd, int rank, uint64_t hash);
 ncclResult_t ncclIpcSocketRecvMsg(ncclIpcSocket *handle, void *hdr, int hdrLen, int *recvFd);
+
+int ncclIpcFdClose(ncclIpcFd fd);
 
 #endif /* NCCL_IPCSOCKET_H */
