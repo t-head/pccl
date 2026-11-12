@@ -1,14 +1,14 @@
 {
   "classification": {
     "base_sha": "dcc16f7527444230dbd33cca1f348760c2df7e97",
-    "head_sha": "cb42c72c2ac968dfece2aab6c255568026276c9b",
-    "input_fingerprint": "45d6428a3f04660a3268c8d7177d51d72ba3d731646f2c5d1373456cd6551d69",
+    "head_sha": "dcd05dc1aeb7575ffdfd4954108f234cb9d39553",
+    "input_fingerprint": "6b1b59ea3e41e770782bf65e4fdf87b7ccb3b5e86f7148da2d2db73c983e45fe",
     "pr_number": 181,
     "proposal": {
       "modules": [
         "network"
       ],
-      "reason": "InfiniBand network backend initialization now queries full port speed via ibv_query_port_speed (with active_speed_ex/active_speed fallback and XDR support), changing link-rate discovery behavior used by network transport setup."
+      "reason": "Main functional change is in InfiniBand network backend speed discovery: prefer ibv_query_port_speed with fallback to extended/legacy port attributes (including XDR handling), plus matching IB verbs wrapper updates to support that network-path behavior."
     }
   },
   "reviewers": {
