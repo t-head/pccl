@@ -6,9 +6,10 @@
     "pr_number": 31,
     "proposal": {
       "modules": [
+        "network",
         "gin"
       ],
-      "reason": "Introduces an independent TROCE GIN backend end-to-end (plugin registration, host context lifecycle, device-side GIN API/backend dispatch, and SignalSet/flush semantics), with supporting IB-path updates tied directly to GIN backend behavior rather than separate transport policy changes."
+      "reason": "Primary change is a new independent TROCE GIN backend (host/device GIN context lifecycle, registration, dispatch, and new SignalSet/flush semantics). Also modifies shared IB transport behavior (provider detection, QP creation inline policy, and proxy/verbs opcode handling) that is substantive in the network transport layer beyond mechanical wiring."
     }
   },
   "reviewers": {
