@@ -1,26 +1,29 @@
 {
   "classification": {
-    "base_sha": "cc05ee8b19fb5aea8424f1e3cb1e552daa5c1261",
-    "head_sha": "93198c05ddcf471425b23a989e547a2a03af83af",
-    "input_fingerprint": "bfc697deffcbebdc28407f5911336c9ff4754593ddacf02fecb06cadf6482f22",
+    "base_sha": "dcc16f7527444230dbd33cca1f348760c2df7e97",
+    "head_sha": "17101476eb2828e9e5df48d02e47aeac0e48d5e4",
+    "input_fingerprint": "825390b060e5acae10558cf5e70b2c064955bf9ad748a8bc7f3d9e131116e66e",
     "pr_number": 174,
     "proposal": {
       "modules": [
+        "device-topology",
         "graph-search",
+        "transport",
         "tuning",
         "enqueue",
         "network",
-        "kernels",
-        "tuner-plugin"
+        "kernels"
       ],
-      "reason": "Main change is removing CollNet runtime transport/plugin/proxy execution paths and collective-network wiring (`network`). Also removes CollNet device kernel specializations and function-table entries (`kernels`), deletes CollNet topology graph construction/connection/search behavior (`graph-search`), updates host planning/pattern/channel scheduling and fallback handling after CollNet path removal (`enqueue`), compacts internal algorithm IDs and rewrites built-in cost/default-selection tables accordingly (`tuning`), and adds explicit v1 external tuner-ID translation/fallback at the ABI boundary while keeping plugin v1 compatibility (`tuner-plugin`)."
+      "reason": "Main change removes CollNet execution from runtime networking, including CollNet plugin loading/symbol handling and proxy-path usage (network). Additional substantive changes delete CollNet transport setup/connect/free paths and transport table wiring (transport), remove CollNet device collective kernel implementations while keeping algorithm slot 2 reserved/null for ABI stability (kernels), drop CollNet logical graph construction/connection behavior (graph-search), remove CollNet-specific NIC/topology capability ingestion in topology discovery structures (device-topology), disable CollNet in cost/tuning selection while preserving external tuner v1 ID layout and fallback semantics (tuning), and update collective planning/algorithm-pattern/channel scheduling so CollNet can no longer be selected or dispatched (enqueue)."
     }
   },
   "reviewers": {
+    "device-topology": 341349555,
     "enqueue": 341349555,
     "graph-search": 341355176,
     "kernels": 341349555,
     "network": 341353320,
+    "transport": 341355176,
     "tuner-plugin": 335730053,
     "tuning": 341349555
   }
