@@ -2,13 +2,13 @@
   "classification": {
     "base_sha": "dcc16f7527444230dbd33cca1f348760c2df7e97",
     "head_sha": "0255924d7246b5abbcf1c1b1b38cd985b461f14d",
-    "input_fingerprint": "73ae494fac0662a69fd8262e524409b461266d45cd02506ff4dc7e99ae34b022",
+    "input_fingerprint": "f1df508dafb87200f9a6ce4cf7c01119994c2a83cc8a52de14291b6c2d41866f",
     "pr_number": 184,
     "proposal": {
       "modules": [
         "dispatch"
       ],
-      "reason": "Fixes CU/CE dispatch strategy application state by replacing per-comm/FUNC_INDEX mirrors with a process-wide cache keyed by (device,kernel), shared across native/user paths, so strategy/mask re-apply decisions track the actual last-applied kernel state. Changes in comm/init/enqueue are wiring cleanup for this dispatch behavior (signature/state removal), not independent communicator or enqueue policy changes."
+      "reason": "Fixes CU/CE dispatch policy application by replacing per-comm/FUNC_INDEX mirrors with a process-wide cache keyed by (device, kernel), shared across native/user paths, so strategy/mask re-apply decisions track the actual last-applied kernel state; enqueue/init/comm edits are supporting call-site and lifecycle wiring for this dispatch behavior change."
     }
   },
   "reviewers": {
