@@ -1,16 +1,15 @@
 {
   "classification": {
-    "base_sha": "77af125652fd1ffc532bf519022f709b9df510fd",
-    "head_sha": "9daca94f5f4ded6047b7002f8af5bce0407d2e51",
-    "input_fingerprint": "ada18d56eacf0b4d7087b63608a955062ccc888f65b3d5bfcc38e42004dc7221",
+    "base_sha": "dcc16f7527444230dbd33cca1f348760c2df7e97",
+    "head_sha": "c3554bca4b7e5ecf7a9f0e38cc7a02a01bf8d2a5",
+    "input_fingerprint": "bcd4a65e327d16402e1ce72786264f79d1e67bc8858b6bcbce44814b256a0172",
     "pr_number": 116,
     "proposal": {
       "modules": [
-        "device-topology",
         "transport",
         "memory"
       ],
-      "reason": "Main change is in transport: intra-node P2P/SHM/NET path selection behavior, connection setup synchronization/progress accounting, and P2P setup/teardown logic. Added device-topology because selection now depends on new GPU\u2194NET path-bandwidth checks (`ncclTopoCheckNet`) and path computation updates. Added memory because SHM/IPC buffer ownership and lifecycle were substantively changed via new shareable-buffer descriptors/handles, import/close flows, and registered-address table handling semantics."
+      "reason": "Main change is in transport/P2P connection setup: stream synchronization pairing, connect-progress accounting, P2P connect gating, and IPC address return behavior in src/transport.cc and src/transport/p2p.cc. Additional memory review is needed because shared-memory resource ownership semantics were substantively changed (new handle-based shm open/close API, refcounted attach/unlink lifecycle, and shareable buffer allocate/import/close interfaces in src/include/shm.h, src/misc/shmutils.cc, and src/transport/shm.cc)."
     }
   },
   "reviewers": {
