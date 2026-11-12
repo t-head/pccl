@@ -60,11 +60,15 @@ def module_approval(api, pr, roster, skill, classification, approvals):
     if classification.get("input_fingerprint") != routing.classification_fingerprint(pr, files, roster, skill):
         return False, "Module classification is stale. Rerun reviewer routing"
     modules = routing.validate_classification(classification["proposal"], roster)["modules"]
-    missing = [module for module in modules
-               if (owner := routing.module_maintainer(roster, module, pr["user"]["id"])) is not None
-               and owner not in approvals]
+    missing = {}
+    for module in modules:
+        owner = routing.module_maintainer(roster, module, pr["user"]["id"])
+        if owner is not None and owner not in approvals:
+            missing.setdefault(owner, []).append(module)
     if missing:
-        return False, "Awaiting Maintainer approval for " + ", ".join(missing)
+        maintainers = [f"@{api.login(owner)} ({', '.join(owned_modules)})"
+                       for owner, owned_modules in missing.items()]
+        return False, "Awaiting Maintainer approval: " + ", ".join(maintainers)
     return True, "Maintainer requirements satisfied for the current commit"
 
 
@@ -92,7 +96,9 @@ def refresh(api, number):
                     (classification is not None and saved_classification(api, number) != classification) or
                     routing.current_approvals(fresh, api.pages(f"/pulls/{number}/reviews")) != approved):
                 raise ValueError("PR or approvals changed during verification. Rerun the approval check")
-        publish_status(api, sha, "success" if ready else "pending", reason[:140])
+        description = (reason if len(reason) <= 140 else
+                       "Awaiting Maintainer approval; see Details for the full list")
+        publish_status(api, sha, "success" if ready else "pending", description)
         with open(os.environ["GITHUB_STEP_SUMMARY"], "a") as output:
             output.write(f"PR #{number} at `{pr['head']['sha']}`\n\n{reason}.\n")
     except Exception:
