@@ -558,8 +558,6 @@ static ncclResult_t commFree(ncclComm_t comm) {
   NCCLCHECK(ncclHggcHostFree(comm->profiler.workStarted));
   NCCLCHECK(ncclHggcHostFree(comm->profiler.workCompleted));
 
-  NCCLCHECK(ncclFree(comm->funcStrategy));
-
   // Release the per-comm net plugin reference taken in commAlloc; skip comms
   // that failed before the reference was taken to keep load/unload paired.
   if (comm->netPluginRetained) NCCLCHECK(ncclNetFinalize());
@@ -1559,11 +1557,7 @@ static ncclResult_t initTransportsRank(ncclComm_t comm, ncclComm_t parent, uint6
   }
 
   // ensure that the die detecting / channel computing is done
-  // funcStrategy is indexed by [0, TOTAL_FUNCS_NUM) for standard collectives and
-  // by [TOTAL_FUNCS_NUM, TOTAL_FUNCS_NUM + ncclSymkKernelId_Count) for symk
-  // entries (one slot per ncclSymkKernelId enum value, see enqueue.cc::
-  // ncclSetDispatchStrategy and symmetric_sched.cc::plan->symFuncIndex).
-  NCCLCHECKGOTO(ncclCalloc(&comm->funcStrategy, TOTAL_FUNCS_NUM + (int)ncclSymkKernelId_Count), res, fail);
+  NCCLCHECKGOTO(invalidateDispatchStrategyCache(), res, fail);
   NCCLCHECKGOTO(initDefaultDispatchStrategy(comm, ppuDiesNum), res, fail);
 
   if (comm->nNodes > 1 &&

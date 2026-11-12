@@ -495,6 +495,21 @@ void logCommonDispatchTable(const char* path, int device, const void* kernel, in
 }
 }  // namespace
 
+// Process-wide dispatch mirror shared by the native and user paths, keyed by
+// (device, kernel symbol or handle). Hold g_dispCacheLock for all entry access;
+// invalidation erases entries, so entry pointers must not escape the lock.
+// Comm init invalidates the mirror in case device attributes have been reset.
+// A fresh entry has applied == false, forcing strategy/mask initialization even
+// for zero values, unless force-default overrides suppress the driver writes.
+static std::mutex g_dispCacheLock;
+static std::map<std::pair<int, const void*>, struct ncclFuncDispatchStrategy> g_dispCache;
+
+ncclResult_t invalidateDispatchStrategyCache() {
+  std::lock_guard<std::mutex> lk(g_dispCacheLock);
+  g_dispCache.clear();
+  return ncclSuccess;
+}
+
 static ncclResult_t setCommonDispatchStrategy(const char* path, const struct pcclDispatchFunc* fn, const char* title, int compCap,
                                         const struct ncclFuncDispatchStrategy* newStrategy,
                                         struct ncclFuncDispatchStrategy* oldStrategy) {
@@ -505,8 +520,8 @@ static ncclResult_t setCommonDispatchStrategy(const char* path, const struct pcc
   if (compCap == 80) {
     ppuDispatchStrategy_0010 schedule = {.val = newStrategy->dispStrategy};
     ppuDispatchMask_0010 dispMask = {.val = (unsigned int)newStrategy->dispMask};
-    bool setStrategy = (oldStrategy->dispStrategy != schedule.val);
-    bool setMask = ((oldStrategy->dispMask & 0xffffffff) != dispMask.val);
+    bool setStrategy = (oldStrategy->dispStrategy != schedule.val) || !oldStrategy->applied;
+    bool setMask = ((oldStrategy->dispMask & 0xffffffff) != dispMask.val) || !oldStrategy->applied;
 
     auto set80Attr = [&](int attr, unsigned val) -> hggcError_t {
       if (fn->symbol != NULL)
@@ -545,11 +560,11 @@ static ncclResult_t setCommonDispatchStrategy(const char* path, const struct pcc
     ppuDispatchMask_0015 cuMask = {.cu_mask = newStrategy->dispMask};
     oldStrategy->launchConfig.subDispatch = newStrategy->launchConfig.subDispatch;
 
-    bool setStrategy = ((oldStrategy->dispStrategy ^ schedule.strategy.val) |
+    bool setStrategy = (((oldStrategy->dispStrategy ^ schedule.strategy.val) |
                         (oldStrategy->dispStrategy1 ^ schedule.strategy1.val) |
-                        (oldStrategy->dispStrategy2 ^ schedule.strategy2.val)) > 0;
+                        (oldStrategy->dispStrategy2 ^ schedule.strategy2.val)) > 0) || !oldStrategy->applied;
     bool setControl = (control.bits.fbStallStEn == 1 && control.val != oldStrategy->kernelControl);
-    bool setMask = (oldStrategy->dispMask != cuMask.cu_mask);
+    bool setMask = (oldStrategy->dispMask != cuMask.cu_mask) || !oldStrategy->applied;
     bool keepDisp = pcclParamForceDefaultDisp();
     bool keepMask = pcclParamForceDefaultCeMask();
 
@@ -585,11 +600,12 @@ static ncclResult_t setCommonDispatchStrategy(const char* path, const struct pcc
       }
     }
   }
+  oldStrategy->applied = true;
   return ncclSuccess;
 }
 
-ncclResult_t setNativeDispatchStrategy(const void* func, struct ncclFuncDispatchStrategy* oldStrategy, struct ncclDispatchStrategy defaultStrategy, const char* funcName,
-                                int compCap, dispatchInfo dInfo) {
+ncclResult_t setNativeDispatchStrategy(const void* func, struct ncclDispatchStrategy defaultStrategy, const char* funcName,
+                                int compCap, dispatchInfo dInfo, struct dispatchStrategyExAD* launchConfig) {
   struct ncclFuncDispatchStrategy newStrategy = {};
   newStrategy.launchConfig = defaultStrategy.launchConfig;
 
@@ -610,22 +626,23 @@ ncclResult_t setNativeDispatchStrategy(const void* func, struct ncclFuncDispatch
     return ncclSuccess;
   }
   struct pcclDispatchFunc fn = {func, NULL};
-  return setCommonDispatchStrategy("native", &fn, funcName, compCap, &newStrategy, oldStrategy);
+  int device = 0;
+  HGGCCHECK(hggcGetDevice(&device));
+  const void* key = fn.symbol ? fn.symbol : (const void*)fn.handle;
+  std::lock_guard<std::mutex> lk(g_dispCacheLock);
+  struct ncclFuncDispatchStrategy* oldStrategy = &g_dispCache[std::make_pair(device, key)];
+  NCCLCHECK(setCommonDispatchStrategy("native", &fn, funcName, compCap, &newStrategy, oldStrategy));
+  if (launchConfig) *launchConfig = oldStrategy->launchConfig;
+  return ncclSuccess;
 }
 
 ncclResult_t setUserDispatchStrategy(const struct pcclDispatchFunc* fn, const char* policyName, int compCap,
                                      int oneBatchPerCe, int tbPerCu, int d2dDispPingPongEn,
                                      int cuMaskPolicy, uint64_t cuMask, uint32_t ceMask) {
-  static std::mutex lock;
-  static std::map<std::pair<int, const void*>, struct ncclFuncDispatchStrategy> oldStrategies;
-
   int device = 0;
   HGGCCHECK(hggcGetDevice(&device));
 
   const void* key = fn->symbol ? fn->symbol : (const void*)fn->handle;
-
-  std::lock_guard<std::mutex> lk(lock);
-  struct ncclFuncDispatchStrategy* oldStrategy = &oldStrategies[std::make_pair(device, key)];
 
   struct ncclFuncDispatchStrategy newStrategy = {};
 
@@ -675,6 +692,8 @@ ncclResult_t setUserDispatchStrategy(const struct pcclDispatchFunc* fn, const ch
     return ncclSuccess;
   }
 
+  std::lock_guard<std::mutex> lk(g_dispCacheLock);
+  struct ncclFuncDispatchStrategy* oldStrategy = &g_dispCache[std::make_pair(device, key)];
   return setCommonDispatchStrategy("user", fn, policyName, compCap, &newStrategy, oldStrategy);
 }
 
