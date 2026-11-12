@@ -1,16 +1,14 @@
 {
   "classification": {
     "base_sha": "dcc16f7527444230dbd33cca1f348760c2df7e97",
-    "head_sha": "bebc4e8b47b93eabd375aaafa10028f83a8f68ad",
-    "input_fingerprint": "920cc93a244feb5e1208bc8ecc6cf3c02ed9e0dd107b2c9b5b3003525f6caf0c",
+    "head_sha": "d2434660458b481590aa1ee416f634f69f5a1a66",
+    "input_fingerprint": "c1a2ec89e65049cbf812fd3da2594f0a71b3d4adfa7c79e972b6bec8d6a44e21",
     "pr_number": 167,
     "proposal": {
       "modules": [
-        "enqueue",
-        "symmetric",
         "copy-engine"
       ],
-      "reason": "Primary change is in **copy-engine**: CE/ltOki ring isolation, CE stream/QP queue assignment, and CE batch-launch behavior to prevent mixed CE+ltOki hangs. **enqueue** is also substantive because it adds runtime user-stream ring hinting on every enqueue path (not just mechanical wiring). **symmetric** is needed for the independent device-side fix in `okiReduceDmaCmd` (tail chunk sizing and AR pre-broadcast clamp) within symmetric collective kernel code."
+      "reason": "Main functional change is in CE/DMA execution and queue ownership: it separates CE memcpy rings from ltOki DMA rings, updates CE/OKI stream and QP ring assignment to avoid mixed AllGather+OKI AR/RS hangs, and fixes AR/RS DMA chunk-tail sizing/clamping. Shared init/enqueue edits are feature wiring for this same CE path, while added tests/Makefile are supporting validation only."
     }
   },
   "reviewers": {
