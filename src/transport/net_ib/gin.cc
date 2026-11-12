@@ -361,9 +361,6 @@ ncclResult_t ncclGinIbGdakiConnect(void* ctx, void* handles[], int nranks, int r
                                    void* listenComm, void** collComm) {
   NCCLCHECK(ncclGinIbGdrGpuSupport(ncclIbPeerMemSupport() == ncclSuccess));
   NCCLCHECK(ncclGinIbConnect(ctx, handles, nranks, rank, listenComm, collComm));
-
-  struct ncclGinIbCollComm* cComm = (struct ncclGinIbCollComm*)*collComm;
-  cComm->getProperties = (ncclResult_t(*)(int, void*))ncclGinIbGdakiGetProperties;
   return ncclSuccess;
 }
 

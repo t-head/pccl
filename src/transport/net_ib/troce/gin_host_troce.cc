@@ -624,6 +624,12 @@ ncclResult_t ncclGinTroceCreateContext(void *collComm, int nSignals, int nCounte
   const int rank = cComm->rank;
   const int nranks = cComm->nranks;
   const int nqps = nContexts * nranks;
+  int64_t sqDepth = std::max<int64_t>(1024, queueDepth > 0 ? queueDepth : ncclParamGinGdakiQpDepth());
+  const uint32_t maxSqDepth = PCCL_GIN_TROCE_MAX_SQ_WQES / TROCE_SEND_WQE_BB_FACTOR;
+  if (sqDepth > maxSqDepth) {
+    WARN("GIN/TROCE: requested SQ depth %lld exceeds maximum %u", (long long)sqDepth, maxSqDepth);
+    return ncclInvalidArgument;
+  }
 
   struct troceContext *ctx = nullptr;
   ncclNetDeviceHandle_t *devHandle = nullptr;
@@ -645,8 +651,7 @@ ncclResult_t ncclGinTroceCreateContext(void *collComm, int nSignals, int nCounte
   ctx->nContexts = nContexts;
   ctx->nRanks = nranks;
   ctx->portNum = 1;  // Provider port used for QP creation.
-  ctx->sqDepth = (uint32_t)std::max<int64_t>(1024, queueDepth > 0 ? queueDepth :
-                                                              ncclParamGinGdakiQpDepth());
+  ctx->sqDepth = (uint32_t)sqDepth;
   ctx->signalsTable = signalsTable;
   ctx->gpuCtx = gpuCtx;
   ctx->gpuQps = gpuQps;
@@ -796,10 +801,14 @@ fail:
       }
       NCCLCHECKIGNORE(ncclFree(ctx->qps), status);
     }
-    NCCLCHECKIGNORE(ncclFree(ctx), status);
   }
   if (sinkMr) {
-    NCCLCHECKIGNORE(wrap_ibv_dereg_mr(sinkMr), status);
+    ncclResult_t cleanupStatus = wrap_ibv_dereg_mr(sinkMr);
+    NCCLCHECKIGNORE(cleanupStatus, status);
+    if (cleanupStatus != ncclSuccess) {
+      WARN("GIN/TROCE: retaining context and sink storage after MR deregistration failure");
+      return status;
+    }
   }
   if (sinkBuffer) {
     HGGCCHECKIGNORE(hggcFree(sinkBuffer));
@@ -810,6 +819,7 @@ fail:
   delete signalsTable;
   delete gpuCtx;
   delete gpuQps;
+  NCCLCHECKIGNORE(ncclFree(ctx), status);
   return status;
 }
 

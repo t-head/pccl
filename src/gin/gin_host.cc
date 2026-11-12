@@ -15,6 +15,7 @@
 #include "gin/gin_host.h"
 #include "gin/gin_host_proxy.h"
 #include "compiler.h"
+#include "net.h"
 #include <cmath>
 #include <algorithm>
 
@@ -111,6 +112,30 @@ void* ncclGinProgress(struct pcclGinState* ginState_) {
 
 NCCL_PARAM(GinNconnections, "GIN_NCONNECTIONS", -2);
 
+static ncclResult_t pcclGinGetDeviceFromNetDevice(struct pcclComm* comm, int netDev, int* ginDev) {
+  struct pcclGinState* ginState = &comm->sharedRes->ginState;
+  *ginDev = netDev;
+  if (ginState->ginType != NCCL_GIN_TYPE_GDAKI && ginState->ginType != PCCL_GIN_TYPE_TROCE)
+    return ncclSuccess;
+
+  ncclNetProperties_t netProps = {};
+  NCCLCHECK(ncclNetGetProperties(netDev, &netProps));
+  int ndev;
+  NCCLCHECK(ginState->ncclGin->devices(&ndev));
+  for (int dev = 0; dev < ndev; dev++) {
+    ncclNetProperties_v12_t ginProps = {};
+    NCCLCHECK(ginState->ncclGin->getProperties(dev, &ginProps));
+    if (netProps.guid == ginProps.guid && netProps.port == ginProps.port &&
+        netProps.pciPath && ginProps.pciPath && strcmp(netProps.pciPath, ginProps.pciPath) == 0) {
+      *ginDev = dev;
+      return ncclSuccess;
+    }
+  }
+  WARN("GIN: NET device %d (%s) has no matching device in the selected GIN backend",
+       netDev, netProps.name ? netProps.name : "unknown");
+  return ncclInvalidUsage;
+}
+
 ncclResult_t ncclGinConnectOnce(struct pcclComm* comm) {
   struct pcclGinState* ginState = &comm->sharedRes->ginState;
   if (ginState->connected) return ncclSuccess;
@@ -144,6 +169,8 @@ ncclResult_t ncclGinConnectOnce(struct pcclComm* comm) {
   int nLocalGinDevs;
   int localGinDevs[NCCL_TOPO_MAX_NODES];
   NCCLCHECK(ncclTopoGetLocalGinDevs(comm, localGinDevs, &nLocalGinDevs));
+  for (int n = 0; n < nLocalGinDevs; n++)
+    NCCLCHECK(pcclGinGetDeviceFromNetDevice(comm, localGinDevs[n], localGinDevs + n));
 
   void** handles = NULL;
   char* allHandles = NULL;
