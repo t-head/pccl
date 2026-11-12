@@ -81,7 +81,9 @@ ncclResult_t ncclIbMultiSend(struct ncclIbSendComm* comm, int slot) {
 
     struct ibv_sge* sge = comm->sges + r;
     sge->addr = (uintptr_t)reqs[r]->send.data;
+    sge->length = 0;
     sge->lkey = reqs[r]->send.lkey;
+    wr->sg_list = sge;
 
     wr->opcode = IBV_WR_RDMA_WRITE;
     wr->send_flags = 0;
@@ -137,14 +139,14 @@ ncclResult_t ncclIbMultiSend(struct ncclIbSendComm* comm, int slot) {
     TRACE(NCCL_NET, "NET/IB: %s: Posting send (req=%p, comm=%p, slot=%d, nreqs=%d, wr_id=%ld) on QP (qp_num=%u, qpIndex=%d)",
           __func__, reqs[0], reqs[0]->base, slot, nreqs, wr_id, comm->base.qps[comm->base.qpIndex]->qp_num, comm->base.qpIndex);
     for (int r = 0; r < nreqs; r++) {
-      int chunkSize = DIVUP(DIVUP(reqs[r]->send.size, nqps), align) * align;
-      int length = std::min(reqs[r]->send.size - reqs[r]->send.offset, chunkSize);
+      size_t chunkSize = DIVUP(DIVUP((size_t)reqs[r]->send.size, nqps), align) * align;
+      size_t remaining = reqs[r]->send.offset < (size_t)reqs[r]->send.size
+          ? reqs[r]->send.size - reqs[r]->send.offset : 0;
+      int length = (int)std::min(remaining, chunkSize);
+      comm->sges[r].length = length;
       if (length <= 0) {
-        comm->wrs[r].sg_list = NULL;
         comm->wrs[r].num_sge = 0;
       } else {
-        comm->sges[r].length = length;
-        comm->wrs[r].sg_list = comm->sges + r;
         comm->wrs[r].num_sge = 1;
       }
     }
@@ -153,11 +155,11 @@ ncclResult_t ncclIbMultiSend(struct ncclIbSendComm* comm, int slot) {
     comm->base.qpIndex = (comm->base.qpIndex + 1) % comm->base.nqps;
 
     for (int r = 0; r < nreqs; r++) {
-      int chunkSize = DIVUP(DIVUP(reqs[r]->send.size, nqps), align) * align;
+      size_t chunkSize = DIVUP(DIVUP((size_t)reqs[r]->send.size, nqps), align) * align;
       reqs[r]->send.offset += chunkSize;
       comm->sges[r].addr += chunkSize;
       comm->wrs[r].wr.rdma.remote_addr += chunkSize;
-      TRACE(NCCL_NET, "NET/IB: %s: Send request (req=%p, comm=%p, slot=%d, nreqs=%d, reqIdx=%d, wr_id=%ld) posted %d bytes, total posted %d/%d bytes",
+      TRACE(NCCL_NET, "NET/IB: %s: Send request (req=%p, comm=%p, slot=%d, nreqs=%d, reqIdx=%d, wr_id=%ld) posted %d bytes, total posted %zu/%d bytes",
             __func__, reqs[r], reqs[0]->base, slot, nreqs, r, comm->wrs[r].wr_id, comm->wrs[r].sg_list->length, reqs[r]->send.offset, reqs[r]->send.size);
     }
   }

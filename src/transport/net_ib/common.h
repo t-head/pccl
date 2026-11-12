@@ -43,6 +43,21 @@ enum ncclIbProvider {
   IB_PROVIDER_MLX5 = 1,
   IB_PROVIDER_TROCE = 2,
 };
+struct ncclIbMr {
+    uintptr_t addr;
+    size_t size;
+    unsigned int flags;
+    int type;
+    int refs;
+    struct ibv_mr* mr;
+};
+
+struct ncclIbMrCache {
+    struct ncclIbMr* slots;
+    size_t capacity;
+    size_t population;
+};
+
 struct ncclIbDev {
     int device;
     uint64_t guid;
@@ -65,6 +80,7 @@ struct ncclIbDev {
     struct ibv_pd* pd;
     int pdRefs;
     std::mutex mutex;
+    struct ncclIbMrCache mrCache;
     // -1 = not probed, 0 = probed and unsupported, 1 = probed and supported.
     int dmaBufSupported;
 };
@@ -104,7 +120,7 @@ struct ncclIbRequest {
     int size;
     void* data;
     uint32_t lkey;
-    int offset;
+    size_t offset;
     } send;
     struct {
       int sizes[NCCL_NET_IB_MAX_RECVS];
