@@ -163,31 +163,17 @@ static bool parseStepLine(const char* p, offlinePeer* peer) {
 }
 
 static bool parseRingOperationLine(const char* p, rasDiagRingOperation* operation) {
-  unsigned valid, collective, protocol, funcId, nChannels, nThreads, sendIsNet;
-  unsigned long long kernel, previous, count, lastChunkSize;
-  int root, sendProxyRank, consumed = 0;
+  unsigned valid, collective, protocol, funcId, nChannels, nThreads, sendIsNet, workOffset, seqNumberValid;
+  unsigned long long kernel, previous, count, lastChunkSize, seqNumber;
+  int root, sendProxyRank, sendProxyTpRank;
   if (sscanf(p, "ringHead valid:%u kernel:%llu previous:%llu coll:%u proto:%u funcId:%u root:%d count:%llu "
-                "lastChunkSize:%llu nChannels:%u nThreads:%u sendIsNet:%u sendProxyRank:%d%n",
+                "lastChunkSize:%llu nChannels:%u nThreads:%u sendIsNet:%u sendProxyRank:%d sendProxyTpRank:%d "
+                "workOffset:%u seqNumber:%llu seqNumberValid:%u",
              &valid, &kernel, &previous, &collective, &protocol, &funcId, &root, &count,
-             &lastChunkSize, &nChannels, &nThreads, &sendIsNet, &sendProxyRank, &consumed) != 13 || !consumed ||
+             &lastChunkSize, &nChannels, &nThreads, &sendIsNet, &sendProxyRank, &sendProxyTpRank,
+             &workOffset, &seqNumber, &seqNumberValid) != 17 ||
       valid > 1 || collective > UINT8_MAX || protocol > UINT8_MAX || nChannels > UINT8_MAX ||
-      nThreads > UINT16_MAX || sendIsNet > 1) return false;
-  // Earlier dumps contain only the communicator proxy rank.
-  int sendProxyTpRank = -1;
-  const char* proxyTpRank = strstr(p + consumed, "sendProxyTpRank:");
-  if (proxyTpRank && sscanf(proxyTpRank, "sendProxyTpRank:%d", &sendProxyTpRank) != 1) return false;
-  // Without a saved work offset, only this channel's own timeout can be used.
-  unsigned workOffset = 0;
-  const char* offset = strstr(p + consumed, "workOffset:");
-  if (offset && sscanf(offset, "workOffset:%u", &workOffset) != 1) return false;
-  // Older dumps lack a per-work sequence and cannot establish cross-rank identity.
-  unsigned long long seqNumber = 0;
-  unsigned seqNumberValid = 0;
-  const char* sequence = strstr(p + consumed, "seqNumber:");
-  const char* sequenceValidity = strstr(p + consumed, "seqNumberValid:");
-  if (sequence && sscanf(sequence, "seqNumber:%llu", &seqNumber) != 1) return false;
-  if (sequenceValidity && (sscanf(sequenceValidity, "seqNumberValid:%u", &seqNumberValid) != 1 ||
-                           seqNumberValid > 1 || (seqNumberValid && !sequence))) return false;
+      nThreads > UINT16_MAX || sendIsNet > 1 || seqNumberValid > 1) return false;
   operation->seqNumber = seqNumber;
   operation->seqNumberValid = seqNumberValid;
   operation->valid = valid;
@@ -625,7 +611,7 @@ int analyzerFormatReportFromCommDumps(FILE* fp, const char* dir, int round, cons
     nFiles++;
 
     unsigned ver = 0;
-    // Version 0x20001 predates per-work sequences; retain its legacy checks.
+    // Version 0x20001 has no Ring operation metadata; retain its legacy checks.
     if (sscanf(first, "DUMP VERSION: %x", &ver) != 1 ||
         (ver != OFFLINE_COMM_DUMP_VERSION_KNOWN && ver != 0x20001)) {
       fprintf(stderr, "WARN: %s has dump version 0x%x (expected 0x%x), skipped (unsupported version)\n",

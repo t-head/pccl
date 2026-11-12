@@ -40,7 +40,7 @@ union ncclSocketAddress {
 
 // Wire-format version of the diag block embedded in rasCollComms.  Mismatched versions are
 // dropped at the analyzer (with a WARN) so a rolling upgrade across the RAS network is safe.
-#define RAS_COMMS_DIAG_WIRE_VERSION 0x00010006u
+#define RAS_COMMS_DIAG_WIRE_VERSION 0x00010004u
 #define RAS_DIAG_WIRE_VERSION RAS_COMMS_DIAG_WIRE_VERSION
 #define RAS_DIAG_CONN_NONE   ((uint8_t)0xFF)
 
@@ -194,7 +194,6 @@ struct alignas(int64_t) rasDiagChannel {
   uint8_t fcConnType;
   uint8_t devHangReportedKernelIdxValid;
   uint8_t devCompletedKernelIdxValid;
-  // Former zero padding: old snapshots remain eligible for conservative Ring checks.
   uint8_t ringExcluded; // Channel is outside comm->nChannels (P2P/FC-only).
   struct rasDiagRingOperation ringOperation;
 };

@@ -246,6 +246,12 @@ static ringTraceResult traceRingHead(const analyzerRankEntry* ranks, int nRanks,
     // their difference is used, so paired destructor updates cancel out.
     __int128 recvHeadOffset =
         (__int128)consumedHead(ring[previousIndex]) - alignedStepBase(rankState.recvPeer->devStep);
+    // An unaligned saved recv step predates this primitive's teardown. Its head
+    // must include the constructor's credit return before we use the aligned base.
+    if (rankState.recvPeer->devStep % chunkSteps != 0 && recvHeadOffset < 0) {
+      result.reason = "receive credits not normalized or inconsistent snapshot";
+      return result;
+    }
     __int128 sendHeadOffset = (__int128)consumedHead(ring[i]) - alignedStepBase(rankState.sendPeer->devStep);
     __int128 forwardingGap = recvHeadOffset - sendHeadOffset;
     // Closed rings may legitimately lead their own recv by one full chunk.

@@ -419,23 +419,22 @@ static void reportRingTrace(FILE* fp, const ringTraceResult& trace, const analyz
     auto* channel = findChannelInRank(ranks[rank].rh, trace.channelId);
     int previousRank = channel->ringPrev;
     int nextRank = channel->ringNext;
-    const auto* previousSend = findPeerInChannel(findChannelInRank(ranks[previousRank].rh, trace.channelId),
-                                               rank, /*send*/ 0, /*coll*/ 0);
     const auto* recvPeer = findPeerInChannel(channel, previousRank, /*recv*/ 1, /*coll*/ 0);
     const auto* sendPeer = findPeerInChannel(channel, nextRank, /*send*/ 0, /*coll*/ 0);
-    const auto* nextRecv = findPeerInChannel(findChannelInRank(ranks[nextRank].rh, trace.channelId),
-                                           rank, /*recv*/ 1, /*coll*/ 0);
+    auto* previousChannel = findChannelInRank(ranks[previousRank].rh, trace.channelId);
+    auto* nextChannel = findChannelInRank(ranks[nextRank].rh, trace.channelId);
     bool incomingIsNet = isNetConnection(channel->ringRecvConn);
     bool outgoingIsNet = channel->ringOperation.sendIsNet;
     // ICN recv.head aliases prev.send.head, read from the sender's local mapping.
     // NET send.logicalHead denotes next.recv.head, not send-proxy completion.
+    uint64_t recvHead = incomingIsNet ? recvPeer->head : findPeerInChannel(previousChannel, rank, 0, 0)->head;
+    uint64_t sendHead = outgoingIsNet ? findPeerInChannel(nextChannel, rank, 1, 0)->head : sendPeer->head;
     usesIcnRecvHead |= !incomingIsNet;
     usesNetSendHead |= outgoingIsNet;
     fprintf(fp, "rank%d.forwardingGap=(rank%d.recv.head=%lu - %srank%d.recv.devStep=%lu%s) - ",
-            rank, rank, incomingIsNet ? recvPeer->head : previousSend->head,
-            stepPrefix, rank, recvPeer->devStep, stepSuffix.c_str());
+            rank, rank, recvHead, stepPrefix, rank, recvPeer->devStep, stepSuffix.c_str());
     fprintf(fp, "(rank%d.send.%s=%lu - %srank%d.send.devStep=%lu%s)=%ld %s 0",
-            rank, outgoingIsNet ? "logicalHead" : "head", outgoingIsNet ? nextRecv->head : sendPeer->head,
+            rank, outgoingIsNet ? "logicalHead" : "head", sendHead,
             stepPrefix, rank, sendPeer->devStep, stepSuffix.c_str(), (long)gap, relation);
   };
   auto printRingEdge = [&](int rank) {
@@ -448,26 +447,21 @@ static void reportRingTrace(FILE* fp, const ringTraceResult& trace, const analyz
     }
     fprintf(fp, "->%d", channel->ringNext);
   };
-  fprintf(fp, "  [SUSPECT] HeadRingTrace channel %d seq=%lu: collective=%s protocol=%s candidates=",
-          trace.channelId, trace.seqNumber, analyzerFuncToString(trace.collective), analyzerProtoToString(trace.protocol));
-  for (size_t i = 0; i < trace.candidates.size(); i++) {
-    const auto& candidate = trace.candidates[i];
-    fprintf(fp, "%s%d->%d", i ? "," : "", candidate.sourceRank, candidate.destinationRank);
-  }
-  fprintf(fp, "\n");
+  fprintf(fp, "  [SUSPECT] HeadRingTrace channel %d seq=%lu: collective=%s protocol=%s candidates=%zu\n",
+          trace.channelId, trace.seqNumber, analyzerFuncToString(trace.collective), analyzerProtoToString(trace.protocol),
+          trace.candidates.size());
   for (const auto& candidate : trace.candidates) {
     const auto* sourceChannel = findChannelInRank(ranks[candidate.sourceRank].rh, trace.channelId);
+    const auto* destinationChannel = findChannelInRank(ranks[candidate.destinationRank].rh, trace.channelId);
     // PXN keeps an ICN device send type; report this edge's logical NET transport.
-    uint8_t transport = sourceChannel->ringOperation.sendIsNet
-                            ? findChannelInRank(ranks[candidate.destinationRank].rh, trace.channelId)->ringRecvConn
-                            : sourceChannel->ringSendConn;
+    uint8_t transport = sourceChannel->ringOperation.sendIsNet ? destinationChannel->ringRecvConn : sourceChannel->ringSendConn;
     fprintf(fp, "    rank%d -> rank%d: ring=%d", candidate.sourceRank, candidate.destinationRank, sourceChannel->ringPrev);
     printRingEdge(sourceChannel->ringPrev);
     printRingEdge(candidate.sourceRank);
     if (candidate.destinationIsForwarder) printRingEdge(candidate.destinationRank);
     fprintf(fp, "; rank%d.kernelIndex=%lu rank%d.kernelIndex=%lu; transport=%s; ",
             candidate.sourceRank, sourceChannel->ringOperation.kernelIndex, candidate.destinationRank,
-            findChannelInRank(ranks[candidate.destinationRank].rh, trace.channelId)->ringOperation.kernelIndex,
+            destinationChannel->ringOperation.kernelIndex,
             analyzerConnTypeToString(transport));
     printComparison(candidate.sourceRank, candidate.forwardingGap, ">");
     if (candidate.destinationIsForwarder) {
@@ -500,7 +494,7 @@ static const char* ringGraphStatusName(ringGraphStatus status) {
 struct ringGraphResult {
   std::vector<ringTraceResult> traces;
   int nonRingChannels = 0;
-  int completed = 0, skipped = 0, inconclusive = 0, suspect = 0;
+  int skipped = 0, inconclusive = 0, suspect = 0;
   int stepMismatches = 0, inflightWarnings = 0, uncheckedEdges = 0;
 
   ringGraphStatus status() const {
@@ -512,8 +506,8 @@ struct ringGraphResult {
   }
 };
 
-// Coalesce expected skips and incomplete diagnoses by reason. Completed channels
-// need only one count, while suspect channels retain their detailed operands.
+// Coalesce expected skips and incomplete diagnoses by reason. Suspect channels
+// retain their detailed operands; completed channels need no separate message.
 static std::vector<std::string> ringGraphReasons(const ringGraphResult& result) {
   std::map<std::pair<ringTraceStatus, std::string>, std::vector<int>> groups;
   for (const auto& trace : result.traces) {
@@ -557,7 +551,7 @@ static ringGraphResult analyzeRingGraph(FILE* fp, const analyzerRankEntry* ranks
     result.traces.push_back(traceRingHead(ranks, nRanks, expectedRanks, channelId));
     const auto& trace = result.traces.back();
     switch (trace.status) {
-      case RING_TRACE_COMPLETED: result.completed++; break;
+      case RING_TRACE_COMPLETED: break;
       case RING_TRACE_SKIPPED: result.skipped++; break;
       case RING_TRACE_INCONCLUSIVE: result.inconclusive++; break;
       case RING_TRACE_SUSPECT: result.suspect++; break;
@@ -602,20 +596,10 @@ static analyzerResult_t analyzerCheckRingGraph(FILE* fp, const analyzerRankEntry
   if (fp == nullptr) return analyzerDataMissing;
   fprintf(fp, "\n[Check: RingGraph (saved steps, head/tail and consumption-head attribution)]\n");
   auto result = analyzeRingGraph(fp, ranks, nRanks, expectedRanks);
-  if (result.stepMismatches)
-    fprintf(fp, "  Legacy: ERROR (%d ring edge(s) with step mismatch)\n", result.stepMismatches);
-  else if (result.inflightWarnings)
-    fprintf(fp, "  Legacy: WARNING (%d edge(s) with mid-kernel head/tail imbalance)\n", result.inflightWarnings);
-  else if (result.traces.empty() && result.nonRingChannels)
-    fprintf(fp, "  Legacy: SKIPPED (no Ring channels)\n");
-  else
-    fprintf(fp, "  Legacy: %s\n", result.uncheckedEdges || result.traces.empty() ? "INCOMPLETE" : "PASS");
   if (result.uncheckedEdges)
     fprintf(fp, "  [INCONCLUSIVE] Legacy: %d edge check(s) incomplete; missing peer data or unreadable head/tail/step\n",
             result.uncheckedEdges);
   for (const auto& reason : ringGraphReasons(result)) fprintf(fp, "  %s\n", reason.c_str());
-  fprintf(fp, "  HeadRingTrace: completed=%d, suspect=%d, inconclusive=%d, skipped=%d\n",
-          result.completed, result.suspect, result.inconclusive, result.skipped);
   fprintf(fp, "  Result: %s\n", ringGraphStatusName(result.status()));
   return analyzerSuccess;
 }
