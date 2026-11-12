@@ -1,14 +1,14 @@
 {
   "classification": {
     "base_sha": "dcc16f7527444230dbd33cca1f348760c2df7e97",
-    "head_sha": "70de3b604827c3711d774894465aa6ef5b7cb72d",
-    "input_fingerprint": "612e4d705dcf47cbd2510e1b3785f1b0daa390994c76bd1b7c76c9ff81d9ee11",
+    "head_sha": "8fd0efb7d188bcf37ab6381b5743eb6fd0694845",
+    "input_fingerprint": "d9b4a9eaeb8e313205e906c7f942089c0395937d175054ba39818c1abeea2cf1",
     "pr_number": 182,
     "proposal": {
       "modules": [
         "enqueue"
       ],
-      "reason": "Main functional change is a refactor of collective host-side task setup and chunk/proxy computation in src/enqueue.cc, which is runtime kernel planning/enqueue behavior. The diff preserves existing formulas and interfaces, with no independently substantive policy/ABI/protocol change in other modules."
+      "reason": "Refactors collective runtime planning in src/enqueue.cc by splitting standard-kernel work descriptor initialization from chunk/proxy computation and wiring the results back into scheduling, while preserving existing chunking/formula behavior; this is an enqueue/planning change rather than a separate tuning, kernels, or plugin-ABI change."
     }
   },
   "reviewers": {
