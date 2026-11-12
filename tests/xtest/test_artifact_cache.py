@@ -3,6 +3,7 @@
 
 import hashlib
 import json
+import multiprocessing
 from pathlib import Path
 import tempfile
 import unittest
@@ -12,6 +13,14 @@ import artifact_cache
 
 PCCL = "a" * 40
 RUNNER = "b" * 40
+
+
+def publish_worker(download, cache, digest, queue):
+    try:
+        artifact_cache.publish(Path(download), Path(cache), "standard", PCCL, RUNNER, digest)
+        queue.put(None)
+    except Exception as error:
+        queue.put(repr(error))
 
 
 class ArtifactCacheTests(unittest.TestCase):
@@ -81,6 +90,33 @@ class ArtifactCacheTests(unittest.TestCase):
         artifact_cache.publish(self.download, cache, "standard", PCCL, RUNNER, self.sha)
         self.validate(cache)
         self.assertFalse((cache / "partial").exists())
+
+    def test_concurrent_build_publishers_share_one_complete_cache(self):
+        cache = self.root / "cache" / self.sha
+        context = multiprocessing.get_context("fork")
+        for _ in range(5):
+            queue = context.Queue()
+            processes = [context.Process(target=publish_worker,
+                                         args=(self.download, cache, self.sha, queue))
+                         for _ in range(2)]
+            for process in processes:
+                process.start()
+            for process in processes:
+                process.join(20)
+                self.assertEqual(process.exitcode, 0)
+            self.assertEqual([queue.get(timeout=1) for _ in processes], [None, None])
+            self.validate(cache)
+
+    def test_symlinked_publication_lock_is_rejected(self):
+        cache = self.root / "cache" / self.sha
+        cache.parent.mkdir(parents=True)
+        external = self.root / "external-lock"
+        external.write_text("keep")
+        (cache.parent / f".{cache.name}.publish.lock").symlink_to(external)
+        with self.assertRaises(OSError):
+            artifact_cache.publish(self.download, cache, "standard", PCCL, RUNNER, self.sha)
+        self.assertEqual(external.read_text(), "keep")
+        self.assertFalse(cache.exists())
 
     def test_cleanup_preserves_results_and_other_runs(self):
         root = self.root / "devops" / "pccl-artifact-cache-12345"

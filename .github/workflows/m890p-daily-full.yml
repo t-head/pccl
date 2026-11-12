@@ -48,6 +48,7 @@ jobs:
       case_count: ${{ steps.selection.outputs.case_count }}
       group_count: ${{ steps.selection.outputs.group_count }}
       groups: ${{ steps.selection.outputs.groups }}
+      groups_sha256: ${{ steps.selection.outputs.groups_sha256 }}
     steps:
       - uses: actions/checkout@v4
         with:
@@ -74,6 +75,7 @@ jobs:
           python3 -S -B -W error::ResourceWarning -m unittest discover \
             -s tests/xtest -p 'test_run_cases.py' -v
           python3 -S -B -m unittest discover -s tests/xtest -p 'test_group_cases.py' -v
+          python3 -S -B -m unittest discover -s tests/xtest -p 'test_case_group_cache.py' -v
           python3 -S -B -m unittest discover -s tests/xtest -p 'test_artifact_cache.py' -v
           python3 -S -B -m unittest discover -s tests/xtest -p 'test_daily_smoke.py' -v
           python3 -S -B -m unittest discover -s tests/xtest -p 'test_reconcile_results.py' -v
@@ -86,6 +88,7 @@ jobs:
           import sys
 
           sys.path.insert(0, 'tests/xtest')
+          import case_group_cache
           import group_cases
           import run_cases
           from artifact_cache import PCCL_TESTS_REVISION, RUNNER_HASHES
@@ -101,6 +104,7 @@ jobs:
           groups = group_cases.build_groups(
               input_directory, int(os.environ['MAX_CASES']), nodes=nodes, suite=suite)
           group_cases.write_groups(groups, Path('case-groups'), input_directory)
+          groups_sha256 = case_group_cache.tree_sha256(Path('case-groups'))
           manifest = json.loads(Path('case-groups/groups.json').read_text())
           expected = set()
           for profile in ('standard', 'notsm'):
@@ -138,6 +142,7 @@ jobs:
           with open(os.environ['GITHUB_OUTPUT'], 'a') as output:
               output.write(f'case_count={len(actual)}\n')
               output.write(f'group_count={len(manifest)}\n')
+              output.write(f'groups_sha256={groups_sha256}\n')
               output.write('groups<<GROUPS\n')
               output.write(json.dumps(matrix, separators=(',', ':')) + '\nGROUPS\n')
           PY
@@ -244,9 +249,10 @@ jobs:
 
   stage-cache:
     name: Stage standard from artifact or valid NAS cache
-    needs: [build-standard]
+    needs: [prepare, build-standard]
     env:
       EXPECTED_SHA: ${{ needs.build-standard.outputs.artifact_sha256 }}
+      EXPECTED_GROUPS_SHA: ${{ needs.prepare.outputs.groups_sha256 }}
     runs-on: k8s-runner-group-cpu-thead
     container:
       image: ghcr.io/actions/actions-runner:latest
@@ -269,7 +275,7 @@ jobs:
           else
             echo 'state=miss' >> "$GITHUB_OUTPUT"
           fi
-      - uses: actions/download-artifact@v4
+      - uses: ./pccl/.github/actions/download-artifact-retry
         if: steps.cache.outputs.state == 'miss'
         with:
           name: m890p-daily-full-build-standard
@@ -292,6 +298,36 @@ jobs:
             --directory "$CACHE_DIR" --profile standard \
             --pccl-revision '${{ github.sha }}' --pccl-tests-revision '${{ env.PCCL_TESTS_REVISION }}' \
             --expected-sha256 '${{ env.EXPECTED_SHA }}'
+      - id: groups-cache
+        name: Check for valid NAS Case groups
+        env:
+          CACHE_DIR: /wl_nas/devops/pccl-artifact-cache-${{ github.run_id }}/cache/case-groups/${{ env.EXPECTED_GROUPS_SHA }}
+        run: |
+          if python3 -S -B pccl/tests/xtest/case_group_cache.py validate \
+            --directory "$CACHE_DIR" --expected-sha256 '${{ env.EXPECTED_GROUPS_SHA }}'; then
+            echo 'state=hit' >> "$GITHUB_OUTPUT"
+          else
+            echo 'state=miss' >> "$GITHUB_OUTPUT"
+          fi
+      - uses: ./pccl/.github/actions/download-artifact-retry
+        if: steps.groups-cache.outputs.state == 'miss'
+        with:
+          name: m890p-daily-case-groups
+          path: case-groups-download
+      - name: Publish the validated Case groups to NAS
+        if: steps.groups-cache.outputs.state == 'miss'
+        env:
+          CACHE_DIR: /wl_nas/devops/pccl-artifact-cache-${{ github.run_id }}/cache/case-groups/${{ env.EXPECTED_GROUPS_SHA }}
+        run: |
+          python3 -S -B pccl/tests/xtest/case_group_cache.py publish \
+            --download case-groups-download --cache "$CACHE_DIR" \
+            --expected-sha256 '${{ env.EXPECTED_GROUPS_SHA }}'
+      - name: Confirm the final NAS Case groups
+        env:
+          CACHE_DIR: /wl_nas/devops/pccl-artifact-cache-${{ github.run_id }}/cache/case-groups/${{ env.EXPECTED_GROUPS_SHA }}
+        run: |
+          python3 -S -B pccl/tests/xtest/case_group_cache.py validate \
+            --directory "$CACHE_DIR" --expected-sha256 '${{ env.EXPECTED_GROUPS_SHA }}'
 
   execute:
     name: Run ${{ matrix.id }} on ${{ matrix.nodes }} node(s), ${{ matrix.case_count }} Cases
@@ -302,6 +338,7 @@ jobs:
       matrix: ${{ fromJSON(needs.prepare.outputs.groups) }}
     env:
       EXPECTED_SHA: ${{ needs.build-standard.outputs.artifact_sha256 }}
+      EXPECTED_GROUPS_SHA: ${{ needs.prepare.outputs.groups_sha256 }}
       GROUP_ID: ${{ matrix.id }}
       PROFILE: ${{ matrix.profile }}
       NODES: ${{ matrix.nodes }}
@@ -314,14 +351,73 @@ jobs:
         with:
           path: pccl
           persist-credentials: false
-      - uses: actions/download-artifact@v4
+      - uses: ./pccl/.github/actions/download-artifact-retry
         with:
           name: m890p-daily-full-python-deps
           path: deps
-      - uses: actions/download-artifact@v4
+      - id: groups-cache
+        name: Check the NAS Case-group cache before hardware allocation
+        env:
+          CACHE_DIR: /wl_nas/devops/pccl-artifact-cache-${{ github.run_id }}/cache/case-groups/${{ env.EXPECTED_GROUPS_SHA }}
+        run: |
+          if python3 -S -B pccl/tests/xtest/case_group_cache.py validate \
+            --directory "$CACHE_DIR" --expected-sha256 '${{ env.EXPECTED_GROUPS_SHA }}'; then
+            echo 'state=hit' >> "$GITHUB_OUTPUT"
+          else
+            echo 'state=miss' >> "$GITHUB_OUTPUT"
+          fi
+      - uses: ./pccl/.github/actions/download-artifact-retry
+        if: steps.groups-cache.outputs.state == 'miss'
         with:
           name: m890p-daily-case-groups
-          path: case-groups
+          path: case-groups-download
+      - name: Restore the NAS Case-group cache
+        if: steps.groups-cache.outputs.state == 'miss'
+        env:
+          CACHE_DIR: /wl_nas/devops/pccl-artifact-cache-${{ github.run_id }}/cache/case-groups/${{ env.EXPECTED_GROUPS_SHA }}
+        run: |
+          python3 -S -B pccl/tests/xtest/case_group_cache.py publish \
+            --download case-groups-download --cache "$CACHE_DIR" \
+            --expected-sha256 '${{ env.EXPECTED_GROUPS_SHA }}'
+      - id: build-cache
+        name: Check the NAS build cache before hardware allocation
+        env:
+          CACHE_DIR: /wl_nas/devops/pccl-artifact-cache-${{ github.run_id }}/cache/standard/${{ env.EXPECTED_SHA }}
+        run: |
+          if python3 -S -B pccl/tests/xtest/artifact_cache.py validate \
+            --directory "$CACHE_DIR" --profile standard \
+            --pccl-revision '${{ github.sha }}' --pccl-tests-revision '${{ env.PCCL_TESTS_REVISION }}' \
+            --expected-sha256 '${{ env.EXPECTED_SHA }}'; then
+            echo 'state=hit' >> "$GITHUB_OUTPUT"
+          else
+            echo 'state=miss' >> "$GITHUB_OUTPUT"
+          fi
+      - uses: ./pccl/.github/actions/download-artifact-retry
+        if: steps.build-cache.outputs.state == 'miss'
+        with:
+          name: m890p-daily-full-build-standard
+          path: build-download
+      - name: Restore the NAS build cache
+        if: steps.build-cache.outputs.state == 'miss'
+        env:
+          CACHE_DIR: /wl_nas/devops/pccl-artifact-cache-${{ github.run_id }}/cache/standard/${{ env.EXPECTED_SHA }}
+        run: |
+          python3 -S -B pccl/tests/xtest/artifact_cache.py publish \
+            --download build-download --cache "$CACHE_DIR" --profile standard \
+            --pccl-revision '${{ github.sha }}' --pccl-tests-revision '${{ env.PCCL_TESTS_REVISION }}' \
+            --expected-sha256 '${{ env.EXPECTED_SHA }}'
+      - name: Confirm both NAS caches before hardware allocation
+        env:
+          BUILD_CACHE: /wl_nas/devops/pccl-artifact-cache-${{ github.run_id }}/cache/standard/${{ env.EXPECTED_SHA }}
+          GROUPS_CACHE: /wl_nas/devops/pccl-artifact-cache-${{ github.run_id }}/cache/case-groups/${{ env.EXPECTED_GROUPS_SHA }}
+        run: |
+          chmod -R a+rwX "$BUILD_CACHE" "$GROUPS_CACHE"
+          python3 -S -B pccl/tests/xtest/artifact_cache.py validate \
+            --directory "$BUILD_CACHE" --profile standard \
+            --pccl-revision '${{ github.sha }}' --pccl-tests-revision '${{ env.PCCL_TESTS_REVISION }}' \
+            --expected-sha256 '${{ env.EXPECTED_SHA }}'
+          python3 -S -B pccl/tests/xtest/case_group_cache.py validate \
+            --directory "$GROUPS_CACHE" --expected-sha256 '${{ env.EXPECTED_GROUPS_SHA }}'
       - name: Run the automatic group on one node
         if: env.NODES == '1'
         uses: t-head/ppu-scheduler-action@aac83e464f2a3fcbddddc60c8016021c996092a6
@@ -380,6 +476,7 @@ jobs:
             cd /workspace/source
             export build_output=/workspace/source/output_standard
             CACHE_DIR=/mnt/wl_nas/devops/pccl-artifact-cache-${{ github.run_id }}/cache/standard/${{ env.EXPECTED_SHA }}
+            GROUPS_DIR=/mnt/wl_nas/devops/pccl-artifact-cache-${{ github.run_id }}/cache/case-groups/${{ env.EXPECTED_GROUPS_SHA }}
             RESULT_ROOT=/mnt/wl_nas/devops/pccl-artifact-cache-${{ github.run_id }}/results/full/$GROUP_ID
             rm -rf "$RESULT_ROOT"
             mkdir -p "$(dirname "$RESULT_ROOT")"
@@ -391,6 +488,8 @@ jobs:
               --directory "$CACHE_DIR" --profile standard \
               --pccl-revision '${{ github.sha }}' --pccl-tests-revision '${{ env.PCCL_TESTS_REVISION }}' \
               --expected-sha256 '${{ env.EXPECTED_SHA }}'
+            python3 -S -B pccl/tests/xtest/case_group_cache.py validate \
+              --directory "$GROUPS_DIR" --expected-sha256 '${{ env.EXPECTED_GROUPS_SHA }}'
             tar -xzf "$CACHE_DIR/output_standard.tar.gz" -C /workspace/source
             test "$(git -C "$build_output/pccl" rev-parse HEAD)" = '${{ github.sha }}'
             test "$(git -C "$build_output/pccl-tests" rev-parse HEAD)" = '${{ env.PCCL_TESTS_REVISION }}'
@@ -407,7 +506,7 @@ jobs:
             test "$OMPI_MCA_orte_keep_fqdn_hostnames" = 1
             /workspace/minimal-csv-env/bin/python -B \
               "$build_output/pccl/tests/xtest/run_cases.py" \
-              --input "/workspace/source/case-groups/$GROUP_ID" \
+              --input "$GROUPS_DIR/$GROUP_ID" \
               --profile "$PROFILE" \
               --test-root "$build_output" \
               --binary-dir "$build_output/pccl-tests/build" \
@@ -457,6 +556,7 @@ jobs:
             umask 022
             cd "$SOURCE_DIR"
             CACHE_DIR=/mnt/wl_nas/devops/pccl-artifact-cache-${{ github.run_id }}/cache/standard/${{ env.EXPECTED_SHA }}
+            GROUPS_DIR=/mnt/wl_nas/devops/pccl-artifact-cache-${{ github.run_id }}/cache/case-groups/${{ env.EXPECTED_GROUPS_SHA }}
             SHARED_ROOT=/mnt/wl_nas/devops/pccl-artifact-cache-${{ github.run_id }}/shared-standard/${{ env.EXPECTED_SHA }}/$GROUP_ID
             SHARED_PARENT=$(dirname "$SHARED_ROOT")
             SHARED_BASE=$(dirname "$SHARED_PARENT")
@@ -477,6 +577,8 @@ jobs:
               --directory "$CACHE_DIR" --profile standard \
               --pccl-revision '${{ github.sha }}' --pccl-tests-revision '${{ env.PCCL_TESTS_REVISION }}' \
               --expected-sha256 '${{ env.EXPECTED_SHA }}'
+            python3 -S -B pccl/tests/xtest/case_group_cache.py validate \
+              --directory "$GROUPS_DIR" --expected-sha256 '${{ env.EXPECTED_GROUPS_SHA }}'
             tar -xzf "$CACHE_DIR/output_standard.tar.gz" -C "$SHARED_ROOT"
             test "$(git -C "$build_output/pccl" rev-parse HEAD)" = '${{ github.sha }}'
             test "$(git -C "$build_output/pccl-tests" rev-parse HEAD)" = '${{ env.PCCL_TESTS_REVISION }}'
@@ -502,7 +604,7 @@ jobs:
               --hostfile "$CLUSTER_HOSTS_FILE" -np "$NODES" -npernode 1 hostname
             /workspace/minimal-csv-cluster-env/bin/python -B \
               "$build_output/pccl/tests/xtest/run_cases.py" \
-              --input "$SOURCE_DIR/case-groups/$GROUP_ID" \
+              --input "$GROUPS_DIR/$GROUP_ID" \
               --profile "$PROFILE" \
               --test-root "$build_output" \
               --binary-dir "$build_output/pccl-tests/build" \
@@ -524,12 +626,39 @@ jobs:
         with:
           path: pccl
           persist-credentials: false
-      - id: groups
-        uses: actions/download-artifact@v4
+      - id: groups-cache
+        name: Check the NAS Case-group cache
         if: always()
+        env:
+          CACHE_DIR: /wl_nas/devops/pccl-artifact-cache-${{ github.run_id }}/cache/case-groups/${{ needs.prepare.outputs.groups_sha256 }}
+        run: |
+          if python3 -S -B pccl/tests/xtest/case_group_cache.py validate \
+            --directory "$CACHE_DIR" --expected-sha256 '${{ needs.prepare.outputs.groups_sha256 }}'; then
+            echo 'state=hit' >> "$GITHUB_OUTPUT"
+          else
+            echo 'state=miss' >> "$GITHUB_OUTPUT"
+          fi
+      - uses: ./pccl/.github/actions/download-artifact-retry
+        if: always() && steps.groups-cache.outputs.state == 'miss'
         with:
           name: m890p-daily-case-groups
-          path: case-groups
+          path: case-groups-download
+      - name: Restore the NAS Case-group cache
+        if: always() && steps.groups-cache.outputs.state == 'miss'
+        env:
+          CACHE_DIR: /wl_nas/devops/pccl-artifact-cache-${{ github.run_id }}/cache/case-groups/${{ needs.prepare.outputs.groups_sha256 }}
+        run: |
+          python3 -S -B pccl/tests/xtest/case_group_cache.py publish \
+            --download case-groups-download --cache "$CACHE_DIR" \
+            --expected-sha256 '${{ needs.prepare.outputs.groups_sha256 }}'
+      - id: groups
+        name: Confirm the NAS Case-group cache
+        if: always()
+        env:
+          CACHE_DIR: /wl_nas/devops/pccl-artifact-cache-${{ github.run_id }}/cache/case-groups/${{ needs.prepare.outputs.groups_sha256 }}
+        run: |
+          python3 -S -B pccl/tests/xtest/case_group_cache.py validate \
+            --directory "$CACHE_DIR" --expected-sha256 '${{ needs.prepare.outputs.groups_sha256 }}'
       - id: reconcile
         name: Reconcile every automatic group
         if: always()
@@ -542,7 +671,9 @@ jobs:
 
           output = Path('public-results')
           output.mkdir(exist_ok=True)
-          groups = json.loads(Path('case-groups/groups.json').read_text())
+          groups = json.loads((Path('/wl_nas/devops/pccl-artifact-cache-${{ github.run_id }}') /
+                                  'cache/case-groups/${{ needs.prepare.outputs.groups_sha256 }}' /
+                                  'groups.json').read_text())
           if not groups:
               raise ValueError('No automatic groups were prepared')
           reports = []
@@ -552,7 +683,8 @@ jobs:
               group_output = output / group['id']
               completed = subprocess.run([
                   sys.executable, '-S', '-B', 'pccl/tests/xtest/reconcile_results.py',
-                  '--input', str(Path('case-groups') / group['id']),
+                  '--input', str(Path('/wl_nas/devops/pccl-artifact-cache-${{ github.run_id }}') /
+                                   'cache/case-groups/${{ needs.prepare.outputs.groups_sha256 }}' / group['id']),
                   '--profile', group['profile'], '--nodes', str(group['nodes']),
                   '--results', str(Path('/wl_nas/devops/pccl-artifact-cache-${{ github.run_id }}') /
                                    'results/full' / group['id']),

@@ -73,6 +73,15 @@ reconciliation. `--nodes` and `--suite` are optional debug filters, not shard
 definitions. The experimental daily workflow defaults to the smoke dataset;
 the full dataset must be selected explicitly.
 
+The generated group tree has a whole-tree SHA-256 covering every relative
+filename and file byte. GitHub Actions artifacts are the backup; an internal
+staging job publishes one validated copy to the run-scoped NAS cache. Execution
+groups normally read that copy directly and download the backup only when the
+cache is missing or invalid. Publication is atomic and interprocess-locked, and
+the same fallback restores both Case groups and cleaned build caches on retry.
+Artifact downloads use at most three attempts with partial-output cleanup and
+15/30-second backoff. No cache is shared across workflow runs.
+
 ## Result semantics
 
 - `exit_code`: command success.

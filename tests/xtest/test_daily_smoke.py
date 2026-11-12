@@ -16,6 +16,7 @@ FULL_INPUT = ROOT / 'tests/xtest/daily-full-csv'
 WORKFLOW = ROOT / '.github/workflows/m890p-daily-smoke.yml'
 FULL_WORKFLOW = ROOT / '.github/workflows/m890p-daily-full.yml'
 BUILD_SCRIPT = ROOT / '.github/workflows/scripts/build.sh'
+RETRY_ACTION = ROOT / '.github/actions/download-artifact-retry/action.yml'
 
 
 class DailySmokeTests(unittest.TestCase):
@@ -169,18 +170,22 @@ class DailySmokeTests(unittest.TestCase):
         self.assertIn('cancel-in-progress: false', text)
         self.assertIn('group_cases.py', text)
         self.assertIn('name: m890p-daily-case-groups', text)
+        self.assertIn('groups_sha256: ${{ steps.selection.outputs.groups_sha256 }}', text)
+        self.assertIn('test_case_group_cache.py', text)
         self.assertIn('matrix: ${{ fromJSON(needs.prepare.outputs.groups) }}', text)
         self.assertIn('max-parallel: 2', text)
         self.assertIn('fail-fast: false', text)
         self.assertIn('nnodes: ${{ matrix.nodes }}', text)
         self.assertIn('nproc_per_node: ${{ matrix.cards_per_node }}', text)
-        self.assertIn('--input "/workspace/source/case-groups/$GROUP_ID"', text)
-        self.assertIn('--input "$SOURCE_DIR/case-groups/$GROUP_ID"', text)
+        self.assertEqual(text.count('--input "$GROUPS_DIR/$GROUP_ID"'), 2)
+        self.assertIn('case_group_cache.py publish', text)
+        self.assertIn('cache/case-groups/${{ env.EXPECTED_GROUPS_SHA }}', text)
+        self.assertIn('Restore the NAS build cache', text)
         self.assertIn('--profile "$PROFILE"', text)
         self.assertIn('results/full/$GROUP_ID', text)
         self.assertIn('shared-standard/${{ env.EXPECTED_SHA }}/$GROUP_ID', text)
         self.assertIn('rmdir "$SHARED_PARENT" "$SHARED_BASE"', text)
-        self.assertIn("groups = json.loads(Path('case-groups/groups.json').read_text())", text)
+        self.assertIn("'groups.json').read_text())", text)
         self.assertIn('reconcile_results.py', text)
         self.assertIn('Daily grouped result summary and NAS cleanup', text)
         single = text.split('name: Run the automatic group on one node', 1)[1].split(
@@ -200,6 +205,19 @@ class DailySmokeTests(unittest.TestCase):
         self.assertNotIn('build-notsm', text)
         self.assertNotIn('default: device_api_shm_single_node_single_process_suite', text)
         self.assertNotIn('--profile standard --nodes "$NODES" --suite "$SUITE"', text)
+
+    def test_all_daily_downloads_use_the_bounded_retry_action(self):
+        action = RETRY_ACTION.read_text()
+        self.assertEqual(action.count('uses: actions/download-artifact@v4'), 3)
+        self.assertEqual(action.count('continue-on-error: true'), 2)
+        self.assertIn('sleep 15', action)
+        self.assertIn('sleep 30', action)
+        self.assertIn('shutil.rmtree(target)', action)
+        self.assertIn("target.relative_to(workspace)", action)
+        for workflow, expected in ((FULL_WORKFLOW, 6), (WORKFLOW, 3)):
+            text = workflow.read_text()
+            self.assertNotIn('uses: actions/download-artifact@v4', text)
+            self.assertEqual(text.count('uses: ./pccl/.github/actions/download-artifact-retry'), expected)
 
 
 if __name__ == '__main__':

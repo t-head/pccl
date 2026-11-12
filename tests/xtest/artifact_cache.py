@@ -4,13 +4,17 @@
 """Validate GitHub build artifacts and manage a run-scoped NAS cache."""
 
 import argparse
+from contextlib import contextmanager
+import fcntl
 import hashlib
 import json
 import os
 from pathlib import Path
 import re
 import shutil
+import stat
 import tempfile
+import time
 
 
 HEX40 = re.compile(r"[0-9a-f]{40}\Z")
@@ -21,6 +25,7 @@ RUNNER_HASHES = {
     "run_test.py": "fdbdf7623703157b49b9605491fb1cb602fe50ec931ae6763c2645bef7c6b0fc",
     "run_test_config.py": "d58194c5c210ebaabe1ed42d7c2ced924c5dde22081285c22516e1ccdf611b1a",
 }
+PUBLICATION_TIMEOUT = 300
 
 
 def file_sha256(path):
@@ -107,27 +112,71 @@ def validate(directory, profile, pccl_revision, pccl_tests_revision, expected_sh
     return archive
 
 
+@contextmanager
+def _publication_lock(cache, timeout=PUBLICATION_TIMEOUT):
+    # Never unlink the lock: all publishers must wait on the same inode.
+    cache = Path(cache)
+    lock_path = cache.parent / f".{cache.name}.publish.lock"
+    descriptor = os.open(lock_path, os.O_CREAT | os.O_RDWR | os.O_NOFOLLOW | os.O_NONBLOCK, 0o666)
+    with os.fdopen(descriptor, "r+b") as lock:
+        if not stat.S_ISREG(os.fstat(lock.fileno()).st_mode):
+            raise ValueError("Cache publication lock must be a regular file")
+        os.fchmod(lock.fileno(), 0o666)
+        deadline = time.monotonic() + timeout
+        while True:
+            try:
+                fcntl.flock(lock.fileno(), fcntl.LOCK_EX | fcntl.LOCK_NB)
+                break
+            except BlockingIOError:
+                remaining = deadline - time.monotonic()
+                if remaining <= 0:
+                    raise TimeoutError(f"Timed out waiting to publish cache {cache.name}")
+                time.sleep(min(0.1, remaining))
+        try:
+            yield
+        finally:
+            fcntl.flock(lock.fileno(), fcntl.LOCK_UN)
+
+
+def _shared_permissions(directory, profile):
+    # Temporary directories start as 0700 and must be readable before publication.
+    for path in paths(directory, profile):
+        path.chmod(0o644)
+    Path(directory).chmod(0o755)
+
+
 def publish(download, cache, profile, pccl_revision, pccl_tests_revision, expected_sha):
     """Validate a downloaded artifact before atomically publishing one cache directory."""
     download, cache = Path(download), Path(cache)
     validate(download, profile, pccl_revision, pccl_tests_revision, expected_sha)
     cache.parent.mkdir(parents=True, exist_ok=True)
+    cache.parent.chmod(0o777)
+    if cache.parent.name == profile and cache.parent.parent.name == "cache":
+        cache.parent.parent.chmod(0o777)
     temporary = Path(tempfile.mkdtemp(prefix=f".{cache.name}.download-", dir=cache.parent))
     try:
         for path in paths(download, profile):
             shutil.copyfile(path, temporary / path.name)
         validate(temporary, profile, pccl_revision, pccl_tests_revision, expected_sha)
-        if cache.exists():
+        _shared_permissions(temporary, profile)
+        with _publication_lock(cache):
+            if cache.exists():
+                try:
+                    validate(cache, profile, pccl_revision, pccl_tests_revision, expected_sha)
+                except (OSError, ValueError, json.JSONDecodeError):
+                    # Revalidate under the publication lock before deleting anything.
+                    shutil.rmtree(cache)
+                else:
+                    _shared_permissions(cache, profile)
+                    return cache
             try:
+                os.replace(temporary, cache)
+            except OSError:
+                # Accept only a verified cache installed by a compatible publisher.
                 validate(cache, profile, pccl_revision, pccl_tests_revision, expected_sha)
-            except (OSError, ValueError, json.JSONDecodeError):
-                # The cache root is run-scoped. Invalid or partial content must
-                # not be executed and may be replaced by this validated download.
-                shutil.rmtree(cache)
-            else:
+                _shared_permissions(cache, profile)
                 return cache
-        os.replace(temporary, cache)
-        validate(cache, profile, pccl_revision, pccl_tests_revision, expected_sha)
+            validate(cache, profile, pccl_revision, pccl_tests_revision, expected_sha)
         return cache
     finally:
         if temporary.exists():
