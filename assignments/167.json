@@ -2,14 +2,14 @@
   "classification": {
     "base_sha": "dcc16f7527444230dbd33cca1f348760c2df7e97",
     "head_sha": "4dee0d98edad58f889047d72bc393cd1fb86a0a2",
-    "input_fingerprint": "52abdeaa5ae432d2614d580eeb3bb564b438359d71b3196fd9a6cc7e620faba8",
+    "input_fingerprint": "6b8a1c67fcbcd81ae3be76cb8a587af08ccec74d4d10106dcab93a3515c2c31b",
     "pr_number": 167,
     "proposal": {
       "modules": [
         "symmetric",
         "copy-engine"
       ],
-      "reason": "Primary change is CE/DMA execution policy: reserving rings, remapping OKI QPs, and applying memcpy stream channel hints in init/enqueue/CE launch paths to separate CE memcpy from ltOki traffic and avoid mixed-operation hangs. Additional symmetric review is needed for independently substantive fixes in symmetric OKI device-kernel logic (AR/RS tail chunk sizing, pre-broadcast clamp, and lane-slice alignment) that change collective correctness behavior."
+      "reason": "Main change isolates CE memcpy from ltOki DMA by reserving rings/queues and applying stream channel hints across CE stream setup and enqueue paths, which is core copy-engine behavior. It also makes an independent symmetric-memory change by fixing OKI reduction DMA tail sizing/clamping and die-slice alignment in symmetric device kernels."
     }
   },
   "reviewers": {
