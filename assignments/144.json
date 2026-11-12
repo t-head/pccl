@@ -1,15 +1,15 @@
 {
   "classification": {
-    "base_sha": "cc05ee8b19fb5aea8424f1e3cb1e552daa5c1261",
-    "head_sha": "6151fc732283548c4c06addbefbf97b1761653c8",
-    "input_fingerprint": "430f4e28cfd0b7d2a1490da9bfc7d4bbcd4394e5438477e291b0d08b7754a2a6",
+    "base_sha": "dcc16f7527444230dbd33cca1f348760c2df7e97",
+    "head_sha": "c3fcb4e1feee899b425bdb93ec88b0459cf8c2db",
+    "input_fingerprint": "c6fb81933fdb21717988fa573ad4e4d6629b5613305345a26f0ce59e9904c1d2",
     "pr_number": 144,
     "proposal": {
       "modules": [
         "transport",
         "network"
       ],
-      "reason": "Main change adds a pidfd fallback for FD exchange in proxy request/response flows when UDS is unavailable, including new proxy message types and proxy-side FD/resource cleanup behavior. Transport is additionally needed because P2P registration/import paths are updated to consume and release pidfd-derived FDs for buffer registration."
+      "reason": "Primary change is in proxy/ipc FD-exchange control flow: adds pidfd fallback when UDS send/init fails, new proxy message handling (GetFd/QueryFd/CloseFd), and proxy-side FD/resource cleanup/service-failure behavior in proxy/ipcsocket paths. Additional transport review is needed because P2P transport registration logic in src/transport/p2p.cc now integrates pidfd-imported FD ownership/close behavior for buffer registration."
     }
   },
   "reviewers": {
