@@ -2,14 +2,14 @@
   "classification": {
     "base_sha": "dcc16f7527444230dbd33cca1f348760c2df7e97",
     "head_sha": "9e8a8843173c58defdb8268eb25044621035623b",
-    "input_fingerprint": "1a3be6cb37776d4029f8ca87f5da37cc35c50379c9952d2a27f1d05893416820",
+    "input_fingerprint": "80bd2d2acb7167c0beed0422e79e0b8af993dd9066f31a6958885602c406a12a",
     "pr_number": 187,
     "proposal": {
       "modules": [
         "kernels",
         "symmetric"
       ],
-      "reason": "Main functional change is SDK 2.3 compatibility gating for BF16 intrinsic/conversion calls in core device collective code, which falls under kernels. Add symmetric because symmetric-memory kernel implementations were independently updated with their own BF16 conversion paths (ce_kernel and sym_reduce_kernel), a distinct module specialty."
+      "reason": "Main change is SDK-version-gated BF16 intrinsic/conversion logic in core device collective kernels and vector cast helpers, which directly changes built-in device kernel implementations. Add symmetric because symmetric-memory CE/reduce kernels receive their own BF16 conversion gating and are a distinct execution path requiring specialized review; Makefile/header macro export, enqueue call-site gate, and GIN include-path update are supporting compatibility wiring for this same change."
     }
   },
   "reviewers": {
