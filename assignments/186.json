@@ -2,13 +2,13 @@
   "classification": {
     "base_sha": "dcc16f7527444230dbd33cca1f348760c2df7e97",
     "head_sha": "03e74bb00c2710e70726a40e7446ae987df53c58",
-    "input_fingerprint": "db206889e855839e2b039fec8d390472bacbaa3e4211cce73ee08493fc097a5e",
+    "input_fingerprint": "d9bf782af3aa4466eedc218d6254c0134fc98a9befbb11cd7e202bcf08263bc8",
     "pr_number": 186,
     "proposal": {
       "modules": [
         "workflow"
       ],
-      "reason": "Refactors review automation to classify PRs from native Git diffs (merge-base/head fetch, per-file patch omission handling, and shared diff fingerprinting) and updates the review-assignment skill guidance accordingly; these are substantive reviewer-routing/workflow policy implementation changes, not PCCL runtime module changes."
+      "reason": "Reviewer-routing automation now builds classification input from native Git diffs (with per-file patch omission handling and uncertainty surfacing) and updates the classification skill guidance to match; these are contribution/review workflow behavior changes, not runtime modules."
     }
   },
   "reviewers": {
