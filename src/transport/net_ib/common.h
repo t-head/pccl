@@ -173,9 +173,8 @@ struct ncclIbSendFifo {
     uint64_t addr;
     int      size;
     uint32_t rkey;
-    // TODO: Match the upstream NCCL CTS FIFO layout after porting its shared
-    // logical request-ID generation and request completion records. Those
-    // features remove the need for reqIdx/reserved and these narrowed fields.
+    // The receiver request index identifies the destination sizes entry and,
+    // with BY_ID matching, the receive completion.
     uint8_t  nreqs;
     uint8_t  reqIdx;
     uint16_t reserved;
@@ -246,6 +245,11 @@ struct ncclIbSendComm {
     struct ncclIbRequest* fifoReqs[NET_IB_MAX_REQUESTS][NCCL_NET_IB_MAX_RECVS];
 
     struct ibv_mr* fifoMr;
+    int sizesFifo[NET_IB_MAX_REQUESTS][NCCL_NET_IB_MAX_RECVS];
+    struct ibv_mr* sizesFifoMr;
+    struct ibv_sge sizesSge;
+    uint64_t remSizesFifoAddr;
+    uint32_t remSizesFifoRkey;
     int netDev;
     int ar; // Use adaptive routing when enabled on the selected device
     // Local scratchpad target for the GIN proxy iputSignal atomic FETCH_AND_ADD.
@@ -301,6 +305,8 @@ struct ncclIbRecvComm {
     struct ibv_recv_wr ibRecvWorkRequest;
     struct ncclIbRequest* recvReqs[NET_IB_MAX_REQUESTS];
     struct ncclIbGpuFlush gpuFlush;
+    int sizesFifo[NET_IB_MAX_REQUESTS][NCCL_NET_IB_MAX_RECVS];
+    struct ibv_mr* sizesFifoMr;
 };
 static_assert((offsetof(struct ncclIbRecvComm, remCtsFifo) % 32) == 0, "ncclIbSendComm fifo must be 32-byte aligned");
 

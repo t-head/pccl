@@ -35,6 +35,8 @@ struct ncclIbConnectionMetadata {
   // FIFO RDMA info
   uint32_t fifoRkey;
   uint64_t fifoAddr;
+  uint32_t sizesFifoRkey;
+  uint64_t sizesFifoAddr;
 
   // OOO RQ capability used by the peer during data QP setup.
   // TODO: Remove this compatibility field after porting NCCL's per-device metadata

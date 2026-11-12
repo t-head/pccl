@@ -58,39 +58,33 @@ ncclResult_t ncclIbMultiSend(struct ncclIbSendComm* comm, int slot) {
     wr_id += (reqs[r] - comm->base.reqs) << (r * 8);
   }
 
-  // Write size as immediate data. In the case of multi-send, only write
-  // 0 or 1 as size to indicate whether there was data sent or received.
-  uint32_t immData = 0;
-  if (nreqs == 1) {
-    immData = reqs[0]->send.size;
-  } else {
-    // TODO: Remove this 24-bit size bitmap plus 8-bit request-slot encoding
-    // after porting upstream NCCL's shared logical request IDs and request
-    // completion records; multi-recv sizes should then use the records and
-    // BY_ID immediate data should carry the full logical request ID.
-    int maxImmReqs = comm->base.recvMatchingScheme == BY_ID ? 24 : 32;
-    if (nreqs > maxImmReqs) {
-      WARN("Cannot store sizes of %d requests in a %d-bits field", nreqs, maxImmReqs);
-      return ncclInternalError;
-    }
-    for (int r = 0; r < nreqs; r++) {
-      immData |= (reqs[r]->send.size ? 1u : 0u) << r;
-    }
-  }
+  // Index-matched single receives use immediate data. Other receives write
+  // the complete sizes array before delivering the completion.
+  uint32_t immData = nreqs == 1 ? reqs[0]->send.size : 0;
+  int sizesSlot = reqs[0] - comm->base.reqs;
+  for (int r = 0; r < nreqs; r++) comm->sizesFifo[sizesSlot][r] = reqs[r]->send.size;
 
   struct ibv_send_wr* lastWr = comm->wrs + nreqs - 1;
-  if (nreqs > 1 || (!comm->base.oooRq && comm->ar &&
+  if (nreqs > 1 || comm->base.recvMatchingScheme == BY_ID || (!comm->base.oooRq && comm->ar &&
                      reqs[0]->send.size > ncclIbArThreshold)) {
-    // When using ADAPTIVE_ROUTING, send the bulk of the data first as an
-    // RDMA_WRITE, then a 0-byte RDMA_WRITE_WITH_IMM to trigger a remote
-    // completion.
+    // Send data first, then notify the receiver. For multi-receives and
+    // ID matching, the notification also writes the actual sizes.
     lastWr++;
     memset(lastWr, 0, sizeof(struct ibv_send_wr));
+    if (nreqs > 1 || comm->base.recvMatchingScheme == BY_ID) {
+      comm->sizesSge.addr = (uint64_t)comm->sizesFifo[sizesSlot];
+      comm->sizesSge.length = nreqs * sizeof(int);
+      comm->sizesSge.lkey = comm->sizesFifoMr->lkey;
+      lastWr->sg_list = &comm->sizesSge;
+      lastWr->num_sge = 1;
+      lastWr->wr.rdma.remote_addr = comm->remSizesFifoAddr + slots[0].reqIdx * sizeof(comm->sizesFifo[0]);
+      lastWr->wr.rdma.rkey = comm->remSizesFifoRkey;
+    }
   }
   lastWr->wr_id = wr_id;
   lastWr->opcode = IBV_WR_RDMA_WRITE_WITH_IMM;
   if (comm->base.recvMatchingScheme == BY_ID) {
-    lastWr->imm_data = (nreqs == 1 ? 0 : immData << 8) | (uint8_t)slots[0].reqIdx;
+    lastWr->imm_data = (uint8_t)slots[0].reqIdx;
   } else {
     lastWr->imm_data = immData;
   }
@@ -115,6 +109,9 @@ ncclResult_t ncclIbMultiSend(struct ncclIbSendComm* comm, int slot) {
         comm->wrs[r].num_sge = 1;
       }
     }
+    if (nreqs == 1 && comm->base.recvMatchingScheme == BY_INDEX) {
+      lastWr->imm_data = comm->wrs[0].num_sge ? comm->sges[0].length : 0;
+    }
     struct ibv_send_wr* bad_wr;
     NCCLCHECK(wrap_ibv_post_send(comm->base.qps[comm->base.qpIndex], comm->wrs, &bad_wr));
     comm->base.qpIndex = (comm->base.qpIndex + 1) % comm->base.nqps;
@@ -125,7 +122,7 @@ ncclResult_t ncclIbMultiSend(struct ncclIbSendComm* comm, int slot) {
       comm->sges[r].addr += chunkSize;
       comm->wrs[r].wr.rdma.remote_addr += chunkSize;
       TRACE(NCCL_NET, "NET/IB: %s: Send request (req=%p, comm=%p, slot=%d, nreqs=%d, reqIdx=%d, wr_id=%ld) posted %d bytes, total posted %d/%d bytes",
-            __func__, reqs[r], reqs[0]->base, slot, nreqs, r, comm->wrs[r].wr_id, comm->wrs[r].sg_list->length, reqs[r]->send.offset, reqs[r]->send.size);
+            __func__, reqs[r], reqs[0]->base, slot, nreqs, r, comm->wrs[r].wr_id, comm->wrs[r].num_sge ? comm->sges[r].length : 0, reqs[r]->send.offset, reqs[r]->send.size);
     }
   }
 
@@ -222,14 +219,11 @@ ncclResult_t ncclIbPostFifo(struct ncclIbRecvComm* comm, int n, void** data, int
     struct ibv_mr* mr = (struct ibv_mr*)mhandles[i];
     localElem[i].rkey = mr->rkey;
     localElem[i].nreqs = (uint8_t)n;
-    localElem[i].reqIdx = 0;
+    localElem[i].reqIdx = (uint8_t)(req - comm->base.reqs);
     localElem[i].reserved = 0;
     localElem[i].size = sizes[i]; // Sanity/Debugging
     localElem[i].tag = tags[i];
     localElem[i].idx = comm->remCtsFifo.fifoTail + 1;
-    if (comm->base.recvMatchingScheme == BY_ID) {
-      localElem[i].reqIdx = (uint8_t)(req - comm->base.reqs);
-    }
   }
   wr.wr.rdma.remote_addr = comm->remCtsFifo.addr + slot * NCCL_NET_IB_MAX_RECVS * sizeof(struct ncclIbSendFifo);
   wr.wr.rdma.rkey = comm->remCtsFifo.rkey;
@@ -399,7 +393,12 @@ ncclResult_t ncclIbTest(void* request, int* done, int* sizes) {
     if (r->events == 0) {
       *done = 1;
       if (sizes && r->type == NCCL_NET_IB_REQ_RECV) {
-        for (int i = 0; i < r->nreqs; i++) sizes[i] = r->recv.sizes[i];
+        if (r->nreqs > 1 || r->base->recvMatchingScheme == BY_ID) {
+          struct ncclIbRecvComm* comm = container_of(r->base, struct ncclIbRecvComm, base);
+          for (int i = 0; i < r->nreqs; i++) sizes[i] = comm->sizesFifo[r - r->base->reqs][i];
+        } else {
+          sizes[0] = r->recv.sizes[0];
+        }
       }
       NCCLCHECK(ncclIbFreeRequest(r));
       return ncclSuccess;
@@ -439,17 +438,7 @@ ncclResult_t ncclIbTest(void* request, int* done, int* sizes) {
         if (req && wc->opcode == IBV_WC_RECV_RDMA_WITH_IMM) {
           if (req->type != NCCL_NET_IB_REQ_RECV) return ncclInternalError;
           uint32_t immData = wc->imm_data;
-          if (recvComm->base.recvMatchingScheme == BY_ID) {
-            immData = wc->imm_data >> 8;
-          }
-          if (req->nreqs > 1) {
-            // In the case of a multi recv, we only set sizes to 0 or 1.
-            for (int i = 0; i < req->nreqs; i++) {
-              req->recv.sizes[i] = (immData >> i) & 0x1;
-            }
-          } else if (recvComm->base.recvMatchingScheme == BY_ID) {
-            req->recv.sizes[0] += wc->byte_len;
-          } else {
+          if (req->nreqs == 1 && recvComm->base.recvMatchingScheme == BY_INDEX) {
             req->recv.sizes[0] += immData;
           }
           if (recvComm->base.recvMatchingScheme == BY_ID) {
