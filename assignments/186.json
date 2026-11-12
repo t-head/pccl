@@ -1,0 +1,17 @@
+{
+  "classification": {
+    "base_sha": "dcc16f7527444230dbd33cca1f348760c2df7e97",
+    "head_sha": "03e74bb00c2710e70726a40e7446ae987df53c58",
+    "input_fingerprint": "db206889e855839e2b039fec8d390472bacbaa3e4211cce73ee08493fc097a5e",
+    "pr_number": 186,
+    "proposal": {
+      "modules": [
+        "workflow"
+      ],
+      "reason": "Refactors review automation to classify PRs from native Git diffs (merge-base/head fetch, per-file patch omission handling, and shared diff fingerprinting) and updates the review-assignment skill guidance accordingly; these are substantive reviewer-routing/workflow policy implementation changes, not PCCL runtime module changes."
+    }
+  },
+  "reviewers": {
+    "workflow": 333277982
+  }
+}
