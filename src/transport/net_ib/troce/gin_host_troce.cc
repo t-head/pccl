@@ -549,7 +549,7 @@ static ncclResult_t troceConnectQp(struct troceContext *ctx, struct troceQpHost 
   struct ncclIbQpInfo info;
   memset(&info, 0, sizeof(info));
   info.lid = remote->lid;
-  info.ib_port = remote->ibPort;
+  info.ib_port = ctx->portNum;
   info.spn = remote->spn;
   info.iid = remote->iid;
   // Use the smaller local and remote active MTU for a consistent RC path MTU.
@@ -650,7 +650,7 @@ ncclResult_t ncclGinTroceCreateContext(void *collComm, int nSignals, int nCounte
   ctx->collComm = cComm;
   ctx->nContexts = nContexts;
   ctx->nRanks = nranks;
-  ctx->portNum = 1;  // Provider port used for QP creation.
+  ctx->portNum = ncclIbDevs[cComm->dev].port;
   ctx->sqDepth = (uint32_t)sqDepth;
   ctx->signalsTable = signalsTable;
   ctx->gpuCtx = gpuCtx;
