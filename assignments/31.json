@@ -9,7 +9,7 @@
         "network",
         "gin"
       ],
-      "reason": "Main change is a new built-in TROCE GIN backend (discovery, connect/context lifecycle, device API dispatch, SignalSet semantics, and GIN plugin wiring), which squarely falls under gin. Include network because the PR also makes substantive shared net_ib transport changes (provider detection, QP inline policy, proxy signal op handling, and verbs opcode support) that can affect broader network transport behavior beyond TROCE-specific files."
+      "reason": "Primary change is a new built-in TROCE GIN backend (host/device GIN APIs, context/registration lifecycle, QP/CQ progress, signal/flush semantics, and internal GIN plugin wiring). Include network because the PR also makes substantive shared net_ib transport changes (provider detection, QP inline policy, verbs opcode support, NET\u2194GIN device mapping, and proxy signal-op handling) that affect network backend behavior beyond purely local refactors."
     }
   },
   "reviewers": {
