@@ -1,8 +1,8 @@
 {
   "classification": {
     "base_sha": "dcc16f7527444230dbd33cca1f348760c2df7e97",
-    "head_sha": "17101476eb2828e9e5df48d02e47aeac0e48d5e4",
-    "input_fingerprint": "864b29986389a1a6020fc9aab52852d8439cbfb069e3ff0551ba51105531a82f",
+    "head_sha": "474b19decd23ddc97a01745f326922586ff9a9cf",
+    "input_fingerprint": "e69fd9376d64ec73a6a2ea6c840bf79863cfeea91885ddd2162798d82bbd6ec1",
     "pr_number": 174,
     "proposal": {
       "modules": [
@@ -13,7 +13,7 @@
         "network",
         "kernels"
       ],
-      "reason": "Main change removes CollNet collective-network execution end-to-end: network/plugin/proxy CollNet paths are deleted (`src/net.cc`, `src/proxy.cc`). Additional substantive changes require kernel review (CollNet device kernels and function-table slot behavior now null/reserved), graph-search review (CollNet graph construction/connection removed), tuning review (algorithm slot 2 permanently disabled with model/table and tuner-fallback policy updates), transport review (CollNet transport implementation and connect flows removed), and device-topology review (NIC/topology metadata no longer tracks CollNet capability)."
+      "reason": "Main change removes CollNet execution and plugin loading/proxy paths from collective networking (`network`). It also deletes the dedicated CollNet transport wiring and connection management (`transport`), removes CollNet device-kernel/function-table implementations while keeping a reserved null algorithm slot (`kernels`), removes CollNet logical graph construction/connection logic (`graph-search`), drops CollNet-related NIC/topology capability handling (`device-topology`), and updates algorithm/protocol cost-model enablement and fallback behavior to keep CollNet ID 2 reserved but unselectable (`tuning`)."
     }
   },
   "reviewers": {
