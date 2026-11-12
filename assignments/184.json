@@ -2,13 +2,13 @@
   "classification": {
     "base_sha": "dcc16f7527444230dbd33cca1f348760c2df7e97",
     "head_sha": "3f6ccda53d78f4928fb6bda17abde2f0a60681f3",
-    "input_fingerprint": "43ff7bdf5ed35212afe2856e59bc30c67de682166e0b1cb8d05991df666f8013",
+    "input_fingerprint": "b737304b523514005f75af69de4dd8495f358d090674f8cb4905403aa15d820c",
     "pr_number": 184,
     "proposal": {
       "modules": [
         "dispatch"
       ],
-      "reason": "Main functional change is CU/CE dispatch policy handling: strategy state is moved to a process-wide cache keyed by (device, kernel) and shared by native/user dispatch paths, with applied-state tracking and launchConfig returned from the cached applied entry to avoid stale per-FUNC_INDEX/per-comm skip decisions. Changes in enqueue/comm/init are supporting call-site and lifecycle plumbing for this dispatch behavior, not separate module-owned policy changes."
+      "reason": "Main functional change is in CU/CE dispatch policy application: strategy state is moved from per-comm/FUNC_INDEX slots to a process-wide cache keyed by (device,kernel), shared across native/user paths, with applied-state tracking and launchConfig returned from the cache to prevent stale-skip misapplication. Edits in enqueue/init/comm are supporting call-site/state-plumbing for this dispatch behavior, not independent communicator or enqueue policy changes."
     }
   },
   "reviewers": {
