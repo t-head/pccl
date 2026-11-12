@@ -2,18 +2,18 @@
   "classification": {
     "base_sha": "dcc16f7527444230dbd33cca1f348760c2df7e97",
     "head_sha": "474b19decd23ddc97a01745f326922586ff9a9cf",
-    "input_fingerprint": "e69fd9376d64ec73a6a2ea6c840bf79863cfeea91885ddd2162798d82bbd6ec1",
+    "input_fingerprint": "7e12b0a67ec8ddb91c6642b5a32eeec86cfda8c5bff4c4a108db70e312b9bc37",
     "pr_number": 174,
     "proposal": {
       "modules": [
-        "device-topology",
         "graph-search",
         "transport",
         "tuning",
+        "enqueue",
         "network",
         "kernels"
       ],
-      "reason": "Main change removes CollNet execution and plugin loading/proxy paths from collective networking (`network`). It also deletes the dedicated CollNet transport wiring and connection management (`transport`), removes CollNet device-kernel/function-table implementations while keeping a reserved null algorithm slot (`kernels`), removes CollNet logical graph construction/connection logic (`graph-search`), drops CollNet-related NIC/topology capability handling (`device-topology`), and updates algorithm/protocol cost-model enablement and fallback behavior to keep CollNet ID 2 reserved but unselectable (`tuning`)."
+      "reason": "Primary change removes CollNet transport setup/connect/free paths and channel-peer handling. Additional independently substantive changes remove CollNet plugin loading and network/proxy state (network), delete CollNet topology graph construction/search/connection (graph-search), remove CollNet device kernels and replace algorithm slot 2 with reserved null entries (kernels), update runtime planning/pattern/channel scheduling plus tuner-selection fallback for retired IDs (enqueue), and disable/zero CollNet algorithm modeling while preserving stable external algorithm IDs (tuning)."
     }
   },
   "reviewers": {
