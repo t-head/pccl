@@ -2,14 +2,14 @@
   "classification": {
     "base_sha": "dcc16f7527444230dbd33cca1f348760c2df7e97",
     "head_sha": "185381616dc58fb9dd87d8db62c1f7263f35f478",
-    "input_fingerprint": "71fdc337733e3755efe4927b12fec5968ecab5ee7db24be1da51151c0f39b937",
+    "input_fingerprint": "9afbeca529a4b3d54f274dfed2c31b2640d0975cef3d4b3e8abe66f9070f16e2",
     "pr_number": 178,
     "proposal": {
       "modules": [
         "memory",
         "network"
       ],
-      "reason": "Main change is in the IB network backend: connection handshake/state machine moved into Connect/Accept, QP RTR/RTS setup updated (GID/FLID routing, ECE negotiation, traffic-class handling), and receive-size/completion signaling behavior changed. Also includes an independently substantive memory-registration ownership change via a per-device, reference-counted MR cache for register/deregister reuse and cleanup."
+      "reason": "Main change is in the IB network backend: it alters connect/accept handshake state flow, QP RTR/RTS setup, GID/FLID routing, ECE negotiation, traffic-class handling, and receive-size completion signaling. It also introduces a per-device, reference-counted MR registration cache with new registration/deregistration ownership behavior, which is an independently substantive memory-management change."
     }
   },
   "reviewers": {
