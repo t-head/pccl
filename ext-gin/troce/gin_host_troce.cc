@@ -542,7 +542,7 @@ static ncclResult_t troceDestroyQp(struct troceContext *ctx, struct troceQpHost 
 
 static ncclResult_t troceConnectQp(struct troceContext *ctx, struct troceQpHost *qp,
                                    struct troceExchInfo *remote, int trafficClass) {
-  struct ncclIbQpInfo info;
+  struct ncclIbConnectionMetadata info;
   memset(&info, 0, sizeof(info));
   info.lid = remote->lid;
   info.ib_port = ctx->portNum;

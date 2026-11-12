@@ -254,7 +254,7 @@ ncclResult_t ncclGinIbP2PBarrier(struct ncclGinIbCollComm* cComm) {
 
 static ncclResult_t ncclGinIbGetGidIndexAdapter(struct ibv_context* context, uint8_t portNum,
                                                 struct ibv_port_attr* portAttr, int* gidIndex) {
-  return ncclIbGetGidIndex(context, portNum, portAttr->gid_tbl_len, gidIndex);
+  return ncclIbGetGidIndex(context, portNum, portAttr, gidIndex);
 }
 
 ncclResult_t ncclGinIbConnect(void* ctx, void* handles[], int nranks, int rank,
@@ -516,7 +516,7 @@ ncclResult_t ncclGinIbProxyCreateContext(void* collComm, ncclGinConfig_v13_t* co
                                           &gc->fullSendComm[connectPeer]),
                         ret, end);
         if (gc->fullRecvComm[acceptPeer] == NULL)
-          NCCLCHECKGOTO(ncclNetIb.accept(lComm, &gc->fullRecvComm[acceptPeer]),
+          NCCLCHECKGOTO(pcclIbAcceptForGin(lComm, &gc->fullRecvComm[acceptPeer]),
                         ret, end);
       } while ((gc->fullSendComm[connectPeer] == NULL) ||
                (gc->fullRecvComm[acceptPeer] == NULL));
