@@ -8,7 +8,7 @@
       "modules": [
         "enqueue"
       ],
-      "reason": "Main change refactors collective work setup and chunk/proxy calculation flow in src/enqueue.cc (task-to-devWork initialization split from chunking), plus a PAT chunk-size overflow guard; behavior remains in runtime planning/enqueue rather than tuning, kernels, or network policy."
+      "reason": "Refactors collective work setup and chunk/proxy calculation in src/enqueue.cc, including standard-vs-external task initialization and a PAT chunk-size overflow fix, without changing independent module policies or interfaces."
     }
   },
   "reviewers": {
