@@ -1,16 +1,15 @@
 {
   "classification": {
-    "base_sha": "a04b88e02c3a5b955ba0847eca2bc3d19cbf4829",
-    "head_sha": "6e8f6a541ffa6e3fdf7ff4a13d751b0ca7fa7f4b",
-    "input_fingerprint": "b5db62bbfa977b662774f4f1d972189c60c16e31ce01c80533d17fdf7d4353d3",
+    "base_sha": "dcc16f7527444230dbd33cca1f348760c2df7e97",
+    "head_sha": "50d8a1019319c5ad52e835c3f097675867d2bb4d",
+    "input_fingerprint": "167078b5a23b94777b9c43da2bb21f4161ccc830eef7419f38dcf649b5075d79",
     "pr_number": 142,
     "proposal": {
       "modules": [
         "transport",
-        "memory",
         "network"
       ],
-      "reason": "Main change is in P2P transport IPC registration: it now registers/maps full multi-segment physical ranges (with MULTI_SEGMENT_REGISTER), tracks segment metadata, and updates proxy register/deregister flows for segment-aware imports. Add memory for substantive allocation/mapping ownership changes (segment-aware ncclHgMemFree/ncclHgMemFreeAddr and deregistration callback ordering to prevent stale reused-address mappings). Add network for independently substantive proxy/UDS FD-transfer lifecycle changes (batch FD query, per-connection imported-handle tracking, and cleanup on partial-transfer/error paths)."
+      "reason": "Main change is in P2P transport registration flow: it now registers full cached ranges that span multiple physical segments, exports/imports per-segment handles, tracks segment counts, and updates deregistration/cleanup paths in transport/p2p. An additional network review is needed because proxy/UDS behavior changed independently (batch FD query API, per-connection imported-handle tracking queue, and proxy-side lifecycle teardown), which affects network proxy resource/protocol handling."
     }
   },
   "reviewers": {
