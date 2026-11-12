@@ -2,14 +2,14 @@
   "classification": {
     "base_sha": "dcc16f7527444230dbd33cca1f348760c2df7e97",
     "head_sha": "c3554bca4b7e5ecf7a9f0e38cc7a02a01bf8d2a5",
-    "input_fingerprint": "bcd4a65e327d16402e1ce72786264f79d1e67bc8858b6bcbce44814b256a0172",
+    "input_fingerprint": "4a04b35492b2a19a9608bcb6a779e6c78f0e8bc61cb5bab3b42b269de163cae5",
     "pr_number": 116,
     "proposal": {
       "modules": [
         "transport",
         "memory"
       ],
-      "reason": "Main change is in transport/P2P connection setup: stream synchronization pairing, connect-progress accounting, P2P connect gating, and IPC address return behavior in src/transport.cc and src/transport/p2p.cc. Additional memory review is needed because shared-memory resource ownership semantics were substantively changed (new handle-based shm open/close API, refcounted attach/unlink lifecycle, and shareable buffer allocate/import/close interfaces in src/include/shm.h, src/misc/shmutils.cc, and src/transport/shm.cc)."
+      "reason": "Main change is in transport connection setup and P2P transport behavior: transport selection/progress reporting, host\u2194device stream synchronization during connect, P2P connect gating, and P2P IPC address return semantics. Added memory because the PR also introduces new shareable SHM handle/descriptor lifecycle (allocate/import/close, refcount/unlink ownership) that changes host/device shared-buffer mapping and resource-release behavior beyond a purely mechanical caller edit."
     }
   },
   "reviewers": {
