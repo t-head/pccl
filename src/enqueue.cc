@@ -316,6 +316,10 @@ ncclResult_t ncclTasksRegAndEnqueue(ncclComm_t comm) {
     if (task->regBufType & NCCL_IPC_REG_BUFFER) {
       // External kernels consume registration state through pcclExtTaskColl.
       task->regUsed = 1;
+      if (!task->isExtKernel) {
+        devWork.sendRegUsed = 1;
+        devWork.recvRegUsed = 1;
+      }
     }
 
     // Common standard-kernel metadata is independent of plan channel assignment.
@@ -334,10 +338,6 @@ ncclResult_t ncclTasksRegAndEnqueue(ncclComm_t comm) {
       devWork.nThreads = task->nThreads;
       devWork.redOpArgIsPtr = task->opDev.scalarArgIsPtr;
       devWork.redOpArg = task->opDev.scalarArg;
-      if (task->regBufType & NCCL_IPC_REG_BUFFER) {
-        devWork.sendRegUsed = 1;
-        devWork.recvRegUsed = 1;
-      }
     }
 
     workNode = ncclMemoryStackAllocInlineArray<ncclWorkList, ncclDevWorkColl>(&comm->memScoped, 1);
