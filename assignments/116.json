@@ -2,14 +2,13 @@
   "classification": {
     "base_sha": "dcc16f7527444230dbd33cca1f348760c2df7e97",
     "head_sha": "fb782ff42115e42b1a3be0bb1a848d8ae1b815bb",
-    "input_fingerprint": "5ea4bd7a9b9f5d356e2396a68af4f52bf9713f781dcd059776746ca198090979",
+    "input_fingerprint": "69f1116f729816c0b1aeae7777ba96105e70539ef61c7ae3a18c22c875cd616f",
     "pr_number": 116,
     "proposal": {
       "modules": [
-        "transport",
-        "memory"
+        "transport"
       ],
-      "reason": "Main change is in transport connection setup and P2P/SHM resource handling (transport selection, connect-progress reporting, memcpy-path setup/teardown, and P2P connect gating). Add memory because the PR also introduces substantive shared-memory handle/refcount lifecycle and IPC registered-address table behavior changes (import/export/close semantics and collective vs P2P remote-address returns)."
+      "reason": "Main functional changes are in P2P/SHM transport connection setup and lifecycle: transport selection/setup flow updates, host/device stream synchronization and progress reporting during P2P connect, and new shared-memory descriptor/handle import/close paths used by transport P2P resources (including registered-address handling behavior within transport P2P IPC setup)."
     }
   },
   "reviewers": {
