@@ -2,13 +2,14 @@
   "classification": {
     "base_sha": "dcc16f7527444230dbd33cca1f348760c2df7e97",
     "head_sha": "fb782ff42115e42b1a3be0bb1a848d8ae1b815bb",
-    "input_fingerprint": "69f1116f729816c0b1aeae7777ba96105e70539ef61c7ae3a18c22c875cd616f",
+    "input_fingerprint": "38aaf50fac1756d9252ed2b40d928802388b4448cd2f6c1cc3b6d0e9b9d7d436",
     "pr_number": 116,
     "proposal": {
       "modules": [
-        "transport"
+        "transport",
+        "memory"
       ],
-      "reason": "Main functional changes are in P2P/SHM transport connection setup and lifecycle: transport selection/setup flow updates, host/device stream synchronization and progress reporting during P2P connect, and new shared-memory descriptor/handle import/close paths used by transport P2P resources (including registered-address handling behavior within transport P2P IPC setup)."
+      "reason": "Main functional change is in transport: P2P/SHM connection setup and cleanup flow, transport selection/progress reporting, stream synchronization, and P2P IPC registration behavior. A separate substantive change adds refcounted shared-memory handle/descriptor allocate-import-close lifecycle and host/device mapping ownership, so memory review is also required."
     }
   },
   "reviewers": {
