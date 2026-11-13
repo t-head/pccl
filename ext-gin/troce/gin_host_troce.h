@@ -15,7 +15,7 @@
 #include <hggc.h>
 #include <hggc_runtime_api.h>
 #include "pccl_internal.h"
-#include "gin/gin_host.h"
+#include "pccl_gin.h"
 
 // Host lifecycle and memory-registration interfaces for the TROCE GDA provider.
 ncclResult_t ncclGinTroceCreateContext(void *collComm, int nSignals, int nCounters, int nContexts,

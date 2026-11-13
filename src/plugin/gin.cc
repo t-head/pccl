@@ -27,7 +27,7 @@ NCCL_PARAM(GinPluginRefCount, "GIN_PLUGIN_REF_COUNT", 0);
 int ncclGinVersion[NCCL_GIN_VERSION_COUNT] = {13, 12, 11};
 getNcclGin_t* getNcclGin[NCCL_GIN_VERSION_COUNT] = {getNcclGin_v13, getNcclGin_v12, getNcclGin_v11};
 
-#define NCCL_GIN_NUM_INTERNAL_PLUGINS 2
+#define NCCL_GIN_NUM_INTERNAL_PLUGINS 1
 
 typedef enum ncclGinPluginState {
   ncclGinPluginStateDisabled        = -2,       // Plugin library failed to initialize
@@ -155,7 +155,7 @@ static ncclResult_t ncclGinPluginDisableOtherExternal(int pluginIndex) {
 
 static void initPluginLibsOnceFunc() {
   char* ginPluginName = nullptr;
-  const char* defaultGinPlugin = "libpccl-gin.so";
+  const char* defaultGinPlugins[] = {"libpccl-gin.so", "libpccl-gin-troce.so"};
   const char* envGinPlugin = nullptr;
   char* envGinPluginList = nullptr;
   char* savePtr = nullptr;
@@ -189,10 +189,12 @@ static void initPluginLibsOnceFunc() {
     }
     if (envGinPluginList) free(envGinPluginList);
   } else {
-    // Add default gin plugin
-    ginPluginLibs[pluginCounter].ncclGinPluginState = ncclGinPluginStateLoadReady;
-    ginPluginLibs[pluginCounter].ncclGinPluginRefCount = ncclParamGinPluginRefCount();
-    strcpy(ginPluginLibs[pluginCounter++].name, defaultGinPlugin);
+    // Add default gin plugins
+    for (const char* name : defaultGinPlugins) {
+      ginPluginLibs[pluginCounter].ncclGinPluginState = ncclGinPluginStateLoadReady;
+      ginPluginLibs[pluginCounter].ncclGinPluginRefCount = ncclParamGinPluginRefCount();
+      strcpy(ginPluginLibs[pluginCounter++].name, name);
+    }
   }
 
   // Also check if the NET plugin has GIN support
@@ -208,11 +210,6 @@ static void initPluginLibsOnceFunc() {
   ginPluginLibs[pluginCounter].ncclGinVersion = ncclGinVersion[0];
   pluginCounter++;
 
-  // Add internal TROCE plugin
-  ginPluginLibs[pluginCounter].ncclGin = &ncclGinTroce;
-  ginPluginLibs[pluginCounter].ncclGinPluginState = ncclGinPluginStateInitReady;
-  ginPluginLibs[pluginCounter].ncclGinVersion = ncclGinVersion[0];
-  pluginCounter++;
   pluginCount = pluginCounter;
 }
 

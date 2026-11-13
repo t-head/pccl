@@ -43,6 +43,7 @@ install -m 755 -d $RPM_BUILD_ROOT
 install -m 755 -d $RPM_BUILD_ROOT/%{_libdir}
 install -m 755 lib/libpccl.so.${pccl:Major}.${pccl:Minor}.${pccl:Patch} $RPM_BUILD_ROOT/%{_libdir}
 ln -s libpccl.so.${pccl:Major}.${pccl:Minor}.${pccl:Patch} $RPM_BUILD_ROOT/%{_libdir}/libpccl.so.${pccl:Major}
+install -m 755 lib/libpccl-gin-troce.so $RPM_BUILD_ROOT/%{_libdir}
 
 # devel
 install -m 755 -d $RPM_BUILD_ROOT/%{_bindir}
@@ -80,5 +81,7 @@ rm -rf $RPM_BUILD_ROOT
 %defattr(-,root,root,-)
 %{_libdir}/libpccl.so.${pccl:Major}
 %{_libdir}/libpccl.so.${pccl:Major}.${pccl:Minor}.${pccl:Patch}
+
+%{_libdir}/libpccl-gin-troce.so
 
 %changelog

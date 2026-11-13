@@ -21,15 +21,14 @@
 #include <mutex>
 
 #include "ibvwrap.h"
-#include "gin/gin_host.h"
 #include "gin_host_troce.h"
 #include "trocedvwrap.h"
 #include "param.h"
 
 #include "pccl_device/gin/troce/gin_troce_device_host_common.h"
-#include "../common.h"
-#include "../connect.h"
-#include "../gin.h"
+#include "transport/net_ib/common.h"
+#include "transport/net_ib/connect.h"
+#include "transport/net_ib/gin.h"
 
 #define MAX_PCI_ADDRESS_LEN 32U
 

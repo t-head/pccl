@@ -5,10 +5,9 @@
  * See LICENSE.txt for more license information
  *************************************************************************/
 
-#include "../common.h"
-#include "../gin.h"
+#include "transport/net_ib/common.h"
+#include "transport/net_ib/gin.h"
 #include "alloc.h"
-#include "gin/gin_host.h"
 #include "gin_host_troce.h"
 #include "pccl_device/gin/troce/gin_troce_device_host_common.h"
 #include "trocedvwrap.h"
@@ -18,6 +17,7 @@ extern int64_t ncclParamGinType();
 
 static std::mutex ncclGinIbTroceLockMutex;
 static int ncclGinIbTroceNDevs = -1;
+static int ncclGinIbTroceRefCount;
 static int ncclGinIbTroceDevIndexes[MAX_IB_DEVS];
 
 static int ncclGinIbTroceGetIbDevIndex(int dev) {
@@ -35,19 +35,17 @@ static ncclResult_t ncclGinIbTroceInit(void** ctx, uint64_t /*commId*/, ncclDebu
   ncclTroceFunctionTable* functions = nullptr;
   ncclNetCommConfig_t* config = nullptr;
 
-  {
-    std::lock_guard<std::mutex> lock(ncclGinIbTroceLockMutex);
-    if (ncclGinIbTroceNDevs == -1) {
-      int ndevs = 0;
-      for (int dev = 0; dev < ncclNIbDevs; dev++) {
-        if (ncclIbDevs[dev].ibProvider == IB_PROVIDER_TROCE) {
-          ncclGinIbTroceDevIndexes[ndevs++] = dev;
-        }
+  std::lock_guard<std::mutex> lock(ncclGinIbTroceLockMutex);
+  if (ncclGinIbTroceNDevs == -1) {
+    int ndevs = 0;
+    for (int dev = 0; dev < ncclNIbDevs; dev++) {
+      if (ncclIbDevs[dev].ibProvider == IB_PROVIDER_TROCE) {
+        ncclGinIbTroceDevIndexes[ndevs++] = dev;
       }
-      ncclGinIbTroceNDevs = ndevs;
     }
-    if (ncclGinIbTroceNDevs == 0) result = ncclInvalidUsage;
+    ncclGinIbTroceNDevs = ndevs;
   }
+  if (ncclGinIbTroceNDevs == 0) result = ncclInvalidUsage;
 
   if (result != ncclSuccess) goto fail;
   NCCLCHECKGOTO(ncclTroceFtableInit(&functions), result, fail);
@@ -55,11 +53,20 @@ static ncclResult_t ncclGinIbTroceInit(void** ctx, uint64_t /*commId*/, ncclDebu
 
   config->trafficClass = NCCL_NET_TRAFFIC_CLASS_UNDEF;
   *ctx = config;
+  ncclGinIbTroceRefCount++;
   return ncclSuccess;
 
 fail:
+  if (ncclGinIbTroceRefCount == 0) ncclTroceFtableFini();
   NCCLCHECKIGNORE(ncclIbFinalizeDevices(), result);
   return result;
+}
+
+static ncclResult_t ncclGinIbTroceFinalize(void* ctx) {
+  std::lock_guard<std::mutex> lock(ncclGinIbTroceLockMutex);
+  NCCLCHECK(ncclGinIbFinalize(ctx));
+  if (--ncclGinIbTroceRefCount == 0) ncclTroceFtableFini();
+  return ncclSuccess;
 }
 
 static ncclResult_t ncclGinIbTroceDevices(int* count) {
@@ -138,7 +145,8 @@ static ncclResult_t ncclGinIbTroceCreateContext(void* comm, ncclGinConfig_t* con
                                    config->queueDepth, config->trafficClass, context, handle);
 }
 
-ncclGin_t ncclGinTroce = {
+extern "C" {
+ncclGin_v13_t pcclGinPlugin_v13 = {
   "GIN_IB_TROCE",
   ncclGinIbTroceInit,
   ncclGinIbTroceDevices,
@@ -159,5 +167,6 @@ ncclGin_t ncclGinTroce = {
   nullptr,
   ncclGinTroceProgress,
   ncclGinTroceQueryLastError,
-  ncclGinIbFinalize
+  ncclGinIbTroceFinalize
 };
+}

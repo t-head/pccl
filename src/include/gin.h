@@ -17,7 +17,6 @@ ncclResult_t ncclGinGetDevCount(int ginPluginIndex, int* nPhysDev, int* nVirtDev
 ncclResult_t ncclGinFinalize(struct pcclComm* comm);
 
 extern ncclGin_t ncclGinIb;
-extern ncclGin_t ncclGinTroce;
 extern ncclGin_t ncclGinIbGdaki;
 extern ncclGin_t ncclGinIbProxy;
 
