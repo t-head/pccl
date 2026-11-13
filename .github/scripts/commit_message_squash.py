@@ -142,6 +142,12 @@ def publish(api, draft, expected_pr):
         # Always publish at the conversation end before removing old previews.
         published = api.request(f'/repos/{api.repository}/issues/{expected_pr}/comments',
                                 'POST', {'body': comment_body(draft)})
+    # Move the Checks link before deleting the comment it previously pointed to.
+    api.request(f"/repos/{api.repository}/statuses/{data['head']}", 'POST', {
+        'state': 'success', 'context': 'Suggested squash commit message',
+        'description': 'Open Details to view the suggested message' if published else 'No squash message preview needed',
+        'target_url': published['html_url'] if published else None,
+    })
     for comment in comments:
         api.request(f"/repos/{api.repository}/issues/comments/{comment['id']}", 'DELETE')
     return published['html_url'] if published else None
