@@ -1,15 +1,15 @@
 {
   "classification": {
     "base_sha": "a909809e63dbf891101c88d45c0b78bfe628fab6",
-    "head_sha": "95961065efd4d4f3d09dd1dfef9bfa81d4945408",
-    "input_fingerprint": "52178c4726211d03bc0294505cd1a0e1698678fcc72c7f357c008f480b5d7a26",
+    "head_sha": "3f81c9ad6c1c24c5ec8b7839ef5928dba9f968fc",
+    "input_fingerprint": "a401f90b253c67e6188cad0d0142af8090dfc2107e3afc3c669613530a120f65",
     "pr_number": 31,
     "proposal": {
       "modules": [
         "network",
         "gin"
       ],
-      "reason": "Main change adds TROCE as a new bundled GIN backend/plugin, including GIN host/device API support, plugin loading/discovery, context/memory registration, and SignalSet behavior. Additional network review is needed because shared IB transport/proxy paths were substantively changed (provider detection, QP inline/write-with-invalidate handling, and net_ib connection behavior) to support TROCE-specific signaling/flush semantics."
+      "reason": "Primary change is the new bundled TROCE GIN backend/plugin (host+device GIN implementation, plugin loading/discovery order, GIN type/signal semantics, and TROCE-specific context/flush/progress paths). Also requires network review because shared IB transport code is substantively changed (provider detection/classification, generic QP inline behavior, and net_ib signal operation handling) beyond a purely local caller update."
     }
   },
   "reviewers": {
