@@ -529,7 +529,7 @@ ncclResult_t ncclGinIbProxyCreateContext(void* collComm, ncclGinConfig_v13_t* co
       // side and synchronize with the receiver.  Without this the sender's
       // QP stays in INIT and ibv_post_send in IPut/IGet will fail.
       while (((struct ncclIbSendComm*)gc->fullSendComm[connectPeer])->base.ready == 0)
-        NCCLCHECKGOTO(ncclSendCheck((struct ncclIbSendComm*)gc->fullSendComm[connectPeer]), ret, end);
+        NCCLCHECKGOTO(ncclSendCheck((struct ncclIbSendComm*)gc->fullSendComm[connectPeer], 1), ret, end);
       while (((struct ncclIbRecvComm*)gc->fullRecvComm[acceptPeer])->base.ready == 0)
         NCCLCHECKGOTO(ncclRecvCheck((struct ncclIbRecvComm*)gc->fullRecvComm[acceptPeer]), ret, end);
       NCCLCHECKGOTO(ncclGinIbP2PBarrier(cComm), ret, end);
