@@ -9,7 +9,7 @@
         "network",
         "gin"
       ],
-      "reason": "Main change adds a new GIN backend/plugin (TROCE) with host/device GIN implementation, plugin export/discovery, new GIN type/device IDs, and SignalSet semantics under the GIN API. Added network review is needed because shared IB transport/proxy paths are substantively changed (provider detection, QP inline behavior, GDR checks, and IB send/atomic signaling behavior for SignalSet), which belongs to network rather than GIN-only plugin wiring."
+      "reason": "Main change adds TROCE as a new bundled GIN backend/plugin, including GIN host/device API support, plugin loading/discovery, context/memory registration, and SignalSet behavior. Additional network review is needed because shared IB transport/proxy paths were substantively changed (provider detection, QP inline/write-with-invalidate handling, and net_ib connection behavior) to support TROCE-specific signaling/flush semantics."
     }
   },
   "reviewers": {
