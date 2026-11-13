@@ -35,7 +35,7 @@
     },
     "graph-search": {
       "name": "Topology graph search",
-      "description": "Construct and search logical ring, tree, CollNet and channel graphs over the detected topology, including graph rank ordering and connection. Physical topology/path discovery belongs to device-topology; algorithm cost models belong to tuning.",
+      "description": "Construct and search logical ring, tree and channel graphs over the detected topology, including graph rank ordering and connection. Physical topology/path discovery belongs to device-topology; algorithm cost models belong to tuning.",
       "key_files": ["src/graph/search.cc", "src/graph/connect.cc"],
       "maintainer": {"login": "honganlxh", "id": 335730053},
       "reviewers": [

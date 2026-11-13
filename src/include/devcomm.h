@@ -192,7 +192,6 @@ struct alignas(16) ncclDevChannel {
   struct ncclDevChannelPeer** peers;
   struct ncclRing ring;
   struct ncclTree tree;
-  struct ncclTree collTree;
   struct ncclFC fc;
   uint64_t perKernelBatchCounter;
   uint64_t workCounter;
@@ -441,7 +440,6 @@ struct ncclChannel {
     struct {
       struct ncclRing ring;
       struct ncclTree tree;
-      struct ncclTree collTree;
       struct ncclFC fc;
 
       int id;

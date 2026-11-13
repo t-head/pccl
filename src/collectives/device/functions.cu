@@ -23,7 +23,7 @@
 #define NCCL_FUNC4(func, devredop, type, nullify) \
   NCCL_FUNC5(func, TREE,    devredop, type, nullify), \
   NCCL_FUNC5(func, RING,    devredop, type, nullify), \
-  NCCL_FUNC5(func, COLLNET, devredop, type, nullify), \
+  nullptr, nullptr, nullptr, nullptr, nullptr, nullptr, nullptr, /* Reserved CollNet slot */ \
   NCCL_FUNC5(func, FC,      devredop, type, nullify), \
   NCCL_FUNC5(func, PAT,     devredop, type, nullify)
 

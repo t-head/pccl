@@ -57,7 +57,7 @@ ncclResult_t ncclRegisterCollBuffers(
     if (info->func == ncclFuncReduceScatter) goto exit;
   }
 
-  // TODO: Add NVLS/COLLNET later
+  // TODO: Add NVLS later
 
   if (PROTO_IS_SIMPLE_CLASS(info->protocol) || info->isExtKernel) {
     int peerRanks[NCCL_MAX_LOCAL_RANKS];

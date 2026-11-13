@@ -122,7 +122,6 @@ struct ncclTopoNode {
       int port;
       float width;
       int gdrSupport;
-      int collSupport;
       int maxChannels;
     }net;
     struct {

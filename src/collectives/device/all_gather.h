@@ -374,9 +374,3 @@ class RunWorkColl<ncclFuncAllGather, NCCL_ALGO_TREE, PROTO, FUNC, T, UNROLL> {
   public:
     __device__ void run(struct ncclDevWorkColl* work) {}
 };
-
-template<int PROTO, class FUNC, typename T, int UNROLL>
-class RunWorkColl<ncclFuncAllGather, NCCL_ALGO_COLLNET, PROTO, FUNC, T, UNROLL> {
-  public:
-    __device__ void run(struct ncclDevWorkColl* work) {}
-};

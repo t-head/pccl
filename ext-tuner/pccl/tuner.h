@@ -1,6 +1,7 @@
 /*************************************************************************
  * Copyright (c) 2023, NVIDIA CORPORATION. All rights reserved.
  * Copyright (c) 2023, Meta Platforms, Inc. and affiliates.
+ * SPDX-FileCopyrightText: Modifications Copyright (c) 2026 T-Head (Shanghai) Semiconductor Co., Ltd. All rights reserved.
  *
  * See LICENSE.txt for license information
  ************************************************************************/
@@ -18,11 +19,11 @@ typedef void (*pcclDebugLogger_t)(pcclDebugLogLevel level, unsigned long flags, 
 #define NCCL_NUM_FUNCTIONS 5 // Send/Recv not included for now
 typedef enum { pcclFuncBroadcast, pcclFuncReduce, pcclFuncAllGather, pcclFuncReduceScatter, pcclFuncAllReduce, pcclFuncSendRecv} pcclFunc_t;
 
-#define NCCL_NUM_ALGORITHMS 4 // Tree/Ring/CollNet/FC
+#define NCCL_NUM_ALGORITHMS 4 // Tree/Ring/reserved (CollNet removed)/FC
 #define NCCL_ALGO_UNDEF -1
 #define NCCL_ALGO_TREE 0
 #define NCCL_ALGO_RING 1
-#define NCCL_ALGO_COLLNET 2
+#define NCCL_ALGO_COLLNET 2 // Reserved compatibility slot; unsupported
 #define NCCL_ALGO_FC 3
 
 #define NCCL_NUM_PROTOCOLS 6 // Simple/LL/LL128
@@ -60,7 +61,7 @@ typedef struct {
   // Inputs:
   //   - collType: collective type , e.g., allreduce, allgather…
   //   - nBytes: collective size in bytes
-  //   - collNetSupport: whether collnet supports this type
+  //   - collNetSupport: retained for v1 compatibility; always zero
   //   - nvlsSupport: whether nvlink sharp supports this time
   //   - numPipeOps: number of operations in the group
   //

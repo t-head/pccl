@@ -77,7 +77,7 @@ const char* ncclAlgoToString(int algo) {
   switch (algo) {
   case NCCL_ALGO_TREE: return "TREE";
   case NCCL_ALGO_RING: return "RING";
-  case NCCL_ALGO_COLLNET: return "COLLNET";
+  case NCCL_ALGO_COLLNET: return "COLLNET"; // Reserved ID; execution is unsupported.
   case NCCL_ALGO_FC: return "FC";
   default: return "Unknown";
   }
