@@ -57,7 +57,8 @@ def _compare_record(record, row, key, errors):
     valid = True
     for field in run_cases.RESULT_FIELDS:
         if field == "return_code":
-            matches = str(record[field]) == row[field]
+            value = record[field]
+            matches = ("" if value is None else str(value)) == row[field]
         elif field == "duration_seconds":
             left, right = _decimal(record[field]), _decimal(row[field])
             matches = left is not None and right is not None and left == right

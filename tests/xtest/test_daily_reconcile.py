@@ -204,6 +204,22 @@ class ReconcileResultsTests(unittest.TestCase):
         self.assertFalse(report["ok"])
         self.assertTrue(any("Build identity" in error for error in report["errors"]))
 
+    def test_timeout_null_return_code_preserves_the_timeout_diagnostic(self):
+        case = self.cases[0]
+        path = self.results / case["plan"] / case["suite"] / case["name"] / "result.json"
+        record = json.loads(path.read_text())
+        record.update(status="TIMEOUT", return_code=None, error="Case timed out after 10 seconds")
+        path.write_text(json.dumps(record))
+        self.write_results()
+        (self.results / "summary.json").write_text(json.dumps({
+            "total": 2, "counts": {"TIMEOUT": 1, "PASSED": 1}}))
+
+        report = self.reconcile()
+
+        self.assertFalse(report["ok"])
+        self.assertEqual(report["errors"], [
+            "plan/suite/exit_case: TIMEOUT: Case timed out after 10 seconds"])
+
 
 if __name__ == "__main__":
     unittest.main()
