@@ -2,14 +2,14 @@
   "classification": {
     "base_sha": "4f4a89f2e99f6c2778d3ffc8070a0f16f434df69",
     "head_sha": "c07d19918ab97b0a074b64d0393e009da0e05327",
-    "input_fingerprint": "8cec653a81292c5fd95bf027884ad69f0ce2eeb7758000c26b0ff427771e2d2f",
+    "input_fingerprint": "7be17a04cce862a26f1311408e0b767e430cb3ff513410777474138437afbae1",
     "pr_number": 187,
     "proposal": {
       "modules": [
         "kernels",
         "symmetric"
       ],
-      "reason": "Main change is SDK-2.3 compatibility gating for BF16 device-kernel intrinsics/conversions and related device-side headers in core collective kernel code. Add symmetric because symmetric-memory kernels have their own independently changed BF16 cast/avg/CE paths (not just caller wiring), while enqueue/gin/public-header macro edits are supporting compatibility plumbing for the same feature."
+      "reason": "Main change is SDK-2.3 compatibility in device-side BF16 intrinsic usage and conversion paths for core collective kernels (e.g., reduce/vector kernel code), which fits kernels. A separate, independently substantive set of the same BF16/API-guard updates is in symmetric-memory kernel paths (ce_kernel/sym_reduce), so symmetric review is also needed; enqueue/gin/header edits appear as supporting compatibility wiring rather than standalone policy/protocol changes in those modules."
     }
   },
   "reviewers": {
