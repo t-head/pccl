@@ -6,15 +6,13 @@
     "pr_number": 174,
     "proposal": {
       "modules": [
-        "device-topology",
         "graph-search",
-        "transport",
         "tuning",
+        "enqueue",
         "network",
-        "kernels",
-        "tuner-plugin"
+        "kernels"
       ],
-      "reason": "Primary change removes CollNet execution end-to-end: CollNet net-plugin loading, CollNet transport/proxy resources, and related connection paths are deleted (network, transport). The PR also removes CollNet device-kernel implementations while preserving a reserved algorithm slot (kernels), drops CollNet logical graph construction/connection and CollNet-specific topology discovery metadata (graph-search, device-topology), and updates built-in algorithm/protocol selection and performance tables to disable CollNet and keep slot compatibility (tuning). External tuner callback compatibility is explicitly handled by validating unsupported/out-of-range selections and falling back to internal tuning while preserving v1 IDs/layout expectations (tuner-plugin)."
+      "reason": "Main change removes CollNet execution from network transport/plugin/proxy paths (including CollNet backend loading, connect/proxy resources, and transport hooks). Additional substantive changes remove CollNet device-kernel implementations and reserved function-table behavior handling (kernels), delete CollNet topology graph construction/search/connection logic (graph-search), hard-disable the CollNet algorithm slot while preserving IDs and updating model-based/tuner fallback selection rules (tuning), and update runtime algo/protocol validation, chunking/pattern selection, and channel scheduling in collective planning (enqueue)."
     }
   },
   "reviewers": {
