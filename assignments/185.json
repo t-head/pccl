@@ -1,14 +1,14 @@
 {
   "classification": {
     "base_sha": "b2218469d68f21ca4d4822c8ba357154eb955849",
-    "head_sha": "b3ca9c0e1f6532a2af52bd9e7b9079ad3f3f1fec",
-    "input_fingerprint": "5bc292625a7f5507729a4c493481b7935749b79e5d2442832e9e59fdeeab5c38",
+    "head_sha": "d90e02718036b1a46b00197eb6d0c7cd041d33ef",
+    "input_fingerprint": "9f2b81ca26460677b7e1dcadc27f2530f2efbfc233649e8fab3588ae7d7e0b60",
     "pr_number": 185,
     "proposal": {
       "modules": [
         "ci"
       ],
-      "reason": "Main change is CI/test orchestration: a new experimental daily M890P workflow, shared artifact/case-group caching with bounded download retries, grouped execution and reconciliation scripts/tests, and CI workflow wiring updates. The large omitted patch in daily-full-csv/standard.csv is still CI test input data (case catalog), not PCCL runtime logic."
+      "reason": "Main substantive change is CI/test automation: a new non-PR-gating M890P daily workflow with grouped case selection/reconciliation, run-scoped NAS/artifact cache validation and retries, plus source-sanity artifact download hardening and corresponding xtest tooling/tests. Build-script and CSV/export updates support this CI pipeline rather than changing PCCL runtime behavior."
     }
   },
   "reviewers": {
