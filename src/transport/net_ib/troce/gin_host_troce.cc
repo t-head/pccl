@@ -359,7 +359,7 @@ struct troceContext {
   ncclNetDeviceHandle_t *devHandle;
   struct ncclTroceFunctionTable *troce;
 
-  // nContexts * nRanks queue pairs, indexed by context and then peer rank.
+  // Each context has nRanks data QPs followed by a loopback flush QP.
   struct troceQpHost *qps;
 
   TroceGlobalTable<uint64_t> *signalsTable;
@@ -620,7 +620,8 @@ ncclResult_t ncclGinTroceCreateContext(void *collComm, int nSignals, int nCounte
   struct ncclGinIbCollComm *cComm = (struct ncclGinIbCollComm *)collComm;
   const int rank = cComm->rank;
   const int nranks = cComm->nranks;
-  const int nqps = nContexts * nranks;
+  const int qpsPerContext = nranks + 1;
+  const int nqps = nContexts * qpsPerContext;
   int64_t sqDepth = std::max<int64_t>(1024, queueDepth > 0 ? queueDepth : ncclParamGinGdakiQpDepth());
   const uint32_t maxSqDepth = PCCL_GIN_TROCE_MAX_SQ_WQES / TROCE_SEND_WQE_BB_FACTOR;
   if (sqDepth > maxSqDepth) {
@@ -696,20 +697,26 @@ ncclResult_t ncclGinTroceCreateContext(void *collComm, int nSignals, int nCounte
   for (int ctxIdx = 0; ctxIdx < nContexts; ctxIdx++) {
     for (int peer = 0; peer < nranks; peer++) {
       troceFillExchInfo(&localExch[peer], ctx, &portAttr, &gid,
-                        ctx->qps[ctxIdx * nranks + peer].qp);
+                        ctx->qps[ctxIdx * qpsPerContext + peer].qp);
       localExch[peer].sinkRkey = sinkMr->rkey;
     }
     NCCLCHECKGOTO(cComm->allToAll(cComm, localExch, remoteExch, sizeof(struct troceExchInfo)),
                   status, fail);
     for (int peer = 0; peer < nranks; peer++) {
-      NCCLCHECKGOTO(troceConnectQp(ctx, &ctx->qps[ctxIdx * nranks + peer], &remoteExch[peer], trafficClass),
+      NCCLCHECKGOTO(troceConnectQp(ctx, &ctx->qps[ctxIdx * qpsPerContext + peer], &remoteExch[peer], trafficClass),
                     status, fail);
-      struct pcclGinTroceQp *devQp = &gpuQps->hostBuf[ctxIdx * nranks + peer];
+      struct pcclGinTroceQp *devQp = &gpuQps->hostBuf[ctxIdx * qpsPerContext + peer];
       devQp->sink_rkey = htobe32(remoteExch[peer].sinkRkey);
       INFO(NCCL_NET, "[%d] GIN/TROCE connected ctx=%d peer=%d qpn=%#x -> remote qpn=%#x tc=%u", rank,
-           ctxIdx, peer, ctx->qps[ctxIdx * nranks + peer].qp->qp_num, remoteExch[peer].qpn,
-           ctx->qps[ctxIdx * nranks + peer].trafficClass);
+           ctxIdx, peer, ctx->qps[ctxIdx * qpsPerContext + peer].qp->qp_num, remoteExch[peer].qpn,
+           ctx->qps[ctxIdx * qpsPerContext + peer].trafficClass);
     }
+    struct troceQpHost *flushQp = &ctx->qps[ctxIdx * qpsPerContext + nranks];
+    struct troceExchInfo loopbackInfo;
+    memset(&loopbackInfo, 0, sizeof(loopbackInfo));
+    troceFillExchInfo(&loopbackInfo, ctx, &portAttr, &gid, flushQp->qp);
+    NCCLCHECKGOTO(troceConnectQp(ctx, flushQp, &loopbackInfo, trafficClass), status, fail);
+    gpuQps->hostBuf[ctxIdx * qpsPerContext + nranks].sink_rkey = htobe32(sinkMr->rkey);
   }
 
   // Build the device-visible view.
@@ -717,7 +724,7 @@ ncclResult_t ncclGinTroceCreateContext(void *collComm, int nSignals, int nCounte
     struct pcclGinTroceGPUContext *devCtx = &gpuCtx->hostBuf[ctxIdx];
     unsigned int bufferStart = 0;
 
-    devCtx->qps = gpuQps->gpuBuf + (size_t)ctxIdx * nranks;
+    devCtx->qps = gpuQps->gpuBuf + (size_t)ctxIdx * qpsPerContext;
     devCtx->sink_buffer_lkey = htobe32(sinkMr->lkey);
 
     if (nSignals) {
@@ -728,8 +735,8 @@ ncclResult_t ncclGinTroceCreateContext(void *collComm, int nSignals, int nCounte
       devCtx->signals_table.offset = bufferStart;
     }
 
-    for (int peer = 0; peer < nranks; peer++) {
-      int qpIdx = ctxIdx * nranks + peer;
+    for (int peer = 0; peer < qpsPerContext; peer++) {
+      int qpIdx = ctxIdx * qpsPerContext + peer;
       struct pcclGinTroceQp *devQp = &gpuQps->hostBuf[qpIdx];
       devQp->qpn = ctx->qps[qpIdx].qp->qp_num;
       // Convert SQ storage bytes to WQEBB capacity for device-side index masks.
@@ -825,7 +832,7 @@ ncclResult_t ncclGinTroceDestroyContext(void *ginCtx) {
     return ncclInvalidArgument;
   }
   struct troceContext *ctx = (struct troceContext *)ginCtx;
-  const int nqps = ctx->nContexts * ctx->nRanks;
+  const int nqps = ctx->nContexts * (ctx->nRanks + 1);
 
   if (ctx->qps) {
     for (int qpIdx = 0; qpIdx < nqps; qpIdx++) {
@@ -940,7 +947,7 @@ ncclResult_t ncclGinTroceProgress(void * /*ginCtx*/) {
 ncclResult_t ncclGinTroceQueryLastError(void *ginCtx, bool *hasError) {
   struct troceContext *ctx = (struct troceContext *)ginCtx;
   bool err = false;
-  const int nqps = ctx->nContexts * ctx->nRanks;
+  const int nqps = ctx->nContexts * (ctx->nRanks + 1);
 
   *hasError = false;
 

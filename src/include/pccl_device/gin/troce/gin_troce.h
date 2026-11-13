@@ -24,7 +24,7 @@
 
 struct pcclGinTroceRequest {
   int peer;
-  uint64_t wqeIdx;  // ticket: the WQE index to wait for on the send CQ
+  uint64_t prodIdx;  // exclusive WQEBB tail captured by flushAsync
 };
 static_assert(sizeof(pcclGinTroceRequest) <= sizeof(pcclGinRequest_t),
               "pcclGinTroceRequest must fit in pcclGinRequest_t");
@@ -119,7 +119,7 @@ PCCL_DEVICE_INLINE void markWqesReady(struct pcclGinTroceQp *qp, uint64_t baseWq
 
 // Notify an already-published exclusive producer index. Aggregation defers the
 // doorbell until a normal submit or flushAsync. Callers must submit
-// before exhausting SQ credits and leave room for the flush marker.
+// before exhausting SQ credits.
 template <hggc::thread_scope scope = hggc::thread_scope_device>
 PCCL_DEVICE_INLINE void submit(struct pcclGinTroceQp *qp, uint64_t prodIdx, uint32_t optFlags) {
   if (optFlags & pcclGinOptFlagsAggregateRequests) {
@@ -521,7 +521,7 @@ PCCL_DEVICE_INLINE int trocePollCqAt(struct pcclGinTroceQp *qp, uint64_t idx) {
   return status;
 }
 
-PCCL_DEVICE_INLINE void troceWait(struct pcclGinTroceQp *qp, uint64_t idx, uint32_t *abortFlag) {
+PCCL_DEVICE_INLINE bool troceWait(struct pcclGinTroceQp *qp, uint64_t idx, uint32_t *abortFlag) {
   using pccl::utility::testAbort;
   if (abortFlag) {
     uint32_t steps = 0;
@@ -530,9 +530,35 @@ PCCL_DEVICE_INLINE void troceWait(struct pcclGinTroceQp *qp, uint64_t idx, uint3
     while (status != PCCL_TROCE_POLL_SUCCESS && !testAbort(abortFlag, steps)) {
       status = trocePollOneCqAt(qp, idx);
     }
+    return status == PCCL_TROCE_POLL_SUCCESS;
   } else {
-    trocePollCqAt(qp, idx);
+    return trocePollCqAt(qp, idx) == PCCL_TROCE_POLL_SUCCESS;
   }
+}
+
+PCCL_DEVICE_INLINE uint64_t troceFlushAsync(struct pcclGinTroceQp *qp) {
+  hggc::atomic_ref<uint64_t, hggc::thread_scope_device> ref(qp->ready_head);
+  uint64_t prodIdx = ref.load(hggc::memory_order_acquire);
+  if (prodIdx != 0) submit(qp, prodIdx, pcclGinOptFlagsDefault);
+  return prodIdx;
+}
+
+PCCL_DEVICE_INLINE bool troceFlushWait(struct pcclGinTroceGPUContext *gda, struct pcclGinTroceQp *qp,
+                                      struct pcclGinTroceQp *flushQp, uint64_t prodIdx, uint32_t *abortFlag) {
+  using pccl::utility::loadConst;
+  if (prodIdx == 0) return true;
+  if (!troceWait(qp, prodIdx - 1, abortFlag)) return false;
+  if (abortFlag && hggc::atomic_ref<uint32_t, hggc::thread_scope_system>{*abortFlag}
+                       .load(hggc::memory_order_relaxed)) return false;
+
+  uint64_t base = reserveWqeSlots(flushQp, 1);
+  // Publish a fresh loopback WQE only after the data CQ completion.
+  troceWriteRdmaWqe(flushQp, 0, loadConst(&gda->sink_buffer_lkey),
+                    0, loadConst(&flushQp->sink_rkey), 0, (uint16_t)base,
+                    /*needCqe=*/true, getWqePtr(flushQp, base), /*isWrite=*/true);
+  markWqesReady(flushQp, base, base);
+  submit(flushQp, base + 1, pcclGinOptFlagsDefault);
+  return troceWait(flushQp, base, abortFlag);
 }
 
 // Wait for everything currently reserved on this QP.
@@ -742,24 +768,13 @@ struct pcclGinApi_Flush<PCCL_NET_DEVICE_GIN_TROCE> {
                                       uint32_t *abortFlag) {
     (void)ord;
     using pccl::utility::loadConst;
-    using pccl::utility::testAbort;
     pcclGinTroceGPUContext *gda = &((struct pcclGinTroceGPUContext *)ctx.handle)[ctx.contextId];
     pcclGinTroceQp *qps = loadConst(&gda->qps);
-    if (abortFlag) {
-      uint32_t steps = 0;
-      #pragma unroll 1
-      for (int peer = coop.thread_rank(); peer < ctx.nRanks; peer += coop.size()) {
-        uint64_t ticket = pccl::gin::troce::atomicRead(&qps[peer].resv_head);
-        if (ticket == 0) continue;
-        --ticket;
-        int status = EBUSY;
-        while (status != PCCL_TROCE_POLL_SUCCESS && !testAbort(abortFlag, steps))
-          status = pccl::gin::troce::trocePollOneCqAt(qps + peer, ticket);
-      }
-    } else {
-      #pragma unroll 1
-      for (int peer = coop.thread_rank(); peer < ctx.nRanks; peer += coop.size())
-        pccl::gin::troce::troceQuiet(qps + peer, nullptr);
+    pcclGinTroceQp *flushQp = qps + ctx.nRanks;
+    #pragma unroll 1
+    for (int peer = coop.thread_rank(); peer < ctx.nRanks; peer += coop.size()) {
+      uint64_t prodIdx = pccl::gin::troce::troceFlushAsync(qps + peer);
+      if (!pccl::gin::troce::troceFlushWait(gda, qps + peer, flushQp, prodIdx, abortFlag)) break;
     }
   }
 };
@@ -773,19 +788,7 @@ struct pcclGinApi_FlushAsync<PCCL_NET_DEVICE_GIN_TROCE> {
     pcclGinTroceGPUContext *gda = &((struct pcclGinTroceGPUContext *)ctx.handle)[ctx.contextId];
     pcclGinTroceQp *qp = loadConst(&gda->qps) + peer;
     req->peer = peer;
-    const uint64_t base = pccl::gin::troce::reserveWqeSlots(qp, 1);
-    const uint16_t wqeIdx = (uint16_t)base;
-    // Fence the zero-byte WRITE behind prior READs/atomics on this QP. Its CQE
-    // provides the completion ticket without transferring sink buffer data.
-    pccl::gin::troce::troceWriteRdmaWqe(qp, 0,
-                                       loadConst(&gda->sink_buffer_lkey),
-                                       /*remote sink MR offset=*/0, loadConst(&qp->sink_rkey),
-                                       0, wqeIdx, /*needCqe=*/true,
-                                       pccl::gin::troce::getWqePtr(qp, base),
-                                       /*isWrite=*/true, /*fence=*/true);
-    pccl::gin::troce::markWqesReady(qp, base, base);
-    pccl::gin::troce::submit(qp, base + 1, pcclGinOptFlagsDefault);
-    req->wqeIdx = base;
+    req->prodIdx = pccl::gin::troce::troceFlushAsync(qp);
     (void)optFlags;  // flushAsync always submits, including AggregateRequests
   }
 };
@@ -800,7 +803,7 @@ struct pcclGinApi_Wait<PCCL_NET_DEVICE_GIN_TROCE> {
     pcclGinTroceRequest &req = reinterpret_cast<pcclGinTroceRequest &>(request);
     pcclGinTroceGPUContext *gda = &((struct pcclGinTroceGPUContext *)ctx.handle)[ctx.contextId];
     pcclGinTroceQp *qp = loadConst(&gda->qps) + req.peer;
-    pccl::gin::troce::troceWait(qp, req.wqeIdx, abortFlag);
+    pccl::gin::troce::troceFlushWait(gda, qp, loadConst(&gda->qps) + ctx.nRanks, req.prodIdx, abortFlag);
     (void)hasDescriptor;
     (void)descriptor;
   }

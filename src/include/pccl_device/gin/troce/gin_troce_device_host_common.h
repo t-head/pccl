@@ -49,10 +49,10 @@ struct pcclGinTroceQp {
 };
 
 struct pcclGinTroceGPUContext {
-  struct pcclGinTroceQp *qps;  // one per peer rank
+  struct pcclGinTroceQp *qps;  // one per peer rank, followed by the loopback flush QP
   struct pcclGinTroceGlobalGPUBufferTable<uint64_t> signals_table;
 
-  // Atomic return and zero-byte flush storage; fetched values are not consumed.
+  // Atomic return and zero-byte flush storage; values are not consumed.
   __be32 sink_buffer_lkey;
 };
 
