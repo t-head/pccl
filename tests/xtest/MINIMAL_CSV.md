@@ -130,14 +130,21 @@ python3 -S -B tests/xtest/group_cases.py \
 
 The group tree is hashed over every relative filename and file byte. A GitHub
 artifact is the backup and one validated copy is published to the run-scoped
-NAS cache. Execution groups read that copy directly; missing or invalid caches
-are restored from the backup with an atomic, interprocess-locked publication.
-Build and group downloads use bounded retries, and no cache is shared across
-workflow runs.
+NAS cache with read-only files. Missing or invalid caches are restored from the
+backup with an atomic, interprocess-locked publication; an invalid tree is
+quarantined rather than deleted while readers may still use it. Every execution
+group creates a private, revalidated, read-only copy before running any Case, so
+concurrent recovery cannot change the commands or environment being executed.
+Build and group downloads use bounded retries, artifacts are retained for seven
+days, and no cache is shared across workflow runs.
 
 `daily_reconcile.py` checks exact Case coverage, result records, raw logs,
-performance metrics and the verified build identity for each group. Daily
-results produce summaries and failure notifications, not a PR required check.
+performance metrics and the verified build identity for each group. Result CSV
+and JSON records must have the complete schema and matching values. Performance
+metrics are regenerated from the raw log and compared with every saved row.
+Sizes and counts may be zero after rank division, times must be positive, and
+bandwidth must be nonnegative. Daily results produce summaries and failure
+notifications, not a PR required check.
 Both preparation and final summary reject execution groups or unexpected result
 directories that exceed the allowed node counts.
 

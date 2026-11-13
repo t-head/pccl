@@ -51,17 +51,32 @@ class CaseGroupCacheTests(unittest.TestCase):
     def test_publish_replaces_invalid_cache_only_with_valid_download(self):
         case_group_cache.publish(self.download, self.cache, self.digest)
         case_group_cache.validate(self.cache, self.digest)
-        self.assertTrue(self.cache.stat().st_mode & stat.S_IWOTH)
+        self.assertFalse(self.cache.stat().st_mode & (stat.S_IWGRP | stat.S_IWOTH))
         (self.cache / "partial").write_text("invalid")
         case_group_cache.publish(self.download, self.cache, self.digest)
         case_group_cache.validate(self.cache, self.digest)
         self.assertFalse((self.cache / "partial").exists())
+        quarantine = list(self.cache.parent.glob(f".{self.cache.name}.invalid-*"))
+        self.assertEqual(len(quarantine), 1)
+        self.assertEqual((quarantine[0] / "partial").read_text(), "invalid")
         original = (self.download / "groups.json").read_text()
         (self.download / "groups.json").write_text("corrupted")
         with self.assertRaisesRegex(ValueError, "mismatch"):
             case_group_cache.publish(self.download, self.cache, self.digest)
         case_group_cache.validate(self.cache, self.digest)
         (self.download / "groups.json").write_text(original)
+
+    def test_execution_stage_is_a_validated_read_only_private_copy(self):
+        case_group_cache.publish(self.download, self.cache, self.digest)
+        output = self.root / "worker" / "case-input"
+        case_group_cache.stage(self.cache, output, self.digest)
+        case_group_cache.validate(output, self.digest)
+        self.assertFalse(output.stat().st_mode & (stat.S_IWGRP | stat.S_IWOTH))
+        for path in output.rglob("*"):
+            if path.is_file():
+                self.assertFalse(path.stat().st_mode & (stat.S_IWGRP | stat.S_IWOTH))
+        with self.assertRaisesRegex(ValueError, "already exists"):
+            case_group_cache.stage(self.cache, output, self.digest)
 
     def test_concurrent_publishers_never_expose_partial_trees(self):
         context = multiprocessing.get_context("fork")

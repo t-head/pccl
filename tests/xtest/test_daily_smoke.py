@@ -148,6 +148,8 @@ class DailySmokeTests(unittest.TestCase):
             group_cases.build_plan(FULL_INPUT, 500, nodes=8, allowed_nodes=(1, 2, 4))
         with self.assertRaisesRegex(ValueError, 'disabled by daily resource policy'):
             group_cases.build_plan(FULL_INPUT, 500, nodes=16, allowed_nodes=(1, 2, 4))
+        oversized = group_cases.build_plan(FULL_INPUT, 25, allowed_nodes=(1, 2, 4))
+        self.assertGreater(len(oversized['groups']), 256)
 
     def test_commabort_binary_is_built_into_the_existing_artifact(self):
         text = BUILD_SCRIPT.read_text()
@@ -176,7 +178,8 @@ class DailySmokeTests(unittest.TestCase):
         self.assertIn('fail-fast: false', text)
         self.assertIn('nnodes: ${{ matrix.nodes }}', text)
         self.assertIn('nproc_per_node: ${{ matrix.cards_per_node }}', text)
-        self.assertEqual(text.count('--input "$GROUPS_DIR/$GROUP_ID"'), 2)
+        self.assertEqual(text.count('--input "$CASE_INPUT/$GROUP_ID"'), 2)
+        self.assertEqual(text.count('case_group_cache.py stage'), 2)
         self.assertIn('case_group_cache.py publish', text)
         self.assertIn('cache/case-groups/${{ env.EXPECTED_GROUPS_SHA }}', text)
         self.assertIn('Restore the NAS build cache', text)
@@ -188,6 +191,10 @@ class DailySmokeTests(unittest.TestCase):
         self.assertIn("'groups.json').read_text())", text)
         self.assertIn('daily_reconcile.py', text)
         self.assertIn('Daily grouped result summary and NAS cleanup', text)
+        self.assertIn('GitHub Actions matrix limit of 256', text)
+        self.assertIn('timeout-minutes: 750', text)
+        self.assertNotIn('retention-days: 3', text)
+        self.assertIn('if results_root.is_dir() else set()', text)
         single = text.split('name: Run the automatic group on one node', 1)[1].split(
             'name: Run the automatic multi-node group on master', 1)[0]
         self.assertIn('host_network: true', single)
@@ -213,11 +220,12 @@ class DailySmokeTests(unittest.TestCase):
         self.assertIn('sleep 15', action)
         self.assertIn('sleep 30', action)
         self.assertIn('shutil.rmtree(target)', action)
-        self.assertIn("target.relative_to(workspace)", action)
+        self.assertIn("parent.relative_to(workspace)", action)
+        self.assertIn("target = parent / relative.name", action)
         text = FULL_WORKFLOW.read_text()
         self.assertNotIn('uses: actions/download-artifact@v4', text)
         self.assertEqual(text.count('uses: t-head/pccl/.github/actions/download-artifact-retry@'
-                                    'a8e11be343464718f4a317d167a52166ec36143d'), 6)
+                                    'c7eb80eadb2ca48976a02d8f0fcc1c020534ce73'), 6)
 
 
 if __name__ == '__main__':

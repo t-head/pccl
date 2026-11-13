@@ -58,9 +58,38 @@ def validate(directory, expected_sha256):
 def _shared_permissions(directory):
     for path in [directory, *directory.rglob("*")]:
         if path.is_dir():
-            path.chmod(0o777)
+            path.chmod(0o755)
         else:
-            path.chmod(path.stat().st_mode | stat.S_IRGRP | stat.S_IWGRP | stat.S_IROTH | stat.S_IWOTH)
+            path.chmod(0o644)
+
+
+def _parent_permissions(cache):
+    if cache.parent.name != "case-groups" or cache.parent.parent.name != "cache":
+        raise ValueError("Case-group cache path must end in cache/case-groups/SHA")
+    for directory in (cache.parent.parent, cache.parent):
+        if directory.is_symlink() or not directory.is_dir():
+            raise ValueError("Case-group cache parents must be real directories")
+        directory.chmod(0o755)
+
+
+def stage(directory, output, expected_sha256):
+    """Create a private, validated, read-only execution copy of the shared cache."""
+    directory, output = Path(directory), Path(output)
+    validate(directory, expected_sha256)
+    if output.exists() or output.is_symlink():
+        raise ValueError("Case-group execution directory already exists")
+    output.parent.mkdir(parents=True, exist_ok=True)
+    temporary = Path(tempfile.mkdtemp(prefix=f".{output.name}.stage-", dir=output.parent))
+    staging = temporary / "tree"
+    try:
+        shutil.copytree(directory, staging)
+        validate(staging, expected_sha256)
+        _shared_permissions(staging)
+        staging.rename(output)
+        validate(output, expected_sha256)
+        return output
+    finally:
+        shutil.rmtree(temporary, ignore_errors=True)
 
 
 def publish(download, cache, expected_sha256):
@@ -70,7 +99,7 @@ def publish(download, cache, expected_sha256):
     if cache.is_symlink():
         raise ValueError("Case-group cache cannot be a symlink")
     cache.parent.mkdir(parents=True, exist_ok=True)
-    cache.parent.chmod(0o777)
+    _parent_permissions(cache)
     lock_path = cache.parent / f".{cache.name}.lock"
     descriptor = os.open(lock_path, os.O_CREAT | os.O_RDWR | os.O_NOFOLLOW | os.O_NONBLOCK, 0o666)
     with os.fdopen(descriptor, "r+b") as lock:
@@ -97,10 +126,10 @@ def publish(download, cache, expected_sha256):
                 try:
                     validate(cache, expected_sha256)
                 except (OSError, ValueError):
-                    if cache.is_dir():
-                        shutil.rmtree(cache)
-                    else:
-                        cache.unlink()
+                    # Keep the old tree available to active readers until final
+                    # run cleanup. New readers still require a validated stage.
+                    quarantine = cache.parent / f".{cache.name}.invalid-{os.getpid()}-{time.time_ns()}"
+                    os.replace(cache, quarantine)
                 else:
                     _shared_permissions(cache)
                     return cache
@@ -117,19 +146,24 @@ def main():
     commands = parser.add_subparsers(dest="operation", required=True)
     fingerprint = commands.add_parser("fingerprint")
     fingerprint.add_argument("--directory", type=Path, required=True)
-    for operation in ("validate", "publish"):
+    for operation in ("validate", "publish", "stage"):
         command = commands.add_parser(operation)
         command.add_argument("--expected-sha256", required=True)
-        command.add_argument("--directory" if operation == "validate" else "--download",
+        command.add_argument("--directory" if operation != "publish" else "--download",
                              type=Path, required=True)
         if operation == "publish":
             command.add_argument("--cache", type=Path, required=True)
+        if operation == "stage":
+            command.add_argument("--output", type=Path, required=True)
     args = parser.parse_args()
     try:
         if args.operation == "fingerprint":
             print(tree_sha256(args.directory))
         elif args.operation == "validate":
             validate(args.directory, args.expected_sha256)
+            print(args.expected_sha256)
+        elif args.operation == "stage":
+            stage(args.directory, args.output, args.expected_sha256)
             print(args.expected_sha256)
         else:
             publish(args.download, args.cache, args.expected_sha256)

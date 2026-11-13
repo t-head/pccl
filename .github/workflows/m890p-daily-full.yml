@@ -113,6 +113,9 @@ jobs:
           groups_sha256 = case_group_cache.tree_sha256(Path('case-groups'))
           manifest = json.loads(Path('case-groups/groups.json').read_text())
           coverage = json.loads(Path('case-groups/execution-coverage.json').read_text())
+          if len(manifest) > 256:
+              raise ValueError(f'{len(manifest)} execution groups exceed GitHub Actions matrix limit of 256; '
+                               'increase max_cases_per_group or narrow the selection')
           expected = set()
           for profile in ('standard', 'notsm'):
               try:
@@ -170,7 +173,7 @@ jobs:
           path: pccl/case-groups/
           if-no-files-found: error
           overwrite: true
-          retention-days: 3
+          retention-days: 7
       - name: Stage the pinned benchmark dependency
         run: |
           mkdir -p deps
@@ -185,7 +188,7 @@ jobs:
           path: deps/
           if-no-files-found: error
           overwrite: true
-          retention-days: 3
+          retention-days: 7
 
   build-standard:
     name: Build and upload standard
@@ -256,7 +259,7 @@ jobs:
           path: /wl_nas/devops/pccl-artifact-cache-${{ github.run_id }}/staging/standard/
           if-no-files-found: error
           overwrite: true
-          retention-days: 3
+          retention-days: 7
       - name: Remove transient standard NAS staging
         if: always()
         run: |
@@ -293,7 +296,7 @@ jobs:
           else
             echo 'state=miss' >> "$GITHUB_OUTPUT"
           fi
-      - uses: t-head/pccl/.github/actions/download-artifact-retry@a8e11be343464718f4a317d167a52166ec36143d
+      - uses: t-head/pccl/.github/actions/download-artifact-retry@c7eb80eadb2ca48976a02d8f0fcc1c020534ce73
         if: steps.cache.outputs.state == 'miss'
         with:
           name: m890p-daily-full-build-standard
@@ -327,7 +330,7 @@ jobs:
           else
             echo 'state=miss' >> "$GITHUB_OUTPUT"
           fi
-      - uses: t-head/pccl/.github/actions/download-artifact-retry@a8e11be343464718f4a317d167a52166ec36143d
+      - uses: t-head/pccl/.github/actions/download-artifact-retry@c7eb80eadb2ca48976a02d8f0fcc1c020534ce73
         if: steps.groups-cache.outputs.state == 'miss'
         with:
           name: m890p-daily-case-groups
@@ -363,13 +366,13 @@ jobs:
     runs-on: k8s-runner-group-cpu-thead
     container:
       image: ghcr.io/actions/actions-runner:latest
-    timeout-minutes: 720
+    timeout-minutes: 750
     steps:
       - uses: actions/checkout@v4
         with:
           path: pccl
           persist-credentials: false
-      - uses: t-head/pccl/.github/actions/download-artifact-retry@a8e11be343464718f4a317d167a52166ec36143d
+      - uses: t-head/pccl/.github/actions/download-artifact-retry@c7eb80eadb2ca48976a02d8f0fcc1c020534ce73
         with:
           name: m890p-daily-full-python-deps
           path: deps
@@ -384,7 +387,7 @@ jobs:
           else
             echo 'state=miss' >> "$GITHUB_OUTPUT"
           fi
-      - uses: t-head/pccl/.github/actions/download-artifact-retry@a8e11be343464718f4a317d167a52166ec36143d
+      - uses: t-head/pccl/.github/actions/download-artifact-retry@c7eb80eadb2ca48976a02d8f0fcc1c020534ce73
         if: steps.groups-cache.outputs.state == 'miss'
         with:
           name: m890p-daily-case-groups
@@ -410,7 +413,7 @@ jobs:
           else
             echo 'state=miss' >> "$GITHUB_OUTPUT"
           fi
-      - uses: t-head/pccl/.github/actions/download-artifact-retry@a8e11be343464718f4a317d167a52166ec36143d
+      - uses: t-head/pccl/.github/actions/download-artifact-retry@c7eb80eadb2ca48976a02d8f0fcc1c020534ce73
         if: steps.build-cache.outputs.state == 'miss'
         with:
           name: m890p-daily-full-build-standard
@@ -429,7 +432,7 @@ jobs:
           BUILD_CACHE: /wl_nas/devops/pccl-artifact-cache-${{ github.run_id }}/cache/standard/${{ env.EXPECTED_SHA }}
           GROUPS_CACHE: /wl_nas/devops/pccl-artifact-cache-${{ github.run_id }}/cache/case-groups/${{ env.EXPECTED_GROUPS_SHA }}
         run: |
-          chmod -R a+rwX "$BUILD_CACHE" "$GROUPS_CACHE"
+          chmod -R a+rwX "$BUILD_CACHE"
           python3 -S -B pccl/tests/xtest/artifact_cache.py validate \
             --directory "$BUILD_CACHE" --profile standard \
             --pccl-revision '${{ github.sha }}' --pccl-tests-revision '${{ env.PCCL_TESTS_REVISION }}' \
@@ -495,6 +498,7 @@ jobs:
             export build_output=/workspace/source/output_standard
             CACHE_DIR=/mnt/wl_nas/devops/pccl-artifact-cache-${{ github.run_id }}/cache/standard/${{ env.EXPECTED_SHA }}
             GROUPS_DIR=/mnt/wl_nas/devops/pccl-artifact-cache-${{ github.run_id }}/cache/case-groups/${{ env.EXPECTED_GROUPS_SHA }}
+            CASE_INPUT=/workspace/source/case-input-$GROUP_ID
             RESULT_ROOT=/mnt/wl_nas/devops/pccl-artifact-cache-${{ github.run_id }}/results/full/$GROUP_ID
             rm -rf "$RESULT_ROOT"
             mkdir -p "$(dirname "$RESULT_ROOT")"
@@ -508,6 +512,9 @@ jobs:
               --expected-sha256 '${{ env.EXPECTED_SHA }}'
             python3 -S -B pccl/tests/xtest/case_group_cache.py validate \
               --directory "$GROUPS_DIR" --expected-sha256 '${{ env.EXPECTED_GROUPS_SHA }}'
+            python3 -S -B pccl/tests/xtest/case_group_cache.py stage \
+              --directory "$GROUPS_DIR" --output "$CASE_INPUT" \
+              --expected-sha256 '${{ env.EXPECTED_GROUPS_SHA }}'
             tar -xzf "$CACHE_DIR/output_standard.tar.gz" -C /workspace/source
             test "$(git -C "$build_output/pccl" rev-parse HEAD)" = '${{ github.sha }}'
             test "$(git -C "$build_output/pccl-tests" rev-parse HEAD)" = '${{ env.PCCL_TESTS_REVISION }}'
@@ -524,7 +531,7 @@ jobs:
             test "$OMPI_MCA_orte_keep_fqdn_hostnames" = 1
             /workspace/minimal-csv-env/bin/python -B \
               "$build_output/pccl/tests/xtest/run_cases.py" \
-              --input "$GROUPS_DIR/$GROUP_ID" \
+              --input "$CASE_INPUT/$GROUP_ID" \
               --profile "$PROFILE" \
               --test-root "$build_output" \
               --binary-dir "$build_output/pccl-tests/build" \
@@ -578,6 +585,7 @@ jobs:
             cd "$SOURCE_DIR"
             CACHE_DIR=/mnt/wl_nas/devops/pccl-artifact-cache-${{ github.run_id }}/cache/standard/${{ env.EXPECTED_SHA }}
             GROUPS_DIR=/mnt/wl_nas/devops/pccl-artifact-cache-${{ github.run_id }}/cache/case-groups/${{ env.EXPECTED_GROUPS_SHA }}
+            CASE_INPUT="$SHARED_ROOT/case-input"
             SHARED_ROOT=/mnt/wl_nas/devops/pccl-artifact-cache-${{ github.run_id }}/shared-standard/${{ env.EXPECTED_SHA }}/$GROUP_ID
             SHARED_PARENT=$(dirname "$SHARED_ROOT")
             SHARED_BASE=$(dirname "$SHARED_PARENT")
@@ -600,6 +608,9 @@ jobs:
               --expected-sha256 '${{ env.EXPECTED_SHA }}'
             python3 -S -B pccl/tests/xtest/case_group_cache.py validate \
               --directory "$GROUPS_DIR" --expected-sha256 '${{ env.EXPECTED_GROUPS_SHA }}'
+            python3 -S -B pccl/tests/xtest/case_group_cache.py stage \
+              --directory "$GROUPS_DIR" --output "$CASE_INPUT" \
+              --expected-sha256 '${{ env.EXPECTED_GROUPS_SHA }}'
             tar -xzf "$CACHE_DIR/output_standard.tar.gz" -C "$SHARED_ROOT"
             test "$(git -C "$build_output/pccl" rev-parse HEAD)" = '${{ github.sha }}'
             test "$(git -C "$build_output/pccl-tests" rev-parse HEAD)" = '${{ env.PCCL_TESTS_REVISION }}'
@@ -625,7 +636,7 @@ jobs:
               --hostfile "$CLUSTER_HOSTS_FILE" -np "$NODES" -npernode 1 hostname
             /workspace/minimal-csv-cluster-env/bin/python -B \
               "$build_output/pccl/tests/xtest/run_cases.py" \
-              --input "$GROUPS_DIR/$GROUP_ID" \
+              --input "$CASE_INPUT/$GROUP_ID" \
               --profile "$PROFILE" \
               --test-root "$build_output" \
               --binary-dir "$build_output/pccl-tests/build" \
@@ -662,7 +673,7 @@ jobs:
           else
             echo 'state=miss' >> "$GITHUB_OUTPUT"
           fi
-      - uses: t-head/pccl/.github/actions/download-artifact-retry@a8e11be343464718f4a317d167a52166ec36143d
+      - uses: t-head/pccl/.github/actions/download-artifact-retry@c7eb80eadb2ca48976a02d8f0fcc1c020534ce73
         if: always() && steps.groups-cache.outputs.state == 'miss'
         with:
           name: m890p-daily-case-groups
@@ -715,8 +726,9 @@ jobs:
           if not groups:
               raise ValueError('No automatic groups were prepared')
           results_root = Path('/wl_nas/devops/pccl-artifact-cache-${{ github.run_id }}') / 'results/full'
-          unexpected_groups = ({path.name for path in results_root.iterdir() if path.is_dir()}
-                               - {group['id'] for group in groups})
+          result_dirs = ({path.name for path in results_root.iterdir() if path.is_dir()}
+                         if results_root.is_dir() else set())
+          unexpected_groups = result_dirs - {group['id'] for group in groups}
           if unexpected_groups:
               raise ValueError(f'Unexpected or out-of-policy result groups: {sorted(unexpected_groups)}')
           reports = []

@@ -15,8 +15,7 @@ import artifact_cache
 import run_cases
 
 
-METRIC_FIELDS = ["size", "count", "type", "redop", "root", "placement", "time_kind",
-                 "time", "algbw", "busbw", "wrong", "source_line"]
+METRIC_FIELDS = run_cases.METRIC_FIELDS
 
 
 def _read_json(path, errors):
@@ -43,19 +42,44 @@ def _nonnegative(value):
     return number.is_finite() and number >= 0
 
 
+def _decimal(value):
+    try:
+        number = Decimal(str(value))
+    except (InvalidOperation, TypeError):
+        return None
+    return number if number.is_finite() else None
+
+
+def _compare_record(record, row, key, errors):
+    if set(record) != set(run_cases.RESULT_FIELDS):
+        errors.append(f"Result.json schema mismatch for {'/'.join(key)}")
+        return False
+    valid = True
+    for field in run_cases.RESULT_FIELDS:
+        if field == "return_code":
+            matches = str(record[field]) == row[field]
+        elif field == "duration_seconds":
+            left, right = _decimal(record[field]), _decimal(row[field])
+            matches = left is not None and right is not None and left == right
+        else:
+            matches = record[field] == row[field]
+        if not matches:
+            errors.append(f"Result.json {field} mismatch for {'/'.join(key)}")
+            valid = False
+    return valid
+
+
 def _check_metrics(directory, errors):
     path = directory / "metrics.csv"
     try:
-        with path.open(newline="", encoding="utf-8") as stream:
-            reader = csv.DictReader(stream)
-            if reader.fieldnames != METRIC_FIELDS:
-                raise ValueError(f"Unexpected metrics header: {reader.fieldnames}")
-            rows = list(reader)
+        rows = run_cases._read_csv(path, METRIC_FIELDS)
         if not rows:
             raise ValueError("Performance metrics are empty")
         for row in rows:
-            if any(not _positive(row[key]) for key in ("size", "count", "time")):
-                raise ValueError("Performance metrics contain a non-positive or invalid size/count/time")
+            if not _positive(row["time"]):
+                raise ValueError("Performance metrics contain a non-positive or invalid time")
+            if any(not _nonnegative(row[key]) for key in ("size", "count")):
+                raise ValueError("Performance metrics contain a negative or invalid size/count")
             if any(not _nonnegative(row[key]) for key in ("algbw", "busbw")):
                 raise ValueError("Performance metrics contain a negative or invalid bandwidth")
             if row["wrong"] != "0" or not row["source_line"].isdigit() or int(row["source_line"]) <= 0:
@@ -85,11 +109,7 @@ def reconcile(input_directory, profile, nodes, suite, results_directory, output_
         errors.append(f"{results / 'build.json'}: {error}")
     rows = []
     try:
-        with (results / "results.csv").open(newline="", encoding="utf-8") as stream:
-            reader = csv.DictReader(stream)
-            if reader.fieldnames != run_cases.RESULT_FIELDS:
-                raise ValueError(f"Unexpected results header: {reader.fieldnames}")
-            rows = list(reader)
+        rows = run_cases._read_csv(results / "results.csv", run_cases.RESULT_FIELDS)
     except (OSError, ValueError) as error:
         errors.append(f"{results / 'results.csv'}: {error}")
     actual = {}
@@ -110,14 +130,8 @@ def reconcile(input_directory, profile, nodes, suite, results_directory, output_
         case = expected[key]
         directory = results.joinpath(*key)
         record = _read_json(directory / "result.json", errors)
-        for field in ("plan", "suite", "name", "check", "status", "return_code"):
-            record_value = record.get(field)
-            if field == "return_code" and record_value is not None:
-                record_value = str(record_value)
-            if record_value is None:
-                record_value = ""
-            if record_value != row[field]:
-                errors.append(f"Result.json {field} mismatch for {'/'.join(key)}")
+        if not _compare_record(record, row, key, errors):
+            continue
         if row["check"] != case["check"]:
             errors.append(f"Result check mismatch for {'/'.join(key)}")
         if row["status"] != "PASSED":
@@ -128,7 +142,22 @@ def reconcile(input_directory, profile, nodes, suite, results_directory, output_
         log = directory / "raw.log"
         if not log.is_file() or log.stat().st_size == 0:
             errors.append(f"Missing or empty raw log: {'/'.join(key)}")
+            continue
+        try:
+            expected_metrics = run_cases._check_result(case, 0, log)
+        except ValueError as error:
+            errors.append(f"{'/'.join(key)}: raw log validation failed: {error}")
+            continue
         if case["check"] == "performance":
+            try:
+                actual_metrics = run_cases._read_csv(directory / "metrics.csv", METRIC_FIELDS)
+            except (OSError, ValueError) as error:
+                errors.append(f"{directory / 'metrics.csv'}: {error}")
+                continue
+            expected_metrics = [{field: str(value) for field, value in values.items()}
+                                for values in expected_metrics]
+            if actual_metrics != expected_metrics:
+                errors.append(f"Performance metrics do not match the raw log: {'/'.join(key)}")
             _check_metrics(directory, errors)
     for key in sorted(set(expected) - set(actual)):
         errors.append(f"Missing result: {'/'.join(key)}")

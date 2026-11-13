@@ -11,6 +11,13 @@ import daily_reconcile
 import run_cases
 
 
+PERFORMANCE_LOG = """# size count type redop root avg algbw busbw #wrong avg algbw busbw #wrong
+# (B) (elements) (us) (GB/s) (GB/s) (us) (GB/s) (GB/s)
+8 2 float sum -1 1.0 1.0 1.0 0 1.0 1.0 1.0 0
+# Out of bounds values : 0 OK
+"""
+
+
 class ReconcileResultsTests(unittest.TestCase):
     def setUp(self):
         self.temp = tempfile.TemporaryDirectory()
@@ -55,7 +62,8 @@ class ReconcileResultsTests(unittest.TestCase):
     def write_result(self, case):
         directory = self.results / case["plan"] / case["suite"] / case["name"]
         directory.mkdir(parents=True)
-        (directory / "raw.log").write_text("completed\n")
+        (directory / "raw.log").write_text(
+            PERFORMANCE_LOG if case["check"] == "performance" else "completed\n")
         row = {**case, "status": "PASSED", "return_code": 0,
                "duration_seconds": 0.1, "error": "", "raw_log": "raw.log"}
         row.pop("cmd")
@@ -64,7 +72,10 @@ class ReconcileResultsTests(unittest.TestCase):
             self.write(directory / "metrics.csv", daily_reconcile.METRIC_FIELDS, [{
                 "size": "8", "count": "2", "type": "float", "redop": "sum", "root": "-1",
                 "placement": "out-of-place", "time_kind": "avg", "time": "1.0",
-                "algbw": "1.0", "busbw": "1.0", "wrong": "0", "source_line": "10"}])
+                "algbw": "1.0", "busbw": "1.0", "wrong": "0", "source_line": "3"},
+               {"size": "8", "count": "2", "type": "float", "redop": "sum", "root": "-1",
+                "placement": "in-place", "time_kind": "avg", "time": "1.0",
+                "algbw": "1.0", "busbw": "1.0", "wrong": "0", "source_line": "3"}])
 
     def write_results(self):
         rows = []
@@ -127,7 +138,7 @@ class ReconcileResultsTests(unittest.TestCase):
     def test_negative_bandwidth_is_rejected(self):
         case = self.cases[1]
         metrics = self.results / case["plan"] / case["suite"] / case["name"] / "metrics.csv"
-        metrics.write_text(metrics.read_text().replace(",1.0,1.0,0,10", ",-0.01,1.0,0,10"))
+        metrics.write_text(metrics.read_text().replace(",1.0,1.0,0,3", ",-0.01,1.0,0,3"))
         report = self.reconcile()
         self.assertFalse(report["ok"])
         self.assertTrue(any("negative" in error for error in report["errors"]))
@@ -135,9 +146,55 @@ class ReconcileResultsTests(unittest.TestCase):
     def test_zero_bandwidth_from_small_measurement_rounding_is_accepted(self):
         case = self.cases[1]
         metrics = self.results / case["plan"] / case["suite"] / case["name"] / "metrics.csv"
-        metrics.write_text(metrics.read_text().replace(",1.0,1.0,0,10", ",0.00,0.00,0,10"))
+        metrics.write_text(metrics.read_text().replace(",1.0,1.0,0,3", ",0.00,0.00,0,3"))
+        log = self.results / case["plan"] / case["suite"] / case["name"] / "raw.log"
+        log.write_text(log.read_text().replace(
+            "1.0 1.0 1.0 0 1.0 1.0 1.0 0", "1.0 0.00 0.00 0 1.0 0.00 0.00 0"))
         report = self.reconcile()
         self.assertTrue(report["ok"])
+
+    def test_zero_size_and_count_from_rank_division_are_accepted(self):
+        case = self.cases[1]
+        directory = self.results / case["plan"] / case["suite"] / case["name"]
+        metrics = directory / "metrics.csv"
+        metrics.write_text(metrics.read_text().replace("8,2,float", "0,0,float"))
+        log = directory / "raw.log"
+        log.write_text(log.read_text().replace("8 2 float", "0 0 float"))
+        report = self.reconcile()
+        self.assertTrue(report["ok"])
+
+    def test_raw_log_and_every_metric_row_are_required(self):
+        case = self.cases[1]
+        directory = self.results / case["plan"] / case["suite"] / case["name"]
+        (directory / "raw.log").write_text("completed\n")
+        report = self.reconcile()
+        self.assertFalse(report["ok"])
+        self.assertTrue(any("raw log validation failed" in error for error in report["errors"]))
+
+    def test_metrics_must_match_all_raw_log_rows(self):
+        case = self.cases[1]
+        metrics = self.results / case["plan"] / case["suite"] / case["name"] / "metrics.csv"
+        metrics.write_text("\n".join(metrics.read_text().splitlines()[:-1]) + "\n")
+        report = self.reconcile()
+        self.assertFalse(report["ok"])
+        self.assertTrue(any("do not match the raw log" in error for error in report["errors"]))
+
+    def test_malformed_result_row_is_rejected(self):
+        with (self.results / "results.csv").open("a") as stream:
+            stream.write("plan,suite,exit_case,exit_code,PASSED,0\n")
+        report = self.reconcile()
+        self.assertFalse(report["ok"])
+        self.assertTrue(any("Malformed CSV row" in error for error in report["errors"]))
+
+    def test_result_record_requires_the_complete_schema(self):
+        case = self.cases[1]
+        path = self.results / case["plan"] / case["suite"] / case["name"] / "result.json"
+        record = json.loads(path.read_text())
+        del record["error"]
+        path.write_text(json.dumps(record))
+        report = self.reconcile()
+        self.assertFalse(report["ok"])
+        self.assertTrue(any("schema mismatch" in error for error in report["errors"]))
 
     def test_build_identity_mismatch_is_rejected(self):
         record = json.loads((self.results / "build.json").read_text())

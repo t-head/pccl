@@ -31,11 +31,12 @@ class WorkflowContractTests(unittest.TestCase):
         self.assertIn('sleep 15', action)
         self.assertIn('sleep 30', action)
         self.assertIn('shutil.rmtree(target)', action)
-        self.assertIn("target.relative_to(workspace)", action)
+        self.assertIn("parent.relative_to(workspace)", action)
+        self.assertIn("target = parent / relative.name", action)
         workflow = (ROOT / '.github/workflows/source-sanity.yml').read_text()
         self.assertNotIn('uses: actions/download-artifact@v4', workflow)
         self.assertEqual(workflow.count('uses: t-head/pccl/.github/actions/download-artifact-retry@'
-                                        'ad5224f1ca16630f25123441a0946a4c36eedc6c'), 5)
+                                        'c7eb80eadb2ca48976a02d8f0fcc1c020534ce73'), 5)
 
     @classmethod
     def setUpClass(cls):

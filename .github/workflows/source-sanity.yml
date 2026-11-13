@@ -393,7 +393,7 @@ jobs:
           else
             echo 'state=miss' >> "$GITHUB_OUTPUT"
           fi
-      - uses: t-head/pccl/.github/actions/download-artifact-retry@ad5224f1ca16630f25123441a0946a4c36eedc6c
+      - uses: t-head/pccl/.github/actions/download-artifact-retry@c7eb80eadb2ca48976a02d8f0fcc1c020534ce73
         if: steps.cache.outputs.state == 'miss'
         with:
           name: pccl-build-${{ matrix.profile }}
@@ -441,7 +441,7 @@ jobs:
         with:
           path: pccl
           persist-credentials: false
-      - uses: t-head/pccl/.github/actions/download-artifact-retry@ad5224f1ca16630f25123441a0946a4c36eedc6c
+      - uses: t-head/pccl/.github/actions/download-artifact-retry@c7eb80eadb2ca48976a02d8f0fcc1c020534ce73
         with:
           name: minimal-csv-artifact-python-deps
           path: deps
@@ -458,7 +458,7 @@ jobs:
           else
             echo 'state=miss' >> "$GITHUB_OUTPUT"
           fi
-      - uses: t-head/pccl/.github/actions/download-artifact-retry@ad5224f1ca16630f25123441a0946a4c36eedc6c
+      - uses: t-head/pccl/.github/actions/download-artifact-retry@c7eb80eadb2ca48976a02d8f0fcc1c020534ce73
         if: steps.build-cache.outputs.state == 'miss'
         with:
           name: pccl-build-${{ matrix.profile }}
@@ -539,7 +539,7 @@ jobs:
         with:
           path: pccl
           persist-credentials: false
-      - uses: t-head/pccl/.github/actions/download-artifact-retry@ad5224f1ca16630f25123441a0946a4c36eedc6c
+      - uses: t-head/pccl/.github/actions/download-artifact-retry@c7eb80eadb2ca48976a02d8f0fcc1c020534ce73
         with:
           name: minimal-csv-artifact-python-deps
           path: deps
@@ -556,7 +556,7 @@ jobs:
           else
             echo 'state=miss' >> "$GITHUB_OUTPUT"
           fi
-      - uses: t-head/pccl/.github/actions/download-artifact-retry@ad5224f1ca16630f25123441a0946a4c36eedc6c
+      - uses: t-head/pccl/.github/actions/download-artifact-retry@c7eb80eadb2ca48976a02d8f0fcc1c020534ce73
         if: steps.build-cache.outputs.state == 'miss'
         with:
           name: pccl-build-standard
