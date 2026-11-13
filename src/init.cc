@@ -2120,6 +2120,13 @@ fail:
     INFO(NCCL_ENV, "Comm config " fieldStr " set to " format, config->field); \
   }
 
+#define PCCL_CONFIG_UNSUPPORTED(config, field, undef) \
+  do { \
+    if ((config)->field != (undef)) { \
+      WARN("Comm config " #field " is not supported by PCCL and will be ignored"); \
+    } \
+  } while (0)
+
 static ncclResult_t envConfigOverride(ncclComm_t comm) {
   ncclResult_t ret = ncclSuccess;
   int blockingEnv;
@@ -2234,6 +2241,20 @@ static ncclResult_t parseCommConfig(ncclComm_t comm, ncclConfig_t *config) {
       internalConfigPtr->shrinkShare = defaultConfig.shrinkShare;
       internalConfigPtr->nvlsCTAs = defaultConfig.nvlsCTAs;
     }
+
+    if (internalConfigPtr->magic == NCCL_API_MAGIC) {
+      if (internalConfigPtr->version < NCCL_VERSION(2, 28, 0)) {
+        internalConfigPtr->nChannelsPerNetPeer = defaultConfig.nChannelsPerNetPeer;
+        internalConfigPtr->nvlinkCentricSched = defaultConfig.nvlinkCentricSched;
+      }
+      if (internalConfigPtr->version < NCCL_VERSION(2, 29, 0)) {
+        internalConfigPtr->graphUsageMode = defaultConfig.graphUsageMode;
+        internalConfigPtr->numRmaCtx = defaultConfig.numRmaCtx;
+      }
+      if (internalConfigPtr->version < NCCL_VERSION(2, 30, 0)) {
+        internalConfigPtr->maxP2pPeers = defaultConfig.maxP2pPeers;
+      }
+    }
   }
 
   /* check input config attributes, -1 means user-undefined and we should use default value from NCCL. */
@@ -2261,6 +2282,17 @@ static ncclResult_t parseCommConfig(ncclComm_t comm, ncclConfig_t *config) {
     ret = ncclInvalidArgument;
     goto fail;
   }
+
+  PCCL_CONFIG_UNSUPPORTED(internalConfigPtr, cgaClusterSize, PCCL_CONFIG_UNDEF_INT);
+  PCCL_CONFIG_UNSUPPORTED(internalConfigPtr, netName, PCCL_CONFIG_UNDEF_PTR);
+  PCCL_CONFIG_UNSUPPORTED(internalConfigPtr, trafficClass, PCCL_CONFIG_UNDEF_INT);
+  PCCL_CONFIG_UNSUPPORTED(internalConfigPtr, collnetEnable, PCCL_CONFIG_UNDEF_INT);
+  PCCL_CONFIG_UNSUPPORTED(internalConfigPtr, nvlsCTAs, PCCL_CONFIG_UNDEF_INT);
+  PCCL_CONFIG_UNSUPPORTED(internalConfigPtr, nChannelsPerNetPeer, PCCL_CONFIG_UNDEF_INT);
+  PCCL_CONFIG_UNSUPPORTED(internalConfigPtr, nvlinkCentricSched, PCCL_CONFIG_UNDEF_INT);
+  PCCL_CONFIG_UNSUPPORTED(internalConfigPtr, graphUsageMode, PCCL_CONFIG_UNDEF_INT);
+  PCCL_CONFIG_UNSUPPORTED(internalConfigPtr, numRmaCtx, PCCL_CONFIG_UNDEF_INT);
+  PCCL_CONFIG_UNSUPPORTED(internalConfigPtr, maxP2pPeers, PCCL_CONFIG_UNDEF_INT);
 
   /* default config value can be tuned on different platform. */
   NCCL_CONFIG_DEFAULT(internalConfigPtr, blocking, PCCL_CONFIG_UNDEF_INT, 1, "Blocking", "%d");
