@@ -2,13 +2,13 @@
   "classification": {
     "base_sha": "b2218469d68f21ca4d4822c8ba357154eb955849",
     "head_sha": "f1a0dfbd44d846d1a6bb34df7abdf35aa90b585c",
-    "input_fingerprint": "a49063aec9f8dd9780a64065d24cb80a8116597bec65de7e9bd231e67b90df63",
+    "input_fingerprint": "f0e8a2c2c6a58947a691afaa53c0287c6706d44bb9f352d5f97ffd44c2ccaa26",
     "pr_number": 185,
     "proposal": {
       "modules": [
         "ci"
       ],
-      "reason": "Main change is CI/test automation: a new experimental M890P daily workflow, bounded artifact-download retries, run-scoped cache/group staging and reconciliation scripts, plus daily smoke/full CSV datasets (including patch_omitted standard.csv) and related CI contract tests/docs. The build.sh update only supports CI artifact contents (CommAbort in test artifact), not PCCL runtime/build-system behavior."
+      "reason": "Primary change is CI/test orchestration: a new experimental daily workflow, artifact download retry action, NAS cache/group staging and reconciliation scripts, and expanded xtest datasets/contracts (including the patch-omitted 8,900-line daily full CSV) for case selection/execution coverage. These are substantive open-source test workflow and runner-path changes, while build/script/docs edits are supporting this CI behavior rather than independent core PCCL module changes."
     }
   },
   "reviewers": {
