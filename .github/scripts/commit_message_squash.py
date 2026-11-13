@@ -1,4 +1,4 @@
-"""Generate and publish a combined commit message for a multi-commit PR."""
+"""Generate and publish a squash commit body for a multi-commit PR."""
 
 import argparse
 import hashlib
@@ -62,24 +62,12 @@ def snapshot(api, number):
 
 # Read-only AI generation
 
-def split_message(message):
-    parts = re.fullmatch(r'([^\r\n]+)\r?\n\r?\n(.+)', message.rstrip('\r\n'), re.DOTALL)
-    if not parts or not parts[1].strip() or not parts[2].strip():
-        raise ValueError('Expected a title, blank line and body')
-    return parts[1], parts[2]
-
-
-def with_pr_number(message, number):
-    title, _ = split_message(message)
-    suffix = f' (#{number})'
-    return message if title.endswith(suffix) else title + suffix + message[len(title):]
-
-
 def copilot_response(output):
     message = final_response(output, allow_tools=True).strip()
     if message.startswith('ERROR:'):
-        raise ValueError('Copilot could not prepare a complete message: ' + message[:500])
-    split_message(message)
+        raise ValueError('Copilot could not prepare a complete message body: ' + message[:500])
+    if sum(bool(line.strip()) for line in message.split('\n')) < 2:
+        raise ValueError('Expected a multiline squash commit body')
     return message + '\n'
 
 
@@ -111,7 +99,7 @@ def generate(api, number, ask=ask_copilot):
     data = snapshot(api, number)
     message = None
     if data['target'] == 'main' and data['commit_count'] > 1:
-        message = with_pr_number(ask(data), number)
+        message = ask(data)
     return {**data, 'message': message}
 
 
@@ -126,10 +114,11 @@ def preview_comments(api, number):
 
 def comment_body(draft):
     return (f"{COMMENT_MARKER}\n<!-- version: {draft['input_digest']} -->\n"
-            '### Suggested squash commit message\n\n'
+            '### Suggested squash commit body\n\n'
             f"For commit `{draft['head'][:12]}`.\n\n"
             f"<pre>{html.escape(draft['message'])}</pre>\n\n"
-            "Review this message and use it in GitHub's Squash and merge dialog.\n")
+            "Paste this body into the description field in GitHub's Squash and merge dialog. "
+            "Review the GitHub-filled title separately.\n")
 
 
 def publish(api, draft, expected_pr):
