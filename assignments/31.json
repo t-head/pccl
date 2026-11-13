@@ -6,11 +6,10 @@
     "pr_number": 31,
     "proposal": {
       "modules": [
-        "build",
         "network",
         "gin"
       ],
-      "reason": "Primary change is a new bundled TROCE GIN backend/plugin (host+device GIN implementation, new GIN type/signal semantics, backend selection/discovery, and TROCE context/flush/progress paths), which squarely falls under gin. Add network because shared IB transport/proxy plumbing is substantively changed (new IB provider classification, QP inline/send-with-inv behavior, and net_ib connection paths that can affect transport behavior beyond local plugin wiring). Add build because the PR introduces first-class build/install/package integration for a new shipped shared library (top-level/ext-gin make targets plus Debian/RPM packaging), which is a real packaging/build-system change, not incidental edits."
+      "reason": "Main change adds a new bundled TROCE GIN backend/plugin (`libpccl-gin-troce.so`) with substantial host/device GIN implementation, plugin loading/discovery, new GIN type IDs, and GIN signal semantics (`SignalSet`) integration. Additional `network` review is needed because shared IB transport code is substantively changed (provider detection, QP inline configuration, and proxy send-path behavior/opcode handling in `src/transport/net_ib/*`), not just mechanical call-site updates."
     }
   },
   "reviewers": {
