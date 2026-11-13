@@ -1,14 +1,14 @@
 {
   "classification": {
     "base_sha": "a909809e63dbf891101c88d45c0b78bfe628fab6",
-    "head_sha": "8cb7c4b867d30d952654154f46464627f4258435",
-    "input_fingerprint": "99677565ab7f3721be2f2f37b01f33fdb379b2a619bef52df2b56fa935a1c953",
+    "head_sha": "def7ccfee08b40d7b40bbf4fa1497bd15dc155f7",
+    "input_fingerprint": "3e0f8d32fe69de2959b2dc12fe818ea861b3991715ca46511ecd493d5540a8a3",
     "pr_number": 186,
     "proposal": {
       "modules": [
         "workflow"
       ],
-      "reason": "Main functional changes are to review/merge automation policy and wiring: reviewer-routing now retains patchless file records for classification summaries and human-review signaling, maintainer-approval status messaging now reports missing approvers with module ownership, and squash-preview automation now publishes only the squash body guidance. These are contribution/review workflow behaviors, not runtime, build, or CI test-selection changes."
+      "reason": "Substantive changes are to review/merge automation policy plumbing: reviewer-routing classification now retains all PR file records and flags omitted API patches for manual review, Maintainer-approval status now reports missing approver logins grouped by owned modules, and squash-preview automation now generates/publishes only the squash body (references/signing trailers) while leaving the title to GitHub."
     }
   },
   "reviewers": {
