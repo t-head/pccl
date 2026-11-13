@@ -22,7 +22,7 @@ typedef enum {
   PCCL_NET_DEVICE_GIN_PROXY=2,
   PCCL_NET_DEVICE_GIN_GDAKI=3,
   // Values 16-31 are reserved for PCCL extension backends.
-  PCCL_NET_DEVICE_GIN_TROCE=16,
+  PCCLX_NET_DEVICE_GIN_TROCE=16,
 } pcclNetDeviceType;
 
 typedef struct {

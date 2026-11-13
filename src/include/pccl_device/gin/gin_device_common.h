@@ -35,7 +35,7 @@ enum pcclGinOptFlags {
 #define PCCL_GIN_BACKEND_MASK_ALL                                               \
   (((PCCL_GIN_PROXY_ENABLE) ? 1u : 0u) << (unsigned)PCCL_NET_DEVICE_GIN_PROXY | \
    ((PCCL_GIN_GDAKI_ENABLE) ? 1u : 0u) << (unsigned)PCCL_NET_DEVICE_GIN_GDAKI | \
-   ((PCCL_GIN_TROCE_ENABLE) ? 1u : 0u) << (unsigned)PCCL_NET_DEVICE_GIN_TROCE)
+   ((PCCL_GIN_TROCE_ENABLE) ? 1u : 0u) << (unsigned)PCCLX_NET_DEVICE_GIN_TROCE)
 
 // Resource sharing mode for a given pcclGin/pcclGin_C *instance*.
 // This mode is selected at construction time and is carried by the pcclGin
@@ -173,9 +173,9 @@ PCCL_DEVICE_INLINE static decltype(auto) pcclGinCallImpl(unsigned beMask, pcclGi
       return ApiFn<PCCL_NET_DEVICE_GIN_GDAKI>::call(ctx, static_cast<Arg&&>(arg)...);
 #endif
 #if PCCL_GIN_TROCE_ENABLE
-    case (int)PCCL_NET_DEVICE_GIN_TROCE:
-      if (!(1 & (beMask >> (int)PCCL_NET_DEVICE_GIN_TROCE))) __builtin_unreachable();
-      return ApiFn<PCCL_NET_DEVICE_GIN_TROCE>::call(ctx, static_cast<Arg&&>(arg)...);
+    case (int)PCCLX_NET_DEVICE_GIN_TROCE:
+      if (!(1 & (beMask >> (int)PCCLX_NET_DEVICE_GIN_TROCE))) __builtin_unreachable();
+      return ApiFn<PCCLX_NET_DEVICE_GIN_TROCE>::call(ctx, static_cast<Arg&&>(arg)...);
 #endif
     default:
       __builtin_unreachable();

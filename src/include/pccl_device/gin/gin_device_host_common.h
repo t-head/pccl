@@ -21,7 +21,7 @@ typedef void *pcclGinWindow_t;
 typedef enum pcclGinSignalOp_t {
   pcclGinSignalInc = 0,
   pcclGinSignalAdd,
-  pcclGinSignalSet,
+  pcclxGinSignalSet,
 } pcclGinSignalOp_t;
 
 #endif

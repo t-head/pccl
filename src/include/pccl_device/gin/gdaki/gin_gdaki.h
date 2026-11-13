@@ -149,7 +149,7 @@ PCCL_DEVICE_INLINE static void putImplMode(pcclGinCtx ctx, Coop coop, int peer, 
                                               pcclGinDescriptorSmem* descriptor,
                                               hggc::thread_scope required, hggc::thread_scope given,
                                               uint32_t optFlags) {
-  if (hasSignal && signalOp == pcclGinSignalSet) {
+  if (hasSignal && signalOp == pcclxGinSignalSet) {
     // SignalSet is not implemented by this backend.
     __builtin_trap();
   }
@@ -262,7 +262,7 @@ PCCL_DEVICE_INLINE static void putValueImplMode(pcclGinCtx ctx, Coop coop, int p
                                       pcclGinDescriptorSmem* descriptor,
                                       hggc::thread_scope required, hggc::thread_scope given,
                                       uint32_t optFlags) {
-  if (hasSignal && signalOp == pcclGinSignalSet) {
+  if (hasSignal && signalOp == pcclxGinSignalSet) {
     // SignalSet is not implemented by this backend.
     __builtin_trap();
   }

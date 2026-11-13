@@ -28,7 +28,7 @@ static int ncclGinIbTroceGetIbDevIndex(int dev) {
 static ncclResult_t ncclGinIbTroceInit(void** ctx, uint64_t /*commId*/, ncclDebugLogger_t logFunction) {
   *ctx = nullptr;
   int type = ncclParamGinType();
-  if (type != -1 && type != PCCL_GIN_TYPE_TROCE) return ncclInvalidUsage;
+  if (type != -1 && type != PCCLX_GIN_TYPE_TROCE) return ncclInvalidUsage;
 
   NCCLCHECK(ncclIbInitDevices(logFunction, nullptr));
   ncclResult_t result = ncclSuccess;
@@ -84,7 +84,7 @@ static ncclResult_t ncclGinIbTroceGetProperties(int dev, ncclNetProperties_v12_t
 
   memset(props, 0, sizeof(*props));
   ncclGinIbFillV12Properties(source, props);
-  props->netDeviceType = PCCL_NET_DEVICE_GIN_TROCE;
+  props->netDeviceType = PCCLX_NET_DEVICE_GIN_TROCE;
   props->netDeviceVersion = PCCL_GIN_TROCE_VERSION;
   props->vProps.devs[0] = dev;
 

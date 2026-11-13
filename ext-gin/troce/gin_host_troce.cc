@@ -365,8 +365,8 @@ struct troceContext {
 
   // Device-visible per-context descriptors and the per-context QP arrays they
   // point at.
-  TroceHostGpuMem<struct pcclGinTroceGPUContext> *gpuCtx;
-  TroceHostGpuMem<struct pcclGinTroceQp> *gpuQps;
+  TroceHostGpuMem<struct pcclxGinTroceGPUContext> *gpuCtx;
+  TroceHostGpuMem<struct pcclxGinTroceQp> *gpuQps;
 
   struct {
     void *addr;
@@ -379,7 +379,7 @@ struct troceContext {
 struct troceMemHandle {
   int type;
   struct ibv_mr *mr;
-  TroceHostGpuMem<struct pcclGinTroceMemHandle> *mhandleHd;
+  TroceHostGpuMem<struct pcclxGinTroceMemHandle> *mhandleHd;
   TroceHostGpuMem<__be32> *rkeysHd;
 };
 
@@ -637,9 +637,9 @@ ncclResult_t ncclGinTroceCreateContext(void *collComm, int nSignals, int nCounte
   uint64_t *sinkBuffer = nullptr;
   struct ibv_mr *sinkMr = nullptr;
 
-  TroceHostGpuMem<struct pcclGinTroceGPUContext> *gpuCtx =
-    new TroceHostGpuMem<struct pcclGinTroceGPUContext>();
-  TroceHostGpuMem<struct pcclGinTroceQp> *gpuQps = new TroceHostGpuMem<struct pcclGinTroceQp>();
+  TroceHostGpuMem<struct pcclxGinTroceGPUContext> *gpuCtx =
+    new TroceHostGpuMem<struct pcclxGinTroceGPUContext>();
+  TroceHostGpuMem<struct pcclxGinTroceQp> *gpuQps = new TroceHostGpuMem<struct pcclxGinTroceQp>();
   TroceGlobalTable<uint64_t> *signalsTable = new TroceGlobalTable<uint64_t>();
 
   NCCLCHECKGOTO(ncclCalloc(&ctx, 1), status, fail);
@@ -704,7 +704,7 @@ ncclResult_t ncclGinTroceCreateContext(void *collComm, int nSignals, int nCounte
     for (int peer = 0; peer < nranks; peer++) {
       NCCLCHECKGOTO(troceConnectQp(ctx, &ctx->qps[ctxIdx * qpsPerContext + peer], &remoteExch[peer], trafficClass),
                     status, fail);
-      struct pcclGinTroceQp *devQp = &gpuQps->hostBuf[ctxIdx * qpsPerContext + peer];
+      struct pcclxGinTroceQp *devQp = &gpuQps->hostBuf[ctxIdx * qpsPerContext + peer];
       devQp->sink_rkey = htobe32(remoteExch[peer].sinkRkey);
       INFO(NCCL_NET, "[%d] GIN/TROCE connected ctx=%d peer=%d qpn=%#x -> remote qpn=%#x tc=%u", rank,
            ctxIdx, peer, ctx->qps[ctxIdx * qpsPerContext + peer].qp->qp_num, remoteExch[peer].qpn,
@@ -720,7 +720,7 @@ ncclResult_t ncclGinTroceCreateContext(void *collComm, int nSignals, int nCounte
 
   // Build the device-visible view.
   for (int ctxIdx = 0; ctxIdx < nContexts; ctxIdx++) {
-    struct pcclGinTroceGPUContext *devCtx = &gpuCtx->hostBuf[ctxIdx];
+    struct pcclxGinTroceGPUContext *devCtx = &gpuCtx->hostBuf[ctxIdx];
     unsigned int bufferStart = 0;
 
     devCtx->qps = gpuQps->gpuBuf + (size_t)ctxIdx * qpsPerContext;
@@ -736,7 +736,7 @@ ncclResult_t ncclGinTroceCreateContext(void *collComm, int nSignals, int nCounte
 
     for (int peer = 0; peer < qpsPerContext; peer++) {
       int qpIdx = ctxIdx * qpsPerContext + peer;
-      struct pcclGinTroceQp *devQp = &gpuQps->hostBuf[qpIdx];
+      struct pcclxGinTroceQp *devQp = &gpuQps->hostBuf[qpIdx];
       devQp->qpn = ctx->qps[qpIdx].qp->qp_num;
       // Convert SQ storage bytes to WQEBB capacity for device-side index masks.
       // Queue sizing guarantees a power-of-two capacity.
@@ -759,10 +759,10 @@ ncclResult_t ncclGinTroceCreateContext(void *collComm, int nSignals, int nCounte
   NCCLCHECKGOTO(gpuCtx->copyHtoD(), status, fail);
 
   NCCLCHECKGOTO(ncclCalloc(&devHandle, 1), status, fail);
-  devHandle->netDeviceType = PCCL_NET_DEVICE_GIN_TROCE;
+  devHandle->netDeviceType = PCCLX_NET_DEVICE_GIN_TROCE;
   devHandle->netDeviceVersion = PCCL_GIN_TROCE_VERSION;
   devHandle->handle = gpuCtx->gpuBuf;
-  devHandle->size = sizeof(pcclGinTroceGPUContext) * nContexts;
+  devHandle->size = sizeof(pcclxGinTroceGPUContext) * nContexts;
   devHandle->needsProxyProgress = 0;
   ctx->devHandle = devHandle;
 
@@ -875,8 +875,8 @@ ncclResult_t ncclGinTroceRegMrSym(void *collComm, void *data, size_t size, int t
   struct ibv_mr *mr = nullptr;
   __be32 rkey;
 
-  TroceHostGpuMem<struct pcclGinTroceMemHandle> *mhandleHd =
-    new TroceHostGpuMem<struct pcclGinTroceMemHandle>();
+  TroceHostGpuMem<struct pcclxGinTroceMemHandle> *mhandleHd =
+    new TroceHostGpuMem<struct pcclxGinTroceMemHandle>();
   TroceHostGpuMem<__be32> *rkeysHd = new TroceHostGpuMem<__be32>();
 
   struct troceMemHandle *handle = nullptr;

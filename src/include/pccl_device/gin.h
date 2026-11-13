@@ -22,7 +22,7 @@ struct pcclGin_None {};
 
 struct pcclGin_VASignalInc { pcclWindow_t signalWindow; size_t signalOffset; };
 struct pcclGin_VASignalAdd { pcclWindow_t signalWindow; size_t signalOffset; uint64_t value; };
-struct pcclGin_VASignalSet { pcclWindow_t signalWindow; size_t signalOffset; uint64_t value; };
+struct pcclxGin_VASignalSet { pcclWindow_t signalWindow; size_t signalOffset; uint64_t value; };
 
 struct pcclGin_SignalAdd { pcclGinSignal_t signal; uint64_t value; };
 // SignalInc: equivalent to SignalAdd{+1} except it may not be mixed with any
@@ -32,7 +32,7 @@ struct pcclGin_SignalAdd { pcclGinSignal_t signal; uint64_t value; };
 struct pcclGin_SignalInc { pcclGinSignal_t signal; };
 // SignalSet publishes an absolute value after earlier puts to this peer/context
 // have settled. It is not an accumulating operation for multiple writers.
-struct pcclGin_SignalSet { pcclGinSignal_t signal; uint64_t value; };
+struct pcclxGin_SignalSet { pcclGinSignal_t signal; uint64_t value; };
 struct pcclGin_CounterInc { pcclGinCounter_t counter; };
 
 struct pcclGin_DescriptorSmem { pcclGinDescriptorSmem* descriptor; };
@@ -220,7 +220,7 @@ struct pcclGin_BackendMask {
     // Action to take on peer when put completes. If a signalling action is used
     // then that signal will be visible only after the payload of this put as well as
     // the payloads of preceding puts on this netContext to the same peer are settled.
-    typename RemoteAction = pcclGin_None, // one of pcclGin_{None|SignalInc|SignalAdd|SignalSet}
+    typename RemoteAction = pcclGin_None, // pcclGin_{None|SignalInc|SignalAdd} or pcclxGin_SignalSet
     // Action to take locally when source has been consumed.
     typename LocalAction = pcclGin_None, // one of pcclGin_{None|CounterInc}
     // Set of threads participating in this put. Must be a subset of Coop.
@@ -250,7 +250,7 @@ struct pcclGin_BackendMask {
     // Action to take on peer when put completes. If a signalling action is used
     // then that signal will be visible only after the payload of this put as well as
     // the payloads of preceding puts on this context to the same peer are settled.
-    typename RemoteAction = pcclGin_None, // one of pcclGin_{None|SignalInc|SignalAdd|SignalSet}
+    typename RemoteAction = pcclGin_None, // pcclGin_{None|SignalInc|SignalAdd} or pcclxGin_SignalSet
     // Action to take locally when source has been consumed.
     typename LocalAction = pcclGin_None, // one of pcclGin_{None|CounterInc}
     // Set of threads participating in this put. Must be a subset of Coop.

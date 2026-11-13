@@ -731,7 +731,7 @@ ncclResult_t ncclGinIbProxyIPutSignal(void* ginCtx, int context, uint64_t srcOff
                                       uint64_t signalOff, void* signalMhandle, uint64_t signalValue,
                                       uint32_t signalOp, void** request) {
   if (signalOp != NCCL_NET_SIGNAL_OP_INC && signalOp != NCCL_NET_SIGNAL_OP_ADD &&
-      signalOp != NCCL_NET_SIGNAL_OP_SET) {
+      signalOp != PCCLX_NET_SIGNAL_OP_SET) {
     WARN("pcclGinIbProxyIPutSignal: Unsupported signalOp %u", signalOp);
     return ncclInvalidArgument;
   }
@@ -745,7 +745,7 @@ ncclResult_t ncclGinIbProxyIPutSignal(void* ginCtx, int context, uint64_t srcOff
   struct ncclIbSendComm* comm = (struct ncclIbSendComm*)ginProxyCtx->fullSendComm[rank];
   struct ibv_qp* qp = comm->base.qps[0];
 
-  const bool signalSet = signalOp == NCCL_NET_SIGNAL_OP_SET;
+  const bool signalSet = signalOp == PCCLX_NET_SIGNAL_OP_SET;
   if (signalSet && ncclIbDevs[comm->dev.base.ibDevN].ibProvider != IB_PROVIDER_TROCE) {
     WARN("GIN/IB SignalSet requires the TROCE flush-write operation");
     return ncclInvalidUsage;

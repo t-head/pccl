@@ -22,12 +22,12 @@
 
 // Device-side GIN interface for the TROCE backend.
 
-struct pcclGinTroceRequest {
+struct pcclxGinTroceRequest {
   int peer;
   uint64_t prodIdx;  // exclusive WQEBB tail captured by flushAsync
 };
-static_assert(sizeof(pcclGinTroceRequest) <= sizeof(pcclGinRequest_t),
-              "pcclGinTroceRequest must fit in pcclGinRequest_t");
+static_assert(sizeof(pcclxGinTroceRequest) <= sizeof(pcclGinRequest_t),
+              "pcclxGinTroceRequest must fit in pcclGinRequest_t");
 
 namespace pccl {
 namespace gin {
@@ -59,18 +59,18 @@ PCCL_DEVICE_INLINE void unlock(int *lockPtr) {
 }
 
 template <hggc::thread_scope scope = hggc::thread_scope_device>
-PCCL_DEVICE_INLINE int trocePollCqAt(struct pcclGinTroceQp *qp, uint64_t idx);
+PCCL_DEVICE_INLINE int trocePollCqAt(struct pcclxGinTroceQp *qp, uint64_t idx);
 
 // Wait for SQ capacity by progressing completions.
 template <hggc::thread_scope scope = hggc::thread_scope_device>
-PCCL_DEVICE_INLINE void waitUntilSlotAvailable(struct pcclGinTroceQp *qp, uint64_t wqeIdx) {
+PCCL_DEVICE_INLINE void waitUntilSlotAvailable(struct pcclxGinTroceQp *qp, uint64_t wqeIdx) {
   if (wqeIdx >= qp->nwqes) {
     trocePollCqAt<scope>(qp, wqeIdx - qp->nwqes);
   }
 }
 
 template <hggc::thread_scope scope = hggc::thread_scope_device>
-PCCL_DEVICE_INLINE uint64_t reserveWqeSlots(struct pcclGinTroceQp *qp, uint32_t nwqebbs,
+PCCL_DEVICE_INLINE uint64_t reserveWqeSlots(struct pcclxGinTroceQp *qp, uint32_t nwqebbs,
                                              uint32_t optFlags = pcclGinOptFlagsDefault) {
   hggc::atomic_ref<uint64_t, scope> ref(qp->resv_head);
   uint64_t base = ref.fetch_add(nwqebbs, hggc::memory_order_relaxed);
@@ -79,7 +79,7 @@ PCCL_DEVICE_INLINE uint64_t reserveWqeSlots(struct pcclGinTroceQp *qp, uint32_t 
   return base;
 }
 
-PCCL_DEVICE_INLINE void *getWqePtr(struct pcclGinTroceQp *qp, uint64_t wqeIdx) {
+PCCL_DEVICE_INLINE void *getWqePtr(struct pcclxGinTroceQp *qp, uint64_t wqeIdx) {
   uint16_t idx = (uint16_t)(wqeIdx & (qp->nwqes - 1));
   return (void *)((uintptr_t)qp->sq_wqe + ((uintptr_t)idx * PCCL_TROCE_SEND_WQE_BB));
 }
@@ -90,7 +90,7 @@ PCCL_DEVICE_INLINE void *getWqePtr(struct pcclGinTroceQp *qp, uint64_t wqeIdx) {
 
 // Only explicit submission paths may call this helper. Callers must hold
 // qp->db_lock (see submit).
-PCCL_DEVICE_INLINE void troceRingDb(struct pcclGinTroceQp *qp, uint16_t prodIdx) {
+PCCL_DEVICE_INLINE void troceRingDb(struct pcclxGinTroceQp *qp, uint16_t prodIdx) {
   pcclTroceSqDb db;
   db.value = 0;
   db.db.dw0.bs.qid = qp->qpn;
@@ -105,7 +105,7 @@ PCCL_DEVICE_INLINE void troceRingDb(struct pcclGinTroceQp *qp, uint16_t prodIdx)
 
 // Publish the reserved range. `endWqeIdx` is inclusive.
 template <hggc::thread_scope scope = hggc::thread_scope_device>
-PCCL_DEVICE_INLINE void markWqesReady(struct pcclGinTroceQp *qp, uint64_t baseWqeIdx, uint64_t endWqeIdx) {
+PCCL_DEVICE_INLINE void markWqesReady(struct pcclxGinTroceQp *qp, uint64_t baseWqeIdx, uint64_t endWqeIdx) {
   fenceRelease<scope>();
   if (scope == hggc::thread_scope_block) {
     while (atomicCAS_block((unsigned long long *)&qp->ready_head, baseWqeIdx, endWqeIdx + 1) != baseWqeIdx)
@@ -121,7 +121,7 @@ PCCL_DEVICE_INLINE void markWqesReady(struct pcclGinTroceQp *qp, uint64_t baseWq
 // doorbell until a normal submit or flushAsync. Callers must submit
 // before exhausting SQ credits.
 template <hggc::thread_scope scope = hggc::thread_scope_device>
-PCCL_DEVICE_INLINE void submit(struct pcclGinTroceQp *qp, uint64_t prodIdx, uint32_t optFlags) {
+PCCL_DEVICE_INLINE void submit(struct pcclxGinTroceQp *qp, uint64_t prodIdx, uint32_t optFlags) {
   if (optFlags & pcclGinOptFlagsAggregateRequests) {
     return;
   }
@@ -139,7 +139,7 @@ PCCL_DEVICE_INLINE void submit(struct pcclGinTroceQp *qp, uint64_t prodIdx, uint
 // troce WQE builders
 // ---------------------------------------------------------------------------
 
-PCCL_DEVICE_INLINE void troceWriteRdmaWqe(struct pcclGinTroceQp *qp, uint64_t laddr, __be32 lkey,
+PCCL_DEVICE_INLINE void troceWriteRdmaWqe(struct pcclxGinTroceQp *qp, uint64_t laddr, __be32 lkey,
                                           uint64_t raddr, __be32 rkey, uint32_t bytes,
                                           uint16_t wqeIdx, bool needCqe, void *wqePtr,
                                           bool isWrite, bool fence = false) {
@@ -208,7 +208,7 @@ PCCL_DEVICE_INLINE void troceWriteRdmaWqe(struct pcclGinTroceQp *qp, uint64_t la
 
 // Inline RDMA_WRITE: the payload travels inside the WQE, so concurrent putValue
 // calls need no shared staging buffer.
-PCCL_DEVICE_INLINE void troceWriteRdmaInlineWqe(struct pcclGinTroceQp *qp, const void *val,
+PCCL_DEVICE_INLINE void troceWriteRdmaInlineWqe(struct pcclxGinTroceQp *qp, const void *val,
                                                 uint32_t bytes, uint64_t raddr, __be32 rkey,
                                                 uint16_t wqeIdx, bool needCqe, void *wqePtr) {
   pcclTroceCtrlSeg ctrl = {};
@@ -284,7 +284,7 @@ PCCL_DEVICE_INLINE void troceWriteRdmaInlineWqe(struct pcclGinTroceQp *qp, const
 }
 
 // Publish an 8-byte signal value with flush-write ordering for preceding puts.
-PCCL_DEVICE_INLINE void troceWriteFlushWqe(struct pcclGinTroceQp *qp, uint64_t val,
+PCCL_DEVICE_INLINE void troceWriteFlushWqe(struct pcclxGinTroceQp *qp, uint64_t val,
                                          uint64_t raddr, __be32 rkey, uint16_t wqeIdx,
                                          bool needCqe, void *wqePtr) {
   const uint32_t bytes = sizeof(val);
@@ -346,7 +346,7 @@ PCCL_DEVICE_INLINE void troceWriteFlushWqe(struct pcclGinTroceQp *qp, uint64_t v
 
 // Encode an 8-byte remote fetch-and-add. The returned value is written to the
 // QP's atomic return storage and is not consumed.
-PCCL_DEVICE_INLINE void troceWriteAtomicFaWqe(struct pcclGinTroceQp *qp, uint64_t addVal,
+PCCL_DEVICE_INLINE void troceWriteAtomicFaWqe(struct pcclxGinTroceQp *qp, uint64_t addVal,
                                               uint64_t laddr, __be32 lkey, uint64_t raddr,
                                               __be32 rkey, uint16_t wqeIdx, bool needCqe,
                                               void *wqePtr) {
@@ -427,7 +427,7 @@ PCCL_DEVICE_INLINE void troceWriteAtomicFaWqe(struct pcclGinTroceQp *qp, uint64_
 
 // Check completion without advancing cons_idx or performing a system fence.
 template <hggc::thread_scope scope = hggc::thread_scope_device>
-PCCL_DEVICE_INLINE int troceCheckCqAt(struct pcclGinTroceQp *qp, uint64_t idx, uint64_t oldCons,
+PCCL_DEVICE_INLINE int troceCheckCqAt(struct pcclxGinTroceQp *qp, uint64_t idx, uint64_t oldCons,
                                       uint64_t *completedTail) {
   *completedTail = oldCons;
   if (oldCons > idx) return PCCL_TROCE_POLL_SUCCESS;
@@ -471,7 +471,7 @@ PCCL_DEVICE_INLINE int troceCheckCqAt(struct pcclGinTroceQp *qp, uint64_t idx, u
 }
 
 template <hggc::thread_scope scope = hggc::thread_scope_device>
-PCCL_DEVICE_INLINE int trocePollOneCqAt(struct pcclGinTroceQp *qp, uint64_t idx) {
+PCCL_DEVICE_INLINE int trocePollOneCqAt(struct pcclxGinTroceQp *qp, uint64_t idx) {
   uint64_t oldCons = loadRelaxed<scope>(&qp->cons_idx);
   uint64_t completedTail;
   int status = troceCheckCqAt<scope>(qp, idx, oldCons, &completedTail);
@@ -488,7 +488,7 @@ PCCL_DEVICE_INLINE int trocePollOneCqAt(struct pcclGinTroceQp *qp, uint64_t idx)
 }
 
 template <hggc::thread_scope scope>
-PCCL_DEVICE_INLINE int trocePollCqAt(struct pcclGinTroceQp *qp, uint64_t idx) {
+PCCL_DEVICE_INLINE int trocePollCqAt(struct pcclxGinTroceQp *qp, uint64_t idx) {
   int status;
   #pragma unroll 1
   do {
@@ -497,7 +497,7 @@ PCCL_DEVICE_INLINE int trocePollCqAt(struct pcclGinTroceQp *qp, uint64_t idx) {
   return status;
 }
 
-PCCL_DEVICE_INLINE bool troceWait(struct pcclGinTroceQp *qp, uint64_t idx, uint32_t *abortFlag) {
+PCCL_DEVICE_INLINE bool troceWait(struct pcclxGinTroceQp *qp, uint64_t idx, uint32_t *abortFlag) {
   using pccl::utility::testAbort;
   if (abortFlag) {
     uint32_t steps = 0;
@@ -512,15 +512,15 @@ PCCL_DEVICE_INLINE bool troceWait(struct pcclGinTroceQp *qp, uint64_t idx, uint3
   }
 }
 
-PCCL_DEVICE_INLINE uint64_t troceFlushAsync(struct pcclGinTroceQp *qp) {
+PCCL_DEVICE_INLINE uint64_t troceFlushAsync(struct pcclxGinTroceQp *qp) {
   hggc::atomic_ref<uint64_t, hggc::thread_scope_device> ref(qp->ready_head);
   uint64_t prodIdx = ref.load(hggc::memory_order_acquire);
   if (prodIdx != 0) submit(qp, prodIdx, pcclGinOptFlagsDefault);
   return prodIdx;
 }
 
-PCCL_DEVICE_INLINE bool troceFlushWait(struct pcclGinTroceGPUContext *gda, struct pcclGinTroceQp *qp,
-                                      struct pcclGinTroceQp *flushQp, uint64_t prodIdx, uint32_t *abortFlag) {
+PCCL_DEVICE_INLINE bool troceFlushWait(struct pcclxGinTroceGPUContext *gda, struct pcclxGinTroceQp *qp,
+                                      struct pcclxGinTroceQp *flushQp, uint64_t prodIdx, uint32_t *abortFlag) {
   using pccl::utility::loadConst;
   if (prodIdx == 0) return true;
   if (!troceWait(qp, prodIdx - 1, abortFlag)) return false;
@@ -541,7 +541,7 @@ PCCL_DEVICE_INLINE bool troceFlushWait(struct pcclGinTroceGPUContext *gda, struc
 // This does not submit: the caller must close aggregates with a normal submit or
 // flushAsync before waiting. Leaving an aggregate unsubmitted requires abort or
 // another explicit submit to make this wait finish.
-PCCL_DEVICE_INLINE void troceQuiet(struct pcclGinTroceQp *qp, uint32_t *abortFlag) {
+PCCL_DEVICE_INLINE void troceQuiet(struct pcclxGinTroceQp *qp, uint32_t *abortFlag) {
   uint64_t resv = atomicRead(&qp->resv_head);
   if (resv == 0) return;
   troceWait(qp, resv - 1, abortFlag);
@@ -554,13 +554,13 @@ PCCL_DEVICE_INLINE void troceQuiet(struct pcclGinTroceQp *qp, uint32_t *abortFla
 // An optional RDMA_WRITE followed by an optional remote signal. A
 // final completion ticket is consumed by flush and queue-capacity progress.
 template <hggc::thread_scope scope = hggc::thread_scope_device>
-PCCL_DEVICE_INLINE void putSignal(struct pcclGinTroceGPUContext *ctx,
-                                      struct pcclGinTroceQp *qp, bool hasData, uint64_t dstOff,
+PCCL_DEVICE_INLINE void putSignal(struct pcclxGinTroceGPUContext *ctx,
+                                      struct pcclxGinTroceQp *qp, bool hasData, uint64_t dstOff,
                                       __be32 dstRkey, uint64_t srcOff, __be32 srcLkey,
                                       size_t bytes, bool hasSignal, uint64_t signalOff,
                                       __be32 signalRkey, uint64_t signalVal,
                                       pcclGinSignalOp_t signalOp, uint32_t optFlags) {
-  const bool signalSet = signalOp == pcclGinSignalSet;
+  const bool signalSet = signalOp == pcclxGinSignalSet;
   const uint32_t signalWqebbs = signalSet ? 1u : 2u;
   uint32_t numChunks = hasData ? (bytes == 0 ? 1u : uint32_t((bytes - 1) / PCCL_GIN_TROCE_MAX_TRANSFER_SIZE + 1)) : 0u;
   uint32_t nwqebbs = numChunks + (hasSignal ? signalWqebbs : 0u);
@@ -612,7 +612,7 @@ PCCL_DEVICE_INLINE void putSignal(struct pcclGinTroceGPUContext *ctx,
 // ---------------------------------------------------------------------------
 
 template <>
-struct pcclGinApi_Put<PCCL_NET_DEVICE_GIN_TROCE> {
+struct pcclGinApi_Put<PCCLX_NET_DEVICE_GIN_TROCE> {
   template <typename Coop>
   PCCL_DEVICE_INLINE static void call(pcclGinCtx ctx, Coop coop, int peer, bool hasWins,
                                       pcclGinWindow_t dstWin, size_t dstOff, pcclGinWindow_t srcWin,
@@ -648,9 +648,9 @@ struct pcclGinApi_Put<PCCL_NET_DEVICE_GIN_TROCE> {
     using pccl::utility::loadConst;
     coop.sync();
     if (coop.thread_rank() == 0) {
-      pcclGinTroceGPUContext *gda =
-        &((struct pcclGinTroceGPUContext *)ctx.handle)[ctx.contextId];
-      pcclGinTroceQp *qp = loadConst(&gda->qps) + peer;
+      pcclxGinTroceGPUContext *gda =
+        &((struct pcclxGinTroceGPUContext *)ctx.handle)[ctx.contextId];
+      pcclxGinTroceQp *qp = loadConst(&gda->qps) + peer;
 
       bool hasSignal = signal.type != PCCL_GIN_SIGNAL_TYPE_NONE;
       uint64_t signalOff = 0;
@@ -662,15 +662,15 @@ struct pcclGinApi_Put<PCCL_NET_DEVICE_GIN_TROCE> {
                     (signal.indexedSignal.signalId + loadConst(&gda->signals_table.offset));
         signalRkey = loadConst(loadConst(&gda->signals_table.rkeys) + peer);
       } else if (signal.type == PCCL_GIN_SIGNAL_TYPE_VA) {
-        pcclGinTroceMemHandle *mh = (pcclGinTroceMemHandle *)signal.vaSignal.signalWindow;
+        pcclxGinTroceMemHandle *mh = (pcclxGinTroceMemHandle *)signal.vaSignal.signalWindow;
         signalRkey = loadConst(loadConst(&mh->rkeys) + peer);
         signalOff = signal.vaSignal.signalOffset;
       }
       uint64_t signalVal = (signalOp == pcclGinSignalInc) ? 1 : signalOpArg;
 
       if (hasWins) {
-        pcclGinTroceMemHandle *dstMh = (pcclGinTroceMemHandle *)dstWin;
-        pcclGinTroceMemHandle *srcMh = (pcclGinTroceMemHandle *)srcWin;
+        pcclxGinTroceMemHandle *dstMh = (pcclxGinTroceMemHandle *)dstWin;
+        pcclxGinTroceMemHandle *srcMh = (pcclxGinTroceMemHandle *)srcWin;
         dstRkey = loadConst(loadConst(&dstMh->rkeys) + peer);
         srcLkey = loadConst(&srcMh->lkey);
       }
@@ -692,7 +692,7 @@ struct pcclGinApi_Put<PCCL_NET_DEVICE_GIN_TROCE> {
 };
 
 template <>
-struct pcclGinApi_Get<PCCL_NET_DEVICE_GIN_TROCE> {
+struct pcclGinApi_Get<PCCLX_NET_DEVICE_GIN_TROCE> {
   template <typename Coop>
   PCCL_DEVICE_INLINE static void call(pcclGinCtx ctx, Coop coop, int peer,
                                       pcclGinWindow_t remoteWin, size_t remoteOff,
@@ -702,11 +702,11 @@ struct pcclGinApi_Get<PCCL_NET_DEVICE_GIN_TROCE> {
     using pccl::utility::loadConst;
     coop.sync();
     if (coop.thread_rank() == 0) {
-      pcclGinTroceGPUContext *gda =
-        &((struct pcclGinTroceGPUContext *)ctx.handle)[ctx.contextId];
-      pcclGinTroceQp *qp = loadConst(&gda->qps) + peer;
-      pcclGinTroceMemHandle *remoteMh = (pcclGinTroceMemHandle *)remoteWin;
-      pcclGinTroceMemHandle *localMh = (pcclGinTroceMemHandle *)localWin;
+      pcclxGinTroceGPUContext *gda =
+        &((struct pcclxGinTroceGPUContext *)ctx.handle)[ctx.contextId];
+      pcclxGinTroceQp *qp = loadConst(&gda->qps) + peer;
+      pcclxGinTroceMemHandle *remoteMh = (pcclxGinTroceMemHandle *)remoteWin;
+      pcclxGinTroceMemHandle *localMh = (pcclxGinTroceMemHandle *)localWin;
 
       uint32_t numChunks = bytes == 0 ? 1u : uint32_t((bytes - 1) / PCCL_GIN_TROCE_MAX_TRANSFER_SIZE + 1);
       uint64_t base = pccl::gin::troce::reserveWqeSlots(qp, numChunks, optFlags);
@@ -738,15 +738,15 @@ struct pcclGinApi_Get<PCCL_NET_DEVICE_GIN_TROCE> {
 };
 
 template <>
-struct pcclGinApi_Flush<PCCL_NET_DEVICE_GIN_TROCE> {
+struct pcclGinApi_Flush<PCCLX_NET_DEVICE_GIN_TROCE> {
   template <typename Coop>
   PCCL_DEVICE_INLINE static void call(pcclGinCtx ctx, Coop coop, hggc::memory_order ord,
                                       uint32_t *abortFlag) {
     (void)ord;
     using pccl::utility::loadConst;
-    pcclGinTroceGPUContext *gda = &((struct pcclGinTroceGPUContext *)ctx.handle)[ctx.contextId];
-    pcclGinTroceQp *qps = loadConst(&gda->qps);
-    pcclGinTroceQp *flushQp = qps + ctx.nRanks;
+    pcclxGinTroceGPUContext *gda = &((struct pcclxGinTroceGPUContext *)ctx.handle)[ctx.contextId];
+    pcclxGinTroceQp *qps = loadConst(&gda->qps);
+    pcclxGinTroceQp *flushQp = qps + ctx.nRanks;
     #pragma unroll 1
     for (int peer = coop.thread_rank(); peer < ctx.nRanks; peer += coop.size()) {
       uint64_t prodIdx = pccl::gin::troce::troceFlushAsync(qps + peer);
@@ -756,13 +756,13 @@ struct pcclGinApi_Flush<PCCL_NET_DEVICE_GIN_TROCE> {
 };
 
 template <>
-struct pcclGinApi_FlushAsync<PCCL_NET_DEVICE_GIN_TROCE> {
+struct pcclGinApi_FlushAsync<PCCLX_NET_DEVICE_GIN_TROCE> {
   PCCL_DEVICE_INLINE static void call(pcclGinCtx ctx, int peer, pcclGinRequest_t *outRequest,
                                       uint32_t optFlags) {
     using pccl::utility::loadConst;
-    pcclGinTroceRequest *req = reinterpret_cast<pcclGinTroceRequest *>(outRequest);
-    pcclGinTroceGPUContext *gda = &((struct pcclGinTroceGPUContext *)ctx.handle)[ctx.contextId];
-    pcclGinTroceQp *qp = loadConst(&gda->qps) + peer;
+    pcclxGinTroceRequest *req = reinterpret_cast<pcclxGinTroceRequest *>(outRequest);
+    pcclxGinTroceGPUContext *gda = &((struct pcclxGinTroceGPUContext *)ctx.handle)[ctx.contextId];
+    pcclxGinTroceQp *qp = loadConst(&gda->qps) + peer;
     req->peer = peer;
     req->prodIdx = pccl::gin::troce::troceFlushAsync(qp);
     (void)optFlags;  // flushAsync always submits, including AggregateRequests
@@ -770,15 +770,15 @@ struct pcclGinApi_FlushAsync<PCCL_NET_DEVICE_GIN_TROCE> {
 };
 
 template <>
-struct pcclGinApi_Wait<PCCL_NET_DEVICE_GIN_TROCE> {
+struct pcclGinApi_Wait<PCCLX_NET_DEVICE_GIN_TROCE> {
   PCCL_DEVICE_INLINE static void call(pcclGinCtx ctx, pcclGinRequest_t &request, bool hasDescriptor,
                                       pcclGinDescriptorSmem *descriptor, hggc::memory_order ord,
                                       uint32_t *abortFlag) {
     (void)ord;
     using pccl::utility::loadConst;
-    pcclGinTroceRequest &req = reinterpret_cast<pcclGinTroceRequest &>(request);
-    pcclGinTroceGPUContext *gda = &((struct pcclGinTroceGPUContext *)ctx.handle)[ctx.contextId];
-    pcclGinTroceQp *qp = loadConst(&gda->qps) + req.peer;
+    pcclxGinTroceRequest &req = reinterpret_cast<pcclxGinTroceRequest &>(request);
+    pcclxGinTroceGPUContext *gda = &((struct pcclxGinTroceGPUContext *)ctx.handle)[ctx.contextId];
+    pcclxGinTroceQp *qp = loadConst(&gda->qps) + req.peer;
     pccl::gin::troce::troceFlushWait(gda, qp, loadConst(&gda->qps) + ctx.nRanks, req.prodIdx, abortFlag);
     (void)hasDescriptor;
     (void)descriptor;
@@ -786,16 +786,16 @@ struct pcclGinApi_Wait<PCCL_NET_DEVICE_GIN_TROCE> {
 };
 
 template <>
-struct pcclGinApi_GetSignalPtr<PCCL_NET_DEVICE_GIN_TROCE> {
+struct pcclGinApi_GetSignalPtr<PCCLX_NET_DEVICE_GIN_TROCE> {
   PCCL_DEVICE_INLINE static uint64_t* call(pcclGinCtx ctx, pcclGinSignal_t signalId) {
     using pccl::utility::loadConst;
-    pcclGinTroceGPUContext *gda = &((struct pcclGinTroceGPUContext *)ctx.handle)[ctx.contextId];
+    pcclxGinTroceGPUContext *gda = &((struct pcclxGinTroceGPUContext *)ctx.handle)[ctx.contextId];
     return loadConst(&gda->signals_table.buffer) + signalId;
   }
 };
 
 template <>
-struct pcclGinApi_ResetSignal<PCCL_NET_DEVICE_GIN_TROCE> {
+struct pcclGinApi_ResetSignal<PCCLX_NET_DEVICE_GIN_TROCE> {
   PCCL_DEVICE_INLINE static void call(pcclGinCtx ctx, pcclGinSignalDescriptor signal) {
     using pccl::utility::loadConst;
     if (signal.type == PCCL_GIN_SIGNAL_TYPE_VA) {
@@ -804,7 +804,7 @@ struct pcclGinApi_ResetSignal<PCCL_NET_DEVICE_GIN_TROCE> {
       uint64_t *p = (uint64_t *)pcclGetLocalPointer(window, offset);
       *p = 0;
     } else {
-      pcclGinTroceGPUContext *gda = &((struct pcclGinTroceGPUContext *)ctx.handle)[ctx.contextId];
+      pcclxGinTroceGPUContext *gda = &((struct pcclxGinTroceGPUContext *)ctx.handle)[ctx.contextId];
       loadConst(&gda->signals_table.buffer)[signal.indexedSignal.signalId] = 0;
     }
   }
@@ -813,7 +813,7 @@ struct pcclGinApi_ResetSignal<PCCL_NET_DEVICE_GIN_TROCE> {
 // Counter resources are rejected by createContext. These guards also reject
 // device-side counter use against a context created without counter resources.
 template <>
-struct pcclGinApi_GetCounterPtr<PCCL_NET_DEVICE_GIN_TROCE> {
+struct pcclGinApi_GetCounterPtr<PCCLX_NET_DEVICE_GIN_TROCE> {
   PCCL_DEVICE_INLINE static uint64_t* call(pcclGinCtx ctx, pcclGinCounter_t) {
     __builtin_trap();
     return nullptr;
@@ -821,14 +821,14 @@ struct pcclGinApi_GetCounterPtr<PCCL_NET_DEVICE_GIN_TROCE> {
 };
 
 template <>
-struct pcclGinApi_ResetCounter<PCCL_NET_DEVICE_GIN_TROCE> {
+struct pcclGinApi_ResetCounter<PCCLX_NET_DEVICE_GIN_TROCE> {
   PCCL_DEVICE_INLINE static void call(pcclGinCtx ctx, pcclGinCounter_t) {
     __builtin_trap();
   }
 };
 
 template <>
-struct pcclGinApi_PutValue<PCCL_NET_DEVICE_GIN_TROCE> {
+struct pcclGinApi_PutValue<PCCLX_NET_DEVICE_GIN_TROCE> {
   template <typename Coop, typename T>
   PCCL_DEVICE_INLINE static void call(pcclGinCtx ctx, Coop coop, int peer, pcclGinWindow_t dstWin,
                                       size_t dstOff, T srcVal, pcclGinSignalDescriptor signal,
@@ -856,9 +856,9 @@ struct pcclGinApi_PutValue<PCCL_NET_DEVICE_GIN_TROCE> {
     static_assert(sizeof(T) <= 8, "PutValue payload must fit in 8 bytes");
     coop.sync();
     if (coop.thread_rank() == 0) {
-      pcclGinTroceGPUContext *gda =
-        &((struct pcclGinTroceGPUContext *)ctx.handle)[ctx.contextId];
-      pcclGinTroceQp *qp = loadConst(&gda->qps) + peer;
+      pcclxGinTroceGPUContext *gda =
+        &((struct pcclxGinTroceGPUContext *)ctx.handle)[ctx.contextId];
+      pcclxGinTroceQp *qp = loadConst(&gda->qps) + peer;
 
       bool hasSignal = signal.type != PCCL_GIN_SIGNAL_TYPE_NONE;
       uint64_t signalOff = 0;
@@ -868,19 +868,19 @@ struct pcclGinApi_PutValue<PCCL_NET_DEVICE_GIN_TROCE> {
                     (signal.indexedSignal.signalId + loadConst(&gda->signals_table.offset));
         signalRkey = loadConst(loadConst(&gda->signals_table.rkeys) + peer);
       } else if (signal.type == PCCL_GIN_SIGNAL_TYPE_VA) {
-        pcclGinTroceMemHandle *mh = (pcclGinTroceMemHandle *)signal.vaSignal.signalWindow;
+        pcclxGinTroceMemHandle *mh = (pcclxGinTroceMemHandle *)signal.vaSignal.signalWindow;
         signalRkey = loadConst(loadConst(&mh->rkeys) + peer);
         signalOff = signal.vaSignal.signalOffset;
       }
       uint64_t signalVal = (signalOp == pcclGinSignalInc) ? 1 : signalOpArg;
 
-      pcclGinTroceMemHandle *dstMh = (pcclGinTroceMemHandle *)dstWin;
+      pcclxGinTroceMemHandle *dstMh = (pcclxGinTroceMemHandle *)dstWin;
       __be32 dstRkey = loadConst(loadConst(&dstMh->rkeys) + peer);
 
       if (required == hggc::thread_scope_system && given > required)
         pccl::gin::troce::fenceRelease<hggc::thread_scope_system>();
 
-      const bool signalSet = signalOp == pcclGinSignalSet;
+      const bool signalSet = signalOp == pcclxGinSignalSet;
       const uint32_t signalWqebbs = signalSet ? 1u : 2u;
       const uint32_t nWqe = 1u + (hasSignal ? signalWqebbs : 0u);
       uint64_t base = pccl::gin::troce::reserveWqeSlots<scope>(qp, nWqe, optFlags);

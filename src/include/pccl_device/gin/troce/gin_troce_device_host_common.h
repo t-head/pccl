@@ -21,7 +21,7 @@
 // Per-context view of device-resident signal storage. Remote keys
 // are indexed by peer rank; offset selects this context's slice of the table.
 template <typename T>
-struct pcclGinTroceGlobalGPUBufferTable {
+struct pcclxGinTroceGlobalGPUBufferTable {
   T *buffer;
   __be32 *rkeys;
   __be32 lkey;
@@ -30,7 +30,7 @@ struct pcclGinTroceGlobalGPUBufferTable {
 
 // Device-visible QP state for WQE reservation, publication, submission, and
 // completion progress. Indices count WQEBBs across all CTAs using the QP.
-struct pcclGinTroceQp {
+struct pcclxGinTroceQp {
   uint64_t resv_head;       // last reserved WQEBB idx + 1
   uint64_t ready_head;      // last contiguously published WQEBB idx + 1
   uint64_t prod_idx;        // submitted WQEBB tail
@@ -47,15 +47,15 @@ struct pcclGinTroceQp {
   void *cq_cqe;  // CQ buffer base (device memory)
 };
 
-struct pcclGinTroceGPUContext {
-  struct pcclGinTroceQp *qps;  // one per peer rank, followed by the loopback flush QP
-  struct pcclGinTroceGlobalGPUBufferTable<uint64_t> signals_table;
+struct pcclxGinTroceGPUContext {
+  struct pcclxGinTroceQp *qps;  // one per peer rank, followed by the loopback flush QP
+  struct pcclxGinTroceGlobalGPUBufferTable<uint64_t> signals_table;
 
   // Atomic return and zero-byte flush storage; values are not consumed.
   __be32 sink_buffer_lkey;
 };
 
-struct pcclGinTroceMemHandle {
+struct pcclxGinTroceMemHandle {
   __be32 *rkeys;
   __be32 lkey;
 };

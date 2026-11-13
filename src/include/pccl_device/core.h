@@ -157,7 +157,7 @@ typedef enum {
   PCCL_GIN_TYPE_PROXY = 2, // intentially not 1. Must match PCCL_NET_DEVICE_GIN_PROXY for backward compatibility
   PCCL_GIN_TYPE_GDAKI = 3, // intentially not 2. Must match PCCL_NET_DEVICE_GIN_GDAKI for backward compatibility
   // Values 16-31 are reserved for PCCL extension backends.
-  PCCL_GIN_TYPE_TROCE = 16,
+  PCCLX_GIN_TYPE_TROCE = 16,
 } pcclGinType_t;
 
 struct pcclCommProperties {

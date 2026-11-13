@@ -63,7 +63,7 @@ ncclResult_t setLocalGinType(struct pcclComm* comm) {
   NCCLCHECK(ginState.ncclGin->getProperties(0, &props));
   if (props.netDeviceType == NCCL_NET_DEVICE_GIN_PROXY ||
       props.netDeviceType == NCCL_NET_DEVICE_GIN_GDAKI ||
-      props.netDeviceType == NCCL_NET_DEVICE_GIN_TROCE) {
+      props.netDeviceType == PCCLX_NET_DEVICE_GIN_TROCE) {
     // NOTE: The following cast is valid because ncclGinType_t variant values
     // should match NCCL_NET_DEVICE_GIN_* values from `enum ncclNetDeviceType`.
     ginState.ginType = static_cast<ncclGinType_t>(props.netDeviceType);
@@ -115,7 +115,7 @@ NCCL_PARAM(GinNconnections, "GIN_NCONNECTIONS", -2);
 static ncclResult_t pcclGinGetDeviceFromNetDevice(struct pcclComm* comm, int netDev, int* ginDev) {
   struct pcclGinState* ginState = &comm->sharedRes->ginState;
   *ginDev = netDev;
-  if (ginState->ginType != NCCL_GIN_TYPE_GDAKI && ginState->ginType != PCCL_GIN_TYPE_TROCE)
+  if (ginState->ginType != NCCL_GIN_TYPE_GDAKI && ginState->ginType != PCCLX_GIN_TYPE_TROCE)
     return ncclSuccess;
 
   ncclNetProperties_t netProps = {};
