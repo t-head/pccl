@@ -19,9 +19,8 @@
 typedef ncclGin_t* getNcclGin_t(void* ginPluginLib);
 
 extern getNcclGin_t getNcclGin_v13;
-extern getNcclGin_t getNcclGin_v11;
 extern getNcclGin_t getNcclGin_v12;
-extern getNcclGin_t getNcclGin_v13;
+extern getNcclGin_t getNcclGin_v11;
 NCCL_PARAM(GinPluginRefCount, "GIN_PLUGIN_REF_COUNT", 0);
 #define NCCL_GIN_VERSION_COUNT 3
 int ncclGinVersion[NCCL_GIN_VERSION_COUNT] = {13, 12, 11};

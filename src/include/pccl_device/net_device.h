@@ -21,6 +21,8 @@ typedef enum {
   PCCL_NET_DEVICE_UNPACK=1,
   PCCL_NET_DEVICE_GIN_PROXY=2,
   PCCL_NET_DEVICE_GIN_GDAKI=3,
+  PCCL_NET_DEVICE_GIN_GPI=4,
+  PCCL_NET_DEVICE_GIN_EFA_GDA=5, // Reserved for future EFA backend integration.
 } pcclNetDeviceType;
 
 typedef struct {
