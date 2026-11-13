@@ -1,8 +1,8 @@
 {
   "classification": {
     "base_sha": "4f4a89f2e99f6c2778d3ffc8070a0f16f434df69",
-    "head_sha": "fe05eb21ca97a30bd8dcefca9bf291ad35b95a08",
-    "input_fingerprint": "c0d8b7ae54b98dc86b43001d2a98f22ce29feb517c1f89a82dcc52c5e9b01085",
+    "head_sha": "e9287d5ee56da88c4222b84cc0b463e7b5efea91",
+    "input_fingerprint": "93aa25bf68ed37db7418325de9f14a66814e4d4ccb5531ea5a565e644e004c71",
     "pr_number": 174,
     "proposal": {
       "modules": [
@@ -10,10 +10,11 @@
         "graph-search",
         "transport",
         "tuning",
+        "enqueue",
         "network",
         "kernels"
       ],
-      "reason": "Main functional change is removing CollNet execution from network plugin/proxy/backend paths while keeping compatibility-facing interfaces (network). Additional substantive changes remove CollNet transport selection/connect/free flows (transport), delete CollNet logical topology graph preset/search/connect behavior (graph-search), remove CollNet-specific NIC/topology capability parsing and discovery precedence in topology ingestion (device-topology), disable CollNet in built-in algorithm/protocol selection and tuner fallback logic while preserving reserved IDs (tuning), and remove CollNet device-kernel implementations while keeping reserved table slots/null entries (kernels)."
+      "reason": "Main change removes CollNet execution and connection paths from transport (deleted CollNet transport implementation, connection APIs, channel peer/root handling). Also requires network for CollNet plugin-loading removal while keeping Net v4/v5/v6, graph-search and device-topology for removing CollNet graph construction/search and NIC CollNet metadata paths, enqueue and tuning for disabling reserved algorithm slot 2 in runtime planning/selection with tuner fallback guards, and kernels for removing CollNet device kernel specializations while preserving table indices via reserved null entries."
     }
   },
   "reviewers": {
