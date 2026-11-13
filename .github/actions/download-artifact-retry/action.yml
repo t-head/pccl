@@ -31,8 +31,9 @@ runs:
         relative = Path(os.environ['DOWNLOAD_PATH'])
         if not os.environ['DOWNLOAD_PATH'] or relative.is_absolute() or '..' in relative.parts:
             raise ValueError('Artifact download path must be a nonempty workspace-relative path')
-        target = (workspace / relative).resolve()
-        target.relative_to(workspace)
+        parent = (workspace / relative).parent.resolve()
+        parent.relative_to(workspace)
+        target = parent / relative.name
         if target == workspace:
             raise ValueError('Artifact download path cannot be the workspace root')
         if target.is_symlink() or target.is_file():
@@ -63,8 +64,9 @@ runs:
         relative = Path(os.environ['DOWNLOAD_PATH'])
         if not os.environ['DOWNLOAD_PATH'] or relative.is_absolute() or '..' in relative.parts:
             raise ValueError('Artifact download path must be a nonempty workspace-relative path')
-        target = (workspace / relative).resolve()
-        target.relative_to(workspace)
+        parent = (workspace / relative).parent.resolve()
+        parent.relative_to(workspace)
+        target = parent / relative.name
         if target == workspace:
             raise ValueError('Artifact download path cannot be the workspace root')
         if target.is_symlink() or target.is_file():
