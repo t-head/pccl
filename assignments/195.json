@@ -2,13 +2,13 @@
   "classification": {
     "base_sha": "b2218469d68f21ca4d4822c8ba357154eb955849",
     "head_sha": "56e4ddeb78db010e7aea7a8e4beda08705e110b7",
-    "input_fingerprint": "3bc17812bc1560a9190de33ea0c9e40eb60bf81eddf9a31b6d6d43c06778df39",
+    "input_fingerprint": "5bd81f4f394830e456e61737983634ee6fc6febbb0e737cdd7acdb17e259783d",
     "pr_number": 195,
     "proposal": {
       "modules": [
         "workflow"
       ],
-      "reason": "Adds publication of an informational `Suggested squash commit message` PR status (linked to the latest preview), updates the squash-preview automation flow/order, and grants `statuses: write` to that workflow job with matching workflow documentation updates."
+      "reason": "Implements and documents squash-message preview publication behavior by posting an informational PR status link to the latest preview comment, updating cleanup ordering, and adding the required workflow permission (`statuses: write`) for this review-policy automation."
     }
   },
   "reviewers": {
