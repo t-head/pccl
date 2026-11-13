@@ -31,7 +31,7 @@ struct pcclWindow_vidmem {
   char* lsaFlatBase; // pointer to first byte for rank 0 of lsa team
   int lsaRank;
   int worldRank;
-  uint32_t stride4G;
+  uint32_t stride4G; // Zero for GIN-only windows: lsaFlatBase is the local user VA, without peer mappings.
   uint32_t mcOffset4K;
   uint32_t ginOffset4K;
   pcclGinWindow_t ginWins[PCCL_GIN_MAX_CONNECTIONS];

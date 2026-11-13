@@ -69,10 +69,20 @@ typedef struct pcclTeamRequirements pcclTeamRequirements_t;
 struct pcclCommProperties;
 typedef struct pcclCommProperties pcclCommProperties_t;
 
+// Device API structures evolve independently of the library package version.
+#define PCCL_DEVICE_API_VERSION PCCL_VERSION(2, 2, 2)
+
+typedef enum {
+  PCCL_GIN_TYPE_NONE = 0,
+  PCCL_GIN_TYPE_PROXY = 2, // intentially not 1. Must match PCCL_NET_DEVICE_GIN_PROXY for backward compatibility
+  PCCL_GIN_TYPE_GDAKI = 3, // intentially not 2. Must match PCCL_NET_DEVICE_GIN_GDAKI for backward compatibility
+} pcclGinType_t;
+
 typedef enum {
   PCCL_GIN_CONNECTION_NONE,
   PCCL_GIN_CONNECTION_FULL,
   PCCL_GIN_CONNECTION_RAIL,
+  PCCL_GIN_CONNECTION_CUSTOM_STRIDE,
 } pcclGinConnectionType_t;
 
 struct pcclDevCommRequirements {
@@ -104,12 +114,17 @@ struct pcclDevCommRequirements {
   int ginTrafficClass;
 
   int worldGinBarrierCount;
+
+  // Fields added in device API 2.2.2. NONE selects the communicator's active backend.
+  alignas(size_t) pcclGinType_t ginType;
+  int ginCustomStride;
+  bool useRuntimeVersion;
 };
 
 #define PCCL_DEV_COMM_REQUIREMENTS_INITIALIZER {                               \
     sizeof(pcclDevCommRequirements_t),           /* size */                    \
     PCCL_API_MAGIC,                              /* magic */                   \
-    PCCL_VERSION_CODE,                           /* version */                 \
+    PCCL_DEVICE_API_VERSION,                     /* version */                 \
     nullptr,                                     /* resourceRequirementsList*/ \
     nullptr,                                     /* teamRequirementsList */    \
     false,                                       /* lsaMultimem */             \
@@ -127,6 +142,9 @@ struct pcclDevCommRequirements {
     0,                                           /* ginQueueDepth */           \
     PCCL_CONFIG_UNDEF_INT,                       /* ginTrafficClass */         \
     0,                                           /* worldGinBarrierCount */    \
+    PCCL_GIN_TYPE_NONE,                           /* ginType */                 \
+    1,                                           /* ginCustomStride */         \
+    false,                                       /* useRuntimeVersion */       \
 }
 
 struct pcclDevResourceRequirements {
@@ -149,14 +167,9 @@ struct pcclTeamRequirements {
 #define PCCL_COMM_PROPERTIES_INITIALIZER {                           \
   sizeof(pcclCommProperties_t),                  /* size */          \
   PCCL_API_MAGIC,                                /* magic */         \
-  PCCL_VERSION_CODE,                             /* version */       \
+  PCCL_DEVICE_API_VERSION,                       /* version */       \
 }
 
-typedef enum {
-  PCCL_GIN_TYPE_NONE = 0,
-  PCCL_GIN_TYPE_PROXY = 2, // intentially not 1. Must match PCCL_NET_DEVICE_GIN_PROXY for backward compatibility
-  PCCL_GIN_TYPE_GDAKI = 3, // intentially not 2. Must match PCCL_NET_DEVICE_GIN_GDAKI for backward compatibility
-} pcclGinType_t;
 
 struct pcclCommProperties {
   /* internal use only */
@@ -175,6 +188,13 @@ struct pcclCommProperties {
   int nLsaTeams;
   bool hostRmaSupport;
   pcclGinType_t railedGinType;
+
+  // Fields added in device API 2.2.2; callers must initialize size before querying.
+  uint64_t commHash;
+  int ginMinStride;
+  pcclGinConnectionType_t ginConnectionType;
+  bool ginSupport[64];
+  size_t devCommRuntimeVersionSize;
 };
 
 PCCL_EXTERN_C __host__ pcclResult_t pcclCommQueryProperties(pcclComm_t comm, pcclCommProperties_t* props);

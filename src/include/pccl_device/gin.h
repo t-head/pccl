@@ -359,9 +359,18 @@ struct pcclGin_BackendMask {
   template<typename Coop>
   PCCL_DEVICE_INLINE void waitSignal(Coop, pcclGinSignal_t signal, uint64_t least, int bits=64, hggc::memory_order ord = hggc::memory_order_acquire) const;
 
+  // All cooperative threads receive the same success, timeout, or abort result.
+  template<typename Coop>
+  PCCL_DEVICE_INLINE pcclResult_t waitSignal(Coop, pcclGinSignal_t signal, uint64_t least, int bits,
+                                             hggc::memory_order ord, uint64_t timeoutCycles) const;
+
   // Wait for VA signal at given window and offset to meet or exceed value.
   template<typename Coop>
   PCCL_DEVICE_INLINE void waitSignal(Coop, pcclWindow_t signalWindow, size_t signalOffset, uint64_t least, int bits=64, hggc::memory_order ord = hggc::memory_order_acquire) const;
+
+  template<typename Coop>
+  PCCL_DEVICE_INLINE pcclResult_t waitSignal(Coop, pcclWindow_t signalWindow, size_t signalOffset, uint64_t least,
+                                             int bits, hggc::memory_order ord, uint64_t timeoutCycles) const;
 
   // Wait for signal to meet or exceed shadow value.
   template<typename Coop>

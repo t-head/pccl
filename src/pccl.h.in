@@ -43,6 +43,8 @@
 #define PCCL_WIN_DEFAULT 0x00
 #define PCCL_WIN_COLL_SYMMETRIC 0x01
 #define PCCL_WIN_STRICT_ORDERING 0x02
+/* Register only for GIN, without peer LSA mappings. */
+#define PCCL_WIN_GIN_ONLY 0x04
 
 #define PCCL_CTA_POLICY_DEFAULT 0x00
 #define PCCL_CTA_POLICY_EFFICIENCY 0x01
