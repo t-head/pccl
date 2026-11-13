@@ -213,33 +213,69 @@ struct alignas(16) ncclDevWorkP2p {
 };
 
 struct alignas(16) ncclDevWorkColl {
-  // Header
-  struct ncclKernelComm* comm;
-
-  const void * sendbuff;
-  void * recvbuff;
-
-  ssize_t count;
-  size_t lastChunkSize;
+  // Running on channels [channelLo..channelHi], hi is inclusive.
+  //   nChannels == (channelHi - channelLo) + 1
+  uint32_t channelLo:8, channelHi:8;
+  uint32_t nWarps:8;
+  uint32_t redOpArgIsPtr:1, sendRegUsed:1, recvRegUsed:1;
+  uint32_t profilerEnabled:1;
   uint32_t root;
-
-  uint16_t nThreads;
-  uint8_t sendRegUsed:1, recvRegUsed:1, redOpArgIsPtr:1;
-  uint8_t profilerEnabled:1;
-  uint8_t startChannelId;
-  uint8_t nChannels;
-  uint8_t commNChannels;
-
-  // in nccl 2.23, ncclWorkRegElem is used for NVLS to keep a separate dnInput/dnOutput
-  // for normal direct, it add sendbuffRmtAddrs/recvbuffRmtAddrs to WorkElem directly.
-  // for pccl to keep WorkElem Size, move sendbuffRmtAddrs/recvbuffRmtAddrs here.
+  void* recvbuff;
+  const void* sendbuff;
   uintptr_t sendbuffOffset;
   uintptr_t recvbuffOffset;
   uintptr_t* sendbuffRmtAddrs;
   uintptr_t* recvbuffRmtAddrs;
-
+  // Continuous-byte-distribution scheduling. The lo and hi channels are of
+  // different size than the channels in the middle.
+  struct {
+    size_t countLo, countMid, countHi;
+    // Chunk counts where units are ncclProtoGrainSize(protocol) bytes
+    uint64_t chunkGrainsLo:21, chunkGrainsMid:21, chunkGrainsHi:21;
+  } cbd;
   uint64_t redOpArg;
+#ifdef NO_TSM
+  // Without thread shared memory, device primitives locate comm via work.
+  struct ncclKernelComm* comm;
+#endif
 };
+static_assert(MAXCHANNELS <= 256, "Collective channel interval must fit in eight bits");
+static_assert(NCCL_MAX_NTHREADS / WARP_SIZE < 256, "Collective nWarps must fit in eight bits");
+#ifndef NO_TSM
+static_assert(sizeof(ncclDevWorkColl) == 96, "Collective work must remain 96 bytes");
+#else
+static_assert(sizeof(ncclDevWorkColl) == 112, "NO_TSM collective work includes comm");
+#endif
+
+__host__ __device__ constexpr int ncclProtoGrainSize(int proto) {
+  return proto == NCCL_PROTO_LL ? 16 :
+      proto == NCCL_PROTO_LL128 ? WARP_SIZE * NCCL_LL128_SHMEM_ELEMS_PER_THREAD /
+          NCCL_LL128_LINEELEMS * NCCL_LL128_DATAELEMS * sizeof(uint64_t) : 512;
+}
+
+template<typename Int>
+__host__ __device__ inline void ncclCollCbdPart(
+    const struct ncclDevWorkColl* work, uint32_t channelId, int proto, int eltSize,
+    Int* count, Int* partOffset, Int* partCount, Int* chunkCount) {
+  const int eltPerGrain = ncclProtoGrainSize(proto) / eltSize;
+  const int nMidChannels = int(work->channelHi) - int(work->channelLo) - 1;
+  if (count != nullptr) {
+    *count = work->cbd.countLo + work->cbd.countMid * nMidChannels + work->cbd.countHi;
+  }
+  if (channelId == work->channelLo) {
+    *partOffset = 0;
+    *partCount = work->cbd.countLo;
+    *chunkCount = size_t(work->cbd.chunkGrainsLo) * eltPerGrain;
+  } else if (channelId == work->channelHi) {
+    *partOffset = work->cbd.countLo + nMidChannels * work->cbd.countMid;
+    *partCount = work->cbd.countHi;
+    *chunkCount = size_t(work->cbd.chunkGrainsHi) * eltPerGrain;
+  } else {
+    *partOffset = work->cbd.countLo + (channelId - work->channelLo - 1) * work->cbd.countMid;
+    *partCount = work->cbd.countMid;
+    *chunkCount = size_t(work->cbd.chunkGrainsMid) * eltPerGrain;
+  }
+}
 
 // unused now
 struct alignas(16) ncclDevWorkCollReg {

@@ -601,6 +601,24 @@ static ncclResult_t SaveProxy(ncclComm_t comm, struct ncclChannel* channel, int 
 ncclResult_t ncclProxySaveOp(ncclComm_t comm, struct ncclProxyOp* op, bool* justInquire) {
   struct ncclChannel* channel = &comm->channels[op->channelId];
   if (justInquire) *justInquire = false;
+  if (op->pattern != ncclPatternProfiler && op->coll < NCCL_NUM_FUNCTIONS &&
+      op->task.coll != nullptr && op->task.coll->algorithm == NCCL_ALGO_FC) {
+    // FC uses its own peer set, not the Ring predecessor/successor. The host
+    // computes steps from this channel's CBD range and the FC exchange phases.
+    if ((op->coll == ncclFuncBroadcast || op->coll == ncclFuncReduce) && comm->rank != op->root) {
+      const int type = op->coll == ncclFuncBroadcast ? proxyRecv : proxySend;
+      NCCLCHECK(SaveProxy(comm, channel, type, op->root, op, 0, justInquire));
+    } else {
+      for (int i = 0; i < NCCL_MAX_FC_ARITY && channel->fc.peerRanks[i] != -1; ++i) {
+        const int peer = channel->fc.peerRanks[i];
+        if (op->coll != ncclFuncBroadcast)
+          NCCLCHECK(SaveProxy(comm, channel, proxyRecv, peer, op, 0, justInquire));
+        if (op->coll != ncclFuncReduce)
+          NCCLCHECK(SaveProxy(comm, channel, proxySend, peer, op, 0, justInquire));
+      }
+    }
+    return ncclSuccess;
+  }
   switch (op->pattern) {
     case ncclPatternRing:
     case ncclPatternRingTwice:
@@ -636,7 +654,9 @@ ncclResult_t ncclProxySaveOp(ncclComm_t comm, struct ncclProxyOp* op, bool* just
       const ssize_t size = op->nbytes/comm->nRanks;
       const int rank = comm->rank, nranks = comm->nRanks;
       int *nstepsSend = NULL, *nstepsRecv = NULL;
-      PatRSAlgorithm<char> algo(op->chunkSize, NCCL_STEPS, 16, 0, size, size, op->chunkSize, rank, nranks);
+      // Absolute buffer offsets only affect addresses, not PAT's peer/step schedule.
+      PatRSAlgorithm<char> algo(op->chunkSize, NCCL_STEPS, NCCL_PAT_NWORKERS/WARP_SIZE,
+          0, size, size, op->chunkSize, rank, nranks);
       struct ncclPatStep ps = {0};
       NCCLCHECKGOTO(ncclCalloc(&nstepsSend, log2Up(nranks)), result, exit_pat_up);
       NCCLCHECKGOTO(ncclCalloc(&nstepsRecv, log2Up(nranks)), result, exit_pat_up);
@@ -670,7 +690,8 @@ ncclResult_t ncclProxySaveOp(ncclComm_t comm, struct ncclProxyOp* op, bool* just
       const ssize_t size = op->nbytes/comm->nRanks;
       const int rank = comm->rank, nranks = comm->nRanks;
       int *nstepsSend = NULL, *nstepsRecv = NULL;
-      PatAGAlgorithm<char> algo(op->chunkSize, NCCL_STEPS, 16, 0, size, size, op->chunkSize, rank, nranks);
+      PatAGAlgorithm<char> algo(op->chunkSize, NCCL_STEPS, NCCL_PAT_NWORKERS/WARP_SIZE,
+          0, size, size, op->chunkSize, rank, nranks);
       struct ncclPatStep ps = {0};
       NCCLCHECKGOTO(ncclCalloc(&nstepsSend, log2Up(nranks)), result, exit_pat_down);
       NCCLCHECKGOTO(ncclCalloc(&nstepsRecv, log2Up(nranks)), result, exit_pat_down);
