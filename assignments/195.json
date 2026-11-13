@@ -1,14 +1,14 @@
 {
   "classification": {
     "base_sha": "b2218469d68f21ca4d4822c8ba357154eb955849",
-    "head_sha": "56e4ddeb78db010e7aea7a8e4beda08705e110b7",
-    "input_fingerprint": "5bd81f4f394830e456e61737983634ee6fc6febbb0e737cdd7acdb17e259783d",
+    "head_sha": "4ee97fb4323592272df180af9a49c8eea86c005c",
+    "input_fingerprint": "e95aa834a145bc2ee4a0f5051517fba5a4b3c75f6f20954dc616af1c8c83c319",
     "pr_number": 195,
     "proposal": {
       "modules": [
         "workflow"
       ],
-      "reason": "Implements and documents squash-message preview publication behavior by posting an informational PR status link to the latest preview comment, updating cleanup ordering, and adding the required workflow permission (`statuses: write`) for this review-policy automation."
+      "reason": "Updates squash-message review automation by publishing a PR-head status check (`Suggested squash commit message (PR #<number>)`) that links to the latest preview comment, adjusting publish/cleanup ordering, and wiring `statuses: write` in the related GitHub workflow; docs are aligned with this review-flow behavior."
     }
   },
   "reviewers": {
