@@ -1,0 +1,478 @@
+{
+  "selected_cases": 8899,
+  "selected_suites": [
+    {
+      "cards_per_node": 8,
+      "cases": 8,
+      "nodes": 2,
+      "plan": "pccl_shm_commabort_test_multi_node2_plan",
+      "runner_types": [
+        "pccl_perf.MpiCommabortMultiRunner"
+      ],
+      "suite": "commabort_test_shm_multi_nodes2_suite"
+    },
+    {
+      "cards_per_node": 8,
+      "cases": 8,
+      "nodes": 1,
+      "plan": "pccl_shm_commabort_test_single_node1_plan",
+      "runner_types": [
+        "pccl_perf.MpiCommabortSingleRunner"
+      ],
+      "suite": "commabort_test_shm_single_node_suite"
+    },
+    {
+      "cards_per_node": 8,
+      "cases": 26,
+      "nodes": 2,
+      "plan": "pccl_shm_device_api_multi_node2_plan",
+      "runner_types": [
+        "pccl_perf.OpPerfMultiRunner"
+      ],
+      "suite": "device_api_shm_multi_nodes2_suite"
+    },
+    {
+      "cards_per_node": 8,
+      "cases": 26,
+      "nodes": 1,
+      "plan": "pccl_shm_device_api_single_node1_plan",
+      "runner_types": [
+        "pccl_perf.DeviceApiSingleRunner"
+      ],
+      "suite": "device_api_shm_single_node_single_process_suite"
+    },
+    {
+      "cards_per_node": 8,
+      "cases": 20,
+      "nodes": 1,
+      "plan": "pccl_shm_f8_test_plan",
+      "runner_types": [
+        "pccl_perf.MpiF8SingleRunner"
+      ],
+      "suite": "f8_test_shm_single_node_suite"
+    },
+    {
+      "cards_per_node": 8,
+      "cases": 1775,
+      "nodes": 2,
+      "plan": "pccl_shm_pccl_fun_rdma_plan",
+      "runner_types": [
+        "pccl_perf.OpPerfMultiRunner"
+      ],
+      "suite": "pccl_fun_rdma_shm_multi_nodes2_suite"
+    },
+    {
+      "cards_per_node": 8,
+      "cases": 1648,
+      "nodes": 4,
+      "plan": "pccl_shm_pccl_fun_rdma_plan",
+      "runner_types": [
+        "pccl_perf.OpPerfMultiRunner"
+      ],
+      "suite": "pccl_fun_rdma_shm_multi_nodes4_suite"
+    },
+    {
+      "cards_per_node": 8,
+      "cases": 667,
+      "nodes": 8,
+      "plan": "pccl_shm_pccl_fun_rdma_plan",
+      "runner_types": [
+        "pccl_perf.OpPerfMultiRunner"
+      ],
+      "suite": "pccl_fun_rdma_shm_multi_nodes8_suite"
+    },
+    {
+      "cards_per_node": 8,
+      "cases": 3940,
+      "nodes": 1,
+      "plan": "pccl_shm_postsil_daily_single_node1_plan",
+      "runner_types": [
+        "pccl_perf.OpPerfSingleRunner"
+      ],
+      "suite": "postsil_daily_shm_single_node_suite"
+    },
+    {
+      "cards_per_node": 8,
+      "cases": 57,
+      "nodes": 2,
+      "plan": "pccl_shm_register_test_multi_node2_plan",
+      "runner_types": [
+        "pccl_perf.MpiRegisterMultiRunner"
+      ],
+      "suite": "register_test_shm_multi_nodes2_suite"
+    },
+    {
+      "cards_per_node": 8,
+      "cases": 297,
+      "nodes": 1,
+      "plan": "pccl_shm_register_test_single_node1_plan",
+      "runner_types": [
+        "pccl_perf.MpiRegisterSingleRunner"
+      ],
+      "suite": "register_test_shm_single_node_suite"
+    },
+    {
+      "cards_per_node": 8,
+      "cases": 127,
+      "nodes": 1,
+      "plan": "pccl_shm_sym_test_plan",
+      "runner_types": [
+        "pccl_perf.MpiSymSingleRunner"
+      ],
+      "suite": "sym_test_shm_single_node_suite"
+    },
+    {
+      "cards_per_node": 8,
+      "cases": 4,
+      "nodes": 2,
+      "plan": "pccl_shm_copyengine_perf_multi_node2_plan",
+      "runner_types": [
+        "pccl_perf.OpPerfMultiRunner"
+      ],
+      "suite": "copyengine_perf_shm_multi_nodes2_suite"
+    },
+    {
+      "cards_per_node": 8,
+      "cases": 4,
+      "nodes": 4,
+      "plan": "pccl_shm_copyengine_perf_multi_node4_plan",
+      "runner_types": [
+        "pccl_perf.OpPerfMultiRunner"
+      ],
+      "suite": "copyengine_perf_shm_multi_nodes4_suite"
+    },
+    {
+      "cards_per_node": 8,
+      "cases": 4,
+      "nodes": 8,
+      "plan": "pccl_shm_copyengine_perf_multi_node8_plan",
+      "runner_types": [
+        "pccl_perf.OpPerfMultiRunner"
+      ],
+      "suite": "copyengine_perf_shm_multi_nodes8_suite"
+    },
+    {
+      "cards_per_node": 8,
+      "cases": 21,
+      "nodes": 1,
+      "plan": "pccl_shm_copyengine_perf_single_node1_plan",
+      "runner_types": [
+        "pccl_perf.OpPerfSingleRunner"
+      ],
+      "suite": "copyengine_perf_shm_single_node_suite"
+    },
+    {
+      "cards_per_node": 8,
+      "cases": 15,
+      "nodes": 2,
+      "plan": "pccl_shm_local_register_perf_multi_node2_plan",
+      "runner_types": [
+        "pccl_perf.OpPerfMultiRunner"
+      ],
+      "suite": "local_register_perf_shm_multi_nodes2_suite"
+    },
+    {
+      "cards_per_node": 8,
+      "cases": 45,
+      "nodes": 1,
+      "plan": "pccl_shm_local_register_perf_single_node1_plan",
+      "runner_types": [
+        "pccl_perf.LocalRegisterSingleRunner"
+      ],
+      "suite": "local_register_perf_shm_single_node_suite"
+    },
+    {
+      "cards_per_node": 8,
+      "cases": 9,
+      "nodes": 4,
+      "plan": "pccl_shm_op_perf_2_rack_icn16_plan",
+      "runner_types": [
+        "pccl_perf.OpPerfMultiRunner"
+      ],
+      "suite": "op_perf_shm_2_rack_icn16_suite"
+    },
+    {
+      "cards_per_node": 8,
+      "cases": 9,
+      "nodes": 8,
+      "plan": "pccl_shm_op_perf_2_rack_icn32_plan",
+      "runner_types": [
+        "pccl_perf.OpPerfMultiRunner"
+      ],
+      "suite": "op_perf_shm_2_rack_icn32_suite"
+    },
+    {
+      "cards_per_node": 8,
+      "cases": 9,
+      "nodes": 16,
+      "plan": "pccl_shm_op_perf_2_rack_icn64_plan",
+      "runner_types": [
+        "pccl_perf.OpPerfMultiRunner"
+      ],
+      "suite": "op_perf_shm_2_rack_icn64_suite"
+    },
+    {
+      "cards_per_node": 8,
+      "cases": 9,
+      "nodes": 2,
+      "plan": "pccl_shm_op_perf_2_rack_icn8_plan",
+      "runner_types": [
+        "pccl_perf.OpPerfMultiRunner"
+      ],
+      "suite": "op_perf_shm_2_rack_icn8_suite"
+    },
+    {
+      "cards_per_node": 8,
+      "cases": 9,
+      "nodes": 2,
+      "plan": "pccl_shm_op_perf_multi_node2_plan",
+      "runner_types": [
+        "pccl_perf.OpPerfMultiRunner"
+      ],
+      "suite": "op_perf_shm_multi_nodes2_suite"
+    },
+    {
+      "cards_per_node": 8,
+      "cases": 9,
+      "nodes": 4,
+      "plan": "pccl_shm_op_perf_multi_node4_plan",
+      "runner_types": [
+        "pccl_perf.OpPerfMultiRunner"
+      ],
+      "suite": "op_perf_shm_multi_nodes4_suite"
+    },
+    {
+      "cards_per_node": 8,
+      "cases": 9,
+      "nodes": 8,
+      "plan": "pccl_shm_op_perf_multi_node8_plan",
+      "runner_types": [
+        "pccl_perf.OpPerfMultiRunner"
+      ],
+      "suite": "op_perf_shm_multi_nodes8_suite"
+    },
+    {
+      "cards_per_node": 8,
+      "cases": 6,
+      "nodes": 2,
+      "plan": "pccl_shm_op_perf_rdma_multi_node2_plan",
+      "runner_types": [
+        "pccl_perf.OpPerfMultiRunner"
+      ],
+      "suite": "op_perf_rdma_shm_multi_nodes2_suite"
+    },
+    {
+      "cards_per_node": 8,
+      "cases": 6,
+      "nodes": 4,
+      "plan": "pccl_shm_op_perf_rdma_multi_node4_plan",
+      "runner_types": [
+        "pccl_perf.OpPerfMultiRunner"
+      ],
+      "suite": "op_perf_rdma_shm_multi_nodes4_suite"
+    },
+    {
+      "cards_per_node": 8,
+      "cases": 6,
+      "nodes": 8,
+      "plan": "pccl_shm_op_perf_rdma_multi_node8_plan",
+      "runner_types": [
+        "pccl_perf.OpPerfMultiRunner"
+      ],
+      "suite": "op_perf_rdma_shm_multi_nodes8_suite"
+    },
+    {
+      "cards_per_node": 8,
+      "cases": 27,
+      "nodes": 1,
+      "plan": "pccl_shm_op_perf_single_node1_plan",
+      "runner_types": [
+        "pccl_perf.OpPerfSingleRunner"
+      ],
+      "suite": "op_perf_shm_single_node_suite"
+    },
+    {
+      "cards_per_node": 8,
+      "cases": 15,
+      "nodes": 2,
+      "plan": "pccl_shm_symetric_perf_multi_node2_plan",
+      "runner_types": [
+        "pccl_perf.OpPerfMultiRunner"
+      ],
+      "suite": "symetric_perf_shm_multi_nodes2_suite"
+    },
+    {
+      "cards_per_node": 8,
+      "cases": 15,
+      "nodes": 4,
+      "plan": "pccl_shm_symetric_perf_multi_node4_plan",
+      "runner_types": [
+        "pccl_perf.OpPerfMultiRunner"
+      ],
+      "suite": "symetric_perf_shm_multi_nodes4_suite"
+    },
+    {
+      "cards_per_node": 8,
+      "cases": 15,
+      "nodes": 8,
+      "plan": "pccl_shm_symetric_perf_multi_node8_plan",
+      "runner_types": [
+        "pccl_perf.OpPerfMultiRunner"
+      ],
+      "suite": "symetric_perf_shm_multi_nodes8_suite"
+    },
+    {
+      "cards_per_node": 8,
+      "cases": 45,
+      "nodes": 1,
+      "plan": "pccl_shm_symetric_perf_single_node1_plan",
+      "runner_types": [
+        "pccl_perf.OpPerfSingleRunner"
+      ],
+      "suite": "symetric_perf_shm_single_node_suite"
+    },
+    {
+      "cards_per_node": 8,
+      "cases": 9,
+      "nodes": 1,
+      "plan": "sanity_m890p_single_node_plan",
+      "runner_types": [
+        "pccl_perf.MpiRegisterSingleRunner"
+      ],
+      "suite": "sanity_m890p_register_suite"
+    }
+  ],
+  "skipped_cases": 3391,
+  "skipped_suites": [
+    {
+      "cards_per_node": 8,
+      "cases": 4,
+      "nodes": 1,
+      "plan": "pccl_shm_composite_test_plan",
+      "reasons": [
+        "The PCCL composite_test binary is not present in the public build"
+      ],
+      "runner_types": [
+        "pccl_perf.MpiCompositeSingleRunner"
+      ],
+      "suite": "composite_test_shm_single_node_suite"
+    },
+    {
+      "cards_per_node": 8,
+      "cases": 1,
+      "nodes": 1,
+      "plan": "pccl_shm_pcclras_test_plan",
+      "reasons": [
+        "unsupported Runner types: pccl_perf.MpiPcclrasSingleRunner"
+      ],
+      "runner_types": [
+        "pccl_perf.MpiPcclrasSingleRunner"
+      ],
+      "suite": "pcclras_test_shm_single_node_suite"
+    },
+    {
+      "cards_per_node": 8,
+      "cases": 1640,
+      "nodes": 1,
+      "plan": "pccl_shm_postsil_no_tsm_single_node1_plan",
+      "reasons": [
+        "no-tsm export is deferred"
+      ],
+      "runner_types": [
+        "pccl_perf.OpPerfSingleRunner"
+      ],
+      "suite": "postsil_no_tsm_shm_single_node_suite"
+    },
+    {
+      "cards_per_node": 8,
+      "cases": 1640,
+      "nodes": 1,
+      "plan": "pccl_shm_postsil_unit_test_single_node1_plan",
+      "reasons": [
+        "The public build does not provide unit_test.py and its native test binaries"
+      ],
+      "runner_types": [
+        "pccl_perf.OpPerfSingleRunner"
+      ],
+      "suite": "postsil_unit_test_shm_single_node_suite"
+    },
+    {
+      "cards_per_node": 8,
+      "cases": 5,
+      "nodes": 1,
+      "plan": "pccl_shm_sailbandwidth_func_plan_single",
+      "reasons": [
+        "SailBandwidth is a separate project outside PCCL scope"
+      ],
+      "runner_types": [
+        "pccl_perf.SailbandwidthPerfSingleRunner"
+      ],
+      "suite": "sailbandwidth_func_shm_single_node_suite"
+    },
+    {
+      "cards_per_node": 8,
+      "cases": 1,
+      "nodes": 1,
+      "plan": "pccl_shm_sailucx_test_plan",
+      "reasons": [
+        "UCX is a separate project outside PCCL scope"
+      ],
+      "runner_types": [
+        "pccl_perf.SailUcxRunner"
+      ],
+      "suite": "sailucx_test_shm_single_node_suite"
+    },
+    {
+      "cards_per_node": 8,
+      "cases": 18,
+      "nodes": 2,
+      "plan": "pccl_shm_p2p_perf_plan_multi",
+      "reasons": [
+        "The public build does not provide the p2pBandwidthLatencyTest binary"
+      ],
+      "runner_types": [
+        "pccl_perf.OpPerfMultiRunner"
+      ],
+      "suite": "p2p_perf_shm_multi_nodes2_suite"
+    },
+    {
+      "cards_per_node": 8,
+      "cases": 29,
+      "nodes": 1,
+      "plan": "pccl_shm_p2p_perf_plan_single",
+      "reasons": [
+        "unsupported Runner types: pccl_perf.P2pPerfSingleRunner"
+      ],
+      "runner_types": [
+        "pccl_perf.P2pPerfSingleRunner"
+      ],
+      "suite": "p2p_perf_shm_single_node_suite"
+    },
+    {
+      "cards_per_node": 8,
+      "cases": 10,
+      "nodes": 2,
+      "plan": "pccl_shm_sailbandwidth_perf_plan_multi",
+      "reasons": [
+        "SailBandwidth is a separate project outside PCCL scope"
+      ],
+      "runner_types": [
+        "pccl_perf.OpPerfMultiRunner"
+      ],
+      "suite": "sailbandwidth_perf_shm_multi_nodes2_suite"
+    },
+    {
+      "cards_per_node": 8,
+      "cases": 43,
+      "nodes": 1,
+      "plan": "pccl_shm_sailbandwidth_perf_plan_single",
+      "reasons": [
+        "SailBandwidth is a separate project outside PCCL scope"
+      ],
+      "runner_types": [
+        "pccl_perf.SailbandwidthPerfSingleRunner"
+      ],
+      "suite": "sailbandwidth_perf_shm_single_node_suite"
+    }
+  ]
+}

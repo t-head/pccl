@@ -217,10 +217,26 @@ class CsvRunnerTests(unittest.TestCase):
         cluster = run_cases.load_inputs(self.input, 'standard', nodes=2)
         self.assertEqual([case['name'] for case in single['cases']], ['single'])
         self.assertEqual([case['name'] for case in cluster['cases']], ['cluster'])
+        selected = run_cases.load_inputs(self.input, 'standard', nodes=1, suite='suite')
+        self.assertEqual([case['name'] for case in selected['cases']], ['single'])
+        with self.assertRaisesRegex(ValueError, 'no Cases'):
+            run_cases.load_inputs(self.input, 'standard', nodes=1, suite='missing')
+        with self.assertRaisesRegex(ValueError, 'portable'):
+            run_cases.load_inputs(self.input, 'standard', suite='bad suite')
         self.assertEqual(self.execute(single)[0]['status'], 'PASSED')
         self.assertEqual(self.execute(cluster, hostfile)[0]['status'], 'PASSED')
         missing = self.inputs([{'cmd': 'printf {mpi_interface}', 'name': 'missing_interface'}], nodes=2)
         self.assertEqual(self.execute(missing, hostfile)[0]['status'], 'FAILED')
+
+    def test_daily_python_launcher_and_unit_test_staging(self):
+        (self.runner / 'unit_test.py').write_text('# compatibility fixture\n')
+        command = "{python_env}/bin/python3.11 -c 'import sys; print(sys.version_info[:2])'"
+        rows = self.execute(self.inputs([{'cmd': command}]))
+        self.assertEqual(rows[0]['status'], 'PASSED')
+        raw = self.root / 'output-1/plan/suite/case_0/raw.log'
+        self.assertIn(str(sys.version_info[:2]), raw.read_text())
+        work = self.root / 'output-1/plan/suite/case_0/work'
+        self.assertEqual((work / 'unit_test.py').resolve(), (self.runner / 'unit_test.py').resolve())
 
     def test_structural_validation_fails_closed(self):
         scenarios = {

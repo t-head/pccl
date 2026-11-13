@@ -77,6 +77,15 @@ echo "######################### $(date +%Y%m%d%H%M%S) Build pccl-tests #########
 cd ${source_home}/pccl-tests
 bash build.sh --use_mpi
 
+echo "######################### $(date +%Y%m%d%H%M%S) Build PCCL CommAbort test ##########################"
+COMM_ABORT_BUILD=${source_home}/pccl/tests/unit_test/build
+make -C ${source_home}/pccl/tests/unit_test/src \
+  PCCL_HOME=${source_home}/pccl/build \
+  PPU_ARCHS=ppu_10,ppu_15 MPI=1 \
+  BUILDDIR=${COMM_ABORT_BUILD} \
+  ${COMM_ABORT_BUILD}/pcclCommAbortTest
+cp ${COMM_ABORT_BUILD}/pcclCommAbortTest ${source_home}/pccl-tests/build/
+
 echo "######################### $(date +%Y%m%d%H%M%S) Collect final output ##########################"
 mv ${source_home}/pccl ${build_output}
 mv ${source_home}/pccl-tests ${build_output}

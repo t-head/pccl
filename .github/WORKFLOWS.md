@@ -12,6 +12,7 @@ PPU tests. `PCCL Tests Gate` reports the results of the required jobs.
 | File | Purpose |
 | --- | --- |
 | [source-sanity.yml](workflows/source-sanity.yml) | The sole PPU test pipeline and publisher of `PCCL Tests Gate`: PR prechecks and AI/human approval precede self-hosted builds, artifact-backed build distribution, one single-node job per profile, and one two-node job reusing the standard build. |
+| [m890p-daily-full.yml](workflows/m890p-daily-full.yml) | Experimental M890P daily smoke/full execution with automatic same-environment groups, artifact-backed build and Case-group distribution, and exact per-group reconciliation. Current execution is limited to 1/2/4 nodes and it is not a PR gate. |
 | [workflows/scripts/](workflows/scripts/) | Build PCCL and the pinned public benchmark runner. |
 
 `source-sanity.yml` runs on same-repository and fork pull requests, pushes to `main`, and manual dispatch. Every PR runs secret scanning, commit checks, AI review and human approval on GitHub-hosted runners first. Self-hosted builds and internal result processing start only after those gates succeed, so an unapproved fork PR receives no self-hosted allocation. The maintained Plan/Suite/Case definitions are the only test source. Their reviewed commands are exported to the versioned CSV files under `tests/xtest/minimal-csv`; GitHub does not install or import xtest/mmengine.

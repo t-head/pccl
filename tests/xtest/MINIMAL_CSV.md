@@ -106,6 +106,41 @@ result reconciliation, a final `always()` cleanup removes only this run's
 logs remain intact. Cache reuse is content-verified; file existence alone is
 never sufficient.
 
+## Experimental M890P daily execution
+
+`daily-minimal-csv` contains 19 smoke Cases on one and two nodes.
+`daily-full-csv` currently contains 8,899 standard Cases from 34 Suites, with
+unsupported or out-of-scope selections recorded in `coverage.json`. The notsm
+daily profile is intentionally empty.
+The current resource policy executes only 1/2/4-node groups: 8,180 Cases in 20
+groups. The 710 eight-node and 9 sixteen-node Cases remain in the export but are
+listed as `EXCLUDED_BY_POLICY` in `execution-coverage.json`; they are not
+reported as passed or skipped tests.
+
+`group_cases.py` derives deterministic execution groups by profile, node count,
+cards per node and shared environment, then splits large groups by
+`--max-cases`. There is no hand-maintained shard list. Optional `--nodes` and
+`--suite` arguments are debug filters, not shard definitions.
+
+```bash
+python3 -S -B tests/xtest/group_cases.py \
+  --input tests/xtest/daily-minimal-csv \
+  --output /tmp/daily-case-groups --max-cases 500
+```
+
+The group tree is hashed over every relative filename and file byte. A GitHub
+artifact is the backup and one validated copy is published to the run-scoped
+NAS cache. Execution groups read that copy directly; missing or invalid caches
+are restored from the backup with an atomic, interprocess-locked publication.
+Build and group downloads use bounded retries, and no cache is shared across
+workflow runs.
+
+`daily_reconcile.py` checks exact Case coverage, result records, raw logs,
+performance metrics and the verified build identity for each group. Daily
+results produce summaries and failure notifications, not a PR required check.
+Both preparation and final summary reject execution groups or unexpected result
+directories that exceed the allowed node counts.
+
 The internal `results` job loads the selected CSV Cases again. It rejects
 missing, duplicate or unexpected Case keys, empty raw logs, missing or
 inconsistent per-Case `result.json` records, and missing, empty or inconsistent
