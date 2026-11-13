@@ -304,6 +304,7 @@ struct rasCollective {
 
   char* data; // Collective (from this process and the responses we received).
   int nData;
+  uint64_t diagOnlyCommHash; // Preserve COMMS diagnostic selection until completion; 0 selects all.
 
   // Optional completion callback for collectives originated by the RAS thread itself (i.e. no
   // client, no upstream connection).  When the collective is ready to respond and onComplete is

@@ -7,9 +7,11 @@
 //*************************************************************************
 
 #include "analyzer.h"
+#include "ring_backtrace.h"
 
 #include <algorithm>
 #include <climits>
+#include <map>
 #include <cstdlib>
 #include <cstring>
 #include <ctime>
@@ -22,16 +24,6 @@
 
 #define PCCL_RAS_ANALYZER_MAGIC        0x50434844u
 #define PCCL_RAS_ANALYZER_MAX_BLOB_SIZE (256 * 1024 * 1024)
-
-#ifndef NCCL_DEVICE_H_
-typedef enum { CONN_NORMAL=0, CONN_ICN, CONN_PCIE, CONN_SHM, CONN_GDRDMA,
-               CONN_RDMA, CONN_SOCKET, CONN_NET_EXT, CONN_NUM } ncclConn_t;
-#endif
-
-struct analyzerRankEntry {
-  int rank;
-  struct rasDiagRankHeader* rh;
-};
 
 struct analyzerSummaryMessage {
   uint64_t commHash;
@@ -72,6 +64,26 @@ int analyzerConnTypeFromString(const char* s, int peer) {
   return RAS_DIAG_CONN_NONE;
 }
 
+// Standalone pcclras does not link init.cc; keep these names identical to
+// ncclFuncStr/ncclProtoStr there, like the connection-name table above.
+static const char* const kRasFuncStr[] = {
+  "Broadcast", "Reduce", "AllGather", "ReduceScatter", "AllReduce", "SendRecv"
+};
+static_assert(sizeof(kRasFuncStr) / sizeof(kRasFuncStr[0]) == NCCL_NUM_FUNCTIONS_WITH_P2P,
+              "kRasFuncStr must match NCCL_NUM_FUNCTIONS_WITH_P2P");
+static const char* const kRasProtoStr[] = {
+  "LL", "LL128", "Simple", "Signal", "SimpleBulk", "SignalBulk", "SimpleBulkAR"
+};
+static_assert(sizeof(kRasProtoStr) / sizeof(kRasProtoStr[0]) == NCCL_NUM_PROTOCOLS,
+              "kRasProtoStr must match NCCL_NUM_PROTOCOLS");
+
+static const char* analyzerFuncToString(uint8_t func) {
+  return func < NCCL_NUM_FUNCTIONS_WITH_P2P ? kRasFuncStr[func] : "Unknown";
+}
+static const char* analyzerProtoToString(uint8_t proto) {
+  return proto < NCCL_NUM_PROTOCOLS ? kRasProtoStr[proto] : "Unknown";
+}
+
 static bool analyzerConnTypeIsValid(uint8_t t) {
   if (t == RAS_DIAG_CONN_NONE) return true;
   return (t == CONN_ICN || t == CONN_GDRDMA || t == CONN_RDMA || t == CONN_NET_EXT);
@@ -87,25 +99,6 @@ static const char* analyzerCategoryName(int c) {
 
 static int rankIndexCompare(const void* a, const void* b) {
   return ((const analyzerRankEntry*)a)->rank - ((const analyzerRankEntry*)b)->rank;
-}
-
-static struct rasDiagChannel* findChannelInRank(struct rasDiagRankHeader* rh, int channelId) {
-  struct rasDiagChannel* dc = rasDiagFirstChannel(rh);
-  for (int c = 0; c < rh->nChannels; c++) {
-    if (dc->channelId == channelId) return dc;
-    dc = rasDiagNextChannel(dc);
-  }
-  return nullptr;
-}
-
-static struct rasDiagPeer* findPeerInChannel(struct rasDiagChannel* dc, int peerRank, uint8_t direction, uint8_t connector) {
-  struct rasDiagPeer* dp = rasDiagFirstPeer(dc);
-  for (int i = 0; i < dc->nPeerEntries; i++) {
-    if (dp[i].peerRank == peerRank && dp[i].direction == direction && dp[i].connector == connector) {
-      return &dp[i];
-    }
-  }
-  return nullptr;
 }
 
 static int analyzerBuildDiagIndex(const struct rasCollComms::comm* comm, analyzerRankEntry* idx, int maxIdx) {
@@ -193,9 +186,12 @@ static bool formatCompactRankList(const std::vector<int>& sortedRanks, char* out
 enum { EDGE_OK = 0, EDGE_ERROR = 1, EDGE_WARN = 2, EDGE_INFO = 3 };
 
 static int classifyEdge(uint64_t producerStep, uint64_t consumerStep,
-                        uint64_t producerHead, uint64_t consumerTail) {
+                        uint64_t producerHead, uint64_t consumerTail, bool headTailValid = true) {
   if (producerStep != consumerStep) return EDGE_ERROR;
-  if (producerHead != 0 && consumerTail != 0 && producerHead != consumerTail) return EDGE_WARN;
+  if (!headTailValid) return EDGE_OK;
+  bool headActive = (int64_t)producerHead > (int64_t)consumerStep;
+  bool tailActive = (int64_t)consumerTail > (int64_t)producerStep;
+  if (headActive && tailActive && producerHead != consumerTail) return EDGE_WARN;
   return EDGE_OK;
 }
 
@@ -204,8 +200,10 @@ static int checkEdgeStepHeadTail(FILE* fp, EnsureHeaderFn ensureHeader,
                                   int srcRank, int dstRank,
                                   uint64_t producerStep, uint64_t consumerStep,
                                   uint64_t producerHead, uint64_t consumerTail,
-                                  const char* prodLabel, const char* consLabel) {
-  if (producerStep != consumerStep) {
+                                  const char* prodLabel, const char* consLabel, bool headTailValid = true) {
+  int classification = classifyEdge(producerStep, consumerStep, producerHead, consumerTail, headTailValid);
+  if (fp == nullptr) return classification;
+  if (classification == EDGE_ERROR) {
     ensureHeader();
     long delta = (long)((int64_t)consumerStep - (int64_t)producerStep);
     fprintf(fp, "    [ERROR] rank%d -> rank%d : %s=%ld %s=%ld (delta=%+ld)\n",
@@ -213,11 +211,12 @@ static int checkEdgeStepHeadTail(FILE* fp, EnsureHeaderFn ensureHeader,
             consLabel, (long)consumerStep, delta);
     return EDGE_ERROR;
   }
+  if (!headTailValid) return EDGE_OK;
   // Use signed comparison: head/tail can be negative (initialized to -NCCL_STEPS
   // in shared mode for flow control credit accounting).
   bool headActive = ((int64_t)producerHead > (int64_t)consumerStep);
   bool tailActive = ((int64_t)consumerTail > (int64_t)producerStep);
-  if (headActive && tailActive && producerHead != consumerTail) {
+  if (classification == EDGE_WARN) {
     ensureHeader();
     fprintf(fp, "    [WARN]  rank%d -> rank%d : head/tail mismatch (head=%ld tail=%ld), "
                 "kernel in-flight, possible anomaly\n",
@@ -408,68 +407,200 @@ static analyzerResult_t analyzerCheckConsistency(FILE* fp, const analyzerRankEnt
   return analyzerSuccess;
 }
 
-static analyzerResult_t analyzerCheckRingGraph(FILE* fp, const analyzerRankEntry* ranks, int nRanks) {
-  if (fp == nullptr || ranks == nullptr || nRanks <= 0) return analyzerDataMissing;
-  fprintf(fp, "\n[Check: RingGraph (per ring edge: prev.send.devStep vs my.recv.devStep; "
-              "secondary inflight check via head/tail)]\n");
-  std::unordered_map<int, int> channelCount;
+static void reportRingTrace(FILE* fp, const ringTraceResult& trace, const analyzerRankEntry* ranks) {
+  if (trace.status != RING_TRACE_SUSPECT) return;
+  // Print the operands from existing peer records and the gaps already computed
+  // by traceRingHead. Do not reconstruct the diagnostic rule in the formatter.
+  const char* stepPrefix = trace.stepAlignment > 1 ? "ROUNDUP(" : "";
+  std::string stepSuffix = trace.stepAlignment > 1 ? ", " + std::to_string(trace.stepAlignment) + ")" : "";
+  bool usesIcnRecvHead = false;
+  bool usesNetSendHead = false;
+  auto printComparison = [&](int rank, int64_t gap, const char* relation) {
+    auto* channel = findChannelInRank(ranks[rank].rh, trace.channelId);
+    int previousRank = channel->ringPrev;
+    int nextRank = channel->ringNext;
+    const auto* recvPeer = findPeerInChannel(channel, previousRank, /*recv*/ 1, /*coll*/ 0);
+    const auto* sendPeer = findPeerInChannel(channel, nextRank, /*send*/ 0, /*coll*/ 0);
+    auto* previousChannel = findChannelInRank(ranks[previousRank].rh, trace.channelId);
+    auto* nextChannel = findChannelInRank(ranks[nextRank].rh, trace.channelId);
+    bool incomingIsNet = isNetConnection(channel->ringRecvConn);
+    bool outgoingIsNet = channel->ringOperation.sendIsNet;
+    // ICN recv.head aliases prev.send.head, read from the sender's local mapping.
+    // NET send.logicalHead denotes next.recv.head, not send-proxy completion.
+    uint64_t recvHead = incomingIsNet ? recvPeer->head : findPeerInChannel(previousChannel, rank, 0, 0)->head;
+    uint64_t sendHead = outgoingIsNet ? findPeerInChannel(nextChannel, rank, 1, 0)->head : sendPeer->head;
+    usesIcnRecvHead |= !incomingIsNet;
+    usesNetSendHead |= outgoingIsNet;
+    fprintf(fp, "rank%d.forwardingGap=(rank%d.recv.head=%lu - %srank%d.recv.devStep=%lu%s) - ",
+            rank, rank, recvHead, stepPrefix, rank, recvPeer->devStep, stepSuffix.c_str());
+    fprintf(fp, "(rank%d.send.%s=%lu - %srank%d.send.devStep=%lu%s)=%ld %s 0",
+            rank, outgoingIsNet ? "logicalHead" : "head", sendHead,
+            stepPrefix, rank, sendPeer->devStep, stepSuffix.c_str(), (long)gap, relation);
+  };
+  auto printRingEdge = [&](int rank) {
+    const auto* channel = findChannelInRank(ranks[rank].rh, trace.channelId);
+    const auto& operation = channel->ringOperation;
+    if (operation.sendIsNet && operation.sendProxyRank != rank) {
+      if (operation.sendProxyRank >= 0) fprintf(fp, "->(%d)", operation.sendProxyRank);
+      else if (operation.sendProxyTpRank >= 0) fprintf(fp, "->(tpRank=%d)", operation.sendProxyTpRank);
+      else fprintf(fp, "->(?)");
+    }
+    fprintf(fp, "->%d", channel->ringNext);
+  };
+  fprintf(fp, "  [SUSPECT] HeadRingTrace channel %d seq=%lu: collective=%s protocol=%s candidates=%zu\n",
+          trace.channelId, trace.seqNumber, analyzerFuncToString(trace.collective), analyzerProtoToString(trace.protocol),
+          trace.candidates.size());
+  for (const auto& candidate : trace.candidates) {
+    const auto* sourceChannel = findChannelInRank(ranks[candidate.sourceRank].rh, trace.channelId);
+    const auto* destinationChannel = findChannelInRank(ranks[candidate.destinationRank].rh, trace.channelId);
+    // PXN keeps an ICN device send type; report this edge's logical NET transport.
+    uint8_t transport = sourceChannel->ringOperation.sendIsNet ? destinationChannel->ringRecvConn : sourceChannel->ringSendConn;
+    fprintf(fp, "    rank%d -> rank%d: ring=%d", candidate.sourceRank, candidate.destinationRank, sourceChannel->ringPrev);
+    printRingEdge(sourceChannel->ringPrev);
+    printRingEdge(candidate.sourceRank);
+    if (candidate.destinationIsForwarder) printRingEdge(candidate.destinationRank);
+    fprintf(fp, "; rank%d.kernelIndex=%lu rank%d.kernelIndex=%lu; transport=%s; ",
+            candidate.sourceRank, sourceChannel->ringOperation.kernelIndex, candidate.destinationRank,
+            destinationChannel->ringOperation.kernelIndex,
+            analyzerConnTypeToString(transport));
+    printComparison(candidate.sourceRank, candidate.forwardingGap, ">");
+    if (candidate.destinationIsForwarder) {
+      fprintf(fp, "; ");
+      printComparison(candidate.destinationRank, candidate.nextForwardingGap,
+                      trace.collective < ncclFuncAllGather ? "==" : "<=");
+    }
+    fprintf(fp, "\n");
+  }
+  fprintf(fp, "    ");
+  if (usesIcnRecvHead) fprintf(fp, "ICN recv.head read via prev.send.head; ");
+  if (usesNetSendHead) fprintf(fp, "NET/PXN send.logicalHead=next.recv.head; ");
+  fprintf(fp,
+          "single snapshot; counter stability not checked; device timeout observed; %d positive forwarding lower-bound gap(s). "
+          "%s; transient backlog possible; cross-rank snapshot is not atomic, not proof of physical cause or a unique fault.\n",
+          trace.positiveGapCount,
+          trace.collective < ncclFuncAllGather ? "First boundary from open-chain terminal"
+                                               : "Terminal boundaries of closed-ring backlog segments");
+}
+
+// Shared Ring result for detailed reports and summaries. Counters remain in the
+// original records; only diagnostic results and coverage are retained here.
+enum ringGraphStatus { RING_GRAPH_PASS, RING_GRAPH_SKIPPED, RING_GRAPH_INCONCLUSIVE, RING_GRAPH_WARNING, RING_GRAPH_ERROR };
+
+static const char* ringGraphStatusName(ringGraphStatus status) {
+  static const char* const names[] = {"PASS", "SKIPPED", "INCONCLUSIVE", "WARNING", "ERROR"};
+  return names[status];
+}
+
+struct ringGraphResult {
+  std::vector<ringTraceResult> traces;
+  int nonRingChannels = 0;
+  int skipped = 0, inconclusive = 0, suspect = 0;
+  int stepMismatches = 0, inflightWarnings = 0, uncheckedEdges = 0;
+
+  ringGraphStatus status() const {
+    if (stepMismatches) return RING_GRAPH_ERROR;
+    if (suspect || inflightWarnings) return RING_GRAPH_WARNING;
+    if (inconclusive || uncheckedEdges || (traces.empty() && !nonRingChannels)) return RING_GRAPH_INCONCLUSIVE;
+    if (skipped || traces.empty()) return RING_GRAPH_SKIPPED;
+    return RING_GRAPH_PASS;
+  }
+};
+
+// Coalesce expected skips and incomplete diagnoses by reason. Suspect channels
+// retain their detailed operands; completed channels need no separate message.
+static std::vector<std::string> ringGraphReasons(const ringGraphResult& result) {
+  std::map<std::pair<ringTraceStatus, std::string>, std::vector<int>> groups;
+  for (const auto& trace : result.traces) {
+    if (trace.status == RING_TRACE_SKIPPED || trace.status == RING_TRACE_INCONCLUSIVE)
+      groups[{trace.status, trace.reason}].push_back(trace.channelId);
+  }
+  std::vector<std::string> messages;
+  for (auto& group : groups) {
+    char channels[320];
+    formatCompactRankList(group.second, channels, sizeof(channels));
+    const char* status = group.first.first == RING_TRACE_SKIPPED ? "SKIPPED" : "INCONCLUSIVE";
+    messages.push_back(std::string("[") + status + "] HeadRingTrace channels [" + channels + "]: " + group.first.second);
+  }
+  if (result.nonRingChannels)
+    messages.push_back("[SKIPPED] " + std::to_string(result.nonRingChannels) + " non-Ring channel(s)");
+  if (result.traces.empty() && !result.nonRingChannels)
+    messages.push_back("[INCONCLUSIVE] no usable Ring channel snapshots");
+  return messages;
+}
+
+// A null output stream collects the identical results without printing details.
+static ringGraphResult analyzeRingGraph(FILE* fp, const analyzerRankEntry* ranks, int nRanks, int expectedRanks) {
+  ringGraphResult result;
+  std::map<int, int> channelCount, nonRingCount;
   for (int r = 0; r < nRanks; r++) {
     struct rasDiagChannel* dc = rasDiagFirstChannel(ranks[r].rh);
-    for (int c = 0; c < ranks[r].rh->nChannels; c++) { channelCount[dc->channelId]++; dc = rasDiagNextChannel(dc); }
+    for (int c = 0; c < ranks[r].rh->nChannels; c++) {
+      channelCount[dc->channelId]++;
+      if (dc->ringExcluded == 1) nonRingCount[dc->channelId]++;
+      dc = rasDiagNextChannel(dc);
+    }
   }
-  std::vector<int> sortedChannels;
-  sortedChannels.reserve(channelCount.size());
-  for (auto& kv : channelCount) sortedChannels.push_back(kv.first);
-  std::sort(sortedChannels.begin(), sortedChannels.end());
-
-  int nBad = 0;
-  int nInflightWarn = 0;
-  for (int channelId : sortedChannels) {
-    int nSkippedNoPrevRank = 0, nSkippedNoPrevChannel = 0, nSkippedNoPeerEntry = 0;
+  for (const auto& channel : channelCount) {
+    int channelId = channel.first;
+    // Exclude only explicitly non-Ring channels. Negative Ring peers alone may
+    // mean incomplete initialization; missing ranks or conflicting snapshots stay inconclusive.
+    if (nRanks == expectedRanks && nonRingCount[channelId] == channel.second) {
+      result.nonRingChannels++;
+      continue;
+    }
+    result.traces.push_back(traceRingHead(ranks, nRanks, expectedRanks, channelId));
+    const auto& trace = result.traces.back();
+    switch (trace.status) {
+      case RING_TRACE_COMPLETED: break;
+      case RING_TRACE_SKIPPED: result.skipped++; break;
+      case RING_TRACE_INCONCLUSIVE: result.inconclusive++; break;
+      case RING_TRACE_SUSPECT: result.suspect++; break;
+    }
+    if (fp) reportRingTrace(fp, trace, ranks);
     bool printedHeader = false;
     auto ensureHeader = [&]() {
       if (!printedHeader) { fprintf(fp, "  channel %d:\n", channelId); printedHeader = true; }
     };
     for (int r = 0; r < nRanks; r++) {
-      struct rasDiagChannel* myChannel = findChannelInRank(ranks[r].rh, channelId);
-      if (myChannel == nullptr) continue;
+      auto* myChannel = findChannelInRank(ranks[r].rh, channelId);
+      if (!myChannel) { result.uncheckedEdges++; continue; }
       int myRank = ranks[r].rank;
       int prev = myChannel->ringPrev;
-      if (prev < 0) continue;
+      if (prev < 0) { result.uncheckedEdges++; continue; }
       analyzerRankEntry key{prev, nullptr};
-      analyzerRankEntry* found = static_cast<analyzerRankEntry*>(bsearch(&key, ranks, nRanks, sizeof(*ranks), rankIndexCompare));
-      if (found == nullptr)       { nSkippedNoPrevRank++; continue; }
-      struct rasDiagChannel* prevChannel = findChannelInRank(found->rh, channelId);
-      if (prevChannel == nullptr)    { nSkippedNoPrevChannel++; continue; }
-      struct rasDiagPeer* prevSend = findPeerInChannel(prevChannel, myRank, /*send*/0, /*coll*/0);
-      struct rasDiagPeer* myRecv  = findPeerInChannel(myChannel,   prev,   /*recv*/1, /*coll*/0);
-      if (prevSend == nullptr || myRecv == nullptr) { nSkippedNoPeerEntry++; continue; }
+      auto* found = static_cast<analyzerRankEntry*>(bsearch(&key, ranks, nRanks, sizeof(*ranks), rankIndexCompare));
+      auto* prevChannel = found ? findChannelInRank(found->rh, channelId) : nullptr;
+      auto* prevSend = prevChannel ? findPeerInChannel(prevChannel, myRank, 0, 0) : nullptr;
+      auto* myRecv = findPeerInChannel(myChannel, prev, 1, 0);
+      if (!prevSend || !myRecv || !prevSend->connected || !myRecv->connected ||
+          !(prevSend->readValid & RAS_DIAG_PEER_STEP_VALID) || !(myRecv->readValid & RAS_DIAG_PEER_STEP_VALID)) {
+        result.uncheckedEdges++;
+        continue;
+      }
+      // Still compare valid saved steps when either head/tail read failed.
+      // Count the secondary check as incomplete instead of interpreting placeholders.
+      bool headTailValid = (prevSend->readValid & RAS_DIAG_PEER_HEAD_VALID) &&
+                           (myRecv->readValid & RAS_DIAG_PEER_TAIL_VALID);
+      if (!headTailValid) result.uncheckedEdges++;
       int edgeResult = checkEdgeStepHeadTail(fp, ensureHeader, prev, myRank,
-                          prevSend->devStep, myRecv->devStep,
-                          prevSend->head, myRecv->tail,
-                          "prev.send.devStep", "my.recv.devStep");
-      if (edgeResult == EDGE_ERROR) { nBad++; continue; }
-      if (edgeResult == EDGE_WARN) nInflightWarn++;
-    }
-    if (nSkippedNoPrevRank || nSkippedNoPrevChannel || nSkippedNoPeerEntry) {
-      ensureHeader();
-      fprintf(fp, "    [WARN]  skipped");
-      if (nSkippedNoPrevRank)  fprintf(fp, " %d edge(s) [prev rank has no diag block]", nSkippedNoPrevRank);
-      if (nSkippedNoPrevChannel)  fprintf(fp, " %d edge(s) [prev rank missing this channel]", nSkippedNoPrevChannel);
-      if (nSkippedNoPeerEntry) fprintf(fp, " %d edge(s) [coll send/recv peer entry not found]", nSkippedNoPeerEntry);
-      fprintf(fp, "\n");
+                           prevSend->devStep, myRecv->devStep, prevSend->head, myRecv->tail,
+                           "prev.send.devStep", "my.recv.devStep", headTailValid);
+      if (edgeResult == EDGE_ERROR) result.stepMismatches++;
+      if (edgeResult == EDGE_WARN) result.inflightWarnings++;
     }
   }
-  if (nBad > 0) {
-    fprintf(fp, "  FAIL (%d ring edge(s) with prev.send.devStep != my.recv.devStep%s)\n",
-            nBad, nInflightWarn ? "; additional inflight imbalances also detected" : "");
-  } else if (nInflightWarn > 0) {
-    fprintf(fp, "  WARNING: %d edge(s) with mid-kernel inflight imbalance "
-                "(head != tail); may be a real mid-kernel hang or LL protocol leaving stale tail\n",
-            nInflightWarn);
-  } else {
-    fprintf(fp, "  PASS (prev.send.devStep == my.recv.devStep on every ring edge)\n");
-  }
+  return result;
+}
+
+static analyzerResult_t analyzerCheckRingGraph(FILE* fp, const analyzerRankEntry* ranks, int nRanks, int expectedRanks) {
+  if (fp == nullptr) return analyzerDataMissing;
+  fprintf(fp, "\n[Check: RingGraph (saved steps, head/tail and consumption-head attribution)]\n");
+  auto result = analyzeRingGraph(fp, ranks, nRanks, expectedRanks);
+  if (result.uncheckedEdges)
+    fprintf(fp, "  [INCONCLUSIVE] Legacy: %d edge check(s) incomplete; missing peer data or unreadable head/tail/step\n",
+            result.uncheckedEdges);
+  for (const auto& reason : ringGraphReasons(result)) fprintf(fp, "  %s\n", reason.c_str());
+  fprintf(fp, "  Result: %s\n", ringGraphStatusName(result.status()));
   return analyzerSuccess;
 }
 
@@ -612,18 +743,21 @@ int analyzerFormatReport(FILE* fp, const struct rasCollComms* blob, int nLegTime
   const struct rasCollComms::comm* comm = blob->comms;
   int analyzed = 0;
   for (int i = 0; i < blob->nComms; i++) {
-    if (comm->nDiagBytes > 0) {
+    if (comm->nDiagBytes > 0 || singleCategory == -1 || singleCategory == ANALYZER_CAT_RING_GRAPH) {
       fprintf(fp, "\n---- comm 0x%lx (%d/%d ranks, %d diag bytes) ----\n",
               (unsigned long)comm->commId.commHash, comm->nValidRanks, comm->nRanks, comm->nDiagBytes);
       std::vector<analyzerRankEntry> ranksVec(comm->nRanks);
       analyzerRankEntry* ranks = ranksVec.data();
       int nRanks = analyzerBuildDiagIndex(comm, ranks, comm->nRanks);
       if (nRanks == 0) {
-        fprintf(fp, "  (no usable rank blocks; check wire version)\n");
+        fprintf(fp, comm->nDiagBytes > 0 ? "  (no usable rank blocks; check wire version)\n"
+                                      : "  (no rank diagnostic snapshots)\n");
+        if (singleCategory == -1 || singleCategory == ANALYZER_CAT_RING_GRAPH)
+          analyzerCheckRingGraph(fp, ranks, nRanks, comm->nRanks);
       } else {
         if (singleCategory == -1 || singleCategory == ANALYZER_CAT_CONN_TYPE)   analyzerCheckConnType(fp, ranks, nRanks);
         if (singleCategory == -1 || singleCategory == ANALYZER_CAT_CONSISTENCY) analyzerCheckConsistency(fp, ranks, nRanks, comm->nRanks);
-        if (singleCategory == -1 || singleCategory == ANALYZER_CAT_RING_GRAPH)  analyzerCheckRingGraph(fp, ranks, nRanks);
+        if (singleCategory == -1 || singleCategory == ANALYZER_CAT_RING_GRAPH)  analyzerCheckRingGraph(fp, ranks, nRanks, comm->nRanks);
         if (singleCategory == -1 || singleCategory == ANALYZER_CAT_P2P_CONNECT) analyzerCheckP2pConnect(fp, ranks, nRanks);
         if (singleCategory == -1 || singleCategory == ANALYZER_CAT_HANG_REPORTED) analyzerCheckHangReported(fp, ranks, nRanks);
       }
@@ -725,45 +859,28 @@ static void analyzerCollectConsistency(uint64_t commHash, const analyzerRankEntr
   out.push_back({commHash, buf, false});
 }
 
-static void analyzerCollectRingGraph(uint64_t commHash, const analyzerRankEntry* ranks, int nRanks,
-                             std::vector<analyzerSummaryMessage>& out) {
-  std::unordered_map<int, int> channelCount;
-  buildChannelCount(ranks, nRanks, channelCount);
-  int nMismatch = 0, nInflightWarn = 0;
-  std::unordered_map<int, int> errorChannels, warnChannels;
-  for (auto& kv : channelCount) {
-    int channelId = kv.first;
-    for (int r = 0; r < nRanks; r++) {
-      struct rasDiagChannel* myChannel = findChannelInRank(ranks[r].rh, channelId);
-      if (myChannel == nullptr) continue;
-      int myRank = ranks[r].rank;
-      int prev = myChannel->ringPrev;
-      if (prev < 0) continue;
-      analyzerRankEntry key{prev, nullptr};
-      analyzerRankEntry* found = static_cast<analyzerRankEntry*>(bsearch(&key, ranks, nRanks, sizeof(*ranks), rankIndexCompare));
-      if (found == nullptr) continue;
-      struct rasDiagChannel* prevChannel = findChannelInRank(found->rh, channelId);
-      if (prevChannel == nullptr) continue;
-      struct rasDiagPeer* prevSend = findPeerInChannel(prevChannel, myRank, 0, 0);
-      struct rasDiagPeer* myRecv = findPeerInChannel(myChannel, prev, 1, 0);
-      if (prevSend == nullptr || myRecv == nullptr) continue;
-      int cls = classifyEdge(prevSend->devStep, myRecv->devStep, prevSend->head, myRecv->tail);
-      if (cls == EDGE_ERROR) { nMismatch++; errorChannels[channelId]++; }
-      else if (cls == EDGE_WARN) { nInflightWarn++; warnChannels[channelId]++; }
-    }
-  }
-  if (nMismatch > 0) {
-    char buf[256];
-    snprintf(buf, sizeof(buf), "%d ring edge(s) with step mismatch across %zu channel(s)",
-             nMismatch, errorChannels.size());
-    out.push_back({commHash, buf, false});
-  }
-  if (nInflightWarn > 0) {
-    char buf[256];
-    snprintf(buf, sizeof(buf), "%d ring edge(s) with head/tail imbalance across %zu channel(s)",
-             nInflightWarn, warnChannels.size());
+static ringGraphStatus analyzerCollectRingGraph(uint64_t commHash, const analyzerRankEntry* ranks, int nRanks, int expectedRanks,
+                                               std::vector<analyzerSummaryMessage>& out) {
+  auto result = analyzeRingGraph(nullptr, ranks, nRanks, expectedRanks);
+  for (const auto& trace : result.traces) {
+    if (trace.status != RING_TRACE_SUSPECT) continue;
+    const auto& firstCandidate = trace.candidates.front();
+    char buf[320];
+    snprintf(buf, sizeof(buf), "HeadRingTrace channel %d seq=%lu suspect rank%d -> rank%d: collective=%s protocol=%s; "
+                              "%zu terminal boundary candidate(s), first shown; see detailed report; not physical root cause",
+             trace.channelId, trace.seqNumber, firstCandidate.sourceRank, firstCandidate.destinationRank,
+             analyzerFuncToString(trace.collective), analyzerProtoToString(trace.protocol), trace.candidates.size());
     out.push_back({commHash, buf, true});
   }
+  for (const auto& reason : ringGraphReasons(result)) out.push_back({commHash, reason, true});
+  if (result.stepMismatches)
+    out.push_back({commHash, std::to_string(result.stepMismatches) + " ring edge(s) with step mismatch", false});
+  if (result.inflightWarnings)
+    out.push_back({commHash, std::to_string(result.inflightWarnings) + " ring edge(s) with head/tail imbalance", true});
+  if (result.uncheckedEdges)
+    out.push_back({commHash, std::to_string(result.uncheckedEdges) +
+                            " legacy edge check(s) incomplete: missing peer data or unreadable head/tail/step", true});
+  return result.status();
 }
 
 static void analyzerCollectP2pConnect(uint64_t commHash, const analyzerRankEntry* ranks, int nRanks,
@@ -842,11 +959,35 @@ static void analyzerCollectHangReported(uint64_t commHash, const analyzerRankEnt
   out.push_back({commHash, buf, false});
 }
 
+int analyzerSelectComm(struct rasCollComms* blob, int nBlobBytes, uint64_t commHash) {
+  if (blob == nullptr || nBlobBytes < (int)sizeof(*blob) || blob->nComms < 0) return -1;
+  if (commHash == 0) return nBlobBytes;
+  size_t readOffset = sizeof(*blob), writeOffset = sizeof(*blob);
+  int selected = 0;
+  for (int i = 0; i < blob->nComms; i++) {
+    if (sizeof(rasCollComms::comm) > (size_t)nBlobBytes - readOffset) return -1;
+    auto* comm = (struct rasCollComms::comm*)((char*)blob + readOffset);
+    if (comm->nValidRanks < 0 || comm->nMissingRanks < 0 || comm->nDiagBytes < 0) return -1;
+    size_t bytes = rasCollCommsCommSize(comm);
+    if (bytes > (size_t)nBlobBytes - readOffset) return -1;
+    if (comm->commId.commHash == commHash) {
+      // Keep selected entries even when their diagnostic tier is missing.
+      memmove((char*)blob + writeOffset, comm, bytes);
+      writeOffset += bytes;
+      selected++;
+    }
+    readOffset += bytes;
+  }
+  blob->nComms = selected;
+  return (int)writeOffset;
+}
+
 int analyzerFormatSummary(FILE* fp, const struct rasCollComms* blob) {
   if (fp == nullptr || blob == nullptr) return -1;
   std::vector<analyzerSummaryMessage> byCategory[ANALYZER_CAT_COUNT];
   int errorComms[ANALYZER_CAT_COUNT] = {};
   int warnComms[ANALYZER_CAT_COUNT] = {};
+  std::vector<ringGraphStatus> ringStatuses;
 
   const struct rasCollComms::comm* comm = blob->comms;
   int analyzed = 0;
@@ -855,13 +996,13 @@ int analyzerFormatSummary(FILE* fp, const struct rasCollComms* blob) {
       std::vector<analyzerRankEntry> ranksVec(comm->nRanks);
       analyzerRankEntry* ranks = ranksVec.data();
       int nRanks = analyzerBuildDiagIndex(comm, ranks, comm->nRanks);
+      uint64_t h = comm->commId.commHash;
+      ringStatuses.push_back(analyzerCollectRingGraph(h, ranks, nRanks, comm->nRanks, byCategory[ANALYZER_CAT_RING_GRAPH]));
       if (nRanks > 0) {
         size_t previousSizes[ANALYZER_CAT_COUNT];
         for (int cat = 0; cat < ANALYZER_CAT_COUNT; cat++) previousSizes[cat] = byCategory[cat].size();
-        uint64_t h = comm->commId.commHash;
         analyzerCollectConnType(h, ranks, nRanks, byCategory[ANALYZER_CAT_CONN_TYPE]);
         analyzerCollectConsistency(h, ranks, nRanks, comm->nRanks, byCategory[ANALYZER_CAT_CONSISTENCY]);
-        analyzerCollectRingGraph(h, ranks, nRanks, byCategory[ANALYZER_CAT_RING_GRAPH]);
         analyzerCollectP2pConnect(h, ranks, nRanks, byCategory[ANALYZER_CAT_P2P_CONNECT]);
         analyzerCollectHangReported(h, ranks, nRanks, byCategory[ANALYZER_CAT_HANG_REPORTED]);
         // Classify per collected entry: an entry counts as ERROR only if it
@@ -879,16 +1020,30 @@ int analyzerFormatSummary(FILE* fp, const struct rasCollComms* blob) {
         }
         analyzed++;
       }
+    } else {
+      ringStatuses.push_back(RING_GRAPH_INCONCLUSIVE);
+      byCategory[ANALYZER_CAT_RING_GRAPH].push_back({comm->commId.commHash, "[INCONCLUSIVE] no rank diagnostic snapshots", true});
     }
     comm = rasCollCommsCommNext(comm);
   }
 
-  if (analyzed == 0) {
+  if (analyzed == 0 && ringStatuses.empty()) {
     fprintf(fp, "(no comms carried diag tier; INCLUDE_DIAG flag may not have been set)\n\n");
     return 0;
   }
   for (int cat = 0; cat < ANALYZER_CAT_COUNT; cat++) {
     auto& findings = byCategory[cat];
+    if (cat == ANALYZER_CAT_RING_GRAPH) {
+      ringGraphStatus status = RING_GRAPH_PASS;
+      for (auto commStatus : ringStatuses) status = std::max(status, commStatus);
+      int affectedComms = std::count(ringStatuses.begin(), ringStatuses.end(), status);
+      if (status == RING_GRAPH_PASS) fprintf(fp, "# ringgraph PASS\n");
+      else fprintf(fp, "# ringgraph %d/%zu comms %s\n", affectedComms, ringStatuses.size(), ringGraphStatusName(status));
+      for (const auto& finding : findings)
+        fprintf(fp, "  0x%lx : %s\n", (unsigned long)finding.commHash, finding.brief.c_str());
+      continue;
+    }
+    if (analyzed == 0) continue;
     bool hasError = false, hasWarn = false;
     for (auto& f : findings) { if (f.isWarn) hasWarn = true; else hasError = true; }
     if (hasError) {

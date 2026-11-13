@@ -14,6 +14,8 @@
 #include "drv_extension.h"
 #include "hggc_runtime.h"
 
+struct rasDiagRingOperation;
+
 #define COMM_DUMP_MASK_BITS 4
 typedef enum {
   DUMP_NONE = 0x0,
@@ -29,8 +31,10 @@ typedef enum {
 // of running a second device-IO pass.  Any callback may be null.  Invocation
 // order per dumped comm: initRankDiagHeader -> for each channel { collectChannelState -> for
 // each connected (peer, connector, direction) { collectPeerConn } } -> finalizeRankDiagHeader.
+// collectChannelState also receives retained operation metadata; no counter is read twice.
 //
 // collectChannelState arguments:
+//  - operation: optional retained Ring metadata; nullptr leaves Ring attribution unavailable.
 //  - devHangReportedKernelIdx / devHangReportedKernelIdxValid: value of
 //    hostDevIndexLevel1, the kernelIdx the kernel itself wrote when checkAbort
 //    detected a suspected hang.  Sticky; never written = 0 (and Valid=true);
@@ -45,10 +49,11 @@ struct pcclCommDiagCollector {
   void (*initRankDiagHeader)(void* ctx, ncclComm_t comm);
   void (*collectChannelState)(void* ctx, ncclComm_t comm, int channelId,
                     uint64_t devHangReportedKernelIdx, bool devHangReportedKernelIdxValid,
-                    uint64_t devCompletedKernelIdx,    bool devCompletedKernelIdxValid);
+                    uint64_t devCompletedKernelIdx,    bool devCompletedKernelIdxValid,
+                    const rasDiagRingOperation* operation);
   void (*collectPeerConn)(void* ctx, ncclComm_t comm, int channelId, int peerRank,
                  uint8_t connector, uint8_t direction,
-                 uint64_t head, uint64_t tail, uint64_t devStep);
+                 uint64_t head, uint64_t tail, uint64_t devStep, uint8_t readValid);
   void (*finalizeRankDiagHeader)(void* ctx, ncclComm_t comm);
 };
 
@@ -78,18 +83,20 @@ static inline ncclResult_t checkPtrLockable(const void* devPtr, int* lockablePtr
 }
 
 // Best-effort single-u64 device read via MemLock; returns 0 on any failure.
-static inline uint64_t safeReadDevU64(uint64_t* devPtr) {
+static inline uint64_t safeReadDevU64(uint64_t* devPtr, bool* valid = nullptr) {
+  if (valid) *valid = false;
   if (devPtr == nullptr) return 0;
   hggcEitInterface& hggcEit = hggcEitInterface::getInstance();
   if (!hggcEit.checkExtTable()) return 0;
 
   int lockable = 0;
   if (checkPtrLockable(devPtr, &lockable) != ncclSuccess || lockable == 0) return 0;
-  if (lockable == 2) return *devPtr;
+  if (lockable == 2) { if (valid) *valid = true; return *(volatile uint64_t*)devPtr; }
 
   void* cpuPtr = nullptr;
   if (hggcEit.wrapHggcMemLock((HGdeviceptr)devPtr, &cpuPtr) != hggcSuccess) return 0;
-  uint64_t val = (cpuPtr ? *(uint64_t*)cpuPtr : 0);
+  if (valid) *valid = cpuPtr != nullptr;
+  uint64_t val = (cpuPtr ? *(volatile uint64_t*)cpuPtr : 0);
   hggcEit.wrapHggcMemUnlock((HGdeviceptr)devPtr);
   return val;
 }
@@ -146,5 +153,9 @@ static inline char* copyDevWorkFromStorage(
   }
   return localBuf;
 }
+
+// Read retained host operation metadata; leave info->valid clear when unsupported.
+// Reuse existing device counters without resampling them.
+void readRingOperation(ncclComm_t comm, int channelId, rasDiagRingOperation* info);
 
 #endif  // PCCL_COMM_DUMPER_H_

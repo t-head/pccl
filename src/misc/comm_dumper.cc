@@ -13,16 +13,169 @@
 #include "transport.h"
 #include "pccl_internal.h"
 #include "comm_dumper.h"
+#include "net.h"
+#include "p2p.h"
 #include "ras/ras_wire.h"
 
 #define PCCL_DUMP_VERSION_MAJOR 0x02
-#define PCCL_DUMP_VERSION_MINOR 0x01
+#define PCCL_DUMP_VERSION_MINOR 0x02
 #define PCCL_DUMP_VERSION ((PCCL_DUMP_VERSION_MAJOR<<16) + PCCL_DUMP_VERSION_MINOR)
 
 PCCL_PARAM(DevKernelArgsFifoDepth, "DEV_KERNEL_ARGS_FIFO_DEPTH", 2048);
 
-int64_t pcclDevKernelArgsFifoDepth() { return pcclParamDevKernelArgsFifoDepth(); }
+int64_t pcclDevKernelArgsFifoDepth() {
+  return pcclParamDevKernelArgsFifoDepth();
+}
 
+static bool isNetConnection(ncclConn_t type) {
+  return type == CONN_GDRDMA || type == CONN_RDMA;
+}
+
+static bool isRingHeadTransportSupported(const ncclConnector& connector, ncclConn_t type, bool isSend) {
+  if (!connector.connected) return false;
+
+  const ncclTransportComm* p2pTransport =
+      isSend ? &ncclTransports[TRANSPORT_P2P]->send : &ncclTransports[TRANSPORT_P2P]->recv;
+  if (connector.transportComm == p2pTransport) {
+    return type == CONN_ICN && !usingMemcpy();
+  }
+
+  // Ring connector 0 has dedicated buffers, including PXN. NET consumption
+  // is read at the destination; the send proxy need not belong to this rank.
+  const ncclTransportComm* netTransport =
+      isSend ? &ncclTransports[TRANSPORT_NET]->send : &ncclTransports[TRANSPORT_NET]->recv;
+  bool isNetDevicePath = isNetConnection(type) || (isSend && type == CONN_ICN);
+  return isNetDevicePath && ncclNet == &ncclNetIb && connector.transportComm == netTransport;
+}
+
+// Conservative scope: one retained in-args work per channel. FIFO/persistent
+// storage and multi-work execution require additional lifetime/identity checks.
+void readRingOperation(ncclComm_t comm, int channelId, rasDiagRingOperation* info) {
+  *info = {};
+  info->sendProxyRank = -1;
+  info->sendProxyTpRank = -1;
+  // Require retained kernel arguments and a valid channel before reading its kernel index.
+  if (comm->kernelInfoMonitorPtr == nullptr || channelId < 0 || channelId >= comm->nChannels) return;
+  uint64_t kernelIndex = comm->channelKernelIdx[channelId];
+  int64_t fifoDepth = pcclDevKernelArgsFifoDepth();
+  // No submitted kernel or no retention capacity means there is no operation to inspect.
+  if (kernelIndex == 0 || fifoDepth <= 0) return;
+
+  KernelInfoMonitor savedMonitor;
+  memcpy(&savedMonitor, &comm->kernelInfoMonitorPtr[(kernelIndex - 1) % fifoDepth], sizeof(savedMonitor));
+  const ncclDevKernelArgs1K& savedArgs = savedMonitor.kernelArgs;
+  const ncclDevKernelArgs& args = savedArgs.args;
+  // Reject a reused monitor slot or a channel that advanced while we copied its arguments.
+  // Persistent/FIFO work requires lifetime and operation-identity checks beyond this
+  // saved argument copy. The kernel must contain this channel to locate its batch correctly.
+  if (args.kernelIdx != kernelIndex || comm->channelKernelIdx[channelId] != kernelIndex || args.persistent ||
+      args.workStorageType != ncclDevWorkStorageTypeArgs || !(args.channelMask & (1ULL << channelId))) {
+    return;
+  }
+
+  size_t blockIndex = __builtin_popcountll(args.channelMask & ((1ULL << channelId) - 1));
+  size_t batchOffset = sizeof(ncclDevKernelArgs) + blockIndex * sizeof(ncclDevWorkBatch);
+  // The channel's batch descriptor must fit entirely in the retained argument copy.
+  if (batchOffset + sizeof(ncclDevWorkBatch) > sizeof(savedArgs)) return;
+  ncclDevWorkBatch batch;
+  memcpy(&batch, (const char*)&savedArgs + batchOffset, sizeof(batch));
+  // Exactly one set bit means that this batch contains exactly one work.
+  bool hasSingleWork = batch.offsetBitset != 0 && (batch.offsetBitset & (batch.offsetBitset - 1)) == 0;
+  // Head/step attribution requires one native collective work for this channel.
+  // Linked or extended batches can contain additional work; P2P work/functions use
+  // a different layout and must not be decoded as a collective operation.
+  if (batch.nextJump || batch.nextExtends || batch.workType != ncclDevWorkTypeColl || !hasSingleWork ||
+      batch.funcId < NUM_P2P_FUNC) {
+    return;
+  }
+
+  // Decode FUNC_INDEX in reverse order: protocol, algorithm, type, red-op, collective.
+  int functionIndex = batch.funcId - NUM_P2P_FUNC;
+  int protocol = functionIndex % NCCL_NUM_PROTOCOLS;
+  functionIndex /= NCCL_NUM_PROTOCOLS;
+  int algorithm = functionIndex % NCCL_NUM_ALGORITHMS;
+  functionIndex /= NCCL_NUM_ALGORITHMS;
+  functionIndex /= ncclNumTypes;
+  functionIndex /= ncclNumDevRedOps;
+  int collective = functionIndex;
+  // The forwarding model covers the five native Ring collectives only; other
+  // algorithms and function kinds do not follow the same predecessor/successor rules.
+  if (collective < ncclFuncBroadcast || collective > ncclFuncAllReduce || algorithm != NCCL_ALGO_RING) return;
+
+  size_t workOffset = (size_t)batch.offsetBase + __builtin_ctzll(batch.offsetBitset) * sizeof(ncclDevWorkColl);
+  size_t batchesEnd = sizeof(ncclDevKernelArgs) + __builtin_popcountll(args.channelMask) * sizeof(ncclDevWorkBatch);
+  // Do not interpret the argument header/batch descriptors as work, or read past the snapshot.
+  if (workOffset < batchesEnd || workOffset + sizeof(ncclDevWorkColl) > sizeof(savedArgs)) return;
+  ncclDevWorkColl work;
+  memcpy(&work, (const char*)&savedArgs + workOffset, sizeof(work));
+  // Require a valid root and nonempty work with usable channel geometry. The modulo
+  // check handles a participating channel range that wraps around commNChannels;
+  // this channel must belong to that range before its counters can represent this work.
+  if (work.root >= (uint32_t)comm->nRanks || work.count <= 0 || !work.nChannels || !work.commNChannels ||
+      channelId >= work.commNChannels || work.startChannelId >= work.commNChannels ||
+      (channelId + work.commNChannels - work.startChannelId) % work.commNChannels >= work.nChannels) {
+    return;
+  }
+
+  // Channel indices may skip globally submitted kernels. Find the preceding
+  // kernel that actually used this channel; do not assume kernelIndex - 1.
+  uint64_t previousKernelIndex = 0;
+  for (uint64_t candidateIndex = kernelIndex - 1; candidateIndex > 0; --candidateIndex) {
+    // Once history has been overwritten, the preceding operation cannot be established safely.
+    if (kernelIndex - candidateIndex >= (uint64_t)fifoDepth) return;
+    const ncclDevKernelArgs& previousArgs =
+        comm->kernelInfoMonitorPtr[(candidateIndex - 1) % fifoDepth].kernelArgs.args;
+    // A mismatched slot is not evidence that the candidate kernel skipped this channel.
+    if (previousArgs.kernelIdx != candidateIndex) return;
+    if (previousArgs.channelMask & (1ULL << channelId)) {
+      previousKernelIndex = candidateIndex;
+      break;
+    }
+  }
+
+  ncclChannel& channel = comm->channels[channelId];
+  const ncclRing& ring = channel.ring;
+  // The operation is usable only if both Ring connectors support the head model.
+  // Keep one eligibility flag instead of exposing partially valid capture states.
+  if (ring.prev < 0 || ring.prev >= comm->nRanks || ring.next < 0 || ring.next >= comm->nRanks ||
+      channel.peers == nullptr || channel.peers[ring.prev] == nullptr || channel.peers[ring.next] == nullptr) return;
+  const ncclConnector& sendConnector = channel.peers[ring.next]->send[0];
+  const ncclConnector& recvConnector = channel.peers[ring.prev]->recv[0];
+  if (!isRingHeadTransportSupported(sendConnector, ring.sendConnType, true) ||
+      !isRingHeadTransportSupported(recvConnector, ring.recvConnType, false)) return;
+
+  info->kernelIndex = kernelIndex;
+  info->workOffset = workOffset;
+  for (int i = 0; i < savedMonitor.nWorkSequences; i++) {
+    if (savedMonitor.workSequences[i].workOffset == workOffset) {
+      info->seqNumber = savedMonitor.workSequences[i].seqNumber;
+      info->seqNumberValid = 1;
+      break;
+    }
+  }
+  info->count = work.count;
+  info->root = work.root;
+  info->lastChunkSize = work.lastChunkSize;
+  info->funcId = batch.funcId;
+  info->nThreads = work.nThreads;
+  info->nChannels = work.nChannels;
+  info->previousKernelIndex = previousKernelIndex;
+  info->collective = collective;
+  info->protocol = protocol;
+  info->sendIsNet = sendConnector.transportComm == &ncclTransports[TRANSPORT_NET]->send;
+  if (info->sendIsNet) {
+    // Shared connectors retain their creating communicator's rank numbering.
+    // Translate through the top parent; an external proxy has no current rank.
+    info->sendProxyTpRank = sendConnector.proxyConn.tpRank;
+    for (int rank = 0; rank < comm->nRanks; rank++) {
+      if (comm->topParentRanks[rank] == info->sendProxyTpRank) {
+        info->sendProxyRank = rank;
+        break;
+      }
+    }
+  }
+  info->valid = 1;
+}
 
 const char* pcclCommDumpMaskStr[] = {"DUMP_ROUGH", "DUMP_RAW", "DUMP_BUFFER", "DUMP_HWINFO"};
 
@@ -281,26 +434,38 @@ ncclResult_t dumpPeerInfoToFile(FILE* file, int peer, struct ncclChannelPeer* ho
       NCCLVERIFY(dumpLockPtr<uint64_t>(srcPtrs[i], accessiblePtrs[i], &constZero));
     }
 
+    uint64_t values[6];
+    for (int i=0; i<6; i++) values[i] = *(volatile uint64_t*)*accessiblePtrs[i];
     const char *indentStr = getIndentStr(indentLevel);
     fprintf(file, "%s%d: send connect(%d), recv connect(%d)\n", indentStr, peer, sendConn->connected,
             recvConn->connected);
     const char *subIndentStr = getIndentStr(indentLevel + 1);
     if (sendConn->connected == 1) {
-      fprintf(file, "%ssend step:%20ld, head:%20ld, tail: %20ld, headPtr:%p, tailPtr: %p, connector: %s\n",
-              subIndentStr, (int64_t)*sendStep, (int64_t)*sendHeadPtr, (int64_t)*sendTailPtr, sendConn->conn.head, sendConn->conn.tail, c == 0 ? "coll" : "p2p");
+      uint8_t sendReadValid = (sendHeadPtr != &constZero ? RAS_DIAG_PEER_HEAD_VALID : 0) |
+                              (sendStep != &constZero ? RAS_DIAG_PEER_STEP_VALID : 0) |
+                              (sendTailPtr != &constZero ? RAS_DIAG_PEER_TAIL_VALID : 0);
+      fprintf(file, "%ssend step:%20ld, head:%20ld, tail: %20ld, headPtr:%p, tailPtr: %p, connector: %s, readValid:%u\n",
+              subIndentStr, (int64_t)values[2], (int64_t)values[0], (int64_t)values[1], sendConn->conn.head, sendConn->conn.tail,
+              c == 0 ? "coll" : "p2p", sendReadValid);
       if (collector && collector->collectPeerConn) {
         collector->collectPeerConn(collector->ctx, collectorComm, collectorChannelId, peer,
                           (uint8_t)c, /*direction=send*/0,
-                          *sendHeadPtr, *sendTailPtr, *sendStep);
+                          values[0], values[1], values[2],
+                          sendReadValid);
       }
     }
     if (recvConn->connected == 1) {
-      fprintf(file, "%srecv step:%20ld, head:%20ld, tail: %20ld, headPtr:%p, tailPtr: %p, connector: %s\n",
-              subIndentStr, (int64_t)*recvStep, (int64_t)*recvHeadPtr, (int64_t)*recvTailPtr, recvConn->conn.head, recvConn->conn.tail, c == 0 ? "coll" : "p2p");
+      uint8_t recvReadValid = (recvHeadPtr != &constZero ? RAS_DIAG_PEER_HEAD_VALID : 0) |
+                              (recvStep != &constZero ? RAS_DIAG_PEER_STEP_VALID : 0) |
+                              (recvTailPtr != &constZero ? RAS_DIAG_PEER_TAIL_VALID : 0);
+      fprintf(file, "%srecv step:%20ld, head:%20ld, tail: %20ld, headPtr:%p, tailPtr: %p, connector: %s, readValid:%u\n",
+              subIndentStr, (int64_t)values[5], (int64_t)values[3], (int64_t)values[4], recvConn->conn.head, recvConn->conn.tail,
+              c == 0 ? "coll" : "p2p", recvReadValid);
       if (collector && collector->collectPeerConn) {
         collector->collectPeerConn(collector->ctx, collectorComm, collectorChannelId, peer,
                           (uint8_t)c, /*direction=recv*/1,
-                          *recvHeadPtr, *recvTailPtr, *recvStep);
+                          values[3], values[4], values[5],
+                          recvReadValid);
       }
     }
 
@@ -319,7 +484,8 @@ static ncclResult_t dumpChannelToFile(ncclComm_t comm, int channelId, int nRanks
   const char* indentStr = getIndentStr(indentLevel);
 
   // TODO: to make the logic simpler, we would dump hostDevIndex after watch dog.
-  fprintf(file, "%schannelKernelIdx:%lu ", indentStr, comm->channelKernelIdx[channelId]);
+  fprintf(file, "%schannelKernelIdx:%lu ringExcluded:%d ", indentStr,
+          comm->channelKernelIdx[channelId], channelId >= comm->nChannels);
   bool unknown = false;
   // Two distinct kernel indices captured for the collector:
   //   hangReported = hostDevIndexLevel1 (written by primitives.h checkAbort when
@@ -383,10 +549,12 @@ static ncclResult_t dumpChannelToFile(ncclComm_t comm, int channelId, int nRanks
   // Fire collectChannelState BEFORE the peer loop so collectors that anchor per-channel
   // state (e.g. a "current rasDiagChannel" pointer) are positioned correctly when
   // collectPeerConn fires.
+  rasDiagRingOperation info{};
+  readRingOperation(comm, channelId, &info);
   if (collector && collector->collectChannelState) {
     collector->collectChannelState(collector->ctx, comm, channelId,
                          hangReportedIdx, hangReportedValid,
-                         completedIdx,    completedValid);
+                         completedIdx,    completedValid, &info);
   }
 
   if (hggcEit.checkExtTable()) {
@@ -404,6 +572,14 @@ static ncclResult_t dumpChannelToFile(ncclComm_t comm, int channelId, int nRanks
   } else {
     fprintf(file, "invalid hggc eit, no valid peers head&tail.\n");
   }
+
+  fprintf(file, "%sringHead valid:%u kernel:%lu previous:%lu coll:%u proto:%u funcId:%u root:%d count:%lu "
+                "lastChunkSize:%lu nChannels:%u nThreads:%u sendIsNet:%u sendProxyRank:%d sendProxyTpRank:%d "
+                "workOffset:%u seqNumber:%lu seqNumberValid:%u\n",
+          indentStr, info.valid, info.kernelIndex, info.previousKernelIndex,
+          info.collective, info.protocol, info.funcId, info.root, info.count,
+          info.lastChunkSize, info.nChannels, info.nThreads, info.sendIsNet, info.sendProxyRank, info.sendProxyTpRank,
+          info.workOffset, info.seqNumber, info.seqNumberValid);
 
   return ncclSuccess;
 }

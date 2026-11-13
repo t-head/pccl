@@ -363,6 +363,20 @@ ncclResult_t saveDevKernelArgs(ncclComm_t comm, struct ncclKernelPlan* plan) {
   // A fixed-size symmetric argument can be larger than the monitor record.
   memcpy(&kernelInfoMonitorPtr->kernelArgs, plan->kernelArgs,
          std::min(plan->kernelArgsSize, sizeof(kernelInfoMonitorPtr->kernelArgs)));
+  kernelInfoMonitorPtr->nWorkSequences = 0;
+  // Submission has already assigned every task's sequence. Retain the association
+  // with the arguments here; host callbacks must not modify monitor records.
+  if (!plan->persistent && !plan->isSymColl && plan->workStorageType == ncclDevWorkStorageTypeArgs) {
+    size_t workBase = sizeof(ncclDevKernelArgs) + plan->nWorkBatches * sizeof(ncclDevWorkBatch);
+    for (auto* task = ncclIntruQueueHead(&plan->collTaskQueue); task; task = task->next) {
+      size_t workOffset = workBase + task->workOffset;
+      if (workOffset + sizeof(ncclDevWorkColl) > sizeof(kernelInfoMonitorPtr->kernelArgs)) continue;
+      if (kernelInfoMonitorPtr->nWorkSequences ==
+          int(sizeof(kernelInfoMonitorPtr->workSequences) / sizeof(kernelInfoMonitorPtr->workSequences[0]))) break;
+      kernelInfoMonitorPtr->workSequences[kernelInfoMonitorPtr->nWorkSequences++] =
+          {task->seqNumber, (uint32_t)workOffset};
+    }
+  }
   comm->kernelNum++;
   for (int i = 0; i < MAXCHANNELS; i++) {
     if (plan->channelMask & (1L << i)) {
@@ -1659,6 +1673,7 @@ static ncclResult_t scheduleCollTasksToPlan(ncclComm_t comm, struct ncclKernelPl
       int nChannels = devWork->nChannels;
       int nSubChannels = (proxyOp.pattern == ncclPatternCollTreeUp || proxyOp.pattern == ncclPatternCollTreeDown) ? 2 : 1;
 
+      head->workOffset = plan->workBytes;
       uint64_t opCount = uint64_t(plan->collOpCount++)<<1 | 0;
 
       devWork->startChannelId = comm->lastChannel % comm->nChannels;
@@ -2122,6 +2137,8 @@ static ncclResult_t collTaskAppend(
 
   struct ncclTaskColl* t = ncclMemoryPoolAlloc<struct ncclTaskColl>(&comm->memPool_ncclTaskColl, &comm->memPermanent);
   t->func = info->coll;
+  // Graph replay does not re-enter submission and remains outside Ring diagnosis.
+  if (!isGraphCaptured) t->seqNumber = comm->collectiveSeq++;
   t->sendbuff = info->sendbuff;
   t->recvbuff = info->recvbuff;
   t->count = info->count;
@@ -2158,6 +2175,8 @@ static ncclResult_t ceCollTaskAppend(
   struct ncclTaskColl* t = ncclMemoryPoolAlloc<struct ncclTaskColl>(&comm->memPool_ncclTaskColl, &comm->memPermanent);
 
   t->func = info->coll;
+  // Count native collectives consistently even when they select the CE path.
+  if (!ncclCudaGraphValid(planner->capturingGraph)) t->seqNumber = comm->collectiveSeq++;
   t->sendbuff = info->sendbuff;
   t->recvbuff = info->recvbuff;
   t->count = info->count;
