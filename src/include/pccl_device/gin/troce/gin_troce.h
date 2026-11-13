@@ -799,8 +799,9 @@ struct pcclGinApi_ResetSignal<PCCL_NET_DEVICE_GIN_TROCE> {
   PCCL_DEVICE_INLINE static void call(pcclGinCtx ctx, pcclGinSignalDescriptor signal) {
     using pccl::utility::loadConst;
     if (signal.type == PCCL_GIN_SIGNAL_TYPE_VA) {
-      uint64_t *p =
-        (uint64_t *)pcclGetLocalPointer(signal.vaSignal.pcclWindow, signal.vaSignal.signalOffset);
+      pcclWindow_t window = signal.vaSignal.pcclWindow;
+      size_t offset = signal.vaSignal.signalOffset - 4096*size_t(loadConst(&window->ginOffset4K));
+      uint64_t *p = (uint64_t *)pcclGetLocalPointer(window, offset);
       *p = 0;
     } else {
       pcclGinTroceGPUContext *gda = &((struct pcclGinTroceGPUContext *)ctx.handle)[ctx.contextId];
