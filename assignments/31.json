@@ -1,18 +1,19 @@
 {
   "classification": {
     "base_sha": "a909809e63dbf891101c88d45c0b78bfe628fab6",
-    "head_sha": "3f81c9ad6c1c24c5ec8b7839ef5928dba9f968fc",
-    "input_fingerprint": "a401f90b253c67e6188cad0d0142af8090dfc2107e3afc3c669613530a120f65",
+    "head_sha": "dd73ca699d3a6ace6bc71b0acb7468de77bd5085",
+    "input_fingerprint": "247cf6dcc401cd3852b5eedb30807f2d261aa8b8799cfb30755a9dd8704caef3",
     "pr_number": 31,
     "proposal": {
       "modules": [
-        "network",
+        "build",
         "gin"
       ],
-      "reason": "Primary change is the new bundled TROCE GIN backend/plugin (host+device GIN implementation, plugin loading/discovery order, GIN type/signal semantics, and TROCE-specific context/flush/progress paths). Also requires network review because shared IB transport code is substantively changed (provider detection/classification, generic QP inline behavior, and net_ib signal operation handling) beyond a purely local caller update."
+      "reason": "Main change adds a new GIN backend/plugin path for TROCE (new GIN plugin implementation, backend selection/discovery order, GIN signal semantics including SignalSet, and TROCE-specific host/device transport behavior). Build is additionally required because the PR also introduces substantive build/packaging integration to compile, install, and ship libpccl-gin-troce.so as a bundled artifact."
     }
   },
   "reviewers": {
+    "build": 341349555,
     "gin": 333277982,
     "network": 341355176
   }
