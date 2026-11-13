@@ -97,9 +97,9 @@ PCCL_DEVICE_INLINE uint64_t loadRelaxed(uint64_t *ptr) {
   return value;
 }
 
-PCCL_DEVICE_INLINE uint32_t loadRelaxedSysGlobal(uint32_t *ptr) {
-  uint32_t value;
-  asm volatile("ld.relaxed.sys.global.b32 %0, [%1];" : "=r"(value) : "l"(ptr));
+PCCL_DEVICE_INLINE uint64_t loadRelaxedSysGlobal(uint64_t *ptr) {
+  uint64_t value;
+  asm volatile("ld.relaxed.sys.global.b64 %0, [%1];" : "=l"(value) : "l"(ptr));
   return value;
 }
 

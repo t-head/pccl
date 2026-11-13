@@ -752,7 +752,6 @@ ncclResult_t ncclGinTroceCreateContext(void *collComm, int nSignals, int nCounte
       devQp->ready_head = 0;
       devQp->prod_idx = 0;
       devQp->cons_idx = 0;
-      devQp->progress_lock = 0;
       devQp->db_lock = 0;
     }
   }

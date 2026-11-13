@@ -426,21 +426,21 @@ PCCL_DEVICE_INLINE void troceWriteAtomicFaWqe(struct pcclGinTroceQp *qp, uint64_
 // ---------------------------------------------------------------------------
 
 // Check completion without advancing cons_idx or performing a system fence.
-// The caller holds progress_lock until it has published the completed tail.
 template <hggc::thread_scope scope = hggc::thread_scope_device>
-PCCL_DEVICE_INLINE int troceCheckCqAt(struct pcclGinTroceQp *qp, uint64_t idx, uint64_t *completedTail) {
-  uint64_t oldCons = loadRelaxed<scope>(&qp->cons_idx);
+PCCL_DEVICE_INLINE int troceCheckCqAt(struct pcclGinTroceQp *qp, uint64_t idx, uint64_t oldCons,
+                                      uint64_t *completedTail) {
   *completedTail = oldCons;
   if (oldCons > idx) return PCCL_TROCE_POLL_SUCCESS;
 
-  // The producer index covers published WQEs. The progress lock keeps their
-  // SQ slots from being reused while their headers are read.
+  // The producer index covers published WQEs.
   hggc::atomic_ref<uint64_t, scope> prodRef(qp->prod_idx);
   uint64_t prodIdx = prodRef.load(hggc::memory_order_acquire);
   if (oldCons >= prodIdx) return EBUSY;
 
   struct troce_be_cqe *cqe0 = (struct troce_be_cqe *)qp->cq_cqe;
-  uint32_t dw14 = loadRelaxedSysGlobal((uint32_t *)&cqe0->dw14.value);
+  uint64_t completion = loadRelaxedSysGlobal((uint64_t *)&cqe0->dw14.value);
+  uint32_t dw14 = (uint32_t)completion;
+  uint32_t dw15 = (uint32_t)(completion >> 32);
   uint16_t wqeCounter = __builtin_bswap16(
     (uint16_t)((dw14 & PCCL_TROCE_CQE_WQE_IDX_MASK) >> PCCL_TROCE_CQE_WQE_IDX_SHIFT));
   // At most nwqes WQEBBs can be outstanding. Relative to oldCons, an older
@@ -450,7 +450,6 @@ PCCL_DEVICE_INLINE int troceCheckCqAt(struct pcclGinTroceQp *qp, uint64_t idx, u
   uint64_t completedIdx = oldCons + (uint64_t)distance;
   if (completedIdx >= prodIdx) return EBUSY;
 
-  uint32_t dw15 = loadRelaxedSysGlobal((uint32_t *)&cqe0->dw15.value);
   uint8_t opcode = (dw15 & PCCL_TROCE_CQE_OPCODE_MASK) >> PCCL_TROCE_CQE_OPCODE_SHIFT;
   if (opcode != PCCL_TROCE_CQE_REQ || (dw14 & 0xffu) != 0) {
 #ifdef PCCL_DEVICE_GIN_TROCE_ENABLE_DEBUG
@@ -473,51 +472,28 @@ PCCL_DEVICE_INLINE int troceCheckCqAt(struct pcclGinTroceQp *qp, uint64_t idx, u
 
 template <hggc::thread_scope scope = hggc::thread_scope_device>
 PCCL_DEVICE_INLINE int trocePollOneCqAt(struct pcclGinTroceQp *qp, uint64_t idx) {
-  uint64_t completedTail = loadRelaxed<scope>(&qp->cons_idx);
-  int status = PCCL_TROCE_POLL_SUCCESS;
-  bool locked = false;
-  if (completedTail <= idx) {
-    if (!tryLock<scope>(&qp->progress_lock)) return EBUSY;
-    locked = true;
-    status = troceCheckCqAt<scope>(qp, idx, &completedTail);
-  }
-  if (status == PCCL_TROCE_POLL_SUCCESS) {
-    fenceAcquire<hggc::thread_scope_system>();
-    if (locked) {
-      hggc::atomic_ref<uint64_t, scope> ref(qp->cons_idx);
-      ref.fetch_max(completedTail, hggc::memory_order_relaxed);
-    }
-  }
-  if (locked) unlock<scope>(&qp->progress_lock);
-  return status;
-}
+  uint64_t oldCons = loadRelaxed<scope>(&qp->cons_idx);
+  uint64_t completedTail;
+  int status = troceCheckCqAt<scope>(qp, idx, oldCons, &completedTail);
+  if (status != PCCL_TROCE_POLL_SUCCESS) return status;
 
-// Return with progress_lock held; release it between pending checks.
-template <hggc::thread_scope scope>
-PCCL_DEVICE_INLINE int troceCheckCqAtBlocking(struct pcclGinTroceQp *qp, uint64_t idx,
-                                             uint64_t *completedTail) {
-  while (true) {
-    if (!tryLock<scope>(&qp->progress_lock)) continue;
-    int status = troceCheckCqAt<scope>(qp, idx, completedTail);
-    if (status != EBUSY) return status;
-    unlock<scope>(&qp->progress_lock);
+  fenceAcquire<hggc::thread_scope_system>();
+  if (completedTail != oldCons) {
+    // Reject the SQ header read if another poller may have released its slot.
+    hggc::atomic_ref<uint64_t, scope> ref(qp->cons_idx);
+    if (!ref.compare_exchange_strong(oldCons, completedTail,
+                                     hggc::memory_order_relaxed, hggc::memory_order_relaxed)) return EBUSY;
   }
+  return PCCL_TROCE_POLL_SUCCESS;
 }
 
 template <hggc::thread_scope scope>
 PCCL_DEVICE_INLINE int trocePollCqAt(struct pcclGinTroceQp *qp, uint64_t idx) {
-  if (loadRelaxed<scope>(&qp->cons_idx) > idx) {
-    fenceAcquire<hggc::thread_scope_system>();
-    return PCCL_TROCE_POLL_SUCCESS;
-  }
-  uint64_t completedTail;
-  int status = troceCheckCqAtBlocking<scope>(qp, idx, &completedTail);
-  if (status == PCCL_TROCE_POLL_SUCCESS) {
-    fenceAcquire<hggc::thread_scope_system>();
-    hggc::atomic_ref<uint64_t, scope> ref(qp->cons_idx);
-    ref.fetch_max(completedTail, hggc::memory_order_relaxed);
-  }
-  unlock<scope>(&qp->progress_lock);
+  int status;
+  #pragma unroll 1
+  do {
+    status = trocePollOneCqAt<scope>(qp, idx);
+  } while (status == EBUSY);
   return status;
 }
 

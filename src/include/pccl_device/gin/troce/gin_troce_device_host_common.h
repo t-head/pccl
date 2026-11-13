@@ -35,7 +35,6 @@ struct pcclGinTroceQp {
   uint64_t ready_head;      // last contiguously published WQEBB idx + 1
   uint64_t prod_idx;        // submitted WQEBB tail
   uint64_t cons_idx;        // retired WQEBB tail
-  int progress_lock;       // serializes CQ consumption and SQ header reads
   int db_lock;             // per-QP doorbell ownership: 0 free, 1 held
   uint32_t qpn;
   uint32_t nwqes;          // SQ depth in WQEBBs, power of two
