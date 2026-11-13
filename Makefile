@@ -41,12 +41,6 @@ ${BUILDDIR}/%.txt: %.txt
 src.%:
 	${MAKE} -C src $* BUILDDIR=${ABSBUILDDIR}
 
-gin-plugin.build: | src.build
-	${MAKE} -C ext-gin build BUILDDIR=${ABSBUILDDIR}
-
-gin-plugin.clean:
-	${MAKE} -C ext-gin clean BUILDDIR=${ABSBUILDDIR}
-
 ext-kernel.build: | src.build
 	${MAKE}	-C ext-kernel build BUILDDIR=${ABSBUILDDIR}/lib/
 
@@ -66,6 +60,12 @@ ext-profiler.build: | src.build
 ext-profiler.clean:
 	${MAKE}	-C ext-profiler/example clean BUILDDIR=${ABSBUILDDIR}/lib/
 	${MAKE}	-C ext-profiler/inspector clean BUILDDIR=${ABSBUILDDIR}/lib/
+
+gin-plugin.build: | src.build
+	${MAKE} -C ext-gin build BUILDDIR=${ABSBUILDDIR}
+
+gin-plugin.clean:
+	${MAKE} -C ext-gin clean BUILDDIR=${ABSBUILDDIR}
 
 pkg.%:
 	${MAKE} -C pkg $* BUILDDIR=${ABSBUILDDIR}
