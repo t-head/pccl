@@ -2,13 +2,13 @@
   "classification": {
     "base_sha": "a909809e63dbf891101c88d45c0b78bfe628fab6",
     "head_sha": "c92cc7fd0f5ac7e7f62272d619ba30ea79d99cde",
-    "input_fingerprint": "90ef05d994ab446c84e25ffcad11b6b4ef0e631d77afa5c7fb488d25c0d3bf33",
+    "input_fingerprint": "53645b1c46dd1f34e8d42bdf5f344106e9500540b1c80ec575e406989d3678c9",
     "pr_number": 193,
     "proposal": {
       "modules": [
         "ras"
       ],
-      "reason": "Refactors RAS hang diagnostics end-to-end: replaces legacy COMMS-embedded diag blobs with runtime-state records and RAS_COLL_DIAG flow, rewrites analyzer/report persistence for v2 runtime data, updates monitor-triggered/local diagnostics execution, and removes old diag.cc paths. Changes are substantive within RAS diagnostic control traffic and failure-analysis behavior, with no separate independent feature-module change."
+      "reason": "Refactors RAS hang diagnostics into a unified runtime-state pipeline: replaces legacy COMMS-embedded diag blobs/diag.cc with runtime record collection, transport, analyzer/reporting, monitor-trigger integration, and v2 offline data/report handling (including partial-snapshot analysis and local dump/report persistence)."
     }
   },
   "reviewers": {
