@@ -144,7 +144,7 @@ def publish(api, draft, expected_pr):
                                 'POST', {'body': comment_body(draft)})
     # Move the Checks link before deleting the comment it previously pointed to.
     api.request(f"/repos/{api.repository}/statuses/{data['head']}", 'POST', {
-        'state': 'success', 'context': 'Suggested squash commit message',
+        'state': 'success', 'context': f'Suggested squash commit message (PR #{expected_pr})',
         'description': 'Open Details to view the suggested message' if published else 'No squash message preview needed',
         'target_url': published['html_url'] if published else None,
     })

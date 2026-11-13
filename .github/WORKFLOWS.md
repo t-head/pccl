@@ -62,8 +62,8 @@ Multi-commit PRs targeting `main` receive a proposed squash commit message.
 Publishing a fresh preview places the message at the end of the conversation and removes
 older previews. The preview supplies the message for GitHub's **Squash and merge** dialog.
 
-The `Suggested squash commit message` status in the PR checks links to the latest published
-preview. It is informational, not an approval gate.
+The `Suggested squash commit message (PR #<number>)` status in the PR checks links to that PR's
+latest published preview. It is informational, not an approval gate.
 
 For fork PRs, a Maintainer runs `PCCL Commit Message Preview` from `main` with `pr_number`.
 
