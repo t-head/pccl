@@ -1,19 +1,19 @@
 {
   "classification": {
-    "base_sha": "dcc16f7527444230dbd33cca1f348760c2df7e97",
-    "head_sha": "b79bfa31586e00fc869f1012c41e3d5ad041dd23",
-    "input_fingerprint": "507262fba11c65adef24fb69e0bfcaf81aae94be312ae72fc13d713437a097c0",
+    "base_sha": "a909809e63dbf891101c88d45c0b78bfe628fab6",
+    "head_sha": "0ae23f34589e14e6e9e73d63fe276b197e28c9de",
+    "input_fingerprint": "cc3413a00f0b156150fcdea69a529d2ddd8c8462e4b88b7c354f57d5f2132f85",
     "pr_number": 174,
     "proposal": {
       "modules": [
         "graph-search",
         "transport",
         "tuning",
+        "enqueue",
         "network",
-        "kernels",
-        "tuner-plugin"
+        "kernels"
       ],
-      "reason": "Primary change is in tuning: CollNet is retired from algorithm/protocol selection while keeping slot 2 reserved and forcing safe fallback when tuner selections are CollNet or invalid. Additional substantive changes remove executable CollNet device kernels and function-table entries (kernels), remove CollNet topology graph construction/search/connection paths (graph-search), remove CollNet plugin loading and proxy/network-side handling (network), remove CollNet transport setup/connect/resource flows and transport registry wiring (transport), and update v1 external tuner-facing algorithm constants/compatibility semantics without ABI layout changes (tuner-plugin)."
+      "reason": "Main change is complete CollNet feature removal from network transport/plugin/proxy behavior (`network`). Additional substantive ownership is needed for removing the CollNet transport type and connect paths from generic rank-connection management (`transport`), deleting CollNet topology graph/preset/connect logic (`graph-search`), removing executable CollNet device-kernel specializations while keeping a reserved slot (`kernels`), disabling CollNet in cost models/algo availability while preserving stable algorithm IDs (`tuning`), and updating runtime planning/chunking/pattern selection plus tuner-callback fallback guards for unsupported CollNet selections (`enqueue`)."
     }
   },
   "reviewers": {
