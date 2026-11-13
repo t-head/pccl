@@ -514,9 +514,6 @@ struct pcclComm {
   struct ncclProxyState* proxyState;
   int proxyRefCountOld; /* store proxy post-atomic-sub refcount */
 
-  // Whether this communicator uses collNet
-  int collNetSupport;
-
   bool localP2pSupport;       // direct p2p capability, for local ranks only
   bool globalP2pSupport;      // direct p2p capability, for all ranks
   bool globalIcnP2pSupport;   // direct p2p through icnlink capalibity, for all ranks

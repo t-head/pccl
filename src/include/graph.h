@@ -88,10 +88,11 @@ ncclResult_t ncclTopoSearchInit(struct ncclTopoSystem* system);
 #define NCCL_TOPO_PATTERN_FC 5              // FC
 struct ncclTopoGraph {
   // Input / output
-  int id; // ring : 0, tree : 1, collnet : 2, fc : 3
+  // XML graph IDs, not algorithm indices: Ring=0, Tree=1, FC=3.
+  // ID 2 was used by CollNet and remains reserved; do not reuse or renumber it.
+  int id;
   int pattern;
   int crossNic;
-  int collNet;
   int minChannels;
   int maxChannels;
   // Output
@@ -129,15 +130,13 @@ struct ncclTopoRanks {
 };
 
 ncclResult_t ncclTopoPreset(ncclComm_t comm,
-    struct ncclTopoGraph* treeGraph, struct ncclTopoGraph* ringGraph, struct ncclTopoGraph* collNetGraph,
+    struct ncclTopoGraph* treeGraph, struct ncclTopoGraph* ringGraph,
     struct ncclTopoGraph* fcGraph, struct ncclTopoRanks* topoRanks);
 
 ncclResult_t ncclTopoPostset(ncclComm_t comm, int* firstRanks, int* treePatterns,
     struct ncclTopoRanks** allTopoRanks, int* rings);
 
-ncclResult_t ncclTopoConnectCollNet(ncclComm_t comm, struct ncclTopoGraph* collNetGraph, int rank);
-
-ncclResult_t ncclTopoTuneModel(ncclComm_t comm, int minCompCap, int maxCompCap, struct ncclTopoGraph* treeGraph, struct ncclTopoGraph* ringGraph, struct ncclTopoGraph* collNetGraph, struct ncclTopoGraph* fcGraph);
+ncclResult_t ncclTopoTuneModel(ncclComm_t comm, int minCompCap, int maxCompCap, struct ncclTopoGraph* treeGraph, struct ncclTopoGraph* ringGraph, struct ncclTopoGraph* fcGraph);
 #include "info.h"
 ncclResult_t ncclTopoGetAlgoTime(ncclComm_t comm, int coll, int algorithm, int protocol, size_t nBytes, int nChannels, float* time);
 ncclResult_t pcclTopoGetGpuPerNetBw(ncclComm_t comm, float* gpuPerNetBw);

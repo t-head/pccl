@@ -19,13 +19,12 @@ ncclResult_t initChannel(ncclComm_t comm, int channelId) {
   struct ncclChannel* channel = comm->channels + channelId;
   if (channel->id != -1) return ncclSuccess;
   int nRanks = comm->nRanks;
-  int nPeers = nRanks + 1 /* Collnet */;
+  int nPeers = nRanks;
   channel->id = channelId;
 
   struct ncclSharedResources* sharedRes = comm->sharedRes;
 
   if (channel->peers == NULL) {
-    // The extra on nRanks+1 is for collnet root (i.e. network)
     // Allocate everything related to sharedRes with ncclCalloc as this can be
     // shared between communicators hence should not be tied to comm.
     if (sharedRes->peers[channelId] == NULL) {
@@ -81,7 +80,7 @@ ncclResult_t initChannel(ncclComm_t comm, int channelId) {
 }
 
 ncclResult_t freeChannel(struct ncclChannel* channel, int nRanks, ncclComm_t comm) {
-  int nPeers = nRanks + 1;
+  int nPeers = nRanks;
   struct ncclMemManager* manager = comm->memManager;
   if (channel->id == -1) return ncclSuccess;
 
@@ -108,7 +107,8 @@ ncclResult_t freeChannel(struct ncclChannel* channel, int nRanks, ncclComm_t com
   if (channel->peers == NULL) return ncclSuccess;
 
   // Free transport proxy resources
-  // Note: free all send resources first due to CollNet arrangement
+  // Preserve the existing send-before-recv order for each connection slot.
+  // CollNet's shared-communicator lifetime dependency no longer applies.
   for (int r=0; r<nPeers; r++) {
     struct ncclChannelPeer* peer = channel->peers[r];
     if (peer) {

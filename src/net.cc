@@ -20,16 +20,11 @@
 //#include <unistd.h>
 
 ncclNet_t *ncclNet;
-ncclCollNet_t *ncclCollNet;
 
 static ncclNet_v6_t ncclNet_v4_as_v6;
 static ncclNet_v6_t ncclNet_v5_as_v6;
 static ncclNet_v4_t *ncclNet_v4;
 static ncclNet_v5_t *ncclNet_v5;
-static ncclCollNet_v6_t ncclCollNet_v4_as_v6;
-static ncclCollNet_v6_t ncclCollNet_v5_as_v6;
-static ncclCollNet_v4_t *ncclCollNet_v4;
-static ncclCollNet_v5_t *ncclCollNet_v5;
 
 static ncclResult_t ncclNet_v4_as_v6_getProperties(int dev, ncclNetProperties_v6_t* props) {
   ncclNetProperties_v4_t p4;
@@ -109,64 +104,6 @@ static ncclResult_t ncclNet_v5_as_v6_init(ncclDebugLogger_t logfn) {
   return ncclSuccess;
 }
 
-static ncclResult_t ncclCollNet_v4_as_v6_getProperties(int dev, ncclNetProperties_v6_t* props) {
-  ncclNetProperties_v4_t p4;
-  ncclResult_t ans = ncclCollNet_v4->getProperties(dev, &p4);
-  if (ans != ncclSuccess) return ans;
-  props->name = p4.name;
-  props->pciPath = p4.pciPath;
-  props->guid = p4.guid;
-  props->ptrSupport = p4.ptrSupport;
-  props->speed = p4.speed;
-  props->port = p4.port;
-  props->maxComms = p4.maxComms;
-  props->maxRecvs = 1;
-  props->latency = 0;
-  return ncclSuccess;
-}
-
-// We use a wrapper around the v4 init to copy over the struct contents
-// post-init since they may not be initialized before hand.
-static ncclResult_t ncclCollNet_v4_as_v6_init(ncclDebugLogger_t logfn) {
-  NCCLCHECK(ncclCollNet_v4->init(logfn));
-  ncclCollNet_v4_as_v6.name = ncclCollNet_v4->name;
-  ncclCollNet_v4_as_v6.devices = ncclCollNet_v4->devices;
-  ncclCollNet_v4_as_v6.getProperties = ncclCollNet_v4_as_v6_getProperties;
-  ncclCollNet_v4_as_v6.listen = ncclCollNet_v4->listen;
-  ncclCollNet_v4_as_v6.connect = ncclCollNet_v4->connect;
-  ncclCollNet_v4_as_v6.reduceSupport = ncclCollNet_v4->reduceSupport;
-  ncclCollNet_v4_as_v6.regMr = ncclCollNet_v4->regMr;
-  ncclCollNet_v4_as_v6.regMrDmaBuf = NULL;
-  ncclCollNet_v4_as_v6.deregMr = ncclCollNet_v4->deregMr;
-  ncclCollNet_v4_as_v6.iallreduce = ncclCollNet_v4->iallreduce;
-  ncclCollNet_v4_as_v6.iflush = ncclCollNet_v4->iflush;
-  ncclCollNet_v4_as_v6.test = ncclCollNet_v4->test;
-  ncclCollNet_v4_as_v6.closeColl = ncclCollNet_v4->closeColl;
-  ncclCollNet_v4_as_v6.closeListen = ncclCollNet_v4->closeListen;
-  return ncclSuccess;
-}
-
-// We use a wrapper around the v5 init to copy over the struct contents
-// post-init since they may not be initialized before hand.
-static ncclResult_t ncclCollNet_v5_as_v6_init(ncclDebugLogger_t logfn) {
-  NCCLCHECK(ncclCollNet_v5->init(logfn));
-  ncclCollNet_v5_as_v6.name = ncclCollNet_v5->name;
-  ncclCollNet_v5_as_v6.devices = ncclCollNet_v5->devices;
-  ncclCollNet_v5_as_v6.getProperties = ncclCollNet_v5->getProperties;
-  ncclCollNet_v5_as_v6.listen = ncclCollNet_v5->listen;
-  ncclCollNet_v5_as_v6.connect = ncclCollNet_v5->connect;
-  ncclCollNet_v5_as_v6.reduceSupport = ncclCollNet_v5->reduceSupport;
-  ncclCollNet_v5_as_v6.regMr = ncclCollNet_v5->regMr;
-  ncclCollNet_v5_as_v6.regMrDmaBuf = NULL;
-  ncclCollNet_v5_as_v6.deregMr = ncclCollNet_v5->deregMr;
-  ncclCollNet_v5_as_v6.iallreduce = ncclCollNet_v5->iallreduce;
-  ncclCollNet_v5_as_v6.iflush = ncclCollNet_v5->iflush;
-  ncclCollNet_v5_as_v6.test = ncclCollNet_v5->test;
-  ncclCollNet_v5_as_v6.closeColl = ncclCollNet_v5->closeColl;
-  ncclCollNet_v5_as_v6.closeListen = ncclCollNet_v5->closeListen;
-  return ncclSuccess;
-}
-
 static pthread_mutex_t netPluginLock = PTHREAD_MUTEX_INITIALIZER;
 // Counts live comms holding a reference on the external plugin (ncclNetRetain/ncclNetFinalize)
 static int netPluginRefCount = 0;
@@ -182,7 +119,7 @@ static int netPluginStatus = netPluginLoadReady;
 
 PCCL_PARAM(NetPluginEnable, "NET_PLUGIN_ENABLE", 1);
 
-static ncclResult_t ncclNetPluginLoad(ncclNet_v6_t** net, ncclCollNet_v6_t** collnet) {
+static ncclResult_t ncclNetPluginLoad(ncclNet_v6_t** net) {
 
   char ncclNetPluginName[128];
   const char* envPluginName = pcclGetEnvWithDualPrefix("PCCL_NET_PLUGIN");
@@ -242,29 +179,6 @@ static ncclResult_t ncclNetPluginLoad(ncclNet_v6_t** net, ncclCollNet_v6_t** col
     INFO(NCCL_INIT|NCCL_NET, "NET/Plugin: Loaded net plugin %s (v6)", (*net)->name);
   }
 
-  // Check for CollNet
-  *collnet = (ncclCollNet_v6_t*)dlsym(netPluginLib, "pcclCollNetPlugin_v6");
-  if (*collnet == nullptr) {
-    INFO(NCCL_INIT|NCCL_NET, "NET/Plugin: Failed to find pcclCollNetPlugin_v6 symbol.");
-    ncclCollNet_v5 = (ncclCollNet_v5_t*)dlsym(netPluginLib, "pcclCollNetPlugin_v5");
-    if (ncclCollNet_v5 == nullptr) {
-      ncclCollNet_v4 = (ncclCollNet_v4_t*)dlsym(netPluginLib, "pcclCollNetPlugin_v4");
-      if (ncclCollNet_v4 == nullptr) {
-        INFO(NCCL_INIT|NCCL_NET, "NET/Plugin: Failed to find pcclCollNetPlugin symbol (v4 or v5).");
-      } else {
-        *collnet = &ncclCollNet_v4_as_v6;
-        ncclCollNet_v4_as_v6.init = ncclCollNet_v4_as_v6_init;
-        ncclCollNet_v4_as_v6.name = ncclCollNet_v4->name;
-        INFO(NCCL_INIT|NCCL_NET, "NET/Plugin: Loaded coll plugin %s (v4)", (*collnet)->name);
-      }
-    } else {
-      *collnet = &ncclCollNet_v5_as_v6;
-      ncclCollNet_v5_as_v6.init = ncclCollNet_v5_as_v6_init;
-      ncclCollNet_v5_as_v6.name = ncclCollNet_v5->name;
-      INFO(NCCL_INIT|NCCL_NET, "NET/Plugin: Loaded coll plugin %s (v5)", (*collnet)->name);
-    }
-  }
-
   netPluginStatus = netPluginLoadSuccess;
 
 exit:
@@ -295,7 +209,6 @@ static ncclResult_t ncclNetPluginUnload() {
     // Drop pointers into the unloaded library and force a full re-init
     // (dlopen + network selection) on the next comm creation.
     ncclNet = nullptr;
-    ncclCollNet = nullptr;
     netInitialized = false;
   }
   pthread_mutex_unlock(&netPluginLock);
@@ -306,8 +219,7 @@ static ncclResult_t ncclNetPluginUnload() {
 static ncclResult_t ncclNetInitLocked() {
   // Initialize main communication network
   ncclNet_t* nets[3] = { nullptr, &ncclNetIb, &ncclNetSocket };
-  ncclCollNet_t* collNets[3] = { nullptr, nullptr, nullptr };
-  ncclNetPluginLoad(&nets[0], &collNets[0]);
+  ncclNetPluginLoad(&nets[0]);
   const char* netName = pcclGetEnvWithDualPrefix("PCCL_NET");
   bool ok = false;
 
@@ -323,14 +235,6 @@ static ncclResult_t ncclNetInitLocked() {
     ncclNet = nets[i];
     ok = true;
 
-    if (collNets[i]) {
-      do {
-        if (collNets[i]->init(ncclDebugLogForPlugin) != ncclSuccess) break;
-        if (collNets[i]->devices(&ndev) != ncclSuccess) break;
-        if (ndev <= 0) break;
-        ncclCollNet = collNets[i];
-      } while(0);
-    }
     break;
   }
 

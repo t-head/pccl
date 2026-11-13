@@ -48,6 +48,31 @@ Common options:
 
 The build places `libpccl.so` in `build/lib/` and public headers in `build/include/`.
 
+## Compatibility after CollNet removal
+
+CollNet is no longer supported. `PCCL_COLLNET_ENABLE` / `NCCL_COLLNET_ENABLE` no longer enable it,
+and `CollNet` is disabled even when included in `PCCL_ALGO` / `NCCL_ALGO`.
+Remove these obsolete settings and use the default algorithm selection or a supported algorithm.
+
+`pcclConfig_t.collnetEnable` retains its original name, type, position, and initializer value.
+It remains ignored, matching its behavior before this removal. Existing assignments still compile.
+
+The `pcclTunerPlugin_v1` callback layout and the bundled tuner's configuration format are unchanged.
+The core library preserves algorithm IDs: Tree=0, Ring=1, CollNet=2 (reserved and unsupported),
+FC=3, PAT=4. No algorithm ID remapping is required. When a tuner callback succeeds but selects
+CollNet or an out-of-range algorithm/protocol ID, PCCL falls back to internal tuning.
+Preserving these IDs does not make every algorithm/protocol combination valid for every collective
+or topology.
+
+Ordinary `pcclNetPlugin_v4/v5/v6` interfaces are unchanged. Legacy CollNet plugin declarations
+remain available for source compatibility, but PCCL no longer loads CollNet plugins.
+
+All ranks in a communicator must use the same PCCL build. Rebuild components that depend on
+internal headers, as internal channel layouts have changed.
+
+Topology XML graph IDs remain Ring=0, Tree=1, and FC=3; ID 2 is reserved for the removed CollNet
+graph. These are separate from algorithm IDs.
+
 ## Testing
 
 For performance benchmarking and functional validation, use [pccl-tests](https://github.com/t-head/pccl-tests). With the T-Head SAIL SDK and PCCL environments configured, run:

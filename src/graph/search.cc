@@ -592,7 +592,6 @@ ncclResult_t ncclTopoSearchRecNet(struct ncclTopoSystem* system, struct ncclTopo
     int n = nets[i];
     struct ncclTopoNode* net = system->nodes[NET].nodes+n;
     struct ncclTopoNode* gpu;
-    if (graph->collNet && net->net.collSupport == 0) continue;
     if (net->net.width < speed) continue;
     if (net->net.maxChannels == 0) continue;
 
@@ -1164,7 +1163,7 @@ done:
     pass = 2;
   }
 
-  // 3. See if we can increase speedIntra for trees (2 nodes or collnet)
+  // 3. See if we can increase speedIntra for trees (2 nodes)
   if (pass == 2) {
     if (time != 0 && graph->pattern != NCCL_TOPO_PATTERN_RING &&
         tmpGraph.speedIntra == graph->speedIntra && tmpGraph.speedIntra < tmpGraph.speedInter*2 &&
@@ -1176,7 +1175,7 @@ done:
     memcpy(&tmpGraph, graph, sizeof(tmpGraph));
   }
 
-  if (graph->nChannels == 0 && graph->collNet == 0) {
+  if (graph->nChannels == 0) {
     INFO(NCCL_GRAPH, "Could not find a path for pattern %s, falling back to simple order", ncclTopoPatternStr[graph->pattern]);
     for (int i=0; i<ngpus; i++) graph->intra[i] = system->nodes[GPU].nodes[i].gpu.rank;
     graph->inter[0] = graph->inter[1] = 0;
@@ -1216,7 +1215,7 @@ ncclResult_t ncclTopoPrintGraph(struct ncclTopoSystem* system, struct ncclTopoGr
       sprintf(line+offset, " %s/%lx-%lx", topoNodeTypeStr[NET], NCCL_TOPO_ID_SYSTEM_ID(graph->inter[2*c]), NCCL_TOPO_ID_LOCAL_ID(graph->inter[2*c]));
       offset = strlen(line);
     }
-    // only print intra of ring/tree/collNet for now
+    // only print intra of ring/tree for now
     for (int i=0; i<ngpus; i++) {
       sprintf(line+offset, " %s/%d", topoNodeTypeStr[GPU], graph->intra[ngpus*c+i]);
       offset = strlen(line);

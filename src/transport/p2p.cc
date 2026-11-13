@@ -396,8 +396,6 @@ ncclResult_t p2pSendSetup(ncclComm_t comm, struct ncclTopoGraph* graph, struct n
   static_assert(sizeof(struct p2pConnectInfo) <= sizeof(struct ncclConnect), "p2p Connect Info is too big");
   struct p2pConnectInfo* info = (struct p2pConnectInfo*)connectInfo;
   info->read = useRead;
-  // For CollNet, use write for scatter-reduce (conn 1), read for broadcast-gather (conn 0)
-  if (graph && connIndex == 1) info->read = 0;
   const char* useReadStr = info->read ? "/read" : "";
 
   int sendSize = sizeof(struct ncclSendMem);
@@ -454,8 +452,6 @@ ncclResult_t p2pRecvSetup(ncclComm_t comm, struct ncclTopoGraph* graph, struct n
   static_assert(sizeof(struct p2pConnectInfo) <= sizeof(struct ncclConnect), "p2p Connect Info is too big");
   struct p2pConnectInfo* info = (struct p2pConnectInfo*)connectInfo;
   info->read = useRead;
-  // For CollNet, use write for scatter-reduce (conn 1), read for broadcast-gather (conn 0)
-  if (graph && connIndex == 1) info->read = 0;
 
   int recvSize = sizeof(struct ncclRecvMem);
   // For P2P Read the SIMPLE buffer is tagged on the end of the ncclSendMem structure

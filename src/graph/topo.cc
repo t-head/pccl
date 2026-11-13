@@ -12,7 +12,6 @@
 #include "comm.h"
 #include "nvmlwrap.h"
 #include "net.h"
-#include "coll_net.h"
 #include <sys/stat.h>
 #include <fcntl.h>
 #include "xml.h"
@@ -370,7 +369,6 @@ ncclResult_t ncclTopoAddNet(struct ncclXmlNode* xmlNet, struct ncclTopoSystem* s
   if (xmlGetAttrInt(xmlNet, "port", &net->net.port) != ncclSuccess) net->net.port = 0;
   if (xmlGetAttrInt(xmlNet, "gdr", &net->net.gdrSupport) != ncclSuccess) net->net.gdrSupport = 0;
   if (xmlGetAttrInt(xmlNet, "maxconn", &net->net.maxChannels) != ncclSuccess) net->net.maxChannels = MAXCHANNELS;
-  if (xmlGetAttrInt(xmlNet, "coll", &net->net.collSupport) != ncclSuccess) net->net.collSupport = 0;
   ncclDebugNoWarn = 0;
 
   NCCLCHECK(ncclTopoConnectNodes(nic, net, LINK_NET, 1, net->net.width));
@@ -797,28 +795,8 @@ ncclResult_t ncclTopoGetSystem(ncclComm_t comm, struct ncclTopoSystem** system) 
     }
   }
 
-  // Auto-detect NICs if needed. net/collnet share the same xml/graph nodes,
-  // so we start with collnet so that it has precedence.
-  if (ncclCollNet) {
-    NCCLCHECKGOTO(collNetDevices(&netDevCount), res, fail);
-    for (int n=0; n<netDevCount; n++) {
-      ncclNetProperties_t props;
-      NCCLCHECKGOTO(collNetGetProperties(n, &props), res, fail);
-      struct ncclXmlNode* netNode;
-      NCCLCHECKGOTO(ncclTopoFillNet(xml, props.pciPath, props.name, &netNode), res, fail);
-      NCCLCHECKGOTO(xmlSetAttrInt(netNode, "keep", 1), res, fail);
-      NCCLCHECKGOTO(xmlSetAttrInt(netNode, "dev", n), res, fail);
-      NCCLCHECKGOTO(xmlInitAttrInt(netNode, "speed", props.speed), res, fail);
-      NCCLCHECKGOTO(xmlInitAttrInt(netNode, "port", props.port), res, fail);
-      NCCLCHECKGOTO(xmlInitAttrUint64(netNode, "guid", props.guid), res, fail);
-      NCCLCHECKGOTO(xmlInitAttrInt(netNode, "maxconn", props.maxComms), res, fail);
-      NCCLCHECKGOTO(xmlInitAttrInt(netNode, "gdr", props.ptrSupport & NCCL_PTR_HGGC ? 1 : 0), res, fail);
-      NCCLCHECKGOTO(xmlInitAttrInt(netNode, "coll", 1), res, fail);
-    }
-  }
-  if (netDevCount == 0) {
-    NCCLCHECKGOTO(ncclNetDevices(&netDevCount), res, fail);
-  }
+  // Auto-detect NICs if needed.
+  NCCLCHECKGOTO(ncclNetDevices(&netDevCount), res, fail);
   for (int n=0; n<netDevCount; n++) {
     ncclNetProperties_t props;
     NCCLCHECKGOTO(ncclNetGetProperties(n, &props), res, fail);

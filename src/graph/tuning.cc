@@ -48,9 +48,8 @@ static int getNthreads(const char* name, int env, int min, int max, int def) {
 //
 // For example:
 //
-//     NCCL_ALGO="ring,collnetdirect;allreduce:tree,collnetdirect;broadcast:ring"
-// Enable ring and collnetdirect for all functions, then select tree
-// and collnetdirect for allreduce and ring for broadcast.
+//     NCCL_ALGO="ring;allreduce:tree,ring;broadcast:ring"
+// Enable ring for all functions, then select tree and ring for allreduce.
 //
 //     NCCL_PROTO="LL,Simple;allreduce:^LL"
 // Enable LL and Simple for all functions, but everything except LL
@@ -138,35 +137,35 @@ static const int kernelEnabled[NCCL_NUM_FUNCTIONS][NCCL_NUM_ALGORITHMS][NCCL_NUM
   { /* Broadcast */
     /* Tree (LL/LL128/Simple/Signal/SimpleBulk/SignalBulk/SimpleBulkAR) */    {0,  0,  0,  0,  0,  0,  0 },
     /* Ring (LL/LL128/Simple/Signal/SimpleBulk/SignalBulk/SimpleBulkAR) */    {80, 80, 80, 80, 80, 80, 89},
-    /* CollNet (LL/LL128/Simple/Signal/SimpleBulk/SignalBulk/SimpleBulkAR) */ {0,  0,  0,  0,  0,  0,  0 },
+    /* Reserved CollNet slot */ {0, 0, 0, 0, 0, 0, 0},
     /* FC (LL/LL128/Simple/Signal/SimpleBulk/SignalBulk/SimpleBulkAR) */      {80, 0,  80, 0,  80, 0,  0 },
     /* PAT (LL/LL128/Simple/Signal/SimpleBulk/SignalBulk/SimpleBulkAR) */     {0,  0,  0,  0,  0,  0,  0 },
   },
   { /* Reduce */
     /* Tree (LL/LL128/Simple/Signal/SimpleBulk/SignalBulk/SimpleBulkAR) */    {0,  0,  0,  0,  0,  0,  0 },
     /* Ring (LL/LL128/Simple/Signal/SimpleBulk/SignalBulk/SimpleBulkAR) */    {80, 80, 80, 80, 80, 80, 89},
-    /* CollNet (LL/LL128/Simple/Signal/SimpleBulk/SignalBulk/SimpleBulkAR) */ {0,  0,  0,  0,  0,  0,  0 },
+    /* Reserved CollNet slot */ {0, 0, 0, 0, 0, 0, 0},
     /* FC (LL/LL128/Simple/Signal/SimpleBulk/SignalBulk/SimpleBulkAR) */      {80, 0,  80, 0,  80, 0,  0 },
     /* PAT (LL/LL128/Simple/Signal/SimpleBulk/SignalBulk/SimpleBulkAR) */     {0,  0,  0,  0,  0,  0,  0 },
   },
   { /* AllGather */
     /* Tree (LL/LL128/Simple/Signal/SimpleBulk/SignalBulk/SimpleBulkAR) */    {0,  0,  0,  0,  0,  0,  0 },
     /* Ring (LL/LL128/Simple/Signal/SimpleBulk/SignalBulk/SimpleBulkAR) */    {80, 80, 80, 80, 80, 80, 89},
-    /* CollNet (LL/LL128/Simple/Signal/SimpleBulk/SignalBulk/SimpleBulkAR) */ {0,  0,  0,  0,  0,  0,  0 },
+    /* Reserved CollNet slot */ {0, 0, 0, 0, 0, 0, 0},
     /* FC (LL/LL128/Simple/Signal/SimpleBulk/SignalBulk/SimpleBulkAR) */      {80, 0,  80, 0,  80, 0,  0 },
     /* PAT (LL/LL128/Simple/Signal/SimpleBulk/SignalBulk/SimpleBulkAR) */     {0,  0,  80, 0,  0,  0,  0 },
   },
   { /* ReduceScatter */
     /* Tree (LL/LL128/Simple/Signal/SimpleBulk/SignalBulk/SimpleBulkAR) */    {0,  0,  0,  0,  0,  0,  0 },
     /* Ring (LL/LL128/Simple/Signal/SimpleBulk/SignalBulk/SimpleBulkAR) */    {80, 80, 80, 80, 80, 80, 89},
-    /* CollNet (LL/LL128/Simple/Signal/SimpleBulk/SignalBulk/SimpleBulkAR) */ {0,  0,  0,  0,  0,  0,  0 },
+    /* Reserved CollNet slot */ {0, 0, 0, 0, 0, 0, 0},
     /* FC (LL/LL128/Simple/Signal/SimpleBulk/SignalBulk/SimpleBulkAR) */      {80, 0,  80, 0,  80, 0,  0 },
     /* PAT (LL/LL128/Simple/Signal/SimpleBulk/SignalBulk/SimpleBulkAR) */     {0,  0,  80, 0,  0,  0,  0 },
   },
   { /* AllReduce */
     /* Tree (LL/LL128/Simple/Signal/SimpleBulk/SignalBulk/SimpleBulkAR) */    {80, 80, 80, 80, 80, 80, 0 },
     /* Ring (LL/LL128/Simple/Signal/SimpleBulk/SignalBulk/SimpleBulkAR) */    {80, 80, 80, 80, 80, 80, 89},
-    /* CollNet (LL/LL128/Simple/Signal/SimpleBulk/SignalBulk/SimpleBulkAR) */ {80, 80, 80, 80, 80, 80, 0 },
+    /* Reserved CollNet slot */ {0, 0, 0, 0, 0, 0, 0},
     /* FC (LL/LL128/Simple/Signal/SimpleBulk/SignalBulk/SimpleBulkAR) */      {80, 0,  80, 0,  80, 0,  0 },
     /* PAT (LL/LL128/Simple/Signal/SimpleBulk/SignalBulk/SimpleBulkAR) */     {0,  0,  0,  0,  0,  0,  0 },
   }
@@ -177,11 +176,12 @@ static const int p2pKernelEnabled[NCCL_NUM_PROTOCOLS] = {0, 0, 80, 80, 80, 80, 8
 
 // Latencies in us, Bandwidths in GB/s
 // Tree { LL, LL128, Simple, Signal, SimpleBulk, simpleBulkAR } , Ring { LL, LL128, Simple, Signal, SimpleBulk, simpleBulkAR }
-// CollNet { LL, LL128, Simple, Signal, SimpleBulk, simpleBulkAR } , FC { LL, LL128, Simple, Signal, SimpleBulk, simpleBulkAR }
+// FC { LL, LL128, Simple, Signal, SimpleBulk, simpleBulkAR }
 // PAT { LL, LL128, Simple, Signal, SimpleBulk, simpleBulkAR }
 static const float baseLat  [NCCL_NUM_ALGORITHMS][NCCL_NUM_PROTOCOLS] = {
   { 4.4, 4.4,  0, 0, 0, 0, 0 }, { 3.6, 10.0, 8.4, 8.4, 8.4, 8.4, 8.4 },
-  { 4.4, 4.4,  0, 0, 0, 0, 0 }, { 3.6, 10.0, 8.0, 8.4, 8.4, 8.4, 8.4 },
+  { 0, 0, 0, 0, 0, 0, 0 }, /* Reserved CollNet slot */
+  { 3.6, 10.0, 8.0, 8.4, 8.4, 8.4, 8.4 },
   { 4.4, 4.4,  0, 0, 0, 0, 0 } };
 
 // NVLink, PCI, Network
@@ -193,21 +193,21 @@ static const float hwLat [3][NCCL_NUM_ALGORITHMS][NCCL_NUM_PROTOCOLS] =
 { /* NVLINK */
   { /* Tree (LL/LL128/Simple/Signal/SimpleBulk/SignalBulk/simpleBulkAR)*/ { .52, 1.25, 28, 28, 28, 28, 28 },
     /* Ring (LL/LL128/Simple/Signal/SimpleBulk/SignalBulk/simpleBulkAR)*/ { .47, 1.9, 3.4, 3.4, 3.4, 3.4, 3.4 },
-    /* CollNet (LL/LL128/Simple/Signal/SimpleBulk/SignalBulk/simpleBulkAR)*/ {  .5, 1.2, 4.0, 4.0, 4.0, 4.0, 4.0 },
+    /* Reserved CollNet slot */ {0, 0, 0, 0, 0, 0, 0},
     /* FC (LL/LL128/Simple/Signal/SimpleBulk/SignalBulk/simpleBulkAR)*/ { .47, 1.9, 3.4, 3.4, 3.4, 3.4, 3.4 },
     /* PAT (LL/LL128/Simple/Signal/SimpleBulk/SignalBulk/simpleBulkAR)*/ { .47, 1.9, 3.4, 3.4, 3.4, 3.4, 3.4 }
   },
   /* PCI */
   { /* Tree (LL/LL128/Simple/Signal/SimpleBulk/SignalBulk/simpleBulkAR)*/ { 1.0, 1.9, 28, 28, 28, 28, 28 },
     /* Ring (LL/LL128/Simple/Signal/SimpleBulk/SignalBulk/simpleBulkAR)*/ { 1.0, 2.5, 5.7, 5.7, 5.7, 5.7, 5.7 },
-    /* CollNet (LL/LL128/Simple/Signal/SimpleBulk/SignalBulk/simpleBulkAR)*/ { 1.0, 1.9, 5.5, 5.5, 5.5, 5.5, 5.5 },
+    /* Reserved CollNet slot */ {0, 0, 0, 0, 0, 0, 0},
     /* FC (LL/LL128/Simple/Signal/SimpleBulk/SignalBulk/simpleBulkAR)*/ { 1.0, 2.5, 5.7, 5.7, 5.7, 5.7, 5.7 },
     /* PAT (LL/LL128/Simple/Signal/SimpleBulk/SignalBulk/simpleBulkAR)*/ { 1.0, 2.5, 5.7, 5.7, 5.7, 5.7, 5.7 }
   },
   /* NET */
   { /* Tree (LL/LL128/Simple/Signal/SimpleBulk/SignalBulk/simpleBulkAR)*/ { 5.0, 8.5, 28, 28, 28, 28, 28 },
     /* Ring (LL/LL128/Simple/Signal/SimpleBulk/SignalBulk/simpleBulkAR)*/ { 2.7, 4.0, 9.6, 9.6, 9.6, 9.6, 9.6 },
-    /* CollNet (LL/LL128/Simple/Signal/SimpleBulk/SignalBulk/simpleBulkAR)*/ { 5.0, 5.0, 10.7, 10.7, 10.7, 10.7, 10.7 },
+    /* Reserved CollNet slot */ {0, 0, 0, 0, 0, 0, 0},
     /* FC (LL/LL128/Simple/Signal/SimpleBulk/SignalBulk/simpleBulkAR)*/ { 2.7, 4.0, 9.6, 9.6, 9.6, 9.6, 9.6 },
     /* PAT (LL/LL128/Simple/Signal/SimpleBulk/SignalBulk/simpleBulkAR)*/ { 2.7, 4.0, 9.6, 9.6, 9.6, 9.6, 9.6 }
   }
@@ -228,38 +228,38 @@ int pcclPatEnable(ncclComm_t comm) {
 }
 
 ncclResult_t ncclTopoTuneModel(ncclComm_t comm, int minCompCap, int maxCompCap, struct ncclTopoGraph* treeGraph,
-    struct ncclTopoGraph* ringGraph, struct ncclTopoGraph* collNetGraph, struct ncclTopoGraph* fcGraph) {
+    struct ncclTopoGraph* ringGraph, struct ncclTopoGraph* fcGraph) {
   // on 810e single node tp16 scenario, use less warps for simplebulk/ll128 proto when use ring algo will achieve better performance.
   bool lessWarps = comm->ppuType == _PPU_ZW810E && comm->nRanks == 16 && comm->nNodes == 1;
   int simpleDefaultThreads = ((ringGraph->speedIntra*ringGraph->nChannels <= PCI_WIDTH) || lessWarps) ? NCCL_SIMPLE_MAX_NTHREADS/2 : NCCL_SIMPLE_MAX_NTHREADS;
   // SIMPLE_BULK_AR
   comm->maxThreads[NCCL_ALGO_RING][NCCL_PROTO_SIMPLE_BULK_AR] =
     getNthreads("PCCL_NTHREADS", ncclParamNthreads(), 2*WARP_SIZE, NCCL_SIMPLE_MAX_NTHREADS, simpleDefaultThreads);
-  comm->maxThreads[NCCL_ALGO_TREE][NCCL_PROTO_SIMPLE_BULK_AR] = comm->maxThreads[NCCL_ALGO_COLLNET][NCCL_PROTO_SIMPLE_BULK_AR] =
+  comm->maxThreads[NCCL_ALGO_TREE][NCCL_PROTO_SIMPLE_BULK_AR] =
     getNthreads("PCCL_NTHREADS", ncclParamNthreads(), 2*WARP_SIZE, NCCL_SIMPLE_MAX_NTHREADS, NCCL_SIMPLE_MAX_NTHREADS);
   comm->maxThreads[NCCL_ALGO_FC][NCCL_PROTO_SIMPLE_BULK_AR] = comm->maxThreads[NCCL_ALGO_TREE][NCCL_PROTO_SIMPLE_BULK_AR];
   // SIGNAL_BULK
   comm->maxThreads[NCCL_ALGO_RING][NCCL_PROTO_SIGNAL_BULK] =
     getNthreads("PCCL_NTHREADS", ncclParamNthreads(), 2*WARP_SIZE, NCCL_SIMPLE_MAX_NTHREADS, simpleDefaultThreads);
-  comm->maxThreads[NCCL_ALGO_TREE][NCCL_PROTO_SIGNAL_BULK] = comm->maxThreads[NCCL_ALGO_COLLNET][NCCL_PROTO_SIGNAL_BULK] =
+  comm->maxThreads[NCCL_ALGO_TREE][NCCL_PROTO_SIGNAL_BULK] =
     getNthreads("PCCL_NTHREADS", ncclParamNthreads(), 2*WARP_SIZE, NCCL_SIMPLE_MAX_NTHREADS, NCCL_SIMPLE_MAX_NTHREADS);
   comm->maxThreads[NCCL_ALGO_FC][NCCL_PROTO_SIGNAL_BULK] = comm->maxThreads[NCCL_ALGO_TREE][NCCL_PROTO_SIGNAL_BULK];
   // SIMPLE_BULK
   comm->maxThreads[NCCL_ALGO_RING][NCCL_PROTO_SIMPLE_BULK] =
     getNthreads("PCCL_NTHREADS", ncclParamNthreads(), 2*WARP_SIZE, NCCL_SIMPLE_MAX_NTHREADS, simpleDefaultThreads);
-  comm->maxThreads[NCCL_ALGO_TREE][NCCL_PROTO_SIMPLE_BULK] = comm->maxThreads[NCCL_ALGO_COLLNET][NCCL_PROTO_SIMPLE_BULK] =
+  comm->maxThreads[NCCL_ALGO_TREE][NCCL_PROTO_SIMPLE_BULK] =
     getNthreads("PCCL_NTHREADS", ncclParamNthreads(), 2*WARP_SIZE, NCCL_SIMPLE_MAX_NTHREADS, NCCL_SIMPLE_MAX_NTHREADS);
   comm->maxThreads[NCCL_ALGO_FC][NCCL_PROTO_SIMPLE_BULK] = comm->maxThreads[NCCL_ALGO_TREE][NCCL_PROTO_SIMPLE_BULK];
   // SIGNAL
   comm->maxThreads[NCCL_ALGO_RING][NCCL_PROTO_SIGNAL] =
     getNthreads("PCCL_NTHREADS", ncclParamNthreads(), 2*WARP_SIZE, NCCL_SIMPLE_MAX_NTHREADS, simpleDefaultThreads);
-  comm->maxThreads[NCCL_ALGO_TREE][NCCL_PROTO_SIGNAL] = comm->maxThreads[NCCL_ALGO_COLLNET][NCCL_PROTO_SIGNAL] =
+  comm->maxThreads[NCCL_ALGO_TREE][NCCL_PROTO_SIGNAL] =
     getNthreads("PCCL_NTHREADS", ncclParamNthreads(), 2*WARP_SIZE, NCCL_SIMPLE_MAX_NTHREADS, NCCL_SIMPLE_MAX_NTHREADS);
   comm->maxThreads[NCCL_ALGO_FC][NCCL_PROTO_SIGNAL] = comm->maxThreads[NCCL_ALGO_TREE][NCCL_PROTO_SIGNAL];
   // SIMPLE
   comm->maxThreads[NCCL_ALGO_RING][NCCL_PROTO_SIMPLE] =
     getNthreads("PCCL_NTHREADS", ncclParamNthreads(), 2*WARP_SIZE, NCCL_SIMPLE_MAX_NTHREADS, simpleDefaultThreads);
-  comm->maxThreads[NCCL_ALGO_TREE][NCCL_PROTO_SIMPLE] = comm->maxThreads[NCCL_ALGO_COLLNET][NCCL_PROTO_SIMPLE] =
+  comm->maxThreads[NCCL_ALGO_TREE][NCCL_PROTO_SIMPLE] =
     getNthreads("PCCL_NTHREADS", ncclParamNthreads(), 2*WARP_SIZE, NCCL_SIMPLE_MAX_NTHREADS, NCCL_SIMPLE_MAX_NTHREADS);
   // PAT needs NCCL_MAX_NTHREADS to fit NCCL_PAT_NWORKERS + the algorithm thread.
   comm->maxThreads[NCCL_ALGO_PAT][NCCL_PROTO_SIMPLE] = NCCL_MAX_NTHREADS;
@@ -268,13 +268,11 @@ ncclResult_t ncclTopoTuneModel(ncclComm_t comm, int minCompCap, int maxCompCap, 
   comm->maxThreads[NCCL_ALGO_RING][NCCL_PROTO_LL] =
     getNthreads("PCCL_NTHREADS", ncclParamNthreads(), 2*WARP_SIZE, NCCL_LL_MAX_NTHREADS, NCCL_LL_MAX_NTHREADS);
   comm->maxThreads[NCCL_ALGO_TREE][NCCL_PROTO_LL] = comm->maxThreads[NCCL_ALGO_RING][NCCL_PROTO_LL];
-  comm->maxThreads[NCCL_ALGO_COLLNET][NCCL_PROTO_LL] = comm->maxThreads[NCCL_ALGO_RING][NCCL_PROTO_LL];
   comm->maxThreads[NCCL_ALGO_FC][NCCL_PROTO_LL] = comm->maxThreads[NCCL_ALGO_RING][NCCL_PROTO_LL];
   // LL128
   comm->maxThreads[NCCL_ALGO_RING][NCCL_PROTO_LL128] =
     getNthreads("PCCL_LL128_NTHREADS", ncclParamLl128Nthreads(), NCCL_LL128_MAX_NTHREADS/4, NCCL_LL128_MAX_NTHREADS, lessWarps ? NCCL_LL128_MAX_NTHREADS/2 : NCCL_LL128_MAX_NTHREADS);
   comm->maxThreads[NCCL_ALGO_TREE][NCCL_PROTO_LL128] = comm->maxThreads[NCCL_ALGO_RING][NCCL_PROTO_LL128];
-  comm->maxThreads[NCCL_ALGO_COLLNET][NCCL_PROTO_LL128] = comm->maxThreads[NCCL_ALGO_RING][NCCL_PROTO_LL128];
   comm->maxThreads[NCCL_ALGO_FC][NCCL_PROTO_LL128] = comm->maxThreads[NCCL_ALGO_RING][NCCL_PROTO_LL128];
 
   int nNodes = comm->nNodes;
@@ -294,9 +292,10 @@ ncclResult_t ncclTopoTuneModel(ncclComm_t comm, int minCompCap, int maxCompCap, 
   float ppn = (float)nRanks / nNodes; // if ppn < 2, then we are sending/receiving at the same GPU through the NIC, apply some bw discount
   int multiHostsBulkMode = pcclParamMultiHostsBulkMode();
 
-  struct ncclTopoGraph* graphs[NCCL_NUM_ALGORITHMS] = { treeGraph, ringGraph, collNetGraph, fcGraph, treeGraph };
-  int intraHw[NCCL_NUM_ALGORITHMS], hw[NCCL_NUM_ALGORITHMS];
+  struct ncclTopoGraph* graphs[NCCL_NUM_ALGORITHMS] = { treeGraph, ringGraph, nullptr, fcGraph, treeGraph };
+  int intraHw[NCCL_NUM_ALGORITHMS] = {}, hw[NCCL_NUM_ALGORITHMS];
   for (int a=0; a<NCCL_NUM_ALGORITHMS; a++) {
+    if (graphs[a] == nullptr) continue;
     int typeIntra = graphs[a]->typeIntra;
     intraHw[a] = (typeIntra == PATH_NVL || typeIntra == PATH_NVB) ? NCCL_HW_NVLINK : NCCL_HW_PCI;
   }
@@ -315,7 +314,7 @@ ncclResult_t ncclTopoTuneModel(ncclComm_t comm, int minCompCap, int maxCompCap, 
       for (int p=0; p<NCCL_NUM_PROTOCOLS; p++) {
         if (kernelEnabled[coll][a][p] == 0 || kernelEnabled[coll][a][p] > maxCompCap) continue;
         if (a == NCCL_ALGO_PAT && ((coll != ncclFuncAllGather && coll != ncclFuncReduceScatter) || p != NCCL_PROTO_SIMPLE || pcclPatEnable(comm) == 0)) continue;
-        float speed = nNodes <= 2 || a == NCCL_ALGO_COLLNET ? graphs[a]->speedIntra : graphs[a]->speedInter;
+        float speed = nNodes <= 2 ? graphs[a]->speedIntra : graphs[a]->speedInter;
         float busBw = graphs[a]->nChannels * speed;
 
         // Extra model for ppu
@@ -343,9 +342,6 @@ ncclResult_t ncclTopoTuneModel(ncclComm_t comm, int minCompCap, int maxCompCap, 
         if (a == NCCL_ALGO_TREE) busBw = std::min(busBw*.92, graphs[a]->nChannels*perChMaxTreeBw);
         if (a == NCCL_ALGO_TREE && p == NCCL_PROTO_LL) busBw = std::min(busBw*1.0/3.8, llMaxBw);
         if (a == NCCL_ALGO_TREE && p == NCCL_PROTO_LL128) busBw = std::min(busBw * (nNodes == 1 ? 7.0/9.0 : 0.915 /*120.0/128.0*/), ll128MaxBwPerCh[coll]*graphs[a]->nChannels);
-        if (a == NCCL_ALGO_COLLNET) busBw *= .9;
-        if (a == NCCL_ALGO_COLLNET && p == NCCL_PROTO_LL) busBw *= 1.0/6.0; // Take into account that GDR read is disabled on both sides
-        if (a == NCCL_ALGO_COLLNET && p == NCCL_PROTO_LL128) busBw = 0;  // CollNet does not support LL128
 
         // Convert bus BW to algorithm BW
         float ratio = (a == NCCL_ALGO_RING || a == NCCL_ALGO_FC) ? (1.0 * nRanks) / nsteps : .5;
@@ -376,9 +372,6 @@ ncclResult_t ncclTopoTuneModel(ncclComm_t comm, int minCompCap, int maxCompCap, 
         } else if (a == NCCL_ALGO_TREE) {
           comm->latencies[coll][a][p] +=
             2 * ((nRanks/nNodes-1) * intraLat + log2i(nNodes) * interLat);
-        } else if (a == NCCL_ALGO_COLLNET) {
-          comm->latencies[coll][a][p] +=
-            2 * (nRanks/nNodes-1) * intraLat + interLat;
         } else if (a == NCCL_ALGO_FC) {
           comm->latencies[coll][a][p] += fcnSteps * hwLat[intraHw[a]][a][p];
         } else if (a == NCCL_ALGO_PAT) {
@@ -445,9 +438,8 @@ ncclResult_t ncclTopoTuneModel(ncclComm_t comm, int minCompCap, int maxCompCap, 
   for (int f=0; f<NCCL_NUM_FUNCTIONS; f++) {
     bool hasAvailableAlgo = false;
     for (int a=0; a<NCCL_NUM_ALGORITHMS; a++) {
-      int disable = 0;
+      int disable = (a == NCCL_ALGO_COLLNET);
       // Disable unsupported algorithms
-      if (comm->collNetSupport == 0 && a == NCCL_ALGO_COLLNET) disable = 1;
       if (a == NCCL_ALGO_FC &&
           (fcGraph->nChannels == 0 ||
             (comm->icnRmtType == PCCL_ICNLINK_SWITCH && algoEnable[f*NCCL_NUM_ALGORITHMS+a] == ncclTuningCustomEnable))) disable = 1;
@@ -458,7 +450,8 @@ ncclResult_t ncclTopoTuneModel(ncclComm_t comm, int minCompCap, int maxCompCap, 
     if (fallBack && !hasAvailableAlgo) {
       // if fc is not available, set the default val to 0
       int algoDefaultEnable[NCCL_NUM_ALGORITHMS] =
-          {ncclTuningEnable, ncclTuningEnable, ncclTuningDisable, fcGraph->nChannels == 0 ? ncclTuningDisable : ncclTuningCustomEnable};
+          {ncclTuningEnable, ncclTuningEnable, ncclTuningDisable,
+           fcGraph->nChannels == 0 ? ncclTuningDisable : ncclTuningCustomEnable, ncclTuningDisable};
       for (int a=0; a<NCCL_NUM_ALGORITHMS; a++) {
         algoEnable[f*NCCL_NUM_ALGORITHMS+a] = algoDefaultEnable[a];
       }
@@ -466,6 +459,7 @@ ncclResult_t ncclTopoTuneModel(ncclComm_t comm, int minCompCap, int maxCompCap, 
   }
 
   for (int c=0; c<NCCL_NUM_FUNCTIONS; c++) for (int a=0; a<NCCL_NUM_ALGORITHMS; a++) for (int p=0; p<NCCL_NUM_PROTOCOLS; p++) {
+    if (graphs[a] == nullptr) continue;
     int pEnable = protoEnable[c*NCCL_NUM_PROTOCOLS+p];
     if (pEnable == 1 && p == NCCL_PROTO_LL128) {
       if (graphs[a]->typeInter > PATH_PHBH || graphs[a]->typeIntra > PATH_PXB) {
@@ -588,7 +582,7 @@ ncclResult_t ncclTopoTuneModel(ncclComm_t comm, int minCompCap, int maxCompCap, 
     }
   }
 
-  INFO(NCCL_INIT, "threadThresholds %ld/%ld/%ld/%ld/%ld/%ld/%ld | %ld/%ld/%ld/%ld/%ld/%ld/%ld | %ld/%ld/%ld/%ld/%ld/%ld/%ld | %ld/%ld/%ld/%ld/%ld/%ld/%ld",
+  INFO(NCCL_INIT, "threadThresholds %ld/%ld/%ld/%ld/%ld/%ld/%ld | %ld/%ld/%ld/%ld/%ld/%ld/%ld | %ld/%ld/%ld/%ld/%ld/%ld/%ld",
       comm->threadThresholds[NCCL_ALGO_TREE][NCCL_PROTO_LL],
       comm->threadThresholds[NCCL_ALGO_TREE][NCCL_PROTO_LL128],
       comm->threadThresholds[NCCL_ALGO_TREE][NCCL_PROTO_SIMPLE],
@@ -603,13 +597,6 @@ ncclResult_t ncclTopoTuneModel(ncclComm_t comm, int minCompCap, int maxCompCap, 
       comm->threadThresholds[NCCL_ALGO_RING][NCCL_PROTO_SIMPLE_BULK],
       comm->threadThresholds[NCCL_ALGO_RING][NCCL_PROTO_SIGNAL_BULK],
       comm->threadThresholds[NCCL_ALGO_RING][NCCL_PROTO_SIMPLE_BULK_AR],
-      comm->threadThresholds[NCCL_ALGO_COLLNET][NCCL_PROTO_LL],
-      comm->threadThresholds[NCCL_ALGO_COLLNET][NCCL_PROTO_LL128],
-      comm->threadThresholds[NCCL_ALGO_COLLNET][NCCL_PROTO_SIMPLE],
-      comm->threadThresholds[NCCL_ALGO_COLLNET][NCCL_PROTO_SIGNAL],
-      comm->threadThresholds[NCCL_ALGO_COLLNET][NCCL_PROTO_SIMPLE_BULK],
-      comm->threadThresholds[NCCL_ALGO_COLLNET][NCCL_PROTO_SIGNAL_BULK],
-      comm->threadThresholds[NCCL_ALGO_COLLNET][NCCL_PROTO_SIMPLE_BULK_AR],
       comm->threadThresholds[NCCL_ALGO_FC][NCCL_PROTO_LL],
       comm->threadThresholds[NCCL_ALGO_FC][NCCL_PROTO_LL128],
       comm->threadThresholds[NCCL_ALGO_FC][NCCL_PROTO_SIMPLE],

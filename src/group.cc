@@ -166,10 +166,6 @@ static ncclResult_t ncclCollPreconnect(ncclComm_t comm, bool* algoNeedConnect) {
           NCCLCHECK(ncclTransportTreeConnect(comm));
           break;
         }
-        case NCCL_ALGO_COLLNET: {
-          NCCLCHECK(ncclTransportCollnetConnect(comm));
-          break;
-        }
         case NCCL_ALGO_FC: {
           NCCLCHECK(ncclTransportFcConnect(comm));
           break;
