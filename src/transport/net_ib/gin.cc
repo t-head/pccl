@@ -256,7 +256,7 @@ ncclResult_t ncclGinIbP2PBarrier(struct ncclGinIbCollComm* cComm) {
 
 static ncclResult_t ncclGinIbGetGidIndexAdapter(struct ibv_context* context, uint8_t portNum,
                                                 struct ibv_port_attr* portAttr, int* gidIndex) {
-  return ncclIbGetGidIndex(context, portNum, portAttr->gid_tbl_len, gidIndex);
+  return ncclIbGetGidIndex(context, portNum, portAttr, gidIndex);
 }
 
 ncclResult_t ncclGinIbConnect(void* ctx, void* handles[], int nranks, int rank,
@@ -515,23 +515,17 @@ ncclResult_t ncclGinIbProxyCreateContext(void* collComm, ncclGinConfig_v13_t* co
       int connectPeer = (cComm->rank + i) % nranks;
       int acceptPeer = (cComm->rank - i + nranks) % nranks;
       do {
-        if (gc->fullSendComm[connectPeer] == NULL)
+        if (gc->fullSendComm[connectPeer] == NULL) {
           NCCLCHECKGOTO(ncclNetIb.connect(cComm->dev,
                                           handles + NCCL_NET_HANDLE_MAXSIZE * connectPeer,
                                           &gc->fullSendComm[connectPeer]),
                         ret, end);
+        }
         if (gc->fullRecvComm[acceptPeer] == NULL)
           NCCLCHECKGOTO(ncclNetIb.accept(lComm, &gc->fullRecvComm[acceptPeer]),
                         ret, end);
       } while ((gc->fullSendComm[connectPeer] == NULL) ||
                (gc->fullRecvComm[acceptPeer] == NULL));
-      // Phase-2: complete QP transition (INIT → RTR → RTS) on the sender
-      // side and synchronize with the receiver.  Without this the sender's
-      // QP stays in INIT and ibv_post_send in IPut/IGet will fail.
-      while (((struct ncclIbSendComm*)gc->fullSendComm[connectPeer])->base.ready == 0)
-        NCCLCHECKGOTO(ncclSendCheck((struct ncclIbSendComm*)gc->fullSendComm[connectPeer]), ret, end);
-      while (((struct ncclIbRecvComm*)gc->fullRecvComm[acceptPeer])->base.ready == 0)
-        NCCLCHECKGOTO(ncclRecvCheck((struct ncclIbRecvComm*)gc->fullRecvComm[acceptPeer]), ret, end);
       NCCLCHECKGOTO(ncclGinIbP2PBarrier(cComm), ret, end);
     }
   }

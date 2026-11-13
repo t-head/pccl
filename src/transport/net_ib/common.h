@@ -42,6 +42,21 @@ enum ncclIbProvider {
   IB_PROVIDER_NONE = 0,
   IB_PROVIDER_MLX5 = 1,
 };
+struct ncclIbMr {
+    uintptr_t addr;
+    size_t size;
+    unsigned int flags;
+    int type;
+    int refs;
+    struct ibv_mr* mr;
+};
+
+struct ncclIbMrCache {
+    struct ncclIbMr* slots;
+    size_t capacity;
+    size_t population;
+};
+
 struct ncclIbDev {
     int device;
     uint64_t guid;
@@ -64,6 +79,7 @@ struct ncclIbDev {
     struct ibv_pd* pd;
     int pdRefs;
     std::mutex mutex;
+    struct ncclIbMrCache mrCache;
     // -1 = not probed, 0 = probed and unsupported, 1 = probed and supported.
     int dmaBufSupported;
 };
@@ -131,6 +147,8 @@ enum ncclIbCommState {
     ncclIbCommStateSend = 4,
     ncclIbCommStateRecv = 5,
     ncclIbCommStateConnected = 6,
+    ncclIbCommStateConnecting = 7,
+    ncclIbCommStatePendingReady = 8,
 };
 
 enum ncclIbRecvMatchingScheme {
@@ -155,9 +173,8 @@ struct ncclIbSendFifo {
     uint64_t addr;
     int      size;
     uint32_t rkey;
-    // TODO: Match the upstream NCCL CTS FIFO layout after porting its shared
-    // logical request-ID generation and request completion records. Those
-    // features remove the need for reqIdx/reserved and these narrowed fields.
+    // The receiver request index identifies the destination sizes entry and,
+    // with BY_ID matching, the receive completion.
     uint8_t  nreqs;
     uint8_t  reqIdx;
     uint16_t reserved;
@@ -228,6 +245,11 @@ struct ncclIbSendComm {
     struct ncclIbRequest* fifoReqs[NET_IB_MAX_REQUESTS][NCCL_NET_IB_MAX_RECVS];
 
     struct ibv_mr* fifoMr;
+    int sizesFifo[NET_IB_MAX_REQUESTS][NCCL_NET_IB_MAX_RECVS];
+    struct ibv_mr* sizesFifoMr;
+    struct ibv_sge sizesSge;
+    uint64_t remSizesFifoAddr;
+    uint32_t remSizesFifoRkey;
     int netDev;
     int ar; // Use adaptive routing when enabled on the selected device
     // Local scratchpad target for the GIN proxy iputSignal atomic FETCH_AND_ADD.
@@ -283,6 +305,8 @@ struct ncclIbRecvComm {
     struct ibv_recv_wr ibRecvWorkRequest;
     struct ncclIbRequest* recvReqs[NET_IB_MAX_REQUESTS];
     struct ncclIbGpuFlush gpuFlush;
+    int sizesFifo[NET_IB_MAX_REQUESTS][NCCL_NET_IB_MAX_RECVS];
+    struct ibv_mr* sizesFifoMr;
 };
 static_assert((offsetof(struct ncclIbRecvComm, remCtsFifo) % 32) == 0, "ncclIbSendComm fifo must be 32-byte aligned");
 
@@ -322,7 +346,7 @@ ncclResult_t ncclIbSetTrafficClass(void* ctx, int trafficClass);
 ncclResult_t ncclIbGetPhysProperties(int dev, ncclNetProperties_t* props);
 ncclResult_t ncclIbRegMrDmaBufInternal(void* comm, void* data, size_t size, int type, uint64_t offset, int fd, uint64_t mrFlags, void** mhandle);
 
-ncclResult_t ncclIbGetGidIndex(struct ibv_context *context, uint8_t portNum, int gidTblLen, int *gidIndex);
+ncclResult_t ncclIbGetGidIndex(struct ibv_context *context, uint8_t portNum, const struct ibv_port_attr* portAttr, int *gidIndex);
 int ncclIbGidIndexFromDevice(int netDev);
 ncclResult_t ncclIbGetRequest(struct ncclIbNetCommBase* base, struct ncclIbRequest** req);
 ncclResult_t ncclIbFreeRequest(struct ncclIbRequest* r);

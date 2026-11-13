@@ -29,6 +29,13 @@ union ibv_gid {
 	} global;
 };
 
+// Enhanced Connection Establishment parameters, as defined by libibverbs.
+struct ibv_ece {
+  uint32_t vendor_id;
+  uint32_t options;
+  uint32_t comp_mask;
+};
+
 #ifndef container_of
 /**
   * container_of - cast a member of a structure out to the containing structure
@@ -1059,6 +1066,8 @@ ncclResult_t wrap_ibv_query_device(struct ibv_context *context, struct ibv_devic
 ncclResult_t wrap_ibv_query_port(struct ibv_context *context, uint8_t port_num, struct ibv_port_attr *port_attr);
 ncclResult_t wrap_ibv_query_gid(struct ibv_context *context, uint8_t port_num, int index, union ibv_gid *gid);
 ncclResult_t wrap_ibv_query_qp(struct ibv_qp *qp, struct ibv_qp_attr *attr, int attr_mask, struct ibv_qp_init_attr *init_attr);
+ncclResult_t wrap_ibv_query_ece(struct ibv_qp* qp, struct ibv_ece* ece, int* supported);
+ncclResult_t wrap_ibv_set_ece(struct ibv_qp* qp, struct ibv_ece* ece, int* supported);
 ncclResult_t wrap_ibv_alloc_pd(struct ibv_pd **ret, struct ibv_context *context);
 ncclResult_t wrap_ibv_dealloc_pd(struct ibv_pd *pd);
 ncclResult_t wrap_ibv_reg_mr(struct ibv_mr **ret, struct ibv_pd *pd, void *addr, size_t length, int access);
