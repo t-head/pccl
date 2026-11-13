@@ -1,19 +1,20 @@
 {
   "classification": {
     "base_sha": "a909809e63dbf891101c88d45c0b78bfe628fab6",
-    "head_sha": "0ae23f34589e14e6e9e73d63fe276b197e28c9de",
-    "input_fingerprint": "cc3413a00f0b156150fcdea69a529d2ddd8c8462e4b88b7c354f57d5f2132f85",
+    "head_sha": "04cab9e8b946a6f222cc4b0587c1340b03f4da0e",
+    "input_fingerprint": "4d8fa5085b164462d1f222690cc6539f68fb3ebd9a8d71100d2d87e5249cd083",
     "pr_number": 174,
     "proposal": {
       "modules": [
+        "device-topology",
         "graph-search",
         "transport",
         "tuning",
-        "enqueue",
         "network",
-        "kernels"
+        "kernels",
+        "tuner-plugin"
       ],
-      "reason": "Main change is complete CollNet feature removal from network transport/plugin/proxy behavior (`network`). Additional substantive ownership is needed for removing the CollNet transport type and connect paths from generic rank-connection management (`transport`), deleting CollNet topology graph/preset/connect logic (`graph-search`), removing executable CollNet device-kernel specializations while keeping a reserved slot (`kernels`), disabling CollNet in cost models/algo availability while preserving stable algorithm IDs (`tuning`), and updating runtime planning/chunking/pattern selection plus tuner-callback fallback guards for unsupported CollNet selections (`enqueue`)."
+      "reason": "Primary change removes CollNet execution end-to-end: CollNet net-plugin loading, CollNet transport/proxy resources, and related connection paths are deleted (network, transport). The PR also removes CollNet device-kernel implementations while preserving a reserved algorithm slot (kernels), drops CollNet logical graph construction/connection and CollNet-specific topology discovery metadata (graph-search, device-topology), and updates built-in algorithm/protocol selection and performance tables to disable CollNet and keep slot compatibility (tuning). External tuner callback compatibility is explicitly handled by validating unsupported/out-of-range selections and falling back to internal tuning while preserving v1 IDs/layout expectations (tuner-plugin)."
     }
   },
   "reviewers": {
