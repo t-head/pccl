@@ -24,6 +24,20 @@ REQUIRED_JOBS = ('prepare', 'build-standard', 'build-notsm', 'stage-cache',
 
 
 class WorkflowContractTests(unittest.TestCase):
+    def test_all_artifact_downloads_use_bounded_retries(self):
+        action = (ROOT / '.github/actions/download-artifact-retry/action.yml').read_text()
+        self.assertEqual(action.count('uses: actions/download-artifact@v4'), 3)
+        self.assertEqual(action.count('continue-on-error: true'), 2)
+        self.assertIn('sleep 15', action)
+        self.assertIn('sleep 30', action)
+        self.assertIn('shutil.rmtree(target)', action)
+        self.assertIn("parent.relative_to(workspace)", action)
+        self.assertIn("target = parent / relative.name", action)
+        workflow = (ROOT / '.github/workflows/source-sanity.yml').read_text()
+        self.assertNotIn('uses: actions/download-artifact@v4', workflow)
+        self.assertEqual(workflow.count('uses: t-head/pccl/.github/actions/download-artifact-retry@'
+                                        'c7eb80eadb2ca48976a02d8f0fcc1c020534ce73'), 5)
+
     @classmethod
     def setUpClass(cls):
         cls.text = WORKFLOW.read_text(encoding='utf-8')
@@ -89,7 +103,7 @@ class WorkflowContractTests(unittest.TestCase):
     def test_artifact_upload_download_retention_and_cleanup_are_connected(self):
         for expected in ('name: pccl-build-standard', 'name: pccl-build-notsm',
                          'name: Stage ${{ matrix.profile }} from artifact or valid NAS cache',
-                         'actions/download-artifact@v4', 'retention-days: 3',
+                         't-head/pccl/.github/actions/download-artifact-retry@', 'retention-days: 3',
                          'artifact_cache.py publish', 'artifact_cache.py validate',
                          'artifact_cache.py cleanup', 'trap cleanup_shared_build EXIT'):
             self.assertIn(expected, self.text)

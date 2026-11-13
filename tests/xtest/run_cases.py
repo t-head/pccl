@@ -70,7 +70,7 @@ def _read_metadata(path):
     return data
 
 
-def load_inputs(directory, profile, nodes=None):
+def load_inputs(directory, profile, nodes=None, suite=None):
     """Read and fully validate one profile before allocating or running anything."""
     directory = Path(directory)
     if profile not in ("standard", "notsm"):
@@ -120,8 +120,12 @@ def load_inputs(directory, profile, nodes=None):
         if type(nodes) is not int or nodes <= 0:
             raise ValueError("Node filter must be a positive integer")
         cases = [case for case in cases if case["suite_spec"]["nodes"] == nodes]
+    if suite is not None:
+        if not SAFE_NAME.fullmatch(suite):
+            raise ValueError("Suite filter must be a portable Suite name")
+        cases = [case for case in cases if case["suite"] == suite]
     if not cases:
-        raise ValueError("Profile contains no Cases for the requested node count")
+        raise ValueError("Profile contains no Cases for the requested node count and Suite")
     return {"metadata": metadata, "suites": suites, "cases": cases, "profile": profile,
             "directory": directory}
 
@@ -184,11 +188,11 @@ def _runner_root(test_root):
 
 
 def _stage_interpreter(output):
-    directory = output / ".executor-bin"
-    directory.mkdir()
+    directory = output / "python-env" / "bin"
+    directory.mkdir(parents=True)
     executable = Path(sys.executable).absolute()
     launcher = '#!/bin/sh\nexec ' + shlex.quote(str(executable)) + ' "$@"\n'
-    for name in sorted({"python", "python3", executable.name}):
+    for name in sorted({"python", "python3", "python3.11", executable.name}):
         path = directory / name
         path.write_text(launcher, encoding="utf-8")
         path.chmod(0o755)
@@ -197,7 +201,7 @@ def _stage_interpreter(output):
 
 def _stage_work(work, runner_root, binary_dir, hostfile):
     work.mkdir(parents=True, exist_ok=False)
-    for name in ("run_test.py", "run_test_config.py"):
+    for name in ("run_test.py", "run_test_config.py", "unit_test.py"):
         source = runner_root / name
         if source.is_file():
             (work / name).symlink_to(source)
@@ -340,7 +344,8 @@ def run_case(case, runtime, interrupted):
     return_code = None
     try:
         bindings = {"test_root": str(runtime["test_root"]), "binary_dir": str(runtime["binary_dir"]),
-                    "result_dir": str(directory)}
+                    "result_dir": str(directory),
+                    "python_env": str(runtime["output"] / "python-env")}
         environment = _expand_environment(
             _environment_file(runtime["input"] / "envs" / suite["env"]), runtime["base_environment"], bindings)
         # Keep the build ahead of inherited installations while retaining the
@@ -500,6 +505,7 @@ def main():
     parser.add_argument("--input", type=Path, required=True)
     parser.add_argument("--profile", choices=("standard", "notsm"), required=True)
     parser.add_argument("--nodes", type=int, help="Run only Cases whose Suite requests this node count")
+    parser.add_argument("--suite", help="Execute only the exact Suite name")
     parser.add_argument("--test-root", type=Path)
     parser.add_argument("--binary-dir", type=Path)
     parser.add_argument("--output", type=Path)
@@ -511,7 +517,7 @@ def main():
     parser.add_argument("--validate-only", action="store_true")
     args = parser.parse_args()
     try:
-        inputs = load_inputs(args.input, args.profile, args.nodes)
+        inputs = load_inputs(args.input, args.profile, args.nodes, suite=args.suite)
         if args.validate_only:
             if args.output is not None or args.test_root is not None:
                 raise ValueError("--validate-only does not accept execution paths")

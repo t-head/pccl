@@ -1,0 +1,83 @@
+name: Download artifact with retry
+description: Download one Actions artifact up to three times and remove partial output between attempts.
+inputs:
+  name:
+    description: Artifact name.
+    required: true
+  path:
+    description: Workspace-relative destination directory.
+    required: true
+runs:
+  using: composite
+  steps:
+    - id: first
+      continue-on-error: true
+      uses: actions/download-artifact@v4
+      with:
+        name: ${{ inputs.name }}
+        path: ${{ inputs.path }}
+    - name: Clean partial output and wait before the second attempt
+      if: steps.first.outcome == 'failure'
+      shell: bash
+      env:
+        DOWNLOAD_PATH: ${{ inputs.path }}
+      run: |
+        python3 - <<'PY'
+        import os
+        from pathlib import Path
+        import shutil
+
+        workspace = Path(os.environ['GITHUB_WORKSPACE']).resolve()
+        relative = Path(os.environ['DOWNLOAD_PATH'])
+        if not os.environ['DOWNLOAD_PATH'] or relative.is_absolute() or '..' in relative.parts:
+            raise ValueError('Artifact download path must be a nonempty workspace-relative path')
+        parent = (workspace / relative).parent.resolve()
+        parent.relative_to(workspace)
+        target = parent / relative.name
+        if target == workspace:
+            raise ValueError('Artifact download path cannot be the workspace root')
+        if target.is_symlink() or target.is_file():
+            target.unlink()
+        elif target.is_dir():
+            shutil.rmtree(target)
+        PY
+        sleep 15
+    - id: second
+      if: steps.first.outcome == 'failure'
+      continue-on-error: true
+      uses: actions/download-artifact@v4
+      with:
+        name: ${{ inputs.name }}
+        path: ${{ inputs.path }}
+    - name: Clean partial output and wait before the third attempt
+      if: steps.second.outcome == 'failure'
+      shell: bash
+      env:
+        DOWNLOAD_PATH: ${{ inputs.path }}
+      run: |
+        python3 - <<'PY'
+        import os
+        from pathlib import Path
+        import shutil
+
+        workspace = Path(os.environ['GITHUB_WORKSPACE']).resolve()
+        relative = Path(os.environ['DOWNLOAD_PATH'])
+        if not os.environ['DOWNLOAD_PATH'] or relative.is_absolute() or '..' in relative.parts:
+            raise ValueError('Artifact download path must be a nonempty workspace-relative path')
+        parent = (workspace / relative).parent.resolve()
+        parent.relative_to(workspace)
+        target = parent / relative.name
+        if target == workspace:
+            raise ValueError('Artifact download path cannot be the workspace root')
+        if target.is_symlink() or target.is_file():
+            target.unlink()
+        elif target.is_dir():
+            shutil.rmtree(target)
+        PY
+        sleep 30
+    - id: third
+      if: steps.second.outcome == 'failure'
+      uses: actions/download-artifact@v4
+      with:
+        name: ${{ inputs.name }}
+        path: ${{ inputs.path }}

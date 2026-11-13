@@ -106,6 +106,48 @@ result reconciliation, a final `always()` cleanup removes only this run's
 logs remain intact. Cache reuse is content-verified; file existence alone is
 never sufficient.
 
+## Experimental M890P daily execution
+
+`daily-minimal-csv` contains 19 smoke Cases on one and two nodes.
+`daily-full-csv` currently contains 8,899 standard Cases from 34 Suites, with
+unsupported or out-of-scope selections recorded in `coverage.json`. The notsm
+daily profile is intentionally empty.
+The current resource policy executes only 1/2/4-node groups: 8,180 Cases in 20
+groups. The 710 eight-node and 9 sixteen-node Cases remain in the export but are
+listed as `EXCLUDED_BY_POLICY` in `execution-coverage.json`; they are not
+reported as passed or skipped tests.
+
+`group_cases.py` derives deterministic execution groups by profile, node count,
+cards per node and shared environment, then splits large groups by
+`--max-cases`. There is no hand-maintained shard list. Optional `--nodes` and
+`--suite` arguments are debug filters, not shard definitions.
+
+```bash
+python3 -S -B tests/xtest/group_cases.py \
+  --input tests/xtest/daily-minimal-csv \
+  --output /tmp/daily-case-groups --max-cases 500
+```
+
+The group tree is hashed over every relative filename and file byte. A GitHub
+artifact is the backup and one validated copy is published to the run-scoped
+NAS cache with read-only files. Missing or invalid caches are restored from the
+backup with an atomic, interprocess-locked publication; an invalid tree is
+quarantined rather than deleted while readers may still use it. Every execution
+group creates a private, revalidated, read-only copy before running any Case, so
+concurrent recovery cannot change the commands or environment being executed.
+Build and group downloads use bounded retries, artifacts are retained for seven
+days, and no cache is shared across workflow runs.
+
+`daily_reconcile.py` checks exact Case coverage, result records, raw logs,
+performance metrics and the verified build identity for each group. Result CSV
+and JSON records must have the complete schema and matching values. Performance
+metrics are regenerated from the raw log and compared with every saved row.
+Sizes and counts may be zero after rank division, times must be positive, and
+bandwidth must be nonnegative. Daily results produce summaries and failure
+notifications, not a PR required check.
+Both preparation and final summary reject execution groups or unexpected result
+directories that exceed the allowed node counts.
+
 The internal `results` job loads the selected CSV Cases again. It rejects
 missing, duplicate or unexpected Case keys, empty raw logs, missing or
 inconsistent per-Case `result.json` records, and missing, empty or inconsistent
