@@ -14,7 +14,7 @@ on:
         required: true
         default: smoke
         type: choice
-        options: [smoke, full]
+        options: [smoke, full, generated-smoke, generated-full]
       max_cases_per_group:
         description: Maximum Cases in each automatic same-environment shard
         required: true
@@ -85,11 +85,32 @@ jobs:
           python3 -S -B -m unittest discover -s tests/xtest -p 'test_artifact_cache.py' -v
           python3 -S -B -m unittest discover -s tests/xtest -p 'test_daily_smoke.py' -v
           python3 -S -B -m unittest discover -s tests/xtest -p 'test_daily_reconcile.py' -v
+          python3 -S -B -m unittest discover -s tests/xtest -p 'test_generate_cases.py' -v
+          GENERATED_INPUT=
+          if [[ "$DATASET" == generated-smoke || "$DATASET" == generated-full ]]; then
+            GENERATION_PROFILE=${DATASET#generated-}
+            GENERATE_NODES=()
+            if [[ -n "$NODES" ]]; then
+              GENERATE_NODES=(--nodes "$NODES")
+            fi
+            python3 -S -B tests/xtest/generate_cases.py \
+              --definition tests/xtest/test_lists/op_perf_shm.json \
+              --definition tests/xtest/test_lists/postsil_daily_shm.json \
+              --suites tests/xtest/test_lists/suites.json \
+              --env-root tests/xtest/test_lists/envs \
+              --profile "$GENERATION_PROFILE" "${GENERATE_NODES[@]}" \
+              --source-revision '${{ github.sha }}' \
+              --runner-revision '${{ env.PCCL_TESTS_REVISION }}' \
+              --output generated-case-input
+            GENERATED_INPUT=generated-case-input
+          fi
+          export GENERATED_INPUT
           python3 -S -B - <<'PY'
           import hashlib
           import json
           import os
           from pathlib import Path
+          import shutil
           import subprocess
           import sys
 
@@ -100,9 +121,12 @@ jobs:
           from artifact_cache import PCCL_TESTS_REVISION, RUNNER_HASHES
 
           dataset = os.environ['DATASET']
-          if dataset not in ('smoke', 'full'):
+          if dataset not in ('smoke', 'full', 'generated-smoke', 'generated-full'):
               raise ValueError('Unsupported daily dataset')
-          input_directory = Path(f'tests/xtest/daily-{dataset if dataset == "full" else "minimal"}-csv')
+          if dataset.startswith('generated-'):
+              input_directory = Path(os.environ['GENERATED_INPUT'])
+          else:
+              input_directory = Path(f'tests/xtest/daily-{dataset if dataset == "full" else "minimal"}-csv')
           nodes = int(os.environ['NODES']) if os.environ['NODES'] else None
           suite = os.environ['SUITE'] or None
           if nodes is not None and nodes not in (1, 2, 4, 8, 16):
@@ -112,6 +136,8 @@ jobs:
               input_directory, int(os.environ['MAX_CASES']), nodes=nodes, suite=suite,
               allowed_nodes=allowed_nodes)
           group_cases.write_plan(plan, Path('case-groups'), input_directory)
+          if dataset.startswith('generated-'):
+              shutil.copyfile(input_directory / 'generation.json', 'case-groups/generation.json')
           groups = plan['groups']
           groups_sha256 = case_group_cache.tree_sha256(Path('case-groups'))
           manifest = json.loads(Path('case-groups/groups.json').read_text())

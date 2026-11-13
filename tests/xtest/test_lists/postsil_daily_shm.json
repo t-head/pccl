@@ -1,0 +1,136 @@
+{
+  "schema_version": 2,
+  "family": "postsil_daily_shm",
+  "defaults": {
+    "check": "exit_code",
+    "case_name": "{operation_name}_algo_{algorithm}_proto_{protocol}_dt_{dtype}_size_{size_name}_iter_{iters}_ranks_{ranks}_{layout}_postsil_daily_shm"
+  },
+  "axes": {
+    "operation": [
+      "all_reduce_perf", "reduce_perf", "reduce_scatter_perf", "all_gather_perf", "broadcast_perf",
+      "alltoall_perf", "gather_perf", "hypercube_perf", "scatter_perf", "sendrecv_perf"
+    ],
+    "algorithm": ["Ring", "Tree", "Auto", "FC"],
+    "protocol": ["LL", "LL128", "Signal", "SignalBulk", "Simple", "SimpleBulk", "Auto"],
+    "dtype": ["half", "float", "double", "int8"],
+    "size": ["32MB", "100.5MB", "512MB", "1.2GB", "27530240", "524304"],
+    "iters": [10, 2]
+  },
+  "layouts": {
+    "standard": [
+      {"name": "devices_0_1", "values": {"ranks": 2, "devices": "0,1"}},
+      {"name": "devices_0_3", "values": {"ranks": 2, "devices": "0,3"}},
+      {"name": "devices_0_4", "values": {"ranks": 2, "devices": "0,4"}},
+      {"name": "devices_2_3", "values": {"ranks": 2, "devices": "2,3"}},
+      {"name": "devices_4_7", "values": {"ranks": 2, "devices": "4,7"}},
+      {"name": "devices_6_7", "values": {"ranks": 2, "devices": "6,7"}},
+      {"name": "devices_0_1_2_3", "values": {"ranks": 4, "devices": "0,1,2,3"}},
+      {"name": "devices_0_1_4_5", "values": {"ranks": 4, "devices": "0,1,4,5"}},
+      {"name": "devices_0_2_4_6", "values": {"ranks": 4, "devices": "0,2,4,6"}},
+      {"name": "devices_4_5_6_7", "values": {"ranks": 4, "devices": "4,5,6,7"}},
+      {"name": "nproc_1_threads_1", "values": {"ranks": 8, "nproc": 1, "threads": 1}},
+      {"name": "nproc_1_threads_4", "values": {"ranks": 8, "nproc": 1, "threads": 4}},
+      {"name": "nproc_1_threads_8", "values": {"ranks": 8, "nproc": 1, "threads": 8}},
+      {"name": "nproc_4_threads_2", "values": {"ranks": 8, "nproc": 4, "threads": 2}},
+      {"name": "nproc_8_threads_1", "values": {"ranks": 8, "nproc": 8, "threads": 1}}
+    ],
+    "fc": [
+      {"name": "nproc_2_threads_1", "values": {"ranks": 4, "nproc": 2, "threads": 1}},
+      {"name": "nproc_2_threads_2", "values": {"ranks": 4, "nproc": 2, "threads": 2}}
+    ]
+  },
+  "bindings": {
+    "1": {
+      "plan": "pccl_shm_postsil_daily_single_node1_plan",
+      "suite": "postsil_daily_shm_single_node_suite"
+    }
+  },
+  "explicit_cases": [
+    {
+      "nodes": 1,
+      "name": "all_reduce_ranks_4_nnodes1_postsil_daily_shm",
+      "check": "exit_code",
+      "cmd": "mpirun --allow-run-as-root -np 4 -npernode 4 -mca btl_tcp_if_include {mpi_interface} -mca btl ^openib -mca btl_openib_warn_no_device_params_found 0 -x PCCL_STATE_MONITOR_DISABLE=1 -x NCCL_DEBUG=INFO -x NCCL_DEBUG_SUBSYS=ALLOC,PROFILE all_reduce_perf -t 1 -g 1 -d half -b 8 -e 2G -f 2 -n 20 -w 5 --elapsed_typ 1 -O 2 -P 2"
+    },
+    {
+      "nodes": 1,
+      "name": "all_reduce_ranks_8_nnodes1_postsil_daily_shm",
+      "check": "exit_code",
+      "cmd": "mpirun --allow-run-as-root -np 8 -npernode 8 -mca btl_tcp_if_include {mpi_interface} -mca btl ^openib -mca btl_openib_warn_no_device_params_found 0 -x PCCL_STATE_MONITOR_DISABLE=1 -x NCCL_DEBUG=INFO -x NCCL_DEBUG_SUBSYS=ALLOC,PROFILE all_reduce_perf -t 1 -g 1 -d half -b 8 -e 2G -f 2 -n 20 -w 5 --elapsed_typ 1 -O 2 -P 2"
+    }
+  ],
+  "groups": [
+    {
+      "name": "all_reduce", "nodes": [1],
+      "axes": ["operation", "algorithm", "protocol", "dtype", "size", "iters"], "layout_set": "standard",
+      "select": {
+        "operation": ["all_reduce_perf"], "algorithm": ["Ring", "Tree"],
+        "protocol": ["LL", "LL128", "Signal", "SignalBulk", "Simple", "SimpleBulk"],
+        "dtype": ["half", "float", "double"], "size": ["32MB", "100.5MB", "512MB", "1.2GB"], "iters": [10]
+      },
+      "command": "{python_env}/bin/python3.11 run_test.py --op {operation} --algo {algorithm} --proto {protocol} --data-type {dtype} --data-size {size} --iters {iters} --ranks {ranks} {options} --auto-detect"
+    },
+    {
+      "name": "reductions", "nodes": [1],
+      "axes": ["operation", "algorithm", "protocol", "dtype", "size", "iters"], "layout_set": "standard",
+      "select": {
+        "operation": ["reduce_perf", "reduce_scatter_perf"], "algorithm": ["Ring"],
+        "protocol": ["LL", "LL128", "Simple"], "dtype": ["half", "float", "double"],
+        "size": ["32MB", "100.5MB", "512MB", "1.2GB"], "iters": [10]
+      },
+      "command": "{python_env}/bin/python3.11 run_test.py --op {operation} --algo {algorithm} --proto {protocol} --data-type {dtype} --data-size {size} --iters {iters} --ranks {ranks} {options} --auto-detect"
+    },
+    {
+      "name": "gather_broadcast", "nodes": [1],
+      "axes": ["operation", "algorithm", "protocol", "dtype", "size", "iters"], "layout_set": "standard",
+      "select": {
+        "operation": ["all_gather_perf", "broadcast_perf"], "algorithm": ["Ring"],
+        "protocol": ["LL", "LL128", "Simple"], "dtype": ["int8"],
+        "size": ["32MB", "100.5MB", "512MB", "1.2GB"], "iters": [10]
+      },
+      "command": "{python_env}/bin/python3.11 run_test.py --op {operation} --algo {algorithm} --proto {protocol} --data-type {dtype} --data-size {size} --iters {iters} --ranks {ranks} {options} --auto-detect"
+    },
+    {
+      "name": "simple_int8", "nodes": [1],
+      "axes": ["operation", "algorithm", "protocol", "dtype", "size", "iters"], "layout_set": "standard",
+      "select": {
+        "operation": ["alltoall_perf", "gather_perf", "hypercube_perf", "scatter_perf", "sendrecv_perf"],
+        "algorithm": ["Ring"], "protocol": ["Simple"], "dtype": ["int8"],
+        "size": ["32MB", "100.5MB", "512MB", "1.2GB"], "iters": [10]
+      },
+      "command": "{python_env}/bin/python3.11 run_test.py --op {operation} --algo {algorithm} --proto {protocol} --data-type {dtype} --data-size {size} --iters {iters} --ranks {ranks} {options} --auto-detect"
+    },
+    {
+      "name": "auto", "nodes": [1],
+      "axes": ["operation", "algorithm", "protocol", "dtype", "size", "iters"], "layout_set": "standard",
+      "select": {
+        "operation": ["all_reduce_perf"], "algorithm": ["Auto"], "protocol": ["Auto"], "dtype": ["float"],
+        "size": ["27530240", "524304"], "iters": [2]
+      },
+      "command": "{python_env}/bin/python3.11 run_test.py --op {operation} --algo {algorithm} --proto {protocol} --data-type {dtype} --data-size {size} --iters {iters} --ranks {ranks} {options} --auto-detect"
+    },
+    {
+      "name": "fc", "nodes": [1],
+      "axes": ["operation", "algorithm", "protocol", "dtype", "size", "iters"], "layout_set": "fc",
+      "select": {
+        "operation": ["all_reduce_perf"], "algorithm": ["FC"],
+        "protocol": ["Signal", "SignalBulk", "Simple", "SimpleBulk"], "dtype": ["half"],
+        "size": ["512MB"], "iters": [10]
+      },
+      "command": "{python_env}/bin/python3.11 run_test.py --op {operation} --algo {algorithm} --proto {protocol} --data-type {dtype} --data-size {size} --iters {iters} --ranks {ranks} {options} --auto-detect"
+    }
+  ],
+  "profiles": {
+    "full": {"include_explicit": true},
+    "smoke": {
+      "nodes": [1],
+      "filters": {
+        "operation": ["all_reduce_perf"], "algorithm": ["Ring"], "protocol": ["Simple"],
+        "dtype": ["half"], "size": ["32MB"], "ranks": [2], "layout": ["devices_0_1"]
+      }
+    },
+    "all_reduce": {"filters": {"operation": ["all_reduce_perf"]}},
+    "auto": {"filters": {"algorithm": ["Auto"]}},
+    "fc": {"filters": {"algorithm": ["FC"]}}
+  }
+}

@@ -1,0 +1,52 @@
+{
+  "schema_version": 2,
+  "family": "op_perf_shm",
+  "defaults": {
+    "check": "exit_code",
+    "case_name": "test_op_{operation}_ranks_{ranks}_nnodes{nodes}"
+  },
+  "axes": {
+    "operation": [
+      "all_gather_perf", "all_reduce_perf", "alltoall_perf", "broadcast_perf", "gather_perf",
+      "reduce_perf", "reduce_scatter_perf", "scatter_perf", "sendrecv_perf"
+    ]
+  },
+  "layouts": {
+    "single": [
+      {"name": "ranks_2", "values": {"ranks": 2, "npernode": 2}},
+      {"name": "ranks_4", "values": {"ranks": 4, "npernode": 4}},
+      {"name": "ranks_8", "values": {"ranks": 8, "npernode": 8}}
+    ],
+    "nodes2": [{"name": "ranks_16", "values": {"ranks": 16, "npernode": 8}}],
+    "nodes4": [{"name": "ranks_32", "values": {"ranks": 32, "npernode": 8}}],
+    "nodes8": [{"name": "ranks_64", "values": {"ranks": 64, "npernode": 8}}]
+  },
+  "bindings": {
+    "1": {"plan": "pccl_shm_op_perf_single_node1_plan", "suite": "op_perf_shm_single_node_suite"},
+    "2": {"plan": "pccl_shm_op_perf_multi_node2_plan", "suite": "op_perf_shm_multi_nodes2_suite"},
+    "4": {"plan": "pccl_shm_op_perf_multi_node4_plan", "suite": "op_perf_shm_multi_nodes4_suite"},
+    "8": {"plan": "pccl_shm_op_perf_multi_node8_plan", "suite": "op_perf_shm_multi_nodes8_suite"}
+  },
+  "groups": [
+    {
+      "name": "single", "nodes": [1], "axes": ["operation"], "layout_set": "single",
+      "command": "mpirun --allow-run-as-root -x PCCL_GDR_CPU_FLUSH=1 -x PCCL_CPU_FLUSH_ASYNC=1 -x NCCL_IB_ADAPTIVE_ROUTING=1 -x NCCL_IB_OOO_RQ=1 -np {ranks} -npernode {npernode} -mca btl_tcp_if_include {mpi_interface} -mca btl ^openib -mca btl_openib_warn_no_device_params_found 0 -x NCCL_DEBUG=INFO -x NCCL_DEBUG_SUBSYS=ALLOC,PROFILE {operation} -t 1 -g 1 -d half -b 8 -e 16G -f 2 -n 20 -w 5 --elapsed_type 1"
+    },
+    {
+      "name": "nodes2", "nodes": [2], "axes": ["operation"], "layout_set": "nodes2",
+      "command": "mpirun --allow-run-as-root -x PCCL_GDR_CPU_FLUSH=1 -x PCCL_CPU_FLUSH_ASYNC=1 -x NCCL_IB_ADAPTIVE_ROUTING=1 -x NCCL_IB_OOO_RQ=1 -np {ranks} -npernode {npernode} -x PATH={path} -x LD_LIBRARY_PATH={ld_library_path} --hostfile {hostfile} -mca btl_tcp_if_include {mpi_interface} -x NCCL_DEBUG=INFO {operation} -b 8 -e 16G -f 2 -g 1 -t 1 --elapsed_type 1"
+    },
+    {
+      "name": "nodes4", "nodes": [4], "axes": ["operation"], "layout_set": "nodes4",
+      "command": "mpirun --allow-run-as-root -x PCCL_GDR_CPU_FLUSH=1 -x PCCL_CPU_FLUSH_ASYNC=1 -x NCCL_IB_ADAPTIVE_ROUTING=1 -x NCCL_IB_OOO_RQ=1  -np {ranks} -npernode {npernode} -x PATH={path} -x LD_LIBRARY_PATH={ld_library_path} --hostfile {hostfile} --mca btl_tcp_if_include {mpi_interface} -x NCCL_DEBUG=INFO {operation} -b 8 -e 16G -f 2 -g 1 -t 1 --elapsed_type 1"
+    },
+    {
+      "name": "nodes8", "nodes": [8], "axes": ["operation"], "layout_set": "nodes8",
+      "command": "mpirun --allow-run-as-root -x PCCL_GDR_CPU_FLUSH=1 -x PCCL_CPU_FLUSH_ASYNC=1 -x NCCL_IB_ADAPTIVE_ROUTING=1 -x NCCL_IB_OOO_RQ=1  -np {ranks} -npernode {npernode} -x PATH={path} -x LD_LIBRARY_PATH={ld_library_path} --hostfile {hostfile} --mca btl_tcp_if_include {mpi_interface} -x NCCL_DEBUG=INFO {operation} -b 8 -e 16G -f 2 -g 1 -t 1 --elapsed_type 1"
+    }
+  ],
+  "profiles": {
+    "full": {},
+    "smoke": {"nodes": [1], "filters": {"operation": ["all_reduce_perf"], "ranks": [2]}}
+  }
+}
