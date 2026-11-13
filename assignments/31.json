@@ -1,14 +1,15 @@
 {
   "classification": {
-    "base_sha": "dcc16f7527444230dbd33cca1f348760c2df7e97",
-    "head_sha": "23558d06e5687d262783312113b58f118e5153ea",
-    "input_fingerprint": "26c3f49d9f2ed0a81decdc50b291f2c077910da0c25c6735e86ee80819bcafce",
+    "base_sha": "a909809e63dbf891101c88d45c0b78bfe628fab6",
+    "head_sha": "95961065efd4d4f3d09dd1dfef9bfa81d4945408",
+    "input_fingerprint": "52178c4726211d03bc0294505cd1a0e1698678fcc72c7f357c008f480b5d7a26",
     "pr_number": 31,
     "proposal": {
       "modules": [
+        "network",
         "gin"
       ],
-      "reason": "Adds an independent built-in TROCE GIN backend end-to-end (plugin discovery/selection, host lifecycle and registration, device-side GIN execution path, NET-to-GIN device mapping, and SignalSet/flush semantics), while related Makefile and net_ib/header edits are supporting changes for this GIN-specific feature."
+      "reason": "Main change adds a new GIN backend/plugin (TROCE) with host/device GIN implementation, plugin export/discovery, new GIN type/device IDs, and SignalSet semantics under the GIN API. Added network review is needed because shared IB transport/proxy paths are substantively changed (provider detection, QP inline behavior, GDR checks, and IB send/atomic signaling behavior for SignalSet), which belongs to network rather than GIN-only plugin wiring."
     }
   },
   "reviewers": {
