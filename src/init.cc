@@ -1759,8 +1759,7 @@ static ncclResult_t initTransportsRank(ncclComm_t comm, ncclComm_t parent, uint6
       for (int dieId = 0; dieId < ppuDiesNum; ++dieId) {
         int streamId = r * ppuDiesNum + dieId;
         HGGCCHECKGOTO(hggcEitInterface::getInstance().wrapHggcStreamCreateForCopyEngine(comm->ceStreams + streamId), res, fail);
-        HGGCCHECKGOTO(hggcEitInterface::getInstance().wrapHggcStreamHintChannel(comm->ceStreams[streamId], HG_STREAM_CHANNEL_PEER, dieId * HG_DMA_RING_PER_DIE + r), res, fail);
-        HGGCCHECKGOTO(hggcEitInterface::getInstance().wrapHggcStreamHintChannel(comm->ceStreams[streamId], HG_STREAM_CHANNEL_COPY, dieId * HG_DMA_RING_PER_DIE + r), res, fail);
+        NCCLCHECKGOTO(pcclCeHintMemcpyStream(comm->ceStreams[streamId], dieId), res, fail);
         HGGCCHECKGOTO(hggcEventCreateWithFlags(comm->ceEvents + streamId, hggcEventDisableTiming), res, fail);
       }
     }
@@ -2002,17 +2001,18 @@ static ncclResult_t ncclCommInitRankFunc(struct ncclAsyncJob* job_) {
   if (comm->okiSupport) {
     LT_OKI_CHECK(ltOkiOpenDevice(&comm->okiDevice, comm->hggcDev));
 
-    // Local D2D queues use a separate pool from the capped remote ICN rings.
-    int remotePairs = std::min(comm->nRanks - 1, LT_OKI_DMA_RING_PER_DIE);
+    // Reserve ring 0 on each die for runtime memcpy and user streams.
+    // OKI uses local rings 1/9 and ICN rings 1-7/9-15 on two-die devices.
+    int remotePairs = std::min(comm->nRanks - 1, LT_OKI_DMA_RING_PER_DIE - 1);
     int maxQPNum = ppuDiesNum + remotePairs * ppuDiesNum;
     NCCLCHECKGOTO(ncclHggcHostCalloc(&comm->okiQps, maxQPNum, &(comm->pinnedMemUsed)), res, fail);
 
-    // qps[slot * ppuDiesNum + die]: slot 0 uses local queueId=die; remote queueId=die*LT_OKI_DMA_RING_PER_DIE+slot-1.
+    // Preserve qps[slot * ppuDiesNum + die]: local group first, then remote groups.
     for (int i = 0; i < maxQPNum; i++) {
       int slot = i / ppuDiesNum;
       int dieId = i % ppuDiesNum;
       bool isRemote = (slot != 0);
-      int queueId = isRemote ? dieId * LT_OKI_DMA_RING_PER_DIE + (slot - 1) : dieId;
+      int queueId = dieId * LT_OKI_DMA_RING_PER_DIE + (isRemote ? slot : 1);
       LT_OKI_CHECKGOTO(ltOkiCreateQP(&comm->okiQps[i], comm->okiDevice, isRemote, queueId, PCCL_LT_OKI_QP_DEPTH), res, fail);
       comm->okiQpCount += 1;
     }

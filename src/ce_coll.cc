@@ -50,6 +50,18 @@ static PCCL_PARAM(CeDieByRankGraphAllGather, "CE_DIE_BY_RANK", 0);
 
 static constexpr bool ceOkiAllGatherSupported = false;
 
+ncclResult_t pcclCeHintMemcpyStream(hggcStream_t stream, int dieId) {
+  // The driver invalidates capture if a channel hint is changed, even in relaxed
+  // mode. Captured work retains the hints set by an eager enqueue before capture.
+  hggcStreamCaptureStatus captureStatus;
+  HGGCCHECK(hggcStreamIsCapturing(stream, &captureStatus));
+  if (captureStatus != hggcStreamCaptureStatusNone) return ncclSuccess;
+  int ringId = dieId * HG_DMA_RING_PER_DIE;
+  HGGCCHECK(hggcEitInterface::getInstance().wrapHggcStreamHintChannel(stream, HG_STREAM_CHANNEL_PEER, ringId));
+  HGGCCHECK(hggcEitInterface::getInstance().wrapHggcStreamHintChannel(stream, HG_STREAM_CHANNEL_COPY, ringId));
+  return ncclSuccess;
+}
+
 static int64_t pcclCeAllGatherThreshold(ncclComm_t comm, bool inPlace) {
   // Two-rank in-place CE wins above 24 MiB output in both eager and graph mode.
   // Out-of-place keeps the kernel default. Explicit overrides apply to both.
@@ -607,8 +619,7 @@ ncclResult_t ncclCeLaunchBatchOps(ncclComm_t comm, struct ncclCeCollArgs* args,
   bool byRank = pcclCeUseRankPartition(comm, args, dividenNum);
 
   if (params->numOps == 0) return ncclSuccess;
-  // Streams are arranged as [remote partitions][local partitions]. Single-rank
-  // communicators only need the local group. Validate before submitting work.
+  // Stream groups use [remote partitions][local partitions].
   if (dividenNum < 1 || dividenNum > comm->ceStreamsNum / (comm->nRanks > 1 ? 2 : 1)) {
     return ncclInvalidArgument;
   }
@@ -623,11 +634,11 @@ ncclResult_t ncclCeLaunchBatchOps(ncclComm_t comm, struct ncclCeCollArgs* args,
   }
 #endif
 
-  // Fork once, then submit local and remote copies on independent stream groups.
+  // Fork once, then submit copies on the selected stream groups.
   // dividenNum controls both the data partition count and streams per group;
   // the caller configures how these stream slots map to hardware channels.
   HGGCCHECKGOTO(hggcEventRecord(comm->ceSyncEvent, stream), ret, fail);
-  // Start local copies first without adding a dependency on their completion.
+  // Start local copies first without waiting for their completion.
   for (int local = 1; local >= 0; local--) {
     for (int part = 0; part < dividenNum; part++) {
       // A one-rank communicator has no remote group.
@@ -690,12 +701,8 @@ fail:
 
 ncclResult_t pcclCeLaunchBatchOpsImpl(ncclComm_t comm, struct ncclCeCollArgs* args,
                                       struct ncclCeBatchOpsParams* params, hggcStream_t stream) {
-  // SM89 always separates local and remote copies, including graph capture.
-  // init.cc maps each stream group across the dies: with two dies, dividenNum=2
-  // selects remote channels 0/8 and local channels 1/9.
   if (comm->compCap == 89 || pcclParamCeCollOneStream() > 0) {
-    int dividenNum = ppuDiesNum;
-    return ncclCeLaunchBatchOps(comm, args, params, stream, dividenNum);
+    return ncclCeLaunchBatchOps(comm, args, params, stream, ppuDiesNum);
   }
   return pcclCeLaunchBatchOpsMultiStream(comm, args, params, stream);
 }
