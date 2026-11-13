@@ -59,7 +59,7 @@ endef
 
 BIN_FILES_LIST := collPcclUnit sendRecvPcclUnit hggcGraphUnit pcclCommAbort pcclGroupSimulateEnd pcclCommMemManager
 ifeq ($(MPI), 1)
-BIN_FILES_LIST += pcclCommShrink
+BIN_FILES_LIST += pcclCommShrink symkMultiTask
 endif
 BIN_FILES := $(BIN_FILES_LIST:%=${BUILDDIR}/%Test)
 # bench_oki uses one SIMT warp per QP, independently of USE_SIMT for other tests.
@@ -93,6 +93,9 @@ ${BUILDDIR}/hggcGraphUnitTest: hggcGraphUnitTest.cu
 ifeq ($(MPI), 1)
 ${BUILDDIR}/pcclCommShrinkTest: pcclCommShrinkTest.cu
 	$(call build_func, $@, pcclCommShrinkTest)
+
+${BUILDDIR}/symkMultiTaskTest: symkMultiTaskTest.cu
+	$(call build_func, $@, symkMultiTaskTest)
 endif
 
 ${BUILDDIR}/pcclCommAbortTest: pcclCommAbortTest.cu

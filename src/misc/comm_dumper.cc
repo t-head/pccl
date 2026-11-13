@@ -182,7 +182,40 @@ ncclResult_t dumpChannelWorkBatchToFile(FILE* file, ncclComm_t comm, ncclDevKern
   return ncclSuccess;
 }
 
+// Symk kernels take ncclSymDevArgs (one work) or pcclSymkDevWorkArgs (a batch), not ncclDevKernelArgs.
+static ncclResult_t dumpSymkKernelInfoToFile(FILE* file, KernelInfoMonitor* kernelInfoMonitor, uint64_t index, int indentLevel) {
+  const char* indentStr = getIndentStr(indentLevel);
+  if (index + 1 != kernelInfoMonitor->kernelIdx) {
+    ERROR("index(%lu) + 1 should be equal to kernelIdx(%lu)", index, kernelInfoMonitor->kernelIdx);
+    return ncclInternalError;
+  }
+  fprintf(file, "%skernelIdx%lu: symk %s channelMask:%lx argsBytes:%zu ", indentStr, kernelInfoMonitor->kernelIdx,
+          ncclSymkKernelIdToString(kernelInfoMonitor->symFuncIndex), kernelInfoMonitor->channelMask, kernelInfoMonitor->argsBytes);
+  if (!kernelInfoMonitor->symkArgsPooled) {
+    struct ncclSymDevArgs* args = (struct ncclSymDevArgs*)&kernelInfoMonitor->kernelArgs;
+    fprintf(file, "nBlocks:%d, nElts:%zu, input:%p, output:%p\n", args->nBlocks, args->nElts, args->input, args->output);
+    return ncclSuccess;
+  }
+  struct pcclSymkDevWorkArgs* args = (struct pcclSymkDevWorkArgs*)&kernelInfoMonitor->kernelArgs;
+  size_t headBytes = args->nMaxChannels < 0 || args->nMaxChannels > MAXCHANNELS ? SIZE_MAX
+                   : pcclSymkDevWorkArgs::calcArgsSize(args->nMaxChannels, 0);
+  if (kernelInfoMonitor->argsBytes < headBytes || kernelInfoMonitor->argsBytes > sizeof(kernelInfoMonitor->kernelArgs)) {
+    fprintf(file, "invalid nMaxChannels:%d\n", args->nMaxChannels);
+    return ncclSuccess;
+  }
+  int nWorks = (kernelInfoMonitor->argsBytes - headBytes) / sizeof(struct pcclSymkDevWork);
+  fprintf(file, "nMaxChannels:%d, nWorks:%d\n", args->nMaxChannels, nWorks);
+  struct pcclSymkDevWork* works = args->getWorks(args->nMaxChannels);
+  for (int w = 0; w < nWorks; w++) {
+    fprintf(file, "%swork%d: nElts:%zu, input:%p+%zu, output:%p+%zu, channels:%u+%u\n", getIndentStr(indentLevel + 1), w,
+            works[w].nElts, works[w].inputWin, works[w].inputOff, works[w].outputWin, works[w].outputOff,
+            (unsigned)works[w].sChannelId, (unsigned)works[w].nChannels);
+  }
+  return ncclSuccess;
+}
+
 ncclResult_t dumpKernelInfoToFile(FILE* file, ncclComm_t comm, KernelInfoMonitor* kernelInfoMonitor, uint64_t index, int indentLevel) {
+  if (kernelInfoMonitor->isSymColl) return dumpSymkKernelInfoToFile(file, kernelInfoMonitor, index, indentLevel);
   struct ncclDevKernelArgs* kernelArgs = &(kernelInfoMonitor->kernelArgs.args);
   const char* indentStr = getIndentStr(indentLevel);
   fprintf(file, "%skernelIdx%ld: ", indentStr, kernelArgs->kernelIdx);

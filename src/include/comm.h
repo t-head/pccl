@@ -249,6 +249,7 @@ struct ncclKernelPlan {
 
   bool persistent; // aka captured in a graph
   bool isHostCbEnq;
+  bool reclaimQueued; // reclaimer is on callbackQueue: reclaimPlan, not groupCleanup, frees the plan
   bool isSymColl;
   bool isCeColl;
   bool isCeP2p;
@@ -256,6 +257,7 @@ struct ncclKernelPlan {
   void *kernelFn;
   uint16_t funcIndex;
   uint16_t symFuncIndex;
+  uint16_t symDispatchIndex; // funcStrategy slot of kernelFn: single-work symbols, then multi-work symbols.
 
   void* graphWorkBase;
   union {
@@ -264,6 +266,7 @@ struct ncclKernelPlan {
     struct ncclCeCollArgs ceCollArgs;
   };
   size_t kernelArgsSize;
+  bool symkArgsPooled; // true: memPool_kernelSymkArgs; false: memScoped.
   uint64_t channelMask; // bitset of which channels are present
   bool hasProxyOps; // does any channel have a non-empty proxyOpQueue
   int threadPerBlock;
@@ -375,6 +378,13 @@ typedef enum ncclGroupTaskType {
 
 struct KernelInfoMonitor {
   ncclDevKernelArgs1K kernelArgs;
+  // Symk arguments are not ncclDevKernelArgs, so the dump decodes an entry from these launch fields.
+  uint64_t kernelIdx; // launch order, begin from 1
+  uint64_t channelMask;
+  size_t argsBytes;
+  uint16_t symFuncIndex;
+  bool isSymColl;
+  bool symkArgsPooled; // multi-work (1KB) entry
 };
 
 struct pcclComm {

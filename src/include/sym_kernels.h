@@ -78,7 +78,7 @@ struct alignas(16) pcclSymkDevWork {
   struct ncclWindow_vidmem* inputWin, *outputWin;
   size_t inputOff, outputOff;
   int rootRank;
-  uint64_t sChannelId:16, nChannels:16, padding:32;
+  uint64_t sChannelId:16, nChannels:16, incPrecision:1, padding:31;
 };
 
 struct alignas(16) pcclSymkDevWorkArgs {
@@ -98,10 +98,11 @@ struct alignas(16) pcclSymkDevWorkArgs {
   }
 };
 
-// 4KB by-value: hgLaunchKernelExAD memcpys the full kernel-signature size.
-union pcclSymkDevWorkArgs4K {
+// NCCL's ncclSymkDevWorkArgs4K, sized to PCCL's 1KB kernel argument budget (ncclMaxKernelArgsSize).
+// Launches pass only the calcArgsSize() prefix.
+union pcclSymkDevWorkArgs1K {
   struct pcclSymkDevWorkArgs args;
-  char buf4K[4096];
+  char buf1K[1024];
 };
 
 // Registration type for symmetric windows
@@ -136,9 +137,8 @@ ncclResult_t ncclSymkPickKernel(struct pcclComm* comm, ncclFunc_t coll, int/*ncc
 struct ncclTaskColl;
 ncclResult_t ncclSymkMakeDevWork(struct pcclComm* comm, struct ncclTaskColl* task, struct pcclSymkDevWork* outDevWork);
 
-// ncclSymkKernelList[]: multi-task wrappers (4KB pcclSymkDevWorkArgs4K).
-// ncclSymkKernelList_fast[]: single-task wrappers (64B ncclSymDevArgs).
-// Scheduler selects via PCCL_PARAM(SymkUseMultiTask); default fast-path.
+// ncclSymkKernelList[]: multi-task wrappers (1KB pcclSymkDevWorkArgs1K).
+// ncclSymkKernelList_fast[]: single-task wrappers (80B ncclSymDevArgs), used for a launch with one work.
 extern int const ncclSymkKernelCount;
 extern void* ncclSymkKernelList[];
 extern void* ncclSymkKernelList_fast[];

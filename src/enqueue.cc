@@ -144,7 +144,7 @@ static inline void pcclTaskCollToExtTaskColl(const struct ncclTaskColl* src, str
 /*       Launch system : synchronization and HGGC kernel launch              */
 /*****************************************************************************/
 
-static ncclResult_t ncclSetDispatchStrategy(const void* ncclKernFunc, ncclComm_t comm, struct dispatchStrategyExAD &launchConfig, int funcIndex, int nChannels, bool isSymmetric) {
+static ncclResult_t ncclSetDispatchStrategy(const void* ncclKernFunc, ncclComm_t comm, struct dispatchStrategyExAD &launchConfig, int funcIndex, int nChannels, bool isSymmetric, int symDispatchIndex = 0) {
   int savedDev;
   HGGCCHECK(hggcGetDevice(&savedDev));
   HGGCCHECK(hggcSetDevice(comm->hggcDev));
@@ -155,7 +155,8 @@ static ncclResult_t ncclSetDispatchStrategy(const void* ncclKernFunc, ncclComm_t
   } else {
     getKerFuncStr(funcIndex, funcStr);
   }
-  funcIndex = isSymmetric ? funcIndex + TOTAL_FUNCS_NUM : funcIndex;
+  // Driver attributes are per symbol, so each symk symbol caches them in its own slot (init.cc).
+  funcIndex = isSymmetric ? symDispatchIndex + TOTAL_FUNCS_NUM : funcIndex;
   dispatchInfo dInfo = {comm->collType, comm->nNodes, nChannels, comm->nBytes};
   NCCLCHECK(setNativeDispatchStrategy(ncclKernFunc, comm->funcStrategy+funcIndex, comm->defaultStrategy, funcStr, comm->compCap, dInfo));
   launchConfig = comm->funcStrategy[funcIndex].launchConfig;
@@ -364,6 +365,15 @@ ncclResult_t saveDevKernelArgs(ncclComm_t comm, struct ncclKernelPlan* plan) {
   memcpy(&kernelInfoMonitorPtr->kernelArgs, plan->kernelArgs,
          std::min(plan->kernelArgsSize, sizeof(kernelInfoMonitorPtr->kernelArgs)));
   comm->kernelNum++;
+  kernelInfoMonitorPtr->kernelIdx = comm->kernelNum;
+  kernelInfoMonitorPtr->channelMask = plan->channelMask;
+  kernelInfoMonitorPtr->argsBytes = plan->kernelArgsSize;
+  kernelInfoMonitorPtr->symFuncIndex = plan->symFuncIndex;
+  kernelInfoMonitorPtr->isSymColl = plan->isSymColl;
+  kernelInfoMonitorPtr->symkArgsPooled = plan->symkArgsPooled;
+  // Symk kernels do not write per-channel completion indices, so they must not advance the enqueue
+  // indices that the state monitor compares with those.
+  if (plan->isSymColl) return ncclSuccess;
   for (int i = 0; i < MAXCHANNELS; i++) {
     if (plan->channelMask & (1L << i)) {
       comm->channelKernelIdx[i] = comm->kernelNum;
@@ -400,7 +410,7 @@ ncclResult_t ncclLaunchKernel(ncclComm_t comm, struct ncclKernelPlan* plan) {
   if (!plan->isSymColl) {
     NCCLCHECK(ncclSetDispatchStrategy(plan->kernelFn, comm, launchConfig, plan->funcIndex, nChannels, false));
   } else {
-    NCCLCHECK(ncclSetDispatchStrategy(plan->kernelFn, comm, launchConfig, plan->symFuncIndex, nChannels, true));
+    NCCLCHECK(ncclSetDispatchStrategy(plan->kernelFn, comm, launchConfig, plan->symFuncIndex, nChannels, true, plan->symDispatchIndex));
   }
 
   LAUNCH_KERNEL(plan->kernelFn, grid, block, nullptr, extra, smem, launchStream, 1, launchConfig);
@@ -571,6 +581,7 @@ static ncclResult_t hostStreamPlanTask(ncclComm_t comm, struct ncclKernelPlan* p
   NCCLCHECK(ncclProfilerStopGroupEvent(plan));
   if (!plan->persistent) {
     // Notify main thread of our reclaiming. This will reclaim eqInfo concurrently.
+    plan->reclaimQueued = true;
     ncclIntruQueueMpscEnqueue(&comm->callbackQueue, &plan->reclaimer);
   }
   return ncclSuccess;
@@ -1039,6 +1050,8 @@ static ncclResult_t uploadWork(ncclComm_t comm, struct ncclKernelPlan* plan) {
   // isCeP2p plans carry no ncclDevKernelArgs at all (kernelArgs is null);
   // their device-visible work list was already reserved from the work FIFO
   // and filled by pcclP2pDmaBuildPlan.
+  // Symk plans upload no work, but their launch also takes a kernel monitor slot (saveDevKernelArgs).
+  if (plan->isSymColl) comm->planner.uploadKernelSeq++;
   if (plan->isSymColl || plan->isCeColl || plan->isCeP2p) return ncclSuccess;
 
   size_t workBytes = plan->workBytes;
@@ -1212,12 +1225,10 @@ static ncclResult_t reclaimPlan(ncclComm_t comm, struct ncclCommCallback* me) {
   }
   NCCLCHECK(result);
 
-  // Multi-task path pool-allocates 4KB args; fast-path uses memScoped.
-  if (plan->isSymColl && plan->workStorageType == ncclDevWorkStorageTypeArgs
-      && plan->kernelSymkArgs != nullptr
-      && plan->kernelArgsSize == sizeof(pcclSymkDevWorkArgs4K)) {
-    ncclMemoryPoolFree<pcclSymkDevWorkArgs4K>(&comm->memPool_kernelSymkArgs,
-        reinterpret_cast<pcclSymkDevWorkArgs4K*>(plan->kernelSymkArgs));
+  // Multi-task path pool-allocates 1KB args; fast-path uses memScoped.
+  if (plan->isSymColl && plan->symkArgsPooled && plan->kernelSymkArgs != nullptr) {
+    ncclMemoryPoolFree<pcclSymkDevWorkArgs1K>(&comm->memPool_kernelSymkArgs,
+        reinterpret_cast<pcclSymkDevWorkArgs1K*>(plan->kernelSymkArgs));
     plan->kernelSymkArgs = nullptr;
   }
 

@@ -1560,10 +1560,10 @@ static ncclResult_t initTransportsRank(ncclComm_t comm, ncclComm_t parent, uint6
 
   // ensure that the die detecting / channel computing is done
   // funcStrategy is indexed by [0, TOTAL_FUNCS_NUM) for standard collectives and
-  // by [TOTAL_FUNCS_NUM, TOTAL_FUNCS_NUM + ncclSymkKernelId_Count) for symk
-  // entries (one slot per ncclSymkKernelId enum value, see enqueue.cc::
-  // ncclSetDispatchStrategy and symmetric_sched.cc::plan->symFuncIndex).
-  NCCLCHECKGOTO(ncclCalloc(&comm->funcStrategy, TOTAL_FUNCS_NUM + (int)ncclSymkKernelId_Count), res, fail);
+  // by [TOTAL_FUNCS_NUM, TOTAL_FUNCS_NUM + 2*ncclSymkKernelCount) for symk
+  // entries (one slot per generated kernel symbol, single-work then multi-work, see enqueue.cc::
+  // ncclSetDispatchStrategy and symmetric_sched.cc::plan->symDispatchIndex).
+  NCCLCHECKGOTO(ncclCalloc(&comm->funcStrategy, TOTAL_FUNCS_NUM + 2*ncclSymkKernelCount), res, fail);
   NCCLCHECKGOTO(initDefaultDispatchStrategy(comm, ppuDiesNum), res, fail);
 
   if (comm->nNodes > 1 &&

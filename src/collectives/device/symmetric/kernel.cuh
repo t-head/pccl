@@ -11,18 +11,19 @@
 
 #include "symmetric.h"
 
-template<template<typename> class Red, typename T>
+template<template<typename> class Red, typename T, bool Slice>
 __device__ __forceinline__ void pccl_symRun_AllReduce_AGxLL_R(struct ncclSymDevArgs const* args);
 
-template<template<typename> class Red, typename T>
+template<template<typename> class Red, typename T, bool Slice>
 __device__ __forceinline__ void pccl_symRun_AllReduce_RSxLD_AGxST(struct ncclSymDevArgs const* args);
 
+template<bool Slice>
 __device__ __forceinline__ void pccl_symRun_AllGather_LL(struct ncclSymDevArgs const* args);
+template<bool Slice>
 __device__ __forceinline__ void pccl_symRun_AllGather_ST(struct ncclSymDevArgs const* args);
 
-template<template<typename> class Red, typename T>
+template<template<typename> class Red, typename T, bool Slice>
 __device__ __forceinline__ void pccl_symRun_ReduceScatter_LL(struct ncclSymDevArgs const* args);
-template<template<typename> class Red, typename T>
+template<template<typename> class Red, typename T, bool Slice>
 __device__ __forceinline__ void pccl_symRun_ReduceScatter_LD(struct ncclSymDevArgs const* args);
-template<template<typename> class Red, typename T>
 #endif

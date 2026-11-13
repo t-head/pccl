@@ -1,7 +1,7 @@
 /*************************************************************************
  * SPDX-FileCopyrightText: Copyright (c) 2025-2026 NVIDIA CORPORATION & AFFILIATES. All rights reserved.
  * SPDX-FileCopyrightText: Modifications Copyright (c) 2025-2026 T-Head (Shanghai) Semiconductor Co., Ltd. All rights reserved.
- * SPDX-License-Identifier: BSD-3-Clause
+ * SPDX-License-Identifier: BSD-3-Clause AND Apache-2.0
  *
  * See LICENSE.txt for more license information
  *************************************************************************/
@@ -10,6 +10,7 @@
 #define NCCL_DEVICE_SYMMETRIC_PRIMITIVES_H_
 
 #include "symmetric.h"
+#include "sym_kernels.h"
 #include "bitops.h"
 #include "sym_reduce_kernel.h"
 #include "op128.h"
@@ -66,7 +67,8 @@ struct ncclSymPrims {
   int const &rank;
   int const &nRanks;
   uint32_t const &nRanks_rcp32;
-  int block, nBlocks;
+  // block: global communication slot; computeBlock: work-relative data partition.
+  int block, nBlocks, computeBlock;
   uint32_t nBlocks_rcp32;
   uint32_t nBlocks_nWarps_rcp32;
   uint32_t nRanks_nBlocks_rcp32;
@@ -77,13 +79,14 @@ struct ncclSymPrims {
   uint32_t barEpoch;
   uint32_t llEpoch;
 
-  __device__ ncclSymPrims(ncclSymDevComm const &comm, int numBlocks, int flags):
+  __device__ ncclSymPrims(ncclSymDevComm const &comm, int numBlocks, int flags, int blockOffset=0):
     flags(flags),
     rank(comm.rank),
     nRanks(comm.nRanks),
     nRanks_rcp32(comm.nRanks_rcp32),
     block(blockIdx.x),
     nBlocks(numBlocks),
+    computeBlock(int(blockIdx.x) - blockOffset),
     nBlocks_rcp32(idivRcp32_upto64(nBlocks)),
     nBlocks_nWarps_rcp32(imulRcp32(nBlocks, nBlocks_rcp32, blockDim.x/32, idivRcp32_upto64(blockDim.x/32))),
     nRanks_nBlocks_rcp32(imulRcp32(nRanks, nRanks_rcp32, numBlocks, nBlocks_rcp32)),
@@ -315,6 +318,107 @@ struct ncclSymPrims {
     T one[1];
     this->template recvLL<1, 1, T>(slot, 1, 0, one);
     return one[0];
+  }
+};
+}
+
+// The multi-work entry runs bodies on work slices (Slice); a single work spans its launch, so its entry
+// reads neither field and the bodies compile as before work slices existed.
+template<bool Slice>
+__device__ __forceinline__ int pcclSymBlockOffset(ncclSymDevArgs const* args) { return Slice ? args->blockOffset : 0; }
+template<bool Slice>
+__device__ __forceinline__ size_t pcclSymAllElts(ncclSymDevArgs const* args) { return Slice ? args->nAllElts : args->nElts; }
+
+// Work partitioning of NCCL v2.30.4-1 ncclSymkArgsHandler (getWorkRange, getWorkRangeFused, forEachWork).
+// PCCL bodies address data with flat pointers, so forEachWork passes this rank's local addresses.
+namespace {
+struct ncclSymkArgsHandler {
+  struct pcclSymkChannelWorkRange* channelWorkRange;
+  struct pcclSymkDevWork* devWork;
+
+  __device__ ncclSymkArgsHandler(pcclSymkDevWorkArgs const* args) {
+    channelWorkRange = args->getWorkRange();
+
+    devWork = args->getWorks(args->nMaxChannels);
+  }
+
+  template<typename T>
+  __device__ void getWorkRange(int block, uint16_t& workLo, size_t& indexLo, uint16_t& workHi, size_t& indexHi) {
+    constexpr int EltPerCell = NCCL_SYM_KERNEL_CELL_SIZE / sizeof(T);
+    uint32_t fracLo, fracHi;
+
+    // Where the work begins
+    workLo = (block==0) ? 0 : channelWorkRange[block-1].workHi; // start where predecessor ends
+    fracLo = (block==0) ? 0 : channelWorkRange[block-1].fracHi + 1;
+    // If the predecessor ended on the work boundary, then we step to the beginning of the next work.
+    // This ensures we never have empty parts.
+    if (fracLo == 0x10000) {
+      workLo++;
+      fracLo = 0;
+    }
+    struct pcclSymkDevWork const& dwLo = devWork[workLo];
+    indexLo = ((fracLo * divUp(dwLo.nElts, EltPerCell)) >> 16) * EltPerCell;
+
+    // Where the work ends
+    workHi = channelWorkRange[block].workHi;
+    fracHi = channelWorkRange[block].fracHi + 1;
+    struct pcclSymkDevWork const& dwHi = devWork[workHi];
+    indexHi = min(((fracHi * divUp(dwHi.nElts, EltPerCell)) >> 16) * EltPerCell, dwHi.nElts);
+  }
+
+  template<typename T>
+  __device__ void getWorkRangeFused(int blockIdx, int w, int& block, int& nBlocks, size_t& indexLo, size_t& indexHi) {
+    constexpr int EltPerCell = NCCL_SYM_KERNEL_CELL_SIZE / sizeof(T);
+    struct pcclSymkDevWork const& dw = devWork[w];
+    uint32_t fracLo, fracHi;
+    int lastBlock;
+
+    block = blockIdx - dw.sChannelId;
+    nBlocks = dw.nChannels;
+    lastBlock = dw.sChannelId+dw.nChannels-1;
+
+    // Where the work begins
+    fracLo = (dw.sChannelId>0 && channelWorkRange[dw.sChannelId-1].workHi == w) ? ((channelWorkRange[dw.sChannelId-1].fracHi + 1) & 0xFFFF) : 0;
+    indexLo = ((fracLo * divUp(dw.nElts, EltPerCell)) >> 16) * EltPerCell;
+    fracHi = (channelWorkRange[lastBlock].workHi == w) ? channelWorkRange[lastBlock].fracHi + 1 : 0x10000;
+    indexHi = min(((fracHi * divUp(dw.nElts, EltPerCell)) >> 16) * EltPerCell, dw.nElts);
+  }
+
+  // ncclSymPtr<T>::localPtr(); without a window the offset already holds the raw pointer.
+  template<typename T>
+  __device__ T* localPtr(struct ncclWindow_vidmem* win, size_t offset) {
+    if (win == nullptr) return (T*)offset;
+    return (T*)(add4G(win->lsaFlatBase, win->lsaRank*win->stride4G) + offset);
+  }
+
+  template<typename T, typename Fn>
+  __device__ void forEachWork(Fn const& fn) {
+    uint16_t workLo, workHi;
+    size_t indexLo, indexHi;
+
+    getWorkRange<T>(blockIdx.x, workLo, indexLo, workHi, indexHi);
+
+    #pragma unroll 1
+    for (int w = workLo; w <= workHi; w++) {
+      struct pcclSymkDevWork const& dw = devWork[w];
+      size_t const& nAllElts = dw.nElts;
+      size_t currentIndexLo, currentIndexHi;
+      int block, nBlocks;
+      if (blockIdx.x >= dw.sChannelId && blockIdx.x < dw.sChannelId + dw.nChannels) {
+        getWorkRangeFused<T>(blockIdx.x, w, block, nBlocks, currentIndexLo, currentIndexHi);
+      } else {
+        currentIndexLo = (w > workLo) ? 0 : indexLo;
+        currentIndexHi = (w < workHi) ? nAllElts : indexHi;
+        block = 0;
+        nBlocks = 1;
+      }
+
+      fn(block, nBlocks, currentIndexHi - currentIndexLo, nAllElts,
+         localPtr<T>(dw.inputWin, dw.inputOff) + currentIndexLo,
+         localPtr<T>(dw.outputWin, dw.outputOff) + currentIndexLo);
+
+      currentIndexLo = 0;
+    }
   }
 };
 }
