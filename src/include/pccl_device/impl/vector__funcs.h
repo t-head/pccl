@@ -457,7 +457,11 @@ PCCL_DEVICE_INLINE EltPack<half, 2> castPack(EltPack<float, 2> x) {
 template<>
 PCCL_DEVICE_INLINE EltPack<float, 1> castPack(EltPack<__ppu_bfloat16, 1> x) {
   EltPack<float, 1> out{};
+#if defined(PCCL_HAS_SDK_HEADER_REFACTOR)
+  out.elts()[0] = __hg_bfloat162float(x.elts()[0]);
+#else
   out.elts()[0] = __bfloat162float(x.elts()[0]);
+#endif
   return out;
 }
 
@@ -474,7 +478,11 @@ PCCL_DEVICE_INLINE EltPack<float, 2> castPack(EltPack<__ppu_bfloat16, 2> x) {
   Bf162PackAccess in;
   Float2PackAccess out;
   in.pack = x;
+#if defined(PCCL_HAS_SDK_HEADER_REFACTOR)
+  out.pair = __hg_bfloat1622float2(in.pair);
+#else
   out.pair = __bfloat1622float2(in.pair);
+#endif
   return out.pack;
 }
 
@@ -482,7 +490,11 @@ PCCL_DEVICE_INLINE EltPack<float, 2> castPack(EltPack<__ppu_bfloat16, 2> x) {
 template<>
 PCCL_DEVICE_INLINE EltPack<__ppu_bfloat16, 1> castPack(EltPack<float, 1> x) {
   EltPack<__ppu_bfloat16, 1> out{};
+#if defined(PCCL_HAS_SDK_HEADER_REFACTOR)
+  out.elts()[0] = __hg_float2bfloat16_rn(x.elts()[0]);  // Round to nearest
+#else
   out.elts()[0] = __float2bfloat16_rn(x.elts()[0]);  // Round to nearest
+#endif
   return out;
 }
 
@@ -499,7 +511,11 @@ PCCL_DEVICE_INLINE EltPack<__ppu_bfloat16, 2> castPack(EltPack<float, 2> x) {
   Float2PackAccess in;
   Bf162PackAccess out;
   in.pack = x;
+#if defined(PCCL_HAS_SDK_HEADER_REFACTOR)
+  out.pair = __hg_float22bfloat162_rn(in.pair);
+#else
   out.pair = __float22bfloat162_rn(in.pair);
+#endif
   return out.pack;
 }
 #endif

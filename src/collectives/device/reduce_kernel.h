@@ -310,14 +310,22 @@ struct FuncSum<__ppu_bfloat16> {
     fxh = __high2float(x);
     fyl = __low2float(y);
     fyh = __high2float(y);
+#if defined(PCCL_HAS_SDK_HEADER_REFACTOR)
+    return __hg_floats2bfloat162_rn(fxl + fyl, fxh + fyh);
+#else
     return __floats2bfloat162_rn(fxl + fyl, fxh + fyh);
+#endif
 #endif
    }
   __device__ __ppu_bfloat16 operator()(const __ppu_bfloat16 x, const __ppu_bfloat16 y) const {
 #if 1
     return __hadd(x, y);
 #else
+#if defined(PCCL_HAS_SDK_HEADER_REFACTOR)
+    return __hg_float2bfloat16( __hg_bfloat162float(x) + __hg_bfloat162float(y) );
+#else
     return __float2bfloat16( __bfloat162float(x) + __bfloat162float(y) );
+#endif
 #endif
   }
 };
@@ -404,14 +412,22 @@ struct FuncProd<__ppu_bfloat16> {
     fxh = __high2float(x);
     fyl = __low2float(y);
     fyh = __high2float(y);
+#if defined(PCCL_HAS_SDK_HEADER_REFACTOR)
+    return __hg_floats2bfloat162_rn(fxl * fyl, fxh * fyh);
+#else
     return __floats2bfloat162_rn(fxl * fyl, fxh * fyh);
+#endif
 #endif
   }
   __device__ __ppu_bfloat16 operator()(const __ppu_bfloat16 x, const __ppu_bfloat16 y) const {
 #if 1
     return __hmul(x, y);
 #else
+#if defined(PCCL_HAS_SDK_HEADER_REFACTOR)
+    return __hg_float2bfloat16( __hg_bfloat162float(x) * __hg_bfloat162float(y) );
+#else
     return __float2bfloat16( __bfloat162float(x) * __bfloat162float(y) );
+#endif
 #endif
   }
 };
@@ -494,7 +510,11 @@ struct FuncMax<__ppu_bfloat16> {
     fxh = __high2float(x);
     fyl = __low2float(y);
     fyh = __high2float(y);
+#if defined(PCCL_HAS_SDK_HEADER_REFACTOR)
+    return __hg_floats2bfloat162_rn(fmaxf(fxl, fyl), fmaxf(fxh, fyh));
+#else
     return __floats2bfloat162_rn(fmaxf(fxl, fyl), fmaxf(fxh, fyh));
+#endif
 #endif
   }
   __device__ __ppu_bfloat16 operator()(const __ppu_bfloat16 x, const __ppu_bfloat16 y) const {
@@ -502,9 +522,15 @@ struct FuncMax<__ppu_bfloat16> {
     return __hmax(x, y);
 #else
     float fx, fy;
+#if defined(PCCL_HAS_SDK_HEADER_REFACTOR)
+    fx = __hg_bfloat162float(x);
+    fy = __hg_bfloat162float(y);
+    return __hg_float2bfloat16(fmaxf(fx, fy));
+#else
     fx = __bfloat162float(x);
     fy = __bfloat162float(y);
     return __float2bfloat16(fmaxf(fx, fy));
+#endif
 #endif
   }
 };
@@ -587,7 +613,11 @@ struct FuncMin<__ppu_bfloat16> {
     fxh = __high2float(x);
     fyl = __low2float(y);
     fyh = __high2float(y);
+#if defined(PCCL_HAS_SDK_HEADER_REFACTOR)
+    return __hg_floats2bfloat162_rn(fminf(fxl, fyl), fminf(fxh, fyh));
+#else
     return __floats2bfloat162_rn(fminf(fxl, fyl), fminf(fxh, fyh));
+#endif
 #endif
   }
   __device__ __ppu_bfloat16 operator()(const __ppu_bfloat16 x, const __ppu_bfloat16 y) const {
@@ -595,9 +625,15 @@ struct FuncMin<__ppu_bfloat16> {
     return __hmin(x, y);
 #else
     float fx, fy;
+#if defined(PCCL_HAS_SDK_HEADER_REFACTOR)
+    fx = __hg_bfloat162float(x);
+    fy = __hg_bfloat162float(y);
+    return __hg_float2bfloat16(fminf(fx, fy));
+#else
     fx = __bfloat162float(x);
     fy = __bfloat162float(y);
     return __float2bfloat16(fminf(fx, fy));
+#endif
 #endif
   }
 };
