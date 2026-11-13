@@ -191,6 +191,8 @@ class DailySmokeTests(unittest.TestCase):
         self.assertIn("'groups.json').read_text())", text)
         self.assertIn('daily_reconcile.py', text)
         self.assertIn('Daily grouped result summary and NAS cleanup', text)
+        self.assertLess(text.index('SHARED_ROOT=/mnt/wl_nas'),
+                        text.index('CASE_INPUT="$SHARED_ROOT/case-input"'))
         self.assertIn('GitHub Actions matrix limit of 256', text)
         self.assertIn('timeout-minutes: 750', text)
         self.assertNotIn('retention-days: 3', text)

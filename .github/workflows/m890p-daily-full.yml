@@ -585,8 +585,8 @@ jobs:
             cd "$SOURCE_DIR"
             CACHE_DIR=/mnt/wl_nas/devops/pccl-artifact-cache-${{ github.run_id }}/cache/standard/${{ env.EXPECTED_SHA }}
             GROUPS_DIR=/mnt/wl_nas/devops/pccl-artifact-cache-${{ github.run_id }}/cache/case-groups/${{ env.EXPECTED_GROUPS_SHA }}
-            CASE_INPUT="$SHARED_ROOT/case-input"
             SHARED_ROOT=/mnt/wl_nas/devops/pccl-artifact-cache-${{ github.run_id }}/shared-standard/${{ env.EXPECTED_SHA }}/$GROUP_ID
+            CASE_INPUT="$SHARED_ROOT/case-input"
             SHARED_PARENT=$(dirname "$SHARED_ROOT")
             SHARED_BASE=$(dirname "$SHARED_PARENT")
             export build_output="$SHARED_ROOT/output_standard"
