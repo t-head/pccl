@@ -1,15 +1,15 @@
 {
   "classification": {
     "base_sha": "8c26831858ad76f3cd5acc6256948cccebccfa6c",
-    "head_sha": "1b829000482a5ef2b0d6b445c958f698c58b22a7",
-    "input_fingerprint": "4ed04b83e9fd7f8ed839c3606c36a03b1e6db7781a0d5c43ca11db574e245b48",
+    "head_sha": "25a15fd721b4c8345b2933461f84228a63a59bfa",
+    "input_fingerprint": "7e5bd892de4d243e69c9a2a36a2c64bc3f5bea90a470029100c59399067f61b7",
     "pr_number": 31,
     "proposal": {
       "modules": [
         "network",
         "gin"
       ],
-      "reason": "Main change adds a new bundled TROCE GIN backend/plugin (`libpccl-gin-troce.so`) with substantial host/device GIN implementation, plugin loading/discovery, new GIN type IDs, and GIN signal semantics (`SignalSet`) integration. Additional `network` review is needed because shared IB transport code is substantively changed (provider detection, QP inline configuration, and proxy send-path behavior/opcode handling in `src/transport/net_ib/*`), not just mechanical call-site updates."
+      "reason": "Main change is adding TROCE as a bundled GIN backend/plugin (new ext-gin/troce host+device implementation, GIN type/API wiring, plugin discovery, and GIN signal semantics). Add network because the PR also makes independently substantive IB transport/proxy changes (TROCE provider detection, QP inline behavior, and SEND_WITH_INV-based signal-set handling in net_ib paths) that affect shared network backend behavior beyond mechanical caller edits."
     }
   },
   "reviewers": {
