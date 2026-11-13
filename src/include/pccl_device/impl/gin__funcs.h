@@ -36,6 +36,34 @@ PCCL_DEVICE_INLINE int teamRankToGinRank(pcclDevComm const& comm, pcclTeam team,
   }
 }
 
+// Poll only in the cooperative leader, then broadcast the outcome to all participants.
+template<typename Coop>
+PCCL_DEVICE_INLINE pcclResult_t waitSignalWithTimeout(
+    Coop coop, uint64_t* ptr, uint64_t least, int bits, hggc::memory_order ord,
+    uint32_t* abortFlag, uint64_t timeoutCycles) {
+  pcclResult_t ret = pcclSuccess;
+  coop.sync();
+  if (coop.thread_rank() == 0) {
+    uint32_t steps = 0;
+    uint64_t start = clock64();
+    while (true) {
+      uint64_t got = hggc::atomic_ref<uint64_t>{*ptr}.load(ord);
+      if (pccl::utility::rollingLessEq(least, got, bits)) break;
+      if (pccl::utility::testAbort(abortFlag, steps)) {
+        ret = pcclInternalError;
+        break;
+      }
+      if (clock64() - start >= timeoutCycles) {
+        ret = pcclTimeout;
+        break;
+      }
+    }
+  }
+  ret = pcclCoopBcast(coop, ret, 0, /*entrySync=*/false);
+  coop.sync();
+  return ret;
+}
+
 // Multi-segment put/get helpers
 PCCL_DEVICE_INLINE void findSegmentFromWindow(pcclWindow_t win, size_t offset, int* outSeg, size_t* outSegOffset) {
   int seg = 0;
@@ -924,6 +952,26 @@ PCCL_DEVICE_INLINE void pcclGin_BackendMask<beMask>::waitSignal(Coop coop, pcclW
     } while (!pccl::utility::rollingLessEq(least, got, bits) && !testAbort(this->comm.abortFlag, steps));
   }
   coop.sync();
+}
+
+template<unsigned beMask>
+template<typename Coop>
+PCCL_DEVICE_INLINE pcclResult_t pcclGin_BackendMask<beMask>::waitSignal(
+    Coop coop, pcclGinSignal_t signal, uint64_t least, int bits,
+    hggc::memory_order ord, uint64_t timeoutCycles) const {
+  uint64_t* ptr = pcclGinCall<pcclGinApi_GetSignalPtr>(this->_makeCtx(), signal);
+  return pccl::gin::internal::waitSignalWithTimeout(
+      coop, ptr, least, bits, ord, this->comm.abortFlag, timeoutCycles);
+}
+
+template<unsigned beMask>
+template<typename Coop>
+PCCL_DEVICE_INLINE pcclResult_t pcclGin_BackendMask<beMask>::waitSignal(
+    Coop coop, pcclWindow_t signalWindow, size_t signalOffset, uint64_t least, int bits,
+    hggc::memory_order ord, uint64_t timeoutCycles) const {
+  uint64_t* ptr = (uint64_t*)pcclGetLocalPointer(signalWindow, signalOffset);
+  return pccl::gin::internal::waitSignalWithTimeout(
+      coop, ptr, least, bits, ord, this->comm.abortFlag, timeoutCycles);
 }
 
 PCCL_DEVICE_INLINE void pcclGinWaitSignal(

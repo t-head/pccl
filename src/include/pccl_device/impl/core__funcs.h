@@ -114,6 +114,7 @@ PCCL_DEVICE_INLINE void* pcclGetLocalPointer(pcclWindow_t w, size_t offset) {
 PCCL_DEVICE_INLINE void* pcclGetLsaPointer(pcclWindow_t w, size_t offset, int peer) {
   char* base = pccl::utility::loadConst(&w->lsaFlatBase);
   uint32_t stride4G = pccl::utility::loadConst(&w->stride4G);
+  if (stride4G == 0) return nullptr;
   int i = peer;
   return (void*)(pccl::utility::add4G(base, i*stride4G) + offset);
 }
@@ -121,6 +122,7 @@ PCCL_DEVICE_INLINE void* pcclGetLsaPointer(pcclWindow_t w, size_t offset, int pe
 PCCL_DEVICE_INLINE void* pcclGetPeerPointer(pcclWindow_t w, size_t offset, int peer) {
   char* base = pccl::utility::loadConst(&w->lsaFlatBase);
   uint32_t stride4G = pccl::utility::loadConst(&w->stride4G);
+  if (stride4G == 0) return nullptr;
   int worldRank = pccl::utility::loadConst(&w->worldRank);
   int lsaRank = pccl::utility::loadConst(&w->lsaRank);
   int i = lsaRank + (peer - worldRank);
@@ -130,6 +132,7 @@ PCCL_DEVICE_INLINE void* pcclGetPeerPointer(pcclWindow_t w, size_t offset, int p
 PCCL_DEVICE_INLINE void* pcclGetPeerPointer(pcclWindow_t w, size_t offset, pcclTeam tm, int peer) {
   char* base = pccl::utility::loadConst(&w->lsaFlatBase);
   uint32_t stride4G = pccl::utility::loadConst(&w->stride4G);
+  if (stride4G == 0) return nullptr;
   int lsaRank = pccl::utility::loadConst(&w->lsaRank);
   int i = lsaRank + (peer - tm.rank)*tm.stride;
   return (void*)(pccl::utility::add4G(base, i*stride4G) + offset);

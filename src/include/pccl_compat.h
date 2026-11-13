@@ -16,6 +16,7 @@
 #define NCCL_CONFIG_UNDEF_INT                    PCCL_CONFIG_UNDEF_INT
 #define NCCL_DEV_COMM_REQUIREMENTS_INITIALIZER   PCCL_DEV_COMM_REQUIREMENTS_INITIALIZER
 #define NCCL_GIN_BACKEND_MASK_ALL                PCCL_GIN_BACKEND_MASK_ALL
+#define NCCL_GIN_CONNECTION_CUSTOM_STRIDE         PCCL_GIN_CONNECTION_CUSTOM_STRIDE
 #define NCCL_GIN_CONNECTION_FULL                 PCCL_GIN_CONNECTION_FULL
 #define NCCL_GIN_CONNECTION_NONE                 PCCL_GIN_CONNECTION_NONE
 #define NCCL_GIN_CONNECTION_RAIL                 PCCL_GIN_CONNECTION_RAIL
@@ -27,6 +28,7 @@
 #define NCCL_NET_DEVICE_GIN_PROXY                PCCL_NET_DEVICE_GIN_PROXY
 #define NCCL_NET_DEVICE_HOST                     PCCL_NET_DEVICE_HOST
 #define NCCL_WIN_STRICT_ORDERING                 PCCL_WIN_STRICT_ORDERING
+#define NCCL_WIN_GIN_ONLY                        PCCL_WIN_GIN_ONLY
 #define ncclCommProperties_t                     pcclCommProperties_t
 #define ncclCoopCta                              pcclCoopCta
 #define ncclDevComm                              pcclDevComm

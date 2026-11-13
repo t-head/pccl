@@ -242,7 +242,6 @@ ncclResult_t ncclGinDevCommSetup(struct pcclComm* comm, struct ncclDevCommRequir
   if (ginState->ginVersion < 13) {
     nContextsTotal = ginState->ginCommCount;
   }
-  devComm->ginContextCount = nContextsTotal;
   devComm->ginConnectionCount = ginState->ginCommCount;
 
   if (!reqs->ginExclusiveContexts) {
@@ -250,6 +249,7 @@ ncclResult_t ncclGinDevCommSetup(struct pcclComm* comm, struct ncclDevCommRequir
   }
 
   nContextsTotal = ROUNDUP(nContextsTotal, ginState->ginCommCount);
+  devComm->ginContextCount = nContextsTotal;
   int nContextsPerComm = nContextsTotal / ginState->ginCommCount;
   INFO(NCCL_INIT, "devCommCreate: creating %d contexts: %d GIN connections with %d contexts each (%d contexts total requested)",
       nContextsTotal, ginState->ginCommCount, nContextsPerComm, reqs->ginContextCount);

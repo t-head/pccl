@@ -68,6 +68,7 @@ struct ncclDevrState {
   int winSortedCapacity, winSortedCount;
   struct ncclDevrTeam* teamHead;
   size_t bigSize;             // size of our big logical space (128GB?)
+  uint64_t nextRegistryId; // Monotonic collective registration identity.
   struct ncclSpace bigSpace;  // allocates our big VA space
   void* lsaFlatBase;         // base ptr for all lsa ranks' big VA's concatenated
   struct ncclShadowPool shadows;
