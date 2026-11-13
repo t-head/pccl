@@ -1,0 +1,17 @@
+{
+  "classification": {
+    "base_sha": "b2218469d68f21ca4d4822c8ba357154eb955849",
+    "head_sha": "56e4ddeb78db010e7aea7a8e4beda08705e110b7",
+    "input_fingerprint": "30fba2442be89d6f22eeb47470b7a5de24720d83733e29ad4e712e91d8cf5cff",
+    "pr_number": 195,
+    "proposal": {
+      "modules": [
+        "workflow"
+      ],
+      "reason": "Adds squash-preview publication behavior in review automation by posting a PR check status (`Suggested squash commit message`) linked to the latest preview comment, updates the related workflow permissions (`statuses: write`) for that publication job, and documents the review-flow behavior; these are contribution/review workflow and squash-message automation changes."
+    }
+  },
+  "reviewers": {
+    "workflow": 333277982
+  }
+}
