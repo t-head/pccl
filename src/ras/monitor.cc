@@ -15,6 +15,7 @@
 #include "drv_extension.h"
 #include "hggc_runtime.h"
 #include "comm_dumper.h"
+#include "diagnostics_checks_common.h"
 
 static int stopMonitor = 0;
 static int eitEnable = -1;
@@ -73,13 +74,18 @@ static inline void rasStateMonitorRecord(ncclComm_t comm, const char* info) {
   }
 }
 
-void rasStateMonitorDump(const struct rasCollRequest* req, bool *pDone, pcclCommDiagCollector* collector) {
+void rasStateMonitorDump(const struct rasCollRequest* req, bool *pDone, pcclCommDiagCollector* collector,
+                         const struct rasDiagnosticsContext* ctx) {
   *pDone = true;
   if (pcclParamStateMonitorDumpWhenExceptionDisable() != 0) return;
   std::lock_guard<std::recursive_mutex> lock(ncclCommsMutex);
   for (int i = 0; i < nNcclComms; i++) {
     struct rasNcclComm* rasComm = ncclComms + i;
     ncclComm_t comm = rasComm->comm;
+    // Unscoped dumps also cover comms whose peer info is not ready yet.
+    if (collector != nullptr && comm != nullptr && ctx != nullptr && ctx->hasCommFilter &&
+        (!__atomic_load_n(&comm->peerInfoValid, __ATOMIC_ACQUIRE) ||
+         !rasDiagnosticsCommMatchesContext(ctx, comm))) continue;
     if (comm && (req->dump.dumpAllComms || (comm->commHash == req->dump.commHash && rasComm->lastTimeoutIndex < req->dump.seq))) {
       *pDone = false;
       rasComm->lastTimeoutIndex = req->dump.seq;

@@ -60,8 +60,9 @@ static const struct rasDiagnosticsReporter rasDiagnosticsNoopReporter = {rasDiag
 
 // Dispatcher table for diagnostics checks. Each entry binds the stable request id
 // to the local collection and summary callbacks for that check.
-static const struct rasDiagnosticsCheck rasDiagnosticsChecks[] = {
+static const struct rasDiagnosticsCheck rasDiagnosticsChecks[RAS_DIAG_CHECK_COUNT] = {
   {RAS_DIAG_CHECK_NCCL_ENV, rasDiagnosticsNcclEnvCollectLocal, rasDiagnosticsNcclEnvSummarize},
+  {RAS_DIAG_CHECK_RUNTIME_STATE, rasDiagnosticsRuntimeStateCollectLocal, rasDiagnosticsRuntimeStateSummarize},
 };
 
 static ncclResult_t rasDiagnosticsSummarizePeerPayloads(
@@ -101,16 +102,9 @@ static ncclResult_t rasDiagnosticsGetCheck(rasDiagnosticsCheckId checkId, const 
     return ncclInternalError;
   }
 
-  // PCCL initially enables only the environment check, preserving its upstream ID.
-  *check = nullptr;
-  for (const struct rasDiagnosticsCheck& tableCheck : rasDiagnosticsChecks) {
-    if (tableCheck.id == checkId) {
-      *check = &tableCheck;
-      break;
-    }
-  }
-  if (*check == nullptr) {
-    WARN("RAS diagnostics check id %d is not registered", id);
+  *check = &rasDiagnosticsChecks[id];
+  if ((*check)->id != checkId) {
+    WARN("RAS diagnostics check id %d does not match dispatch table entry %d", id, (int)(*check)->id);
     return ncclInternalError;
   }
 
@@ -296,6 +290,9 @@ ncclResult_t rasCollDiagInit(struct rasCollRequest** pReq, size_t* pReqLen, char
 
   ctx.hasCommFilter = (*pReq)->diag.hasCommFilter;
   if (ctx.hasCommFilter) ctx.commFilter = (*pReq)->diag.commFilter;
+  ctx.triggerLocalDump = (*pReq)->diag.triggerLocalDump;
+  ctx.dumpLevel = (*pReq)->diag.dumpLevel;
+  ctx.diagSeq = (*pReq)->diag.diagSeq;
 
   *pReqLen = rasCollDataLength(RAS_COLL_DIAG);
   NCCLCHECK(rasDiagnosticsCollectLocalPeerPayload(&ctx, pData, pNData));
@@ -347,6 +344,7 @@ ncclResult_t rasDiagnosticsResume(struct rasClient* client) {
   }
   diagnostics = client->diagnostics;
   coll = client->coll;
+  diagnostics->ctx.nLegTimeouts = coll->nLegTimeouts;
 
   // A comm-scoped request reports the communicator's rank count; an unscoped one falls back to responding peers.
   nRanks = diagnostics->ctx.hasCommFilter ? diagnostics->ctx.commNRanks : coll->nPeers;
@@ -533,6 +531,9 @@ ncclResult_t rasDiagnosticsStart(struct rasClient* client) {
   req.type = RAS_COLL_DIAG;
   req.diag.hasCommFilter = ctx->hasCommFilter;
   if (ctx->hasCommFilter) req.diag.commFilter = ctx->commFilter;
+  req.diag.triggerLocalDump = ctx->triggerLocalDump;
+  req.diag.dumpLevel = ctx->dumpLevel;
+  req.diag.diagSeq = ctx->diagSeq;
 
   NCCLCHECKGOTO(rasNetSendCollReq(&req, &allDone, &client->coll), ret, fail);
 

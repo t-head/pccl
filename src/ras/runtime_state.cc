@@ -7,17 +7,14 @@
 //*************************************************************************
 
 /*************************************************************************
- * Online hang analyzer implementation (merged-COMMS design).
- *
- * Snapshot logic adapted from the reference analyzer tool and the reference
- * 0001-pccl-online-debug.patch.  Cross-rank checks are run against the
- * merged rasCollComms blob (which carries per-comm diag tiers when the
- * RAS_COMMS_FLAG_INCLUDE_DIAG bit was set on the request).
+ * Runtime state collection, monitor triggers and report persistence.
+ * Dump sampling and on-demand sampling share the same collector callbacks.
  ************************************************************************/
 
 #include "alloc.h"
 #include "checks.h"
 #include "comm.h"
+#include "transport.h"
 #include "utils.h"
 #include "param.h"
 #include "ras_internal.h"
@@ -25,32 +22,21 @@
 #include "drv_extension.h"
 #include "hggc_runtime.h"
 #include "comm_dumper.h"
+#include "diagnostics.h"
+#include "diagnostics_runtime.h"
 
 #include <climits>
 #include <cstdio>
 #include <cstdlib>
 #include <cstring>
+#include <new>
 #include <unordered_map>
+#include <utility>
+#include <vector>
 
+static_assert(RAS_DIAG_RUNTIME_MAX_CONNS == NCCL_MAX_CONNS, "runtime connector limit must match transport");
 
-///////////////////////////////////////////////////////////////////////////////
-// Local snapshot size + serialization.                                      //
-// Caller must hold ncclCommsMutex.                                          //
-///////////////////////////////////////////////////////////////////////////////
-
-static int countConnectedPeers(struct ncclChannel* channel, int nRanks) {
-  int n = 0;
-  if (channel->peers == nullptr) return 0;
-  for (int p = 0; p < nRanks; p++) {
-    struct ncclChannelPeer* hostPeer = channel->peers[p];
-    if (hostPeer == nullptr) continue;
-    for (int c0 = 0; c0 < NCCL_MAX_CONNS; c0++) {
-      if (hostPeer->send[c0].connected == 1) n++;
-      if (hostPeer->recv[c0].connected == 1) n++;
-    }
-  }
-  return n;
-}
+// Callers hold ncclCommsMutex and select the communicator's device before sampling.
 
 static uint64_t readDevHangReportedKernelIdx(struct ncclChannel* channel, bool* outValid) {
   return readDevU64(channel->hostDevIndexLevel1, outValid);
@@ -61,23 +47,9 @@ static uint64_t readDevCompletedKernelIdx(struct ncclChannel* channel, uint8_t m
   return readDevU64(devPtr, outValid);
 }
 
-size_t rasDiagTotalSnapshotDataSize(ncclComm_t comm) {
-  if (comm == nullptr) return 0;
-  if (comm->abortFlag && __atomic_load_n(comm->abortFlag, __ATOMIC_ACQUIRE) != 0) return 0;
-  size_t totalBytes = sizeof(struct rasDiagRankHeader);
-  for (int c = 0; c < MAXCHANNELS; c++) {
-    struct ncclChannel* channel = &comm->channels[c];
-    if (channel->id < 0) continue;
-    totalBytes += sizeof(struct rasDiagChannel);
-    totalBytes += (size_t)countConnectedPeers(channel, comm->nRanks) * sizeof(struct rasDiagPeer);
-  }
-  return totalBytes;
-}
-
 static void populateDiagChannel(struct rasDiagChannel* dc, ncclComm_t comm, int channelId) {
   struct ncclChannel* channel = &comm->channels[channelId];
   memset(dc, 0, sizeof(*dc));
-  dc->channelId = channelId;
   dc->workFifoTail = comm->channelKernelIdx[channelId];
 
   bool hasRing = (channelId < comm->nChannels) && (channel->ring.userRanks != nullptr);
@@ -92,7 +64,18 @@ static void populateDiagChannel(struct rasDiagChannel* dc, ncclComm_t comm, int 
     }
     if (!collEstablished) hasRing = false;
   }
-  bool hasTree = hasRing;
+  // Tree connections may be established independently of ring connections.
+  bool hasTree = false;
+  if (channelId < comm->nChannels && channel->peers != nullptr) {
+    auto treePeerConnected = [&](int peer) {
+      return peer >= 0 && peer < comm->nRanks && channel->peers[peer] != nullptr &&
+             (channel->peers[peer]->send[0].connected == 1 || channel->peers[peer]->recv[0].connected == 1);
+    };
+    hasTree = treePeerConnected(channel->tree.up);
+    for (int i = 0; i < NCCL_MAX_TREE_ARITY && !hasTree; i++) {
+      hasTree = treePeerConnected(channel->tree.down[i]);
+    }
+  }
 
   if (hasRing) {
     dc->ringPrev = channel->ring.prev;
@@ -125,105 +108,16 @@ static void populateDiagChannel(struct rasDiagChannel* dc, ncclComm_t comm, int 
   dc->fcConnType = (channel->fc.nPeers > 0) ? (uint8_t)channel->fc.connType : RAS_DIAG_CONN_NONE;
 }
 
-size_t rasDiagSnapshotInto(char* buf, size_t bufLen, ncclComm_t comm) {
-  if (comm == nullptr || buf == nullptr) return 0;
-  if (comm->abortFlag && __atomic_load_n(comm->abortFlag, __ATOMIC_ACQUIRE) != 0) return 0;
-  size_t need = rasDiagTotalSnapshotDataSize(comm);
-  if (need == 0 || bufLen < need) return 0;
-
-  uint8_t monitorLevel = comm->hostDevComm.comm.stateMonitorLevel;
-
-  struct rasDiagRankHeader* rh = (struct rasDiagRankHeader*)buf;
-  rh->wireVersion = RAS_DIAG_WIRE_VERSION;
-  rh->commRank = comm->rank;
-  rh->nChannels = 0;
-  rh->totalBytes = 0;
-  char* cursor = buf + sizeof(*rh);
-  // Peers can connect between the size scan and the writes, so re-check the
-  // remaining room for every record.
-  auto reserveRecord = [&](size_t bytes) {
-    if (bytes <= bufLen - (size_t)(cursor - buf)) return true;
-    rh->nChannels = 0;
-    rh->totalBytes = 0;
-    WARN("RAS diag: snapshot buffer overflow, discarding rank snapshot");
-    return false;
-  };
-
-  for (int c = 0; c < MAXCHANNELS; c++) {
-    struct ncclChannel* channel = &comm->channels[c];
-    if (channel->id < 0) continue;
-
-    if (!reserveRecord(sizeof(struct rasDiagChannel))) return 0;
-    struct rasDiagChannel* dc = (struct rasDiagChannel*)cursor;
-    populateDiagChannel(dc, comm, c);
-    bool valid = false;
-    dc->devHangReportedKernelIdx = readDevHangReportedKernelIdx(channel, &valid);
-    dc->devHangReportedKernelIdxValid = valid ? 1 : 0;
-    dc->devCompletedKernelIdx = readDevCompletedKernelIdx(channel, monitorLevel, &valid);
-    dc->devCompletedKernelIdxValid = valid ? 1 : 0;
-    cursor += sizeof(*dc);
-
-    int nPeerEntries = 0;
-    if (channel->peers != nullptr) {
-      for (int p = 0; p < comm->nRanks; p++) {
-        struct ncclChannelPeer* hostPeer = channel->peers[p];
-        struct ncclDevChannelPeer* devPeer = (channel->devPeersHostPtr ? channel->devPeersHostPtr[p] : nullptr);
-        if (hostPeer == nullptr) continue;
-        for (int c0 = 0; c0 < NCCL_MAX_CONNS; c0++) {
-          if (hostPeer->send[c0].connected == 1) {
-            if (!reserveRecord(sizeof(struct rasDiagPeer))) return 0;
-            struct rasDiagPeer* dp = (struct rasDiagPeer*)cursor;
-            cursor += sizeof(*dp);
-            dp->peerRank = p;
-            dp->connector = (uint8_t)c0;
-            dp->direction = 0;
-            dp->connected = 1;
-            dp->_pad = 0;
-            dp->head = safeReadDevU64(hostPeer->send[c0].conn.head);
-            dp->tail = safeReadDevU64(hostPeer->send[c0].conn.tail);
-            dp->devStep = (devPeer ? safeReadDevU64(&devPeer->send[c0].step) : 0);
-            nPeerEntries++;
-          }
-          if (hostPeer->recv[c0].connected == 1) {
-            if (!reserveRecord(sizeof(struct rasDiagPeer))) return 0;
-            struct rasDiagPeer* dp = (struct rasDiagPeer*)cursor;
-            cursor += sizeof(*dp);
-            dp->peerRank = p;
-            dp->connector = (uint8_t)c0;
-            dp->direction = 1;
-            dp->connected = 1;
-            dp->_pad = 0;
-            dp->head = safeReadDevU64(hostPeer->recv[c0].conn.head);
-            dp->tail = safeReadDevU64(hostPeer->recv[c0].conn.tail);
-            dp->devStep = (devPeer ? safeReadDevU64(&devPeer->recv[c0].step) : 0);
-            nPeerEntries++;
-          }
-        }
-      }
-    }
-    dc->nPeerEntries = nPeerEntries;
-    rh->nChannels++;
-  }
-
-  size_t written = (size_t)(cursor - buf);
-  rh->totalBytes = (uint32_t)written;
-  return written;
-}
-
 ///////////////////////////////////////////////////////////////////////////////
-// Dump-path collector: piggyback on pcclCommDump's device reads to fill the //
-// diag buffer.  Avoids the second device-IO pass that rasDiagSnapshot*      //
-// would otherwise do when the monitor path runs dump + diag together.       //
+// Shared collector for dump callbacks and on-demand device sampling.        //
 ///////////////////////////////////////////////////////////////////////////////
 
 namespace {
 struct rasDiagCollectorEntry {
-  char* scratch;
-  size_t capacity;
-  size_t cursor;
-  struct rasDiagChannel* currentChannel;
-  bool overflowed;
-  bool finalized;
+  std::vector<rasDiagnosticsRuntimeRecord> records;
+  int channelRecords[MAXCHANNELS];
+  ncclResult_t result = ncclSuccess;
+  bool finalized = false;
 };
 
 struct rasDiagCollectorImpl {
@@ -231,96 +125,165 @@ struct rasDiagCollectorImpl {
   pcclCommDiagCollector iface;
 };
 
+static bool rasDiagAppendRecord(rasDiagCollectorEntry& entry, const rasDiagnosticsRuntimeRecord& record) {
+  if (entry.result != ncclSuccess || entry.finalized) return false;
+  if (entry.records.size() >= INT_MAX / sizeof(record)) {
+    entry.result = ncclInternalError;
+    return false;
+  }
+  try {
+    entry.records.push_back(record);
+    return true;
+  } catch (const std::bad_alloc&) {
+    entry.result = ncclSystemError;
+  } catch (...) {
+    entry.result = ncclInternalError;
+  }
+  return false;
+}
+
 static void rasDiagInitRankDiagHeader(void* ctx, ncclComm_t comm) {
-  if (comm == nullptr) return;
+  if (ctx == nullptr || comm == nullptr) return;
   auto* impl = (rasDiagCollectorImpl*)ctx;
-  size_t need = rasDiagTotalSnapshotDataSize(comm);
-  if (need < sizeof(struct rasDiagRankHeader)) return;
-  rasDiagCollectorEntry e{};
-  if (ncclCalloc(&e.scratch, need) != ncclSuccess) return;
-  e.capacity = need;
-  auto* rh = (struct rasDiagRankHeader*)e.scratch;
-  rh->wireVersion = RAS_DIAG_WIRE_VERSION;
-  rh->commRank = comm->rank;
-  // The count must grow only on a successfully emitted record; a separate
-  // channel scan can drift from what is actually written.
-  rh->nChannels = 0;
-  rh->totalBytes = (uint32_t)sizeof(*rh);
-  e.cursor = sizeof(*rh);
-  e.currentChannel = nullptr;
-  impl->entries[comm] = e;
+  // Re-sampling replaces any earlier result, including a partially collected dump.
+  impl->entries.erase(comm);
+  if (!__atomic_load_n(&comm->peerInfoValid, __ATOMIC_ACQUIRE) || comm->peerInfo == nullptr ||
+      (comm->abortFlag && __atomic_load_n(comm->abortFlag, __ATOMIC_ACQUIRE)) ||
+      comm->nRanks <= 0 || comm->rank < 0 || comm->rank >= comm->nRanks) return;
+
+  try {
+    rasDiagCollectorEntry entry;
+    for (int c = 0; c < MAXCHANNELS; c++) entry.channelRecords[c] = -1;
+    rasDiagnosticsRuntimeRecord record = {};
+    record.rank.commId.commHash = comm->commHash;
+    record.rank.commId.hostHash = comm->peerInfo[0].hostHash;
+    record.rank.commId.pidHash = comm->peerInfo[0].pidHash;
+    record.rank.commRank = comm->rank;
+    record.rank.commNRanks = comm->nRanks;
+    record.type = RAS_DIAG_RUNTIME_RANK;
+    record.channelId = -1;
+    record.value.rankData.version = RAS_DIAG_RUNTIME_WIRE_VERSION;
+    record.value.rankData.availability = RAS_DIAG_RUNTIME_UNAVAILABLE;
+    record.value.rankData.hggcDev = comm->hggcDev;
+    record.value.rankData.hgmlDev = comm->hgmlDev;
+    if (rasDiagAppendRecord(entry, record)) impl->entries.emplace(comm, std::move(entry));
+  } catch (...) {
+    // The dump callbacks cannot propagate allocation failures to their caller.
+    impl->entries.erase(comm);
+  }
 }
 
 static void rasDiagCollectChannelState(void* ctx, ncclComm_t comm, int channelId,
-                                   uint64_t devHangReportedKernelIdx, bool devHangReportedKernelIdxValid,
-                                   uint64_t devCompletedKernelIdx,    bool devCompletedKernelIdxValid) {
-  if (comm == nullptr) return;
+                                      uint64_t devHangReportedKernelIdx, bool devHangReportedKernelIdxValid,
+                                      uint64_t devCompletedKernelIdx, bool devCompletedKernelIdxValid) {
+  if (ctx == nullptr || comm == nullptr) return;
   auto* impl = (rasDiagCollectorImpl*)ctx;
   auto it = impl->entries.find(comm);
   if (it == impl->entries.end()) return;
-  rasDiagCollectorEntry& e = it->second;
-  if (e.scratch == nullptr || e.overflowed || e.finalized) return;
-  if (sizeof(struct rasDiagChannel) > e.capacity - e.cursor) {
-    e.overflowed = true;
-    e.currentChannel = nullptr;
+  rasDiagCollectorEntry& entry = it->second;
+  if (entry.result != ncclSuccess || entry.finalized) return;
+  if (channelId < 0 || channelId >= MAXCHANNELS || entry.channelRecords[channelId] >= 0) {
+    entry.result = ncclInternalError;
     return;
   }
-  auto* dc = (struct rasDiagChannel*)(e.scratch + e.cursor);
-  e.cursor += sizeof(*dc);
-  populateDiagChannel(dc, comm, channelId);
-  dc->devHangReportedKernelIdx = devHangReportedKernelIdx;
-  dc->devHangReportedKernelIdxValid = devHangReportedKernelIdxValid ? 1 : 0;
-  dc->devCompletedKernelIdx = devCompletedKernelIdx;
-  dc->devCompletedKernelIdxValid = devCompletedKernelIdxValid ? 1 : 0;
-  e.currentChannel = dc;
-  ((struct rasDiagRankHeader*)e.scratch)->nChannels++;
+
+  rasDiagnosticsRuntimeRecord record = {};
+  record.rank = entry.records[0].rank;
+  record.type = RAS_DIAG_RUNTIME_CHANNEL;
+  record.channelId = channelId;
+  rasDiagChannel& channel = record.value.channel;
+  populateDiagChannel(&channel, comm, channelId);
+  channel.devHangReportedKernelIdx = devHangReportedKernelIdx;
+  channel.devHangReportedKernelIdxValid = devHangReportedKernelIdxValid ? 1 : 0;
+  channel.devCompletedKernelIdx = devCompletedKernelIdx;
+  channel.devCompletedKernelIdxValid = devCompletedKernelIdxValid ? 1 : 0;
+  int recordIndex = (int)entry.records.size();
+  if (rasDiagAppendRecord(entry, record)) {
+    entry.channelRecords[channelId] = recordIndex;
+    entry.records[0].value.rankData.nChannels++;
+  }
 }
 
-static void rasDiagCollectPeerConn(void* ctx, ncclComm_t comm, int /*channelId*/, int peerRank,
-                                uint8_t connector, uint8_t direction,
-                                uint64_t head, uint64_t tail, uint64_t devStep) {
-  if (comm == nullptr) return;
+static void rasDiagCollectPeerConn(void* ctx, ncclComm_t comm, int channelId, int peerRank,
+                                   uint8_t connector, uint8_t direction,
+                                   uint64_t head, uint64_t tail, uint64_t devStep) {
+  if (ctx == nullptr || comm == nullptr) return;
   auto* impl = (rasDiagCollectorImpl*)ctx;
   auto it = impl->entries.find(comm);
   if (it == impl->entries.end()) return;
-  rasDiagCollectorEntry& e = it->second;
-  if (e.currentChannel == nullptr || e.overflowed || e.finalized) return;
-  if (sizeof(struct rasDiagPeer) > e.capacity - e.cursor) {
-    e.overflowed = true;
-    e.currentChannel = nullptr;
+  rasDiagCollectorEntry& entry = it->second;
+  if (entry.result != ncclSuccess || entry.finalized) return;
+  if (channelId < 0 || channelId >= MAXCHANNELS || entry.channelRecords[channelId] < 0 ||
+      peerRank < 0 || peerRank >= comm->nRanks || connector >= NCCL_MAX_CONNS || direction > 1) {
+    entry.result = ncclInternalError;
     return;
   }
-  auto* dp = (struct rasDiagPeer*)(e.scratch + e.cursor);
-  e.cursor += sizeof(*dp);
-  dp->peerRank = peerRank;
-  dp->connector = connector;
-  dp->direction = direction;
-  dp->connected = 1;
-  dp->_pad = 0;
-  dp->head = head;
-  dp->tail = tail;
-  dp->devStep = devStep;
-  e.currentChannel->nPeerEntries++;
+
+  rasDiagnosticsRuntimeRecord record = {};
+  record.rank = entry.records[0].rank;
+  record.type = RAS_DIAG_RUNTIME_CONNECTION;
+  record.channelId = channelId;
+  rasDiagPeer& peer = record.value.connection;
+  peer.peerRank = peerRank;
+  peer.connector = connector;
+  peer.direction = direction;
+  peer.connected = 1;
+  peer.head = head;
+  peer.tail = tail;
+  peer.devStep = devStep;
+  if (rasDiagAppendRecord(entry, record)) {
+    // Store indices, not pointers: adding a connection can reallocate the vector.
+    entry.records[entry.channelRecords[channelId]].value.channel.nPeerEntries++;
+  }
 }
 
 static void rasDiagFinalizeRankDiagHeader(void* ctx, ncclComm_t comm) {
-  if (comm == nullptr) return;
+  if (ctx == nullptr || comm == nullptr) return;
   auto* impl = (rasDiagCollectorImpl*)ctx;
   auto it = impl->entries.find(comm);
   if (it == impl->entries.end()) return;
-  rasDiagCollectorEntry& e = it->second;
-  if (e.scratch == nullptr) return;
-  auto* rh = (struct rasDiagRankHeader*)e.scratch;
-  if (e.overflowed) {
-    rh->nChannels = 0;
-    rh->totalBytes = 0;
-    WARN("RAS diag: collector buffer overflow, discarding rank snapshot");
+  rasDiagCollectorEntry& entry = it->second;
+  if (entry.result != ncclSuccess || entry.finalized) return;
+  if (comm->abortFlag && __atomic_load_n(comm->abortFlag, __ATOMIC_ACQUIRE)) {
+    entry.result = ncclInternalError;
     return;
   }
-  rh->totalBytes = (uint32_t)e.cursor;
-  e.finalized = true;
+  // A dump may skip peer reads while still invoking finalize. Do not expose
+  // such a partial sample as a complete runtime record set.
+  for (int c = 0; c < MAXCHANNELS; c++) {
+    ncclChannel* channel = &comm->channels[c];
+    if (channel->id < 0) continue;
+    int index = entry.channelRecords[c];
+    if (index < 0) {
+      entry.result = ncclInternalError;
+      return;
+    }
+    size_t nConnections = 0;
+    if (channel->peers != nullptr) {
+      for (int p = 0; p < comm->nRanks; p++) {
+        ncclChannelPeer* peer = channel->peers[p];
+        if (peer == nullptr) continue;
+        for (int conn = 0; conn < NCCL_MAX_CONNS; conn++) {
+          nConnections += peer->send[conn].connected == 1;
+          nConnections += peer->recv[conn].connected == 1;
+        }
+      }
+    }
+    if (nConnections != (size_t)entry.records[index].value.channel.nPeerEntries) {
+      entry.result = ncclInternalError;
+      return;
+    }
+  }
+  entry.records[0].value.rankData.availability = RAS_DIAG_RUNTIME_AVAILABLE;
+  entry.finalized = true;
 }
-}  // anon namespace
+
+static ncclResult_t rasDiagCollectorResult(pcclCommDiagCollector* collector, ncclComm_t comm) {
+  auto* impl = (rasDiagCollectorImpl*)collector->ctx;
+  auto it = impl->entries.find(comm);
+  return it == impl->entries.end() ? ncclInternalError : it->second.result;
+}
+} // namespace
 
 struct pcclCommDiagCollector* rasDiagCollectorCreate() {
   auto* impl = new (std::nothrow) rasDiagCollectorImpl();
@@ -330,34 +293,74 @@ struct pcclCommDiagCollector* rasDiagCollectorCreate() {
   impl->iface.collectChannelState = rasDiagCollectChannelState;
   impl->iface.collectPeerConn = rasDiagCollectPeerConn;
   impl->iface.finalizeRankDiagHeader = rasDiagFinalizeRankDiagHeader;
-  // impl escapes via the returned iface (iface.ctx == impl) and is freed by rasDiagCollectorDestroy; not leaked.
+  // impl escapes via iface.ctx and is freed by rasDiagCollectorDestroy.
   // coverity[leaked_storage]
   return &impl->iface;
 }
 
-const char* rasDiagCollectorGet(struct pcclCommDiagCollector* collector,
-                                     ncclComm_t comm, size_t* pBytes) {
-  if (pBytes != nullptr) *pBytes = 0;
+const struct rasDiagnosticsRuntimeRecord* rasDiagCollectorGetRuntime(struct pcclCommDiagCollector* collector,
+                                                                    ncclComm_t comm, int* nRecords) {
+  if (nRecords != nullptr) *nRecords = 0;
   if (collector == nullptr || comm == nullptr) return nullptr;
   auto* impl = (rasDiagCollectorImpl*)collector->ctx;
   auto it = impl->entries.find(comm);
   if (it == impl->entries.end()) return nullptr;
-  const rasDiagCollectorEntry& e = it->second;
-  if (e.scratch == nullptr || e.overflowed || !e.finalized) return nullptr;
-  if (pBytes != nullptr) *pBytes = e.cursor;
-  return e.scratch;
+  const rasDiagCollectorEntry& entry = it->second;
+  if (entry.result != ncclSuccess || !entry.finalized || entry.records.empty()) return nullptr;
+  if (nRecords != nullptr) *nRecords = (int)entry.records.size();
+  return entry.records.data();
 }
 
 void rasDiagCollectorDestroy(struct pcclCommDiagCollector* collector) {
   if (collector == nullptr) return;
-  auto* impl = (rasDiagCollectorImpl*)collector->ctx;
-  for (auto& kv : impl->entries) ncclFree(kv.second.scratch);
-  delete impl;
+  delete (rasDiagCollectorImpl*)collector->ctx;
+}
+
+ncclResult_t rasDiagCollectRuntimeSnapshot(ncclComm_t comm, struct pcclCommDiagCollector* collector) {
+  if (comm == nullptr || collector == nullptr) return ncclInvalidArgument;
+  collector->initRankDiagHeader(collector->ctx, comm);
+  NCCLCHECK(rasDiagCollectorResult(collector, comm));
+  uint8_t monitorLevel = comm->hostDevComm.comm.stateMonitorLevel;
+
+  for (int c = 0; c < MAXCHANNELS; c++) {
+    struct ncclChannel* channel = &comm->channels[c];
+    if (channel->id < 0) continue;
+    bool hangValid = false, completedValid = false;
+    uint64_t hang = readDevHangReportedKernelIdx(channel, &hangValid);
+    uint64_t completed = readDevCompletedKernelIdx(channel, monitorLevel, &completedValid);
+    collector->collectChannelState(collector->ctx, comm, c, hang, hangValid, completed, completedValid);
+    NCCLCHECK(rasDiagCollectorResult(collector, comm));
+
+    if (channel->peers == nullptr) continue;
+    for (int p = 0; p < comm->nRanks; p++) {
+      struct ncclChannelPeer* hostPeer = channel->peers[p];
+      struct ncclDevChannelPeer* devPeer = channel->devPeersHostPtr ? channel->devPeersHostPtr[p] : nullptr;
+      if (hostPeer == nullptr) continue;
+      for (int c0 = 0; c0 < NCCL_MAX_CONNS; c0++) {
+        if (hostPeer->send[c0].connected == 1) {
+          uint64_t head = safeReadDevU64(hostPeer->send[c0].conn.head);
+          uint64_t tail = safeReadDevU64(hostPeer->send[c0].conn.tail);
+          uint64_t step = devPeer ? safeReadDevU64(&devPeer->send[c0].step) : 0;
+          collector->collectPeerConn(collector->ctx, comm, c, p, (uint8_t)c0, 0, head, tail, step);
+          NCCLCHECK(rasDiagCollectorResult(collector, comm));
+        }
+        if (hostPeer->recv[c0].connected == 1) {
+          uint64_t head = safeReadDevU64(hostPeer->recv[c0].conn.head);
+          uint64_t tail = safeReadDevU64(hostPeer->recv[c0].conn.tail);
+          uint64_t step = devPeer ? safeReadDevU64(&devPeer->recv[c0].step) : 0;
+          collector->collectPeerConn(collector->ctx, comm, c, p, (uint8_t)c0, 1, head, tail, step);
+          NCCLCHECK(rasDiagCollectorResult(collector, comm));
+        }
+      }
+    }
+  }
+  collector->finalizeRankDiagHeader(collector->ctx, comm);
+  return rasDiagCollectorResult(collector, comm);
 }
 
 
 ///////////////////////////////////////////////////////////////////////////////
-// Monitor-originated trigger + onComplete report writer.                    //
+// Monitor-originated trigger and report writer.                             //
 ///////////////////////////////////////////////////////////////////////////////
 
 namespace {
@@ -381,6 +384,27 @@ static bool dedupShouldSkip(uint64_t commHash, uint64_t seq, int64_t now) {
 }  // anon namespace
 
 void rasDiagTriggerFromMonitor(uint64_t commHash, uint64_t seq) {
+  struct rasDiagnosticsContext ctx = {};
+  ncclResult_t ret = ncclInvalidArgument;
+
+  // Copy the communicator identity while it is protected; the asynchronous
+  // request must not retain a pointer to the live communicator.
+  {
+    std::lock_guard<std::recursive_mutex> lock(ncclCommsMutex);
+    for (int i = 0; i < nNcclComms; i++) {
+      ncclComm_t comm = ncclComms[i].comm;
+      if (comm == nullptr || !__atomic_load_n(&comm->peerInfoValid, __ATOMIC_ACQUIRE) ||
+          comm->commHash != commHash) continue;
+      ret = rasDiagnosticsContextInit(&ctx, comm);
+      break;
+    }
+  }
+  if (ret != ncclSuccess) {
+    WARN("RAS diagnostics could not find communicator 0x%lx for sequence %lu",
+         (unsigned long)commHash, (unsigned long)seq);
+    return;
+  }
+
   int64_t now = clockNano();
   if (dedupShouldSkip(commHash, seq, now)) {
     INFO(NCCL_RAS, "RAS diag: dedup skip (commHash 0x%lx, seq %lu)",
@@ -388,97 +412,50 @@ void rasDiagTriggerFromMonitor(uint64_t commHash, uint64_t seq) {
     return;
   }
 
-  struct rasCollRequest req;
-  memset(&req, 0, sizeof(req));
-  rasCollReqInit(&req);
-  req.type = RAS_COLL_COMMS;
-  req.timeout = RAS_COLLECTIVE_LEG_TIMEOUT;
-  req.comms.flags = RAS_COMMS_FLAG_INCLUDE_DIAG | RAS_COMMS_FLAG_TRIGGER_LOCAL_DUMP;
-  req.comms.diagOnlyCommHash = commHash;
-  req.comms.diagSeq = seq;
-  req.comms.nSkipMissingRanksComms = 0;
-
-  ncclResult_t r = rasNetSendCollReq(&req, /*pAllDone*/nullptr, /*pColl*/nullptr,
-                                     /*fromConn*/nullptr,
-                                     /*onComplete*/rasDiagOnComplete);
-  if (r != ncclSuccess) {
-    WARN("RAS diag: rasNetSendCollReq returned %d", r);
+  ctx.triggerLocalDump = true;
+  ctx.diagSeq = seq;
+  ctx.persistReport = true;
+  ctx.summaryOnly = true;
+  ret = rasLocalHandleRunDiag(&ctx);
+  if (ret != ncclSuccess) {
+    g_dedupExpiry.erase(dedupKey(commHash, seq));
+    WARN("RAS diagnostics trigger returned %d for comm 0x%lx", ret, (unsigned long)commHash);
     return;
   }
-  INFO(NCCL_RAS, "RAS diag: triggered COMMS+DIAG+TRIGGER_LOCAL_DUMP (commHash 0x%lx, seq %lu)",
+  INFO(NCCL_RAS, "RAS diagnostics triggered (commHash 0x%lx, seq %lu)",
        (unsigned long)commHash, (unsigned long)seq);
 }
 
-ncclResult_t rasDiagWriteFullReport(const struct rasCollComms* blob,
-                                         int nBlobBytes, int nLegTimeouts,
-                                         char* pathOut, size_t pathLen) {
+ncclResult_t rasDiagWriteRuntimeReport(const struct rasDiagnosticsRuntimeRecord* records,
+                                     int nRecords, int nLegTimeouts, char* pathOut, size_t pathLen) {
   if (pathOut != nullptr && pathLen > 0) pathOut[0] = '\0';
-  if (blob == nullptr || blob->nComms == 0) {
-    WARN("RAS diag: no comm data; nothing to report");
+  if (records == nullptr || nRecords <= 0) {
+    WARN("RAS diag: no runtime records; nothing to report");
     return ncclInvalidArgument;
   }
 
-  try {
-    int dirOffset = 0;
-    char dir[PATH_MAX + 1];
-    if (createOrFillDumpDir(dir, PATH_MAX, "analyze", &dirOffset) != ncclSuccess) {
-      WARN("RAS diag: createOrFillDumpDir failed");
-      return ncclSystemError;
-    }
-    dir[dirOffset] = '\0';
-
-    if (nBlobBytes > 0 && analyzerDumpData(dir, blob, nBlobBytes, nLegTimeouts) != 0)
-      WARN("RAS diag: analyzerDumpData failed");
-
-    int nWritten = analyzerDumpReport(dir, blob, nLegTimeouts);
-    if (nWritten <= 0) {
-      WARN("RAS diag: failed to write any per-category report");
-      return ncclSystemError;
-    }
-
-    if (pathOut != nullptr && pathLen > 0) {
-      strncpy(pathOut, dir, pathLen - 1);
-      pathOut[pathLen - 1] = '\0';
-    }
-    WARN("RAS diag: %d per-category report(s) + diag blob written under %s",
-         nWritten, dir);
-    return ncclSuccess;
-  } catch (...) {
-    WARN("RAS diag: internal error (exception caught in WriteFullReport)");
-    return ncclInternalError;
+  int dirOffset = 0;
+  char dir[PATH_MAX + 1];
+  if (createOrFillDumpDir(dir, PATH_MAX, "analyze", &dirOffset) != ncclSuccess) {
+    WARN("RAS diag: createOrFillDumpDir failed");
+    return ncclSystemError;
   }
-}
+  dir[dirOffset] = '\0';
 
-static void warnSummaryLines(const struct rasCollComms* blob) {
-  if (blob == nullptr) return;
-  char* buf = nullptr;
-  size_t bufLen = 0;
-  FILE* mem = open_memstream(&buf, &bufLen);
-  if (mem == nullptr) return;
-  analyzerFormatSummary(mem, blob);
-  fclose(mem);
-  if (buf == nullptr || buf[0] == '\0') { free(buf); return; }
-
-  size_t len = strlen(buf);
-  char* p = buf;
-  while (p < buf + len) {
-    char* nl = (char*)memchr(p, '\n', (buf + len) - p);
-    size_t n = nl ? (size_t)(nl - p) : (size_t)(buf + len - p);
-    if (n > 0) WARN("RAS diag: %.*s", (int)n, p);
-    if (!nl) break;
-    p = nl + 1;
+  bool rawDataSaved = analyzerDumpRuntimeData(dir, records, nRecords, nLegTimeouts) == 0;
+  if (!rawDataSaved)
+    WARN("RAS diag: analyzerDumpRuntimeData failed");
+  int nWritten = analyzerDumpRuntimeReport(dir, records, nRecords, nLegTimeouts);
+  if (nWritten <= 0) {
+    WARN("RAS diag: failed to write any per-category report");
+    return ncclSystemError;
   }
-  free(buf);
-}
 
-void rasDiagOnComplete(struct rasCollective* coll) {
-  if (coll == nullptr) return;
-  try {
-    struct rasCollComms* blob = (struct rasCollComms*)coll->data;
-    warnSummaryLines(blob);
-    (void)rasDiagWriteFullReport(blob, coll->nData, coll->nLegTimeouts, /*pathOut*/nullptr, /*pathLen*/0);
-  } catch (...) {
-    WARN("RAS diag: internal error (exception caught in onComplete)");
+  if (pathOut != nullptr && pathLen > 0) {
+    strncpy(pathOut, dir, pathLen - 1);
+    pathOut[pathLen - 1] = '\0';
   }
-  rasCollFree(coll);
+  WARN_IMPL(false, "RAS diag: %d per-category report(s) written under %s (runtime records %s)",
+            nWritten, dir, rawDataSaved ? "saved" : "not saved");
+  return ncclSuccess;
 }

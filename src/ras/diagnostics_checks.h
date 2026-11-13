@@ -15,5 +15,10 @@ ncclResult_t rasDiagnosticsNcclEnvCollectLocal(const struct rasDiagnosticsContex
                                             struct rasDiagnosticsLocalData* data);
 ncclResult_t rasDiagnosticsNcclEnvSummarize(const struct rasDiagnosticsContext* ctx,
                                          const struct rasDiagnosticsReporter* reporter, const char* data, int nData);
+ncclResult_t rasDiagnosticsRuntimeStateCollectLocal(const struct rasDiagnosticsContext* ctx,
+                                                   struct rasDiagnosticsLocalData* data);
+ncclResult_t rasDiagnosticsRuntimeStateSummarize(const struct rasDiagnosticsContext* ctx,
+                                                const struct rasDiagnosticsReporter* reporter,
+                                                const char* data, int nData);
 
 #endif // NCCL_RAS_DIAGNOSTICS_CHECKS_H_
