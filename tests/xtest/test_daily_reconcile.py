@@ -220,6 +220,43 @@ class ReconcileResultsTests(unittest.TestCase):
         self.assertEqual(report["errors"], [
             "plan/suite/exit_case: TIMEOUT: Case timed out after 10 seconds"])
 
+    def test_non_object_result_json_is_reported_without_losing_the_report(self):
+        case = self.cases[0]
+        path = self.results / case["plan"] / case["suite"] / case["name"] / "result.json"
+        path.write_text("null\n")
+
+        report = self.reconcile()
+
+        self.assertFalse(report["ok"])
+        self.assertTrue(any("Expected a JSON object" in error for error in report["errors"]))
+        self.assertTrue((self.output / "reconciliation.json").is_file())
+
+    def test_non_object_summary_json_is_reported_without_losing_the_report(self):
+        (self.results / "summary.json").write_text("[]\n")
+
+        report = self.reconcile()
+
+        self.assertFalse(report["ok"])
+        self.assertTrue(any("Expected a JSON object" in error for error in report["errors"]))
+        self.assertTrue((self.output / "reconciliation.json").is_file())
+
+    def test_not_run_preserves_the_stop_reason_without_requiring_case_files(self):
+        case = self.cases[0]
+        path = self.results / case["plan"] / case["suite"] / case["name"] / "result.json"
+        row = json.loads(path.read_text())
+        row.update(status="NOT_RUN", return_code=None, error="Skipped after a remote worker failure")
+        path.unlink()
+        self.rows[0] = row
+        self.write(self.results / "results.csv", run_cases.RESULT_FIELDS, self.rows)
+        (self.results / "summary.json").write_text(json.dumps({
+            "total": 2, "counts": {"NOT_RUN": 1, "PASSED": 1}}))
+
+        report = self.reconcile()
+
+        self.assertFalse(report["ok"])
+        self.assertEqual(report["errors"], [
+            "plan/suite/exit_case: NOT_RUN: Skipped after a remote worker failure"])
+
 
 if __name__ == "__main__":
     unittest.main()

@@ -590,15 +590,12 @@ jobs:
             GROUPS_DIR=/mnt/wl_nas/devops/pccl-artifact-cache-${{ github.run_id }}/cache/case-groups/${{ env.EXPECTED_GROUPS_SHA }}
             SHARED_ROOT=/mnt/wl_nas/devops/pccl-artifact-cache-${{ github.run_id }}/shared-standard/${{ env.EXPECTED_SHA }}/$GROUP_ID
             CASE_INPUT="$SHARED_ROOT/case-input"
-            SHARED_PARENT=$(dirname "$SHARED_ROOT")
-            SHARED_BASE=$(dirname "$SHARED_PARENT")
             export build_output="$SHARED_ROOT/output_standard"
             RESULT_ROOT=/mnt/wl_nas/devops/pccl-artifact-cache-${{ github.run_id }}/results/full/$GROUP_ID
             rm -rf "$RESULT_ROOT" "$SHARED_ROOT"
             mkdir -p "$(dirname "$RESULT_ROOT")" "$SHARED_ROOT"
             cleanup_shared() {
               rm -rf "$SHARED_ROOT"
-              rmdir "$SHARED_PARENT" "$SHARED_BASE" 2>/dev/null || true
             }
             trap cleanup_shared EXIT
             unset PIP_INDEX_URL PIP_EXTRA_INDEX_URL 2>/dev/null || true

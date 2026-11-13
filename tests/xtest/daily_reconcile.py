@@ -20,10 +20,14 @@ METRIC_FIELDS = run_cases.METRIC_FIELDS
 
 def _read_json(path, errors):
     try:
-        return json.loads(path.read_text(encoding="utf-8"))
+        value = json.loads(path.read_text(encoding="utf-8"))
     except (OSError, json.JSONDecodeError) as error:
         errors.append(f"{path}: {error}")
         return {}
+    if not isinstance(value, dict):
+        errors.append(f"{path}: Expected a JSON object")
+        return {}
+    return value
 
 
 def _positive(value):
@@ -130,11 +134,14 @@ def reconcile(input_directory, profile, nodes, suite, results_directory, output_
             continue
         case = expected[key]
         directory = results.joinpath(*key)
+        if row["check"] != case["check"]:
+            errors.append(f"Result check mismatch for {'/'.join(key)}")
+        if row["status"] == "NOT_RUN":
+            errors.append(f"{'/'.join(key)}: NOT_RUN: {row['error']}")
+            continue
         record = _read_json(directory / "result.json", errors)
         if not _compare_record(record, row, key, errors):
             continue
-        if row["check"] != case["check"]:
-            errors.append(f"Result check mismatch for {'/'.join(key)}")
         if row["status"] != "PASSED":
             errors.append(f"{'/'.join(key)}: {row['status']}: {row['error']}")
             continue
