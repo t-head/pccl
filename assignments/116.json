@@ -1,15 +1,15 @@
 {
   "classification": {
     "base_sha": "4f4a89f2e99f6c2778d3ffc8070a0f16f434df69",
-    "head_sha": "df9abeb11a64faed3203aef9c17be52c52ec5e5a",
-    "input_fingerprint": "67657a5495393a964f8e62e09dd55138e1013507b8c3c45c8ebb44f50b12bebb",
+    "head_sha": "5bfc54edc44d531f38fab343cb924a39fa9dde1a",
+    "input_fingerprint": "b44a5513a8b833d35f4583f0f2332e3ccd2569b7a641a733c7d70add20bdf648",
     "pr_number": 116,
     "proposal": {
       "modules": [
         "transport",
         "memory"
       ],
-      "reason": "Primary change is in transport connection setup and P2P wiring: transport selection/progress reporting, host-device stream synchronization during connect, and P2P setup/teardown behavior in src/transport.cc and src/transport/p2p.cc. Additional memory review is needed because the PR introduces new shared-memory handle/descriptor lifecycle (allocate/import/close, refcount/unlink, mmap/register ownership) across src/include/shm.h, src/misc/shmutils.cc, and src/transport/shm.cc."
+      "reason": "Main functional change is transport-level P2P/SHM connection setup: transport selection/progress reporting, stream synchronization during connect, and P2P SHM descriptor-based setup/teardown. Additional memory review is needed because the PR adds new shared-memory handle/IPC descriptor lifecycle APIs (open/import/close, refcount/unlink, host registration/mapping ownership) that materially change buffer resource management semantics."
     }
   },
   "reviewers": {
