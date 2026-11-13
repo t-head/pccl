@@ -4,6 +4,9 @@ on:
   push:
     branches: [ci/m890p-daily-csv]
     paths: [.github/workflows/m890p-daily-full.yml]
+  schedule:
+    # GitHub cron is UTC: 14:00 UTC is 22:00 Asia/Shanghai (UTC+8).
+    - cron: '0 14 * * *'
   workflow_dispatch:
     inputs:
       dataset:
@@ -69,7 +72,7 @@ jobs:
         name: Test contracts and validate the exact selection
         working-directory: pccl
         env:
-          DATASET: ${{ inputs.dataset || 'smoke' }}
+          DATASET: ${{ inputs.dataset || (github.event_name == 'schedule' && 'full' || 'smoke') }}
           MAX_CASES: ${{ inputs.max_cases_per_group || 500 }}
           NODES: ${{ inputs.nodes || '' }}
           SUITE: ${{ inputs.suite || '' }}

@@ -210,10 +210,19 @@ class DailySmokeTests(unittest.TestCase):
         self.assertNotIn('pull-requests: write', text)
         self.assertNotIn('statuses: write', text)
         self.assertNotIn('PCCL Tests Gate', text)
-        self.assertNotIn('schedule:', text)
         self.assertNotIn('build-notsm', text)
         self.assertNotIn('default: device_api_shm_single_node_single_process_suite', text)
         self.assertNotIn('--profile standard --nodes "$NODES" --suite "$SUITE"', text)
+
+    def test_schedule_runs_full_daily_at_2200_beijing_time(self):
+        text = FULL_WORKFLOW.read_text()
+        self.assertIn("schedule:\n    # GitHub cron is UTC: 14:00 UTC is 22:00 Asia/Shanghai (UTC+8).\n"
+                        "    - cron: '0 14 * * *'", text)
+        self.assertIn(
+            "DATASET: ${{ inputs.dataset || (github.event_name == 'schedule' && 'full' || 'smoke') }}",
+            text)
+        self.assertIn('default: smoke', text)
+        self.assertIn('default: 500', text)
 
     def test_all_daily_downloads_use_the_bounded_retry_action(self):
         action = RETRY_ACTION.read_text()
