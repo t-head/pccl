@@ -2,17 +2,17 @@
   "classification": {
     "base_sha": "a909809e63dbf891101c88d45c0b78bfe628fab6",
     "head_sha": "04cab9e8b946a6f222cc4b0587c1340b03f4da0e",
-    "input_fingerprint": "4d8fa5085b164462d1f222690cc6539f68fb3ebd9a8d71100d2d87e5249cd083",
+    "input_fingerprint": "8d10a28cf1c0219213d1e9ecbc9423da9c1f538c075e9d134a45cc1bd15f6220",
     "pr_number": 174,
     "proposal": {
       "modules": [
         "graph-search",
         "tuning",
-        "enqueue",
         "network",
-        "kernels"
+        "kernels",
+        "tuner-plugin"
       ],
-      "reason": "Main change removes CollNet execution from network transport/plugin/proxy paths (including CollNet backend loading, connect/proxy resources, and transport hooks). Additional substantive changes remove CollNet device-kernel implementations and reserved function-table behavior handling (kernels), delete CollNet topology graph construction/search/connection logic (graph-search), hard-disable the CollNet algorithm slot while preserving IDs and updating model-based/tuner fallback selection rules (tuning), and update runtime algo/protocol validation, chunking/pattern selection, and channel scheduling in collective planning (enqueue)."
+      "reason": "Main change is end-to-end CollNet removal from transport/plugin/proxy connection and loading paths. Additional substantive work removes CollNet device-kernel implementations while keeping a reserved algorithm slot, removes CollNet topology graph construction/search/connection, updates built-in algorithm/protocol tuning to keep slot 2 disabled, and hardens external tuner v1 integration by rejecting CollNet/out-of-range selections and falling back to internal tuning."
     }
   },
   "reviewers": {
