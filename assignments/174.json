@@ -1,8 +1,8 @@
 {
   "classification": {
     "base_sha": "4f4a89f2e99f6c2778d3ffc8070a0f16f434df69",
-    "head_sha": "c2826efa392d0edc82d3783901afc2f4ab8820eb",
-    "input_fingerprint": "cb22e4524d8cef4ad8e468f5177d72f9f715ca3011061a734a3b952b864f5cca",
+    "head_sha": "fe05eb21ca97a30bd8dcefca9bf291ad35b95a08",
+    "input_fingerprint": "c0d8b7ae54b98dc86b43001d2a98f22ce29feb517c1f89a82dcc52c5e9b01085",
     "pr_number": 174,
     "proposal": {
       "modules": [
@@ -11,10 +11,9 @@
         "transport",
         "tuning",
         "network",
-        "kernels",
-        "tuner-plugin"
+        "kernels"
       ],
-      "reason": "Primary change removes CollNet execution from network backend/plugin/proxy paths (including CollNet transport implementation and loading). Additional substantive changes remove CollNet logical graph construction/connection and related topology metadata, disable CollNet in built-in algorithm/protocol tuning and enqueue fallback behavior, delete CollNet device-kernel instantiations while preserving reserved algorithm slot IDs, adjust generic transport/channel connection structures that previously carried CollNet-specific peers/patterns, and harden external tuner v1 handling by treating CollNet/out-of-range selections as unsupported and falling back to internal tuning."
+      "reason": "Main functional change is removing CollNet execution from network plugin/proxy/backend paths while keeping compatibility-facing interfaces (network). Additional substantive changes remove CollNet transport selection/connect/free flows (transport), delete CollNet logical topology graph preset/search/connect behavior (graph-search), remove CollNet-specific NIC/topology capability parsing and discovery precedence in topology ingestion (device-topology), disable CollNet in built-in algorithm/protocol selection and tuner fallback logic while preserving reserved IDs (tuning), and remove CollNet device-kernel implementations while keeping reserved table slots/null entries (kernels)."
     }
   },
   "reviewers": {
