@@ -107,7 +107,7 @@ typedef struct pcclConfig_v22700 {
   int splitShare;
   int trafficClass;
   const char *commName;
-  int collnetEnable;
+  int collnetEnable; /* Deprecated and ignored; retained for source and ABI compatibility. */
   int CTAPolicy;
   int shrinkShare;
   int nvlsCTAs;

@@ -14,7 +14,6 @@
 #include "transport.h"
 #include "group.h"
 #include "net.h"
-#include "coll_net.h"
 #include "enqueue.h"
 #include "ce_coll.h"
 #include "p2p_dma.h"
@@ -343,7 +342,6 @@ ncclResult_t buildConnectionForExtKernelPlugin(ncclComm_t comm) {
   goto exit;
 }
 
-NCCL_PARAM(CollNetEnable, "COLLNET_ENABLE", 0);
 PCCL_PARAM(MNNVLFakeAdvancedFeature, "MNNVL_FAKE_ADVANCED_FEATURE", 0);
 PCCL_PARAM(NoMemset, "NO_MEMSET", 1);
 PCCL_PARAM(SingleHostCrossNodeTest, "SINGLE_HOST_CROSS_NODE_TEST", 0);
@@ -690,8 +688,6 @@ static ncclResult_t commAlloc(ncclComm_t comm, ncclComm_t parentComm, int ndev, 
 
   comm->maxConnType = CONN_NORMAL;
 
-  comm->collNetSupport = 0;
-
   comm->localPersistentRefs = 0;
 
   static_assert(MAXCHANNELS <= sizeof(*comm->connectSend)*8, "comm->connectSend must have enough bits for all channels");
@@ -736,7 +732,6 @@ static ncclResult_t commAlloc(ncclComm_t comm, ncclComm_t parentComm, int ndev, 
   /**
    * ring and tree are enabled by default
    * fc is enabled by default only in certain cases, other cases could be enabled by env
-   * collnet is disabled by default
    * **/
   int algoDefaultEnable[NCCL_NUM_ALGORITHMS] = {ncclTuningEnable, ncclTuningEnable, ncclTuningDisable, ncclTuningCustomEnable, ncclTuningEnable};
   for (int f=0; f<NCCL_NUM_FUNCTIONS; f++) {
@@ -826,7 +821,6 @@ static ncclResult_t devCommSetup(ncclComm_t comm) {
     comm->hostDevComm.channels[c].peers = comm->channels[c].devPeers;
     comm->hostDevComm.channels[c].ring = comm->channels[c].ring;
     comm->hostDevComm.channels[c].tree = comm->channels[c].tree;
-    comm->hostDevComm.channels[c].collTree = comm->channels[c].collTree;
     comm->hostDevComm.channels[c].fc = comm->channels[c].fc;
 
     if (comm->channels[c].ring.userRanks != nullptr) {
@@ -1070,8 +1064,6 @@ static ncclResult_t ncclAlignRingAndTreeChannels(ncclComm_t comm, struct ncclTop
   return ncclSuccess;
 }
 
-extern struct ncclTransport collNetTransport;
-
 NCCL_PARAM(GraphDumpFileRank, "GRAPH_DUMP_FILE_RANK", 0);
 PCCL_PARAM(GraphTreePattern, "GRAPH_TREE_PATTERN", 0);
 
@@ -1228,7 +1220,7 @@ static ncclResult_t initTransportsRank(ncclComm_t comm, ncclComm_t parent, uint6
     int nGraphChannels;
     int p2pnChannelsPerPeer;
     int ceAutoAllGatherEligible;
-    struct graphInfo graphInfo[NCCL_ALGO_COLLNET + 1];
+    struct graphInfo graphInfo[NCCL_ALGO_RING + 1];
     struct ncclTopoRanks topoRanks;
   } ;
 
@@ -1237,9 +1229,8 @@ static ncclResult_t initTransportsRank(ncclComm_t comm, ncclComm_t parent, uint6
 
   struct ncclTopoGraph *ringGraph = &comm->graphs[NCCL_ALGO_RING];
   struct ncclTopoGraph *treeGraph = &comm->graphs[NCCL_ALGO_TREE];
-  struct ncclTopoGraph *collNetGraph = &comm->graphs[NCCL_ALGO_COLLNET];
   struct ncclTopoGraph *fcGraph = &comm->graphs[NCCL_ALGO_FC];
-  struct ncclTopoGraph *graphs[NCCL_ALGO_COLLNET + 1] = { treeGraph, ringGraph, collNetGraph };
+  struct ncclTopoGraph *graphs[NCCL_ALGO_RING + 1] = { treeGraph, ringGraph };
 
   ncclComm_t intraRank0Comm = NULL;
   struct allGatherInfo *allGather3Data = NULL;
@@ -1268,6 +1259,8 @@ static ncclResult_t initTransportsRank(ncclComm_t comm, ncclComm_t parent, uint6
   for (int a=0; a<NCCL_NUM_ALGORITHMS; a++) {
     bool algoEnableFlag = false;
     for (int f=0; f<NCCL_NUM_FUNCTIONS; f++) {
+      // Keep the retired slot disabled even when an environment selection includes it.
+      if (a == NCCL_ALGO_COLLNET) comm->algoEnable[f*NCCL_NUM_ALGORITHMS+a] = ncclTuningDisable;
       if (comm->algoEnable[f*NCCL_NUM_ALGORITHMS+a] >= 1) {
         if (a == NCCL_ALGO_TREE) algoTreeEnable = true;
         if (a == NCCL_ALGO_RING) algoRingEnable = true;
@@ -1280,7 +1273,7 @@ static ncclResult_t initTransportsRank(ncclComm_t comm, ncclComm_t parent, uint6
 
   timers[TIMER_INIT_ALLGATHER] = clockNano();
   // AllGather1 - begin
-  NCCLCHECKGOTO(ncclCalloc(&comm->peerInfo, nranks+1), res, fail); // Extra rank to represent CollNet root
+  NCCLCHECKGOTO(ncclCalloc(&comm->peerInfo, nranks), res, fail);
   NCCLCHECKGOTO(fillInfo(comm, comm->peerInfo+rank, comm->commHash), res, fail);
   NCCLCHECKGOTO(bootstrapAllGather(comm->bootstrap, comm->peerInfo, sizeof(struct ncclPeerInfo)), res, fail);
   __atomic_store_n(&comm->peerInfoValid, true, __ATOMIC_RELEASE);
@@ -1382,7 +1375,6 @@ static ncclResult_t initTransportsRank(ncclComm_t comm, ncclComm_t parent, uint6
   // Get rings and trees
   ringGraph->id = 0;
   ringGraph->pattern = NCCL_TOPO_PATTERN_RING;
-  ringGraph->collNet = 0;
   ringGraph->minChannels = 1;
   ringGraph->maxChannels = MAXCHANNELS/2;
   NCCLCHECKGOTO(ncclTopoCompute(comm->topo, ringGraph), res, fail);
@@ -1391,7 +1383,6 @@ static ncclResult_t initTransportsRank(ncclComm_t comm, ncclComm_t parent, uint6
 
   treeGraph->id = 1;
   treeGraph->pattern = ncclTopoGraphTreePattern(comm);
-  treeGraph->collNet = 0;
   // treeGraph->minChannels = 1;
   // treeGraph->maxChannels = (algoEnableNum == 1 && comm->algoEnable[NCCL_ALGO_TREE] == 1) ? MAXCHANNELS/2 : ringGraph->nChannels ;
   // from nccl 2.18.1-1
@@ -1400,16 +1391,8 @@ static ncclResult_t initTransportsRank(ncclComm_t comm, ncclComm_t parent, uint6
   NCCLCHECKGOTO(ncclTopoCompute(comm->topo, treeGraph), res, fail);
   NCCLCHECKGOTO(ncclTopoPrintGraph(comm->topo, treeGraph), res, fail);
 
-  collNetGraph->id = 2;
-  collNetGraph->pattern = NCCL_TOPO_PATTERN_TREE;
-  collNetGraph->collNet = 1;
-  collNetGraph->minChannels = collNetGraph->maxChannels = ringGraph->nChannels;
-  NCCLCHECKGOTO(ncclTopoCompute(comm->topo, collNetGraph), res, fail);
-  NCCLCHECKGOTO(ncclTopoPrintGraph(comm->topo, collNetGraph), res, fail);
-
   fcGraph->id = 3;
   fcGraph->pattern = NCCL_TOPO_PATTERN_FC;
-  fcGraph->collNet = 0;
   fcGraph->minChannels = 1;
   fcGraph->maxChannels = MAXCHANNELS/2;
   NCCLCHECKGOTO(ncclTopoCompute(comm->topo, fcGraph), res, fail);
@@ -1418,8 +1401,8 @@ static ncclResult_t initTransportsRank(ncclComm_t comm, ncclComm_t parent, uint6
   timers[TIMER_INIT_GRAPHS] = clockNano() - timers[TIMER_INIT_GRAPHS];
 
   if (comm->rank == ncclParamGraphDumpFileRank()) {
-    struct ncclTopoGraph* graphs[3] = { ringGraph, treeGraph, collNetGraph };
-    NCCLCHECKGOTO(ncclTopoDumpGraphs(comm->topo, 3, graphs), res, fail);
+    struct ncclTopoGraph* graphs[2] = { ringGraph, treeGraph };
+    NCCLCHECKGOTO(ncclTopoDumpGraphs(comm->topo, 2, graphs), res, fail);
   }
 
   // Compute nChannels per peer for p2p
@@ -1436,7 +1419,7 @@ static ncclResult_t initTransportsRank(ncclComm_t comm, ncclComm_t parent, uint6
   if (fcGraph->nChannels>0) {
     comm->fcnChannels = fcGraph->nChannels;
   }
-  for (int a = 0; a <= NCCL_ALGO_COLLNET; a++) {
+  for (int a = 0; a <= NCCL_ALGO_RING; a++) {
     allGather3Data[rank].graphInfo[a].pattern = graphs[a]->pattern;
     allGather3Data[rank].graphInfo[a].sameChannels = graphs[a]->sameChannels;
     allGather3Data[rank].graphInfo[a].speedIntra = graphs[a]->speedIntra;
@@ -1446,7 +1429,7 @@ static ncclResult_t initTransportsRank(ncclComm_t comm, ncclComm_t parent, uint6
   }
   allGather3Data[rank].p2pnChannelsPerPeer = comm->p2pnChannelsPerPeer;
 
-  NCCLCHECKGOTO(ncclTopoPreset(comm, treeGraph, ringGraph, collNetGraph, fcGraph, &allGather3Data[rank].topoRanks), res, fail);
+  NCCLCHECKGOTO(ncclTopoPreset(comm, treeGraph, ringGraph, fcGraph, &allGather3Data[rank].topoRanks), res, fail);
 
   allGather3Data[rank].nChannels = comm->nChannels;
   allGather3Data[rank].nGraphChannels = comm->nGraphChannels;
@@ -1534,7 +1517,7 @@ static ncclResult_t initTransportsRank(ncclComm_t comm, ncclComm_t parent, uint6
     // Make sure we align all ranks so that the tuning is consistent across ranks
     treeGraph->nChannels = ringGraph->nChannels = comm->nChannels = std::min(allGather3Data[i].nChannels, comm->nChannels);
     treeGraph->nGraphChannels = ringGraph->nGraphChannels = comm->nGraphChannels = std::min(allGather3Data[i].nGraphChannels, comm->nGraphChannels);
-    for (int a = 0; a <= NCCL_ALGO_COLLNET; a++) {
+    for (int a = 0; a <= NCCL_ALGO_RING; a++) {
       graphs[a]->sameChannels = std::min(allGather3Data[i].graphInfo[a].sameChannels, graphs[a]->sameChannels);
       graphs[a]->speedIntra = std::min(allGather3Data[i].graphInfo[a].speedIntra, graphs[a]->speedIntra);
       graphs[a]->speedInter = std::min(allGather3Data[i].graphInfo[a].speedInter, graphs[a]->speedInter);
@@ -1565,12 +1548,6 @@ static ncclResult_t initTransportsRank(ncclComm_t comm, ncclComm_t parent, uint6
   // ncclSetDispatchStrategy and symmetric_sched.cc::plan->symFuncIndex).
   NCCLCHECKGOTO(ncclCalloc(&comm->funcStrategy, TOTAL_FUNCS_NUM + (int)ncclSymkKernelId_Count), res, fail);
   NCCLCHECKGOTO(initDefaultDispatchStrategy(comm, ppuDiesNum), res, fail);
-
-  if (comm->nNodes > 1 &&
-      ncclParamCollNetEnable() == 1 &&
-      collNetSupport() && collNetGraph->nChannels) {
-    NCCLCHECKGOTO(ncclTopoConnectCollNet(comm, collNetGraph, rank), res, fail);
-  }
 
   // AllGather3 - end
   timers[TIMER_INIT_ALLGATHER] += clockNano() - timers[TIMER_INIT_CONNECT];
@@ -1693,13 +1670,6 @@ static ncclResult_t initTransportsRank(ncclComm_t comm, ncclComm_t parent, uint6
     // Connect PAT only for communicators with 1 GPU per node
     if (comm->maxLocalRanks == 1) NCCLCHECKGOTO(ncclTransportPatConnect(comm), res, fail);
 
-    // Check if we can setup CollNet
-    if (comm->nNodes > 1 &&
-        ncclParamCollNetEnable() == 1 &&
-        collNetSupport() && collNetGraph->nChannels) {
-      NCCLCHECKGOTO(ncclTransportCollnetConnect(comm), res, fail);
-    }
-
     // Connect fc graphs
     if (fcGraph->nChannels > 0) {
       NCCLCHECKGOTO(ncclTransportFcConnect(comm), res, fail);
@@ -1716,7 +1686,7 @@ static ncclResult_t initTransportsRank(ncclComm_t comm, ncclComm_t parent, uint6
 
   // Compute time models for algorithm and protocol combinations
   NCCLCHECKGOTO(ncclTopoTuneModel(comm, minCompCap, maxCompCap, treeGraph, ringGraph,
-        collNetGraph, fcGraph), res, fail);
+        fcGraph), res, fail);
 
   comm->planner.peers = ncclMemoryStackAlloc<ncclKernelPlanner::Peer>(&comm->memPermanent, comm->nRanks);
 

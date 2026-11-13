@@ -504,7 +504,6 @@ __device__ void NCCL_FUNC_NAME(func, algo, proto, devredop, type)(void* args) { 
 #define IMPL_COLL3(func, devredop, type, ncclType) \
   IMPL_COLL4(func, TREE,    devredop, type, ncclType) \
   IMPL_COLL4(func, RING,    devredop, type, ncclType) \
-  IMPL_COLL4(func, COLLNET, devredop, type, ncclType) \
   IMPL_COLL4(func, FC,      devredop, type, ncclType) \
   IMPL_COLL4(func, PAT,     devredop, type, ncclType)
 

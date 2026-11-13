@@ -176,14 +176,6 @@ struct ncclProxySharedP2p {
   struct ncclProxyArgs* proxyAppend[MAXCHANNELS]; // Separate send and recv
 };
 
-struct ncclProxySharedCollNet {
-  int size;
-  char* hggcBuff;
-  char* hostBuff;
-  struct ncclProxyArgs* proxyAppend[2*NCCL_MAX_NETDEVS];
-  void* resources;
-};
-
 struct ncclProxyPeer {
   struct ncclProxySharedP2p send;
   struct ncclProxySharedP2p recv;
@@ -209,7 +201,6 @@ struct ncclProxyProgressState {
   bool stop;
   struct ncclProxyPeer** localPeers;
   struct ncclSharedNetComms* netComms[NCCL_MAX_NETDEVS];
-  struct ncclProxySharedCollNet collNet;
   struct ncclProxyArgs* active;
   struct ncclProxyArgs* pool;
   struct ncclProxyPool* pools;

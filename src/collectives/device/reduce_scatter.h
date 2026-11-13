@@ -358,9 +358,3 @@ class RunWorkColl<ncclFuncReduceScatter, NCCL_ALGO_TREE, PROTO, REDOP, T, UNROLL
   public:
     __device__ void run(struct ncclDevWorkColl* work) {}
 };
-
-template<int PROTO, class REDOP, typename T, int UNROLL>
-class RunWorkColl<ncclFuncReduceScatter, NCCL_ALGO_COLLNET, PROTO, REDOP, T, UNROLL> {
-  public:
-    __device__ void run(struct ncclDevWorkColl* work) {}
-};

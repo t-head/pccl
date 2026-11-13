@@ -16,7 +16,6 @@ struct ncclTransport* ncclTransports[NTRANSPORTS + 1] = {
   &p2pTransport,
   &shmTransport,
   &netTransport,
-  &collNetTransport,
   &profilerTransport
 };
 
@@ -377,8 +376,7 @@ ncclResult_t GetConnType(ncclComm_t comm, struct ncclTopoGraph* graph, int chann
           *connType = CONN_NET_EXT;
         }
       } else {
-        // TRANSPORT_COLLNET not supported yet.
-        ERROR("TRANSPORT_COLLNET is not supported");
+        ERROR("Unknown transport %d", t);
         *connType = CONN_NORMAL;
         return ncclInternalError;
       }

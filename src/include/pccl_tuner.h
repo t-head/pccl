@@ -14,7 +14,9 @@
 #include "pccl_common.h"
 #include "check_items.h"
 
-// API to be implemented by external tuner
+// API to be implemented by external tuner. v1 keeps its original algorithm IDs:
+// Tree=0, Ring=1, CollNet=2 (reserved and unsupported), FC=3, PAT=4.
+// Internal tables use the same IDs, with an empty slot for CollNet.
 typedef struct {
   // Name of the tuner
   const char* name;
@@ -29,7 +31,7 @@ typedef struct {
   // Inputs:
   //   - collType: collective type , e.g., allreduce, allgather…
   //   - nBytes: collective size in bytes
-  //   - collNetTypeSupport: whether collnet supports this type
+  //   - collNetTypeSupport: retained for v1 compatibility; always zero
   //   - nvlsTypeSupport: whether nvlink sharp supports this time
   //   - numPipeOps: number of operations in the group
   //

@@ -8,7 +8,6 @@
 
 #include "enqueue.h"
 #include "argcheck.h"
-#include "coll_net.h"
 #include "gdrwrap.h"
 #include "channel.h"
 #include "pccl_internal.h"
@@ -34,7 +33,7 @@
 #define NCCL_FUNC4(func, devredop, type) \
   (void*)NCCL_FUNC5(func, TREE,    devredop, type), \
   (void*)NCCL_FUNC5(func, RING,    devredop, type), \
-  (void*)NCCL_FUNC5(func, COLLNET, devredop, type), \
+  nullptr, nullptr, nullptr, nullptr, nullptr, nullptr, nullptr, /* Reserved CollNet slot */ \
   (void*)NCCL_FUNC5(func, FC,      devredop, type), \
   (void*)NCCL_FUNC5(func, PAT,     devredop, type)
 
@@ -688,12 +687,8 @@ static ncclResult_t defaultGetAlgoInfo(ncclComm_t comm, ncclTaskColl* info) {
   // Find algorithm / protocol.
   info->algorithm = NCCL_ALGO_UNDEF;
   info->protocol = NCCL_PROTO_UNDEF;
-  // Check collNet support
-  int collNetTypeSupport = 0;
-  if (comm->collNetSupport)
-    NCCLCHECK(collNetReduceSupport(info->datatype, info->opHost, &collNetTypeSupport));
   for (int a=0; a<NCCL_NUM_ALGORITHMS; a++) {
-    if (a == NCCL_ALGO_COLLNET && collNetTypeSupport != 1) continue;
+    if (a == NCCL_ALGO_COLLNET) continue;
     /* PAT reduceScatter doesn't support scaling yet */
     if (!algoSupportsRedOp(info, a)) continue;
     for (int p=0; p<NCCL_NUM_PROTOCOLS; p++) {
@@ -715,9 +710,7 @@ static ncclResult_t defaultGetAlgoInfo(ncclComm_t comm, ncclTaskColl* info) {
   if (comm->rank == 0) TRACE(NCCL_TUNING, "%ld Bytes -> Algo %d proto %d time %f", info->nBytes, info->algorithm, info->protocol, minTime);
   TRACE(NCCL_COLL, "%ld Bytes -> Algo %d proto %d time %f", info->nBytes, info->algorithm, info->protocol, minTime);
 
-  // CollNet uses one channel for up and one channel for down
   int nc = (info->nChannels > 0) ? info->nChannels :
-           (info->algorithm == NCCL_ALGO_COLLNET) ? comm->nChannels/2 :
            (info->algorithm == NCCL_ALGO_FC) ? comm->fcnChannels : comm->nChannels;
   static int useStaticLaunchGrid = pcclParamUseStaticLaunchGrid();
 
@@ -725,7 +718,7 @@ static ncclResult_t defaultGetAlgoInfo(ncclComm_t comm, ncclTaskColl* info) {
   int threadThreshold = comm->threadThresholds[info->algorithm][info->protocol];
   if (useStaticLaunchGrid != 1 ){
      while (info->nBytes < nc*nt*threadThreshold) {
-       if (info->algorithm != NCCL_ALGO_COLLNET && nc >= 2) nc--;
+       if (nc >= 2) nc--;
        else if ((nt % 128) == 0) nt/=2;
        else break;
      }
@@ -771,6 +764,14 @@ static ncclResult_t getAlgoInfo(ncclComm_t comm, ncclTaskColl* info, ncclSimInfo
           info->func, comm->nRanks, info->nBytes,
           0, 0, 0,
           &info->algorithm, &info->protocol, &nChannels, &info->nThreads));
+
+    if (nChannels > 0 && (info->algorithm < 0 || info->algorithm >= NCCL_NUM_ALGORITHMS ||
+        info->algorithm == NCCL_ALGO_COLLNET ||
+        info->protocol < 0 || info->protocol >= NCCL_NUM_PROTOCOLS)) {
+      WARN("Tuner plugin selected unsupported v1 algorithm %d or protocol %d; using the internal tuner instead",
+          info->algorithm, info->protocol);
+      nChannels = 0;
+    }
 
     if (nChannels > 0 && !algoSupportsRedOp(info, info->algorithm)) {
       WARN("Tuner plugin selected %s for %s, which does not support the requested reduction op; using the internal tuner instead",
@@ -822,8 +823,7 @@ static ncclResult_t calcCollChunking(
     case ncclFuncAllGather:
       pattern = task->algorithm == NCCL_ALGO_PAT ? ncclPatternPatDown : ncclPatternRing; break;
     case ncclFuncAllReduce:
-      pattern = task->algorithm == NCCL_ALGO_COLLNET ? ncclPatternCollTreeUp :
-          task->algorithm == NCCL_ALGO_TREE ? ncclPatternTreeUpDown : ncclPatternRingTwice;
+      pattern = task->algorithm == NCCL_ALGO_TREE ? ncclPatternTreeUpDown : ncclPatternRingTwice;
       break;
     default:
       ERROR("Unknown pattern for collective %d algorithm %d", task->func, task->algorithm);
@@ -836,8 +836,6 @@ static ncclResult_t calcCollChunking(
     case ncclPatternTreeUpDown:
     case ncclPatternPipelineFrom:
     case ncclPatternPipelineTo:
-    case ncclPatternCollTreeUp:
-    case ncclPatternCollTreeDown:
     case ncclPatternPatUp:
     case ncclPatternPatDown:
       nstepsPerLoop = nchunksPerLoop = 1; break;
@@ -873,16 +871,6 @@ static ncclResult_t calcCollChunking(
       while (nBytes / (nChannels*chunkSize) < comm->channels[0].tree.depth*4 && chunkSize > 65536) chunkSize /= 2;
       while (nBytes / (nChannels*chunkSize) < comm->channels[0].tree.depth && chunkSize > 32768) chunkSize /= 2;
     }
-    // Use lastChunkSize as chunkSize
-    lastChunkSize = chunkSize / ncclTypeSize(task->datatype);
-  } else if (task->algorithm == NCCL_ALGO_COLLNET &&
-      (task->protocol == NCCL_PROTO_SIMPLE || task->protocol == NCCL_PROTO_SIGNAL
-       || task->protocol == NCCL_PROTO_SIMPLE_BULK || task->protocol == NCCL_PROTO_SIGNAL_BULK
-       || task->protocol == NCCL_PROTO_SIMPLE_BULK_AR)) {
-    // Optimize chunkSize / nSteps
-    while (nBytes / (nChannels*chunkSize) < comm->channels[0].collTree.depth*16 && chunkSize > 131072) chunkSize /= 2;
-    while (nBytes / (nChannels*chunkSize) < comm->channels[0].collTree.depth*4 && chunkSize > 65536) chunkSize /= 2;
-    while (nBytes / (nChannels*chunkSize) < comm->channels[0].collTree.depth && chunkSize > 32768) chunkSize /= 2;
     // Use lastChunkSize as chunkSize
     lastChunkSize = chunkSize / ncclTypeSize(task->datatype);
   } else if (task->algorithm == NCCL_ALGO_PAT &&
@@ -922,9 +910,7 @@ static ncclResult_t calcCollChunking(
   proxyOp->chunkSize = chunkSize;
   proxyOp->protocol = task->protocol;
   proxyOp->dtype = task->datatype;
-  proxyOp->redOp = task->algorithm != NCCL_ALGO_COLLNET ? ncclNumOps : // Only set redOp when using CollNet
-                     task->opDev.op==ncclDevPreMulSum || task->opDev.op==ncclDevSumPostDiv ? ncclSum : // Network sees avg as sum
-                     task->opHost;
+  proxyOp->redOp = ncclNumOps;
   proxyOp->pattern = pattern;
   proxyOp->root = task->root;
   proxyOp->peer = task->root;
@@ -1657,17 +1643,16 @@ static ncclResult_t scheduleCollTasksToPlan(ncclComm_t comm, struct ncclKernelPl
       devWork->nChannels = info.nChannels;
 
       int nChannels = devWork->nChannels;
-      int nSubChannels = (proxyOp.pattern == ncclPatternCollTreeUp || proxyOp.pattern == ncclPatternCollTreeDown) ? 2 : 1;
 
       uint64_t opCount = uint64_t(plan->collOpCount++)<<1 | 0;
 
       devWork->startChannelId = comm->lastChannel % comm->nChannels;
       devWork->commNChannels = comm->nChannels;
-      if (nChannels*nSubChannels > comm->nChannels) {
-        ERROR("nChannels(%d)*nSubChannels(%d) is greater than comm->nChannels(%d)", nChannels, nSubChannels, comm->nChannels);
+      if (nChannels > comm->nChannels) {
+        ERROR("nChannels(%d) is greater than comm->nChannels(%d)", nChannels, comm->nChannels);
         return ncclInternalError;
       }
-      for (int bid=0; bid<nChannels*nSubChannels; bid++) {
+      for (int bid=0; bid<nChannels; bid++) {
         int channelId = comm->lastChannel % comm->nChannels;
         // Proxy
         proxyOp.task.coll = head;
@@ -1676,11 +1661,6 @@ static ncclResult_t scheduleCollTasksToPlan(ncclComm_t comm, struct ncclKernelPl
         proxyOp.eActivationMask = head->eActivationMask;
         proxyOp.incWorkCounter = true;
         proxyOp.channelId = channelId;
-        // Adjust pattern for CollNet based on channel index
-        if (nSubChannels == 2) {
-          proxyOp.pattern = (channelId < comm->nChannels/nSubChannels) ? ncclPatternCollTreeUp : ncclPatternCollTreeDown;
-        }
-
         if (proxyOp.nsteps) {
           proxyOp.opCount = opCount;
           NCCLCHECK(ncclAddProxyOpIfNeeded(comm, &proxyOp));

@@ -457,75 +457,6 @@ class RunWorkColl<ncclFuncAllReduce, NCCL_ALGO_TREE, NCCL_PROTO_SIMPLE, FUNC, T,
 };
 
 template<class FUNC, typename T, int UNROLL>
-class RunWorkColl<ncclFuncAllReduce, NCCL_ALGO_COLLNET, NCCL_PROTO_SIMPLE, FUNC, T, UNROLL> {
-  public:
-  __device__ void run(struct ncclDevWorkColl* work) {
-    const int tid = threadIdx.x;
-#ifndef NO_EXTRA_WARP
-    const int nthreads = work->nThreads-WARP_SIZE;
-#else
-    const int nthreads = work->nThreads;
-#endif
-    const int nChannels = work->nChannels;
-    int bid = (blockIdx.x >= work->startChannelId) ?
-      (blockIdx.x - work->startChannelId) :
-      (blockIdx.x + work->commNChannels - work->startChannelId);
-    bid = bid % nChannels;
-    struct ncclKernelComm* comm = getShmemComm(work);
-    struct ncclDevChannel* channel = &(getShmemPtr(comm)->channel);
-    struct ncclTree* tree = &channel->collTree;
-    const int stepSize = comm->buffSizes[NCCL_PROTO_SIMPLE] / (sizeof(T)*NCCL_STEPS);
-    int chunkSize = work->lastChunkSize;
-    const ssize_t minChunkSize = nthreads*8*sizeof(uint64_t) / sizeof(T);
-    const ssize_t loopSize = nChannels*chunkSize;
-    const ssize_t size = work->count;
-
-    if (loopSize > size) {
-      chunkSize = DIVUP(size, nChannels*minChunkSize)*minChunkSize;
-    }
-
-    // Compute pointers
-    const T * __restrict__ thisInput = (const T*)work->sendbuff;
-    T * __restrict__ thisOutput = (T*)work->recvbuff;
-
-    if (blockIdx.x < nChannels) { // first half of the channels do reduce
-      Primitives<T, FUNC, ProtoSimple<UNROLL, 1, 1>, 1, 1, 0, 0>
-        prims(tid, nthreads, tree->down, &tree->up, NULL, comm, work->redOpArg, getShmemPtr(comm)->groups, 0, 0, 0, work);
-
-      for (ssize_t gridOffset = 0; gridOffset < size; gridOffset += loopSize) {
-        // Up
-        ssize_t offset = gridOffset + bid*chunkSize;
-        int nelem = min(chunkSize, size-offset);
-        if (tree->up == -1) {
-          prims.recvReduceCopy(thisInput+offset, thisOutput+offset, nelem);
-        } else if (tree->down[0] == -1) {
-          prims.send(thisInput+offset, nelem);
-        } else {
-          prims.recvReduceSend(thisInput+offset, nelem);
-        }
-      }
-    }
-
-    if (blockIdx.x >= nChannels) { // second half of the channels do broadcast
-      Primitives<T, FUNC, ProtoSimple<UNROLL, 1, 1>, 1, 1, 0, 0>
-        prims(tid, nthreads, &tree->up, tree->down, NULL, comm, work->redOpArg, getShmemPtr(comm)->groups, 0, 0, 0, work);
-      for (ssize_t gridOffset = 0; gridOffset < size; gridOffset += loopSize) {
-        // Down
-        ssize_t offset = gridOffset + bid*chunkSize;
-        int nelem = min(chunkSize, size-offset);
-        if (tree->up == -1) {
-          prims.send(thisOutput+offset, nelem);
-        } else if (tree->down[0] == -1) {
-          prims.recv(thisOutput+offset, nelem);
-        } else {
-          prims.recvCopySend(thisOutput+offset, nelem);
-        }
-      }
-    }
-  }
-};
-
-template<class FUNC, typename T, int UNROLL>
 class RunWorkColl<ncclFuncAllReduce, NCCL_ALGO_FC, NCCL_PROTO_SIMPLE, FUNC, T, UNROLL> {
   public:
   __device__ void run(struct ncclDevWorkColl* work) {
@@ -616,68 +547,6 @@ class RunWorkColl<ncclFuncAllReduce, NCCL_ALGO_TREE, NCCL_PROTO_LL, FUNC, T, UNR
 };
 
 template<class FUNC, typename T, int UNROLL>
-class RunWorkColl<ncclFuncAllReduce, NCCL_ALGO_COLLNET, NCCL_PROTO_LL, FUNC, T, UNROLL> {
-  public:
-  __device__ void run(struct ncclDevWorkColl* work) {
-    const int tid = threadIdx.x;
-    const int nthreads = work->nThreads;
-    const int nChannels = work->nChannels;
-    int bid = (blockIdx.x >= work->startChannelId) ?
-      (blockIdx.x - work->startChannelId) :
-      (blockIdx.x + work->commNChannels - work->startChannelId);
-    bid = bid % nChannels;
-    struct ncclKernelComm* comm = getShmemComm(work);
-    struct ncclDevChannel* channel = &(getShmemPtr(comm)->channel);
-    struct ncclTree* tree = &channel->collTree;
-    const int stepLines = comm->buffSizes[NCCL_PROTO_LL] / (sizeof(union ncclLLFifoLine)*NCCL_STEPS);
-    ssize_t chunkSize = stepLines * sizeof(uint64_t) / sizeof(T);
-    const ssize_t minChunkSize = nthreads*sizeof(uint64_t) / sizeof(T);
-    const ssize_t loopSize = nChannels*chunkSize;
-    const ssize_t size = work->count;
-
-    if (loopSize > size) {
-      chunkSize = DIVUP(size, nChannels*minChunkSize)*minChunkSize;
-    }
-
-    // Compute pointers
-    const T * __restrict__ thisInput = (const T*)work->sendbuff;
-    T * __restrict__ thisOutput = (T*)work->recvbuff;
-
-    if (blockIdx.x < nChannels) { // first half of the channels do reduce
-      Primitives<T, FUNC, ProtoLL, 1, 1, 0, 0> LLprims(tid, nthreads, tree->down, &tree->up, NULL, comm, work->redOpArg);
-      for (ssize_t gridOffset = 0; gridOffset < size; gridOffset += loopSize) {
-        // Up
-        ssize_t offset = gridOffset + bid*chunkSize;
-        int nelem = min(chunkSize, size-offset);
-        if (tree->up == -1) {
-          LLprims.recvReduceCopy(thisInput+offset, thisOutput+offset, nelem);
-        } else if (tree->down[0] == -1) {
-          LLprims.send(thisInput+offset, nelem);
-        } else {
-          LLprims.recvReduceSend(thisInput+offset, nelem);
-        }
-      }
-    }
-
-    if (blockIdx.x >= nChannels) { // second half of the channels do broadcast
-      Primitives<T, FUNC, ProtoLL, 1, 1, 0, 0> LLprims(tid, nthreads, &tree->up, tree->down, NULL, comm, work->redOpArg);
-      for (ssize_t gridOffset = 0; gridOffset < size; gridOffset += loopSize) {
-        // Down
-        ssize_t offset = gridOffset + bid*chunkSize;
-        int nelem = min(chunkSize, size-offset);
-        if (tree->up == -1) {
-          LLprims.send(thisOutput+offset, nelem);
-        } else if (tree->down[0] == -1) {
-          LLprims.recv(thisOutput+offset, nelem);
-        } else {
-          LLprims.recvCopySend(thisOutput+offset, nelem);
-        }
-      }
-    }
-  }
-};
-
-template<class FUNC, typename T, int UNROLL>
 class RunWorkColl<ncclFuncAllReduce, NCCL_ALGO_FC, NCCL_PROTO_LL, FUNC, T, UNROLL> {
   public:
   __device__ void run(struct ncclDevWorkColl* work) {
@@ -699,12 +568,6 @@ class RunWorkColl<ncclFuncAllReduce, NCCL_ALGO_TREE, NCCL_PROTO_LL128, FUNC, T, 
   __device__ void run(struct ncclDevWorkColl* work) {
     runSplitTree<FUNC, T, UNROLL, ProtoLL128, ProtoLL128>(work);
   }
-};
-
-template<class FUNC, typename T, int UNROLL>
-class RunWorkColl<ncclFuncAllReduce, NCCL_ALGO_COLLNET, NCCL_PROTO_LL128, FUNC, T, UNROLL> {
-  public:
-__device__ void run(struct ncclDevWorkColl* work) { }
 };
 
 template<class FUNC, typename T, int UNROLL>
@@ -736,12 +599,6 @@ class RunWorkColl<ncclFuncAllReduce, NCCL_ALGO_TREE, NCCL_PROTO_SIGNAL, FUNC, T,
     runSplitTree<FUNC, T, UNROLL, Proto, Proto>(work);
 #endif
   }
-};
-
-template<class FUNC, typename T, int UNROLL>
-class RunWorkColl<ncclFuncAllReduce, NCCL_ALGO_COLLNET, NCCL_PROTO_SIGNAL, FUNC, T, UNROLL> {
-  public:
-__device__ void run(struct ncclDevWorkColl* work) { }
 };
 
 template<class FUNC, typename T, int UNROLL>
@@ -839,12 +696,6 @@ class RunWorkColl<ncclFuncAllReduce, NCCL_ALGO_TREE, NCCL_PROTO_SIMPLE_BULK, FUN
 };
 
 template<class FUNC, typename T, int UNROLL>
-class RunWorkColl<ncclFuncAllReduce, NCCL_ALGO_COLLNET, NCCL_PROTO_SIMPLE_BULK, FUNC, T, UNROLL> {
-  public:
-__device__ void run(struct ncclDevWorkColl* work) { }
-};
-
-template<class FUNC, typename T, int UNROLL>
 class RunWorkColl<ncclFuncAllReduce, NCCL_ALGO_RING, NCCL_PROTO_SIGNAL_BULK, FUNC, T, UNROLL> {
   public:
   __device__ void run(struct ncclDevWorkColl* work) {
@@ -917,12 +768,6 @@ class RunWorkColl<ncclFuncAllReduce, NCCL_ALGO_TREE, NCCL_PROTO_SIGNAL_BULK, FUN
     }
 #endif
   }
-};
-
-template<class FUNC, typename T, int UNROLL>
-class RunWorkColl<ncclFuncAllReduce, NCCL_ALGO_COLLNET, NCCL_PROTO_SIGNAL_BULK, FUNC, T, UNROLL> {
-  public:
-__device__ void run(struct ncclDevWorkColl* work) { }
 };
 
 template<class FUNC, typename T, int UNROLL>

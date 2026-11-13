@@ -182,7 +182,6 @@ ncclResult_t testGraphSearch(std::vector<int> ppuList, const char *topoFile, con
   ringGraph.id = 0;
   ringGraph.pattern = NCCL_TOPO_PATTERN_RING;
   ringGraph.crossNic = ncclParamCrossNic();
-  ringGraph.collNet = 0;
   ringGraph.minChannels = 1;
   ringGraph.maxChannels = MAXCHANNELS/2;
   NCCLCHECK(ncclTopoCompute(system, &ringGraph));
@@ -192,7 +191,6 @@ ncclResult_t testGraphSearch(std::vector<int> ppuList, const char *topoFile, con
   treeGraph.id = 1;
   treeGraph.pattern = isAlgoSpecified ? NCCL_TOPO_PATTERN_TREE : ncclTopoGraphTreePattern(comm, system);
   treeGraph.crossNic = ncclParamCrossNic();
-  treeGraph.collNet = 0;
   treeGraph.minChannels = isAlgoSpecified ? 1 : ringGraph.nChannels;
   treeGraph.maxChannels = isAlgoSpecified ? MAXCHANNELS/2 : ringGraph.nChannels;
   NCCLCHECK(ncclTopoCompute(system, &treeGraph));

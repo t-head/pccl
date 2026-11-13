@@ -15,19 +15,17 @@
 #include "core.h"
 #include "pccl_device/core.h"
 
-#define NTRANSPORTS 4
+#define NTRANSPORTS 3
 #define TRANSPORT_P2P 0
 #define TRANSPORT_SHM 1
 #define TRANSPORT_NET 2
-#define TRANSPORT_COLLNET 3
-#define TRANSPORT_PROFILER 4
+#define TRANSPORT_PROFILER 3
 
 #include "proxy.h"
 #include "bootstrap.h"
 extern struct ncclTransport p2pTransport;
 extern struct ncclTransport shmTransport;
 extern struct ncclTransport netTransport;
-extern struct ncclTransport collNetTransport;
 extern struct ncclTransport profilerTransport;
 
 extern struct ncclTransport* ncclTransports[];
@@ -99,14 +97,7 @@ ncclResult_t ncclTransportCheckP2pType(ncclComm_t comm, bool* localP2pSupport, b
 ncclResult_t ncclTransportRingConnect(ncclComm_t comm);
 ncclResult_t ncclTransportTreeConnect(ncclComm_t comm);
 ncclResult_t ncclTransportPatConnect(ncclComm_t comm);
-ncclResult_t ncclTransportCollnetConnect(ncclComm_t comm);
 ncclResult_t ncclTransportFcConnect(ncclComm_t comm);
-
-enum { collNetRecv=0, collNetSend=1 };
-int ncclTransportCollNetSetup(ncclComm_t comm, struct ncclTopoGraph* collNetGraph, struct ncclChannel* channel, int masterRank, int masterPeer, int collNetGraphChannelId, int type);
-ncclResult_t ncclTransportCollNetCheck(ncclComm_t comm, int collNetSetupFail);
-ncclResult_t ncclTransportCollNetFree(ncclComm_t comm);
-ncclResult_t ncclCollnetDeregBuffer(ncclComm_t comm, struct ncclProxyConnector* proxyconn, void* handle);
 
 ncclResult_t ncclNetDeregBuffer(ncclComm_t comm, struct ncclProxyConnector* proxyConn, void* handle);
 

@@ -59,7 +59,6 @@
 #define DECL3(func, devredop, type, undef) \
   DECL4(func, RING,    devredop, type, undef) \
   DECL4(func, TREE,    devredop, type, undef) \
-  DECL4(func, COLLNET, devredop, type, undef) \
   DECL4(func, FC,      devredop, type, undef) \
   DECL4(func, PAT,     devredop, type, undef)
 
