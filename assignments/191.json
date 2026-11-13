@@ -2,13 +2,13 @@
   "classification": {
     "base_sha": "a909809e63dbf891101c88d45c0b78bfe628fab6",
     "head_sha": "6e9544aeab9d58b363aa18562911e3fb5c087444",
-    "input_fingerprint": "8866570c420f0f408577de895383dcc6ad3ce6bb2fc5eecf57846e647f9da31d",
+    "input_fingerprint": "f7d9b7a3dd96080d369ea3b9b1d2e145f0b74f665118f0707e8289fac7269a48",
     "pr_number": 191,
     "proposal": {
       "modules": [
         "device-topology"
       ],
-      "reason": "Changes topology parsing/classification in `ncclTopoAddPci` so PCI nodes with a `<nic>` child are treated as NICs before PCI-class lookup, avoiding misclassification/warnings for unclassified NIC classes (e.g., `0x00ff00`) while leaving non-NIC class-based behavior intact."
+      "reason": "Changes PCI topology parsing/classification in ncclTopoAddPci so nodes with a <nic> child are treated as NICs without class-dictionary conversion; this is a device/NIC discovery and topology-data handling fix, with no independent changes to graph construction, transport, or workflow."
     }
   },
   "reviewers": {
