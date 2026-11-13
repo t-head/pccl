@@ -1,15 +1,15 @@
 {
   "classification": {
-    "base_sha": "dcc16f7527444230dbd33cca1f348760c2df7e97",
-    "head_sha": "fb782ff42115e42b1a3be0bb1a848d8ae1b815bb",
-    "input_fingerprint": "38aaf50fac1756d9252ed2b40d928802388b4448cd2f6c1cc3b6d0e9b9d7d436",
+    "base_sha": "4f4a89f2e99f6c2778d3ffc8070a0f16f434df69",
+    "head_sha": "4ef6ffe29cb8e2f18f121aa1a2cd400d331ccbac",
+    "input_fingerprint": "594733b9cca8f71fa227feb6954102f5bb4b219e266475a8d290aa509d7261fa",
     "pr_number": 116,
     "proposal": {
       "modules": [
         "transport",
         "memory"
       ],
-      "reason": "Main functional change is in transport: P2P/SHM connection setup and cleanup flow, transport selection/progress reporting, stream synchronization, and P2P IPC registration behavior. A separate substantive change adds refcounted shared-memory handle/descriptor allocate-import-close lifecycle and host/device mapping ownership, so memory review is also required."
+      "reason": "Main change is transport-layer P2P/SHM connection setup: transport selection wiring, connection-progress accounting, stream synchronization, and P2P memcpy-path shared-memory descriptor integration/cleanup. Added memory review is needed because shared-memory lifetime/ownership semantics were substantively changed via new handle-based open/import/close APIs, refcounted unlink behavior, and host/device mapping-registration release paths in common shm utilities."
     }
   },
   "reviewers": {
