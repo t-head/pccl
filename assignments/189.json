@@ -2,14 +2,14 @@
   "classification": {
     "base_sha": "a909809e63dbf891101c88d45c0b78bfe628fab6",
     "head_sha": "f92857a81d226b02483b170c305b53c0c8a96df2",
-    "input_fingerprint": "bdfd3cacb726fee5a33c2d58cee4eee4395fb0ab31e1604f6a4e83490ea869c4",
+    "input_fingerprint": "816b03a3da2c57b3b404b4b54c96399dc1a412d53d7e94703b1313042e1465ef",
     "pr_number": 189,
     "proposal": {
       "modules": [
         "device-api",
         "gin"
       ],
-      "reason": "Primary change is GIN behavior: adds timed GIN signal waits, GIN-only window registration flow, and stricter cross-rank/backend/stride validation for GIN connectivity and context setup. Include device-api because the PR also makes independently substantive public API/ABI-semantic updates (device API version 2.2.2 fields, bounded requirements/properties compatibility handling, and explicit LSA pointer/query behavior changes for GIN-only windows)."
+      "reason": "Main change is in **gin**: adds GIN-only registration behavior and timed waitSignal result semantics, plus GIN connectivity/stride validation and context-count handling in GIN setup paths. **device-api** is also needed because the PR changes public device API contracts (2.2.2 requirements/properties fields, PCCL_WIN_GIN_ONLY flag, window/LSA pointer semantics, and query compatibility behavior)."
     }
   },
   "reviewers": {
