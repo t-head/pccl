@@ -48,11 +48,6 @@ PCCL_DEVICE_INLINE bool tryLock(int *lockPtr) {
 }
 
 template <hggc::thread_scope scope = hggc::thread_scope_device>
-PCCL_DEVICE_INLINE void lock(int *lockPtr) {
-  while (!tryLock<scope>(lockPtr)) continue;
-}
-
-template <hggc::thread_scope scope = hggc::thread_scope_device>
 PCCL_DEVICE_INLINE void unlock(int *lockPtr) {
   hggc::atomic_ref<int, scope> ref(*lockPtr);
   ref.store(0, hggc::memory_order_release);
@@ -126,13 +121,17 @@ PCCL_DEVICE_INLINE void submit(struct pcclxGinTroceQp *qp, uint64_t prodIdx, uin
     return;
   }
 
-  lock<scope>(&qp->db_lock);
-  hggc::atomic_ref<uint64_t, scope> ref(qp->prod_idx);
-  uint64_t old = ref.fetch_max(prodIdx, hggc::memory_order_acquire);
-  if (old < prodIdx) {
-    troceRingDb(qp, (uint16_t)prodIdx);
+  while (true) {
+    if (tryLock<scope>(&qp->db_lock)) {
+      hggc::atomic_ref<uint64_t, scope> ref(qp->prod_idx);
+      uint64_t old = ref.fetch_max(prodIdx, hggc::memory_order_acquire);
+      if (old < prodIdx) {
+        troceRingDb(qp, (uint16_t)prodIdx);
+      }
+      unlock<scope>(&qp->db_lock);
+      break;
+    }
   }
-  unlock<scope>(&qp->db_lock);
 }
 
 // ---------------------------------------------------------------------------
