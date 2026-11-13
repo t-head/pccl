@@ -9,17 +9,18 @@
 .PHONY : all clean
 
 ifeq ($(NO_EXT_KERNEL), 1)
-default : src.build
+default : src.build gin-plugin.build
 else
-default : src.build ext-kernel.build tuner-plugin.build ext-profiler.build
+default : src.build gin-plugin.build ext-kernel.build tuner-plugin.build ext-profiler.build
 endif
 install : src.install
+src.install : gin-plugin.build
 ROORDIR ?= $(abspath .)
 BUILDDIR ?= $(abspath ./build)
 ABSROOTDIR := $(abspath $(ROORDIR))
 ABSBUILDDIR := $(abspath $(BUILDDIR))
 TARGETS := src pkg
-clean: ${TARGETS:%=%.clean}
+clean: ${TARGETS:%=%.clean} gin-plugin.clean
 test.build: src.build
 LICENSE_FILES := LICENSE.txt
 LICENSE_TARGETS := $(LICENSE_FILES:%=$(BUILDDIR)/%)
@@ -59,6 +60,12 @@ ext-profiler.build: | src.build
 ext-profiler.clean:
 	${MAKE}	-C ext-profiler/example clean BUILDDIR=${ABSBUILDDIR}/lib/
 	${MAKE}	-C ext-profiler/inspector clean BUILDDIR=${ABSBUILDDIR}/lib/
+
+gin-plugin.build: | src.build
+	${MAKE} -C ext-gin build BUILDDIR=${ABSBUILDDIR}
+
+gin-plugin.clean:
+	${MAKE} -C ext-gin clean BUILDDIR=${ABSBUILDDIR}
 
 pkg.%:
 	${MAKE} -C pkg $* BUILDDIR=${ABSBUILDDIR}

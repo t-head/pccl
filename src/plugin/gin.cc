@@ -155,7 +155,7 @@ static ncclResult_t ncclGinPluginDisableOtherExternal(int pluginIndex) {
 
 static void initPluginLibsOnceFunc() {
   char* ginPluginName = nullptr;
-  const char* defaultGinPlugin = "libpccl-gin.so";
+  const char* defaultGinPlugins[] = {"libpccl-gin.so", "libpccl-gin-troce.so"};
   const char* envGinPlugin = nullptr;
   char* envGinPluginList = nullptr;
   char* savePtr = nullptr;
@@ -189,14 +189,17 @@ static void initPluginLibsOnceFunc() {
     }
     if (envGinPluginList) free(envGinPluginList);
   } else {
-    // Add default gin plugin
-    ginPluginLibs[pluginCounter].ncclGinPluginState = ncclGinPluginStateLoadReady;
-    ginPluginLibs[pluginCounter].ncclGinPluginRefCount = ncclParamGinPluginRefCount();
-    strcpy(ginPluginLibs[pluginCounter++].name, defaultGinPlugin);
+    // Add default gin plugins
+    for (const char* name : defaultGinPlugins) {
+      ginPluginLibs[pluginCounter].ncclGinPluginState = ncclGinPluginStateLoadReady;
+      ginPluginLibs[pluginCounter].ncclGinPluginRefCount = ncclParamGinPluginRefCount();
+      strcpy(ginPluginLibs[pluginCounter++].name, name);
+    }
   }
 
   // Also check if the NET plugin has GIN support
-  if ((ginPluginLibs[pluginCounter].dlHandle = ncclGetNetPluginLib(ncclPluginTypeGin)) != NULL) {
+  if (pluginCounter < NCCL_GIN_MAX_PLUGINS - NCCL_GIN_NUM_INTERNAL_PLUGINS &&
+      (ginPluginLibs[pluginCounter].dlHandle = ncclGetNetPluginLib(ncclPluginTypeGin)) != NULL) {
     ginPluginLibs[pluginCounter].ncclGinPluginState = ncclGinPluginStateLoadReady;
     pluginCounter++;
   }
@@ -206,6 +209,7 @@ static void initPluginLibsOnceFunc() {
   ginPluginLibs[pluginCounter].ncclGinPluginState = ncclGinPluginStateInitReady;
   ginPluginLibs[pluginCounter].ncclGinVersion = ncclGinVersion[0];
   pluginCounter++;
+
   pluginCount = pluginCounter;
 }
 

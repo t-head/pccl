@@ -212,12 +212,15 @@ static int proxyGinPollGfd(struct ginProxyCtx *ctx, ginProxyHostGpuCtx *hostGpuC
 
 static int mapGfdOpToSignalOp(ncclGinProxyGfd_t *gfd) {
   ncclGinProxyOp_t op = extractOp(gfd);
-  uint8_t signalOp = op & (ncclGinProxyOpWithSignalInc | ncclGinProxyOpWithSignalAdd);
+  uint16_t signalOp = op & (ncclGinProxyOpWithSignalInc | ncclGinProxyOpWithSignalAdd |
+                            pcclxGinProxyOpWithSignalSet);
   switch (signalOp) {
     case ncclGinProxyOpWithSignalInc:
       return NCCL_NET_SIGNAL_OP_INC;
     case ncclGinProxyOpWithSignalAdd:
       return NCCL_NET_SIGNAL_OP_ADD;
+    case pcclxGinProxyOpWithSignalSet:
+      return PCCLX_NET_SIGNAL_OP_SET;
     default:
       return -1;
   }
