@@ -1,14 +1,14 @@
 {
   "classification": {
     "base_sha": "b2218469d68f21ca4d4822c8ba357154eb955849",
-    "head_sha": "f1a0dfbd44d846d1a6bb34df7abdf35aa90b585c",
-    "input_fingerprint": "f0e8a2c2c6a58947a691afaa53c0287c6706d44bb9f352d5f97ffd44c2ccaa26",
+    "head_sha": "b3ca9c0e1f6532a2af52bd9e7b9079ad3f3f1fec",
+    "input_fingerprint": "d8e2729162684d288918a4b2035726e35a93b4b9871ee8bf210d62551743d6c3",
     "pr_number": 185,
     "proposal": {
       "modules": [
         "ci"
       ],
-      "reason": "Primary change is CI/test orchestration: a new experimental daily workflow, artifact download retry action, NAS cache/group staging and reconciliation scripts, and expanded xtest datasets/contracts (including the patch-omitted 8,900-line daily full CSV) for case selection/execution coverage. These are substantive open-source test workflow and runner-path changes, while build/script/docs edits are supporting this CI behavior rather than independent core PCCL module changes."
+      "reason": "Main change is CI/test automation: a new experimental M890P daily workflow with grouped execution, artifact/cache validation and retry logic, plus updates to source-sanity artifact downloads and xtest tooling/reconciliation that support test selection and reporting. The large daily full CSV (patch omitted) is part of CI test input data/export scope, with no evidence of PCCL runtime module behavior changes."
     }
   },
   "reviewers": {
