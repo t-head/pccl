@@ -56,7 +56,7 @@ ncclResult_t setCommDumpMaskByStr(const char* usrMaskStr, pcclCommDumpMaskType* 
 ncclResult_t setCommDumpMaskByVal(const uint32_t usrMaskStr, pcclCommDumpMaskType* dumpMask);
 
 ///////////////////////////////////////////////////////////////////////////////
-// Device-memory read helpers (shared by comm_dumper.cc and diag.cc).        //
+// Device-memory read helpers shared by comm_dumper.cc and runtime_state.cc.
 ///////////////////////////////////////////////////////////////////////////////
 
 // Check pointer accessibility: *lockablePtr = 0 (unlockable), 1 (lockable device), 2 (host).

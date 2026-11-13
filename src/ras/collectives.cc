@@ -115,9 +115,8 @@ void rasCollReqInit(struct rasCollRequest* req) {
 // in scenarios such as a total of two peers.
 // pColl provides on return a pointer to the allocated rasCollective structure to track this collective (unless
 // it's a broadcast, which require no such tracking).
-ncclResult_t rasNetSendCollReq(const struct rasCollRequest* req, bool* pAllDone,
-                               struct rasCollective** pColl, struct rasConnection* fromConn,
-                               void (*onComplete)(struct rasCollective*)) {
+ncclResult_t rasNetSendCollReq(const struct rasCollRequest* req, bool* pAllDone, struct rasCollective** pColl,
+                               struct rasConnection* fromConn) {
   struct rasCollective* coll = nullptr;
   struct rasCollRequest* reqMod = (struct rasCollRequest*)req;
   size_t reqLen = 0;
@@ -131,7 +130,6 @@ ncclResult_t rasNetSendCollReq(const struct rasCollRequest* req, bool* pAllDone,
     coll->type = req->type;
     coll->timeout = req->timeout;
     coll->fromConn = fromConn;
-    coll->onComplete = onComplete;
     if (ncclCalloc(&coll->peers, 1) == ncclSuccess) {
       memcpy(coll->peers, &rasNetListeningSocket.addr, sizeof(*coll->peers));
       coll->nPeers = 1;
@@ -306,13 +304,8 @@ static ncclResult_t rasCollReadyResp(struct rasCollective* coll) {
     rasCollRecordHistory(coll);
 
     rasCollFree(coll);
-  } else if (coll->onComplete) {
-    // RAS-thread-internal collective (e.g., hang analyzer triggered from the state monitor):
-    // hand off to the registered callback, which owns the rasCollective and is responsible for
-    // calling rasCollFree on it when done.
-    coll->onComplete(coll);
   } else {
-    // For locally-initiated collectives, invoke the client code again (which will release it, once finished).
+    // For locally-initiated collectives, resume the owning client (which releases coll once finished).
     NCCLCHECK(rasClientResume(coll));
   }
   return ncclSuccess;
@@ -644,42 +637,9 @@ static ncclResult_t rasCollCommsInit(struct rasCollRequest** pReq, size_t* pReqL
   struct rasCollRequest* req = nullptr;
   struct rasPeerInfo** peersReSorted = nullptr;
   int firstNewSkipMissingIdx = -1;
-  bool includeDiag = (((*pReq)->comms.flags & RAS_COMMS_FLAG_INCLUDE_DIAG) != 0);
-  uint64_t diagOnly = (*pReq)->comms.diagOnlyCommHash;
-  size_t* diagBytesPerComm = nullptr; // Index is the collective comm index; only allocated when includeDiag.
-  size_t totalDiagBytes = 0;
-  // Item 3: when the synth dump runs, route its device reads through the diag
-  // collector so the diag tier is filled as a byproduct (vs a second cold IO pass via
-  // rasDiagSnapshotInto).  Stays null when no dump is being triggered, or when
-  // creation fails (we just fall back to the cold path).
-  struct pcclCommDiagCollector* diagCollector = nullptr;
-
   *pReqLen = rasCollDataLength(RAS_COLL_COMMS) +
     (*pReq)->comms.nSkipMissingRanksComms * sizeof(*(*pReq)->comms.skipMissingRanksComms);
   *pData = nullptr;
-
-  if (includeDiag) {
-    // Pessimistically allocate one slot per ncclComm; only the first nComms slots are used.
-    NCCLCHECKGOTO(ncclCalloc(&diagBytesPerComm, nNcclComms + 1), ret, fail);
-  }
-
-  // Item 2: RAS_COMMS_FLAG_TRIGGER_LOCAL_DUMP folds what used to be a separate RAS_BC_DUMP
-  // broadcast into this collective.  When set, every responder also runs pcclCommDump
-  // (rough-by-default) for matching comms via the existing rasStateMonitorDump helper, which
-  // shares the same lastTimeoutIndex/seq dedup as the legacy BC_DUMP path.  Honored only
-  // with INCLUDE_DIAG; without diag the COMMS collective has no business firing dumps.
-  if (includeDiag && ((*pReq)->comms.flags & RAS_COMMS_FLAG_TRIGGER_LOCAL_DUMP) != 0) {
-    diagCollector = rasDiagCollectorCreate();
-    struct rasCollRequest synthDumpReq;
-    memset(&synthDumpReq, 0, sizeof(synthDumpReq));
-    synthDumpReq.type = RAS_BC_DUMP;
-    synthDumpReq.dump.dumpAllComms = (diagOnly == 0);
-    synthDumpReq.dump.dumpLevel = (*pReq)->comms.dumpLevel;
-    synthDumpReq.dump.commHash = diagOnly;
-    synthDumpReq.dump.seq = (*pReq)->comms.diagSeq;
-    bool dumpDone = false;
-    rasStateMonitorDump(&synthDumpReq, &dumpDone, diagCollector);
-  }
 
   // Start by counting the communicators so that we know how much space to allocate.
   // We also need to sort the comms array, to make the subsequent merging easier, both between the ranks (in case
@@ -724,14 +684,6 @@ static ncclResult_t rasCollCommsInit(struct rasCollRequest** pReq, size_t* pReqL
     if (!skipMissing)
       nMissingRanks--;
 
-    if (includeDiag) {
-      uint64_t h = ncclComms[commIdx].comm->commHash;
-      if (diagOnly == 0 || h == diagOnly) {
-        size_t sz = rasDiagTotalSnapshotDataSize(ncclComms[commIdx].comm);
-        diagBytesPerComm[nComms - 1] += sz;
-        totalDiagBytes += sz;
-      }
-    }
   } // for (commIdx)
 
   // rasCollComms has nested variable-length arrays, which makes the size calculation and subsequent
@@ -739,7 +691,7 @@ static ncclResult_t rasCollCommsInit(struct rasCollRequest** pReq, size_t* pReqL
   // This is extra complicated because of the "hidden" array of struct rasCollCommsMissingRank following the
   // ranks array for each communicator.
   *pNData = sizeof(*commsData) + nComms * sizeof(*commsData->comms) + nRanks * sizeof(*commsData->comms[0].ranks) +
-    nMissingRanks * sizeof(struct rasCollCommsMissingRank) + totalDiagBytes;
+    nMissingRanks * sizeof(struct rasCollCommsMissingRank);
   NCCLCHECKGOTO(ncclCalloc(pData, *pNData), ret, fail);
   commsData = (struct rasCollComms*)*pData;
   commsData->nComms = nComms;
@@ -764,8 +716,6 @@ static ncclResult_t rasCollCommsInit(struct rasCollRequest** pReq, size_t* pReqL
     comm->commId.pidHash = ncclComm->peerInfo->pidHash;
     comm->nRanks = ncclComm->nRanks;
     comm->nValidRanks = comm->nMissingRanks = 0;
-    comm->nDiagBytes = 0;
-    int rankStartIdx = commIdx; // For walking the same ncclComms range again for the diag tier.
 
     // Fill in the comm->ranks array.
     for (; commIdx < nNcclComms && ncclComms[commIdx].comm && ncclComms[commIdx].comm->commHash == comm->commId.commHash;
@@ -848,53 +798,6 @@ static ncclResult_t rasCollCommsInit(struct rasCollRequest** pReq, size_t* pReqL
         firstNewSkipMissingIdx = -1;
     } // if need to fill in the missingRanks
 
-    // Diag tier (per-rank snapshots) follows the missingRanks array.  We only emit it when the
-    // request asked for it (RAS_COMMS_FLAG_INCLUDE_DIAG) and either this is the comm of interest
-    // (diagOnly == its commHash) or all comms were requested (diagOnly == 0).  The byte budget
-    // for this comm was computed in the first pass and stored in diagBytesPerComm.
-    //
-    // Item 3: when the synth dump above ran with a collector attached, the per-rank diag bytes
-    // were already captured during the dump's device IO -- copy them in from the collector and
-    // skip the cold rasDiagSnapshotInto pass.  Per-rank fallback: a rank that wasn't
-    // visited by the dump (e.g. dedup'd via lastTimeoutIndex or aborted) gets the cold path.
-    if (includeDiag && diagBytesPerComm != nullptr &&
-        (diagOnly == 0 || comm->commId.commHash == diagOnly)) {
-      char* diagBase = rasCollCommsDiagBytesMut(comm);
-      size_t diagWritten = 0;
-      size_t diagBudget = diagBytesPerComm[collCommIdx];
-      // The overflow guards above keep every write inside commsData, but a comm/rank count drift between
-      // the counting and filling passes can leave less room than the budget computed in the counting pass --
-      // clamp it to what actually remains.
-      size_t diagRoom = (diagBase < (char*)commsData + *pNData ?
-                         (size_t)((char*)commsData + *pNData - diagBase) : 0);
-      if (diagRoom < diagBudget) {
-        INFO(NCCL_RAS, "RAS diag data would overflow commsData: collCommIdx %d, budget %zu, room %zu -- internal error?",
-             collCommIdx, diagBudget, diagRoom);
-        diagBudget = diagRoom;
-      }
-      for (int rIdx = rankStartIdx; rIdx < commIdx; rIdx++) {
-        ncclComm_t rcomm = ncclComms[rIdx].comm;
-        if (rcomm == nullptr) continue;
-        if (!__atomic_load_n(&rcomm->peerInfoValid, __ATOMIC_ACQUIRE)) continue;
-        size_t sz = 0;
-        if (diagCollector != nullptr) {
-          size_t got = 0;
-          const char* bytes = rasDiagCollectorGet(diagCollector, rcomm, &got);
-          if (bytes != nullptr && got > 0 && diagWritten + got <= diagBudget) {
-            memcpy(diagBase + diagWritten, bytes, got);
-            sz = got;
-          }
-        }
-        if (sz == 0) {
-          sz = rasDiagSnapshotInto(diagBase + diagWritten,
-                                        diagBudget - diagWritten,
-                                        rcomm);
-        }
-        diagWritten += sz;
-      }
-      comm->nDiagBytes = (int)diagWritten;
-    }
-
     comm = rasCollCommsCommNext(comm);
   } // for (collCommIdx)
 
@@ -907,10 +810,6 @@ static ncclResult_t rasCollCommsInit(struct rasCollRequest** pReq, size_t* pReqL
   }
 ret:
   free(peersReSorted);
-  free(diagBytesPerComm);
-  if (diagCollector != nullptr) rasDiagCollectorDestroy(diagCollector);
-  // rasDiagCollectorDestroy frees the underlying impl (recovered via ctx); diagCollector is not leaked.
-  // coverity[leaked_storage]
   return ret;
 fail:
   if (req) {
@@ -1047,33 +946,20 @@ static ncclResult_t rasCollCommsMerge(struct rasCollective* coll, struct rasMsg*
             newComm->nMissingRanks = nMissing;
           }
         }
-        // Concatenate diag tiers (collComm's first, then msgComm's).  newData was sized
-        // pessimistically as collData.nData+msgData.nData, so there is always room.
-        if (collComm->nDiagBytes > 0 || msgComm->nDiagBytes > 0) {
-          char* dst = rasCollCommsDiagBytesMut(newComm);
-          if (collComm->nDiagBytes > 0) {
-            memcpy(dst, rasCollCommsDiagBytes(collComm), collComm->nDiagBytes);
-            dst += collComm->nDiagBytes;
-          }
-          if (msgComm->nDiagBytes > 0) {
-            memcpy(dst, rasCollCommsDiagBytes(msgComm), msgComm->nDiagBytes);
-          }
-          newComm->nDiagBytes = collComm->nDiagBytes + msgComm->nDiagBytes;
-        }
         newComm = rasCollCommsCommNext(newComm);
         collComm = rasCollCommsCommNext(collComm);
         collIdx++;
         msgComm = rasCollCommsCommNext(msgComm);
         msgIdx++;
       } else if (cmp < 0) {
-        // Copy from collComm (including its diag tier, which the memcpy carries verbatim).
+        // Copy the communicator status contribution from collComm.
         size_t commSize = rasCollCommsCommSize(collComm);
         memcpy(newComm, collComm, commSize);
         newComm = (struct rasCollComms::comm*)(((char*)(newComm)) + commSize);
         collComm = (struct rasCollComms::comm*)(((char*)(collComm)) + commSize);
         collIdx++;
       } else { // cmp > 0
-        // Copy from msgComm (including its diag tier).
+        // Copy the communicator status contribution from msgComm.
         size_t commSize = rasCollCommsCommSize(msgComm);
         memcpy(newComm, msgComm, commSize);
         for (int i = 0; i < newComm->nValidRanks; i++) {

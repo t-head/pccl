@@ -18,12 +18,11 @@
 struct pcclComm;
 
 typedef enum {
-  // Keep the upstream ID for environment diagnostics.
-  RAS_DIAG_CHECK_NCCL_ENV = 4,
+  RAS_DIAG_CHECK_NCCL_ENV = 0,
+  RAS_DIAG_CHECK_RUNTIME_STATE,
 
-  // Exclusive check-ID bound, not the number of registered checks.
-  // Keep this equal to the largest implemented check ID plus one.
-  RAS_DIAG_CHECK_COUNT = 5
+  // Must remain last. Add new check IDs above this sentinel and add the corresponding dispatch table entry.
+  RAS_DIAG_CHECK_COUNT
 } rasDiagnosticsCheckId;
 
 // Dispatcher metadata. This describes the scope of the diagnostics request.
@@ -31,6 +30,13 @@ struct rasDiagnosticsContext {
   bool hasCommFilter;
   struct rasCommId commFilter;
   int commNRanks; // Rank count of the filtered communicator; 0 when unscoped.
+  bool triggerLocalDump;
+  uint32_t dumpLevel;
+  uint64_t diagSeq;
+  // Local reporting options; these are not sent to remote collectors.
+  bool persistReport;
+  bool summaryOnly;
+  int nLegTimeouts;
 };
 
 struct rasDiagnosticsLocalData {
@@ -55,13 +61,6 @@ struct rasDiagnosticsCheck {
   rasDiagnosticsCheckId id;
   rasDiagnosticsCollectLocalFn collectLocal;
   rasDiagnosticsSummarizeFn summarize;
-};
-
-// First field of every per-check record. A check payload is a flat array of fixed-size records.
-struct rasDiagnosticsRankHeader {
-  struct rasCommId commId;
-  int commRank;
-  int commNRanks;
 };
 
 // Local-only view of a communicator. The collector builds this while holding ncclCommsMutex,
@@ -93,6 +92,7 @@ struct rasDiagnosticsCheckPayloadHeader {
 
 ncclResult_t rasDiagnosticsContextInit(struct rasDiagnosticsContext* ctx, const struct pcclComm* comm);
 ncclResult_t rasDiagnosticsFormatLine(char* out, size_t outSize, const char* line);
+ncclResult_t rasLocalHandleRunDiag(const struct rasDiagnosticsContext* ctx);
 ncclResult_t rasDiagnosticsClientInit(struct rasClient* client, const struct rasDiagnosticsContext* ctx,
                                       const struct rasDiagnosticsReporter* reporter);
 ncclResult_t rasDiagnosticsStart(struct rasClient* client);

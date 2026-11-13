@@ -15,7 +15,6 @@
 #include "comm_dumper.h"
 #include "utils.h"
 #include "ras_internal.h"
-#include "analyzer.h"
 #include "diagnostics.h"
 
 // Outlier count above which we don't print individual details about each of them.
@@ -325,11 +324,11 @@ static ncclResult_t rasClientEnqueueLine(struct rasClient* client, const char* l
 
 static ncclResult_t rasClientDiagnosticsEmit(void* target, const char* line) {
   struct rasClient* client = (struct rasClient*)target;
-  char formatted[2048];
+  char formattedLine[2048];
 
   if (client == nullptr) return ncclSuccess;
-  NCCLCHECK(rasDiagnosticsFormatLine(formatted, sizeof(formatted), line));
-  NCCLCHECK(rasClientEnqueueLine(client, formatted));
+  NCCLCHECK(rasDiagnosticsFormatLine(formattedLine, sizeof(formattedLine), line));
+  NCCLCHECK(rasClientEnqueueLine(client, formattedLine));
   return ncclSuccess;
 }
 
@@ -339,6 +338,24 @@ static ncclResult_t rasClientDiagnosticsFinish(void* target, ncclResult_t result
     NCCLCHECK(rasClientDiagnosticsEmit(target, rasLine));
   }
   return ncclSuccess;
+}
+
+// Starts diagnostics on the RAS thread without a socket-backed client.
+ncclResult_t rasLocalHandleRunDiag(const struct rasDiagnosticsContext* ctx) {
+  struct rasClient* client = nullptr;
+  bool closed = false;
+  ncclResult_t ret = ncclSuccess;
+
+  NCCLCHECKGOTO(getNewClientEntry(&client), ret, fail);
+  client->internal = true;
+  NCCLCHECKGOTO(rasDiagnosticsClientInit(client, ctx, nullptr), ret, fail);
+  client->status = RAS_CLIENT_DIAG_INIT;
+  NCCLCHECKGOTO(rasClientRun(client, &closed), ret, fail);
+  return ncclSuccess;
+
+fail:
+  if (client != nullptr && !closed) rasClientTerminate(client);
+  return ret;
 }
 
 
@@ -472,8 +489,21 @@ void rasClientEventLoop(struct rasClient* client, int pollIdx) {
           }
           memcpy(msg, rasLine, msgLen);
           rasClientEnqueueMsg(client, msg, msgLen);
+        } else if (client->outputFormat != RAS_OUTPUT_TEXT) {
+          if (rasClientEnqueueString(client, "ERROR: diagnostics only supports text output\n") != ncclSuccess) {
+            rasClientTerminate(client);
+            return;
+          }
+          client->status = RAS_CLIENT_FINISHED;
+        } else if (rasDiagnosticsInProgress()) {
+          if (rasClientEnqueueString(client, "BUSY: diagnostics already in progress\n") != ncclSuccess) {
+            rasClientTerminate(client);
+            return;
+          }
+          client->status = RAS_CLIENT_FINISHED;
         } else {
-          client->status = RAS_CLIENT_INIT;
+          rasPfds[client->pfd].events &= ~POLLIN;
+          client->status = RAS_CLIENT_DIAG_INIT;
           client->analyzeFlag = 1;
           client->dumpLevel = dumpLevel;
           (void)rasClientRun(client, &closed);
@@ -646,7 +676,7 @@ static ncclResult_t rasClientRun(struct rasClient* client, bool* closed) {
 exit:
   if (ret != ncclSuccess) client->status = RAS_CLIENT_FINISHED;
   if (client->status == RAS_CLIENT_FINISHED &&
-      ncclIntruQueueHead(&client->sendQ) == nullptr) {
+      (client->internal || ncclIntruQueueHead(&client->sendQ) == nullptr)) {
     rasClientTerminate(client);
     if (closed) *closed = true;
   }
@@ -661,11 +691,15 @@ static ncclResult_t rasClientRunDiagInit(struct rasClient* client) {
     struct rasDiagnosticsReporter reporter = {rasClientDiagnosticsEmit, rasClientDiagnosticsFinish, client};
 
     ret = rasDiagnosticsContextInit(&ctx, nullptr);
+    ctx.triggerLocalDump = (client->dumpLevel > 0);
+    ctx.dumpLevel = (uint32_t)client->dumpLevel;
+    ctx.persistReport = (client->dumpLevel > 0);
+    ctx.summaryOnly = (client->analyzeFlag != 0);
     if (ret == ncclSuccess) ret = rasDiagnosticsClientInit(client, &ctx, &reporter);
   }
   if (ret == ncclSuccess) ret = rasDiagnosticsStart(client);
 
-  if (ret != ncclSuccess && ret != ncclInProgress) {
+  if (ret != ncclSuccess && ret != ncclInProgress && !client->internal) {
     snprintf(rasLine, sizeof(rasLine), "ERROR: diagnostics failed to start (%d)\n", ret);
     ncclResult_t enqueueRet = rasClientEnqueueString(client, rasLine);
     if (enqueueRet != ncclSuccess) ret = enqueueRet;
@@ -948,15 +982,6 @@ static ncclResult_t rasClientRunInit(struct rasClient* client) {
     rasCollReqInit(&collReq);
     collReq.timeout = client->timeout;
     collReq.type = RAS_COLL_COMMS;
-    if (client->analyzeFlag) {
-      collReq.comms.flags = RAS_COMMS_FLAG_INCLUDE_DIAG;
-      if (client->dumpLevel > 0) {
-        collReq.comms.flags |= RAS_COMMS_FLAG_TRIGGER_LOCAL_DUMP;
-        collReq.comms.dumpLevel = (uint32_t)client->dumpLevel;
-      }
-      collReq.comms.diagOnlyCommHash = 0;
-      collReq.comms.diagSeq = 0;
-    }
     NCCLCHECKGOTO(rasNetSendCollReq(&collReq, &allDone, &client->coll), ret, fail);
     if (!allDone)
       ret = ncclInProgress;
@@ -1792,37 +1817,6 @@ static ncclResult_t rasClientRunComms(struct rasClient* client) {
     } // for (commIdx)
   } // for (vcIdx)
 
-  // Hang analysis (pcclras -a <LEVEL>) is appended *after* the standard Errors /
-  // Warnings sections so the user still gets the regular RAS status view.  Use
-  // open_memstream as a FILE* sink for analyzerFormatSummary(), then splice
-  // the captured text into our rasOutBuffer.
-  if (client->analyzeFlag > 0) {
-    rasOutAppend("\nHang Check\n"
-                 "==========\n\n");
-    char* hangBuf = nullptr;
-    size_t hangLen = 0;
-    FILE* mem = open_memstream(&hangBuf, &hangLen);
-    if (mem != nullptr) {
-      analyzerFormatSummary(mem, commsData);
-      fclose(mem);
-      if (hangBuf != nullptr && hangLen > 0) {
-        rasOutAppend("%.*s", (int)hangLen, hangBuf);
-      }
-      free(hangBuf);
-    } else {
-      rasOutAppend("(failed to allocate hang-analyzer buffer)\n");
-    }
-    if (client->dumpLevel > 0) {
-      char fullPath[PATH_MAX + 1] = {0};
-      ncclResult_t wr = rasDiagWriteFullReport(commsData, coll->nData, coll->nLegTimeouts,
-                                               fullPath, sizeof(fullPath));
-      if (wr == ncclSuccess && fullPath[0] != '\0') {
-        rasOutAppend("\nFull reports saved under %s\n", fullPath);
-      } else {
-        rasOutAppend("\nFull report not written (no diag tier received)\n");
-      }
-    }
-  }
   rasCollFree(coll);
 
   msgLen = rasOutLength();
