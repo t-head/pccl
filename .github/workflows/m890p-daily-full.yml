@@ -588,7 +588,9 @@ jobs:
             cd "$SOURCE_DIR"
             CACHE_DIR=/mnt/wl_nas/devops/pccl-artifact-cache-${{ github.run_id }}/cache/standard/${{ env.EXPECTED_SHA }}
             GROUPS_DIR=/mnt/wl_nas/devops/pccl-artifact-cache-${{ github.run_id }}/cache/case-groups/${{ env.EXPECTED_GROUPS_SHA }}
-            SHARED_ROOT=/mnt/wl_nas/devops/pccl-artifact-cache-${{ github.run_id }}/shared-standard/${{ env.EXPECTED_SHA }}/$GROUP_ID
+            # A group-owned directory avoids both concurrent parent removal and
+            # root-owned intermediate directories that final cleanup cannot remove.
+            SHARED_ROOT=/mnt/wl_nas/devops/pccl-artifact-cache-${{ github.run_id }}/shared-standard/$GROUP_ID
             CASE_INPUT="$SHARED_ROOT/case-input"
             export build_output="$SHARED_ROOT/output_standard"
             RESULT_ROOT=/mnt/wl_nas/devops/pccl-artifact-cache-${{ github.run_id }}/results/full/$GROUP_ID
