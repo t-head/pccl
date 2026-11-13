@@ -187,6 +187,10 @@ static void parseArgs(int argc, char** argv) {
     fprintf(stderr, "--diagnostics only supports text output\n");
     exit(1);
   }
+  if (analyzeFlag && strcasecmp(format, "text") != 0) {
+    fprintf(stderr, "--analyze and --dump only support text output\n");
+    exit(1);
+  }
 }
 
 static ssize_t socketWrite(int fd, const void* buf, size_t count) {
@@ -483,15 +487,15 @@ static int runOfflineAnalysis(const char* dir) {
       continue;
     }
 
-    int nBytes = 0, nLeg = 0;
-    struct rasCollComms* blob = analyzerLoadData(f, &nBytes, &nLeg);
+    int nRecords = 0, nLeg = 0;
+    struct rasDiagnosticsRuntimeRecord* records = analyzerLoadRuntimeData(f, &nRecords, &nLeg);
     fclose(f);
-    if (blob == nullptr) continue;
+    if (records == nullptr) continue;
 
     fprintf(stdout, "\n========== Offline analysis: %s ==========\n", name);
-    analyzerFormatReport(stdout, blob, nLeg, -1);
-    free(blob);
-    nAnalyzed++;
+    int result = analyzerFormatRuntimeReport(stdout, records, nRecords, nLeg, -1);
+    free(records);
+    if (result == 0) nAnalyzed++;
   }
   closedir(dp);
 

@@ -13,6 +13,7 @@
 #include <cstdlib>
 #include <cstring>
 #include <ctime>
+#include <memory>
 #include <unistd.h>
 #include <string>
 #include <unordered_map>
@@ -28,10 +29,168 @@ typedef enum { CONN_NORMAL=0, CONN_ICN, CONN_PCIE, CONN_SHM, CONN_GDRDMA,
                CONN_RDMA, CONN_SOCKET, CONN_NET_EXT, CONN_NUM } ncclConn_t;
 #endif
 
+// These indexes own only small descriptors. Channel/connection state stays in
+// the caller's record array.
+struct analyzerChannelView {
+  const rasDiagChannel* state;
+  std::vector<const rasDiagPeer*> peers;
+};
+struct analyzerRankView {
+  int commRank;
+  int nChannels;
+  std::vector<analyzerChannelView> channels;
+};
+struct analyzerCommView {
+  rasCommId id;
+  int nRanks;
+  size_t nRecords;
+  std::vector<analyzerRankView> ranks;
+  // Excluded snapshots do not prevent analysis of the valid ranks above.
+  bool malformed = false;
+  bool unavailable = false;
+};
 struct analyzerRankEntry {
   int rank;
-  struct rasDiagRankHeader* rh;
+  const analyzerRankView* rh;
 };
+
+static int analyzerCommIdCompare(const rasCommId& a, const rasCommId& b) {
+  if (a.commHash != b.commHash) return a.commHash < b.commHash ? -1 : 1;
+  if (a.hostHash != b.hostHash) return a.hostHash < b.hostHash ? -1 : 1;
+  return a.pidHash == b.pidHash ? 0 : (a.pidHash < b.pidHash ? -1 : 1);
+}
+
+static bool analyzerRecordLess(const rasDiagnosticsRuntimeRecord* a,
+                               const rasDiagnosticsRuntimeRecord* b) {
+  int cmp = analyzerCommIdCompare(a->rank.commId, b->rank.commId);
+  if (cmp) return cmp < 0;
+  if (a->rank.commRank != b->rank.commRank) return a->rank.commRank < b->rank.commRank;
+  if (a->channelId != b->channelId) return a->channelId < b->channelId;
+  if (a->type != b->type) return a->type < b->type;
+  if (a->type != RAS_DIAG_RUNTIME_CONNECTION) return false;
+  const auto& ap = a->value.connection;
+  const auto& bp = b->value.connection;
+  if (ap.peerRank != bp.peerRank) return ap.peerRank < bp.peerRank;
+  if (ap.connector != bp.connector) return ap.connector < bp.connector;
+  return ap.direction < bp.direction;
+}
+
+static bool analyzerBuildRankView(const rasDiagnosticsRuntimeRecord* const* records,
+                                  size_t count, analyzerRankView* out, bool* unavailable) {
+  if (count == 0 || records[0]->type != RAS_DIAG_RUNTIME_RANK || records[0]->channelId != -1) return false;
+  const auto& header = records[0]->value.rankData;
+  if (header.version != RAS_DIAG_RUNTIME_WIRE_VERSION ||
+      (header.availability != RAS_DIAG_RUNTIME_AVAILABLE && header.availability != RAS_DIAG_RUNTIME_ABORTED &&
+       header.availability != RAS_DIAG_RUNTIME_UNAVAILABLE) ||
+      header.nChannels < 0 || header.nChannels > MAXCHANNELS) return false;
+  out->commRank = records[0]->rank.commRank;
+  out->nChannels = header.nChannels;
+  if (header.availability != RAS_DIAG_RUNTIME_AVAILABLE) {
+    *unavailable = true;
+    return count == 1 && header.nChannels == 0;
+  }
+  size_t i = 1;
+  int previousChannel = -1;
+  while (i < count) {
+    const auto* record = records[i++];
+    if (record->type != RAS_DIAG_RUNTIME_CHANNEL || record->channelId <= previousChannel ||
+        record->channelId >= MAXCHANNELS) return false;
+    const auto& channel = record->value.channel;
+    if (channel.channelId != record->channelId || channel.nPeerEntries < 0 ||
+        (size_t)channel.nPeerEntries > count - i || channel.devHangReportedKernelIdxValid > 1 ||
+        channel.devCompletedKernelIdxValid > 1) return false;
+    previousChannel = record->channelId;
+    analyzerChannelView view = {&channel, {}};
+    for (int p = 0; p < channel.nPeerEntries; p++, i++) {
+      const auto* connection = records[i];
+      const auto& peer = connection->value.connection;
+      if (connection->type != RAS_DIAG_RUNTIME_CONNECTION || connection->channelId != channel.channelId ||
+          peer.peerRank < 0 || peer.peerRank >= record->rank.commNRanks || peer.connector >= RAS_DIAG_RUNTIME_MAX_CONNS ||
+          peer.direction > 1 || peer.connected != 1) return false;
+      if (p > 0 && !analyzerRecordLess(records[i - 1], connection)) return false;
+      view.peers.push_back(&peer);
+    }
+    out->channels.push_back(std::move(view));
+  }
+  return out->channels.size() == (size_t)header.nChannels;
+}
+
+static bool analyzerBuildRuntimeViews(const rasDiagnosticsRuntimeRecord* data, int nRecords,
+                                      std::vector<analyzerCommView>* comms) {
+  if (nRecords < 0 || (nRecords > 0 && data == nullptr) ||
+      (size_t)nRecords > (size_t)INT_MAX / sizeof(*data)) return false;
+  std::vector<const rasDiagnosticsRuntimeRecord*> records;
+  records.reserve(nRecords);
+  for (int i = 0; i < nRecords; i++) records.push_back(data + i);
+  std::sort(records.begin(), records.end(), analyzerRecordLess);
+  for (size_t begin = 0; begin < records.size();) {
+    size_t end = begin + 1;
+    while (end < records.size() &&
+           analyzerCommIdCompare(records[begin]->rank.commId, records[end]->rank.commId) == 0) end++;
+    analyzerCommView comm = {};
+    comm.id = records[begin]->rank.commId;
+    comm.nRecords = end - begin;
+    for (size_t rankBegin = begin; rankBegin < end;) {
+      size_t rankEnd = rankBegin + 1;
+      while (rankEnd < end && records[rankEnd]->rank.commRank == records[rankBegin]->rank.commRank) rankEnd++;
+      int nRanks = records[rankBegin]->rank.commNRanks;
+      bool valid = nRanks > 0;
+      for (size_t i = rankBegin; i < rankEnd; i++) {
+        const auto& record = *records[i];
+        if (record.rank.commNRanks != nRanks || record.rank.commRank < 0 ||
+            record.rank.commRank >= nRanks || record.type > RAS_DIAG_RUNTIME_CONNECTION) valid = false;
+      }
+      analyzerRankView rank = {};
+      bool unavailable = false;
+      if (!valid || !analyzerBuildRankView(records.data() + rankBegin, rankEnd - rankBegin,
+                                          &rank, &unavailable) ||
+          (comm.nRanks != 0 && comm.nRanks != nRanks)) {
+        comm.malformed = true;
+      } else {
+        comm.nRanks = nRanks;
+        if (unavailable) comm.unavailable = true;
+        // Rules may dereference every advertised channel/peer; never publish a partial rank view.
+        else comm.ranks.push_back(std::move(rank));
+      }
+      rankBegin = rankEnd;
+    }
+    comms->push_back(std::move(comm));
+    begin = end;
+  }
+  return true;
+}
+
+static bool analyzerCommUsable(FILE* fp, const analyzerCommView& comm) {
+  if (comm.ranks.empty()) {
+    fprintf(fp, "[INFO] Runtime state: no usable snapshots for comm 0x%lx; analysis skipped\n",
+            (unsigned long)comm.id.commHash);
+    return false;
+  }
+  if (comm.malformed || comm.unavailable || comm.ranks.size() != (size_t)comm.nRanks)
+    fprintf(fp, "[INFO] Runtime state: partial snapshots for comm 0x%lx (%zu/%d usable ranks); "
+                "PASS applies only to checked data\n",
+            (unsigned long)comm.id.commHash, comm.ranks.size(), comm.nRanks);
+  return true;
+}
+
+static std::vector<analyzerRankEntry> analyzerRankIndex(const analyzerCommView& comm) {
+  std::vector<analyzerRankEntry> result;
+  result.reserve(comm.ranks.size());
+  for (const auto& rank : comm.ranks) result.push_back({rank.commRank, &rank});
+  return result;
+}
+
+static const analyzerChannelView* findChannelInRank(const analyzerRankView* rank, int channelId) {
+  for (const auto& channel : rank->channels) if (channel.state->channelId == channelId) return &channel;
+  return nullptr;
+}
+
+static const rasDiagPeer* findPeerInChannel(const analyzerChannelView* channel, int peerRank,
+                                           uint8_t direction, uint8_t connector) {
+  for (const auto* peer : channel->peers)
+    if (peer->peerRank == peerRank && peer->direction == direction && peer->connector == connector) return peer;
+  return nullptr;
+}
 
 struct analyzerSummaryMessage {
   uint64_t commHash;
@@ -53,8 +212,6 @@ typedef enum {
   analyzerInternalError,
   analyzerDataMissing,
 } analyzerResult_t;
-
-static int analyzerCategoryCount(void) { return ANALYZER_CAT_COUNT; }
 
 static const char* analyzerConnTypeToString(uint8_t t) {
   if (t == RAS_DIAG_CONN_NONE) return "NONE";
@@ -87,69 +244,6 @@ static const char* analyzerCategoryName(int c) {
 
 static int rankIndexCompare(const void* a, const void* b) {
   return ((const analyzerRankEntry*)a)->rank - ((const analyzerRankEntry*)b)->rank;
-}
-
-static struct rasDiagChannel* findChannelInRank(struct rasDiagRankHeader* rh, int channelId) {
-  struct rasDiagChannel* dc = rasDiagFirstChannel(rh);
-  for (int c = 0; c < rh->nChannels; c++) {
-    if (dc->channelId == channelId) return dc;
-    dc = rasDiagNextChannel(dc);
-  }
-  return nullptr;
-}
-
-static struct rasDiagPeer* findPeerInChannel(struct rasDiagChannel* dc, int peerRank, uint8_t direction, uint8_t connector) {
-  struct rasDiagPeer* dp = rasDiagFirstPeer(dc);
-  for (int i = 0; i < dc->nPeerEntries; i++) {
-    if (dp[i].peerRank == peerRank && dp[i].direction == direction && dp[i].connector == connector) {
-      return &dp[i];
-    }
-  }
-  return nullptr;
-}
-
-static int analyzerBuildDiagIndex(const struct rasCollComms::comm* comm, analyzerRankEntry* idx, int maxIdx) {
-  if (comm == nullptr || comm->nDiagBytes <= 0 || idx == nullptr || maxIdx <= 0) return 0;
-  const char* base = rasCollCommsDiagBytes(comm);
-  const char* end = base + comm->nDiagBytes;
-  int n = 0;
-  const char* p = base;
-  while ((size_t)(end - p) >= sizeof(struct rasDiagRankHeader) && n < maxIdx) {
-    struct rasDiagRankHeader* rh = (struct rasDiagRankHeader*)p;
-    if (rh->totalBytes < sizeof(*rh) || rh->totalBytes > (size_t)(end - p)) break;
-    if (rh->nChannels < 0 || rh->nChannels > MAXCHANNELS) break;
-    if (rh->wireVersion == RAS_DIAG_WIRE_VERSION) {
-      const char* channel = p + sizeof(*rh);
-      size_t remaining = rh->totalBytes - sizeof(*rh);
-      bool valid = true;
-      for (int c = 0; c < rh->nChannels; c++) {
-        if (remaining < sizeof(struct rasDiagChannel)) { valid = false; break; }
-        const auto* dc = (const struct rasDiagChannel*)channel;
-        remaining -= sizeof(*dc);
-        if (dc->nPeerEntries < 0 || (size_t)dc->nPeerEntries > remaining / sizeof(struct rasDiagPeer)) {
-          valid = false;
-          break;
-        }
-        size_t peerBytes = (size_t)dc->nPeerEntries * sizeof(struct rasDiagPeer);
-        channel += sizeof(*dc) + peerBytes;
-        remaining -= peerBytes;
-      }
-      if (!valid) {
-        fprintf(stderr, "WARN: RAS hang-check: skipping rank %d with incomplete channel/peer records\n", rh->commRank);
-        p += rh->totalBytes;
-        continue;
-      }
-      idx[n].rank = rh->commRank;
-      idx[n].rh = rh;
-      n++;
-    } else {
-      fprintf(stderr, "WARN: RAS hang-check: skipping rank block with wire version 0x%x (expected 0x%x)\n",
-              rh->wireVersion, RAS_DIAG_WIRE_VERSION);
-    }
-    p = (char*)rasDiagNextRank(rh);
-  }
-  qsort(idx, n, sizeof(*idx), rankIndexCompare);
-  return n;
 }
 
 static bool formatCompactRankList(const std::vector<int>& sortedRanks, char* out, size_t outLen) {
@@ -250,16 +344,16 @@ static analyzerResult_t analyzerCheckConnType(FILE* fp, const analyzerRankEntry*
   fprintf(fp, "\n[Check: ConnType]\n");
   int nBad = 0;
   for (int r = 0; r < nRanks; r++) {
-    struct rasDiagRankHeader* rh = ranks[r].rh;
-    struct rasDiagChannel* dc = rasDiagFirstChannel(rh);
+    const analyzerRankView* rh = ranks[r].rh;
+    const analyzerChannelView* dc = rh->channels.data();
     bool printedRank = false;
     for (int c = 0; c < rh->nChannels; c++) {
       struct { const char* name; uint8_t t; bool isFc; } legs[] = {
-        {"ring_send", dc->ringSendConn, false},
-        {"ring_recv", dc->ringRecvConn, false},
-        {"tree_up",   dc->treeUpConn,   false},
-        {"tree_down", dc->treeDownConn, false},
-        {"fc",        dc->fcConnType,   true},
+        {"ring_send", dc->state->ringSendConn, false},
+        {"ring_recv", dc->state->ringRecvConn, false},
+        {"tree_up",   dc->state->treeUpConn,   false},
+        {"tree_down", dc->state->treeDownConn, false},
+        {"fc",        dc->state->fcConnType,   true},
       };
       bool printedChannel = false;
       for (auto& leg : legs) {
@@ -267,12 +361,12 @@ static analyzerResult_t analyzerCheckConnType(FILE* fp, const analyzerRankEntry*
                      (leg.isFc ? (leg.t == CONN_ICN) : analyzerConnTypeIsValid(leg.t));
         if (!valid) {
           if (!printedRank) { fprintf(fp, "  rank %d:\n", rh->commRank); printedRank = true; }
-          if (!printedChannel) { fprintf(fp, "    channel %d:\n", dc->channelId); printedChannel = true; }
+          if (!printedChannel) { fprintf(fp, "    channel %d:\n", dc->state->channelId); printedChannel = true; }
           fprintf(fp, "      [ERROR] %s = %s (invalid)\n", leg.name, analyzerConnTypeToString(leg.t));
           nBad++;
         }
       }
-      dc = rasDiagNextChannel(dc);
+      dc++;
     }
   }
   if (nBad == 0) fprintf(fp, "  PASS (no invalid connection types)\n");
@@ -280,8 +374,8 @@ static analyzerResult_t analyzerCheckConnType(FILE* fp, const analyzerRankEntry*
   return analyzerSuccess;
 }
 
-static bool analyzerConsistencyStateValid(const struct rasDiagChannel* dc) {
-  return dc != nullptr && dc->devCompletedKernelIdxValid && dc->devHangReportedKernelIdxValid;
+static bool analyzerConsistencyStateValid(const analyzerChannelView* dc) {
+  return dc != nullptr && dc->state->devCompletedKernelIdxValid && dc->state->devHangReportedKernelIdxValid;
 }
 
 static analyzerResult_t analyzerCheckConsistency(FILE* fp, const analyzerRankEntry* ranks, int nRanks,
@@ -299,21 +393,20 @@ static analyzerResult_t analyzerCheckConsistency(FILE* fp, const analyzerRankEnt
   if (minN != maxN) {
     std::unordered_map<int, std::vector<int>> byNChannel;
     for (int r = 0; r < nRanks; r++) byNChannel[ranks[r].rh->nChannels].push_back(ranks[r].rank);
-    fprintf(fp, "  [WARN] ranks have inconsistent nChannels:");
+    fprintf(fp, "  [WARN] ranks have inconsistent nChannels:\n");
     char rankBuf[320];
     for (auto& kv : byNChannel) {
       std::sort(kv.second.begin(), kv.second.end());
       formatCompactRankList(kv.second, rankBuf, sizeof(rankBuf));
-      fprintf(fp, " nChannels=%d: ranks [%s]", kv.first, rankBuf);
+      fprintf(fp, "    nChannels=%d: ranks [%s]\n", kv.first, rankBuf);
     }
-    fprintf(fp, "\n");
   }
 
   // Build per-channel rank count for iteration
   std::unordered_map<int, int> channelCount;
   for (int r = 0; r < nRanks; r++) {
-    struct rasDiagChannel* dc = rasDiagFirstChannel(ranks[r].rh);
-    for (int c = 0; c < ranks[r].rh->nChannels; c++) { channelCount[dc->channelId]++; dc = rasDiagNextChannel(dc); }
+    const analyzerChannelView* dc = ranks[r].rh->channels.data();
+    for (int c = 0; c < ranks[r].rh->nChannels; c++) { channelCount[dc->state->channelId]++; dc++; }
   }
   // Group ranks by (completedIdx, hangIdx) state per channel
   struct GroupInfo {
@@ -336,20 +429,20 @@ static analyzerResult_t analyzerCheckConsistency(FILE* fp, const analyzerRankEnt
     std::unordered_map<std::pair<uint64_t,uint64_t>, GroupInfo, PairHash> groups;
     int nSkipped = std::max(0, expectedRanks - nRanks);
     for (int r = 0; r < nRanks; r++) {
-      struct rasDiagChannel* dc = findChannelInRank(ranks[r].rh, channelId);
+      const analyzerChannelView* dc = findChannelInRank(ranks[r].rh, channelId);
       if (!analyzerConsistencyStateValid(dc)) { nSkipped++; continue; }
-      auto key = stateKey(dc->devCompletedKernelIdx, dc->devHangReportedKernelIdx);
+      auto key = stateKey(dc->state->devCompletedKernelIdx, dc->state->devHangReportedKernelIdx);
       auto it = groups.find(key);
       if (it == groups.end()) { // new state group
         GroupInfo gi;
-        gi.minWft = gi.maxWft = dc->workFifoTail;
+        gi.minWft = gi.maxWft = dc->state->workFifoTail;
         gi.ranksInGroup.push_back(ranks[r].rank);
         groups.emplace(key, std::move(gi));
       } else { // merge into existing group
         GroupInfo& gi = it->second;
         gi.ranksInGroup.push_back(ranks[r].rank);
-        if (dc->workFifoTail < gi.minWft) gi.minWft = dc->workFifoTail;
-        if (dc->workFifoTail > gi.maxWft) gi.maxWft = dc->workFifoTail;
+        if (dc->state->workFifoTail < gi.minWft) gi.minWft = dc->state->workFifoTail;
+        if (dc->state->workFifoTail > gi.maxWft) gi.maxWft = dc->state->workFifoTail;
       }
     }
 
@@ -414,8 +507,8 @@ static analyzerResult_t analyzerCheckRingGraph(FILE* fp, const analyzerRankEntry
               "secondary inflight check via head/tail)]\n");
   std::unordered_map<int, int> channelCount;
   for (int r = 0; r < nRanks; r++) {
-    struct rasDiagChannel* dc = rasDiagFirstChannel(ranks[r].rh);
-    for (int c = 0; c < ranks[r].rh->nChannels; c++) { channelCount[dc->channelId]++; dc = rasDiagNextChannel(dc); }
+    const analyzerChannelView* dc = ranks[r].rh->channels.data();
+    for (int c = 0; c < ranks[r].rh->nChannels; c++) { channelCount[dc->state->channelId]++; dc++; }
   }
   std::vector<int> sortedChannels;
   sortedChannels.reserve(channelCount.size());
@@ -431,18 +524,18 @@ static analyzerResult_t analyzerCheckRingGraph(FILE* fp, const analyzerRankEntry
       if (!printedHeader) { fprintf(fp, "  channel %d:\n", channelId); printedHeader = true; }
     };
     for (int r = 0; r < nRanks; r++) {
-      struct rasDiagChannel* myChannel = findChannelInRank(ranks[r].rh, channelId);
+      const analyzerChannelView* myChannel = findChannelInRank(ranks[r].rh, channelId);
       if (myChannel == nullptr) continue;
       int myRank = ranks[r].rank;
-      int prev = myChannel->ringPrev;
+      int prev = myChannel->state->ringPrev;
       if (prev < 0) continue;
       analyzerRankEntry key{prev, nullptr};
       analyzerRankEntry* found = static_cast<analyzerRankEntry*>(bsearch(&key, ranks, nRanks, sizeof(*ranks), rankIndexCompare));
       if (found == nullptr)       { nSkippedNoPrevRank++; continue; }
-      struct rasDiagChannel* prevChannel = findChannelInRank(found->rh, channelId);
+      const analyzerChannelView* prevChannel = findChannelInRank(found->rh, channelId);
       if (prevChannel == nullptr)    { nSkippedNoPrevChannel++; continue; }
-      struct rasDiagPeer* prevSend = findPeerInChannel(prevChannel, myRank, /*send*/0, /*coll*/0);
-      struct rasDiagPeer* myRecv  = findPeerInChannel(myChannel,   prev,   /*recv*/1, /*coll*/0);
+      const rasDiagPeer* prevSend = findPeerInChannel(prevChannel, myRank, /*send*/0, /*coll*/0);
+      const rasDiagPeer* myRecv  = findPeerInChannel(myChannel,   prev,   /*recv*/1, /*coll*/0);
       if (prevSend == nullptr || myRecv == nullptr) { nSkippedNoPeerEntry++; continue; }
       int edgeResult = checkEdgeStepHeadTail(fp, ensureHeader, prev, myRank,
                           prevSend->devStep, myRecv->devStep,
@@ -468,7 +561,7 @@ static analyzerResult_t analyzerCheckRingGraph(FILE* fp, const analyzerRankEntry
                 "(head != tail); may be a real mid-kernel hang or LL protocol leaving stale tail\n",
             nInflightWarn);
   } else {
-    fprintf(fp, "  PASS (prev.send.devStep == my.recv.devStep on every ring edge)\n");
+    fprintf(fp, "  PASS (prev.send.devStep == my.recv.devStep on every checked ring edge)\n");
   }
   return analyzerSuccess;
 }
@@ -478,8 +571,8 @@ static analyzerResult_t analyzerCheckP2pConnect(FILE* fp, const analyzerRankEntr
   fprintf(fp, "\n[Check: P2pConnect (per p2p send/recv pair: devStep, head/tail)]\n");
   std::unordered_map<int, int> channelCount;
   for (int r = 0; r < nRanks; r++) {
-    struct rasDiagChannel* dc = rasDiagFirstChannel(ranks[r].rh);
-    for (int c = 0; c < ranks[r].rh->nChannels; c++) { channelCount[dc->channelId]++; dc = rasDiagNextChannel(dc); }
+    const analyzerChannelView* dc = ranks[r].rh->channels.data();
+    for (int c = 0; c < ranks[r].rh->nChannels; c++) { channelCount[dc->state->channelId]++; dc++; }
   }
   std::vector<int> sortedChannels;
   sortedChannels.reserve(channelCount.size());
@@ -496,26 +589,26 @@ static analyzerResult_t analyzerCheckP2pConnect(FILE* fp, const analyzerRankEntr
       if (!printedHeader) { fprintf(fp, "  channel %d:\n", channelId); printedHeader = true; }
     };
     for (int r = 0; r < nRanks; r++) {
-      struct rasDiagChannel* myChannel = findChannelInRank(ranks[r].rh, channelId);
+      const analyzerChannelView* myChannel = findChannelInRank(ranks[r].rh, channelId);
       if (myChannel == nullptr) continue;
       int myRank = ranks[r].rank;
-      struct rasDiagPeer* dp = rasDiagFirstPeer(myChannel);
-      for (int i = 0; i < myChannel->nPeerEntries; i++) {
-        if (!dp[i].connected || dp[i].direction != 0) continue;
-        if (dp[i].connector != 1) continue;
-        int peer = dp[i].peerRank;
+      const rasDiagPeer* const* dp = myChannel->peers.data();
+      for (int i = 0; i < myChannel->state->nPeerEntries; i++) {
+        if (!dp[i]->connected || dp[i]->direction != 0) continue;
+        if (dp[i]->connector != 1) continue;
+        int peer = dp[i]->peerRank;
         if (peer <= myRank) continue;
         analyzerRankEntry key{peer, nullptr};
         analyzerRankEntry* found = static_cast<analyzerRankEntry*>(bsearch(&key, ranks, nRanks, sizeof(*ranks), rankIndexCompare));
         if (!found)              { nSkippedNoPeerRank++; continue; }
-        struct rasDiagChannel* peerChannel = findChannelInRank(found->rh, channelId);
+        const analyzerChannelView* peerChannel = findChannelInRank(found->rh, channelId);
         if (!peerChannel)           { nSkippedNoPeerChannel++; continue; }
-        struct rasDiagPeer* peerRecv = findPeerInChannel(peerChannel, myRank, /*recv*/1, dp[i].connector);
+        const rasDiagPeer* peerRecv = findPeerInChannel(peerChannel, myRank, /*recv*/1, dp[i]->connector);
         if (!peerRecv)           { nSkippedNoRecvEntry++; continue; }
         nPairsChecked++;
         int edgeResult = checkEdgeStepHeadTail(fp, ensureHeader, myRank, peer,
-                            dp[i].devStep, peerRecv->devStep,
-                            dp[i].head, peerRecv->tail,
+                            dp[i]->devStep, peerRecv->devStep,
+                            dp[i]->head, peerRecv->tail,
                             "send.devStep", "recv.devStep");
         if (edgeResult == EDGE_ERROR) { nBad++; continue; }
         if (edgeResult == EDGE_WARN) nInflightWarn++;
@@ -531,7 +624,8 @@ static analyzerResult_t analyzerCheckP2pConnect(FILE* fp, const analyzerRankEntr
     }
   }
   if (nPairsChecked == 0) {
-    fprintf(fp, "  PASS (no p2p (connector=1) pairs to check — coll connector pairs are covered by RingGraph)\n");
+    fprintf(fp, "  PASS (no comparable p2p (connector=1) pairs in received snapshots; "
+                "coll connector pairs are covered by RingGraph)\n");
   } else if (nBad > 0) {
     fprintf(fp, "  FAIL (%d p2p pair(s) with devStep mismatch%s; %d pair(s) checked)\n",
             nBad, nInflightWarn ? "; additional inflight imbalances also detected" : "", nPairsChecked);
@@ -539,7 +633,7 @@ static analyzerResult_t analyzerCheckP2pConnect(FILE* fp, const analyzerRankEntr
     fprintf(fp, "  WARNING: %d p2p pair(s) with inflight head/tail mismatch; %d pair(s) checked\n",
             nInflightWarn, nPairsChecked);
   } else {
-    fprintf(fp, "  PASS (devStep matched on every p2p pair; %d pair(s) checked)\n", nPairsChecked);
+    fprintf(fp, "  PASS (devStep matched on every checked p2p pair; %d pair(s) checked)\n", nPairsChecked);
   }
   return analyzerSuccess;
 }
@@ -551,16 +645,16 @@ static analyzerResult_t analyzerCheckHangReported(FILE* fp, const analyzerRankEn
   std::unordered_set<int> uniqReportingRanks;
   int nUnknownChannels = 0;
   for (int r = 0; r < nRanks; r++) {
-    struct rasDiagRankHeader* rh = ranks[r].rh;
-    struct rasDiagChannel* dc = rasDiagFirstChannel(rh);
+    const analyzerRankView* rh = ranks[r].rh;
+    const analyzerChannelView* dc = rh->channels.data();
     for (int c = 0; c < rh->nChannels; c++) {
-      if (!dc->devHangReportedKernelIdxValid) {
+      if (!dc->state->devHangReportedKernelIdxValid) {
         nUnknownChannels++;
-      } else if (dc->devHangReportedKernelIdx != 0) {
-        byIdx[dc->devHangReportedKernelIdx].insert(rh->commRank);
+      } else if (dc->state->devHangReportedKernelIdx != 0) {
+        byIdx[dc->state->devHangReportedKernelIdx].insert(rh->commRank);
         uniqReportingRanks.insert(rh->commRank);
       }
-      dc = rasDiagNextChannel(dc);
+      dc++;
     }
   }
   int nReporting = (int)uniqReportingRanks.size();
@@ -586,7 +680,7 @@ static analyzerResult_t analyzerCheckHangReported(FILE* fp, const analyzerRankEn
     fprintf(fp, "  INCONCLUSIVE (no readable channel self-reported hang, but %d channel(s) unreadable)\n",
             nUnknownChannels);
   else
-    fprintf(fp, "  PASS (no rank self-reported hang)\n");
+    fprintf(fp, "  PASS (no received rank self-reported hang)\n");
   return analyzerSuccess;
 }
 
@@ -594,48 +688,48 @@ static analyzerResult_t analyzerCheckHangReported(FILE* fp, const analyzerRankEn
 // Renderers                                                                 //
 ///////////////////////////////////////////////////////////////////////////////
 
-int analyzerFormatReport(FILE* fp, const struct rasCollComms* blob, int nLegTimeouts,
-                     int singleCategory, const char* title) {
-  if (fp == nullptr || blob == nullptr) return -1;
+int analyzerFormatRuntimeReport(FILE* fp, const rasDiagnosticsRuntimeRecord* records, int nRecords,
+                                int nLegTimeouts, int singleCategory, const char* title) {
+  if (fp == nullptr) return -1;
+  std::vector<analyzerCommView> comms;
+  try {
+    if (!analyzerBuildRuntimeViews(records, nRecords, &comms)) return -1;
+  } catch (...) {
+    return -1;
+  }
   time_t now = time(nullptr);
   char ts[64];
   strftime(ts, sizeof(ts), "%Y%m%d-%H%M%S", localtime(&now));
   fprintf(fp, "=== %s ===\n", title != nullptr ? title : "PCCL Online Hang Analyzer Report");
   fprintf(fp, "wall time      : %s\n", ts);
-  fprintf(fp, "leg timeouts   : %d%s\n", nLegTimeouts,
-          nLegTimeouts > 0 ? " (incomplete data!)" : "");
-  fprintf(fp, "wire version   : 0x%x\n", RAS_DIAG_WIRE_VERSION);
-  if (singleCategory >= 0 && singleCategory < ANALYZER_CAT_COUNT) {
+  fprintf(fp, "leg timeouts   : %d%s\n", nLegTimeouts, nLegTimeouts > 0 ? " (incomplete data!)" : "");
+  fprintf(fp, "wire version   : 0x%x\n", RAS_DIAG_RUNTIME_WIRE_VERSION);
+  if (singleCategory >= 0 && singleCategory < ANALYZER_CAT_COUNT)
     fprintf(fp, "category       : %s\n", analyzerCategoryName(singleCategory));
-  }
-
-  const struct rasCollComms::comm* comm = blob->comms;
   int analyzed = 0;
-  for (int i = 0; i < blob->nComms; i++) {
-    if (comm->nDiagBytes > 0) {
-      fprintf(fp, "\n---- comm 0x%lx (%d/%d ranks, %d diag bytes) ----\n",
-              (unsigned long)comm->commId.commHash, comm->nValidRanks, comm->nRanks, comm->nDiagBytes);
-      std::vector<analyzerRankEntry> ranksVec(comm->nRanks);
-      analyzerRankEntry* ranks = ranksVec.data();
-      int nRanks = analyzerBuildDiagIndex(comm, ranks, comm->nRanks);
-      if (nRanks == 0) {
-        fprintf(fp, "  (no usable rank blocks; check wire version)\n");
-      } else {
-        if (singleCategory == -1 || singleCategory == ANALYZER_CAT_CONN_TYPE)   analyzerCheckConnType(fp, ranks, nRanks);
-        if (singleCategory == -1 || singleCategory == ANALYZER_CAT_CONSISTENCY) analyzerCheckConsistency(fp, ranks, nRanks, comm->nRanks);
-        if (singleCategory == -1 || singleCategory == ANALYZER_CAT_RING_GRAPH)  analyzerCheckRingGraph(fp, ranks, nRanks);
-        if (singleCategory == -1 || singleCategory == ANALYZER_CAT_P2P_CONNECT) analyzerCheckP2pConnect(fp, ranks, nRanks);
-        if (singleCategory == -1 || singleCategory == ANALYZER_CAT_HANG_REPORTED) analyzerCheckHangReported(fp, ranks, nRanks);
-      }
-      analyzed++;
+  for (const auto& comm : comms) {
+    if (!analyzerCommUsable(fp, comm)) continue;
+    fprintf(fp, "\n---- comm 0x%lx (%zu/%d ranks, %zu runtime records) ----\n",
+            (unsigned long)comm.id.commHash, comm.ranks.size(), comm.nRanks, comm.nRecords);
+    try {
+      auto ranksVec = analyzerRankIndex(comm);
+      const auto* ranks = ranksVec.data();
+      int count = (int)ranksVec.size();
+      if (singleCategory == -1 || singleCategory == ANALYZER_CAT_CONN_TYPE) analyzerCheckConnType(fp, ranks, count);
+      if (singleCategory == -1 || singleCategory == ANALYZER_CAT_CONSISTENCY)
+        analyzerCheckConsistency(fp, ranks, count, comm.nRanks);
+      if (singleCategory == -1 || singleCategory == ANALYZER_CAT_RING_GRAPH) analyzerCheckRingGraph(fp, ranks, count);
+      if (singleCategory == -1 || singleCategory == ANALYZER_CAT_P2P_CONNECT) analyzerCheckP2pConnect(fp, ranks, count);
+      if (singleCategory == -1 || singleCategory == ANALYZER_CAT_HANG_REPORTED)
+        analyzerCheckHangReported(fp, ranks, count);
+    } catch (...) {
+      return -1;
     }
-    comm = rasCollCommsCommNext(comm);
+    analyzed++;
   }
-  if (analyzed == 0) {
-    fprintf(fp, "\n(no comms carried diag tier; INCLUDE_DIAG flag may not have been set)\n");
-  }
+  if (analyzed == 0) fprintf(fp, "\n(no usable runtime snapshots)\n");
   fprintf(fp, "\n=== End of Report ===\n");
-  return 0;
+  return ferror(fp) ? -1 : 0;
 }
 
 ///////////////////////////////////////////////////////////////////////////////
@@ -645,8 +739,8 @@ int analyzerFormatReport(FILE* fp, const struct rasCollComms* blob, int nLegTime
 static void buildChannelCount(const analyzerRankEntry* ranks, int nRanks,
                            std::unordered_map<int, int>& channelCount) {
   for (int r = 0; r < nRanks; r++) {
-    struct rasDiagChannel* dc = rasDiagFirstChannel(ranks[r].rh);
-    for (int c = 0; c < ranks[r].rh->nChannels; c++) { channelCount[dc->channelId]++; dc = rasDiagNextChannel(dc); }
+    const analyzerChannelView* dc = ranks[r].rh->channels.data();
+    for (int c = 0; c < ranks[r].rh->nChannels; c++) { channelCount[dc->state->channelId]++; dc++; }
   }
 }
 
@@ -655,16 +749,16 @@ static void analyzerCollectConnType(uint64_t commHash, const analyzerRankEntry* 
   int nInvalid = 0;
   std::unordered_map<int, int> badRanks, badChannels;
   for (int r = 0; r < nRanks; r++) {
-    struct rasDiagRankHeader* rh = ranks[r].rh;
-    struct rasDiagChannel* dc = rasDiagFirstChannel(rh);
+    const analyzerRankView* rh = ranks[r].rh;
+    const analyzerChannelView* dc = rh->channels.data();
     for (int c = 0; c < rh->nChannels; c++) {
-      int chanBad = (!analyzerConnTypeIsValid(dc->ringSendConn))
-                  + (!analyzerConnTypeIsValid(dc->ringRecvConn))
-                  + (!analyzerConnTypeIsValid(dc->treeUpConn))
-                  + (!analyzerConnTypeIsValid(dc->treeDownConn))
-                  + (!analyzerConnTypeIsValid(dc->fcConnType));
-      if (chanBad) { nInvalid += chanBad; badRanks[rh->commRank]++; badChannels[dc->channelId]++; }
-      dc = rasDiagNextChannel(dc);
+      int chanBad = (!analyzerConnTypeIsValid(dc->state->ringSendConn))
+                  + (!analyzerConnTypeIsValid(dc->state->ringRecvConn))
+                  + (!analyzerConnTypeIsValid(dc->state->treeUpConn))
+                  + (!analyzerConnTypeIsValid(dc->state->treeDownConn))
+                  + (!analyzerConnTypeIsValid(dc->state->fcConnType));
+      if (chanBad) { nInvalid += chanBad; badRanks[rh->commRank]++; badChannels[dc->state->channelId]++; }
+      dc++;
     }
   }
   if (nInvalid == 0) return;
@@ -698,15 +792,15 @@ static void analyzerCollectConsistency(uint64_t commHash, const analyzerRankEntr
     uint64_t expectedCmpl = 0, expectedHang = 0;
     bool initialized = false, diverged = false;
     for (int r = 0; r < nRanks; r++) {
-      struct rasDiagChannel* dc = findChannelInRank(ranks[r].rh, channelId);
+      const analyzerChannelView* dc = findChannelInRank(ranks[r].rh, channelId);
       if (!analyzerConsistencyStateValid(dc)) { nUnavailable++; continue; }
       if (!initialized) {
-        expectedCmpl = dc->devCompletedKernelIdx;
-        expectedHang = dc->devHangReportedKernelIdx;
+        expectedCmpl = dc->state->devCompletedKernelIdx;
+        expectedHang = dc->state->devHangReportedKernelIdx;
         initialized = true;
         continue;
       }
-      if (dc->devCompletedKernelIdx != expectedCmpl || dc->devHangReportedKernelIdx != expectedHang) {
+      if (dc->state->devCompletedKernelIdx != expectedCmpl || dc->state->devHangReportedKernelIdx != expectedHang) {
         diverged = true;
       }
     }
@@ -734,18 +828,18 @@ static void analyzerCollectRingGraph(uint64_t commHash, const analyzerRankEntry*
   for (auto& kv : channelCount) {
     int channelId = kv.first;
     for (int r = 0; r < nRanks; r++) {
-      struct rasDiagChannel* myChannel = findChannelInRank(ranks[r].rh, channelId);
+      const analyzerChannelView* myChannel = findChannelInRank(ranks[r].rh, channelId);
       if (myChannel == nullptr) continue;
       int myRank = ranks[r].rank;
-      int prev = myChannel->ringPrev;
+      int prev = myChannel->state->ringPrev;
       if (prev < 0) continue;
       analyzerRankEntry key{prev, nullptr};
       analyzerRankEntry* found = static_cast<analyzerRankEntry*>(bsearch(&key, ranks, nRanks, sizeof(*ranks), rankIndexCompare));
       if (found == nullptr) continue;
-      struct rasDiagChannel* prevChannel = findChannelInRank(found->rh, channelId);
+      const analyzerChannelView* prevChannel = findChannelInRank(found->rh, channelId);
       if (prevChannel == nullptr) continue;
-      struct rasDiagPeer* prevSend = findPeerInChannel(prevChannel, myRank, 0, 0);
-      struct rasDiagPeer* myRecv = findPeerInChannel(myChannel, prev, 1, 0);
+      const rasDiagPeer* prevSend = findPeerInChannel(prevChannel, myRank, 0, 0);
+      const rasDiagPeer* myRecv = findPeerInChannel(myChannel, prev, 1, 0);
       if (prevSend == nullptr || myRecv == nullptr) continue;
       int cls = classifyEdge(prevSend->devStep, myRecv->devStep, prevSend->head, myRecv->tail);
       if (cls == EDGE_ERROR) { nMismatch++; errorChannels[channelId]++; }
@@ -775,23 +869,23 @@ static void analyzerCollectP2pConnect(uint64_t commHash, const analyzerRankEntry
   for (auto& kv : channelCount) {
     int channelId = kv.first;
     for (int r = 0; r < nRanks; r++) {
-      struct rasDiagChannel* myChannel = findChannelInRank(ranks[r].rh, channelId);
+      const analyzerChannelView* myChannel = findChannelInRank(ranks[r].rh, channelId);
       if (myChannel == nullptr) continue;
       int myRank = ranks[r].rank;
-      struct rasDiagPeer* dp = rasDiagFirstPeer(myChannel);
-      for (int i = 0; i < myChannel->nPeerEntries; i++) {
-        if (!dp[i].connected || dp[i].direction != 0) continue;
-        if (dp[i].connector != 1) continue;
-        int peer = dp[i].peerRank;
+      const rasDiagPeer* const* dp = myChannel->peers.data();
+      for (int i = 0; i < myChannel->state->nPeerEntries; i++) {
+        if (!dp[i]->connected || dp[i]->direction != 0) continue;
+        if (dp[i]->connector != 1) continue;
+        int peer = dp[i]->peerRank;
         if (peer <= myRank) continue;
         analyzerRankEntry key{peer, nullptr};
         analyzerRankEntry* found = static_cast<analyzerRankEntry*>(bsearch(&key, ranks, nRanks, sizeof(*ranks), rankIndexCompare));
         if (!found) continue;
-        struct rasDiagChannel* peerChannel = findChannelInRank(found->rh, channelId);
+        const analyzerChannelView* peerChannel = findChannelInRank(found->rh, channelId);
         if (!peerChannel) continue;
-        struct rasDiagPeer* peerRecv = findPeerInChannel(peerChannel, myRank, 1, dp[i].connector);
+        const rasDiagPeer* peerRecv = findPeerInChannel(peerChannel, myRank, 1, dp[i]->connector);
         if (!peerRecv) continue;
-        int cls = classifyEdge(dp[i].devStep, peerRecv->devStep, dp[i].head, peerRecv->tail);
+        int cls = classifyEdge(dp[i]->devStep, peerRecv->devStep, dp[i]->head, peerRecv->tail);
         if (cls == EDGE_ERROR) { nMismatch++; errorChannels[channelId]++; }
         else if (cls == EDGE_WARN) { nInflightWarn++; warnChannels[channelId]++; }
       }
@@ -816,15 +910,15 @@ static void analyzerCollectHangReported(uint64_t commHash, const analyzerRankEnt
   std::unordered_map<uint64_t, std::unordered_map<int, int>> agg;
   int nUnknown = 0;
   for (int r = 0; r < nRanks; r++) {
-    struct rasDiagRankHeader* rh = ranks[r].rh;
-    struct rasDiagChannel* dc = rasDiagFirstChannel(rh);
+    const analyzerRankView* rh = ranks[r].rh;
+    const analyzerChannelView* dc = rh->channels.data();
     for (int c = 0; c < rh->nChannels; c++) {
-      if (!dc->devHangReportedKernelIdxValid) {
+      if (!dc->state->devHangReportedKernelIdxValid) {
         nUnknown++;
-      } else if (dc->devHangReportedKernelIdx != 0) {
-        agg[dc->devHangReportedKernelIdx][rh->commRank]++;
+      } else if (dc->state->devHangReportedKernelIdx != 0) {
+        agg[dc->state->devHangReportedKernelIdx][rh->commRank]++;
       }
-      dc = rasDiagNextChannel(dc);
+      dc++;
     }
   }
   if (nUnknown > 0) {
@@ -842,49 +936,53 @@ static void analyzerCollectHangReported(uint64_t commHash, const analyzerRankEnt
   out.push_back({commHash, buf, false});
 }
 
-int analyzerFormatSummary(FILE* fp, const struct rasCollComms* blob) {
-  if (fp == nullptr || blob == nullptr) return -1;
+int analyzerFormatRuntimeSummary(FILE* fp, const rasDiagnosticsRuntimeRecord* records, int nRecords) {
+  if (fp == nullptr) return -1;
+  std::vector<analyzerCommView> comms;
   std::vector<analyzerSummaryMessage> byCategory[ANALYZER_CAT_COUNT];
   int errorComms[ANALYZER_CAT_COUNT] = {};
   int warnComms[ANALYZER_CAT_COUNT] = {};
 
-  const struct rasCollComms::comm* comm = blob->comms;
   int analyzed = 0;
-  for (int i = 0; i < blob->nComms; i++) {
-    if (comm->nDiagBytes > 0) {
-      std::vector<analyzerRankEntry> ranksVec(comm->nRanks);
-      analyzerRankEntry* ranks = ranksVec.data();
-      int nRanks = analyzerBuildDiagIndex(comm, ranks, comm->nRanks);
-      if (nRanks > 0) {
-        size_t previousSizes[ANALYZER_CAT_COUNT];
-        for (int cat = 0; cat < ANALYZER_CAT_COUNT; cat++) previousSizes[cat] = byCategory[cat].size();
-        uint64_t h = comm->commId.commHash;
-        analyzerCollectConnType(h, ranks, nRanks, byCategory[ANALYZER_CAT_CONN_TYPE]);
-        analyzerCollectConsistency(h, ranks, nRanks, comm->nRanks, byCategory[ANALYZER_CAT_CONSISTENCY]);
-        analyzerCollectRingGraph(h, ranks, nRanks, byCategory[ANALYZER_CAT_RING_GRAPH]);
-        analyzerCollectP2pConnect(h, ranks, nRanks, byCategory[ANALYZER_CAT_P2P_CONNECT]);
-        analyzerCollectHangReported(h, ranks, nRanks, byCategory[ANALYZER_CAT_HANG_REPORTED]);
-        // Classify per collected entry: an entry counts as ERROR only if it
-        // produced an error-severity finding; same-hash comms stay separate.
-        for (int cat = 0; cat < ANALYZER_CAT_COUNT; cat++) {
-          size_t prev = previousSizes[cat];
-          size_t now = byCategory[cat].size();
-          if (now <= prev) continue;
-          bool hasErrorFinding = false;
-          for (size_t i = prev; i < now; i++) {
-            if (!byCategory[cat][i].isWarn) hasErrorFinding = true;
+  try {
+    if (!analyzerBuildRuntimeViews(records, nRecords, &comms)) return -1;
+    for (const auto& comm : comms) {
+      if (analyzerCommUsable(fp, comm)) {
+        auto ranksVec = analyzerRankIndex(comm);
+        const auto* ranks = ranksVec.data();
+        int nRanks = (int)ranksVec.size();
+        if (nRanks > 0) {
+          size_t previousSizes[ANALYZER_CAT_COUNT];
+          for (int cat = 0; cat < ANALYZER_CAT_COUNT; cat++) previousSizes[cat] = byCategory[cat].size();
+          uint64_t h = comm.id.commHash;
+          analyzerCollectConnType(h, ranks, nRanks, byCategory[ANALYZER_CAT_CONN_TYPE]);
+          analyzerCollectConsistency(h, ranks, nRanks, comm.nRanks, byCategory[ANALYZER_CAT_CONSISTENCY]);
+          analyzerCollectRingGraph(h, ranks, nRanks, byCategory[ANALYZER_CAT_RING_GRAPH]);
+          analyzerCollectP2pConnect(h, ranks, nRanks, byCategory[ANALYZER_CAT_P2P_CONNECT]);
+          analyzerCollectHangReported(h, ranks, nRanks, byCategory[ANALYZER_CAT_HANG_REPORTED]);
+          // Classify per collected entry: an entry counts as ERROR only if it
+          // produced an error-severity finding; same-hash comms stay separate.
+          for (int cat = 0; cat < ANALYZER_CAT_COUNT; cat++) {
+            size_t prev = previousSizes[cat];
+            size_t now = byCategory[cat].size();
+            if (now <= prev) continue;
+            bool hasErrorFinding = false;
+            for (size_t i = prev; i < now; i++) {
+              if (!byCategory[cat][i].isWarn) hasErrorFinding = true;
+            }
+            if (hasErrorFinding) errorComms[cat]++;
+            else warnComms[cat]++;
           }
-          if (hasErrorFinding) errorComms[cat]++;
-          else warnComms[cat]++;
+          analyzed++;
         }
-        analyzed++;
       }
     }
-    comm = rasCollCommsCommNext(comm);
+  } catch (...) {
+    return -1;
   }
 
   if (analyzed == 0) {
-    fprintf(fp, "(no comms carried diag tier; INCLUDE_DIAG flag may not have been set)\n\n");
+    fprintf(fp, "(no usable runtime snapshots)\n\n");
     return 0;
   }
   for (int cat = 0; cat < ANALYZER_CAT_COUNT; cat++) {
@@ -904,8 +1002,16 @@ int analyzerFormatSummary(FILE* fp, const struct rasCollComms* blob) {
     }
   }
   fprintf(fp, "\n");
-  return 0;
+  return ferror(fp) ? -1 : 0;
 }
+
+struct analyzerFileHeader {
+  uint32_t magic;
+  uint32_t version;
+  int32_t nData;
+  int32_t nLegTimeouts;
+};
+static_assert(sizeof(analyzerFileHeader) == 16, "stable analyzer file header");
 
 static int analyzerBuildPath(char* buf, int n, const char* dir,
                              const char* prefix, const char* suffix) {
@@ -922,86 +1028,83 @@ static int analyzerBuildPath(char* buf, int n, const char* dir,
                   dir, prefix, hostname, (int)getpid(), ts, suffix);
 }
 
-int analyzerDumpData(const char* dir, const void* blob, int nBlobBytes, int nLegTimeouts) {
-  if (dir == nullptr || blob == nullptr || nBlobBytes <= 0) return -1;
+int analyzerDumpRuntimeData(const char* dir, const rasDiagnosticsRuntimeRecord* records,
+                            int nRecords, int nLegTimeouts) {
+  if (!dir || nLegTimeouts < 0 || nRecords < 0 ||
+      (size_t)nRecords > PCCL_RAS_ANALYZER_MAX_BLOB_SIZE / sizeof(*records)) return -1;
+  try {
+    std::vector<analyzerCommView> comms;
+    if (!analyzerBuildRuntimeViews(records, nRecords, &comms)) return -1;
+    for (const auto& comm : comms) if (comm.malformed) return -1;
+  } catch (...) {
+    return -1;
+  }
   char path[PATH_MAX + 1];
   analyzerBuildPath(path, sizeof(path), dir, "pccl_diag_data", "bin");
   FILE* fp = fopen(path, "wb");
-  if (fp == nullptr) {
-    fprintf(stderr, "analyzerDumpData: cannot open %s\n", path);
-    return -1;
-  }
-  struct { uint32_t magic; uint32_t version; int32_t nData; int32_t nLegTimeouts; } hdr =
-    { PCCL_RAS_ANALYZER_MAGIC, 1, (int32_t)nBlobBytes, (int32_t)nLegTimeouts };
-  int ok = (fwrite(&hdr, sizeof(hdr), 1, fp) == 1 &&
-            fwrite(blob, 1, nBlobBytes, fp) == (size_t)nBlobBytes) ? 0 : -1;
-  fclose(fp);
-  return ok;
+  if (!fp) return -1;
+  const size_t bytes = (size_t)nRecords * sizeof(*records);
+  analyzerFileHeader header = {PCCL_RAS_ANALYZER_MAGIC, 2, (int32_t)bytes, nLegTimeouts};
+  bool ok = fwrite(&header, sizeof(header), 1, fp) == 1;
+  if (ok && bytes) ok = fwrite(records, 1, bytes, fp) == bytes;
+  if (fclose(fp) != 0) ok = false;
+  return ok ? 0 : -1;
 }
 
-struct rasCollComms* analyzerLoadData(FILE* fp, int* outBlobBytes, int* outLegTimeouts) {
-  if (fp == nullptr) return nullptr;
-  struct { uint32_t magic; uint32_t version; int32_t nData; int32_t nLegTimeouts; } hdr;
-  if (fread(&hdr, sizeof(hdr), 1, fp) != 1) {
-    fprintf(stderr, "analyzerLoadData: failed to read header\n");
+rasDiagnosticsRuntimeRecord* analyzerLoadRuntimeData(FILE* fp, int* outNRecords, int* outLegTimeouts) {
+  if (outNRecords) *outNRecords = 0;
+  if (outLegTimeouts) *outLegTimeouts = 0;
+  analyzerFileHeader header;
+  if (!fp || fread(&header, sizeof(header), 1, fp) != 1 || header.magic != PCCL_RAS_ANALYZER_MAGIC) return nullptr;
+  if (header.version != 2) {
+    fprintf(stderr, "analyzerLoadRuntimeData: unsupported file version %u; expected version 2. "
+                    "Read historical files with the matching PCCL version.\n", (unsigned)header.version);
     return nullptr;
   }
-  if (hdr.magic != PCCL_RAS_ANALYZER_MAGIC) {
-    fprintf(stderr, "analyzerLoadData: bad magic 0x%08x (expected 0x%08x)\n", hdr.magic, PCCL_RAS_ANALYZER_MAGIC);
-    return nullptr;
-  }
-  if (hdr.version != 1) {
-    fprintf(stderr, "analyzerLoadData: unsupported version %u\n", hdr.version);
-    return nullptr;
-  }
-  if (hdr.nData <= 0 || hdr.nData > PCCL_RAS_ANALYZER_MAX_BLOB_SIZE) {
-    fprintf(stderr, "analyzerLoadData: invalid blob size %d\n", hdr.nData);
-    return nullptr;
-  }
-  char* buf = (char*)malloc(hdr.nData);
-  if (buf == nullptr) {
-    fprintf(stderr, "analyzerLoadData: out of memory (%d bytes)\n", hdr.nData);
-    return nullptr;
-  }
-  if (fread(buf, 1, (size_t)hdr.nData, fp) != (size_t)hdr.nData) {
-    fprintf(stderr, "analyzerLoadData: short read\n");
-    free(buf);
-    return nullptr;
-  }
-  if (outBlobBytes) *outBlobBytes = hdr.nData;
-  if (outLegTimeouts) *outLegTimeouts = hdr.nLegTimeouts;
-  return reinterpret_cast<struct rasCollComms*>(buf);
-}
-
-int analyzerDumpReport(const char* dir, const struct rasCollComms* blob, int nLegTimeouts) {
-  if (dir == nullptr || blob == nullptr) return -1;
-  int nCats = analyzerCategoryCount();
-  int nWritten = 0;
-  for (int cat = 0; cat < nCats; cat++) {
-    char* buf = nullptr;
-    size_t len = 0;
-    FILE* mem = open_memstream(&buf, &len);
-    if (mem == nullptr) {
-      fprintf(stderr, "analyzerDumpReport: open_memstream failed for category %s\n", analyzerCategoryName(cat));
-      continue;
+  if (header.nData < 0 || header.nData > PCCL_RAS_ANALYZER_MAX_BLOB_SIZE || header.nLegTimeouts < 0) return nullptr;
+  std::unique_ptr<char, decltype(&free)> data((char*)malloc(header.nData ? header.nData : 1), free);
+  if (!data) return nullptr;
+  size_t bytesRead = fread(data.get(), 1, header.nData, fp);
+  if (bytesRead != (size_t)header.nData || ferror(fp))
+    fprintf(stderr, "analyzerLoadRuntimeData: short read; using %zu of %d payload bytes\n", bytesRead, header.nData);
+  else if (fgetc(fp) != EOF)
+    fprintf(stderr, "analyzerLoadRuntimeData: ignoring trailing file data\n");
+  int count = bytesRead / sizeof(rasDiagnosticsRuntimeRecord);
+  if (bytesRead % sizeof(rasDiagnosticsRuntimeRecord) != 0)
+    fprintf(stderr, "analyzerLoadRuntimeData: ignoring an incomplete final record\n");
+  if (header.nData > 0 && count == 0) return nullptr;
+  try {
+    std::vector<analyzerCommView> comms;
+    if (!analyzerBuildRuntimeViews(reinterpret_cast<const rasDiagnosticsRuntimeRecord*>(data.get()), count, &comms))
+      return nullptr;
+    bool readable = count == 0, damaged = false;
+    for (const auto& comm : comms) {
+      if (comm.nRanks > 0) readable = true;
+      if (comm.malformed) damaged = true;
     }
-    analyzerFormatReport(mem, blob, nLegTimeouts, cat);
-    fclose(mem);
-    if (buf == nullptr || len == 0) { free(buf); continue; }
-    char prefix[64];
-    snprintf(prefix, sizeof(prefix), "pccl_diag_report_%s", analyzerCategoryName(cat));
-    char path[PATH_MAX + 1];
+    if (damaged) fprintf(stderr, "analyzerLoadRuntimeData: malformed rank snapshots will be skipped\n");
+    if (!readable) return nullptr;
+  } catch (...) {
+    return nullptr;
+  }
+  if (outNRecords) *outNRecords = count;
+  if (outLegTimeouts) *outLegTimeouts = header.nLegTimeouts;
+  return reinterpret_cast<rasDiagnosticsRuntimeRecord*>(data.release());
+}
+
+int analyzerDumpRuntimeReport(const char* dir, const rasDiagnosticsRuntimeRecord* records,
+                              int nRecords, int nLegTimeouts) {
+  if (!dir) return -1;
+  int written = 0;
+  for (int category = 0; category < ANALYZER_CAT_COUNT; category++) {
+    char path[PATH_MAX + 1], prefix[64];
+    snprintf(prefix, sizeof(prefix), "pccl_diag_report_%s", analyzerCategoryName(category));
     analyzerBuildPath(path, sizeof(path), dir, prefix, "log");
     FILE* fp = fopen(path, "w");
-    if (fp == nullptr) {
-      fprintf(stderr, "analyzerDumpReport: cannot open %s\n", path);
-      free(buf);
-      continue;
-    }
-    fputs(buf, fp);
-    fclose(fp);
-    free(buf);
-    nWritten++;
+    if (!fp) continue;
+    int result = analyzerFormatRuntimeReport(fp, records, nRecords, nLegTimeouts, category, nullptr);
+    if (fclose(fp) != 0) result = -1;
+    if (result == 0) written++;
   }
-  return nWritten;
+  return written;
 }

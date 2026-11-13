@@ -11,11 +11,19 @@
 
 #include <cstdio>
 
-#include "ras_wire.h"
+#include "diagnostics_runtime.h"
 
-int analyzerFormatReport(FILE* fp, const struct rasCollComms* blob, int nLegTimeouts,
-                     int singleCategory, const char* title = nullptr);
-int analyzerFormatSummary(FILE* fp, const struct rasCollComms* blob);
+// The input remains owned by the caller. Views into records only live for this call.
+// Analyze available rank snapshots; reports identify incomplete coverage.
+int analyzerFormatRuntimeReport(FILE* fp, const struct rasDiagnosticsRuntimeRecord* records, int nRecords,
+                                int nLegTimeouts, int singleCategory, const char* title = nullptr);
+int analyzerFormatRuntimeSummary(FILE* fp, const struct rasDiagnosticsRuntimeRecord* records, int nRecords);
+int analyzerDumpRuntimeData(const char* dir, const struct rasDiagnosticsRuntimeRecord* records,
+                            int nRecords, int nLegTimeouts);
+// Reads native v2 records. The returned array is malloc-owned; free it after use.
+struct rasDiagnosticsRuntimeRecord* analyzerLoadRuntimeData(FILE* fp, int* outNRecords, int* outLegTimeouts);
+int analyzerDumpRuntimeReport(const char* dir, const struct rasDiagnosticsRuntimeRecord* records,
+                              int nRecords, int nLegTimeouts);
 
 int analyzerConnTypeFromString(const char* s, int peer);
 
@@ -26,9 +34,5 @@ bool analyzerTimeArgValid(const char* s);
 int analyzerFormatReportFromCommDumps(FILE* fp, const char* dir, int round = 1,
                                       const char* timeStr = nullptr,
                                       int* outFilesParsed = nullptr);
-
-int analyzerDumpData(const char* dir, const void* blob, int nBlobBytes, int nLegTimeouts);
-struct rasCollComms* analyzerLoadData(FILE* fp, int* outBlobBytes, int* outLegTimeouts);
-int analyzerDumpReport(const char* dir, const struct rasCollComms* blob, int nLegTimeouts);
 
 #endif

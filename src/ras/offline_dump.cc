@@ -15,6 +15,7 @@
 #include <cstring>
 #include <dirent.h>
 #include <map>
+#include <new>
 #include <string>
 #include <sys/stat.h>
 #include <utility>
@@ -422,67 +423,63 @@ static void fillDiagChannel(const offlineChannel& oc, struct rasDiagChannel* dc)
   dc->fcConnType = RAS_DIAG_CONN_NONE; // Not carried by the rough dump; NONE passes the conntype check.
 }
 
-// Must mirror buildBlobFromGroup's write caps exactly (channel and peer
-// truncation); otherwise nDiagBytes over-reports the bytes actually written.
-static size_t diagRankSize(const offlineRank& r) {
-  size_t sz = sizeof(struct rasDiagRankHeader);
-  size_t nChannels = std::min<size_t>(r.channels.size(), MAXCHANNELS);
-  for (size_t c = 0; c < nChannels; c++) {
-    const offlineChannel& oc = r.channels[c];
-    sz += sizeof(struct rasDiagChannel);
-    sz += std::min<size_t>(oc.peers.size(), 1000000) * sizeof(struct rasDiagPeer);
+// Rough dumps carry the same rank/channel/connection fields as live diagnostics;
+// expand them directly into the shared records without an intermediate wire blob.
+static bool buildRuntimeRecordsFromGroup(uint64_t commHash, const std::map<int, offlineRank>& byRank,
+                                         int nRanks, std::vector<rasDiagnosticsRuntimeRecord>* records) {
+  const size_t maxRecords = INT32_MAX / sizeof(rasDiagnosticsRuntimeRecord);
+  size_t nRecords = byRank.size();
+  if (nRecords == 0 || nRecords > maxRecords) return false;
+  for (const auto& kv : byRank) {
+    size_t nChannels = std::min<size_t>(kv.second.channels.size(), MAXCHANNELS);
+    for (size_t c = 0; c < nChannels; c++) {
+      size_t count = 1 + std::min<size_t>(kv.second.channels[c].peers.size(), 1000000);
+      if (count > maxRecords - nRecords) return false;
+      nRecords += count;
+    }
   }
-  return sz;
-}
+  try {
+    records->clear();
+    records->resize(nRecords);
+  } catch (const std::bad_alloc&) {
+    return false;
+  }
 
-static struct rasCollComms* buildBlobFromGroup(uint64_t commHash,
-                                               const std::map<int, offlineRank>& byRank,
-                                               int nRanks) {
-  typedef struct rasCollComms::comm::rank blobRank_t;
-  int nValid = (int)byRank.size();
-  size_t diagBytes = 0;
-  for (const auto& kv : byRank) diagBytes += diagRankSize(kv.second);
-  size_t total = sizeof(struct rasCollComms)
-               + sizeof(struct rasCollComms::comm)
-               + (size_t)nValid * sizeof(blobRank_t)
-               + diagBytes;
-  if (diagBytes == 0 || total > (size_t)INT32_MAX) return nullptr;
-
-  char* buf = (char*)calloc(1, total);
-  if (buf == nullptr) return nullptr;
-
-  auto* blob = (struct rasCollComms*)buf;
-  blob->nComms = 1;
-  auto* comm = (struct rasCollComms::comm*)(buf + sizeof(struct rasCollComms));
-  comm->commId.commHash = commHash;
-  comm->nRanks = nRanks > 0 ? nRanks : nValid;
-  comm->nValidRanks = nValid;
-  comm->nMissingRanks = 0;
-  comm->nDiagBytes = (int)diagBytes;
-
-  auto* ranksArr = (blobRank_t*)((char*)comm + sizeof(*comm));
-  char* cursor = (char*)ranksArr + (size_t)nValid * sizeof(blobRank_t);
-  int i = 0;
+  size_t next = 0;
   for (const auto& kv : byRank) {
     const offlineRank& orank = kv.second;
-    ranksArr[i].commRank = orank.rank;
-    ranksArr[i].hggcDev = (char)orank.hggcDev;
-    i++;
+    struct rasDiagnosticsRankHeader identity = {};
+    identity.commId.commHash = commHash;
+    identity.commRank = orank.rank;
+    identity.commNRanks = nRanks;
+    int nChannels = (int)std::min<size_t>(orank.channels.size(), MAXCHANNELS);
 
-    auto* rh = (struct rasDiagRankHeader*)cursor;
-    rh->wireVersion = RAS_DIAG_WIRE_VERSION;
-    rh->commRank = orank.rank;
-    rh->nChannels = (int)std::min<size_t>(orank.channels.size(), MAXCHANNELS);
-    cursor += sizeof(*rh);
-    for (size_t c = 0; c < (size_t)rh->nChannels; c++) {
+    auto& rankRecord = (*records)[next++];
+    rankRecord.rank = identity;
+    rankRecord.type = RAS_DIAG_RUNTIME_RANK;
+    rankRecord.channelId = -1;
+    rankRecord.value.rankData.version = RAS_DIAG_RUNTIME_WIRE_VERSION;
+    rankRecord.value.rankData.availability = RAS_DIAG_RUNTIME_AVAILABLE;
+    rankRecord.value.rankData.nChannels = nChannels;
+    rankRecord.value.rankData.hggcDev = orank.hggcDev;
+    rankRecord.value.rankData.hgmlDev = -1; // Not present in the text dump.
+
+    for (int c = 0; c < nChannels; c++) {
       const offlineChannel& oc = orank.channels[c];
-      auto* dc = (struct rasDiagChannel*)cursor;
-      fillDiagChannel(oc, dc);
-      cursor += sizeof(*dc);
       size_t nPeers = std::min<size_t>(oc.peers.size(), 1000000);
+      auto& channelRecord = (*records)[next++];
+      channelRecord.rank = identity;
+      channelRecord.type = RAS_DIAG_RUNTIME_CHANNEL;
+      channelRecord.channelId = oc.channelId;
+      fillDiagChannel(oc, &channelRecord.value.channel);
+      channelRecord.value.channel.nPeerEntries = (int)nPeers;
       for (size_t pIdx = 0; pIdx < nPeers; pIdx++) {
         const offlinePeer& pe = oc.peers[pIdx];
-        auto* dp = (struct rasDiagPeer*)cursor;
+        auto& connectionRecord = (*records)[next++];
+        connectionRecord.rank = identity;
+        connectionRecord.type = RAS_DIAG_RUNTIME_CONNECTION;
+        connectionRecord.channelId = oc.channelId;
+        auto* dp = &connectionRecord.value.connection;
         dp->peerRank = pe.peerRank;
         dp->connector = pe.connector;
         dp->direction = pe.direction;
@@ -490,13 +487,10 @@ static struct rasCollComms* buildBlobFromGroup(uint64_t commHash,
         dp->head = pe.head;
         dp->tail = pe.tail;
         dp->devStep = pe.devStep;
-        cursor += sizeof(*dp);
       }
-      dc->nPeerEntries = (int)nPeers;
     }
-    rh->totalBytes = (uint32_t)(cursor - (char*)rh);
   }
-  return blob;
+  return true;
 }
 
 }  // namespace
@@ -644,9 +638,9 @@ int analyzerFormatReportFromCommDumps(FILE* fp, const char* dir, int round, cons
       continue;
     }
 
-    struct rasCollComms* blob = buildBlobFromGroup(kv.first.first, chosen, g.nRanks);
-    if (blob == nullptr) {
-      fprintf(stderr, "WARN: comm 0x%lx: failed to build diag blob\n", (unsigned long)kv.first.first);
+    std::vector<rasDiagnosticsRuntimeRecord> records;
+    if (!buildRuntimeRecordsFromGroup(kv.first.first, chosen, g.nRanks, &records)) {
+      fprintf(stderr, "WARN: comm 0x%lx: failed to build diagnostics records\n", (unsigned long)kv.first.first);
       continue;
     }
     fprintf(fp, "\n========== comm 0x%lx : %d/%d rank dump(s)",
@@ -677,9 +671,9 @@ int analyzerFormatReportFromCommDumps(FILE* fp, const char* dir, int round, cons
               nPeersUnavailable, (int)chosen.size());
     }
     fprintf(fp, "  [NOTE] rough dumps do not carry the fc connection type; fc legs of the ConnType check are unverified\n");
-    analyzerFormatReport(fp, blob, /*nLegTimeouts*/0, /*singleCategory*/-1,
-                         "PCCL Offline Comm-Dump Analyzer Report");
-    free(blob);
+    if (analyzerFormatRuntimeReport(fp, records.data(), (int)records.size(), /*nLegTimeouts*/0,
+                                    /*singleCategory*/-1, "PCCL Offline Comm-Dump Analyzer Report") != 0)
+      continue;
     nAnalyzed++;
   }
   if (nAnalyzed == 0 && !groups.empty()) {

@@ -428,7 +428,7 @@ static ncclResult_t dumpRoughComm(ncclComm_t comm, char* commDumpRoughFile, pccl
   if (collector && collector->initRankDiagHeader) collector->initRankDiagHeader(collector->ctx, comm);
 
   fprintf(roughDumpFile, "%stotalKernelNum:%lu ", indentStr, comm->kernelNum);
-  // Match the online diag snapshot (rasDiagSnapshotInto): P2P may initialize
+  // Match on-demand runtime sampling: P2P may initialize
   // channels beyond comm->nChannels (ncclTopoComputeP2pChannels), so dump
   // every initialized channel instead of only the coll ones.
   for (int c=0; c<MAXCHANNELS; c++) {
