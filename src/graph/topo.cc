@@ -423,9 +423,12 @@ PCCL_PARAM(DoubleEicPciWidthDisable, "DOUBLE_EIC_PCI_WIDTH_DISABLE", 0);
 ncclResult_t ncclTopoAddPci(struct ncclXmlNode* xmlPci, struct ncclTopoSystem* system, struct ncclTopoNode* parent, int systemId, int numaId) {
   const char* str;
 
-  int type;
+  int type = NIC;
+  struct ncclXmlNode* xmlNic = NULL;
+  NCCLCHECK(xmlGetSub(xmlPci, "nic", &xmlNic));
   NCCLCHECK(xmlGetAttrStr(xmlPci, "class", &str));
-  NCCLCHECK(kvConvertToInt(str, &type, kvDictPciClass));
+  // Selected NICs can have an unclassified PCI class (e.g. erdma's 0x00ff00).
+  if (xmlNic == NULL) NCCLCHECK(kvConvertToInt(str, &type, kvDictPciClass));
 
   int64_t busId;
   NCCLCHECK(xmlGetAttrStr(xmlPci, "busid", &str));
@@ -443,8 +446,6 @@ ncclResult_t ncclTopoAddPci(struct ncclXmlNode* xmlPci, struct ncclTopoSystem* s
     NCCLCHECK(ncclTopoCreateNode(system, &node, type, NCCL_TOPO_ID(systemId, busId)));
     NCCLCHECK(ncclTopoAddGpu(xmlGpu, system, node, systemId));
   }
-  struct ncclXmlNode* xmlNic = NULL;
-  NCCLCHECK(xmlGetSub(xmlPci, "nic", &xmlNic));
   if (xmlNic != NULL) {
     type = NIC;
     // Ignore sub device ID and merge multi-port NICs into one PCI device.
