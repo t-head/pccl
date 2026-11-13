@@ -1,0 +1,17 @@
+{
+  "classification": {
+    "base_sha": "b2218469d68f21ca4d4822c8ba357154eb955849",
+    "head_sha": "f1a0dfbd44d846d1a6bb34df7abdf35aa90b585c",
+    "input_fingerprint": "a49063aec9f8dd9780a64065d24cb80a8116597bec65de7e9bd231e67b90df63",
+    "pr_number": 185,
+    "proposal": {
+      "modules": [
+        "ci"
+      ],
+      "reason": "Main change is CI/test automation: a new experimental M890P daily workflow, bounded artifact-download retries, run-scoped cache/group staging and reconciliation scripts, plus daily smoke/full CSV datasets (including patch_omitted standard.csv) and related CI contract tests/docs. The build.sh update only supports CI artifact contents (CommAbort in test artifact), not PCCL runtime/build-system behavior."
+    }
+  },
+  "reviewers": {
+    "ci": 333302477
+  }
+}
