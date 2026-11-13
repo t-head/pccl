@@ -2,13 +2,13 @@
   "classification": {
     "base_sha": "b2218469d68f21ca4d4822c8ba357154eb955849",
     "head_sha": "b3ca9c0e1f6532a2af52bd9e7b9079ad3f3f1fec",
-    "input_fingerprint": "d8e2729162684d288918a4b2035726e35a93b4b9871ee8bf210d62551743d6c3",
+    "input_fingerprint": "5bc292625a7f5507729a4c493481b7935749b79e5d2442832e9e59fdeeab5c38",
     "pr_number": 185,
     "proposal": {
       "modules": [
         "ci"
       ],
-      "reason": "Main change is CI/test automation: a new experimental M890P daily workflow with grouped execution, artifact/cache validation and retry logic, plus updates to source-sanity artifact downloads and xtest tooling/reconciliation that support test selection and reporting. The large daily full CSV (patch omitted) is part of CI test input data/export scope, with no evidence of PCCL runtime module behavior changes."
+      "reason": "Main change is CI/test orchestration: a new experimental daily M890P workflow, shared artifact/case-group caching with bounded download retries, grouped execution and reconciliation scripts/tests, and CI workflow wiring updates. The large omitted patch in daily-full-csv/standard.csv is still CI test input data (case catalog), not PCCL runtime logic."
     }
   },
   "reviewers": {
