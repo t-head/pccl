@@ -65,3 +65,8 @@ grouping and public input consumer accept the generated bundles.
 Only these two families are covered. Other Suites still use their existing
 exports, and no generated Python Case files are produced. Hardware validation
 is limited to the explicitly triggered generated smoke dataset.
+
+Workflow run `43447932105` generated two smoke Cases during prepare, passed both
+single-node hardware Cases, retained the two-family generation manifest in the
+Case-groups artifact, and completed exact reconciliation and NAS cleanup. No
+generated-full hardware run was started.
