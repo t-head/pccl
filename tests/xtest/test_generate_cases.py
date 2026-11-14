@@ -226,13 +226,14 @@ class PublicGeneratorTests(unittest.TestCase):
 
     def test_workflow_generates_explicit_datasets_before_grouping(self):
         workflow = (ROOT.parent.parent / ".github/workflows/m890p-daily-full.yml").read_text()
-        self.assertIn('options: [smoke, full, generated-smoke, generated-full, generated-native-smoke, generated-native-full]', workflow)
+        self.assertIn('options: [smoke, full, generated-smoke, generated-full, generated-native-smoke, generated-native-full, generated-native-extra-full]', workflow)
         self.assertIn('tests/xtest/generate_cases.py', workflow)
         self.assertIn('--definition tests/xtest/test_lists/op_perf_shm.json', workflow)
         self.assertIn('--definition tests/xtest/test_lists/postsil_daily_shm.json', workflow)
         for family in ALL_FAMILIES:
             self.assertIn(f'tests/xtest/test_lists/{family}.json', workflow)
         self.assertIn('tests/xtest/test_lists/native_unit_test_shm.json', workflow)
+        self.assertIn('tests/xtest/test_lists/native_extra_unit_test_shm.json', workflow)
         self.assertIn('if [[ "$DATASET" == generated-full ]]', workflow)
         self.assertIn("--output generated-case-input", workflow)
         self.assertIn("case-groups/generation.json", workflow)

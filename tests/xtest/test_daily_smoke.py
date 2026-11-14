@@ -164,12 +164,16 @@ class DailySmokeTests(unittest.TestCase):
         self.assertIn('${NATIVE_UNIT_BUILD}/hggcGraphUnitTest', text)
         self.assertIn('cp ${NATIVE_UNIT_BUILD}/collPcclUnitTest ${source_home}/pccl-tests/build/', text)
         self.assertIn('cp ${NATIVE_UNIT_BUILD}/hggcGraphUnitTest ${source_home}/pccl-tests/build/', text)
+        for binary in ('sendRecvPcclUnitTest', 'pcclCommShrinkTest',
+                       'pcclCommMemManagerTest', 'pcclGroupSimulateEndTest'):
+            self.assertIn('${NATIVE_UNIT_BUILD}/' + binary, text)
+            self.assertIn('cp ${NATIVE_UNIT_BUILD}/' + binary + ' ${source_home}/pccl-tests/build/', text)
 
     def test_full_workflow_is_grouped_daily_execution_not_a_pr_gate(self):
         text = FULL_WORKFLOW.read_text()
         self.assertIn('workflow_dispatch:', text)
         self.assertIn('paths: [.github/workflows/m890p-daily-full.yml]', text)
-        self.assertIn('options: [smoke, full, generated-smoke, generated-full, generated-native-smoke, generated-native-full]', text)
+        self.assertIn('options: [smoke, full, generated-smoke, generated-full, generated-native-smoke, generated-native-full, generated-native-extra-full]', text)
         self.assertIn('default: smoke', text)
         self.assertIn('default: 500', text)
         self.assertIn("DAILY_ALLOWED_NODES: '1,2,4'", text)

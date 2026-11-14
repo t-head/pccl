@@ -1,0 +1,70 @@
+{
+  "schema_version": 2,
+  "family": "native_extra_unit_test_shm",
+  "defaults": {
+    "check": "exit_code",
+    "case_name": "test_native_extra_{group_name}_{index}"
+  },
+  "axes": {
+    "mode": ["single", "thread"],
+    "start_dev_id": [0],
+    "num_elems": [32],
+    "num_iterations": [2],
+    "blocking": [0, 1],
+    "ngpus": [2, 4],
+    "iters": [2],
+    "count": [1024],
+    "print_cycles": [1],
+    "op_list": ["all_reduce", "all_reduce,all_gather,reduce_scatter"],
+    "begin": [32],
+    "end": [1024],
+    "factor": [4],
+    "index": [0]
+  },
+  "layouts": {
+    "native": [
+      {"name": "single_node", "values": {}}
+    ]
+  },
+  "bindings": {
+    "1": {"plan": "pccl_native_unit_test_single_node_plan", "suite": "native_unit_test_shm_single_node_suite"}
+  },
+  "groups": [
+    {
+      "name": "sendrecv", "nodes": [1], "layout_set": "native",
+      "axes": ["mode", "start_dev_id", "num_elems", "num_iterations"],
+      "case_name": "test_sendRecvPcclUnitTest_{mode}_start_{start_dev_id}_elems_{num_elems}_iters_{num_iterations}",
+      "command": "{binary_dir}/sendRecvPcclUnitTest --mode={mode} --start_dev_id={start_dev_id} --num_elems={num_elems} --num_iterations={num_iterations}"
+    },
+    {
+      "name": "shrink", "nodes": [1], "layout_set": "native",
+      "axes": ["blocking"],
+      "case_name": "test_pcclCommShrinkTest_blocking_{blocking}",
+      "command": "mpirun --allow-run-as-root -np 2 -npernode 2 -mca btl_tcp_if_include {mpi_interface} -mca btl ^openib -mca btl_openib_warn_no_device_params_found 0 {binary_dir}/pcclCommShrinkTest --blocking={blocking} --exclude_ranks 0"
+    },
+    {
+      "name": "mem_manager", "nodes": [1], "layout_set": "native",
+      "axes": ["ngpus", "iters", "count", "print_cycles"],
+      "case_name": "test_pcclCommMemManagerTest_gpus_{ngpus}_iters_{iters}_count_{count}",
+      "command": "{binary_dir}/pcclCommMemManagerTest --ngpus={ngpus} --iters={iters} --count={count} --print-cycles={print_cycles}"
+    },
+    {
+      "name": "simulate_single", "nodes": [1], "layout_set": "native",
+      "axes": ["op_list", "begin", "end", "factor"],
+      "select": {"op_list": ["all_reduce"], "begin": [32], "end": [1024], "factor": [4]},
+      "case_name": "test_pcclGroupSimulateEndTest_all_reduce_gpus_2",
+      "command": "{binary_dir}/pcclGroupSimulateEndTest -g 2 --op_list {op_list} -b {begin} -e {end} -f {factor}"
+    },
+    {
+      "name": "simulate_multi", "nodes": [1], "layout_set": "native",
+      "axes": ["op_list", "begin", "end", "factor"],
+      "select": {"op_list": ["all_reduce,all_gather,reduce_scatter"], "begin": [32], "end": [1024], "factor": [4]},
+      "case_name": "test_pcclGroupSimulateEndTest_all_reduce_all_gather_reduce_scatter_gpus_4",
+      "command": "{binary_dir}/pcclGroupSimulateEndTest -g 4 --op_list {op_list} -b {begin} -e {end} -f {factor}"
+    }
+  ],
+  "profiles": {
+    "full": {},
+    "smoke": {}
+  }
+}

@@ -85,10 +85,18 @@ make -C ${source_home}/pccl/tests/unit_test/src \
   BUILDDIR=${NATIVE_UNIT_BUILD} \
   ${NATIVE_UNIT_BUILD}/pcclCommAbortTest \
   ${NATIVE_UNIT_BUILD}/collPcclUnitTest \
-  ${NATIVE_UNIT_BUILD}/hggcGraphUnitTest
+  ${NATIVE_UNIT_BUILD}/hggcGraphUnitTest \
+  ${NATIVE_UNIT_BUILD}/sendRecvPcclUnitTest \
+  ${NATIVE_UNIT_BUILD}/pcclCommShrinkTest \
+  ${NATIVE_UNIT_BUILD}/pcclCommMemManagerTest \
+  ${NATIVE_UNIT_BUILD}/pcclGroupSimulateEndTest
 cp ${NATIVE_UNIT_BUILD}/pcclCommAbortTest ${source_home}/pccl-tests/build/
 cp ${NATIVE_UNIT_BUILD}/collPcclUnitTest ${source_home}/pccl-tests/build/
 cp ${NATIVE_UNIT_BUILD}/hggcGraphUnitTest ${source_home}/pccl-tests/build/
+cp ${NATIVE_UNIT_BUILD}/sendRecvPcclUnitTest ${source_home}/pccl-tests/build/
+cp ${NATIVE_UNIT_BUILD}/pcclCommShrinkTest ${source_home}/pccl-tests/build/
+cp ${NATIVE_UNIT_BUILD}/pcclCommMemManagerTest ${source_home}/pccl-tests/build/
+cp ${NATIVE_UNIT_BUILD}/pcclGroupSimulateEndTest ${source_home}/pccl-tests/build/
 
 echo "######################### $(date +%Y%m%d%H%M%S) Collect final output ##########################"
 mv ${source_home}/pccl ${build_output}

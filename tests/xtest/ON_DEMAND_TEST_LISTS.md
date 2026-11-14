@@ -67,6 +67,9 @@ The experimental branch adds two explicit `workflow_dispatch` choices:
   `generated-full`.
 - `generated-native-full`: all 27 direct native Cases. This is a validation
   dataset and does not run the legacy 1,640 Cases.
+- `generated-native-extra-full`: eight additional public native Cases covering
+  send/recv, communicator shrink, memory management and group simulation.
+  These Cases are not included in `generated-full` until they pass on hardware.
 
 The existing `smoke` and `full` datasets and the 22:00 Asia/Shanghai schedule
 are unchanged. The schedule still selects the legacy `full` dataset; no
