@@ -14,7 +14,7 @@ on:
         required: true
         default: smoke
         type: choice
-        options: [smoke, full, generated-smoke, generated-full, generated-native-smoke]
+        options: [smoke, full, generated-smoke, generated-full, generated-native-smoke, generated-native-full]
       max_cases_per_group:
         description: Maximum Cases in each automatic same-environment shard
         required: true
@@ -87,10 +87,12 @@ jobs:
           python3 -S -B -m unittest discover -s tests/xtest -p 'test_daily_reconcile.py' -v
           python3 -S -B -m unittest discover -s tests/xtest -p 'test_generate_cases.py' -v
           GENERATED_INPUT=
-          if [[ "$DATASET" == generated-smoke || "$DATASET" == generated-full || "$DATASET" == generated-native-smoke ]]; then
+          if [[ "$DATASET" == generated-smoke || "$DATASET" == generated-full || "$DATASET" == generated-native-smoke || "$DATASET" == generated-native-full ]]; then
             GENERATION_PROFILE=${DATASET#generated-}
             if [[ "$DATASET" == generated-native-smoke ]]; then
               GENERATION_PROFILE=smoke
+            elif [[ "$DATASET" == generated-native-full ]]; then
+              GENERATION_PROFILE=full
             fi
             GENERATE_NODES=()
             if [[ -n "$NODES" ]]; then
@@ -100,7 +102,7 @@ jobs:
               --definition tests/xtest/test_lists/op_perf_shm.json
               --definition tests/xtest/test_lists/postsil_daily_shm.json
             )
-            if [[ "$DATASET" == generated-native-smoke ]]; then
+            if [[ "$DATASET" == generated-native-smoke || "$DATASET" == generated-native-full ]]; then
               GENERATED_DEFINITIONS=(--definition tests/xtest/test_lists/native_unit_test_shm.json)
             fi
             if [[ "$DATASET" == generated-full ]]; then
@@ -146,7 +148,8 @@ jobs:
           from artifact_cache import PCCL_TESTS_REVISION, RUNNER_HASHES
 
           dataset = os.environ['DATASET']
-          if dataset not in ('smoke', 'full', 'generated-smoke', 'generated-full', 'generated-native-smoke'):
+          if dataset not in ('smoke', 'full', 'generated-smoke', 'generated-full',
+                             'generated-native-smoke', 'generated-native-full'):
               raise ValueError('Unsupported daily dataset')
           if dataset.startswith('generated-'):
               input_directory = Path(os.environ['GENERATED_INPUT'])

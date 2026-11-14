@@ -64,6 +64,8 @@ The experimental branch adds two explicit `workflow_dispatch` choices:
   simple_test Case in a single execution group. The native family currently
   generates 27 Cases in its full profile but is not yet included in
   `generated-full`.
+- `generated-native-full`: all 27 direct native Cases. This is a validation
+  dataset and does not run the legacy 1,640 Cases.
 
 The existing `smoke` and `full` datasets and the 22:00 Asia/Shanghai schedule
 are unchanged. The schedule still selects the legacy `full` dataset; no
