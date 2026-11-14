@@ -455,8 +455,8 @@ __device__ void ncclKernelMain(struct ncclDevKernelArgs const* args)  {
 #if NCCL_OP == 0
 #if defined(__HGGC_ARCH__) && __HGGC_ARCH__ == 150
 // relax max vreg limit for ppu1.5. (640, 2) -> 96, (640, 1) -> 168, (896, 1) -> 128
-#define NCCL_KERN_LAUNCH_BOUNDS_MAX_NTHREADS 896
-#define NCCL_KERN_LAUNCH_BOUNDS_MIN_NBLOCKS 1
+#define NCCL_KERN_LAUNCH_BOUNDS_MAX_NTHREADS 640
+#define NCCL_KERN_LAUNCH_BOUNDS_MIN_NBLOCKS 2
 #define IMPL_COLL_KERN(func, algo, proto, devredop, type, fIndex) \
 __global__ void __launch_bounds__(NCCL_KERN_LAUNCH_BOUNDS_MAX_NTHREADS, NCCL_KERN_LAUNCH_BOUNDS_MIN_NBLOCKS) \
   NCCL_KERN_NAME(func, algo, proto, devredop, type)(ncclDevKernelArgs1K const args4K) { \
