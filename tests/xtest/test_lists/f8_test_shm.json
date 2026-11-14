@@ -96,5 +96,15 @@
   "profiles": {
     "full": {},
     "smoke": {"filters": {"operation": ["all_gather_perf"], "dtype": ["f8e4m3"]}}
+  },
+  "provenance": {
+    "source_revision": "1f7d18a5058c93982b387cb34f2b1f80bcb92c6c",
+    "source_selection": "m890p_daily_standard_full",
+    "source_case_count": 20,
+    "source_rows_sha256": "55b16938d898c8abcdb10708fec96e3f9cef6a72aa39490105f53d420d5fc08f",
+    "source_suites": [
+      "pccl_shm_f8_test_plan/f8_test_shm_single_node_suite"
+    ],
+    "validation": "exact-real-runner-capture"
   }
 }

@@ -1,0 +1,104 @@
+{
+  "case_count": 8899,
+  "case_rows_sha256": "05a177c06f27a7ecc41febc2e60abc9244a41b8beb3dfb71d2ee5ff9c0eb1bda",
+  "csv_inputs_used": false,
+  "csv_outputs_written": false,
+  "environments": {
+    "device_api_single.env": "0c4533d5c669d7156bbf1e8fb284c2f1f949b76a929db73ded349a1e4f0a47b1",
+    "op_perf.env": "80092822049d659ced40836f75e683dd582b4e322b5bc4e7734f621e284b4d5b",
+    "sanity_m890p.env": "fc1eaed813ed1b59febfe458aedcd5b88750206a08de4d14b01b95507a616443"
+  },
+  "families": [
+    {
+      "case_count": 54,
+      "definition_sha256": "574a3370e0e351e95886462e72492c5cd8053793045f9e81832ca09eeaebfcf1",
+      "family": "op_perf_shm",
+      "source_rows_sha256": "84b060f595e4797fb080199fd2f8d7982952d853dc46139cc9348af52083c126"
+    },
+    {
+      "case_count": 3940,
+      "definition_sha256": "3d014a76d3f97f10ce4d0615ba2cc1e1ad7fb0fb7346ffacd2011f415afcacf6",
+      "family": "postsil_daily_shm",
+      "source_rows_sha256": "5d69c93e7360e2f5fe650b105c221707301edeb1f7055214f15712af260217ad"
+    },
+    {
+      "case_count": 4090,
+      "definition_sha256": "210e7708a4d6fc2c0a62421289091dee7ae7d5e5a289fa4e814182c041a0f81c",
+      "family": "pccl_fun_rdma_shm",
+      "source_rows_sha256": "10f6e5e3f03f207bf0cf048384fd7deaaf9871947d921b9777f2ebbbb4d76433"
+    },
+    {
+      "case_count": 354,
+      "definition_sha256": "6fdf6f0d95221437831434934971ce6cdc2c82cf3c86fe3b308b2b8f52121a6d",
+      "family": "register_test_shm",
+      "source_rows_sha256": "3c97e6b9deddbda9d98923fd6f55dee07d1d741a308369f0a4fc82e7427bfb09"
+    },
+    {
+      "case_count": 9,
+      "definition_sha256": "3f364f6a0fe90639ce75824f89b67f08be060051d859f83d0927befc87e7384d",
+      "family": "sanity_m890p_register",
+      "source_rows_sha256": "339185c7e01bcf945d66c42777b40634b9992fe989943f2eaeec7447ec04e234"
+    },
+    {
+      "case_count": 127,
+      "definition_sha256": "ec2b0652ff7035db9e3c6f8acb3162d65704c97e472ea467d8280622c6b2220d",
+      "family": "sym_test_shm",
+      "source_rows_sha256": "f32fd0649d8d554a768e2c0c862bc93f1364d50839d25fa4a14be6570f236f2c"
+    },
+    {
+      "case_count": 20,
+      "definition_sha256": "b1b62c7278e0daa5167aa45be50eec726da92a2820017c75f60a3008fc4b7253",
+      "family": "f8_test_shm",
+      "source_rows_sha256": "55b16938d898c8abcdb10708fec96e3f9cef6a72aa39490105f53d420d5fc08f"
+    },
+    {
+      "case_count": 52,
+      "definition_sha256": "efa7c5e99222eff194c3a0dd844a48abeb6b9f958f552af74ff420189ed327d5",
+      "family": "device_api_shm",
+      "source_rows_sha256": "6525076417b0f40d3b041a15a375df1e4e98d7c26051f8633dda9d0dd83550c2"
+    },
+    {
+      "case_count": 60,
+      "definition_sha256": "34ba41fa0dc5be015ad7bc977d797e1ac5373aaecd97dd128ed0d4c5a6d6a446",
+      "family": "local_register_perf_shm",
+      "source_rows_sha256": "73d575480e3afcb8d539497595af1a2efdd6c34bd50f2b2cef5c173c44e31fee"
+    },
+    {
+      "case_count": 90,
+      "definition_sha256": "5e9d59b2a183cf50eaa5c118fa125aa0707b791f3f555e9e07ac98c11f8202c4",
+      "family": "symetric_perf_shm",
+      "source_rows_sha256": "525d5bc7308054a51955bdc032ac0c05682b2090ac8ac080f4b5e3ba6c1e1068"
+    },
+    {
+      "case_count": 33,
+      "definition_sha256": "3843e27e80d3f16acf4fb486224ba520a632fd81d0be2d12c5c839a114b777a9",
+      "family": "copyengine_perf_shm",
+      "source_rows_sha256": "a3fbd32fdd362b22d359c63c8dbac019765b8d38318a28c797d5bea220abd29a"
+    },
+    {
+      "case_count": 36,
+      "definition_sha256": "9acfe2879fc5a5f843e3cce5bff44102000d3b1664bd3f6ccbaea6bdc5ce9719",
+      "family": "op_perf_shm_2_rack",
+      "source_rows_sha256": "2b4b40f6419067f105d3b39580cccc1015852f7b77c49a302eb0263cde9df7b6"
+    },
+    {
+      "case_count": 18,
+      "definition_sha256": "6f844a00d57cf765cba304e66f06d58958f29579323f2805f6fe26f23f07c3b2",
+      "family": "op_perf_rdma_shm",
+      "source_rows_sha256": "783688ed3aa3d2c66bd7e86d9176f0205f536457251d737de51830d06c0d6417"
+    },
+    {
+      "case_count": 16,
+      "definition_sha256": "e8ab6c20c15054a3ca588325fbdebebca2368851ef3952a4850bbc6246a30114",
+      "family": "commabort_test_shm",
+      "source_rows_sha256": "c5ead5aaeb72d1f6db9b3497212fa6f330c1a10aba1d009a2da8cf26636b8f25"
+    }
+  ],
+  "runner_revision": "394556512e87259e9ffa25225632c46b0a0bbcd5",
+  "schema_version": 1,
+  "selection": "m890p_daily_standard_full",
+  "source_revision": "1f7d18a5058c93982b387cb34f2b1f80bcb92c6c",
+  "suite_count": 34,
+  "suite_definitions_sha256": "df65257a11aee4a987aab8a0495485d2ec4968dcb1dfd1a5f6bd3396a488dfef",
+  "suites_sha256": "b52fb1f39ab86a5e1a97a0da8a67b8f1a97f065070204fc4f7bbc1242a839c16"
+}

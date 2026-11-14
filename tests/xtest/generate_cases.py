@@ -26,7 +26,7 @@ def _json(path):
 def load_definition(path):
     definition = _json(path)
     required = {"schema_version", "family", "defaults", "axes", "layouts", "bindings", "groups", "profiles"}
-    if (not required <= set(definition) or set(definition) - required - {"explicit_cases"}
+    if (not required <= set(definition) or set(definition) - required - {"explicit_cases", "provenance"}
             or definition["schema_version"] != 2):
         raise ValueError("Unsupported public test-list schema")
     if not run_cases.SAFE_NAME.fullmatch(definition["family"]):
@@ -244,6 +244,8 @@ def generate_bundle(definition_path, suites_path, source_revision, runner_revisi
         "suite_definitions_sha256": sha256(suites_path.read_bytes()).hexdigest(),
         "case_keys_sha256": sha256(case_keys.encode()).hexdigest(),
     }
+    if "provenance" in definition:
+        generation["provenance"] = definition["provenance"]
     return {
         "metadata": {"format_version": run_cases.FORMAT_VERSION,
                      "source_revision": source_revision, "runner_revision": runner_revision,

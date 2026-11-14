@@ -193,5 +193,17 @@
       }
     },
     "auto": {"filters": {"algorithm": ["Auto"]}}
+  },
+  "provenance": {
+    "source_revision": "1f7d18a5058c93982b387cb34f2b1f80bcb92c6c",
+    "source_selection": "m890p_daily_standard_full",
+    "source_case_count": 4090,
+    "source_rows_sha256": "10f6e5e3f03f207bf0cf048384fd7deaaf9871947d921b9777f2ebbbb4d76433",
+    "source_suites": [
+      "pccl_shm_pccl_fun_rdma_plan/pccl_fun_rdma_shm_multi_nodes2_suite",
+      "pccl_shm_pccl_fun_rdma_plan/pccl_fun_rdma_shm_multi_nodes4_suite",
+      "pccl_shm_pccl_fun_rdma_plan/pccl_fun_rdma_shm_multi_nodes8_suite"
+    ],
+    "validation": "exact-real-runner-capture"
   }
 }

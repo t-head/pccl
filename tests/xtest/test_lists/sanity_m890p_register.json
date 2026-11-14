@@ -49,5 +49,15 @@
     "smoke": {
       "filters": {"operation": ["all_reduce_perf"], "algorithm": ["Auto"], "layout": ["nproc_1_threads_2"]}
     }
+  },
+  "provenance": {
+    "source_revision": "1f7d18a5058c93982b387cb34f2b1f80bcb92c6c",
+    "source_selection": "m890p_daily_standard_full",
+    "source_case_count": 9,
+    "source_rows_sha256": "339185c7e01bcf945d66c42777b40634b9992fe989943f2eaeec7447ec04e234",
+    "source_suites": [
+      "sanity_m890p_single_node_plan/sanity_m890p_register_suite"
+    ],
+    "validation": "exact-real-runner-capture"
   }
 }

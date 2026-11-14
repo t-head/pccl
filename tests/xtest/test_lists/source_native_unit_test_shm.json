@@ -1,0 +1,58 @@
+{
+  "schema_version": 2,
+  "family": "source_native_unit_test_shm",
+  "defaults": {
+    "check": "exit_code",
+    "case_name": "source_native_case"
+  },
+  "axes": {},
+  "layouts": {
+    "source": [
+      {
+        "name": "single_node",
+        "values": {}
+      }
+    ]
+  },
+  "bindings": {
+    "1": {
+      "plan": "pccl_810_postsil_unit_test_plan",
+      "suite": "postsil_unit_test_single_node_suite"
+    }
+  },
+  "groups": [],
+  "explicit_cases": [
+    {
+      "nodes": 1,
+      "name": "master_1_0_daily_collPcclUnitTest_algo_FC_auto_detect_1_data_size_16_proto_LL_run_type_ppu_umd_coll_type_AllReduce_dtype_half_num_elems_1_num_gpus_4_num_iterations_10",
+      "check": "exit_code",
+      "cmd": "NCCL_ALGO=FC NCCL_PROTO=LL {binary_dir}/collPcclUnitTest --coll_type=AllReduce --dtype=half --num_elems=1 --num_gpus=4 --num_iterations=10"
+    },
+    {
+      "nodes": 1,
+      "name": "master_1_0_daily_collPcclUnitTest_algo_FC_auto_detect_1_data_size_16_proto_LL_run_type_ppu_umd_coll_type_AllGather_dtype_float_num_elems_1_num_gpus_4_num_iterations_10",
+      "check": "exit_code",
+      "cmd": "NCCL_ALGO=FC NCCL_PROTO=LL {binary_dir}/collPcclUnitTest --coll_type=AllGather --dtype=float --num_elems=1 --num_gpus=4 --num_iterations=10"
+    }
+  ],
+  "profiles": {
+    "full": {
+      "include_explicit": true
+    },
+    "smoke": {
+      "include_explicit": true
+    }
+  },
+  "provenance": {
+    "source_revision": "1f7d18a5058c93982b387cb34f2b1f80bcb92c6c",
+    "source_cases": [
+      "test/cases/function/postsil_unit_test_810/single_node/master_1_0_daily_collPcclUnitTest_algo_FC_auto_detect_1_data_size_16_proto_LL_run_type_ppu_umd_coll_type_AllReduce_dtype_half_num_elems_1_num_gpus_4_num_iterations_10.py",
+      "test/cases/function/postsil_unit_test_810/single_node/master_1_0_daily_collPcclUnitTest_algo_FC_auto_detect_1_data_size_16_proto_LL_run_type_ppu_umd_coll_type_AllGather_dtype_float_num_elems_1_num_gpus_4_num_iterations_10.py"
+    ],
+    "adapter": [
+      "Replace build/collPcclUnitTest with {binary_dir}/collPcclUnitTest",
+      "Remove the source-only --auto-detect option",
+      "Reject --devices until public device mapping is defined"
+    ]
+  }
+}

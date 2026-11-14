@@ -32,5 +32,17 @@
   "profiles": {
     "full": {},
     "smoke": {"nodes": [2], "filters": {"operation": ["all_reduce_perf"]}}
+  },
+  "provenance": {
+    "source_revision": "1f7d18a5058c93982b387cb34f2b1f80bcb92c6c",
+    "source_selection": "m890p_daily_standard_full",
+    "source_case_count": 18,
+    "source_rows_sha256": "783688ed3aa3d2c66bd7e86d9176f0205f536457251d737de51830d06c0d6417",
+    "source_suites": [
+      "pccl_shm_op_perf_rdma_multi_node2_plan/op_perf_rdma_shm_multi_nodes2_suite",
+      "pccl_shm_op_perf_rdma_multi_node4_plan/op_perf_rdma_shm_multi_nodes4_suite",
+      "pccl_shm_op_perf_rdma_multi_node8_plan/op_perf_rdma_shm_multi_nodes8_suite"
+    ],
+    "validation": "exact-real-runner-capture"
   }
 }

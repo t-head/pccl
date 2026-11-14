@@ -132,5 +132,15 @@
     "all_reduce": {"filters": {"operation": ["all_reduce_perf"]}},
     "auto": {"filters": {"algorithm": ["Auto"]}},
     "fc": {"filters": {"algorithm": ["FC"]}}
+  },
+  "provenance": {
+    "source_revision": "1f7d18a5058c93982b387cb34f2b1f80bcb92c6c",
+    "source_selection": "m890p_daily_standard_full",
+    "source_case_count": 3940,
+    "source_rows_sha256": "5d69c93e7360e2f5fe650b105c221707301edeb1f7055214f15712af260217ad",
+    "source_suites": [
+      "pccl_shm_postsil_daily_single_node1_plan/postsil_daily_shm_single_node_suite"
+    ],
+    "validation": "exact-real-runner-capture"
   }
 }

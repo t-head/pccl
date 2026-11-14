@@ -14,7 +14,7 @@ on:
         required: true
         default: smoke
         type: choice
-        options: [smoke, full, generated-smoke, generated-full, generated-native-smoke, generated-native-full, generated-native-extra-full]
+        options: [smoke, full, generated-smoke, generated-full, generated-native-smoke, generated-native-full, generated-native-extra-full, generated-source-native-smoke]
       max_cases_per_group:
         description: Maximum Cases in each automatic same-environment shard
         required: true
@@ -87,13 +87,15 @@ jobs:
           python3 -S -B -m unittest discover -s tests/xtest -p 'test_daily_reconcile.py' -v
           python3 -S -B -m unittest discover -s tests/xtest -p 'test_generate_cases.py' -v
           GENERATED_INPUT=
-          if [[ "$DATASET" == generated-smoke || "$DATASET" == generated-full || "$DATASET" == generated-native-smoke || "$DATASET" == generated-native-full || "$DATASET" == generated-native-extra-full ]]; then
+          if [[ "$DATASET" == generated-smoke || "$DATASET" == generated-full || "$DATASET" == generated-native-smoke || "$DATASET" == generated-native-full || "$DATASET" == generated-native-extra-full || "$DATASET" == generated-source-native-smoke ]]; then
             GENERATION_PROFILE=${DATASET#generated-}
             if [[ "$DATASET" == generated-native-smoke ]]; then
               GENERATION_PROFILE=smoke
             elif [[ "$DATASET" == generated-native-full ]]; then
               GENERATION_PROFILE=full
             elif [[ "$DATASET" == generated-native-extra-full ]]; then
+              GENERATION_PROFILE=full
+            elif [[ "$DATASET" == generated-source-native-smoke ]]; then
               GENERATION_PROFILE=full
             fi
             GENERATE_NODES=()
@@ -111,6 +113,8 @@ jobs:
               fi
             elif [[ "$DATASET" == generated-native-extra-full ]]; then
               GENERATED_DEFINITIONS=(--definition tests/xtest/test_lists/native_extra_unit_test_shm.json)
+            elif [[ "$DATASET" == generated-source-native-smoke ]]; then
+              GENERATED_DEFINITIONS=(--definition tests/xtest/test_lists/source_native_unit_test_shm.json)
             fi
             if [[ "$DATASET" == generated-full ]]; then
               GENERATED_DEFINITIONS+=(
@@ -158,7 +162,8 @@ jobs:
 
           dataset = os.environ['DATASET']
           if dataset not in ('smoke', 'full', 'generated-smoke', 'generated-full',
-                             'generated-native-smoke', 'generated-native-full', 'generated-native-extra-full'):
+                             'generated-native-smoke', 'generated-native-full', 'generated-native-extra-full',
+                             'generated-source-native-smoke'):
               raise ValueError('Unsupported daily dataset')
           if dataset.startswith('generated-'):
               input_directory = Path(os.environ['GENERATED_INPUT'])

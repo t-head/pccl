@@ -40,5 +40,18 @@
   "profiles": {
     "full": {},
     "smoke": {"nodes": [1], "filters": {"operation": ["all_gather_perf"], "dtype": ["bf16"], "ranks": [2]}}
+  },
+  "provenance": {
+    "source_revision": "1f7d18a5058c93982b387cb34f2b1f80bcb92c6c",
+    "source_selection": "m890p_daily_standard_full",
+    "source_case_count": 90,
+    "source_rows_sha256": "525d5bc7308054a51955bdc032ac0c05682b2090ac8ac080f4b5e3ba6c1e1068",
+    "source_suites": [
+      "pccl_shm_symetric_perf_multi_node2_plan/symetric_perf_shm_multi_nodes2_suite",
+      "pccl_shm_symetric_perf_multi_node4_plan/symetric_perf_shm_multi_nodes4_suite",
+      "pccl_shm_symetric_perf_multi_node8_plan/symetric_perf_shm_multi_nodes8_suite",
+      "pccl_shm_symetric_perf_single_node1_plan/symetric_perf_shm_single_node_suite"
+    ],
+    "validation": "exact-real-runner-capture"
   }
 }

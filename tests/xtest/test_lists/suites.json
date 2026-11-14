@@ -106,16 +106,16 @@
       "env": "op_perf.env"
     },
     {
-      "plan": "pccl_shm_device_api_single_node1_plan",
-      "suite": "device_api_shm_single_node_single_process_suite",
+      "plan": "pccl_shm_device_api_perf_shm_single_node1_plan",
+      "suite": "device_api_perf_shm_single_node_single_process_suite",
       "nodes": 1,
       "cards_per_node": 8,
       "timeout": 300,
       "env": "device_api_single.env"
     },
     {
-      "plan": "pccl_shm_device_api_multi_node2_plan",
-      "suite": "device_api_shm_multi_nodes2_suite",
+      "plan": "pccl_shm_device_api_perf_shm_multi_node2_plan",
+      "suite": "device_api_perf_shm_multi_nodes2_suite",
       "nodes": 2,
       "cards_per_node": 8,
       "timeout": 300,
@@ -216,6 +216,14 @@
     {
       "plan": "pccl_native_unit_test_single_node_plan",
       "suite": "native_unit_test_shm_single_node_suite",
+      "nodes": 1,
+      "cards_per_node": 8,
+      "timeout": 3600,
+      "env": "op_perf.env"
+    },
+    {
+      "plan": "pccl_810_postsil_unit_test_plan",
+      "suite": "postsil_unit_test_single_node_suite",
       "nodes": 1,
       "cards_per_node": 8,
       "timeout": 3600,

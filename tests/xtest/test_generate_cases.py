@@ -24,6 +24,14 @@ ALL_FAMILIES = (
     "local_register_perf_shm", "symetric_perf_shm", "copyengine_perf_shm",
     "op_perf_shm_2_rack", "op_perf_rdma_shm", "commabort_test_shm",
 )
+LEGACY_SUITE_IDENTITIES = {
+    ("pccl_shm_device_api_single_node1_plan", "device_api_shm_single_node_single_process_suite"):
+        ("pccl_shm_device_api_perf_shm_single_node1_plan",
+         "device_api_perf_shm_single_node_single_process_suite"),
+    ("pccl_shm_device_api_multi_node2_plan", "device_api_shm_multi_nodes2_suite"):
+        ("pccl_shm_device_api_perf_shm_multi_node2_plan",
+         "device_api_perf_shm_multi_nodes2_suite"),
+}
 
 
 def read_csv(path):
@@ -33,6 +41,18 @@ def read_csv(path):
 
 def sort_rows(rows):
     return sorted(rows, key=lambda row: (row["plan"], row["suite"], row["name"]))
+
+
+def current_source_row(row):
+    identity = LEGACY_SUITE_IDENTITIES.get((row["plan"], row["suite"]),
+                                           (row["plan"], row["suite"]))
+    return {**row, "plan": identity[0], "suite": identity[1]}
+
+
+def canonical_sha256(value):
+    encoded = json.dumps(value, ensure_ascii=False, sort_keys=True,
+                         separators=(",", ":")).encode("utf-8")
+    return sha256(encoded).hexdigest()
 
 
 class PublicGeneratorTests(unittest.TestCase):
@@ -49,14 +69,15 @@ class PublicGeneratorTests(unittest.TestCase):
 
     def assert_matches_committed_export(self, family, expected_count):
         bundle = self.bundle(family)
-        suite_names = {row["suite"] for row in bundle["rows"]}
-        expected = sort_rows(row for row in read_csv(ROOT / "daily-full-csv/standard.csv")
-                             if row["suite"] in suite_names)
+        suite_keys = {(row["plan"], row["suite"]) for row in bundle["rows"]}
+        expected = sort_rows(
+            row for row in map(current_source_row, read_csv(ROOT / "daily-full-csv/standard.csv"))
+            if (row["plan"], row["suite"]) in suite_keys)
         self.assertEqual(len(bundle["rows"]), expected_count)
         self.assertEqual(bundle["rows"], expected)
         expected_suites = []
-        for row in read_csv(ROOT / "daily-full-csv/suites.csv"):
-            if row["suite"] in suite_names:
+        for row in map(current_source_row, read_csv(ROOT / "daily-full-csv/suites.csv")):
+            if (row["plan"], row["suite"]) in suite_keys:
                 expected_suites.append({**row, "nodes": int(row["nodes"]),
                                         "cards_per_node": int(row["cards_per_node"]),
                                         "timeout": int(row["timeout"])})
@@ -88,10 +109,10 @@ class PublicGeneratorTests(unittest.TestCase):
 
     def test_all_families_match_the_complete_8899_case_export_and_execution_plan(self):
         combined = generate_cases.combine_bundles([self.bundle(family) for family in ALL_FAMILIES])
-        expected = sort_rows(read_csv(ROOT / "daily-full-csv/standard.csv"))
+        expected = sort_rows(map(current_source_row, read_csv(ROOT / "daily-full-csv/standard.csv")))
         self.assertEqual(combined["rows"], expected)
         expected_suites = []
-        for row in read_csv(ROOT / "daily-full-csv/suites.csv"):
+        for row in map(current_source_row, read_csv(ROOT / "daily-full-csv/suites.csv")):
             expected_suites.append({**row, "nodes": int(row["nodes"]),
                                     "cards_per_node": int(row["cards_per_node"]),
                                     "timeout": int(row["timeout"])})
@@ -211,6 +232,30 @@ class PublicGeneratorTests(unittest.TestCase):
         self.assertEqual(len(plan["groups"]), 10)
         self.assertEqual(sum(record["case_count"] for record in plan["exclusions"]), 9)
         self.assertEqual(plan["exclusions"][0]["nodes"], 8)
+
+    def test_source_export_binds_every_daily_family_to_the_real_source_rows(self):
+        manifest = json.loads((DEFINITIONS / "source-export.json").read_text())
+        combined = generate_cases.combine_bundles([self.bundle(family) for family in ALL_FAMILIES])
+        self.assertEqual(manifest["source_revision"],
+                         "1f7d18a5058c93982b387cb34f2b1f80bcb92c6c")
+        self.assertEqual(manifest["case_count"], 8899)
+        self.assertEqual(manifest["suite_count"], 34)
+        self.assertEqual(manifest["case_rows_sha256"], canonical_sha256(combined["rows"]))
+        self.assertEqual(manifest["suites_sha256"], canonical_sha256(combined["suites"]))
+        self.assertFalse(manifest["csv_inputs_used"])
+        self.assertFalse(manifest["csv_outputs_written"])
+        records = {record["family"]: record for record in manifest["families"]}
+        self.assertEqual(set(records), set(ALL_FAMILIES))
+        for family in ALL_FAMILIES:
+            with self.subTest(family=family):
+                bundle = self.bundle(family)
+                provenance = bundle["generation"]["provenance"]
+                self.assertEqual(provenance["source_case_count"], len(bundle["rows"]))
+                self.assertEqual(provenance["source_rows_sha256"],
+                                 canonical_sha256(bundle["rows"]))
+                self.assertEqual(provenance["validation"], "exact-real-runner-capture")
+                self.assertEqual(records[family]["definition_sha256"],
+                                 sha256((DEFINITIONS / f"{family}.json").read_bytes()).hexdigest())
         smoke = generate_cases.combine_bundles([
             self.bundle("op_perf_shm", profile="smoke"),
             self.bundle("postsil_daily_shm", profile="smoke")])
@@ -225,9 +270,25 @@ class PublicGeneratorTests(unittest.TestCase):
         self.assertNotIn("daily-full-csv", source)
         self.assertNotIn("daily-minimal-csv", source)
 
+    def test_source_native_json_is_consumed_with_provenance(self):
+        bundle = self.bundle("source_native_unit_test_shm")
+        self.assertEqual(len(bundle["rows"]), 2)
+        provenance = bundle["generation"]["provenance"]
+        self.assertEqual(provenance["source_revision"],
+                         "1f7d18a5058c93982b387cb34f2b1f80bcb92c6c")
+        self.assertEqual(len(provenance["source_cases"]), 2)
+        for row in bundle["rows"]:
+            self.assertTrue(row["cmd"].startswith(
+                "NCCL_ALGO=FC NCCL_PROTO=LL {binary_dir}/collPcclUnitTest"))
+            self.assertNotIn("--auto-detect", row["cmd"])
+            self.assertNotIn("unit_test.py", row["cmd"])
+        output = self.root / "source-native"
+        generate_cases.write_bundle(bundle, output, DEFINITIONS / "envs")
+        self.assertEqual(len(run_cases.load_inputs(output, "standard")["cases"]), 2)
+
     def test_workflow_generates_explicit_datasets_before_grouping(self):
         workflow = (ROOT.parent.parent / ".github/workflows/m890p-daily-full.yml").read_text()
-        self.assertIn('options: [smoke, full, generated-smoke, generated-full, generated-native-smoke, generated-native-full, generated-native-extra-full]', workflow)
+        self.assertIn('options: [smoke, full, generated-smoke, generated-full, generated-native-smoke, generated-native-full, generated-native-extra-full, generated-source-native-smoke]', workflow)
         self.assertIn('tests/xtest/generate_cases.py', workflow)
         self.assertIn('--definition tests/xtest/test_lists/op_perf_shm.json', workflow)
         self.assertIn('--definition tests/xtest/test_lists/postsil_daily_shm.json', workflow)
@@ -235,6 +296,7 @@ class PublicGeneratorTests(unittest.TestCase):
             self.assertIn(f'tests/xtest/test_lists/{family}.json', workflow)
         self.assertIn('tests/xtest/test_lists/native_unit_test_shm.json', workflow)
         self.assertIn('tests/xtest/test_lists/native_extra_unit_test_shm.json', workflow)
+        self.assertIn('tests/xtest/test_lists/source_native_unit_test_shm.json', workflow)
         self.assertIn('if [[ "$DATASET" == generated-full ]]', workflow)
         self.assertIn("--output generated-case-input", workflow)
         self.assertIn("case-groups/generation.json", workflow)

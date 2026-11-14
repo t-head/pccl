@@ -173,7 +173,7 @@ class DailySmokeTests(unittest.TestCase):
         text = FULL_WORKFLOW.read_text()
         self.assertIn('workflow_dispatch:', text)
         self.assertIn('paths: [.github/workflows/m890p-daily-full.yml]', text)
-        self.assertIn('options: [smoke, full, generated-smoke, generated-full, generated-native-smoke, generated-native-full, generated-native-extra-full]', text)
+        self.assertIn('options: [smoke, full, generated-smoke, generated-full, generated-native-smoke, generated-native-full, generated-native-extra-full, generated-source-native-smoke]', text)
         self.assertIn('default: smoke', text)
         self.assertIn('default: 500', text)
         self.assertIn("DAILY_ALLOWED_NODES: '1,2,4'", text)
