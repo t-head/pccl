@@ -1,0 +1,42 @@
+{
+  "schema_version": 2,
+  "family": "local_register_perf_shm",
+  "defaults": {
+    "check": "performance",
+    "case_name": "test_op_local_register_{operation_name}_{dtype}_perf_ranks_{ranks}_nnodes{nodes}"
+  },
+  "axes": {
+    "operation": ["all_gather_perf", "all_reduce_perf", "reduce_scatter_perf"],
+    "dtype": ["bf16", "f8e4m3", "f8e5m2", "float", "half"]
+  },
+  "layouts": {
+    "single": [
+      {"name": "ranks_2", "values": {"ranks": 2, "npernode": 2}},
+      {"name": "ranks_4", "values": {"ranks": 4, "npernode": 4}},
+      {"name": "ranks_8", "values": {"ranks": 8, "npernode": 8}}
+    ],
+    "multi": [
+      {"name": "ranks_16", "nodes": 2, "values": {"ranks": 16, "npernode": 8}}
+    ]
+  },
+  "bindings": {
+    "1": {"plan": "pccl_shm_local_register_perf_single_node1_plan", "suite": "local_register_perf_shm_single_node_suite"},
+    "2": {"plan": "pccl_shm_local_register_perf_multi_node2_plan", "suite": "local_register_perf_shm_multi_nodes2_suite"}
+  },
+  "groups": [
+    {
+      "name": "single", "nodes": [1], "layout_set": "single",
+      "axes": ["operation", "dtype"],
+      "command": "mpirun --allow-run-as-root -np {ranks} -npernode {npernode} -mca btl_tcp_if_include {mpi_interface} -mca btl ^openib -mca btl_openib_warn_no_device_params_found 0 {operation} -t 1 -g 1 -d {dtype} -b 8 -e 16G -f 2 -n 20 -w 5 --elapsed_type 1 -R 1"
+    },
+    {
+      "name": "multi", "nodes": [2], "layout_set": "multi", "check": "exit_code",
+      "axes": ["operation", "dtype"],
+      "command": "mpirun --allow-run-as-root -np {ranks} -npernode {npernode} -mca btl_tcp_if_include {mpi_interface} -mca btl ^openib -mca btl_openib_warn_no_device_params_found 0 -x NCCL_IB_DISABLE=1 -x PCCL_ENABLE_EXT_KERNEL=0  -x NCCL_MNNVL_ENABLE=1  -x NCCL_MNNVL_UUID=6  -x NCCL_MNNVL_CLIQUE_ID=0  -x PCCL_MNNVL_FAKE_ADVANCED_FEATURE=1 -x PATH={path} -x LD_LIBRARY_PATH={ld_library_path} --hostfile {hostfile} {operation} -t 1 -g 1 -d {dtype} -b 8 -e 16G -f 2 -n 20 -w 5 --elapsed_type 1 -R 1"
+    }
+  ],
+  "profiles": {
+    "full": {},
+    "smoke": {"nodes": [1], "filters": {"operation": ["all_reduce_perf"], "dtype": ["float"], "ranks": [2]}}
+  }
+}

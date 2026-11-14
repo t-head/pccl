@@ -40,6 +40,178 @@
       "cards_per_node": 8,
       "timeout": 3600,
       "env": "op_perf.env"
+    },
+    {
+      "plan": "pccl_shm_pccl_fun_rdma_plan",
+      "suite": "pccl_fun_rdma_shm_multi_nodes2_suite",
+      "nodes": 2,
+      "cards_per_node": 8,
+      "timeout": 1800,
+      "env": "op_perf.env"
+    },
+    {
+      "plan": "pccl_shm_pccl_fun_rdma_plan",
+      "suite": "pccl_fun_rdma_shm_multi_nodes4_suite",
+      "nodes": 4,
+      "cards_per_node": 8,
+      "timeout": 1800,
+      "env": "op_perf.env"
+    },
+    {
+      "plan": "pccl_shm_pccl_fun_rdma_plan",
+      "suite": "pccl_fun_rdma_shm_multi_nodes8_suite",
+      "nodes": 8,
+      "cards_per_node": 8,
+      "timeout": 1800,
+      "env": "op_perf.env"
+    },
+    {
+      "plan": "pccl_shm_register_test_single_node1_plan",
+      "suite": "register_test_shm_single_node_suite",
+      "nodes": 1,
+      "cards_per_node": 8,
+      "timeout": 300,
+      "env": "op_perf.env"
+    },
+    {
+      "plan": "pccl_shm_register_test_multi_node2_plan",
+      "suite": "register_test_shm_multi_nodes2_suite",
+      "nodes": 2,
+      "cards_per_node": 8,
+      "timeout": 300,
+      "env": "op_perf.env"
+    },
+    {
+      "plan": "sanity_m890p_single_node_plan",
+      "suite": "sanity_m890p_register_suite",
+      "nodes": 1,
+      "cards_per_node": 8,
+      "timeout": 7200,
+      "env": "sanity_m890p.env"
+    },
+    {
+      "plan": "pccl_shm_sym_test_plan",
+      "suite": "sym_test_shm_single_node_suite",
+      "nodes": 1,
+      "cards_per_node": 8,
+      "timeout": 300,
+      "env": "op_perf.env"
+    },
+    {
+      "plan": "pccl_shm_f8_test_plan",
+      "suite": "f8_test_shm_single_node_suite",
+      "nodes": 1,
+      "cards_per_node": 8,
+      "timeout": 300,
+      "env": "op_perf.env"
+    },
+    {
+      "plan": "pccl_shm_device_api_single_node1_plan",
+      "suite": "device_api_shm_single_node_single_process_suite",
+      "nodes": 1,
+      "cards_per_node": 8,
+      "timeout": 300,
+      "env": "device_api_single.env"
+    },
+    {
+      "plan": "pccl_shm_device_api_multi_node2_plan",
+      "suite": "device_api_shm_multi_nodes2_suite",
+      "nodes": 2,
+      "cards_per_node": 8,
+      "timeout": 300,
+      "env": "op_perf.env"
+    },
+    {
+      "plan": "pccl_shm_local_register_perf_single_node1_plan",
+      "suite": "local_register_perf_shm_single_node_suite",
+      "nodes": 1,
+      "cards_per_node": 8,
+      "timeout": 300,
+      "env": "device_api_single.env"
+    },
+    {
+      "plan": "pccl_shm_local_register_perf_multi_node2_plan",
+      "suite": "local_register_perf_shm_multi_nodes2_suite",
+      "nodes": 2,
+      "cards_per_node": 8,
+      "timeout": 300,
+      "env": "device_api_single.env"
+    },
+    {
+      "plan": "pccl_shm_symetric_perf_single_node1_plan",
+      "suite": "symetric_perf_shm_single_node_suite",
+      "nodes": 1, "cards_per_node": 8, "timeout": 300, "env": "op_perf.env"
+    },
+    {
+      "plan": "pccl_shm_symetric_perf_multi_node2_plan",
+      "suite": "symetric_perf_shm_multi_nodes2_suite",
+      "nodes": 2, "cards_per_node": 8, "timeout": 300, "env": "op_perf.env"
+    },
+    {
+      "plan": "pccl_shm_symetric_perf_multi_node4_plan",
+      "suite": "symetric_perf_shm_multi_nodes4_suite",
+      "nodes": 4, "cards_per_node": 8, "timeout": 300, "env": "op_perf.env"
+    },
+    {
+      "plan": "pccl_shm_symetric_perf_multi_node8_plan",
+      "suite": "symetric_perf_shm_multi_nodes8_suite",
+      "nodes": 8, "cards_per_node": 8, "timeout": 300, "env": "op_perf.env"
+    },
+    {
+      "plan": "pccl_shm_copyengine_perf_single_node1_plan",
+      "suite": "copyengine_perf_shm_single_node_suite",
+      "nodes": 1, "cards_per_node": 8, "timeout": 300, "env": "op_perf.env"
+    },
+    {
+      "plan": "pccl_shm_copyengine_perf_multi_node2_plan",
+      "suite": "copyengine_perf_shm_multi_nodes2_suite",
+      "nodes": 2, "cards_per_node": 8, "timeout": 300, "env": "op_perf.env"
+    },
+    {
+      "plan": "pccl_shm_copyengine_perf_multi_node4_plan",
+      "suite": "copyengine_perf_shm_multi_nodes4_suite",
+      "nodes": 4, "cards_per_node": 8, "timeout": 300, "env": "op_perf.env"
+    },
+    {
+      "plan": "pccl_shm_copyengine_perf_multi_node8_plan",
+      "suite": "copyengine_perf_shm_multi_nodes8_suite",
+      "nodes": 8, "cards_per_node": 8, "timeout": 300, "env": "op_perf.env"
+    },
+    {
+      "plan": "pccl_shm_op_perf_2_rack_icn8_plan", "suite": "op_perf_shm_2_rack_icn8_suite",
+      "nodes": 2, "cards_per_node": 8, "timeout": 300, "env": "op_perf.env"
+    },
+    {
+      "plan": "pccl_shm_op_perf_2_rack_icn16_plan", "suite": "op_perf_shm_2_rack_icn16_suite",
+      "nodes": 4, "cards_per_node": 8, "timeout": 300, "env": "op_perf.env"
+    },
+    {
+      "plan": "pccl_shm_op_perf_2_rack_icn32_plan", "suite": "op_perf_shm_2_rack_icn32_suite",
+      "nodes": 8, "cards_per_node": 8, "timeout": 300, "env": "op_perf.env"
+    },
+    {
+      "plan": "pccl_shm_op_perf_2_rack_icn64_plan", "suite": "op_perf_shm_2_rack_icn64_suite",
+      "nodes": 16, "cards_per_node": 8, "timeout": 300, "env": "op_perf.env"
+    },
+    {
+      "plan": "pccl_shm_op_perf_rdma_multi_node2_plan", "suite": "op_perf_rdma_shm_multi_nodes2_suite",
+      "nodes": 2, "cards_per_node": 8, "timeout": 300, "env": "op_perf.env"
+    },
+    {
+      "plan": "pccl_shm_op_perf_rdma_multi_node4_plan", "suite": "op_perf_rdma_shm_multi_nodes4_suite",
+      "nodes": 4, "cards_per_node": 8, "timeout": 300, "env": "op_perf.env"
+    },
+    {
+      "plan": "pccl_shm_op_perf_rdma_multi_node8_plan", "suite": "op_perf_rdma_shm_multi_nodes8_suite",
+      "nodes": 8, "cards_per_node": 8, "timeout": 300, "env": "op_perf.env"
+    },
+    {
+      "plan": "pccl_shm_commabort_test_single_node1_plan", "suite": "commabort_test_shm_single_node_suite",
+      "nodes": 1, "cards_per_node": 8, "timeout": 300, "env": "op_perf.env"
+    },
+    {
+      "plan": "pccl_shm_commabort_test_multi_node2_plan", "suite": "commabort_test_shm_multi_nodes2_suite",
+      "nodes": 2, "cards_per_node": 8, "timeout": 300, "env": "op_perf.env"
     }
   ]
 }

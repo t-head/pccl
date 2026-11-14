@@ -1,0 +1,36 @@
+{
+  "schema_version": 2,
+  "family": "op_perf_shm_2_rack",
+  "defaults": {
+    "check": "exit_code",
+    "case_name": "test_op_2_rack_icn{icn}_{operation}_ranks_{ranks}_nnodes{nodes}",
+    "command": "mpirun --allow-run-as-root -x PCCL_GDR_CPU_FLUSH=1 -x PCCL_CPU_FLUSH_ASYNC=1 -x NCCL_IB_ADAPTIVE_ROUTING=1 -x NCCL_IB_OOO_RQ=1 -np {ranks} -npernode {npernode} -x PATH={path} -x LD_LIBRARY_PATH={ld_library_path} --hostfile {hostfile} --mca btl_tcp_if_include {mpi_interface} -x NCCL_DEBUG=INFO -x LD_LIBRARY_PATH=$LD_LIBRARY_PATH {operation} -b 4 -e 16G -f 2 -g 1 -t 1 --elapsed_type 1"
+  },
+  "axes": {
+    "operation": [
+      "all_gather_perf", "all_reduce_perf", "alltoall_perf", "broadcast_perf", "gather_perf",
+      "reduce_perf", "reduce_scatter_perf", "scatter_perf", "sendrecv_perf"
+    ]
+  },
+  "layouts": {
+    "multi": [
+      {"name": "icn8", "nodes": 2, "values": {"icn": 8, "ranks": 16, "npernode": 8}},
+      {"name": "icn16", "nodes": 4, "values": {"icn": 16, "ranks": 32, "npernode": 8}},
+      {"name": "icn32", "nodes": 8, "values": {"icn": 32, "ranks": 64, "npernode": 8}},
+      {"name": "icn64", "nodes": 16, "values": {"icn": 64, "ranks": 128, "npernode": 8}}
+    ]
+  },
+  "bindings": {
+    "2": {"plan": "pccl_shm_op_perf_2_rack_icn8_plan", "suite": "op_perf_shm_2_rack_icn8_suite"},
+    "4": {"plan": "pccl_shm_op_perf_2_rack_icn16_plan", "suite": "op_perf_shm_2_rack_icn16_suite"},
+    "8": {"plan": "pccl_shm_op_perf_2_rack_icn32_plan", "suite": "op_perf_shm_2_rack_icn32_suite"},
+    "16": {"plan": "pccl_shm_op_perf_2_rack_icn64_plan", "suite": "op_perf_shm_2_rack_icn64_suite"}
+  },
+  "groups": [
+    {"name": "all", "nodes": [2, 4, 8, 16], "layout_set": "multi", "axes": ["operation"]}
+  ],
+  "profiles": {
+    "full": {},
+    "smoke": {"nodes": [2], "filters": {"operation": ["all_reduce_perf"]}}
+  }
+}

@@ -1,0 +1,141 @@
+{
+  "schema_version": 2,
+  "family": "register_test_shm",
+  "defaults": {
+    "check": "exit_code",
+    "case_name": "test_op_{operation}_algo_{algorithm}_proto_{protocol}_datatype_{dtype}_datasize_{size_name_underscore}_iters_{iters}_ranks_{ranks}_{layout}",
+    "command": "python3 run_test.py --op {operation} --algo {algorithm} --proto {protocol} --data-type {dtype} --data-size {size} --iters {iters} --ranks {ranks} {options} --auto-detect --register 1"
+  },
+  "axes": {
+    "operation": [
+      "all_gather_perf", "all_reduce_perf", "alltoall_perf", "broadcast_perf", "reduce_perf",
+      "reduce_scatter_perf", "gather_perf", "scatter_perf", "sendrecv_perf"
+    ],
+    "algorithm": ["Auto", "Ring"],
+    "protocol": ["Auto", "Simple"],
+    "dtype": ["float", "int8"],
+    "size": ["16", "1G", "256MB", "32B", "32KB", "8MB", "32MB", "100.5MB", "1.2GB"],
+    "iters": [10]
+  },
+  "layouts": {
+    "auto": [
+      {"name": "nproc_1_threads_2", "values": {"ranks": 2, "nproc": 1, "threads": 2}},
+      {"name": "nproc_2_threads_1", "values": {"ranks": 2, "nproc": 2, "threads": 1}},
+      {"name": "nproc_1_threads_4", "values": {"ranks": 4, "nproc": 1, "threads": 4}},
+      {"name": "nproc_4_threads_1", "values": {"ranks": 4, "nproc": 4, "threads": 1}},
+      {"name": "nproc_4_threads_2", "values": {"ranks": 8, "nproc": 4, "threads": 2}},
+      {"name": "nproc_8_threads_1", "values": {"ranks": 8, "nproc": 8, "threads": 1}}
+    ],
+    "collectives": [
+      {"name": "devices_0_1", "values": {"ranks": 2, "devices": "0,1"}},
+      {"name": "devices_0_1_2_3", "values": {"ranks": 4, "devices": "0,1,2,3"}},
+      {"name": "nproc_1_threads_1", "values": {"ranks": 8, "nproc": 1, "threads": 1}},
+      {"name": "nproc_1_threads_4", "values": {"ranks": 8, "nproc": 1, "threads": 4}},
+      {"name": "nproc_4_threads_2", "values": {"ranks": 8, "nproc": 4, "threads": 2}},
+      {"name": "nproc_1_threads_8", "values": {"ranks": 8, "nproc": 1, "threads": 8}}
+    ],
+    "multi": [
+      {"name": "ranks_16", "nodes": 2, "values": {"ranks": 16, "nprocs": 8}},
+      {"name": "ranks_2", "nodes": 2, "values": {"ranks": 2, "nprocs": 1}},
+      {"name": "ranks_4", "nodes": 2, "values": {"ranks": 4, "nprocs": 2}},
+      {"name": "ranks_8", "nodes": 2, "values": {"ranks": 8, "nprocs": 4}}
+    ]
+  },
+  "bindings": {
+    "1": {"plan": "pccl_shm_register_test_single_node1_plan", "suite": "register_test_shm_single_node_suite"},
+    "2": {"plan": "pccl_shm_register_test_multi_node2_plan", "suite": "register_test_shm_multi_nodes2_suite"}
+  },
+  "groups": [
+    {
+      "name": "single_auto", "nodes": [1], "layout_set": "auto",
+      "layouts": ["nproc_1_threads_2", "nproc_2_threads_1", "nproc_1_threads_4",
+                  "nproc_4_threads_1", "nproc_4_threads_2", "nproc_8_threads_1"],
+      "axes": ["operation", "algorithm", "protocol", "dtype", "size", "iters"],
+      "select": {
+        "operation": ["all_gather_perf", "all_reduce_perf", "alltoall_perf", "broadcast_perf",
+                      "reduce_perf", "reduce_scatter_perf"],
+        "algorithm": ["Auto"], "protocol": ["Auto"], "dtype": ["float"],
+        "size": ["16", "1G", "256MB", "32B", "32KB", "8MB", "32MB"], "iters": [10]
+      }
+    },
+    {
+      "name": "single_gather_sendrecv", "nodes": [1], "layout_set": "collectives",
+      "layouts": ["devices_0_1", "devices_0_1_2_3", "nproc_1_threads_1",
+                  "nproc_1_threads_4", "nproc_1_threads_8"],
+      "axes": ["operation", "algorithm", "protocol", "dtype", "size", "iters"],
+      "select": {
+        "operation": ["gather_perf", "sendrecv_perf"], "algorithm": ["Ring"], "protocol": ["Simple"],
+        "dtype": ["int8"], "size": ["32MB", "100.5MB", "1.2GB"], "iters": [10]
+      }
+    },
+    {
+      "name": "single_scatter", "nodes": [1], "layout_set": "collectives",
+      "layouts": ["devices_0_1", "devices_0_1_2_3", "nproc_1_threads_4", "nproc_1_threads_8"],
+      "axes": ["operation", "algorithm", "protocol", "dtype", "size", "iters"],
+      "select": {
+        "operation": ["scatter_perf"], "algorithm": ["Ring"], "protocol": ["Simple"],
+        "dtype": ["int8"], "size": ["32MB", "100.5MB", "1.2GB"], "iters": [10]
+      }
+    },
+    {
+      "name": "single_scatter_small", "nodes": [1], "layout_set": "collectives",
+      "layouts": ["nproc_1_threads_1"],
+      "axes": ["operation", "algorithm", "protocol", "dtype", "size", "iters"],
+      "select": {
+        "operation": ["scatter_perf"], "algorithm": ["Ring"], "protocol": ["Simple"],
+        "dtype": ["int8"], "size": ["100.5MB", "1.2GB"], "iters": [10]
+      }
+    },
+    {
+      "name": "single_scatter_threads", "nodes": [1], "layout_set": "collectives",
+      "layouts": ["nproc_4_threads_2"],
+      "axes": ["operation", "algorithm", "protocol", "dtype", "size", "iters"],
+      "select": {
+        "operation": ["scatter_perf"], "algorithm": ["Ring"], "protocol": ["Simple"],
+        "dtype": ["int8"], "size": ["32MB"], "iters": [10]
+      }
+    },
+    {
+      "name": "multi_auto", "nodes": [2], "layout_set": "multi", "layouts": ["ranks_16"],
+      "axes": ["operation", "algorithm", "protocol", "dtype", "size", "iters"],
+      "select": {
+        "operation": ["all_gather_perf", "all_reduce_perf", "alltoall_perf", "broadcast_perf",
+                      "reduce_perf", "reduce_scatter_perf"],
+        "algorithm": ["Auto"], "protocol": ["Auto"], "dtype": ["float"],
+        "size": ["16", "1G", "256MB", "32B", "32KB", "8MB", "32MB"], "iters": [10]
+      },
+      "case_name": "test_op_{operation}_algo_{algorithm}_proto_{protocol}_redop_sum_ranks_{ranks}_datatype_{dtype}_datasize_{size_name_underscore}_iters_{iters}_threads_1_process_{nprocs}_nnodes{nodes}_autodetect_rdma_gdr",
+      "command": "python3 run_test.py --op {operation} --algo {algorithm} --proto {protocol} --redop sum --ranks {ranks} --data-type {dtype} --data-size {size} --iters {iters} --threads 1 --nprocs {nprocs} --nnodes {nodes} --auto-detect --register 1 --mpi-options='-mca btl_tcp_if_include {mpi_interface} -x NCCL_NET_GDR_LEVEL=4 -x PATH={path} -x LD_LIBRARY_PATH={ld_library_path} --hostfile {hostfile}' --cross-node gdr"
+    },
+    {
+      "name": "multi_special_32mb", "nodes": [2], "layout_set": "multi",
+      "axes": ["operation", "algorithm", "protocol", "dtype", "size", "iters"],
+      "select": {
+        "operation": ["gather_perf", "scatter_perf", "sendrecv_perf"], "algorithm": ["Ring"],
+        "protocol": ["Auto"], "dtype": ["int8"], "size": ["32MB"], "iters": [10]
+      },
+      "case_name": "test_op_{operation}_algo_{algorithm}_proto_{protocol}_redop_sum_ranks_{ranks}_datatype_{dtype}_datasize_{size_name_underscore}_iters_{iters}_threads_1_process_{nprocs}_nnodes{nodes}_autodetect_rdma_gdr",
+      "command": "python3 run_test.py --op {operation} --algo {algorithm} --proto {protocol} --redop sum --ranks {ranks} --data-type {dtype} --data-size {size} --iters {iters} --threads 1 --nprocs {nprocs} --nnodes {nodes} --auto-detect --register 1 --mpi-options='-mca btl_tcp_if_include {mpi_interface} -x NCCL_NET_GDR_LEVEL=4 -x PATH={path} -x LD_LIBRARY_PATH={ld_library_path} --hostfile {hostfile}' --cross-node gdr"
+    },
+    {
+      "name": "multi_special_256mb", "nodes": [2], "layout_set": "multi", "layouts": ["ranks_2"],
+      "axes": ["operation", "algorithm", "protocol", "dtype", "size", "iters"],
+      "select": {
+        "operation": ["gather_perf", "scatter_perf", "sendrecv_perf"], "algorithm": ["Ring"],
+        "protocol": ["Auto"], "dtype": ["int8"], "size": ["256MB"], "iters": [10]
+      },
+      "case_name": "test_op_{operation}_algo_{algorithm}_proto_{protocol}_redop_sum_ranks_{ranks}_datatype_{dtype}_datasize_{size_name_underscore}_iters_{iters}_threads_1_process_{nprocs}_nnodes{nodes}_autodetect_rdma_gdr",
+      "command": "python3 run_test.py --op {operation} --algo {algorithm} --proto {protocol} --redop sum --ranks {ranks} --data-type {dtype} --data-size {size} --iters {iters} --threads 1 --nprocs {nprocs} --nnodes {nodes} --auto-detect --register 1 --mpi-options='-mca btl_tcp_if_include {mpi_interface} -x NCCL_NET_GDR_LEVEL=4 -x PATH={path} -x LD_LIBRARY_PATH={ld_library_path} --hostfile {hostfile}' --cross-node gdr"
+    }
+  ],
+  "profiles": {
+    "full": {},
+    "smoke": {
+      "nodes": [1],
+      "filters": {
+        "operation": ["all_reduce_perf"], "algorithm": ["Auto"], "protocol": ["Auto"],
+        "dtype": ["float"], "size": ["32MB"], "layout": ["nproc_1_threads_2"]
+      }
+    }
+  }
+}

@@ -18,6 +18,12 @@ DEFINITIONS = ROOT / "test_lists"
 SUITES = DEFINITIONS / "suites.json"
 SOURCE_REVISION = "1" * 40
 RUNNER_REVISION = "2" * 40
+ALL_FAMILIES = (
+    "op_perf_shm", "postsil_daily_shm", "pccl_fun_rdma_shm", "register_test_shm",
+    "sanity_m890p_register", "sym_test_shm", "f8_test_shm", "device_api_shm",
+    "local_register_perf_shm", "symetric_perf_shm", "copyengine_perf_shm",
+    "op_perf_shm_2_rack", "op_perf_rdma_shm", "commabort_test_shm",
+)
 
 
 def read_csv(path):
@@ -66,6 +72,40 @@ class PublicGeneratorTests(unittest.TestCase):
         rows = self.bundle("postsil_daily_shm")["rows"]
         self.assertEqual(sum(row["name"].startswith("all_reduce_ranks_") for row in rows), 2)
 
+    def test_multi_node_rdma_matches_all_4090_committed_rows(self):
+        self.assert_matches_committed_export("pccl_fun_rdma_shm", 4090)
+
+    def test_every_other_family_matches_its_committed_rows(self):
+        expected_counts = {
+            "register_test_shm": 354, "sanity_m890p_register": 9, "sym_test_shm": 127,
+            "f8_test_shm": 20, "device_api_shm": 52, "local_register_perf_shm": 60,
+            "symetric_perf_shm": 90, "copyengine_perf_shm": 33,
+            "op_perf_shm_2_rack": 36, "op_perf_rdma_shm": 18, "commabort_test_shm": 16,
+        }
+        for family, expected_count in expected_counts.items():
+            with self.subTest(family=family):
+                self.assert_matches_committed_export(family, expected_count)
+
+    def test_all_families_match_the_complete_8899_case_export_and_execution_plan(self):
+        combined = generate_cases.combine_bundles([self.bundle(family) for family in ALL_FAMILIES])
+        expected = sort_rows(read_csv(ROOT / "daily-full-csv/standard.csv"))
+        self.assertEqual(combined["rows"], expected)
+        expected_suites = []
+        for row in read_csv(ROOT / "daily-full-csv/suites.csv"):
+            expected_suites.append({**row, "nodes": int(row["nodes"]),
+                                    "cards_per_node": int(row["cards_per_node"]),
+                                    "timeout": int(row["timeout"])})
+        self.assertEqual(combined["suites"], sorted(expected_suites,
+                                                  key=lambda row: (row["plan"], row["suite"])))
+        output = self.root / "all-generated"
+        generate_cases.write_bundle(combined, output, DEFINITIONS / "envs")
+        plan = group_cases.build_plan(output, 500, allowed_nodes=(1, 2, 4))
+        self.assertEqual(len(combined["rows"]), 8899)
+        self.assertEqual(len(combined["suites"]), 34)
+        self.assertEqual(sum(len(group["cases"]) for group in plan["groups"]), 8180)
+        self.assertEqual(len(plan["groups"]), 20)
+        self.assertEqual(sum(record["case_count"] for record in plan["exclusions"]), 719)
+
     def test_profiles_filter_before_generating_combinations(self):
         definition = generate_cases.load_definition(DEFINITIONS / "postsil_daily_shm.json")
         self.assertEqual(len(generate_cases.generate_rows(definition, "smoke")), 1)
@@ -73,6 +113,11 @@ class PublicGeneratorTests(unittest.TestCase):
         self.assertEqual(len(generate_cases.generate_rows(definition, "auto")), 30)
         self.assertEqual(len(generate_cases.generate_rows(definition, "fc")), 8)
         self.assertEqual(len(self.bundle("op_perf_shm", nodes=2)["rows"]), 9)
+        self.assertEqual(len(self.bundle("pccl_fun_rdma_shm", nodes=2)["rows"]), 1775)
+        self.assertEqual(len(self.bundle("pccl_fun_rdma_shm", nodes=4)["rows"]), 1648)
+        self.assertEqual(len(self.bundle("pccl_fun_rdma_shm", nodes=8)["rows"]), 667)
+        self.assertEqual(len(self.bundle("pccl_fun_rdma_shm", profile="smoke")["rows"]), 1)
+        self.assertEqual(len(self.bundle("pccl_fun_rdma_shm", profile="auto")["rows"]), 6)
         with self.assertRaisesRegex(ValueError, "no node counts"):
             self.bundle("postsil_daily_shm", nodes=2)
 
@@ -148,6 +193,9 @@ class PublicGeneratorTests(unittest.TestCase):
         self.assertIn('tests/xtest/generate_cases.py', workflow)
         self.assertIn('--definition tests/xtest/test_lists/op_perf_shm.json', workflow)
         self.assertIn('--definition tests/xtest/test_lists/postsil_daily_shm.json', workflow)
+        for family in ALL_FAMILIES:
+            self.assertIn(f'tests/xtest/test_lists/{family}.json', workflow)
+        self.assertIn('if [[ "$DATASET" == generated-full ]]', workflow)
         self.assertIn("--output generated-case-input", workflow)
         self.assertIn("case-groups/generation.json", workflow)
         self.assertLess(workflow.index('--output generated-case-input'),

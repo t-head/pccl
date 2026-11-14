@@ -1,0 +1,197 @@
+{
+  "schema_version": 2,
+  "family": "pccl_fun_rdma_shm",
+  "defaults": {
+    "check": "exit_code",
+    "case_name": "test_op_{operation}_algo_{algorithm}_proto_{protocol}_redop_{redop}_ranks_{ranks}_datatype_{dtype}_datasize_{size}_iters_{iters}_threads_1_process_{nprocs}_nnodes{nodes}_autodetect_rdma_gdr",
+    "command": "{python_env}/bin/python3.11 run_test.py --op {operation} --algo {algorithm} --proto {protocol} --redop {redop} --ranks {ranks} --data-type {dtype} --data-size {size} --iters {iters} --threads 1 --nprocs {nprocs} --nnodes {nodes} --auto-detect --mpi-options='-mca btl_tcp_if_include {mpi_interface} -x NCCL_NET_GDR_LEVEL=4 -x NCCL_MNNVL_ENABLE=0 -x LD_LIBRARY_PATH -x PATH -x PATH={path} -x LD_LIBRARY_PATH={ld_library_path} --hostfile {hostfile}' --cross-node gdr"
+  },
+  "axes": {
+    "operation": [
+      "all_reduce_perf", "all_gather_perf", "broadcast_perf", "reduce_perf", "reduce_scatter_perf",
+      "alltoall_perf", "gather_perf", "hypercube_perf", "scatter_perf", "sendrecv_perf"
+    ],
+    "algorithm": ["Ring", "Tree", "Auto"],
+    "protocol": ["LL", "LL128", "Simple", "SimpleBulk", "Auto"],
+    "redop": ["sum", "avg", "None"],
+    "dtype": ["int8", "half", "float", "double", "bf16"],
+    "size": ["32B", "32KB", "8MB", "32MB", "256MB", "1186344", "2236736", "3440104", "1KB"],
+    "iters": [10, 2]
+  },
+  "layouts": {
+    "all": [
+      {"name": "n2_ranks_2", "nodes": 2, "values": {"ranks": 2, "nprocs": 1}},
+      {"name": "n2_ranks_4", "nodes": 2, "values": {"ranks": 4, "nprocs": 2}},
+      {"name": "n2_ranks_8", "nodes": 2, "values": {"ranks": 8, "nprocs": 4}},
+      {"name": "n2_ranks_16", "nodes": 2, "values": {"ranks": 16, "nprocs": 8}},
+      {"name": "n4_ranks_4", "nodes": 4, "values": {"ranks": 4, "nprocs": 1}},
+      {"name": "n4_ranks_8", "nodes": 4, "values": {"ranks": 8, "nprocs": 2}},
+      {"name": "n4_ranks_16", "nodes": 4, "values": {"ranks": 16, "nprocs": 4}},
+      {"name": "n4_ranks_32", "nodes": 4, "values": {"ranks": 32, "nprocs": 8}},
+      {"name": "n8_ranks_64", "nodes": 8, "values": {"ranks": 64, "nprocs": 8}}
+    ]
+  },
+  "bindings": {
+    "2": {"plan": "pccl_shm_pccl_fun_rdma_plan", "suite": "pccl_fun_rdma_shm_multi_nodes2_suite"},
+    "4": {"plan": "pccl_shm_pccl_fun_rdma_plan", "suite": "pccl_fun_rdma_shm_multi_nodes4_suite"},
+    "8": {"plan": "pccl_shm_pccl_fun_rdma_plan", "suite": "pccl_fun_rdma_shm_multi_nodes8_suite"}
+  },
+  "groups": [
+    {
+      "name": "all_reduce_base", "nodes": [2, 4, 8], "layout_set": "all",
+      "axes": ["operation", "algorithm", "protocol", "redop", "dtype", "size", "iters"],
+      "select": {
+        "operation": ["all_reduce_perf"], "algorithm": ["Ring", "Tree"],
+        "protocol": ["LL", "Simple", "SimpleBulk"], "redop": ["sum", "avg"],
+        "dtype": ["int8", "half", "float", "double", "bf16"],
+        "size": ["32B", "32KB", "8MB", "32MB", "256MB"], "iters": [10]
+      }
+    },
+    {
+      "name": "all_reduce_ll128", "nodes": [2, 8], "layout_set": "all",
+      "layouts": ["n2_ranks_16", "n8_ranks_64"],
+      "axes": ["operation", "algorithm", "protocol", "redop", "dtype", "size", "iters"],
+      "select": {
+        "operation": ["all_reduce_perf"], "algorithm": ["Ring", "Tree"], "protocol": ["LL128"],
+        "redop": ["sum", "avg"], "dtype": ["int8", "half", "float", "double", "bf16"],
+        "size": ["32B", "32KB", "8MB", "32MB", "256MB"], "iters": [10]
+      }
+    },
+    {
+      "name": "collectives_base", "nodes": [2, 4, 8], "layout_set": "all",
+      "axes": ["operation", "algorithm", "protocol", "redop", "dtype", "size", "iters"],
+      "select": {
+        "operation": ["all_gather_perf", "broadcast_perf", "reduce_perf", "reduce_scatter_perf"],
+        "algorithm": ["Ring"], "protocol": ["LL", "SimpleBulk"], "redop": ["sum"], "dtype": ["int8"],
+        "size": ["32B", "32KB", "8MB", "32MB", "256MB"], "iters": [10]
+      }
+    },
+    {
+      "name": "collectives_ll128", "nodes": [2, 8], "layout_set": "all",
+      "layouts": ["n2_ranks_16", "n8_ranks_64"],
+      "axes": ["operation", "algorithm", "protocol", "redop", "dtype", "size", "iters"],
+      "select": {
+        "operation": ["all_gather_perf", "broadcast_perf", "reduce_perf", "reduce_scatter_perf"],
+        "algorithm": ["Ring"], "protocol": ["LL128"], "redop": ["sum"], "dtype": ["int8"],
+        "size": ["32B", "32KB", "8MB", "32MB", "256MB"], "iters": [10]
+      }
+    },
+    {
+      "name": "alltoall_base", "nodes": [2, 4, 8], "layout_set": "all",
+      "axes": ["operation", "algorithm", "protocol", "redop", "dtype", "size", "iters"],
+      "select": {
+        "operation": ["alltoall_perf"], "algorithm": ["Ring"], "protocol": ["Auto"], "redop": ["sum"],
+        "dtype": ["int8"], "size": ["32B", "32KB", "8MB", "32MB", "256MB"], "iters": [10]
+      }
+    },
+    {
+      "name": "simple_collectives", "nodes": [2, 4, 8], "layout_set": "all",
+      "axes": ["operation", "algorithm", "protocol", "redop", "dtype", "size", "iters"],
+      "select": {
+        "operation": ["gather_perf", "hypercube_perf", "scatter_perf", "sendrecv_perf"],
+        "algorithm": ["Ring"], "protocol": ["Auto"], "redop": ["sum"], "dtype": ["int8"],
+        "size": ["32B", "32KB", "8MB", "32MB", "256MB"], "iters": [10]
+      }
+    },
+    {
+      "name": "half_4nics", "nodes": [2, 4, 8], "layout_set": "all",
+      "layouts": ["n2_ranks_16", "n4_ranks_32", "n8_ranks_64"],
+      "axes": ["operation", "algorithm", "protocol", "redop", "dtype", "size", "iters"],
+      "select": {
+        "operation": ["all_reduce_perf"], "algorithm": ["Ring", "Tree"],
+        "protocol": ["LL", "Simple", "SimpleBulk"], "redop": ["sum", "avg"], "dtype": ["half"],
+        "size": ["32B", "32KB", "8MB", "32MB", "256MB"], "iters": [10]
+      },
+      "case_name": "test_op_{operation}_algo_{algorithm}_proto_{protocol}_redop_{redop}_ranks_{ranks}_datatype_{dtype}_datasize_{size}_iters_{iters}_threads_1_process_{nprocs}_nnodes{nodes}_autodetect_rdma_gdr_4nics",
+      "command": "{python_env}/bin/python3.11 run_test.py --op {operation} --algo {algorithm} --proto {protocol} --redop {redop} --ranks {ranks} --data-type {dtype} --data-size {size} --iters {iters} --threads 1 --nprocs {nprocs} --nnodes {nodes} --auto-detect --mpi-options='-mca btl_tcp_if_include {mpi_interface} -x NCCL_NET_GDR_LEVEL=4 -x NCCL_MNNVL_ENABLE=0 -x LD_LIBRARY_PATH -x PATH -x PATH={path} -x LD_LIBRARY_PATH={ld_library_path} --hostfile {hostfile}' --cross-node gdr --use_4nics"
+    },
+    {
+      "name": "half_host", "nodes": [2, 4, 8], "layout_set": "all",
+      "layouts": ["n2_ranks_16", "n4_ranks_32", "n8_ranks_64"],
+      "axes": ["operation", "algorithm", "protocol", "redop", "dtype", "size", "iters"],
+      "select": {
+        "operation": ["all_reduce_perf"], "algorithm": ["Ring", "Tree"],
+        "protocol": ["LL", "Simple", "SimpleBulk"], "redop": ["sum", "avg"], "dtype": ["half"],
+        "size": ["32B", "32KB", "8MB", "32MB", "256MB"], "iters": [10]
+      },
+      "case_name": "test_op_{operation}_algo_{algorithm}_proto_{protocol}_redop_{redop}_ranks_{ranks}_datatype_{dtype}_datasize_{size}_iters_{iters}_threads_1_process_{nprocs}_nnodes{nodes}_autodetect_rdma_host",
+      "command": "{python_env}/bin/python3.11 run_test.py --op {operation} --algo {algorithm} --proto {protocol} --redop {redop} --ranks {ranks} --data-type {dtype} --data-size {size} --iters {iters} --threads 1 --nprocs {nprocs} --nnodes {nodes} --auto-detect --mpi-options='-mca btl_tcp_if_include {mpi_interface} -x NCCL_NET_GDR_LEVEL=0 -x PATH={path} -x LD_LIBRARY_PATH={ld_library_path} --hostfile {hostfile}' --cross-node non_gdr"
+    },
+    {
+      "name": "half_socket", "nodes": [2, 4, 8], "layout_set": "all",
+      "layouts": ["n2_ranks_16", "n4_ranks_32", "n8_ranks_64"],
+      "axes": ["operation", "algorithm", "protocol", "redop", "dtype", "size", "iters"],
+      "select": {
+        "operation": ["all_reduce_perf"], "algorithm": ["Ring", "Tree"],
+        "protocol": ["LL", "Simple", "SimpleBulk"], "redop": ["sum", "avg"], "dtype": ["half"],
+        "size": ["32B", "32KB", "8MB", "32MB", "256MB"], "iters": [10]
+      },
+      "case_name": "test_op_{operation}_algo_{algorithm}_proto_{protocol}_redop_{redop}_ranks_{ranks}_datatype_{dtype}_datasize_{size}_iters_{iters}_threads_1_process_{nprocs}_nnodes{nodes}_autodetect_socket",
+      "command": "{python_env}/bin/python3.11 run_test.py --op {operation} --algo {algorithm} --proto {protocol} --redop {redop} --ranks {ranks} --data-type {dtype} --data-size {size} --iters {iters} --threads 1 --nprocs {nprocs} --nnodes {nodes} --auto-detect --mpi-options='-mca btl_tcp_if_include {mpi_interface} -x NCCL_NET_GDR_LEVEL=4 -x NCCL_MNNVL_ENABLE=0 -x LD_LIBRARY_PATH -x PATH -x PATH={path} -x LD_LIBRARY_PATH={ld_library_path} --hostfile {hostfile}' --cross-node socket"
+    },
+    {
+      "name": "all_reduce_ibsplit", "nodes": [2, 4, 8], "layout_set": "all",
+      "axes": ["operation", "algorithm", "protocol", "redop", "dtype", "size", "iters"],
+      "select": {
+        "operation": ["all_reduce_perf"], "algorithm": ["Ring"], "protocol": ["LL"], "redop": ["sum"],
+        "dtype": ["int8"], "size": ["32MB"], "iters": [10]
+      },
+      "case_name": "test_op_{operation}_algo_{algorithm}_proto_{protocol}_redop_{redop}_ranks_{ranks}_datatype_{dtype}_datasize_{size}_iters_{iters}_threads_1_process_{nprocs}_nnodes{nodes}_autodetect_rdma_gdr_ibsplit",
+      "command": "{python_env}/bin/python3.11 run_test.py --op {operation} --algo {algorithm} --proto {protocol} --redop {redop} --ranks {ranks} --data-type {dtype} --data-size {size} --iters {iters} --threads 1 --nprocs {nprocs} --nnodes {nodes} --auto-detect --mpi-options='-mca btl_tcp_if_include {mpi_interface} -x NCCL_NET_GDR_LEVEL=4 -x NCCL_IB_SPLIT_DATA_ON_QPS=0 -x NCCL_MNNVL_ENABLE=0 -x LD_LIBRARY_PATH -x PATH -x PATH={path} -x LD_LIBRARY_PATH={ld_library_path} --hostfile {hostfile}' --cross-node gdr",
+      "command_by_nodes": {
+        "8": "{python_env}/bin/python3.11 run_test.py --op {operation} --algo {algorithm} --proto {protocol} --redop {redop} --ranks {ranks} --data-type {dtype} --data-size {size} --iters {iters} --threads 1 --nprocs {nprocs} --nnodes {nodes} --auto-detect --mpi-options='-mca btl_tcp_if_include {mpi_interface} -x NCCL_NET_GDR_LEVEL=4 -x NCCL_MNNVL_ENABLE=0 -x LD_LIBRARY_PATH -x PATH -x NCCL_IB_SPLIT_DATA_ON_QPS=0 -x PATH={path} -x LD_LIBRARY_PATH={ld_library_path} --hostfile {hostfile}' --cross-node gdr"
+      }
+    },
+    {
+      "name": "alltoall_ibsplit", "nodes": [2, 4, 8], "layout_set": "all",
+      "axes": ["operation", "algorithm", "protocol", "redop", "dtype", "size", "iters"],
+      "select": {
+        "operation": ["alltoall_perf"], "algorithm": ["Ring"], "protocol": ["Auto"], "redop": ["sum"],
+        "dtype": ["int8"], "size": ["32MB"], "iters": [10]
+      },
+      "case_name": "test_op_{operation}_algo_{algorithm}_proto_{protocol}_redop_{redop}_ranks_{ranks}_datatype_{dtype}_datasize_{size}_iters_{iters}_threads_1_process_{nprocs}_nnodes{nodes}_autodetect_rdma_gdr_ibsplit",
+      "command": "{python_env}/bin/python3.11 run_test.py --op {operation} --algo {algorithm} --proto {protocol} --redop {redop} --ranks {ranks} --data-type {dtype} --data-size {size} --iters {iters} --threads 1 --nprocs {nprocs} --nnodes {nodes} --auto-detect --mpi-options='-mca btl_tcp_if_include {mpi_interface} -x NCCL_NET_GDR_LEVEL=4 -x NCCL_IB_SPLIT_DATA_ON_QPS=0 -x NCCL_MNNVL_ENABLE=0 -x LD_LIBRARY_PATH -x PATH -x PATH={path} -x LD_LIBRARY_PATH={ld_library_path} --hostfile {hostfile}' --cross-node gdr",
+      "command_by_nodes": {
+        "8": "{python_env}/bin/python3.11 run_test.py --op {operation} --algo {algorithm} --proto {protocol} --redop {redop} --ranks {ranks} --data-type {dtype} --data-size {size} --iters {iters} --threads 1 --nprocs {nprocs} --nnodes {nodes} --auto-detect --mpi-options='-mca btl_tcp_if_include {mpi_interface} -x NCCL_NET_GDR_LEVEL=4 -x NCCL_MNNVL_ENABLE=0 -x LD_LIBRARY_PATH -x PATH -x NCCL_IB_SPLIT_DATA_ON_QPS=0 -x PATH={path} -x LD_LIBRARY_PATH={ld_library_path} --hostfile {hostfile}' --cross-node gdr"
+      }
+    },
+    {
+      "name": "all_reduce_auto", "nodes": [2], "layout_set": "all",
+      "layouts": ["n2_ranks_2", "n2_ranks_4"],
+      "axes": ["operation", "algorithm", "protocol", "redop", "dtype", "size", "iters"],
+      "select": {
+        "operation": ["all_reduce_perf"], "algorithm": ["Auto"], "protocol": ["Auto"], "redop": ["None"],
+        "dtype": ["float"], "size": ["1186344", "2236736"], "iters": [2]
+      }
+    },
+    {
+      "name": "broadcast_auto", "nodes": [2], "layout_set": "all",
+      "layouts": ["n2_ranks_2", "n2_ranks_4"],
+      "axes": ["operation", "algorithm", "protocol", "redop", "dtype", "size", "iters"],
+      "select": {
+        "operation": ["broadcast_perf"], "algorithm": ["Auto"], "protocol": ["Auto"], "redop": ["None"],
+        "dtype": ["int8"], "size": ["3440104"], "iters": [2]
+      }
+    },
+    {
+      "name": "all_reduce_ring_special", "nodes": [2], "layout_set": "all",
+      "layouts": ["n2_ranks_2"],
+      "axes": ["operation", "algorithm", "protocol", "redop", "dtype", "size", "iters"],
+      "select": {
+        "operation": ["all_reduce_perf"], "algorithm": ["Ring"], "protocol": ["LL"], "redop": ["None"],
+        "dtype": ["double"], "size": ["1KB"], "iters": [2]
+      }
+    }
+  ],
+  "profiles": {
+    "full": {},
+    "smoke": {
+      "nodes": [2],
+      "filters": {
+        "operation": ["all_reduce_perf"], "algorithm": ["Ring"], "protocol": ["LL"],
+        "redop": ["sum"], "dtype": ["int8"], "size": ["8MB"], "ranks": [2]
+      }
+    },
+    "auto": {"filters": {"algorithm": ["Auto"]}}
+  }
+}

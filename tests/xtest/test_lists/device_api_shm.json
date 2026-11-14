@@ -1,0 +1,69 @@
+{
+  "schema_version": 2,
+  "family": "device_api_shm",
+  "defaults": {
+    "check": "exit_code",
+    "case_name": "test_op_{operation}_D{device}_V{v}_{layout}"
+  },
+  "axes": {
+    "operation": ["all_reduce_perf", "alltoall_perf"],
+    "device": [1, 2],
+    "v": [128, 16, 1],
+    "gin": [2, 3]
+  },
+  "layouts": {
+    "nodes": [
+      {"name": "t8_nnodes1", "nodes": 1, "values": {"lsa": 4}},
+      {"name": "np16_nnodes2", "nodes": 2, "values": {"lsa": 8}}
+    ]
+  },
+  "bindings": {
+    "1": {"plan": "pccl_shm_device_api_single_node1_plan", "suite": "device_api_shm_single_node_single_process_suite"},
+    "2": {"plan": "pccl_shm_device_api_multi_node2_plan", "suite": "device_api_shm_multi_nodes2_suite"}
+  },
+  "groups": [
+    {
+      "name": "d0", "nodes": [1, 2], "layout_set": "nodes",
+      "axes": ["operation", "device", "v"],
+      "select": {"operation": ["all_reduce_perf", "alltoall_perf"], "device": [1], "v": [128]},
+      "case_name": "test_op_{operation}_D0_{layout}",
+      "command_by_nodes": {
+        "1": "{operation} -b 8 -e 2G -f 2 --elapsed_type 1 -R 2 -t 8 -g 1 -D 0",
+        "2": "mpirun --allow-run-as-root -np 16 -npernode 8 -x PATH={path} -x LD_LIBRARY_PATH={ld_library_path} --hostfile {hostfile} {operation} -b 8 -e 2G -f 2 --elapsed_type 1 -R 2 -t 1 -g 1 -D 0"
+      }
+    },
+    {
+      "name": "d12", "nodes": [1, 2], "layout_set": "nodes",
+      "axes": ["operation", "device", "v"],
+      "select": {"operation": ["all_reduce_perf", "alltoall_perf"], "device": [1, 2], "v": [128, 16, 1]},
+      "command_by_nodes": {
+        "1": "{operation} -b 8 -e 2G -f 2 --elapsed_type 1 -R 2 -t 8 -g 1 -D {device} -V {v}",
+        "2": "mpirun --allow-run-as-root -np 16 -npernode 8 -x PATH={path} -x LD_LIBRARY_PATH={ld_library_path} --hostfile {hostfile} {operation} -b 8 -e 2G -f 2 --elapsed_type 1 -R 2 -t 1 -g 1 -D {device} -V {v}"
+      }
+    },
+    {
+      "name": "d3_gin", "nodes": [1, 2], "layout_set": "nodes",
+      "axes": ["operation", "device", "v", "gin"],
+      "select": {"operation": ["alltoall_perf"], "device": [1], "v": [128, 16, 1], "gin": [2, 3]},
+      "case_name": "test_op_{operation}_D3_gin{gin}_V{v}_{layout}",
+      "command_by_nodes": {
+        "1": "PCCL_GIN_TYPE={gin} {operation} -b 8 -e 2G -f 2 --elapsed_type 1 -R 2 -t 8 -g 1 -D 3 -V {v}",
+        "2": "mpirun --allow-run-as-root -np 16 -npernode 8 -x PATH={path} -x LD_LIBRARY_PATH={ld_library_path} --hostfile {hostfile} -x PCCL_GIN_TYPE={gin} {operation} -b 8 -e 2G -f 2 --elapsed_type 1 -R 2 -t 1 -g 1 -D 3 -V {v}"
+      }
+    },
+    {
+      "name": "d4_gin_lsa", "nodes": [1, 2], "layout_set": "nodes",
+      "axes": ["operation", "device", "v", "gin"],
+      "select": {"operation": ["alltoall_perf"], "device": [1], "v": [128, 16, 1], "gin": [2, 3]},
+      "case_name": "test_op_{operation}_D4_gin{gin}_lsa{lsa}_V{v}_{layout}",
+      "command_by_nodes": {
+        "1": "PCCL_GIN_TYPE={gin} PCCL_LSA_TEAM_SIZE=4 {operation} -b 8 -e 2G -f 2 --elapsed_type 1 -R 2 -t 8 -g 1 -D 4 -V {v}",
+        "2": "mpirun --allow-run-as-root -np 16 -npernode 8 -x PATH={path} -x LD_LIBRARY_PATH={ld_library_path} --hostfile {hostfile} -x PCCL_GIN_TYPE={gin} -x PCCL_LSA_TEAM_SIZE=8 {operation} -b 8 -e 2G -f 2 --elapsed_type 1 -R 2 -t 1 -g 1 -D 4 -V {v}"
+      }
+    }
+  ],
+  "profiles": {
+    "full": {},
+    "smoke": {"nodes": [1], "filters": {"operation": ["all_reduce_perf"]}}
+  }
+}

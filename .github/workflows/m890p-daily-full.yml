@@ -93,9 +93,28 @@ jobs:
             if [[ -n "$NODES" ]]; then
               GENERATE_NODES=(--nodes "$NODES")
             fi
+            GENERATED_DEFINITIONS=(
+              --definition tests/xtest/test_lists/op_perf_shm.json
+              --definition tests/xtest/test_lists/postsil_daily_shm.json
+            )
+            if [[ "$DATASET" == generated-full ]]; then
+              GENERATED_DEFINITIONS+=(
+                --definition tests/xtest/test_lists/pccl_fun_rdma_shm.json
+                --definition tests/xtest/test_lists/register_test_shm.json
+                --definition tests/xtest/test_lists/sanity_m890p_register.json
+                --definition tests/xtest/test_lists/sym_test_shm.json
+                --definition tests/xtest/test_lists/f8_test_shm.json
+                --definition tests/xtest/test_lists/device_api_shm.json
+                --definition tests/xtest/test_lists/local_register_perf_shm.json
+                --definition tests/xtest/test_lists/symetric_perf_shm.json
+                --definition tests/xtest/test_lists/copyengine_perf_shm.json
+                --definition tests/xtest/test_lists/op_perf_shm_2_rack.json
+                --definition tests/xtest/test_lists/op_perf_rdma_shm.json
+                --definition tests/xtest/test_lists/commabort_test_shm.json
+              )
+            fi
             python3 -S -B tests/xtest/generate_cases.py \
-              --definition tests/xtest/test_lists/op_perf_shm.json \
-              --definition tests/xtest/test_lists/postsil_daily_shm.json \
+              "${GENERATED_DEFINITIONS[@]}" \
               --suites tests/xtest/test_lists/suites.json \
               --env-root tests/xtest/test_lists/envs \
               --profile "$GENERATION_PROFILE" "${GENERATE_NODES[@]}" \

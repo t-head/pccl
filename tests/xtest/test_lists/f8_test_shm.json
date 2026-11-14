@@ -1,0 +1,100 @@
+{
+  "schema_version": 2,
+  "family": "f8_test_shm",
+  "defaults": {
+    "check": "exit_code",
+    "case_name": "test_op_{operation}_algo_{algorithm}_proto_{protocol}_datatype_{dtype}_datasize_{size}_iters_{iters}_ranks_{ranks}_{layout}",
+    "command": "python3 run_test.py --op {operation} --algo {algorithm} --proto {protocol} --data-type {dtype} --data-size {size} --iters {iters} --ranks {ranks} {options} --auto-detect"
+  },
+  "axes": {
+    "operation": ["all_gather_perf", "all_reduce_perf", "alltoall_perf", "gather_perf", "hypercube_perf",
+                  "reduce_scatter_perf", "scatter_perf", "sendrecv_perf"],
+    "algorithm": ["Ring", "Tree"],
+    "protocol": ["LL128", "LL", "Simple", "SimpleBulk"],
+    "dtype": ["f8e4m3", "f8e5m2"],
+    "size": ["1229MB", "512MB", "32MB", "102912KB"],
+    "iters": [10]
+  },
+  "layouts": {
+    "all": [
+      {"name": "nproc_1_threads_8", "values": {"ranks": 8, "nproc": 1, "threads": 8}},
+      {"name": "nproc_1_threads_1", "values": {"ranks": 8, "nproc": 1, "threads": 1}},
+      {"name": "nproc_8_threads_1", "values": {"ranks": 8, "nproc": 8, "threads": 1}},
+      {"name": "nproc_4_threads_2", "values": {"ranks": 8, "nproc": 4, "threads": 2}},
+      {"name": "devices_4_7", "values": {"ranks": 2, "devices": "4,7"}},
+      {"name": "devices_0_2_4_6", "values": {"ranks": 4, "devices": "0,2,4,6"}},
+      {"name": "devices_0_1_4_5", "values": {"ranks": 4, "devices": "0,1,4,5"}}
+    ]
+  },
+  "bindings": {
+    "1": {"plan": "pccl_shm_f8_test_plan", "suite": "f8_test_shm_single_node_suite"}
+  },
+  "groups": [
+    {
+      "name": "all_gather", "nodes": [1], "layout_set": "all", "layouts": ["nproc_1_threads_8"],
+      "axes": ["operation", "algorithm", "protocol", "dtype", "size", "iters"],
+      "select": {"operation": ["all_gather_perf"], "algorithm": ["Ring"], "protocol": ["LL128"],
+                 "dtype": ["f8e4m3", "f8e5m2"], "size": ["1229MB"], "iters": [10]}
+    },
+    {
+      "name": "all_reduce", "nodes": [1], "layout_set": "all", "layouts": ["nproc_1_threads_1"],
+      "axes": ["operation", "algorithm", "protocol", "dtype", "size", "iters"],
+      "select": {"operation": ["all_reduce_perf"], "algorithm": ["Ring"], "protocol": ["LL"],
+                 "dtype": ["f8e4m3", "f8e5m2"], "size": ["512MB"], "iters": [10]}
+    },
+    {
+      "name": "all_reduce_max", "nodes": [1], "layout_set": "all", "layouts": ["nproc_1_threads_1"],
+      "axes": ["operation", "algorithm", "protocol", "dtype", "size", "iters"],
+      "select": {"operation": ["all_reduce_perf"], "algorithm": ["Ring"], "protocol": ["LL"],
+                 "dtype": ["f8e4m3", "f8e5m2"], "size": ["512MB"], "iters": [10]},
+      "case_name": "test_op_{operation}_algo_{algorithm}_proto_{protocol}_datatype_{dtype}_datasize_{size}_iters_{iters}_ranks_{ranks}_{layout}_redop_max",
+      "command": "python3 run_test.py --op {operation} --algo {algorithm} --proto {protocol} --data-type {dtype} --data-size {size} --iters {iters} --ranks {ranks} {options} --auto-detect --redop max"
+    },
+    {
+      "name": "all_reduce_tree", "nodes": [1], "layout_set": "all", "layouts": ["devices_4_7"],
+      "axes": ["operation", "algorithm", "protocol", "dtype", "size", "iters"],
+      "select": {"operation": ["all_reduce_perf"], "algorithm": ["Tree"], "protocol": ["Simple"],
+                 "dtype": ["f8e4m3", "f8e5m2"], "size": ["512MB"], "iters": [10]}
+    },
+    {
+      "name": "alltoall", "nodes": [1], "layout_set": "all", "layouts": ["nproc_1_threads_1"],
+      "axes": ["operation", "algorithm", "protocol", "dtype", "size", "iters"],
+      "select": {"operation": ["alltoall_perf"], "algorithm": ["Ring"], "protocol": ["SimpleBulk"],
+                 "dtype": ["f8e4m3", "f8e5m2"], "size": ["32MB"], "iters": [10]}
+    },
+    {
+      "name": "gather", "nodes": [1], "layout_set": "all", "layouts": ["nproc_8_threads_1"],
+      "axes": ["operation", "algorithm", "protocol", "dtype", "size", "iters"],
+      "select": {"operation": ["gather_perf"], "algorithm": ["Ring"], "protocol": ["SimpleBulk"],
+                 "dtype": ["f8e4m3", "f8e5m2"], "size": ["32MB"], "iters": [10]}
+    },
+    {
+      "name": "hypercube", "nodes": [1], "layout_set": "all", "layouts": ["devices_4_7"],
+      "axes": ["operation", "algorithm", "protocol", "dtype", "size", "iters"],
+      "select": {"operation": ["hypercube_perf"], "algorithm": ["Ring"], "protocol": ["SimpleBulk"],
+                 "dtype": ["f8e4m3", "f8e5m2"], "size": ["512MB"], "iters": [10]}
+    },
+    {
+      "name": "reduce_scatter", "nodes": [1], "layout_set": "all", "layouts": ["devices_0_2_4_6"],
+      "axes": ["operation", "algorithm", "protocol", "dtype", "size", "iters"],
+      "select": {"operation": ["reduce_scatter_perf"], "algorithm": ["Ring"], "protocol": ["LL128"],
+                 "dtype": ["f8e4m3", "f8e5m2"], "size": ["1229MB"], "iters": [10]}
+    },
+    {
+      "name": "scatter", "nodes": [1], "layout_set": "all", "layouts": ["nproc_4_threads_2"],
+      "axes": ["operation", "algorithm", "protocol", "dtype", "size", "iters"],
+      "select": {"operation": ["scatter_perf"], "algorithm": ["Ring"], "protocol": ["SimpleBulk"],
+                 "dtype": ["f8e4m3", "f8e5m2"], "size": ["102912KB"], "iters": [10]}
+    },
+    {
+      "name": "sendrecv", "nodes": [1], "layout_set": "all", "layouts": ["devices_0_1_4_5"],
+      "axes": ["operation", "algorithm", "protocol", "dtype", "size", "iters"],
+      "select": {"operation": ["sendrecv_perf"], "algorithm": ["Ring"], "protocol": ["SimpleBulk"],
+                 "dtype": ["f8e4m3", "f8e5m2"], "size": ["512MB"], "iters": [10]}
+    }
+  ],
+  "profiles": {
+    "full": {},
+    "smoke": {"filters": {"operation": ["all_gather_perf"], "dtype": ["f8e4m3"]}}
+  }
+}

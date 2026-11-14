@@ -1,0 +1,45 @@
+{
+  "schema_version": 2,
+  "family": "commabort_test_shm",
+  "defaults": {
+    "check": "exit_code",
+    "case_name": "test_CommAbortTest_{operation}_b1g_a{a}_t2_g2"
+  },
+  "axes": {
+    "operation": ["all_reduce", "alltoall"]
+  },
+  "layouts": {
+    "abort": [
+      {"name": "a0", "values": {"a": 0, "n": 2}},
+      {"name": "a1", "values": {"a": 1, "n": 200}},
+      {"name": "a2", "values": {"a": 2, "n": 2}},
+      {"name": "a3", "values": {"a": 3, "n": 2}}
+    ]
+  },
+  "bindings": {
+    "1": {"plan": "pccl_shm_commabort_test_single_node1_plan", "suite": "commabort_test_shm_single_node_suite"},
+    "2": {"plan": "pccl_shm_commabort_test_multi_node2_plan", "suite": "commabort_test_shm_multi_nodes2_suite"}
+  },
+  "groups": [
+    {
+      "name": "all_reduce", "nodes": [1, 2], "layout_set": "abort", "axes": ["operation"],
+      "select": {"operation": ["all_reduce"]},
+      "command_by_nodes": {
+        "1": "mpirun -np 2 -npernode 2 -mca btl_tcp_if_include {mpi_interface} -mca orte_base_help_aggregate 0 --mca btl ^openib --allow-run-as-root ./build/pcclCommAbortTest -b 1g -a {a} -n {n} -c 0 -t 2 -g 2",
+        "2": "mpirun -np 4 -npernode 2 -mca btl_tcp_if_include {mpi_interface} -mca orte_base_help_aggregate 0 --mca btl ^openib --allow-run-as-root -x PATH={path} -x LD_LIBRARY_PATH={ld_library_path} --hostfile {hostfile} pcclCommAbortTest -b 1g -a {a} -n {n} -c 0 -t 2 -g 2"
+      }
+    },
+    {
+      "name": "alltoall", "nodes": [1, 2], "layout_set": "abort", "axes": ["operation"],
+      "select": {"operation": ["alltoall"]},
+      "command_by_nodes": {
+        "1": "mpirun -np 2 -npernode 2 -mca btl_tcp_if_include {mpi_interface} -mca orte_base_help_aggregate 0 --mca btl ^openib --allow-run-as-root ./build/pcclCommAbortTest -b 1g -a {a} -n {n} -c 1 -t 2 -g 2",
+        "2": "mpirun -np 4 -npernode 2 -mca btl_tcp_if_include {mpi_interface} -mca orte_base_help_aggregate 0 --mca btl ^openib --allow-run-as-root -x PATH={path} -x LD_LIBRARY_PATH={ld_library_path} --hostfile {hostfile} pcclCommAbortTest -b 1g -a {a} -n {n} -c 1 -t 2 -g 2"
+      }
+    }
+  ],
+  "profiles": {
+    "full": {},
+    "smoke": {"nodes": [1], "filters": {"operation": ["all_reduce"], "layout": ["a0"]}}
+  }
+}

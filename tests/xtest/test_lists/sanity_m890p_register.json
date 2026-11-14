@@ -1,0 +1,53 @@
+{
+  "schema_version": 2,
+  "family": "sanity_m890p_register",
+  "defaults": {
+    "check": "exit_code",
+    "case_name": "test_op_{operation}_algo_{algorithm}_proto_{protocol}_datatype_{dtype}_datasize_{size}_iters_{iters}_ranks_{ranks}_{layout}",
+    "command": "python3 run_test.py --op {operation} --algo {algorithm} --proto {protocol} --data-type {dtype} --data-size {size} --iters {iters} --ranks {ranks} {options} --auto-detect --register 1"
+  },
+  "axes": {
+    "operation": ["all_gather_perf", "all_reduce_perf", "alltoall_perf", "gather_perf", "scatter_perf", "sendrecv_perf"],
+    "algorithm": ["Auto", "Ring"],
+    "protocol": ["Auto", "Simple"],
+    "dtype": ["float", "int8"],
+    "size": ["32MB"],
+    "iters": [10]
+  },
+  "layouts": {
+    "auto": [
+      {"name": "nproc_1_threads_2", "values": {"ranks": 2, "nproc": 1, "threads": 2}},
+      {"name": "nproc_2_threads_1", "values": {"ranks": 2, "nproc": 2, "threads": 1}}
+    ],
+    "devices": [
+      {"name": "devices_0_1", "values": {"ranks": 2, "devices": "0,1"}}
+    ]
+  },
+  "bindings": {
+    "1": {"plan": "sanity_m890p_single_node_plan", "suite": "sanity_m890p_register_suite"}
+  },
+  "groups": [
+    {
+      "name": "auto", "nodes": [1], "layout_set": "auto",
+      "axes": ["operation", "algorithm", "protocol", "dtype", "size", "iters"],
+      "select": {
+        "operation": ["all_gather_perf", "all_reduce_perf", "alltoall_perf"],
+        "algorithm": ["Auto"], "protocol": ["Auto"], "dtype": ["float"], "size": ["32MB"], "iters": [10]
+      }
+    },
+    {
+      "name": "simple", "nodes": [1], "layout_set": "devices",
+      "axes": ["operation", "algorithm", "protocol", "dtype", "size", "iters"],
+      "select": {
+        "operation": ["gather_perf", "scatter_perf", "sendrecv_perf"],
+        "algorithm": ["Ring"], "protocol": ["Simple"], "dtype": ["int8"], "size": ["32MB"], "iters": [10]
+      }
+    }
+  ],
+  "profiles": {
+    "full": {},
+    "smoke": {
+      "filters": {"operation": ["all_reduce_perf"], "algorithm": ["Auto"], "layout": ["nproc_1_threads_2"]}
+    }
+  }
+}

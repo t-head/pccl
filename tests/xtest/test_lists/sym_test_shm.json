@@ -1,0 +1,99 @@
+{
+  "schema_version": 2,
+  "family": "sym_test_shm",
+  "defaults": {
+    "check": "exit_code",
+    "case_name": "test_op_{operation}_algo_SYM_proto_{protocol}_datatype_{dtype}_datasize_{size}_iters_{iters}_ranks_{ranks}_{layout}"
+  },
+  "axes": {
+    "operation": ["all_gather_perf", "all_reduce_perf", "reduce_scatter_perf", "reduce_perf"],
+    "protocol": ["LDST", "LL"],
+    "dtype": ["bf16", "float"],
+    "size": ["1020B", "102912KB", "1GB", "32MB", "512MB"],
+    "iters": [10]
+  },
+  "layouts": {
+    "small": [
+      {"name": "devices_0_1", "values": {"ranks": 2, "nproc": 2, "devices": "0,1"}},
+      {"name": "devices_0_1_2_3", "values": {"ranks": 4, "nproc": 4, "devices": "0,1,2,3"}}
+    ],
+    "ranks8": [
+      {"name": "nproc_8", "values": {"ranks": 8, "nproc": 8}}
+    ]
+  },
+  "bindings": {
+    "1": {"plan": "pccl_shm_sym_test_plan", "suite": "sym_test_shm_single_node_suite"}
+  },
+  "groups": [
+    {
+      "name": "all_gather_ldst", "nodes": [1], "layout_set": "small",
+      "axes": ["operation", "protocol", "dtype", "size", "iters"],
+      "select": {"operation": ["all_gather_perf"], "protocol": ["LDST"], "dtype": ["bf16", "float"],
+                 "size": ["1020B", "102912KB", "1GB", "32MB", "512MB"], "iters": [10]},
+      "command": "python3 run_test.py --op {operation} --data-type {dtype} --data-size {size} --iters {iters} --ranks {ranks} --nproc {nproc} {options} --auto-detect --register 2 --mpi-option '-x NCCL_WIN_ENABLE=1 -x NCCL_SYM_KERNEL=AllGather_ST'"
+    },
+    {
+      "name": "all_gather_ll", "nodes": [1], "layout_set": "small",
+      "axes": ["operation", "protocol", "dtype", "size", "iters"],
+      "select": {"operation": ["all_gather_perf"], "protocol": ["LL"], "dtype": ["bf16", "float"],
+                 "size": ["1020B", "102912KB", "32MB", "512MB"], "iters": [10]},
+      "command": "python3 run_test.py --op {operation} --data-type {dtype} --data-size {size} --iters {iters} --ranks {ranks} --nproc {nproc} {options} --auto-detect --register 2 --mpi-option '-x NCCL_WIN_ENABLE=1 -x NCCL_SYM_KERNEL=AllGather_LL'"
+    },
+    {
+      "name": "reduce_scatter_ldst", "nodes": [1], "layout_set": "small",
+      "axes": ["operation", "protocol", "dtype", "size", "iters"],
+      "select": {"operation": ["reduce_scatter_perf"], "protocol": ["LDST"], "dtype": ["bf16", "float"],
+                 "size": ["1020B", "102912KB", "1GB", "32MB", "512MB"], "iters": [10]},
+      "command": "python3 run_test.py --op {operation} --data-type {dtype} --data-size {size} --iters {iters} --ranks {ranks} --nproc {nproc} {options} --auto-detect --register 2 --mpi-option '-x NCCL_WIN_ENABLE=1 -x NCCL_SYM_KERNEL=ReduceScatter_LD'"
+    },
+    {
+      "name": "reduce_scatter_ll", "nodes": [1], "layout_set": "small",
+      "axes": ["operation", "protocol", "dtype", "size", "iters"],
+      "select": {"operation": ["reduce_scatter_perf"], "protocol": ["LL"], "dtype": ["bf16", "float"],
+                 "size": ["1020B", "102912KB", "32MB", "512MB"], "iters": [10]},
+      "command": "python3 run_test.py --op {operation} --data-type {dtype} --data-size {size} --iters {iters} --ranks {ranks} --nproc {nproc} {options} --auto-detect --register 2 --mpi-option '-x NCCL_WIN_ENABLE=1 -x NCCL_SYM_KERNEL=ReduceScatter_LL'"
+    },
+    {
+      "name": "all_reduce_ldst", "nodes": [1], "layout_set": "small",
+      "axes": ["operation", "protocol", "dtype", "size", "iters"],
+      "select": {"operation": ["all_reduce_perf"], "protocol": ["LDST"], "dtype": ["bf16", "float"],
+                 "size": ["1020B", "102912KB", "1GB", "32MB", "512MB"], "iters": [10]},
+      "command": "python3 run_test.py --op {operation} --data-type {dtype} --data-size {size} --iters {iters} --ranks {ranks} --nproc {nproc} {options} --auto-detect --register 2 --mpi-option '-x NCCL_WIN_ENABLE=1 -x NCCL_SYM_KERNEL=AllReduce_RSxLD_AGxST'"
+    },
+    {
+      "name": "all_reduce_ll", "nodes": [1], "layout_set": "small",
+      "axes": ["operation", "protocol", "dtype", "size", "iters"],
+      "select": {"operation": ["all_reduce_perf"], "protocol": ["LL"], "dtype": ["bf16", "float"],
+                 "size": ["1020B", "102912KB", "32MB", "512MB"], "iters": [10]},
+      "command": "python3 run_test.py --op {operation} --data-type {dtype} --data-size {size} --iters {iters} --ranks {ranks} --nproc {nproc} {options} --auto-detect --register 2 --mpi-option '-x NCCL_WIN_ENABLE=1 -x NCCL_SYM_KERNEL=AllReduce_AGxLL_R'"
+    },
+    {
+      "name": "all_reduce_ldst_r8", "nodes": [1], "layout_set": "ranks8",
+      "axes": ["operation", "protocol", "dtype", "size", "iters"],
+      "select": {"operation": ["all_reduce_perf"], "protocol": ["LDST"], "dtype": ["bf16", "float"],
+                 "size": ["1020B", "102912KB", "1GB", "32MB", "512MB"], "iters": [10]},
+      "case_name": "test_op_{operation}_algo_SYM_proto_{protocol}_datatype_{dtype}_datasize_{size}_iters_{iters}_ranks_{ranks}",
+      "command": "python3 run_test.py --op {operation} --data-type {dtype} --data-size {size} --iters {iters} --ranks {ranks} --nproc {nproc} --auto-detect --register 2 --mpi-option '-x NCCL_WIN_ENABLE=1 -x NCCL_SYM_KERNEL=AllReduce_RSxLD_AGxST'"
+    },
+    {
+      "name": "all_reduce_ll_r8", "nodes": [1], "layout_set": "ranks8",
+      "axes": ["operation", "protocol", "dtype", "size", "iters"],
+      "select": {"operation": ["all_reduce_perf"], "protocol": ["LL"], "dtype": ["bf16", "float"],
+                 "size": ["1020B", "102912KB", "32MB", "512MB"], "iters": [10]},
+      "case_name": "test_op_{operation}_algo_SYM_proto_{protocol}_datatype_{dtype}_datasize_{size}_iters_{iters}_ranks_{ranks}",
+      "command": "python3 run_test.py --op {operation} --data-type {dtype} --data-size {size} --iters {iters} --ranks {ranks} --nproc {nproc} --auto-detect --register 2 --mpi-option '-x NCCL_WIN_ENABLE=1 -x NCCL_SYM_KERNEL=AllReduce_AGxLL_R'"
+    },
+    {
+      "name": "reduce_special", "nodes": [1], "layout_set": "small", "layouts": ["devices_0_1_2_3"],
+      "axes": ["operation", "protocol", "dtype", "size", "iters"],
+      "select": {"operation": ["reduce_perf"], "protocol": ["LDST"], "dtype": ["bf16"], "size": ["512MB"], "iters": [10]},
+      "case_name": "test_op_reduce_algo_SYM_datatype_{dtype}_datasize_{size}_iters_{iters}_ranks_{ranks}_{layout}",
+      "command": "python3 run_test.py --op {operation} --data-type {dtype} --data-size {size} --iters {iters} --ranks {ranks} --nproc {nproc} {options} --auto-detect --register 2 --mpi-option '-x NCCL_WIN_ENABLE=1'"
+    }
+  ],
+  "profiles": {
+    "full": {},
+    "smoke": {"filters": {"operation": ["all_gather_perf"], "protocol": ["LDST"],
+                          "dtype": ["bf16"], "size": ["1020B"], "layout": ["devices_0_1"]}}
+  }
+}

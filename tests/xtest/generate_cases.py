@@ -30,7 +30,8 @@ def load_definition(path):
         raise ValueError("Unsupported public test-list schema")
     if not run_cases.SAFE_NAME.fullmatch(definition["family"]):
         raise ValueError("Invalid test-family name")
-    if (set(definition["defaults"]) != {"check", "case_name"}
+    if (not {"check", "case_name"} <= set(definition["defaults"])
+            or set(definition["defaults"]) - {"check", "case_name", "command"}
             or definition["defaults"]["check"] not in run_cases.CHECKS):
         raise ValueError("Family defaults require a supported check and case_name")
     for name, values in definition["axes"].items():
@@ -46,14 +47,19 @@ def load_definition(path):
             raise ValueError(f"Invalid layout set: {set_name}")
         names = set()
         for layout in layouts:
-            if (set(layout) != {"name", "values"}
+            if (set(layout) - {"name", "values", "nodes"} or not {"name", "values"} <= set(layout)
                     or not run_cases.SAFE_NAME.fullmatch(layout["name"])
                     or layout["name"] in names or not isinstance(layout["values"], dict)):
                 raise ValueError(f"Invalid or duplicate layout in {set_name}")
+            if "nodes" in layout and (type(layout["nodes"]) is not int
+                                      or str(layout["nodes"]) not in definition["bindings"]):
+                raise ValueError(f"Invalid layout node binding in {set_name}")
             names.add(layout["name"])
     for group in definition["groups"]:
-        required_group = {"name", "nodes", "axes", "layout_set", "command"}
-        if not required_group <= set(group) or set(group) - required_group - {"select"}:
+        required_group = {"name", "nodes", "axes", "layout_set"}
+        if (not required_group <= set(group)
+                or set(group) - required_group - {"select", "case_name", "layouts", "command",
+                                                  "command_by_nodes", "check"}):
             raise ValueError("Invalid test-family group")
         if (not run_cases.SAFE_NAME.fullmatch(group["name"])
                 or not isinstance(group["nodes"], list) or not group["nodes"]
@@ -61,12 +67,28 @@ def load_definition(path):
                        for nodes in group["nodes"])
                 or group["layout_set"] not in definition["layouts"]
                 or not group["axes"] or any(axis not in definition["axes"] for axis in group["axes"])
-                or not group["command"].strip() or any(char in group["command"] for char in "\0\r\n")):
+                or group.get("check", definition["defaults"]["check"]) not in run_cases.CHECKS
+                or (not group.get("command", definition["defaults"].get("command", "")).strip()
+                    and any(str(nodes) not in group.get("command_by_nodes", {}) for nodes in group["nodes"]))
+                or any(char in group.get("command", definition["defaults"].get("command", ""))
+                       for char in "\0\r\n")):
             raise ValueError(f"Invalid group: {group.get('name')}")
         for axis, values in group.get("select", {}).items():
             if (axis not in definition["axes"] or not isinstance(values, list) or not values
                     or any(value not in definition["axes"][axis] for value in values)):
                 raise ValueError(f"Invalid group selection: {group['name']}")
+        if ("layouts" in group and
+                (not isinstance(group["layouts"], list) or not group["layouts"]
+                 or any(name not in {layout["name"] for layout in definition["layouts"][group["layout_set"]]}
+                        for name in group["layouts"]))):
+            raise ValueError(f"Invalid layout selection: {group['name']}")
+        if ("command_by_nodes" in group and
+                (not isinstance(group["command_by_nodes"], dict)
+                 or any(str(nodes) not in {str(value) for value in group["nodes"]}
+                        or not isinstance(command, str) or not command.strip()
+                        or any(char in command for char in "\0\r\n")
+                        for nodes, command in group["command_by_nodes"].items()))):
+            raise ValueError(f"Invalid node command override: {group['name']}")
     for explicit in definition.get("explicit_cases", []):
         if (set(explicit) != {"nodes", "name", "check", "cmd"}
                 or type(explicit["nodes"]) is not int
@@ -104,9 +126,13 @@ def _profile(definition, profile, nodes):
     return selected_nodes, filters
 
 
-def _layouts(group, definition, filters):
+def _layouts(group, definition, filters, nodes):
     selected = []
     for layout in definition["layouts"][group["layout_set"]]:
+        if "layouts" in group and layout["name"] not in group["layouts"]:
+            continue
+        if layout.get("nodes", nodes) != nodes:
+            continue
         values = layout["values"]
         if "layout" in filters and layout["name"] not in filters["layout"]:
             continue
@@ -120,7 +146,10 @@ def _options(values):
     if "devices" in values:
         return f"--devices {values['devices']}"
     if "nproc" in values:
-        return f"--nproc {values['nproc']} --threads {values['threads']}"
+        options = f"--nproc {values['nproc']}"
+        if "threads" in values:
+            options += f" --threads {values['threads']}"
+        return options
     return ""
 
 
@@ -129,7 +158,6 @@ def generate_rows(definition, profile="full", nodes=None):
     rows = []
     runtime = {name: "{" + name + "}" for name in RUNTIME_FIELDS}
     for group in definition["groups"]:
-        layouts = _layouts(group, definition, filters)
         axes = []
         for axis in group["axes"]:
             values = group.get("select", {}).get(axis, definition["axes"][axis])
@@ -142,6 +170,7 @@ def generate_rows(definition, profile="full", nodes=None):
             combinations = list(product(*axes))
             for node_count in sorted(set(group["nodes"]) & selected_nodes):
                 binding = definition["bindings"][str(node_count)]
+                layouts = _layouts(group, definition, filters, node_count)
                 for layout in layouts:
                     for combination in combinations:
                         values = dict(zip(group["axes"], combination))
@@ -152,12 +181,15 @@ def generate_rows(definition, profile="full", nodes=None):
                             "options": _options(layout["values"]),
                             "operation_name": str(values.get("operation", "")).removesuffix("_perf"),
                             "size_name": str(values.get("size", "")).replace(".", "point"),
+                            "size_name_underscore": str(values.get("size", "")).replace(".", "_"),
                         })
+                        command = group.get("command", definition["defaults"].get("command"))
+                        command = group.get("command_by_nodes", {}).get(str(node_count), command)
                         rows.append({
                             "plan": binding["plan"], "suite": binding["suite"],
-                            "name": definition["defaults"]["case_name"].format(**values),
-                            "check": definition["defaults"]["check"],
-                            "cmd": group["command"].format(**values),
+                            "name": group.get("case_name", definition["defaults"]["case_name"]).format(**values),
+                            "check": group.get("check", definition["defaults"]["check"]),
+                            "cmd": command.format(**values),
                         })
     if definition["profiles"][profile].get("include_explicit", False):
         for explicit in definition.get("explicit_cases", []):
