@@ -296,6 +296,7 @@ enum doca_verbs_qp_send_dbr_mode {
  * concurrently as a responder.
  */
 #define DOCA_VERBS_QP_ATTR_MAX_DEST_RD_ATOMIC (1 << 17)
+#define DOCA_VERBS_QP_ATTR_LAG_TX_PORT_AFFINITY (1 << 19)
 
 /**
  * @brief Specifies the length of a GID (Global ID) in bytes.
@@ -1380,6 +1381,9 @@ doca_error_t doca_verbs_qp_attr_set_max_rd_atomic(struct doca_verbs_qp_attr *ver
  */
 doca_error_t doca_verbs_qp_attr_set_max_dest_rd_atomic(struct doca_verbs_qp_attr *verbs_qp_attr,
                                                        uint8_t max_dest_rd_atomic);
+
+doca_error_t doca_verbs_qp_attr_set_lag_tx_port_affinity(struct doca_verbs_qp_attr *verbs_qp_attr,
+                                                        uint8_t lag_tx_port_affinity);
 
 /**
  * @brief Set the RC QP multi-path attribute.
@@ -2489,6 +2493,12 @@ uint8_t doca_verbs_device_attr_get_send_dbr_mode_no_dbr_ext(
  * The maximum number of outstanding RDMA Read or Atomic requests supported by the device.
  */
 uint8_t doca_verbs_device_attr_get_max_qp_rd_atom(
+    const struct doca_verbs_device_attr *verbs_device_attr);
+
+uint8_t doca_verbs_device_attr_get_lag_tx_port_affinity(
+    const struct doca_verbs_device_attr *verbs_device_attr);
+
+uint8_t doca_verbs_device_attr_get_num_lag_ports(
     const struct doca_verbs_device_attr *verbs_device_attr);
 
 /**

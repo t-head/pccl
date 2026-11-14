@@ -98,6 +98,7 @@ struct doca_verbs_qp_attr {
     uint8_t max_rd_atomic{};
     uint8_t max_dest_rd_atomic{};
     bool enable_multi_path{};
+    uint8_t lag_tx_port_affinity{};
 };
 
 /**

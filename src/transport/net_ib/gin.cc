@@ -15,6 +15,7 @@
 #include "gin.h"
 #include "gdaki/gin_host_gdaki.h"
 #include "param.h"
+#include "mlx5/mlx5dvwrap.h"
 #include <mutex>
 
 const int NCCL_GIN_IB_ALLGATHER_TAG = 0xa0;
@@ -475,6 +476,43 @@ struct ncclGinIbProxyCtx {
   int nContexts;
 };
 
+PCCL_PARAM(GinProxyLAGAwareDisable, "GIN_PROXY_LAG_AWARE_DISABLE", 0);
+
+// Context 0 keeps the member the default selection gave it, so traffic that uses only context 0 is
+// spread exactly as without explicit affinity. Each later context rotates from the member of the
+// context-0 QP of the same peer and role.
+static ncclResult_t ncclGinIbProxySetLagPort(struct ibv_qp* base, struct ibv_qp* qp, int context, uint8_t numLagPorts,
+                                          int peer, const char* role) {
+  uint8_t configured = 0, active = 0;
+  ncclResult_t ret = wrap_mlx5dv_query_qp_lag_port(base, &configured, &active);
+  if (ret == ncclInvalidUsage) {
+    INFO(NCCL_NET, "GIN/PROXY: LAG affinity unavailable, retaining default QP selection");
+    return ncclSuccess;
+  }
+  NCCLCHECK(ret);
+  if (configured == 0 || configured > numLagPorts) {
+    INFO(NCCL_NET, "GIN/PROXY: context-0 QP has no LAG member, retaining default QP selection");
+    return ncclSuccess;
+  }
+  uint8_t baseMember = configured;
+  uint8_t port = ((baseMember - 1 + context) % numLagPorts) + 1;
+  ret = wrap_mlx5dv_modify_qp_lag_port(qp, port);
+  if (ret == ncclInvalidUsage) {
+    INFO(NCCL_NET, "GIN/PROXY: LAG affinity modification unavailable, retaining default QP selection");
+    return ncclSuccess;
+  }
+  NCCLCHECK(ret);
+  NCCLCHECK(wrap_mlx5dv_query_qp_lag_port(qp, &configured, &active));
+  if (configured != port) {
+    WARN("GIN/PROXY: LAG affinity read-back mismatch: requested=%u configured=%u", port, configured);
+    return ncclSystemError;
+  }
+  INFO(NCCL_NET,
+       "GIN/PROXY: LAG QP affinity: context=%d peer=%d role=%s qpn=%u base=%u requested=%u configured=%u active=%u",
+       context, peer, role, qp->qp_num, baseMember, port, configured, active);
+  return ncclSuccess;
+}
+
 // Forward decl: ProxyDestroyContext is reused on ProxyCreateContext's error path.
 ncclResult_t ncclGinIbProxyDestroyContext(void* ginCtx);
 
@@ -484,12 +522,8 @@ ncclResult_t ncclGinIbProxyCreateContext(void* collComm, ncclGinConfig_v13_t* co
   struct ncclGinIbCollComm* cComm = (struct ncclGinIbCollComm*)collComm;
   ncclIbSetTrafficClass(cComm->ctx, config->trafficClass);
 
-  if (config->queueDepth != 0) {
-    WARN("GIN_IB_PROXY does not support specifying qp depth");
-    return ncclInvalidUsage;
-  }
-
   int nranks;
+  uint8_t numLagPorts = 0;
   struct ncclGinIbProxyCtx* ginProxyCtx = NULL;
   *ginCtx = NULL;
   NCCLCHECK(ncclCalloc(&ginProxyCtx, config->nContexts));
@@ -507,6 +541,16 @@ ncclResult_t ncclGinIbProxyCreateContext(void* collComm, ncclGinConfig_v13_t* co
 
   for (int c = 0; c < config->nContexts; c++) {
     struct ncclGinIbProxyCtx* gc = ginProxyCtx + c;
+    // Query the LAG members only after every rank has connected context 0, so context 0 is set up exactly as
+    // without explicit affinity.
+    if (c == 1 && pcclParamGinProxyLAGAwareDisable() == 0 && wrap_mlx5dv_symbols() == ncclSuccess &&
+        wrap_mlx5dv_is_supported(cComm->ib.context->device)) {
+      ncclResult_t queryResult = wrap_mlx5dv_query_lag_ports(cComm->ib.context, &numLagPorts);
+      if (queryResult == ncclInvalidUsage)
+        INFO(NCCL_NET, "GIN/PROXY: LAG member count unavailable, retaining default QP selection");
+      else
+        NCCLCHECKGOTO(queryResult, ret, end);
+    }
     NCCLCHECKGOTO(ncclIbMalloc((void**)&gc->fullSendComm, sizeof(void*) * nranks), ret, end);
     NCCLCHECKGOTO(ncclIbMalloc((void**)&gc->fullRecvComm, sizeof(void*) * nranks), ret, end);
     gc->rank = cComm->rank;
@@ -532,6 +576,22 @@ ncclResult_t ncclGinIbProxyCreateContext(void* collComm, ncclGinConfig_v13_t* co
         NCCLCHECKGOTO(ncclSendCheck((struct ncclIbSendComm*)gc->fullSendComm[connectPeer]), ret, end);
       while (((struct ncclIbRecvComm*)gc->fullRecvComm[acceptPeer])->base.ready == 0)
         NCCLCHECKGOTO(ncclRecvCheck((struct ncclIbRecvComm*)gc->fullRecvComm[acceptPeer]), ret, end);
+      if (numLagPorts > 1 && c > 0) {
+        if (connectPeer != cComm->rank) {
+          struct ncclIbSendComm* base = (struct ncclIbSendComm*)ginProxyCtx[0].fullSendComm[connectPeer];
+          struct ncclIbSendComm* send = (struct ncclIbSendComm*)gc->fullSendComm[connectPeer];
+          NCCLCHECKGOTO(ncclGinIbProxySetLagPort(base->base.qps[0], send->base.qps[0], c, numLagPorts, connectPeer,
+                                                 "send"),
+                        ret, end);
+        }
+        if (acceptPeer != cComm->rank) {
+          struct ncclIbRecvComm* base = (struct ncclIbRecvComm*)ginProxyCtx[0].fullRecvComm[acceptPeer];
+          struct ncclIbRecvComm* recv = (struct ncclIbRecvComm*)gc->fullRecvComm[acceptPeer];
+          NCCLCHECKGOTO(ncclGinIbProxySetLagPort(base->base.qps[0], recv->base.qps[0], c, numLagPorts, acceptPeer,
+                                                 "responder"),
+                        ret, end);
+        }
+      }
       NCCLCHECKGOTO(ncclGinIbP2PBarrier(cComm), ret, end);
     }
   }
