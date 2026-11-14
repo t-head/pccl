@@ -7,6 +7,7 @@
  *************************************************************************/
 
 #include "group.h"
+ncclResult_t pcclA2aFinalizeGroup(ncclComm_t comm);
 #include "debug.h"
 #include "enqueue.h"
 #include "transport.h"
@@ -710,6 +711,10 @@ ncclResult_t ncclGroupEndInternal(ncclSimInfo_t* simInfo) {
     }
   }
 
+  for (ncclComm_t comm = ncclGroupCommHead[ncclGroupTaskTypeCollective]; comm;
+       comm = comm->groupNext[ncclGroupTaskTypeCollective]) {
+    NCCLCHECKGOTO(pcclA2aFinalizeGroup(comm), ret, fail);
+  }
   NCCLCHECKGOTO(ncclCalloc(&groupJob, 1), ret, fail);
   ncclIntruQueueConstruct(&groupJob->asyncJobs);
   groupJob->groupRefCount = 0;
