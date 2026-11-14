@@ -15,7 +15,8 @@ import tempfile
 import run_cases
 
 
-RUNTIME_FIELDS = ("python_env", "mpi_interface", "path", "ld_library_path", "hostfile")
+RUNTIME_FIELDS = ("python_env", "mpi_interface", "path", "ld_library_path", "hostfile",
+                  "binary_dir", "test_root")
 
 
 def _json(path):
@@ -182,6 +183,7 @@ def generate_rows(definition, profile="full", nodes=None):
                             "operation_name": str(values.get("operation", "")).removesuffix("_perf"),
                             "size_name": str(values.get("size", "")).replace(".", "point"),
                             "size_name_underscore": str(values.get("size", "")).replace(".", "_"),
+                            "config_name": str(values.get("config", "")).replace(".json", "_json").replace(".", "_"),
                         })
                         command = group.get("command", definition["defaults"].get("command"))
                         command = group.get("command_by_nodes", {}).get(str(node_count), command)

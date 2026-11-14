@@ -153,16 +153,23 @@ class DailySmokeTests(unittest.TestCase):
 
     def test_commabort_binary_is_built_into_the_existing_artifact(self):
         text = BUILD_SCRIPT.read_text()
-        self.assertIn('${COMM_ABORT_BUILD}/pcclCommAbortTest', text)
+        self.assertIn('${NATIVE_UNIT_BUILD}/pcclCommAbortTest', text)
         self.assertIn('PPU_ARCHS=ppu_10,ppu_15 MPI=1', text)
-        self.assertIn('cp ${COMM_ABORT_BUILD}/pcclCommAbortTest ${source_home}/pccl-tests/build/', text)
-        self.assertGreater(text.index('Build PCCL CommAbort test'), text.index('Build pccl-tests'))
+        self.assertIn('cp ${NATIVE_UNIT_BUILD}/pcclCommAbortTest ${source_home}/pccl-tests/build/', text)
+        self.assertGreater(text.index('Build native PCCL unit tests'), text.index('Build pccl-tests'))
+
+    def test_native_unit_binaries_are_built_into_the_existing_artifact(self):
+        text = BUILD_SCRIPT.read_text()
+        self.assertIn('${NATIVE_UNIT_BUILD}/collPcclUnitTest', text)
+        self.assertIn('${NATIVE_UNIT_BUILD}/hggcGraphUnitTest', text)
+        self.assertIn('cp ${NATIVE_UNIT_BUILD}/collPcclUnitTest ${source_home}/pccl-tests/build/', text)
+        self.assertIn('cp ${NATIVE_UNIT_BUILD}/hggcGraphUnitTest ${source_home}/pccl-tests/build/', text)
 
     def test_full_workflow_is_grouped_daily_execution_not_a_pr_gate(self):
         text = FULL_WORKFLOW.read_text()
         self.assertIn('workflow_dispatch:', text)
         self.assertIn('paths: [.github/workflows/m890p-daily-full.yml]', text)
-        self.assertIn('options: [smoke, full, generated-smoke, generated-full]', text)
+        self.assertIn('options: [smoke, full, generated-smoke, generated-full, generated-native-smoke]', text)
         self.assertIn('default: smoke', text)
         self.assertIn('default: 500', text)
         self.assertIn("DAILY_ALLOWED_NODES: '1,2,4'", text)

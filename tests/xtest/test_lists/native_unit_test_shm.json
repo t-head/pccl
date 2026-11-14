@@ -1,0 +1,44 @@
+{
+  "schema_version": 2,
+  "family": "native_unit_test_shm",
+  "defaults": {
+    "check": "exit_code",
+    "case_name": "test_collPcclUnitTest_{operation}_{dtype}_elems_{num_elems}_gpus_{num_gpus}_iters_{num_iterations}"
+  },
+  "axes": {
+    "operation": ["AllReduce", "AllGather", "Reduce", "ReduceScatter", "BroadCast", "AlltoAll"],
+    "dtype": ["float", "half", "int8", "double"],
+    "num_elems": [32],
+    "num_gpus": [2],
+    "num_iterations": [1],
+    "config": ["simple_test.json", "simple_alltoall_test.json", "simple_event_test.json"],
+    "num_threads": [2]
+  },
+  "layouts": {
+    "native": [
+      {"name": "two_devices", "values": {}}
+    ]
+  },
+  "bindings": {
+    "1": {"plan": "pccl_native_unit_test_single_node_plan", "suite": "native_unit_test_shm_single_node_suite"}
+  },
+  "groups": [
+    {
+      "name": "coll", "nodes": [1], "layout_set": "native",
+      "axes": ["operation", "dtype", "num_elems", "num_gpus", "num_iterations"],
+      "command": "{binary_dir}/collPcclUnitTest --coll_type={operation} --dtype={dtype} --num_elems={num_elems} --num_gpus={num_gpus} --num_iterations={num_iterations}"
+    },
+    {
+      "name": "hggc", "nodes": [1], "layout_set": "native",
+      "axes": ["config", "num_threads"],
+      "case_name": "test_hggcGraphUnitTest_{config_name}_threads_{num_threads}",
+      "command": "{binary_dir}/hggcGraphUnitTest --num_threads={num_threads} --test_config_file={test_root}/pccl/tests/unit_test/hggc_graph_test_configs/{config}"
+    }
+  ],
+  "profiles": {
+    "full": {},
+    "smoke": {
+      "filters": {"operation": ["AllReduce"], "dtype": ["float"], "config": ["simple_test.json"]}
+    }
+  }
+}

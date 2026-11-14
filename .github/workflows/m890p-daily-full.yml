@@ -14,7 +14,7 @@ on:
         required: true
         default: smoke
         type: choice
-        options: [smoke, full, generated-smoke, generated-full]
+        options: [smoke, full, generated-smoke, generated-full, generated-native-smoke]
       max_cases_per_group:
         description: Maximum Cases in each automatic same-environment shard
         required: true
@@ -87,8 +87,11 @@ jobs:
           python3 -S -B -m unittest discover -s tests/xtest -p 'test_daily_reconcile.py' -v
           python3 -S -B -m unittest discover -s tests/xtest -p 'test_generate_cases.py' -v
           GENERATED_INPUT=
-          if [[ "$DATASET" == generated-smoke || "$DATASET" == generated-full ]]; then
+          if [[ "$DATASET" == generated-smoke || "$DATASET" == generated-full || "$DATASET" == generated-native-smoke ]]; then
             GENERATION_PROFILE=${DATASET#generated-}
+            if [[ "$DATASET" == generated-native-smoke ]]; then
+              GENERATION_PROFILE=smoke
+            fi
             GENERATE_NODES=()
             if [[ -n "$NODES" ]]; then
               GENERATE_NODES=(--nodes "$NODES")
@@ -97,6 +100,9 @@ jobs:
               --definition tests/xtest/test_lists/op_perf_shm.json
               --definition tests/xtest/test_lists/postsil_daily_shm.json
             )
+            if [[ "$DATASET" == generated-native-smoke ]]; then
+              GENERATED_DEFINITIONS=(--definition tests/xtest/test_lists/native_unit_test_shm.json)
+            fi
             if [[ "$DATASET" == generated-full ]]; then
               GENERATED_DEFINITIONS+=(
                 --definition tests/xtest/test_lists/pccl_fun_rdma_shm.json
@@ -140,7 +146,7 @@ jobs:
           from artifact_cache import PCCL_TESTS_REVISION, RUNNER_HASHES
 
           dataset = os.environ['DATASET']
-          if dataset not in ('smoke', 'full', 'generated-smoke', 'generated-full'):
+          if dataset not in ('smoke', 'full', 'generated-smoke', 'generated-full', 'generated-native-smoke'):
               raise ValueError('Unsupported daily dataset')
           if dataset.startswith('generated-'):
               input_directory = Path(os.environ['GENERATED_INPUT'])

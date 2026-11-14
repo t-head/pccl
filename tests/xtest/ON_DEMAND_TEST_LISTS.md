@@ -20,6 +20,9 @@ public CSV consumer; xtest and mmengine are neither installed nor imported.
   `test_lists/symetric_perf_shm.json`, `test_lists/copyengine_perf_shm.json`,
   `test_lists/op_perf_shm_2_rack.json`, `test_lists/op_perf_rdma_shm.json`, and
   `test_lists/commabort_test_shm.json`: the remaining Runner families.
+- `test_lists/native_unit_test_shm.json`: direct `collPcclUnitTest` and
+  `hggcGraphUnitTest` commands for the public native unit-test experiment. This
+  is a new native test family, not a translation of the legacy 1,640 Cases.
 - `test_lists/suites.json`: Plan/Suite identity, nodes, cards, timeout and shared
   environment references.
 - `test_lists/envs/`: shared public runtime environments.
@@ -57,6 +60,10 @@ The experimental branch adds two explicit `workflow_dispatch` choices:
 - `generated-full`: all 8,899 daily Cases in 34 Suites. The current 1/2/4-node
   resource policy selects 8,180 Cases in twenty groups and records 710
   eight-node and 9 sixteen-node Cases as excluded.
+- `generated-native-smoke`: one direct AllReduce Case and one direct HGGC
+  simple_test Case in a single execution group. The native family currently
+  generates 27 Cases in its full profile but is not yet included in
+  `generated-full`.
 
 The existing `smoke` and `full` datasets and the 22:00 Asia/Shanghai schedule
 are unchanged. The schedule still selects the legacy `full` dataset; no
@@ -84,3 +91,8 @@ Workflow run `43447932105` generated two smoke Cases during prepare, passed both
 single-node hardware Cases, retained the two-family generation manifest in the
 Case-groups artifact, and completed exact reconciliation and NAS cleanup. No
 generated-full hardware run was started.
+
+The standard build now also packages `collPcclUnitTest` and
+`hggcGraphUnitTest`. Their commands execute the binaries directly; no
+`unit_test.py` launcher is used. Native validation is limited to
+`generated-native-smoke` until those commands pass on hardware.
