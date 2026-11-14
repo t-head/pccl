@@ -119,6 +119,7 @@ jobs:
                 --definition tests/xtest/test_lists/op_perf_shm_2_rack.json
                 --definition tests/xtest/test_lists/op_perf_rdma_shm.json
                 --definition tests/xtest/test_lists/commabort_test_shm.json
+                --definition tests/xtest/test_lists/native_unit_test_shm.json
               )
             fi
             python3 -S -B tests/xtest/generate_cases.py \

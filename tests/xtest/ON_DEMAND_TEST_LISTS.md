@@ -57,8 +57,9 @@ passes all fourteen definitions to the same command.
 The experimental branch adds two explicit `workflow_dispatch` choices:
 
 - `generated-smoke`: two Cases in one execution group.
-- `generated-full`: all 8,899 daily Cases in 34 Suites. The current 1/2/4-node
-  resource policy selects 8,180 Cases in twenty groups and records 710
+- `generated-full`: all 8,926 daily Cases in 35 Suites, including 27 native
+  unit Cases. The current 1/2/4-node resource policy selects 8,207 Cases in
+  21 groups and records 710
   eight-node and 9 sixteen-node Cases as excluded.
 - `generated-native-smoke`: one direct AllReduce Case and one direct HGGC
   simple_test Case in a single execution group. The native family currently
@@ -98,3 +99,7 @@ The standard build now also packages `collPcclUnitTest` and
 `hggcGraphUnitTest`. Their commands execute the binaries directly; no
 `unit_test.py` launcher is used. Native validation is limited to
 `generated-native-smoke` until those commands pass on hardware.
+
+Workflow run `43567684114` passed all 27 native Cases and completed exact
+reconciliation and NAS cleanup. These 27 Cases are now included in
+`generated-full`; the legacy 1,640 Cases remain outside this experiment.
