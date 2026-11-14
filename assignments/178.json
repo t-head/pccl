@@ -2,15 +2,14 @@
   "classification": {
     "base_sha": "56439f6febc0224c79523161d4e4d5c629837ae7",
     "head_sha": "3e40b8af21c8bc80dccd22c44bed337b64ebef31",
-    "input_fingerprint": "6ce2c36258777db953d7d269253f1af50ba91b1c441cda1315988f9a91bcaf90",
+    "input_fingerprint": "4155d2c2bbcceb9b85c79125bd8b8e19950a2a0717ba458b8863983e43b679ae",
     "pr_number": 178,
     "proposal": {
       "modules": [
-        "memory",
         "network",
         "gin"
       ],
-      "reason": "Main change is a substantive rewrite of the IB network backend connection/handshake path (Connect/Accept readiness, QP metadata/ECE negotiation, FLID/subnet routing, traffic-class handling, receive-size reporting, and NET v6-compatible behavior). Added gin because GIN-specific IB connection/listen-close/cancel flows were independently changed in both gin_host and net_ib/gin integration. Added memory because the PR introduces a per-device, refcounted MR registration cache with new registration/deregistration ownership semantics."
+      "reason": "Main change is a substantive NET/IB backend update in network: connection metadata/handshake and ready synchronization, QP RTR/RTS setup with ECE negotiation, GID/FLID routing and traffic-class controls, receive-size reporting semantics, and per-device MR registration cache/resource lifecycle. It also makes independent GIN-specific IB path changes (GIN connect/accept/cancel and listen-close cleanup behavior), so gin review is additionally required."
     }
   },
   "reviewers": {
