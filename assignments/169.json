@@ -2,16 +2,17 @@
   "classification": {
     "base_sha": "56439f6febc0224c79523161d4e4d5c629837ae7",
     "head_sha": "ee27287fe95e58bd40f1307540db359aa9f882fd",
-    "input_fingerprint": "791bfdc858c693195a828629cfeab14e57836ce3d57a4976a15742efd268b300",
+    "input_fingerprint": "8098bf0bc3b0aab703e3dcd592bf4b846b0cb39a7262eb7f35acf7073c2a2b51",
     "pr_number": 169,
     "proposal": {
       "modules": [
         "device-topology",
         "graph-search",
         "communicator",
+        "memory",
         "network"
       ],
-      "reason": "Main change is in network transport/plugin/proxy: NET/CollNet selection moves to per-communicator state, proxy posted-op batching/shutdown behavior changes, and NET resource/memory handling is refactored around communicator-owned backends. Communicator lifecycle also changes substantively (netName config/env override ownership, plugin retain/finalize pairing, parent-child shared-resource backend compatibility, and teardown guards). Device-topology and graph-search need review because topology/path construction and graph comparison now depend on the communicator-selected NET/EIC backend (including PXN disable and EIC-sensitive path decisions), not just global state."
+      "reason": "Main change is in **network**: NET/CollNet selection, initialization, lifetime, and proxy/backend operations move from process-global state to per-communicator state (with PCCL_NET override and per-comm plugin handling). **communicator** is additionally needed because comm config/lifecycle now owns netName/backend fields and enforces parent-child shared-resource backend consistency. **device-topology** is needed for substantive per-backend topology behavior (EIC/NIC handling and PXN gating tied to selected net). **graph-search** is needed because graph comparison/selection logic now depends on topology\u2019s per-comm EIC state and updated PXN-disable API usage. **memory** is needed because U2MM/host allocation and shared-memory creation now depend on the communicator-selected net backend for properties/NUMA behavior."
     }
   },
   "reviewers": {
