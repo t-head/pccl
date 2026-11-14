@@ -950,7 +950,7 @@ static void* pcclCpuFlushThreadMain(void* proxyState_) {
   // (no stdout printf on any path, so it never perturbs perf measurements).
   {
     const int64_t coreParam = pcclParamCpuFlushCore();
-    const int localRank = proxyState->ownerComm->localRank;
+    const int localRank = proxyState->localRank;
     int chosen = -1;
     if (coreParam == -2) {
       // Auto: enumerate this thread's allowed CPUs (NUMA-local via the inherited
@@ -1055,8 +1055,7 @@ void* ncclProxyProgress(void *proxyState_) {
   state->nextOps = -1;
   const int sig = ncclParamProxyDumpSignal();
   if (sig != -1) signal(sig, ncclDumpProxyState);
-  ncclProxyStates[proxyState->ownerComm->localRank] = proxyState;
-  proxyState->localRank = proxyState->ownerComm->localRank;
+  ncclProxyStates[proxyState->localRank] = proxyState;
   char threadName[NCCL_THREAD_NAMELEN];
   snprintf(threadName, NCCL_THREAD_NAMELEN, "PCCL Progress%2d", proxyState->hggcDev);
   hgtxNameOsThreadA(syscall(SYS_gettid), threadName);
@@ -2136,7 +2135,7 @@ ncclResult_t ncclProxyInit(ncclComm_t comm, struct ncclSocket* sock, union ncclS
   NCCLCHECK(ncclCalloc(&comm->sharedRes->proxyState, 1));
   comm->proxyState = comm->sharedRes->proxyState;
   comm->proxyState->refCount = 1;
-  comm->proxyState->localRank = -1; // will be set by progress thread on registration
+  comm->proxyState->localRank = -1; // set before starting proxy threads
   comm->proxyState->listenSock = sock;
   comm->proxyState->peerAddresses = peerAddresses;
   comm->proxyState->peerAddressesUDS = peerAddressesUDS;
@@ -2177,6 +2176,7 @@ ncclResult_t ncclProxyCreate(ncclComm_t comm) {
     proxyState->pDevMemUsed = &comm->sharedRes->devMemUsed;
     proxyState->pPinnedMemUsed = &comm->sharedRes->pinnedMemUsed;
     proxyState->ownerComm = comm;
+    proxyState->localRank = comm->localRank;
     proxyState->memManager = comm->memManager;
 
     PTHREADCHECK(pthread_create(&comm->proxyState->thread, NULL, ncclProxyService, comm->proxyState), "pthread_create");
