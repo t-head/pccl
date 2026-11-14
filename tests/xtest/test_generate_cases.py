@@ -106,15 +106,16 @@ class PublicGeneratorTests(unittest.TestCase):
         self.assertEqual(len(plan["groups"]), 20)
         self.assertEqual(sum(record["case_count"] for record in plan["exclusions"]), 719)
 
-    def test_native_family_extends_the_full_generation_to_8926_cases(self):
+    def test_native_families_extend_the_full_generation_to_8934_cases(self):
         combined = generate_cases.combine_bundles(
-            [self.bundle(family) for family in ALL_FAMILIES] + [self.bundle("native_unit_test_shm")])
-        self.assertEqual(len(combined["rows"]), 8926)
+            [self.bundle(family) for family in ALL_FAMILIES] +
+            [self.bundle("native_unit_test_shm"), self.bundle("native_extra_unit_test_shm")])
+        self.assertEqual(len(combined["rows"]), 8934)
         self.assertEqual(len(combined["suites"]), 35)
         output = self.root / "all-generated-with-native"
         generate_cases.write_bundle(combined, output, DEFINITIONS / "envs")
         plan = group_cases.build_plan(output, 500, allowed_nodes=(1, 2, 4))
-        self.assertEqual(sum(len(group["cases"]) for group in plan["groups"]), 8207)
+        self.assertEqual(sum(len(group["cases"]) for group in plan["groups"]), 8215)
         self.assertEqual(len(plan["groups"]), 21)
         self.assertEqual(sum(record["case_count"] for record in plan["exclusions"]), 719)
 

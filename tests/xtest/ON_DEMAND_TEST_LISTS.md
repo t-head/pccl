@@ -57,19 +57,20 @@ passes all fourteen definitions to the same command.
 The experimental branch adds two explicit `workflow_dispatch` choices:
 
 - `generated-smoke`: two Cases in one execution group.
-- `generated-full`: all 8,926 daily Cases in 35 Suites, including 27 native
-  unit Cases. The current 1/2/4-node resource policy selects 8,207 Cases in
+- `generated-full`: all 8,934 daily Cases in 35 Suites, including 35 native
+  unit Cases. The current 1/2/4-node resource policy selects 8,215 Cases in
   21 groups and records 710
   eight-node and 9 sixteen-node Cases as excluded.
 - `generated-native-smoke`: one direct AllReduce Case and one direct HGGC
   simple_test Case in a single execution group. The native family currently
   generates 27 Cases in its full profile but is not yet included in
   `generated-full`.
-- `generated-native-full`: all 27 direct native Cases. This is a validation
+- `generated-native-full`: all 35 direct native Cases. This is a validation
   dataset and does not run the legacy 1,640 Cases.
 - `generated-native-extra-full`: eight additional public native Cases covering
   send/recv, communicator shrink, memory management and group simulation.
-  These Cases are not included in `generated-full` until they pass on hardware.
+  Run `43576246963` passed all eight and completed NAS cleanup, so they are now
+  included alongside the original 27 native Cases in `generated-full`.
 
 The existing `smoke` and `full` datasets and the 22:00 Asia/Shanghai schedule
 are unchanged. The schedule still selects the legacy `full` dataset; no
