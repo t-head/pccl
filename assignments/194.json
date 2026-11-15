@@ -1,0 +1,17 @@
+{
+  "classification": {
+    "base_sha": "56439f6febc0224c79523161d4e4d5c629837ae7",
+    "head_sha": "2125ef1009b01a6944b8e3881f13829f41e487e3",
+    "input_fingerprint": "f9dffa35f966d1dc857590a30a7063973773cd2c30edc7d709781319394cbe18",
+    "pr_number": 194,
+    "proposal": {
+      "modules": [
+        "communicator"
+      ],
+      "reason": "Main substantive change is communicator configuration API/lifecycle compatibility: extends pcclConfig layout/tag for NCCL 2.28+ fields, updates version-gated config parsing/mapping in init, and adds explicit warn-and-ignore handling for unsupported communicator config fields. The makefile version bump is a release metadata update supporting this change, not an independent build-system behavior change."
+    }
+  },
+  "reviewers": {
+    "communicator": 340404662
+  }
+}
