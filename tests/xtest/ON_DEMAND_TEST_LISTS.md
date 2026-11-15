@@ -1,0 +1,98 @@
+# On-demand public test lists
+
+This experimental path generates Case inputs in the public `pccl` repository at
+workflow prepare time. It uses only the Python standard library and the existing
+public CSV consumer; xtest and mmengine are neither installed nor imported.
+
+The fourteen Runner-backed daily definitions are published by the full source
+JSON exporter at source revision `80738685d8b2e2066223119594805e5255f4a8c8`.
+`test_lists/source-export.json` records their exact 8,899-Case, 34-Suite
+real-Runner comparison and SHA-256 digests. CSV is not an input or output of
+that publication step.
+
+## Maintained inputs
+
+- `test_lists/op_perf_shm.json`: nine operations and rank layouts for 1/2/4/8
+  nodes, producing 54 Cases.
+- `test_lists/postsil_daily_shm.json`: operation, algorithm, protocol, dtype,
+  size, iteration and layout axes, producing 3,938 combinations plus two
+  explicit special Cases.
+- `test_lists/pccl_fun_rdma_shm.json`: 4,090 multi-node combinations, including
+  LL128, 4nics, host, socket and ibsplit variants.
+- `test_lists/register_test_shm.json` and
+  `test_lists/sanity_m890p_register.json`: register layouts and special groups.
+- `test_lists/sym_test_shm.json`, `test_lists/f8_test_shm.json`,
+  `test_lists/device_api_shm.json`, `test_lists/local_register_perf_shm.json`,
+  `test_lists/symetric_perf_shm.json`, `test_lists/copyengine_perf_shm.json`,
+  `test_lists/op_perf_shm_2_rack.json`, `test_lists/op_perf_rdma_shm.json`, and
+  `test_lists/commabort_test_shm.json`: the remaining Runner families.
+- `test_lists/suites.json`: Plan/Suite identity, nodes, cards, timeout and shared
+  environment references.
+- `test_lists/envs/`: shared public runtime environments.
+- `test_lists/source-export.json`: full source selection, per-family row
+  digests, definition hashes and the combined Case/Suite equivalence manifest.
+
+Generated CSV is a temporary execution artifact, not a maintained input. The
+legacy `daily-*-csv` directories are used only by migration tests as equivalence
+oracles and by the unchanged legacy datasets.
+
+## Generate locally
+
+```bash
+python3 -S tests/xtest/generate_cases.py \
+  --definition tests/xtest/test_lists/op_perf_shm.json \
+  --definition tests/xtest/test_lists/postsil_daily_shm.json \
+  --suites tests/xtest/test_lists/suites.json \
+  --env-root tests/xtest/test_lists/envs \
+  --profile full \
+  --source-revision 1111111111111111111111111111111111111111 \
+  --runner-revision 2222222222222222222222222222222222222222 \
+  --output /tmp/pccl-generated-cases
+```
+
+Use `--profile smoke` to generate two Cases, one from each family. Family
+definitions also support their own more specific profiles and `--nodes` filter.
+The output must not already exist.
+
+The two-family example is a subset. The workflow's `generated-full` selection
+passes all fourteen definitions to the same command.
+
+## Workflow datasets
+
+The experimental branch adds two explicit `workflow_dispatch` choices:
+
+- `generated-smoke`: two Cases in one execution group.
+- `generated-full`: all 8,899 daily Cases in 34 Suites. The current 1/2/4-node
+  resource policy selects 8,180 Cases in twenty groups and records 710
+  eight-node and 9 sixteen-node Cases as excluded.
+
+The existing `smoke` and `full` datasets and the 22:00 Asia/Shanghai schedule
+are unchanged. The schedule still selects the legacy `full` dataset; no
+production cutover is implied by this experiment.
+
+Each generated bundle contains `generation.json` with definition and Suite
+hashes, the selected profile, and the exact Case-key hash. The workflow copies
+it into the Case-groups artifact. `export.json` retains the existing consumer
+schema and records `xtest_version=not-used` explicitly. Source provenance is
+retained separately from the public `pccl` revision.
+
+## Validation boundary
+
+Migration tests compare every generated row with the existing export and with
+the source-export digests: all 8,899 Cases and all 34 Suite definitions match,
+including commands, checks, Suite resources, shared environments and explicit
+special Cases. Two legacy `device_api` Plan/Suite identities are explicitly
+normalized to the current source names; their 52 commands and resources remain
+unchanged. The existing grouping and public input consumer accept the generated
+bundle and reproduce the same 8,180 selected Cases, twenty groups and 719
+resource exclusions.
+
+All current daily full Suites are covered, and no generated Python Case files
+are produced. The legacy CSV remains as a migration oracle and as the unchanged
+input of the legacy datasets. Hardware validation is limited to the explicitly
+triggered generated smoke dataset.
+
+Workflow run `43585016370` consumed source-exported families during prepare,
+passed both single-node hardware Cases, retained source provenance in the
+Case-groups artifact, and completed exact reconciliation and NAS cleanup. No
+generated-full hardware run was started.
