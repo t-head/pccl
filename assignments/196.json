@@ -1,0 +1,17 @@
+{
+  "classification": {
+    "base_sha": "56439f6febc0224c79523161d4e4d5c629837ae7",
+    "head_sha": "ae6f6ba8bfc82661b5feb7be0ad8dada44c1d2ef",
+    "input_fingerprint": "4d925bdc2c876f9fdf076530b09b29a17f4bf0686e79084b4fbbcfd96a5b4901",
+    "pr_number": 196,
+    "proposal": {
+      "modules": [
+        "ci"
+      ],
+      "reason": "Adds an on-demand daily test-generation path in the m890p workflow (new generated-smoke/generated-full datasets), with JSON test-family/suite/env inputs and generator validation wired into prepare-time CI execution; changes are test-workflow orchestration/data generation rather than runtime module behavior."
+    }
+  },
+  "reviewers": {
+    "ci": 333302477
+  }
+}
