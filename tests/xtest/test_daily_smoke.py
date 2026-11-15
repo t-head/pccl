@@ -158,22 +158,11 @@ class DailySmokeTests(unittest.TestCase):
         self.assertIn('cp ${NATIVE_UNIT_BUILD}/pcclCommAbortTest ${source_home}/pccl-tests/build/', text)
         self.assertGreater(text.index('Build native PCCL unit tests'), text.index('Build pccl-tests'))
 
-    def test_native_unit_binaries_are_built_into_the_existing_artifact(self):
-        text = BUILD_SCRIPT.read_text()
-        self.assertIn('${NATIVE_UNIT_BUILD}/collPcclUnitTest', text)
-        self.assertIn('${NATIVE_UNIT_BUILD}/hggcGraphUnitTest', text)
-        self.assertIn('cp ${NATIVE_UNIT_BUILD}/collPcclUnitTest ${source_home}/pccl-tests/build/', text)
-        self.assertIn('cp ${NATIVE_UNIT_BUILD}/hggcGraphUnitTest ${source_home}/pccl-tests/build/', text)
-        for binary in ('sendRecvPcclUnitTest', 'pcclCommShrinkTest',
-                       'pcclCommMemManagerTest', 'pcclGroupSimulateEndTest'):
-            self.assertIn('${NATIVE_UNIT_BUILD}/' + binary, text)
-            self.assertIn('cp ${NATIVE_UNIT_BUILD}/' + binary + ' ${source_home}/pccl-tests/build/', text)
-
     def test_full_workflow_is_grouped_daily_execution_not_a_pr_gate(self):
         text = FULL_WORKFLOW.read_text()
         self.assertIn('workflow_dispatch:', text)
         self.assertIn('paths: [.github/workflows/m890p-daily-full.yml]', text)
-        self.assertIn('options: [smoke, full, generated-smoke, generated-full, generated-native-smoke, generated-native-full, generated-native-extra-full, generated-source-native-smoke]', text)
+        self.assertIn('options: [smoke, full, generated-smoke, generated-full]', text)
         self.assertIn('default: smoke', text)
         self.assertIn('default: 500', text)
         self.assertIn("DAILY_ALLOWED_NODES: '1,2,4'", text)

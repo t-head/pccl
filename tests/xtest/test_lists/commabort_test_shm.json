@@ -43,7 +43,7 @@
     "smoke": {"nodes": [1], "filters": {"operation": ["all_reduce"], "layout": ["a0"]}}
   },
   "provenance": {
-    "source_revision": "1f7d18a5058c93982b387cb34f2b1f80bcb92c6c",
+    "source_revision": "80738685d8b2e2066223119594805e5255f4a8c8",
     "source_selection": "m890p_daily_standard_full",
     "source_case_count": 16,
     "source_rows_sha256": "c5ead5aaeb72d1f6db9b3497212fa6f330c1a10aba1d009a2da8cf26636b8f25",

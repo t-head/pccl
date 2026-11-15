@@ -127,44 +127,6 @@ class PublicGeneratorTests(unittest.TestCase):
         self.assertEqual(len(plan["groups"]), 20)
         self.assertEqual(sum(record["case_count"] for record in plan["exclusions"]), 719)
 
-    def test_native_families_extend_the_full_generation_to_8934_cases(self):
-        combined = generate_cases.combine_bundles(
-            [self.bundle(family) for family in ALL_FAMILIES] +
-            [self.bundle("native_unit_test_shm"), self.bundle("native_extra_unit_test_shm")])
-        self.assertEqual(len(combined["rows"]), 8934)
-        self.assertEqual(len(combined["suites"]), 35)
-        output = self.root / "all-generated-with-native"
-        generate_cases.write_bundle(combined, output, DEFINITIONS / "envs")
-        plan = group_cases.build_plan(output, 500, allowed_nodes=(1, 2, 4))
-        self.assertEqual(sum(len(group["cases"]) for group in plan["groups"]), 8215)
-        self.assertEqual(len(plan["groups"]), 21)
-        self.assertEqual(sum(record["case_count"] for record in plan["exclusions"]), 719)
-
-    def test_native_unit_family_generates_direct_binary_commands(self):
-        bundle = self.bundle("native_unit_test_shm")
-        self.assertEqual(len(bundle["rows"]), 27)
-        smoke = self.bundle("native_unit_test_shm", profile="smoke")
-        self.assertEqual(len(smoke["rows"]), 2)
-        self.assertEqual(smoke["rows"][0]["cmd"],
-                         "{binary_dir}/collPcclUnitTest --coll_type=AllReduce --dtype=float "
-                         "--num_elems=32 --num_gpus=2 --num_iterations=1")
-        self.assertEqual(smoke["rows"][1]["cmd"],
-                         "{binary_dir}/hggcGraphUnitTest --num_threads=2 "
-                         "--test_config_file={test_root}/pccl/tests/unit_test/"
-                         "hggc_graph_test_configs/simple_test.json")
-        for row in bundle["rows"]:
-            self.assertTrue(row["cmd"].startswith("{binary_dir}/"))
-            self.assertNotIn("unit_test.py", row["cmd"])
-        for config in ("simple_test.json", "simple_alltoall_test.json", "simple_event_test.json"):
-            self.assertTrue((ROOT.parent.parent / "tests/unit_test/hggc_graph_test_configs" / config).is_file())
-        output = self.root / "native-smoke"
-        generate_cases.write_bundle(smoke, output, DEFINITIONS / "envs")
-        selected = run_cases.load_inputs(output, "standard")
-        self.assertEqual(len(selected["cases"]), 2)
-        self.assertEqual(selected["cases"][0]["suite_spec"]["timeout"], 3600)
-        plan = group_cases.build_plan(output, 500, allowed_nodes=(1, 2, 4))
-        self.assertEqual(len(plan["groups"]), 1)
-
     def test_profiles_filter_before_generating_combinations(self):
         definition = generate_cases.load_definition(DEFINITIONS / "postsil_daily_shm.json")
         self.assertEqual(len(generate_cases.generate_rows(definition, "smoke")), 1)
@@ -237,7 +199,7 @@ class PublicGeneratorTests(unittest.TestCase):
         manifest = json.loads((DEFINITIONS / "source-export.json").read_text())
         combined = generate_cases.combine_bundles([self.bundle(family) for family in ALL_FAMILIES])
         self.assertEqual(manifest["source_revision"],
-                         "1f7d18a5058c93982b387cb34f2b1f80bcb92c6c")
+                         "80738685d8b2e2066223119594805e5255f4a8c8")
         self.assertEqual(manifest["case_count"], 8899)
         self.assertEqual(manifest["suite_count"], 34)
         self.assertEqual(manifest["case_rows_sha256"], canonical_sha256(combined["rows"]))
@@ -270,33 +232,14 @@ class PublicGeneratorTests(unittest.TestCase):
         self.assertNotIn("daily-full-csv", source)
         self.assertNotIn("daily-minimal-csv", source)
 
-    def test_source_native_json_is_consumed_with_provenance(self):
-        bundle = self.bundle("source_native_unit_test_shm")
-        self.assertEqual(len(bundle["rows"]), 2)
-        provenance = bundle["generation"]["provenance"]
-        self.assertEqual(provenance["source_revision"],
-                         "1f7d18a5058c93982b387cb34f2b1f80bcb92c6c")
-        self.assertEqual(len(provenance["source_cases"]), 2)
-        for row in bundle["rows"]:
-            self.assertTrue(row["cmd"].startswith(
-                "NCCL_ALGO=FC NCCL_PROTO=LL {binary_dir}/collPcclUnitTest"))
-            self.assertNotIn("--auto-detect", row["cmd"])
-            self.assertNotIn("unit_test.py", row["cmd"])
-        output = self.root / "source-native"
-        generate_cases.write_bundle(bundle, output, DEFINITIONS / "envs")
-        self.assertEqual(len(run_cases.load_inputs(output, "standard")["cases"]), 2)
-
     def test_workflow_generates_explicit_datasets_before_grouping(self):
         workflow = (ROOT.parent.parent / ".github/workflows/m890p-daily-full.yml").read_text()
-        self.assertIn('options: [smoke, full, generated-smoke, generated-full, generated-native-smoke, generated-native-full, generated-native-extra-full, generated-source-native-smoke]', workflow)
+        self.assertIn('options: [smoke, full, generated-smoke, generated-full]', workflow)
         self.assertIn('tests/xtest/generate_cases.py', workflow)
         self.assertIn('--definition tests/xtest/test_lists/op_perf_shm.json', workflow)
         self.assertIn('--definition tests/xtest/test_lists/postsil_daily_shm.json', workflow)
         for family in ALL_FAMILIES:
             self.assertIn(f'tests/xtest/test_lists/{family}.json', workflow)
-        self.assertIn('tests/xtest/test_lists/native_unit_test_shm.json', workflow)
-        self.assertIn('tests/xtest/test_lists/native_extra_unit_test_shm.json', workflow)
-        self.assertIn('tests/xtest/test_lists/source_native_unit_test_shm.json', workflow)
         self.assertIn('if [[ "$DATASET" == generated-full ]]', workflow)
         self.assertIn("--output generated-case-input", workflow)
         self.assertIn("case-groups/generation.json", workflow)
