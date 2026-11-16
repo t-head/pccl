@@ -2,13 +2,13 @@
   "classification": {
     "base_sha": "b480396b4436251ed72274d2906c329d9523c381",
     "head_sha": "96d6239d02c668b9ca9d6e93a572157b7f9fff7e",
-    "input_fingerprint": "d243b5befa62ce5ca5aad23546517fe490980204678b8ec66a5893f19e3c4180",
+    "input_fingerprint": "ad494bec3bedfab58103ed47c4d03c0a1cf5a2f131ad00c7f104086f318879da",
     "pr_number": 196,
     "proposal": {
       "modules": [
         "ci"
       ],
-      "reason": "Main change is the daily test workflow/test-infra pipeline: new generated datasets in `.github/workflows/m890p-daily-full.yml`, new xtest case-generation/performance-report tooling, and large test-list/suite/env inputs consumed by that pipeline. These are CI execution/reporting changes (not runtime modules, and not contribution/reviewer-policy workflow changes)."
+      "reason": "Main change is to open-source test workflow execution and reporting: it adds generated daily datasets, pre-group case generation from JSON families, and end-to-end performance workbook production/validation in the daily Action and supporting xtest tooling/tests. These are CI/test-orchestration behavior changes, not runtime modules or review-policy workflow logic."
     }
   },
   "reviewers": {
