@@ -2,13 +2,13 @@
   "classification": {
     "base_sha": "56439f6febc0224c79523161d4e4d5c629837ae7",
     "head_sha": "5db96e06700011bfa9352aed52842cb3f6dd02e7",
-    "input_fingerprint": "41a3dd27a8ba1afb29e0ad784957e3ca68b79105193e024d266221d1bcc35857",
+    "input_fingerprint": "aaa5d074fed0ab623416fd7b3b6353fb3534dc7e40b321d179e6c980e6211442",
     "pr_number": 196,
     "proposal": {
       "modules": [
         "ci"
       ],
-      "reason": "Main change is to open-source test execution workflows: adds generated-smoke/generated-full dataset paths, JSON-driven temporary case-bundle generation, updated daily workflow orchestration/dependencies, and performance-report artifact production/validation in xtest CI tooling, with no PCCL runtime module behavior changes."
+      "reason": "Main substantive change is to open-source test workflow execution: the daily workflow adds generated-smoke/generated-full dataset paths, prepares temporary case inputs from new JSON test-family definitions, and publishes a performance-report artifact. Supporting Python generator/report tooling and run_cases parsing tolerance are part of CI test orchestration rather than PCCL runtime feature modules."
     }
   },
   "reviewers": {
