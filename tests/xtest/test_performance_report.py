@@ -220,6 +220,15 @@ class PerformanceReportTests(unittest.TestCase):
                 self.assertEqual(second["execution_status"], "FAILED")
                 self.assertEqual(report["summary"]["metric_rows"], 0)
 
+    def test_incomplete_recovered_result_is_rejected(self):
+        (self.results / "g001" / "results.csv").unlink()
+        result = self.results / "g001" / Path(*performance_report._key(self.case1)) / "result.json"
+        result.write_text(json.dumps({"status": "PASSED", "check": "exit_code"}))
+        report = self.collect()
+        row = next(row for row in report["coverage"] if row["name"] == self.case1["name"])
+        self.assertEqual(row["execution_status"], "NO_RESULT")
+        self.assertEqual(row["data_status"], "NO_RESULT")
+
     def test_not_run_is_unfinished_not_failed(self):
         path = self.results / "g001" / "results.csv"
         with path.open(newline="") as stream:

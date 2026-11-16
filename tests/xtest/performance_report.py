@@ -304,7 +304,8 @@ def _recover_result(results_root, group_id, key):
         return None
     if not isinstance(record, dict) or not isinstance(record.get("status"), str):
         return None
-    if not isinstance(record.get("check"), str) or not isinstance(record.get("error", ""), str):
+    if not isinstance(record.get("check"), str) or "error" not in record \
+            or not isinstance(record["error"], str):
         return None
     return record
 
