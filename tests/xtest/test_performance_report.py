@@ -150,6 +150,8 @@ class PerformanceReportTests(unittest.TestCase):
         self.assertIn("--results-root /wl_nas/devops/pccl-artifact-cache-", workflow)
         self.assertIn("name: m890p-daily-performance-report", workflow)
         self.assertIn("XlsxWriter==3.2.5", workflow)
+        self.assertIn("PYTHONPATH=deps/xlsxwriter-3.2.5-py3-none-any.whl", workflow)
+        self.assertNotIn("--target report-python", workflow)
         self.assertIn("4f4824234e1eaf9d95df9a8fe974585ff91d0f5e3d3f12ace5b71e443c1c6abd", workflow)
         self.assertIn("'performance-report': '${{ steps.performance-report.outcome }}'", workflow)
         self.assertIn("name: m890p-daily-full-python-deps", workflow)

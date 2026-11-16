@@ -104,8 +104,9 @@ remain in the run-owned NAS `results/` tree; the Excel report does not replace
 that diagnostic evidence or the existing summary artifact.
 
 XlsxWriter 3.2.5 is pinned with a SHA-256 digest in the existing dependency
-artifact and installed offline by the summary job. Report generation is part of
-the final failure summary, so a missing required report cannot pass silently.
+artifact and imported directly from its wheel by the summary job; pip is not
+required. Report generation is part of the final failure summary, so a missing
+required report cannot pass silently.
 
 ## Validation boundary
 
