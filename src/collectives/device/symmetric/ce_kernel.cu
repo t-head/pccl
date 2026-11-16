@@ -114,13 +114,21 @@ template <int NRANKS>
 struct AvgPreScale<__ppu_bfloat16, NRANKS> {
   static inline __device__ void apply(PackedBFloat16& a) {
     __ppu_bfloat162 s;
+#if defined(PCCL_HAS_SDK_HEADER_REFACTOR)
+    s.x = __hg_float2bfloat16(1.0f / NRANKS);
+#else
     s.x = __float2bfloat16(1.0f / NRANKS);
+#endif
     s.y = s.x;
     #pragma unroll
     for (int i = 0; i < 4; ++i) a.unpacked[i] = __hmul2(a.unpacked[i], s);
   }
   static inline __device__ void applyElt(__ppu_bfloat16& v) {
+#if defined(PCCL_HAS_SDK_HEADER_REFACTOR)
+    v = __hmul(v, __hg_float2bfloat16(1.0f / NRANKS));
+#else
     v = __hmul(v, __float2bfloat16(1.0f / NRANKS));
+#endif
   }
 };
 

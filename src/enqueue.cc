@@ -2219,7 +2219,11 @@ static ncclResult_t hostToDevRedOp(
       break;
     case ncclBfloat16:
       opFull->op = ncclDevPreMulSum;
+#if defined(PCCL_HAS_SDK_HEADER_REFACTOR)
+      bf16 = __hg_float2bfloat16(float(1.0/comm->nRanks));
+#else
       bf16 = __float2bfloat16(float(1.0/comm->nRanks));
+#endif
       break;
     case ncclFloat32:
       opFull->op = ncclDevPreMulSum;

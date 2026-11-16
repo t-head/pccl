@@ -1,5 +1,6 @@
 /*************************************************************************
 * SPDX-FileCopyrightText: Copyright (c) 2015-2026 NVIDIA CORPORATION & AFFILIATES. All rights reserved.
+* SPDX-FileCopyrightText: Modifications Copyright (c) 2026 T-Head (Shanghai) Semiconductor Co., Ltd. All rights reserved.
 * SPDX-License-Identifier: Apache-2.0
 *
 * See LICENSE.txt for more license information.
@@ -29,6 +30,10 @@
 
 #define PCCL_VERSION_CODE ${pccl:Version}
 #define PCCL_VERSION(X,Y,Z) ((X) * 1000 + (Y) * 100 + (Z))
+
+#if !defined(PCCL_HAS_SDK_HEADER_REFACTOR) && __has_include(<sail/cooperative_groups.h>)
+#define PCCL_HAS_SDK_HEADER_REFACTOR
+#endif
 
 #define PCCL_COMM_NULL NULL
 #define PCCL_UNIQUE_ID_BYTES 128
