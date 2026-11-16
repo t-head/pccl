@@ -1,8 +1,8 @@
 {
   "classification": {
-    "base_sha": "56439f6febc0224c79523161d4e4d5c629837ae7",
-    "head_sha": "95c2e58e706f3b414be62bd8591ad9108b697276",
-    "input_fingerprint": "10a253e7991d4edec7c89a89af01bc71cbfad741f82ef5bc29ff2509547591aa",
+    "base_sha": "747030b6fe8cf6b111f18efb61c6e16ff76e9c0e",
+    "head_sha": "60f1bc389978bde405d23bf16af54d3fc5ea3970",
+    "input_fingerprint": "33ef2f87c711d18c8bf6172cf405be52d3fb2a569eff99b4f41544cb7e3e55ca",
     "pr_number": 178,
     "proposal": {
       "modules": [
@@ -10,7 +10,7 @@
         "network",
         "gin"
       ],
-      "reason": "Primary change is in the NET/IB transport backend: connection handshake/state transitions, QP setup (RTR/RTS), ECE negotiation, FLID/GID routing, traffic-class handling, and receive-size completion behavior. Include gin because GIN-specific IB paths now use specialized accept/cancel/close-listen flow and FIFO TC behavior. Include memory because MR registration now uses a per-device, reference-counted cache with new registration reuse and deregistration ownership semantics."
+      "reason": "Primary change is in the IB network backend: connection metadata/handshake is redesigned (including ready sync), QP setup adds FLID/subnet routing and ECE negotiation, traffic-class handling is updated, and receive-size reporting behavior changes. Added memory-module review is needed because MR registration now uses a per-device refcounted cache with new ownership/release semantics. Added gin-module review is needed because GIN IB paths now use the new accept/connect cancellation and listener-close flow, with GIN-specific FIFO traffic-class behavior."
     }
   },
   "reviewers": {
