@@ -236,7 +236,7 @@ jobs:
           PYTHONPATH=deps/xlsxwriter-3.2.5-py3-none-any.whl \
             python3 -S -B -c 'import xlsxwriter; assert xlsxwriter.__version__ == "3.2.5"'
           PYTHONPATH=deps/xlsxwriter-3.2.5-py3-none-any.whl \
-            python3 -S -B -m unittest discover -s tests/xtest -p 'test_performance_report.py' -v
+            python3 -S -B -m unittest discover -s pccl/tests/xtest -p 'test_performance_report.py' -v
       - uses: actions/upload-artifact@v4
         with:
           name: m890p-daily-full-python-deps

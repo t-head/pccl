@@ -211,6 +211,7 @@ class PerformanceReportTests(unittest.TestCase):
         self.assertIn("performance-cases.json", workflow)
         self.assertNotIn("GENERATE_NODES", workflow)
         self.assertIn("import xlsxwriter; assert xlsxwriter.__version__", workflow)
+        self.assertIn("discover -s pccl/tests/xtest -p 'test_performance_report.py'", workflow)
         self.assertIn("performance_report.write_selection", workflow)
         self.assertIn("performance_report.py report", workflow)
         self.assertIn("--results-root /wl_nas/devops/pccl-artifact-cache-", workflow)
