@@ -1,14 +1,14 @@
 {
   "classification": {
-    "base_sha": "dcc16f7527444230dbd33cca1f348760c2df7e97",
-    "head_sha": "12a6c269a2be170389c5641d285e3b3f627b6c52",
-    "input_fingerprint": "db803c0bbbdd5561aa2749326e9099db311b1ddca8f871ea96abb21a24a723c2",
+    "base_sha": "b480396b4436251ed72274d2906c329d9523c381",
+    "head_sha": "4783a2b7e9b664ea2db98d357ed46e94ee428385",
+    "input_fingerprint": "5ed320d9b2326574605e47b86bf4551d65a648794e4ccf6311bbf65220ea0737",
     "pr_number": 184,
     "proposal": {
       "modules": [
         "dispatch"
       ],
-      "reason": "Moves dispatch strategy tracking to a process-wide cache keyed by (device, kernel) in drv_extension, updates native/user strategy application and applied-state semantics, and adjusts call sites/init to use cache invalidation and launchConfig out-param behavior."
+      "reason": "Main functional change is in CU/CE dispatch policy application: strategy cache ownership moves from per-comm/FUNC_INDEX slots to a process-wide (device,kernel)-keyed mirror shared by native and user paths, with applied-state tracking to force correct re-application and launchConfig returned from that cache. init/comm/enqueue edits are supporting wiring for this dispatch behavior change, not independent module changes."
     }
   },
   "reviewers": {
