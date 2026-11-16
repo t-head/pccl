@@ -120,6 +120,7 @@ typedef struct pcclConfig_v22800 {
   /* Network P2P channel count: PCCL_CONFIG_UNDEF_INT or 1..64, rounded up to a power of two. */
   int nChannelsPerNetPeer;
   int nvlinkCentricSched;
+  /* 0: no graphs; 1: one graph; 2: multiple graphs or graph/non-graph mixing (default). */
   int graphUsageMode;
   int numRmaCtx;
   int maxP2pPeers;

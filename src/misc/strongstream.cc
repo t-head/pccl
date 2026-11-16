@@ -39,7 +39,7 @@ static void ncclStrongStreamGraphDelete(struct ncclStrongStreamGraph* g) {
 ////////////////////////////////////////////////////////////////////////////////
 
 ncclResult_t ncclCudaGetCapturingGraph(
-    struct ncclCudaGraph* graph, hggcStream_t stream
+    struct ncclCudaGraph* graph, hggcStream_t stream, int graphUsageMode
   ) {
   hggcStreamCaptureStatus status;
   unsigned long long gid;
@@ -53,6 +53,7 @@ ncclResult_t ncclCudaGetCapturingGraph(
     gid = ULLONG_MAX;
   }
   graph->graphId = gid;
+  graph->graphUsageMode = graphUsageMode;
   return ncclSuccess;
 }
 
@@ -111,8 +112,9 @@ static void ensureTips(struct ncclStrongStreamGraph* g, int n) {
 ncclResult_t ncclStrongStreamAcquire(
     struct ncclCudaGraph graph, struct ncclStrongStream* ss
   ) {
+  bool mixing = graph.graphUsageMode == 2;
   if (graph.graph == nullptr) {
-    if (ss->everCaptured) {
+    if (mixing && ss->everCaptured) {
       HGGCCHECK(hggcStreamWaitEvent(ss->hggcStream, ss->serialEvent, 0));
       ss->serialEventNeedsRecord = false;
     }
@@ -149,7 +151,7 @@ ncclResult_t ncclStrongStreamAcquire(
     g->alive = true;
     NCCLCHECK(ncclCudaGraphAddDestructor(graph, graphDestructor, (void*)g));
 
-    if (ss->serialEventNeedsRecord) {
+    if (mixing && ss->serialEventNeedsRecord) {
       // Can only be here if previous release was for uncaptured work that
       // elided updating the event because no capture had yet occurred.
       HGGCCHECK(hggcStreamWaitEvent(ss->hggcStream, ss->serialEvent, 0));
@@ -157,16 +159,17 @@ ncclResult_t ncclStrongStreamAcquire(
     }
     ss->serialEventNeedsRecord = false;
 
-    // First node in the chain must be a wait on the serialEvent.
-    ensureTips(g, 1);
-    HGGCCHECK(hggcGraphAddEventWaitNode(&g->tipNodes[0], graph.graph, nullptr, 0, ss->serialEvent));
-    g->tipCount = 1;
+    if (mixing) {
+      ensureTips(g, 1);
+      HGGCCHECK(hggcGraphAddEventWaitNode(&g->tipNodes[0], graph.graph, nullptr, 0, ss->serialEvent));
+      g->tipCount = 1;
+    }
   }
   return ncclSuccess;
 }
 
-ncclResult_t ncclStrongStreamAcquireUncaptured(struct ncclStrongStream* ss) {
-  if (ss->everCaptured) {
+ncclResult_t ncclStrongStreamAcquireUncaptured(struct ncclStrongStream* ss, int graphUsageMode) {
+  if (graphUsageMode == 2 && ss->everCaptured) {
     HGGCCHECK(hggcStreamWaitEvent(ss->hggcStream, ss->serialEvent, 0));
   }
   ss->serialEventNeedsRecord = true; // Assume the caller is going to add work to stream.
@@ -182,7 +185,7 @@ static ncclResult_t checkGraphId(struct ncclStrongStreamGraph* g, unsigned long 
 }
 
 ncclResult_t ncclStrongStreamRelease(struct ncclCudaGraph graph, struct ncclStrongStream* ss) {
-  if (ss->serialEventNeedsRecord) {
+  if (graph.graphUsageMode == 2 && ss->serialEventNeedsRecord) {
     if (graph.graph == nullptr) {
       if (ss->everCaptured) {
         HGGCCHECK(hggcEventRecord(ss->serialEvent, ss->hggcStream));

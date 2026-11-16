@@ -167,8 +167,10 @@ ncclResult_t ncclTransportP2pSetup(ncclComm_t comm, struct ncclTopoGraph* graph,
   NCCLCHECKGOTO(ncclCalloc(&recvData, maxPeers), ret, fail);
   NCCLCHECKGOTO(ncclCalloc(&sendData, maxPeers), ret, fail);
 
-  NCCLCHECKGOTO(ncclStrongStreamAcquireUncaptured(&comm->sharedRes->hostStream), ret, fail);
-  NCCLCHECKGOTO(ncclStrongStreamAcquireUncaptured(&comm->sharedRes->deviceStream), ret, fail);
+  NCCLCHECKGOTO(ncclStrongStreamAcquireUncaptured(&comm->sharedRes->hostStream,
+                                                 comm->config.graphUsageMode), ret, fail);
+  NCCLCHECKGOTO(ncclStrongStreamAcquireUncaptured(&comm->sharedRes->deviceStream,
+                                                 comm->config.graphUsageMode), ret, fail);
 
   for (int i=1; i<comm->nRanks; i++) {
     int bootstrapTag = (i<<8) + (graph ? graph->id+1 : 0);
@@ -330,9 +332,10 @@ exit:
   NCCLCHECK(ncclFree(sendData));
   NCCLCHECK(ncclFree(recvData));
 
-  NCCLCHECK(ncclStrongStreamWaitStream(ncclCudaGraphNone(), &comm->sharedRes->deviceStream, &comm->sharedRes->hostStream));
-  NCCLCHECK(ncclStrongStreamRelease(ncclCudaGraphNone(), &comm->sharedRes->hostStream));
-  NCCLCHECK(ncclStrongStreamRelease(ncclCudaGraphNone(), &comm->sharedRes->deviceStream));
+  NCCLCHECK(ncclStrongStreamWaitStream(ncclCudaGraphNone(comm->config.graphUsageMode),
+                                     &comm->sharedRes->deviceStream, &comm->sharedRes->hostStream));
+  NCCLCHECK(ncclStrongStreamRelease(ncclCudaGraphNone(comm->config.graphUsageMode), &comm->sharedRes->hostStream));
+  NCCLCHECK(ncclStrongStreamRelease(ncclCudaGraphNone(comm->config.graphUsageMode), &comm->sharedRes->deviceStream));
   return ret;
 fail:
   goto exit;
