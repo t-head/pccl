@@ -1,14 +1,14 @@
 {
   "classification": {
     "base_sha": "b480396b4436251ed72274d2906c329d9523c381",
-    "head_sha": "1901d388af51f712c61f755c2ea25adc3ec44b4b",
-    "input_fingerprint": "43568ab1caec6376a23d16db47e4d169da91376f1480707ae8dd0358d4b31353",
+    "head_sha": "901b6ec912bc140bcca74ef689554e08e5f9f5a2",
+    "input_fingerprint": "d6746b46c8e6f8ec5209fe1f1ac25e5be69aae7efccaf063a19019eef75b05a9",
     "pr_number": 196,
     "proposal": {
       "modules": [
         "ci"
       ],
-      "reason": "Main change is to daily test-execution infrastructure: the PR extends the m890p workflow with generated datasets, adds JSON-driven case generation, and publishes a performance Excel artifact from retained run logs. Added test-family/environment manifests and harness updates support CI dataset preparation/reporting rather than PCCL runtime behavior."
+      "reason": "Primary change is CI test orchestration/reporting: the daily workflow now supports generated-smoke/generated-full datasets built from JSON test families, emits generation/performance selection artifacts, and produces an Excel performance report; supporting xtest generator, report, parser-tolerance, and tests are all in service of this execution/reporting path."
     }
   },
   "reviewers": {
