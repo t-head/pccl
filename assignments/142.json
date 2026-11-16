@@ -2,7 +2,7 @@
   "classification": {
     "base_sha": "56439f6febc0224c79523161d4e4d5c629837ae7",
     "head_sha": "157ffc340f48da7fe607ddce737056e9ea15927f",
-    "input_fingerprint": "733618bad9278feac4394c04cb1f4c935b0a3579bac4e0b0c7bc03d2e4b8dec3",
+    "input_fingerprint": "23510b751001a4de3b758079655b107f44872082c5844560efd4f6a6ba046516",
     "pr_number": 142,
     "proposal": {
       "modules": [
@@ -10,7 +10,7 @@
         "memory",
         "network"
       ],
-      "reason": "Primary change is in P2P transport IPC registration: it now registers/maps full multi-segment physical ranges, carries segment counts through register/deregister flows, and gates behavior with MULTI_SEGMENT_REGISTER. Include network because proxy/UDS behavior is substantively extended (batched FD conversion, proxy-side segment import/mapping lifecycle, per-connection handle tracking/cleanup). Include memory because allocation/mapping teardown semantics were changed for multi-segment ranges (segment-wise unmap/free, granularity checks, and segment-count-aware free helpers)."
+      "reason": "Main change is in P2P transport IPC registration: it now registers/maps full multi-physical-segment buffers (not just first segment), carries segment counts through register/deregister paths, and adds segment-aware teardown for replay-safe cleanup. Add memory because allocation/map/unmap/free helpers in alloc.h were extended to segment-aware ownership and granularity validation, which changes deallocation semantics. Add network because proxy protocol/lifecycle behavior changed (batch FD query API, per-connection imported-handle tracking queue, and deregistration cleanup coordination), requiring proxy/UDS review."
     }
   },
   "reviewers": {
