@@ -1,0 +1,17 @@
+{
+  "classification": {
+    "base_sha": "747030b6fe8cf6b111f18efb61c6e16ff76e9c0e",
+    "head_sha": "7fefe365d4e909991232eb1c4594cd24bbe7be85",
+    "input_fingerprint": "0dff8ca176ebe4e16f9d6c39e1d33568f5df0e3074510c3ecaba3c36ecf48b94",
+    "pr_number": 198,
+    "proposal": {
+      "modules": [
+        "ci"
+      ],
+      "reason": "The only substantive change is updating a test-only dependency in `tests/xtest/requirements.txt`, which affects CI/test environment execution rather than PCCL runtime modules."
+    }
+  },
+  "reviewers": {
+    "ci": 333302477
+  }
+}
