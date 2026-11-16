@@ -8,7 +8,7 @@
       "modules": [
         "ci"
       ],
-      "reason": "Substantive change is CI/test-workflow dependency management: filelock pin and wheel SHA were updated in workflow jobs and test environment setup. The xtest requirements and contract-test edits are mechanical synchronization to enforce the same CI runtime dependency version, not a separate module change."
+      "reason": "The substantive change is CI/test-environment dependency maintenance: bumping the xtest runtime pin to filelock 4.2.10 and synchronizing workflow download/install pins and checksum validation in test workflows and setup scripts. The remaining test assertion update only reflects this CI dependency change, with no independent workflow-policy or runtime-module behavior change."
     }
   },
   "reviewers": {
