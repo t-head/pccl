@@ -1,14 +1,14 @@
 {
   "classification": {
     "base_sha": "747030b6fe8cf6b111f18efb61c6e16ff76e9c0e",
-    "head_sha": "3cc6d7f89a7fcfa9280d42302f7eb20ecc53de49",
-    "input_fingerprint": "c1b217f30c91efd4aec42452e2d1526053054fcff33216bc175df1308bcbc8d6",
+    "head_sha": "d11a762a2491ee3a44d9a6f3368746103ae2ab81",
+    "input_fingerprint": "d5b68ec8584d5699c458e01a9c8a0ee439474fc355cb3c0c99b74cfcde038166",
     "pr_number": 198,
     "proposal": {
       "modules": [
         "ci"
       ],
-      "reason": "Updates open-source test execution inputs by bumping filelock and corresponding wheel SHA pins in CI workflows and test environment setup; tests/xtest requirement and contract assertion edits are consistency updates, not separate workflow-policy or build-system changes."
+      "reason": "Main substantive change is updating CI/test dependency pinning from filelock 3.20.3 to 4.2.10 across workflow jobs and test environment setup (including wheel checksum updates), with a corresponding contract test expectation update."
     }
   },
   "reviewers": {
