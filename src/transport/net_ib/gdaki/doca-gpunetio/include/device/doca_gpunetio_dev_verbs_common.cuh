@@ -129,54 +129,26 @@ __device__ static __forceinline__ void doca_gpu_dev_verbs_store_relaxed_mmio(uin
 
 template <enum doca_gpu_dev_verbs_sync_scope sync_scope>
 __device__ static __forceinline__ void doca_gpu_dev_verbs_fence_acquire() {
-#ifdef DOCA_GPUNETIO_VERBS_HAS_FENCE_ACQUIRE_RELEASE_PTX
     if (sync_scope == DOCA_GPUNETIO_VERBS_SYNC_SCOPE_CTA)
-        asm volatile("fence.acquire.cta;");
+        asm volatile("ppu.fence.acquire.blk;" ::: "memory");
     else if (sync_scope == DOCA_GPUNETIO_VERBS_SYNC_SCOPE_GPU)
-        asm volatile("fence.acquire.gpu;");
+        asm volatile("ppu.fence.acquire.gpu;" ::: "memory");
     else if (sync_scope == DOCA_GPUNETIO_VERBS_SYNC_SCOPE_SYS)
-        asm volatile("fence.acquire.sys;");
-    else
-        ;  // no-op
-#else
-    // fence.acquire is not available in PTX. Emulate that with st.release.
-    uint32_t dummy;
-    uint32_t val = 0;
-    if (sync_scope == DOCA_GPUNETIO_VERBS_SYNC_SCOPE_CTA)
-        asm volatile("ld.acquire.cta.b32 %0, [%1];" : "=r"(val) : "l"(&dummy));
-    else if (sync_scope == DOCA_GPUNETIO_VERBS_SYNC_SCOPE_GPU)
-        asm volatile("ld.acquire.gpu.b32 %0, [%1];" : "=r"(val) : "l"(&dummy));
-    else if (sync_scope == DOCA_GPUNETIO_VERBS_SYNC_SCOPE_SYS)
-        asm volatile("ld.acquire.sys.b32 %0, [%1];" : "=r"(val) : "l"(&dummy));
+        asm volatile("ppu.fence.acquire.sys;" ::: "memory");
     else if (sync_scope == DOCA_GPUNETIO_VERBS_SYNC_SCOPE_THREAD)
         ;  // no-op
-#endif
 }
 
 template <enum doca_gpu_dev_verbs_sync_scope sync_scope>
 __device__ static __forceinline__ void doca_gpu_dev_verbs_fence_release() {
-#ifdef DOCA_GPUNETIO_VERBS_HAS_FENCE_ACQUIRE_RELEASE_PTX
     if (sync_scope == DOCA_GPUNETIO_VERBS_SYNC_SCOPE_CTA)
-        asm volatile("fence.release.cta;");
+        asm volatile("ppu.fence.release.blk;" ::: "memory");
     else if (sync_scope == DOCA_GPUNETIO_VERBS_SYNC_SCOPE_GPU)
-        asm volatile("fence.release.gpu;");
+        asm volatile("ppu.fence.release.gpu;" ::: "memory");
     else if (sync_scope == DOCA_GPUNETIO_VERBS_SYNC_SCOPE_SYS)
-        asm volatile("fence.release.sys;");
+        asm volatile("ppu.fence.release.sys;" ::: "memory");
     else if (sync_scope == DOCA_GPUNETIO_VERBS_SYNC_SCOPE_THREAD)
         ;  // no-op
-#else
-    // fence.release is not available in PTX. Emulate that with st.release.
-    uint32_t dummy;
-    const uint32_t val = 0;
-    if (sync_scope == DOCA_GPUNETIO_VERBS_SYNC_SCOPE_CTA)
-        asm volatile("st.release.cta.u32 [%0], %1;" : : "l"(&dummy), "r"(val));
-    else if (sync_scope == DOCA_GPUNETIO_VERBS_SYNC_SCOPE_GPU)
-        asm volatile("st.release.gpu.u32 [%0], %1;" : : "l"(&dummy), "r"(val));
-    else if (sync_scope == DOCA_GPUNETIO_VERBS_SYNC_SCOPE_SYS)
-        asm volatile("st.release.sys.u32 [%0], %1;" : : "l"(&dummy), "r"(val));
-    else if (sync_scope == DOCA_GPUNETIO_VERBS_SYNC_SCOPE_THREAD)
-        ;  // no-op
-#endif
 }
 
 #ifdef DOCA_GPUNETIO_VERBS_HAS_ASYNC_STORE_RELEASE
@@ -361,21 +333,21 @@ __device__ static __forceinline__ void doca_gpu_dev_verbs_unlock(int *lock) {
 // calls, so falling back to the default load is correct.
 __device__ static __forceinline__ uint8_t doca_gpu_dev_verbs_load_relaxed_sys_global(uint8_t *ptr) {
     uint16_t ret;
-    asm volatile("ld.relaxed.sys.global.b8 %0, [%1];" : "=h"(ret) : "l"(ptr));
+    asm volatile("ppu.ld.relaxed.sys.global.b8 %0, [%1];" : "=h"(ret) : "l"(ptr));
     return (uint8_t)ret;
 }
 
 __device__ static __forceinline__ uint32_t
 doca_gpu_dev_verbs_load_relaxed_sys_global(uint32_t *ptr) {
     uint32_t ret;
-    asm volatile("ld.relaxed.sys.global.b32 %0, [%1];" : "=r"(ret) : "l"(ptr));
+    asm volatile("ppu.ld.relaxed.sys.global.b32 %0, [%1];" : "=r"(ret) : "l"(ptr));
     return ret;
 }
 
 __device__ static __forceinline__ uint64_t
 doca_gpu_dev_verbs_load_relaxed_sys_global(uint64_t *ptr) {
     uint64_t ret;
-    asm volatile("ld.relaxed.sys.global.b64 %0, [%1];" : "=l"(ret) : "l"(ptr));
+    asm volatile("ppu.ld.relaxed.sys.global.b64 %0, [%1];" : "=l"(ret) : "l"(ptr));
     return ret;
 }
 
@@ -385,9 +357,9 @@ __device__ static __forceinline__ uint64_t doca_gpu_dev_verbs_load_relaxed(uint6
     if (resource_sharing_mode == DOCA_GPUNETIO_VERBS_RESOURCE_SHARING_MODE_EXCLUSIVE)
         ret = *ptr;
     else if (resource_sharing_mode == DOCA_GPUNETIO_VERBS_RESOURCE_SHARING_MODE_CTA)
-        asm volatile("ld.relaxed.cta.b64 %0, [%1];" : "=l"(ret) : "l"(ptr));
+        asm volatile("ppu.ld.relaxed.blk.b64 %0, [%1];" : "=l"(ret) : "l"(ptr));
     else if (resource_sharing_mode == DOCA_GPUNETIO_VERBS_RESOURCE_SHARING_MODE_GPU)
-        asm volatile("ld.relaxed.gpu.b64 %0, [%1];" : "=l"(ret) : "l"(ptr));
+        asm volatile("ppu.ld.relaxed.gpu.b64 %0, [%1];" : "=l"(ret) : "l"(ptr));
     return ret;
 }
 
