@@ -241,7 +241,7 @@ class DailySmokeTests(unittest.TestCase):
         text = FULL_WORKFLOW.read_text()
         self.assertNotIn('uses: actions/download-artifact@v4', text)
         self.assertEqual(text.count('uses: t-head/pccl/.github/actions/download-artifact-retry@'
-                                    'c7eb80eadb2ca48976a02d8f0fcc1c020534ce73'), 6)
+                                    'c7eb80eadb2ca48976a02d8f0fcc1c020534ce73'), 7)
 
 
 if __name__ == '__main__':

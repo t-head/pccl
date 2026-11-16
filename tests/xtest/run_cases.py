@@ -269,8 +269,8 @@ def _number(value):
     return str(result)
 
 
-def parse_performance(text):
-    """Parse observed dual-layout benchmark tables without a performance gate."""
+def parse_performance(text, allow_unsupported=False, skip_malformed=False):
+    """Parse dual-layout tables, with opt-in report tolerance only."""
     rows = []
     header = None
     for line_number, raw in enumerate(text.splitlines(), 1):
@@ -289,12 +289,14 @@ def parse_performance(text):
         if header is None:
             continue
         if len(tokens) != 13 or not re.fullmatch(r"[0-9]+", tokens[1]):
+            if skip_malformed:
+                continue
             raise ValueError("Truncated or malformed performance table row")
         for offset, current in ((5, "out-of-place"), (9, "in-place")):
             wrong = tokens[offset + 3]
-            if not re.fullmatch(r"[0-9]+", wrong):
+            if not re.fullmatch(r"[0-9]+", wrong) and not (allow_unsupported and wrong == "N/A"):
                 raise ValueError("Performance #wrong value must be numeric")
-            if int(wrong) != 0:
+            if wrong != "N/A" and int(wrong) != 0:
                 raise ValueError("Performance data validation reported wrong values")
             rows.append({"size": tokens[0], "count": tokens[1], "type": tokens[2],
                          "redop": tokens[3], "root": tokens[4], "placement": current,

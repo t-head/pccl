@@ -86,6 +86,7 @@ jobs:
           python3 -S -B -m unittest discover -s tests/xtest -p 'test_daily_smoke.py' -v
           python3 -S -B -m unittest discover -s tests/xtest -p 'test_daily_reconcile.py' -v
           python3 -S -B -m unittest discover -s tests/xtest -p 'test_generate_cases.py' -v
+          python3 -S -B -m unittest discover -s tests/xtest -p 'test_performance_report.py' -v
           GENERATED_INPUT=
           if [[ "$DATASET" == generated-smoke || "$DATASET" == generated-full ]]; then
             GENERATION_PROFILE=${DATASET#generated-}
@@ -136,6 +137,7 @@ jobs:
           sys.path.insert(0, 'tests/xtest')
           import case_group_cache
           import group_cases
+          import performance_report
           import run_cases
           from artifact_cache import PCCL_TESTS_REVISION, RUNNER_HASHES
 
@@ -155,6 +157,8 @@ jobs:
               input_directory, int(os.environ['MAX_CASES']), nodes=nodes, suite=suite,
               allowed_nodes=allowed_nodes)
           group_cases.write_plan(plan, Path('case-groups'), input_directory)
+          performance_report.write_selection(
+              input_directory, 'standard', Path('case-groups/performance-cases.json'))
           if dataset.startswith('generated-'):
               shutil.copyfile(input_directory / 'generation.json', 'case-groups/generation.json')
           groups = plan['groups']
@@ -226,10 +230,13 @@ jobs:
         run: |
           mkdir -p deps
           python3 -m pip download --disable-pip-version-check --only-binary=:all: --no-deps \
-            --dest deps filelock==4.2.10
+            --dest deps filelock==4.2.10 XlsxWriter==3.2.5
           printf '%s  %s\n' \
             '9479aaeb4db20b5a53e3da28493edd24720b66b8a0b84030aa56ccdf243d6857' \
             'deps/filelock-4.2.10-py3-none-any.whl' | sha256sum --check -
+          printf '%s  %s\n' \
+            '4f4824234e1eaf9d95df9a8fe974585ff91d0f5e3d3f12ace5b71e443c1c6abd' \
+            'deps/xlsxwriter-3.2.5-py3-none-any.whl' | sha256sum --check -
       - uses: actions/upload-artifact@v4
         with:
           name: m890p-daily-full-python-deps
@@ -708,6 +715,11 @@ jobs:
         with:
           path: pccl
           persist-credentials: false
+      - uses: t-head/pccl/.github/actions/download-artifact-retry@c7eb80eadb2ca48976a02d8f0fcc1c020534ce73
+        if: always()
+        with:
+          name: m890p-daily-full-python-deps
+          path: deps
       - id: groups-cache
         name: Check the NAS Case-group cache
         if: always()
@@ -828,6 +840,31 @@ jobs:
           if-no-files-found: error
           overwrite: true
           retention-days: 7
+      - id: performance-report
+        name: Generate the complete performance Excel report
+        if: always()
+        run: |
+          python3 -m pip install --disable-pip-version-check --no-index \
+            --find-links deps --target report-python XlsxWriter==3.2.5
+          PYTHONPATH=report-python python3 -S -B pccl/tests/xtest/performance_report.py report \
+            --selection /wl_nas/devops/pccl-artifact-cache-${{ github.run_id }}/cache/case-groups/${{ needs.prepare.outputs.groups_sha256 }}/performance-cases.json \
+            --groups /wl_nas/devops/pccl-artifact-cache-${{ github.run_id }}/cache/case-groups/${{ needs.prepare.outputs.groups_sha256 }}/groups.json \
+            --coverage /wl_nas/devops/pccl-artifact-cache-${{ github.run_id }}/cache/case-groups/${{ needs.prepare.outputs.groups_sha256 }}/execution-coverage.json \
+            --results-root /wl_nas/devops/pccl-artifact-cache-${{ github.run_id }}/results/full \
+            --output public-results/PCCL_M890P_daily_perf_${{ github.run_id }}.xlsx \
+            --run-id '${{ github.run_id }}' \
+            --run-url '${{ github.server_url }}/${{ github.repository }}/actions/runs/${{ github.run_id }}' \
+            --dataset '${{ inputs.dataset || (github.event_name == 'schedule' && 'full' || 'smoke') }}' \
+            --source-revision '${{ github.sha }}' \
+            --runner-revision '${{ env.PCCL_TESTS_REVISION }}'
+      - uses: actions/upload-artifact@v4
+        if: always()
+        with:
+          name: m890p-daily-performance-report
+          path: public-results/PCCL_M890P_daily_perf_*.xlsx
+          if-no-files-found: error
+          overwrite: true
+          retention-days: 7
       - id: cleanup
         name: Remove run-owned NAS build artifacts
         if: always()
@@ -852,6 +889,7 @@ jobs:
                   failed[name] = needs[name]['result']
           outcomes = {'groups': '${{ steps.groups.outcome }}',
                       'reconcile': '${{ steps.reconcile.outcome }}',
+                      'performance-report': '${{ steps.performance-report.outcome }}',
                       'cleanup': '${{ steps.cleanup.outcome }}'}
           for name, result in outcomes.items():
               if result != 'success':

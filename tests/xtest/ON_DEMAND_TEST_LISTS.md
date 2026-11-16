@@ -76,6 +76,37 @@ it into the Case-groups artifact. `export.json` retains the existing consumer
 schema and records `xtest_version=not-used` explicitly. Source provenance is
 retained separately from the public `pccl` revision.
 
+## Performance Excel report
+
+Prepare also writes `performance-cases.json` before resource-policy grouping.
+The full selection contains 168 performance-related Cases, including ordinary
+`op_perf` Cases whose `check` remains `exit_code` and Cases later excluded by the
+node policy. This preserves complete report coverage rather than only the
+successfully executed subset.
+
+After group reconciliation, the summary job uses `run_cases.parse_performance`
+to read the retained `raw.log` files and generate
+`PCCL_M890P_daily_perf_<run-id>.xlsx`. Ordinary `exit_code` Cases contribute
+performance data without gaining a performance gate. Execution failures,
+missing results, unavailable tables, partial curves and missing log rows remain
+visible as separate execution and data statuses.
+
+Only `PASSED` Cases contribute valid performance points and detail rows.
+Failed Cases remain visible in coverage, but their partial output is not counted
+as valid performance evidence. Duplicate sizes, size zero and `N/A` validation
+markers are preserved. Curve completeness follows the expected measurement
+count per layout rather than a Case-plus-size uniqueness assumption.
+
+The workbook contains an overview, per-topology tables, raw detail, Case
+coverage and run metadata. It is uploaded as the independent
+`m890p-daily-performance-report` artifact with seven-day retention. Raw logs
+remain in the run-owned NAS `results/` tree; the Excel report does not replace
+that diagnostic evidence or the existing summary artifact.
+
+XlsxWriter 3.2.5 is pinned with a SHA-256 digest in the existing dependency
+artifact and installed offline by the summary job. Report generation is part of
+the final failure summary, so a missing required report cannot pass silently.
+
 ## Validation boundary
 
 Migration tests compare every generated row with the existing export and with

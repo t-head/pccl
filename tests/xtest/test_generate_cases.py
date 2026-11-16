@@ -10,6 +10,7 @@ import unittest
 
 import generate_cases
 import group_cases
+import performance_report
 import run_cases
 
 
@@ -120,6 +121,9 @@ class PublicGeneratorTests(unittest.TestCase):
                                                   key=lambda row: (row["plan"], row["suite"])))
         output = self.root / "all-generated"
         generate_cases.write_bundle(combined, output, DEFINITIONS / "envs")
+        performance_selection = performance_report.write_selection(
+            output, "standard", self.root / "performance-cases.json")
+        self.assertEqual(len(performance_selection["cases"]), 168)
         plan = group_cases.build_plan(output, 500, allowed_nodes=(1, 2, 4))
         self.assertEqual(len(combined["rows"]), 8899)
         self.assertEqual(len(combined["suites"]), 34)
