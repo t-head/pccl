@@ -823,6 +823,11 @@ ncclResult_t ncclTopoComputeP2pChannelsPerPeer(ncclComm_t comm) {
     if (nChannels >= 0) minChannels = std::min(minChannels, nChannels);
   }
   comm->p2pnChannelsPerPeer = minChannels;
+  comm->p2pMaxPeers = comm->config.maxP2pPeers == PCCL_CONFIG_UNDEF_INT ? 0 : comm->config.maxP2pPeers;
+  if (comm->p2pMaxPeers > comm->nRanks) {
+    INFO(NCCL_INIT, "Max P2P peers %d exceeds communicator size %d, capping it", comm->p2pMaxPeers, comm->nRanks);
+    comm->p2pMaxPeers = comm->nRanks;
+  }
   return ncclSuccess;
 }
 
@@ -859,7 +864,12 @@ ncclResult_t ncclTopoComputeP2pChannels(ncclComm_t comm) {
     if (!explicitChannels) comm->p2pnChannelsPerPeer = comm->p2pnChannels;
   }
   comm->p2pnChannels = std::min(comm->p2pnChannels, pow2Down(ncclDevMaxChannelsForArgsBytes(ncclParamWorkArgsBytes())));
-  if (explicitChannels) {
+  if (comm->nNodes > 1 && !explicitChannels && comm->p2pMaxPeers > 0) {
+    INFO(NCCL_INIT, "Tuning P2P operations with maxP2pPeers = %d", comm->p2pMaxPeers);
+    while (comm->p2pnChannelsPerPeer * divUp(comm->p2pMaxPeers, NCCL_MAX_DEV_WORK_P2P_PER_BATCH) > comm->p2pnChannels && comm->p2pnChannelsPerPeer > 1) {
+      comm->p2pnChannelsPerPeer /= 2;
+    }
+  } else if (explicitChannels) {
     comm->p2pnChannelsPerPeer = std::min(comm->p2pnChannelsPerPeer, comm->p2pnChannels);
   }
   if (pcclParamP2pNChannelsPerPeer() > 0) {

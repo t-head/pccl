@@ -1493,7 +1493,7 @@ static ncclResult_t scheduleP2pTasksToPlan(ncclComm_t comm, int* p2pEpoch, int* 
   int nChannelsMin = nChannelsMax;
   // Try to use all channels, but one channel per operation.
   while (nChannelsMin*comm->nRanks > comm->p2pnChannels && nChannelsMin > 1) nChannelsMin /= 2;
-  if (comm->nNodes == 1 || comm->config.nChannelsPerNetPeer == PCCL_CONFIG_UNDEF_INT) {
+  if (comm->nNodes == 1 || (comm->config.nChannelsPerNetPeer == PCCL_CONFIG_UNDEF_INT && comm->p2pMaxPeers == 0)) {
     while (nChannelsMax*comm->nRanks > comm->p2pnChannels*4 && nChannelsMax > 1) nChannelsMax /= 2;
   }
 
