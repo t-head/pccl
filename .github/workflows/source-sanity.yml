@@ -159,10 +159,10 @@ jobs:
         run: |
           mkdir -p deps
           python3 -m pip download --disable-pip-version-check --only-binary=:all: --no-deps \
-            --dest deps filelock==3.20.3
+            --dest deps filelock==4.2.10
           printf '%s  %s\n' \
-            '4b0dda527ee31078689fc205ec4f1c1bf7d56cf88b6dc9426c4f230e46c2dce1' \
-            'deps/filelock-3.20.3-py3-none-any.whl' | sha256sum --check -
+            '9479aaeb4db20b5a53e3da28493edd24720b66b8a0b84030aa56ccdf243d6857' \
+            'deps/filelock-4.2.10-py3-none-any.whl' | sha256sum --check -
       - uses: actions/upload-artifact@v4
         with:
           name: minimal-csv-artifact-python-deps

@@ -266,7 +266,7 @@ class WorkflowContractTests(unittest.TestCase):
     def test_public_runtime_dependencies_remain_minimal(self):
         self.assertEqual((ROOT / 'tests/xtest/requirements.txt').read_text().strip(),
                          '# Required by the public run_test.py entry point, not the CSV executor.\n'
-                         'filelock==3.20.3')
+                         'filelock==4.2.10')
         self.assertIn('t-head/ci-infra/cluster-run@40165c945cba33ac7b16b41c4485fe53b68f581f', self.text)
         for name in ('build-standard', 'build-notsm', 'single-node'):
             self.assertIn('uses: t-head/ci-infra/cluster-run@main', self.job(name))
