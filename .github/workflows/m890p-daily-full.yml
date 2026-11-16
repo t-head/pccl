@@ -176,7 +176,7 @@ jobs:
           path: pccl/case-groups/
           if-no-files-found: error
           overwrite: true
-          retention-days: 7
+          retention-days: 90
       - name: Stage the pinned benchmark dependency
         run: |
           mkdir -p deps
@@ -191,7 +191,7 @@ jobs:
           path: deps/
           if-no-files-found: error
           overwrite: true
-          retention-days: 7
+          retention-days: 90
 
   build-standard:
     name: Build and upload standard
@@ -262,7 +262,7 @@ jobs:
           path: /wl_nas/devops/pccl-artifact-cache-${{ github.run_id }}/staging/standard/
           if-no-files-found: error
           overwrite: true
-          retention-days: 7
+          retention-days: 90
       - name: Remove transient standard NAS staging
         if: always()
         run: |
@@ -782,7 +782,7 @@ jobs:
           path: public-results/
           if-no-files-found: error
           overwrite: true
-          retention-days: 7
+          retention-days: 90
       - id: cleanup
         name: Remove run-owned NAS build artifacts
         if: always()

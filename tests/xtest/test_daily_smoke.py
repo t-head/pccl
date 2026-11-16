@@ -200,7 +200,7 @@ class DailySmokeTests(unittest.TestCase):
                         text.index('CASE_INPUT="$SHARED_ROOT/case-input"'))
         self.assertIn('GitHub Actions matrix limit of 256', text)
         self.assertIn('timeout-minutes: 750', text)
-        self.assertNotIn('retention-days: 3', text)
+        self.assertIn('retention-days: 90', text)
         self.assertIn('if results_root.is_dir() else set()', text)
         single = text.split('name: Run the automatic group on one node', 1)[1].split(
             'name: Run the automatic multi-node group on master', 1)[0]

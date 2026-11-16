@@ -169,7 +169,7 @@ jobs:
           path: deps/
           if-no-files-found: error
           overwrite: true
-          retention-days: 3
+          retention-days: 90
 
   ai-code-review:
     name: AI Code Review (Copilot Gate)
@@ -265,7 +265,7 @@ jobs:
           path: /wl_nas/devops/pccl-artifact-cache-${{ github.run_id }}/staging/standard/
           if-no-files-found: error
           overwrite: true
-          retention-days: 3
+          retention-days: 90
       - name: Remove transient standard NAS staging
         if: always()
         run: |
@@ -350,7 +350,7 @@ jobs:
           path: /wl_nas/devops/pccl-artifact-cache-${{ github.run_id }}/staging/notsm/
           if-no-files-found: error
           overwrite: true
-          retention-days: 3
+          retention-days: 90
       - name: Remove transient notsm NAS staging
         if: always()
         run: |
@@ -683,7 +683,7 @@ jobs:
           path: public-results/
           if-no-files-found: error
           overwrite: true
-          retention-days: 7
+          retention-days: 90
       - id: cleanup
         name: Remove run-owned NAS build artifacts
         if: always() && steps.checkout.outcome == 'success'
