@@ -119,9 +119,11 @@ typedef struct pcclConfig_v22800 {
   int nvlsCTAs;
   /* Network P2P channel count: PCCL_CONFIG_UNDEF_INT or 1..64, rounded up to a power of two. */
   int nChannelsPerNetPeer;
+  /* NVLink-centric scheduling (0/1, default 0); accepted but currently unused in PCCL. */
   int nvlinkCentricSched;
   /* 0: no graphs; 1: one graph; 2: multiple graphs or graph/non-graph mixing (default). */
   int graphUsageMode;
+  /* RMA context count (>0, default 1); accepted but currently unused in PCCL. */
   int numRmaCtx;
   /* Expected concurrent P2P peers for channel tuning; PCCL_CONFIG_UNDEF_INT defaults to nRanks. */
   int maxP2pPeers;
