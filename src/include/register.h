@@ -23,6 +23,8 @@ enum {
 
 #define NCCL_REGULAR_BUFFER 0x00
 #define NCCL_IPC_REG_BUFFER 0x01
+#define NCCL_NET_SEND_REG_BUFFER 0x02
+#define NCCL_NET_RECV_REG_BUFFER 0x04
 
 struct ncclPeerRegIpcAddr {
   uintptr_t* devPeerRmtAddrs;
@@ -37,6 +39,7 @@ struct ncclReg {
   int graphRefs;
   uintptr_t addr;
   uint32_t state;
+  struct ncclNetRegHandle* netHandles;
 
   // general ipc reg
   struct ncclPeerRegIpcAddr regIpcAddrs;
@@ -54,6 +57,7 @@ struct ncclRegCache {
 };
 
 ncclResult_t ncclRegCleanup(ncclComm_t comm);
+ncclResult_t ncclRegNetCleanup(ncclComm_t comm);
 ncclResult_t ncclCommGraphRegister(const ncclComm_t comm, void* buff, size_t size, void** handle);
 ncclResult_t ncclCommGraphDeregister(const ncclComm_t comm, struct ncclReg *handle);
 ncclResult_t ncclRegLocalIsValid(struct ncclReg *reg, bool *isValid);

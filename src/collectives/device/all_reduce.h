@@ -439,7 +439,9 @@ class RunWorkColl<ncclFuncAllReduce, NCCL_ALGO_RING, NCCL_PROTO_SIMPLE, FUNC, T,
   public:
   __device__ void run(struct ncclDevWorkColl* work) {
     using Proto = ProtoSimple<UNROLL, ALLREDUCE_CHUNKSTEPS/ALLREDUCE_SLICESTEPS, ALLREDUCE_SLICESTEPS>;
-    runRing<FUNC, T, UNROLL, Proto>(work);
+    using ProtoNet = ProtoSimple<UNROLL, ALLREDUCE_CHUNKSTEPS/ALLREDUCE_SLICESTEPS, ALLREDUCE_SLICESTEPS, true>;
+    if (work->sendNetReg || work->recvNetReg) runRing<FUNC, T, UNROLL, ProtoNet>(work);
+    else runRing<FUNC, T, UNROLL, Proto>(work);
   }
 };
 

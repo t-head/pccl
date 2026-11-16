@@ -12,7 +12,8 @@
 enum primsMode { primsModeDefault = 0, primsModePatRs = 1, primsModePatAg = 2 };
 
 // Implementation of primitive types
-template <typename T, int NRECV, int NSEND, class FUNC, int UNROLL, int SLICESPERCHUNK, int SLICESTEPS, int DIRECT, typename Proto, class RealPrimitives, int P2P>
+template <typename T, int NRECV, int NSEND, class FUNC, int UNROLL, int SLICESPERCHUNK, int SLICESTEPS,
+          int DIRECT, typename Proto, class RealPrimitives, int P2P, bool NetReg>
 class PrimitivesSimpleBase {
  public:
   struct ncclConnInfo* conn = NULL;
@@ -50,6 +51,8 @@ class PrimitivesSimpleBase {
   volatile uint64_t* connHeadPtr = NULL;
   uint64_t connHeadCache; // Cache last seen value
   const uint64_t ncclSteps;
+  bool netSend;
+  bool netRecv;
 
   int group;
   T* direct = NULL;
@@ -98,13 +101,18 @@ class PrimitivesSimpleBase {
   }
 
   template <int SRC, int DIRECTRECV>
-  inline __device__ void waitRecv(ssize_t directOffset) {
+  inline __device__ void waitRecv(ssize_t directOffset, T* netDst = nullptr) {
     hangSpins = spins = 0;
+    if (NetReg && netDst) {
+      __ppu_threadfence_system_uncache();
+      static_cast<volatile int*>(conn->sizesFifo)[step%ncclSteps] = 0;
+    }
     while (connTailCache < step + SLICESTEPS) {
       connTailCache = volatileLoadU64(connTailPtr);
       if (checkAbort(comm, spins, abort, hangSpins)) break;
     }
-    if (connOffsFifoPtr) srcs[SRC+index] = buff + loadInt(connOffsFifoPtr + (step%NCCL_STEPS))/sizeof(T);
+    if (NetReg && netDst) srcs[SRC+index] = netDst;
+    else if (connOffsFifoPtr) srcs[SRC+index] = buff + loadInt(connOffsFifoPtr + (step%NCCL_STEPS))/sizeof(T);
     else srcs[SRC+index] = directPtr<DIRECTRECV>(directOffset);
     step += SLICESTEPS;
   }
@@ -156,18 +164,29 @@ class PrimitivesSimpleBase {
     if (reqChunkSize > 0) {
       dataSize = max(DIVUP(reqChunkSize, 16*SLICESPERCHUNK)*16, sliceSize/32);
     }
+    // A reduction without a final destination still needs the FIFO. Other
+    // sends expose either the input or the final output to the local NIC.
+    bool fromUser = NetReg && SEND && (DST || (SRC && !RECV)) && netSend;
+    bool intoUser = NetReg && RECV && DST && !SRC && netRecv;
 
     #pragma unroll
     for (int slice=0; slice<SLICESPERCHUNK; ++slice) {
       int realSize = max(0, min(dataSize, nelem-offset));
       if (tid < nworkers) {
         if (SRC && (role & ROLE_SRC)) srcs[0] = srcPtr+offset;
-        if (RECV && (role & ROLE_WAIT_RECV)) static_cast<RealPrimitives*>(this)->template waitRecv<SRC, DIRECTRECV>(directOffset+offset);
+        if (RECV && (role & ROLE_WAIT_RECV)) {
+          if (NetReg) waitRecv<SRC, DIRECTRECV>(directOffset+offset, intoUser ? dstPtr+offset : nullptr);
+          else static_cast<RealPrimitives*>(this)->template waitRecv<SRC, DIRECTRECV>(directOffset+offset);
+        }
         if (DST && (role & ROLE_DST)) dsts[0] = dstPtr+offset;
         if (SEND && (role & ROLE_WAIT_SEND)) waitSend<DST, DIRECTSEND>(directOffset+offset, realSize*sizeof(T));
         if (realSize > 0) {
           subBarrier();
-          if (DIRECTRECV && srcs[0] == dsts[0]) {
+          if (fromUser) {
+            if (DST && !intoUser)
+              static_cast<RealPrimitives*>(this)->template IndirectReduceOrCopyMulti<
+                  DIRECTRECV, DIRECTSEND, RECV, 0, SRC, 1>(postOp, realSize);
+          } else if ((DIRECTRECV || intoUser) && srcs[0] == dsts[0]) {
             // We can only have one direct receive. Since srcs[0] == dstPtr+offset, skip one copy
             if (SEND) {
               static_cast<RealPrimitives*>(this)->template DirectReduceOrCopyMulti<DIRECTRECV, DIRECTSEND, RECV, SEND, SRC, DST>(postOp, realSize);
@@ -336,7 +355,10 @@ class PrimitivesSimpleBase {
     // WR: fix potential double preOp for up/down tree.
     redOp(noRed ? RedOpIdentityArg<FUNC>::value() : redOpArg),
     comm(comm), tid(tid), nworkers(nworkers), stepSize(comm->buffSizes[NCCL_PROTO_SIMPLE]/NCCL_STEPS/sizeof(T)),
-    srcs((const T**)ptrs[group].srcs), dsts((T**)ptrs[group].dsts), realSizes(ptrs[group].realSizes), group(group),
+    srcs((const T**)ptrs[group].srcs),
+    netSend(NetReg && collWork && collWork->sendNetReg),
+    netRecv(NetReg && collWork && collWork->recvNetReg),
+    dsts((T**)ptrs[group].dsts), realSizes(ptrs[group].realSizes), group(group),
     totalSendSize(ptrs[group].totalSendSize), ncclSteps(ncclSteps) {
     nthreads = nworkers;
     if (mode == primsModeDefault) {
@@ -461,6 +483,14 @@ class PrimitivesSimpleBase {
   }
 
   __device__ __forceinline__ ~PrimitivesSimpleBase() {
+    if (NetReg && netSend && (role & ROLE_WAIT_SEND)) {
+      // A registered send reads application memory. It must finish before
+      // the stream can overwrite that memory or release its registration.
+      while (connHeadCache < step) {
+        connHeadCache = volatileLoadU64(connHeadPtr);
+        if (checkAbort(comm, spins, abort, hangSpins)) break;
+      }
+    }
     // Save steps for the next operation
     if (role & (ROLE_POST_SEND|ROLE_POST_RECV))
       volatileStoreU64(reinterpret_cast<volatile uint64_t*>(&conn->step), step);

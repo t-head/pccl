@@ -404,6 +404,7 @@ static ncclResult_t ncclProxyOpToArgs(struct ncclProxyOp* op, struct ncclProxyAr
   args->nsubs = subIndex+1;
   sub->sendbuff = op->sendbuff;
   sub->recvbuff = op->recvbuff;
+  sub->ringNet = op->ringNet;
   sub->eActivationMask = op->eActivationMask;
   sub->taskEventHandle = op->taskEventHandle;
   sub->rank = op->rank;

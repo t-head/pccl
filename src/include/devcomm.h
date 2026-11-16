@@ -227,6 +227,7 @@ struct alignas(16) ncclDevWorkColl {
   uint16_t nThreads;
   uint8_t sendRegUsed:1, recvRegUsed:1, redOpArgIsPtr:1;
   uint8_t profilerEnabled:1;
+  uint8_t sendNetReg:1, recvNetReg:1;
   uint8_t startChannelId;
   uint8_t nChannels;
   uint8_t commNChannels;

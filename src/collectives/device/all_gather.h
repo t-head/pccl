@@ -55,7 +55,8 @@ namespace {
     T * __restrict__ thisOutput = (T*)work->recvbuff;
 
     // DIRECT=1, LL/LL128 do not use
-    Primitives<T, FUNC, Proto, 1, 1, 1, 0> prims(tid, nthreads, &ring->prev, &ring->next, thisOutput, comm, work->redOpArg, getShmemPtr(comm)->groups, 0, 0, 0, NULL);
+    Primitives<T, FUNC, Proto, 1, 1, 1, 0> prims(tid, nthreads, &ring->prev, &ring->next, thisOutput, comm,
+        work->redOpArg, getShmemPtr(comm)->groups, 0, 0, 0, (work->sendNetReg || work->recvNetReg) ? work : nullptr);
 
     for (ssize_t gridOffset = 0; gridOffset < size; gridOffset += loopSize) {
       int realChunkSize;
@@ -180,7 +181,9 @@ class RunWorkColl<ncclFuncAllGather, NCCL_ALGO_RING, NCCL_PROTO_SIMPLE, FUNC, T,
   public:
     __device__ void run(struct ncclDevWorkColl* work) {
       using Proto = ProtoSimple<UNROLL, ALLGATHER_CHUNKSTEPS/ALLGATHER_SLICESTEPS, ALLGATHER_SLICESTEPS>;
-      runRing<FUNC, T, UNROLL, Proto>(work);
+      using ProtoNet = ProtoSimple<UNROLL, ALLGATHER_CHUNKSTEPS/ALLGATHER_SLICESTEPS, ALLGATHER_SLICESTEPS, true>;
+      if (work->sendNetReg || work->recvNetReg) runRing<FUNC, T, UNROLL, ProtoNet>(work);
+      else runRing<FUNC, T, UNROLL, Proto>(work);
     }
 };
 

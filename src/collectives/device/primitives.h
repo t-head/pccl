@@ -50,7 +50,7 @@ struct ProtoLL128 {
   static constexpr int RTMD = RTMD_PA;
 };
 
-template <int UNROLL, int SLICESPERCHUNK, int SLICESTEPS>
+template <int UNROLL, int SLICESPERCHUNK, int SLICESTEPS, bool NetReg = false>
 struct ProtoSimple {
   static constexpr int Id = NCCL_PROTO_SIMPLE;
   static constexpr ncclConn_t sendConnType = CONN_NORMAL;
@@ -94,7 +94,8 @@ struct ProtoSimpleBulkAR {
 template<typename T, typename FUNC, typename Proto, int NRECV, int NSEND, int DIRECT, int PrimitivesWithoutDirect>
 class Primitives;
 
-template <typename T, int NRECV, int NSEND, class FUNC, int UNROLL, int SLICESPERCHUNK, int SLICESTEPS, int DIRECT, typename Proto, class RealPrimitives, int P2P>
+template <typename T, int NRECV, int NSEND, class FUNC, int UNROLL, int SLICESPERCHUNK, int SLICESTEPS,
+          int DIRECT, typename Proto, class RealPrimitives, int P2P, bool NetReg = false>
 class PrimitivesSimpleBase;
 
 // Used by LL & LL128 to implement direct members in the naive way.

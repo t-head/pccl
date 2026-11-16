@@ -109,6 +109,8 @@ ncclResult_t ncclTransportCollNetFree(ncclComm_t comm);
 ncclResult_t ncclCollnetDeregBuffer(ncclComm_t comm, struct ncclProxyConnector* proxyconn, void* handle);
 
 ncclResult_t ncclNetDeregBuffer(ncclComm_t comm, struct ncclProxyConnector* proxyConn, void* handle);
+ncclResult_t ncclNetRegRecordCleanup(ncclComm_t comm, struct ncclReg* reg, bool proxyAlive);
+ncclResult_t ncclRegisterCollNetBuffers(ncclComm_t comm, struct ncclTaskColl* task);
 
 ncclResult_t ncclRegisterCollBuffers(ncclComm_t comm, struct ncclTaskColl* info, void* outRegBufSend[NCCL_MAX_LOCAL_RANKS], void* outRegBufRecv[NCCL_MAX_LOCAL_RANKS], struct ncclIntruQueue<struct ncclCommCallback, &ncclCommCallback::next>* cleanupQueue);
 ncclResult_t ncclRegisterP2pIpcBuffer(ncclComm_t comm, void* userbuff, size_t size, int peerRank, int* regFlag, void** regAddr, struct ncclIntruQueue<struct ncclCommCallback, &ncclCommCallback::next>* cleanupQueue);

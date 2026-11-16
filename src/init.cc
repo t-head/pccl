@@ -2550,6 +2550,14 @@ static ncclResult_t commDestroySync(struct ncclAsyncJob* job_) {
     }
   }
 
+  // An abort can stop proxy message processing. Transport teardown owns any
+  // remaining MRs, including those whose normal deregistration failed.
+  if (!__atomic_load_n(comm->abortFlag, __ATOMIC_ACQUIRE)) {
+    ncclResult_t regRet = ncclRegNetCleanup(comm);
+    if (regRet != ncclSuccess)
+      WARN("commDestroySync: comm %p rank %d NET deregistration error %d", comm, comm->rank, regRet);
+  }
+
   if (savedDevice != commDevice) {
     HGGCCHECKGOTO(hggcSetDevice(savedDevice), ret, fail);
   }

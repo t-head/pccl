@@ -313,6 +313,7 @@ ncclResult_t ncclTasksRegAndEnqueue(ncclComm_t comm) {
     struct ncclDevWorkColl devWork = {};
 
     NCCLCHECK(ncclRegisterCollBuffers(comm, task, regBufSend, regBufRecv, &comm->planner.collCleanupQueue));
+    if (comm->nNodes > 1) NCCLCHECK(ncclRegisterCollNetBuffers(comm, task));
     if (task->regBufType & NCCL_IPC_REG_BUFFER) {
       // External kernels consume registration state through pcclExtTaskColl.
       task->regUsed = 1;
@@ -325,6 +326,8 @@ ncclResult_t ncclTasksRegAndEnqueue(ncclComm_t comm) {
     // Common standard-kernel metadata is independent of plan channel assignment.
     // External kernels build their parameters directly from task below.
     if (!task->isExtKernel) {
+      devWork.sendNetReg = (task->regBufType & NCCL_NET_SEND_REG_BUFFER) != 0;
+      devWork.recvNetReg = (task->regBufType & NCCL_NET_RECV_REG_BUFFER) != 0;
       devWork.sendbuff = (void*)task->sendbuff;
       devWork.recvbuff = (void*)task->recvbuff;
       devWork.sendbuffOffset = task->sendbuffOffset;
@@ -1689,6 +1692,26 @@ static ncclResult_t scheduleCollTasksToPlan(ncclComm_t comm, struct ncclKernelPl
         proxyOp.eActivationMask = head->eActivationMask;
         proxyOp.incWorkCounter = true;
         proxyOp.channelId = channelId;
+        if (devWork->sendNetReg || devWork->recvNetReg) {
+          auto& reg = proxyOp.ringNet;
+          reg.input = static_cast<const uint8_t*>(head->sendbuff);
+          reg.output = static_cast<uint8_t*>(head->recvbuff);
+          reg.count = head->count;
+          reg.nChannels = nChannels;
+          reg.bid = bid;
+          reg.func = head->func;
+          reg.rank = comm->rank;
+          reg.nWorkers = head->nThreads;
+#ifndef NO_EXTRA_WARP
+          reg.nWorkers -= WARP_SIZE;
+#else
+          if (head->func == ncclFuncBroadcast) reg.nWorkers -= WARP_SIZE;
+#endif
+          reg.sendHandle = devWork->sendNetReg ? head->sendNetHandles[channelId] : nullptr;
+          reg.recvHandle = devWork->recvNetReg ? head->recvNetHandles[channelId] : nullptr;
+          if (devWork->sendNetReg && head->func == ncclFuncAllReduce)
+            reg.sendFromRecvHandle = head->srecvNetHandles[channelId];
+        }
         // Adjust pattern for CollNet based on channel index
         if (nSubChannels == 2) {
           proxyOp.pattern = (channelId < comm->nChannels/nSubChannels) ? ncclPatternCollTreeUp : ncclPatternCollTreeDown;

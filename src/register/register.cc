@@ -63,7 +63,8 @@ exit:
   return ncclSuccess;
 }
 
-static ncclResult_t regCleanup(ncclComm_t comm, struct ncclReg* reg) {
+static ncclResult_t regCleanup(ncclComm_t comm, struct ncclReg* reg, bool proxyAlive) {
+  NCCLCHECK(ncclNetRegRecordCleanup(comm, reg, proxyAlive));
   if (reg->state & IPC_REG_COMPLETE) {
     for (int i = 0; i < NCCL_MAX_LOCAL_RANKS; ++i)
       if (reg->ipcInfos[i]) {
@@ -83,11 +84,21 @@ ncclResult_t ncclRegCleanup(ncclComm_t comm) {
   for (int i = 0; i < cache->population; i++) {
     struct ncclReg* reg = cache->slots[i];
     INFO(NCCL_DESTROY, "Cleanup buffer %p pages %lx", (void*)reg->addr, reg->pages);
-    NCCLCHECK(regCleanup(comm, reg));
+    NCCLCHECK(regCleanup(comm, reg, false));
     NCCLCHECK(ncclFree(reg));
   }
   NCCLCHECK(ncclFree(cache->slots));
   return ncclSuccess;
+}
+
+ncclResult_t ncclRegNetCleanup(ncclComm_t comm) {
+  struct ncclRegCache* cache = &comm->regCache;
+  ncclResult_t result = ncclSuccess;
+  for (int i = 0; i < cache->population; i++) {
+    ncclResult_t ret = ncclNetRegRecordCleanup(comm, cache->slots[i], true);
+    if (ret != ncclSuccess) result = ret;
+  }
+  return result;
 }
 
 NCCL_API(ncclResult_t, pcclCommRegister, const ncclComm_t comm, void* buff, size_t size, void** handle);
@@ -120,11 +131,19 @@ static ncclResult_t commDeregister(ncclComm_t comm, bool isGraph, struct ncclReg
   }
   if (isGraph) --reg->graphRefs;
   else --reg->localRefs;
-  if (reg->localRefs || reg->graphRefs) return ncclSuccess;
-  NCCLCHECK(regCleanup(comm, reg));
-  NCCLCHECK(ncclFree(reg));
-  memmove(cache->slots + slot, cache->slots + slot + 1, (cache->population - slot - 1) * sizeof(struct ncclReg*));
-  cache->population -= 1;
+  if (!reg->localRefs && !reg->graphRefs) {
+    bool proxyAlive = !__atomic_load_n(comm->abortFlag, __ATOMIC_ACQUIRE);
+    ncclResult_t ret = regCleanup(comm, reg, proxyAlive);
+    if (ret != ncclSuccess) {
+      if (isGraph) ++reg->graphRefs;
+      else ++reg->localRefs;
+      HGGCCHECK(hggcSetDevice(saveDev));
+      return ret;
+    }
+    NCCLCHECK(ncclFree(reg));
+    memmove(cache->slots + slot, cache->slots + slot + 1, (cache->population - slot - 1) * sizeof(struct ncclReg*));
+    cache->population -= 1;
+  }
   HGGCCHECK(hggcSetDevice(saveDev));
 exit:
   return ncclSuccess;

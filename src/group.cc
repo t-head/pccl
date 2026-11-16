@@ -370,6 +370,12 @@ static void groupCleanup(ncclComm_t* groupCommHeadPtr, struct ncclIntruQueue<str
           }
         }
 
+        // Registrations still on the planner were never attached to a launch.
+        while (!ncclIntruQueueEmpty(&comm->planner.collCleanupQueue)) {
+          auto* cb = ncclIntruQueueDequeue(&comm->planner.collCleanupQueue);
+          if (cb->fn(comm, cb) != ncclSuccess) WARN("Failed to release an abandoned collective registration");
+        }
+
         { // Reset comm->planner to empty.
           ncclKernelPlanner::Peer* tmp = comm->planner.peers;
           memset(&comm->planner, 0, sizeof(comm->planner));

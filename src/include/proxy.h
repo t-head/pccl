@@ -25,6 +25,18 @@ typedef ncclResult_t (*proxyProgressFunc_t)(struct ncclProxyState*, struct ncclP
 #define NCCL_PROXY_MAX_SUBS MAXCHANNELS
 static_assert(NCCL_MAX_DEV_WORK_P2P_PER_BATCH <= MAXCHANNELS, "Not enough sub space for max work elements");
 
+// Host address generator inputs for a registered two-rank Simple Ring.
+struct ncclRingNetWork {
+  const uint8_t* input;
+  uint8_t* output;
+  void* sendHandle;
+  void* recvHandle;
+  void* sendFromRecvHandle;
+  size_t count;
+  uint16_t nWorkers;
+  uint8_t nChannels, bid, func, rank;
+};
+
 struct ncclProxyOp {
   struct ncclProxyConnection* connection;
   int channelId;
@@ -48,6 +60,7 @@ struct ncclProxyOp {
   ncclComm_t perfComm;
   uint8_t* sendbuff;
   uint8_t* recvbuff;
+  ncclRingNetWork ringNet;
 
   // Profiler plugin
   union {
@@ -89,6 +102,7 @@ struct ncclProxySubArgs {
   ssize_t nbytes;
   int peer;
   int sendrecv;
+  ncclRingNetWork ringNet;
 
   int groupSize; // Number of consecutive sub operations sharing the same recvComm
   uint64_t base;
