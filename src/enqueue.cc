@@ -1109,9 +1109,7 @@ static ncclResult_t uploadWork(ncclComm_t comm, struct ncclKernelPlan* plan) {
 
       HGGCCHECKGOTO(hggcThreadExchangeStreamCaptureMode(&mode), result, fail);
 
-      // Acquire deviceStream. Since the user's graph will be launched later and it also
-      // acquires the deviceStream, it will observe this upload.
-      NCCLCHECKGOTO(ncclStrongStreamAcquire(ncclCudaGraphNone(), &comm->sharedRes->deviceStream), result, fail);
+      NCCLCHECKGOTO(ncclStrongStreamAcquire(ncclCudaGraphNone(comm->config.graphUsageMode), &comm->sharedRes->deviceStream), result, fail);
 
       HGGCCHECKGOTO(hggcMallocAsync(&fifoBufDev, workBytes, comm->memPool, deviceStream), result, fail);
       plan->workBufPersistent = fifoBufDev;
@@ -1129,7 +1127,7 @@ static ncclResult_t uploadWork(ncclComm_t comm, struct ncclKernelPlan* plan) {
       cleanup->hostBuf = fifoBufHost;
       ncclIntruQueueEnqueue(&comm->eventCallbackQueue, (struct ncclCommEventCallback *)cleanup);
 
-      NCCLCHECKGOTO(ncclStrongStreamRelease(ncclCudaGraphNone(), &comm->sharedRes->deviceStream), result, fail);
+      NCCLCHECKGOTO(ncclStrongStreamRelease(ncclCudaGraphNone(comm->config.graphUsageMode), &comm->sharedRes->deviceStream), result, fail);
       NCCLCHECKGOTO(ncclCommPollEventCallbacks(comm, /*waitSome=*/false), result, fail);
 
     finish_scope:
@@ -2012,7 +2010,12 @@ static ncclResult_t ncclPlannerSetCapturingGraph(ncclComm_t comm, struct ncclInf
     while (true) {
       if (l == nullptr) { // Got to the end, this must be a new stream.
         struct ncclCudaGraph graph;
-        NCCLCHECK(ncclCudaGetCapturingGraph(&graph, info->stream));
+        NCCLCHECK(ncclCudaGetCapturingGraph(&graph, info->stream, comm->config.graphUsageMode));
+        if (comm->config.graphUsageMode == 0 && ncclCudaGraphValid(graph) &&
+            !__atomic_exchange_n(&comm->graphUsageModeWarned, true, __ATOMIC_RELAXED)) {
+          WARN("Graph capture detected with graphUsageMode=0. Use graphUsageMode=1 for a single graph "
+               "or 2 for multiple graphs or mixed graph and non-graph execution.");
+        }
         if (planner->streams != nullptr && !ncclCudaGraphSame(planner->capturingGraph, graph)) {
           ERROR("Streams given to a communicator within a PCCL group must either be all uncaptured or all captured by the same graph.");
           return ncclInvalidUsage;

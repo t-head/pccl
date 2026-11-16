@@ -1191,15 +1191,15 @@ static ncclResult_t ipcRegisterBuffer(ncclComm_t comm, const void* userbuff, siz
     if (*regBufFlag) {
       if (needUpdate) {
         /*hggcStream_t hostStream, deviceStream;*/
-        NCCLCHECKGOTO(ncclStrongStreamAcquireUncaptured(&comm->sharedRes->hostStream), ret, fail);
-        NCCLCHECKGOTO(ncclStrongStreamAcquire(ncclCudaGraphNone(), &comm->sharedRes->deviceStream), ret, fail);
+        NCCLCHECKGOTO(ncclStrongStreamAcquireUncaptured(&comm->sharedRes->hostStream, comm->config.graphUsageMode), ret, fail);
+        NCCLCHECKGOTO(ncclStrongStreamAcquire(ncclCudaGraphNone(comm->config.graphUsageMode), &comm->sharedRes->deviceStream), ret, fail);
         if (regRecord->regIpcAddrs.devPeerRmtAddrs == NULL) {
           NCCLCHECKGOTO(ncclHggcCallocAsync(&regRecord->regIpcAddrs.devPeerRmtAddrs, comm->localRanks, NULL, comm->sharedRes->hostStream.hggcStream, comm->memManager), ret, fail);
         }
         NCCLCHECKGOTO(ncclHggcMemcpyAsync(regRecord->regIpcAddrs.devPeerRmtAddrs, regRecord->regIpcAddrs.hostPeerRmtAddrs, comm->localRanks, comm->sharedRes->hostStream.hggcStream), ret, fail);
-        NCCLCHECKGOTO(ncclStrongStreamWaitStream(ncclCudaGraphNone(), &comm->sharedRes->deviceStream, &comm->sharedRes->hostStream), ret, fail);
-        NCCLCHECKGOTO(ncclStrongStreamRelease(ncclCudaGraphNone(), &comm->sharedRes->hostStream), ret, fail);
-        NCCLCHECKGOTO(ncclStrongStreamRelease(ncclCudaGraphNone(), &comm->sharedRes->deviceStream), ret, fail);
+        NCCLCHECKGOTO(ncclStrongStreamWaitStream(ncclCudaGraphNone(comm->config.graphUsageMode), &comm->sharedRes->deviceStream, &comm->sharedRes->hostStream), ret, fail);
+        NCCLCHECKGOTO(ncclStrongStreamRelease(ncclCudaGraphNone(comm->config.graphUsageMode), &comm->sharedRes->hostStream), ret, fail);
+        NCCLCHECKGOTO(ncclStrongStreamRelease(ncclCudaGraphNone(comm->config.graphUsageMode), &comm->sharedRes->deviceStream), ret, fail);
       }
       if (type == NCCL_IPC_COLLECTIVE) {
         peerRmtAddrs = regRecord->regIpcAddrs.devPeerRmtAddrs;
