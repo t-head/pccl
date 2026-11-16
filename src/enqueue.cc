@@ -1495,8 +1495,9 @@ static ncclResult_t scheduleP2pTasksToPlan(ncclComm_t comm, int* p2pEpoch, int* 
   int nChannelsMin = nChannelsMax;
   // Try to use all channels, but one channel per operation.
   while (nChannelsMin*comm->nRanks > comm->p2pnChannels && nChannelsMin > 1) nChannelsMin /= 2;
-  // Avoid overloading channels with 8+ operations as we loose the sync warp, hence a bit of bandwidth.
-  while (nChannelsMax*comm->nRanks > comm->p2pnChannels*4 && nChannelsMax > 1) nChannelsMax /= 2;
+  if (comm->nNodes == 1 || comm->config.nChannelsPerNetPeer == PCCL_CONFIG_UNDEF_INT) {
+    while (nChannelsMax*comm->nRanks > comm->p2pnChannels*4 && nChannelsMax > 1) nChannelsMax /= 2;
+  }
 
   // Traverse the pre-computed p2p schedule. p2pRound (0..nRanks-1) and p2pEpoch
   // persist across plans via pointer args, so after a budget-triggered split the
@@ -1536,6 +1537,26 @@ static ncclResult_t scheduleP2pTasksToPlan(ncclComm_t comm, int* p2pEpoch, int* 
         maxNBatches = nChannelsRecv;
       }
       if (!testBudget(budget, plan->nWorkBatches+maxNBatches, plan->workBytes + maxNBatches * sizeof(struct ncclDevWorkP2p))) {
+        if (plan->nWorkBatches == 0 && plan->workBytes == 0) {
+          ERROR("P2P operation with %d channels cannot fit in an empty plan: %zu batch bytes and %zu work bytes, "
+                "with %zd bytes available in args and %zd bytes outside args",
+                maxNBatches, maxNBatches * sizeof(struct ncclDevWorkBatch),
+                maxNBatches * sizeof(struct ncclDevWorkP2p), budget->inArgsBytes, budget->outArgsBytes);
+          for (int r = 0; r < nRanks; r++) {
+            while (!ncclIntruQueueEmpty(&peers[r].sendQueue)) {
+              struct ncclTaskP2p* task = ncclIntruQueueDequeue(&peers[r].sendQueue);
+              ncclMemoryPoolFree(&comm->memPool_ncclTaskP2p, task);
+            }
+            while (!ncclIntruQueueEmpty(&peers[r].recvQueue)) {
+              struct ncclTaskP2p* task = ncclIntruQueueDequeue(&peers[r].recvQueue);
+              ncclMemoryPoolFree(&comm->memPool_ncclTaskP2p, task);
+            }
+          }
+          planner->nTasksP2p = 0;
+          planner->nTasksP2pAlltoall = 0;
+          ncclMemoryPoolFree(&comm->memPool_ncclKernelPlan, plan);
+          return ncclInvalidUsage;
+        }
         return ncclSuccess;
       }
       ssize_t sendOffset = 0;
