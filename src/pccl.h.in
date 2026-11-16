@@ -123,6 +123,7 @@ typedef struct pcclConfig_v22800 {
   /* 0: no graphs; 1: one graph; 2: multiple graphs or graph/non-graph mixing (default). */
   int graphUsageMode;
   int numRmaCtx;
+  /* Expected concurrent P2P peers for channel tuning; PCCL_CONFIG_UNDEF_INT defaults to nRanks. */
   int maxP2pPeers;
 } pcclConfig_t;
 

@@ -68,6 +68,7 @@ NCCL_PARAM(SetCpuStackSize, "SET_CPU_STACK_SIZE", 1);
 NCCL_PARAM(AllocP2pNetLLBuffers, "ALLOC_P2P_NET_LL_BUFFERS", 0);
 NCCL_PARAM(NChannelsPerNetPeer, "NCHANNELS_PER_NET_PEER", PCCL_CONFIG_UNDEF_INT);
 NCCL_PARAM(GraphMixingSupport, "GRAPH_MIXING_SUPPORT", PCCL_CONFIG_UNDEF_INT);
+NCCL_PARAM(MaxP2pPeers, "P2P_MAX_PEERS", PCCL_CONFIG_UNDEF_INT);
 
 // GDRCOPY support: Off by default
 NCCL_PARAM(GdrCopyEnable, "GDRCOPY_ENABLE", 0);
@@ -1230,6 +1231,7 @@ static ncclResult_t initTransportsRank(ncclComm_t comm, ncclComm_t parent, uint6
     int nChannels;
     int nGraphChannels;
     int p2pnChannelsPerPeer;
+    int p2pMaxPeers;
     int ceAutoAllGatherEligible;
     struct graphInfo graphInfo[NCCL_ALGO_RING + 1];
     struct ncclTopoRanks topoRanks;
@@ -1439,6 +1441,7 @@ static ncclResult_t initTransportsRank(ncclComm_t comm, ncclComm_t parent, uint6
     allGather3Data[rank].graphInfo[a].typeInter = graphs[a]->typeInter;
   }
   allGather3Data[rank].p2pnChannelsPerPeer = comm->p2pnChannelsPerPeer;
+  allGather3Data[rank].p2pMaxPeers = comm->p2pMaxPeers;
 
   NCCLCHECKGOTO(ncclTopoPreset(comm, treeGraph, ringGraph, fcGraph, &allGather3Data[rank].topoRanks), res, fail);
 
@@ -1536,6 +1539,7 @@ static ncclResult_t initTransportsRank(ncclComm_t comm, ncclComm_t parent, uint6
       graphs[a]->typeInter = std::max(allGather3Data[i].graphInfo[a].typeInter, graphs[a]->typeInter);
     }
     comm->p2pnChannelsPerPeer = std::min(comm->p2pnChannelsPerPeer, allGather3Data[i].p2pnChannelsPerPeer);
+    comm->p2pMaxPeers = std::max(comm->p2pMaxPeers, allGather3Data[i].p2pMaxPeers);
   }
 
   if (comm->nChannels < nChannelsOrig) {
@@ -2126,6 +2130,7 @@ static ncclResult_t envConfigOverride(ncclComm_t comm) {
   int shrinkShareEnv;
   int nChannelsPerNetPeerEnv;
   int graphMixingSupportEnv;
+  int maxP2pPeersEnv;
 
   /* override configuration from env variable. */
   blockingEnv = ncclParamCommBlocking();
@@ -2180,6 +2185,15 @@ static ncclResult_t envConfigOverride(ncclComm_t comm) {
       INFO(NCCL_ENV, "PCCL_GRAPH_MIXING_SUPPORT %d is not 0/1, leaving graphUsageMode set at %d", graphMixingSupportEnv, comm->config.graphUsageMode);
     } else {
       comm->config.graphUsageMode = graphMixingSupportEnv == 1 ? 2 : 0;
+    }
+  }
+
+  maxP2pPeersEnv = ncclParamMaxP2pPeers();
+  if (maxP2pPeersEnv != PCCL_CONFIG_UNDEF_INT) {
+    if (maxP2pPeersEnv <= 0) {
+      INFO(NCCL_ENV, "PCCL_P2P_MAX_PEERS %d is too low, leaving it set at %d", maxP2pPeersEnv, comm->config.maxP2pPeers);
+    } else {
+      comm->config.maxP2pPeers = maxP2pPeersEnv;
     }
   }
 
@@ -2251,12 +2265,12 @@ static ncclResult_t parseCommConfig(ncclComm_t comm, ncclConfig_t *config) {
       internalConfigPtr->nvlsCTAs = defaultConfig.nvlsCTAs;
       internalConfigPtr->nChannelsPerNetPeer = defaultConfig.nChannelsPerNetPeer;
       internalConfigPtr->graphUsageMode = defaultConfig.graphUsageMode;
+      internalConfigPtr->maxP2pPeers = defaultConfig.maxP2pPeers;
     }
 
     if (pcclVersion < PCCL_VERSION(2, 3, 0)) {
       internalConfigPtr->nvlinkCentricSched = defaultConfig.nvlinkCentricSched;
       internalConfigPtr->numRmaCtx = defaultConfig.numRmaCtx;
-      internalConfigPtr->maxP2pPeers = defaultConfig.maxP2pPeers;
     }
   }
 
@@ -2300,6 +2314,12 @@ static ncclResult_t parseCommConfig(ncclComm_t comm, ncclConfig_t *config) {
     goto fail;
   }
 
+  if (internalConfigPtr->maxP2pPeers != PCCL_CONFIG_UNDEF_INT && internalConfigPtr->maxP2pPeers <= 0) {
+    ERROR("Invalid config maxP2pPeers attribute value %d", internalConfigPtr->maxP2pPeers);
+    ret = ncclInvalidArgument;
+    goto fail;
+  }
+
   PCCL_CONFIG_UNSUPPORTED(internalConfigPtr, cgaClusterSize, PCCL_CONFIG_UNDEF_INT);
   PCCL_CONFIG_UNSUPPORTED(internalConfigPtr, netName, PCCL_CONFIG_UNDEF_PTR);
   PCCL_CONFIG_UNSUPPORTED(internalConfigPtr, trafficClass, PCCL_CONFIG_UNDEF_INT);
@@ -2307,7 +2327,6 @@ static ncclResult_t parseCommConfig(ncclComm_t comm, ncclConfig_t *config) {
   PCCL_CONFIG_UNSUPPORTED(internalConfigPtr, nvlsCTAs, PCCL_CONFIG_UNDEF_INT);
   PCCL_CONFIG_UNSUPPORTED(internalConfigPtr, nvlinkCentricSched, PCCL_CONFIG_UNDEF_INT);
   PCCL_CONFIG_UNSUPPORTED(internalConfigPtr, numRmaCtx, PCCL_CONFIG_UNDEF_INT);
-  PCCL_CONFIG_UNSUPPORTED(internalConfigPtr, maxP2pPeers, PCCL_CONFIG_UNDEF_INT);
 
   /* default config value can be tuned on different platform. */
   NCCL_CONFIG_DEFAULT(internalConfigPtr, blocking, PCCL_CONFIG_UNDEF_INT, 1, "Blocking", "%d");
@@ -2320,6 +2339,8 @@ static ncclResult_t parseCommConfig(ncclComm_t comm, ncclConfig_t *config) {
   NCCL_CONFIG_DEFAULT(internalConfigPtr, shrinkShare, PCCL_CONFIG_UNDEF_INT, 0, "shrinkShare", "%d");
   NCCL_CONFIG_DEFAULT(internalConfigPtr, nChannelsPerNetPeer, PCCL_CONFIG_UNDEF_INT, PCCL_CONFIG_UNDEF_INT, "nChannelsPerNetPeer", "%d");
   NCCL_CONFIG_DEFAULT(internalConfigPtr, graphUsageMode, PCCL_CONFIG_UNDEF_INT, 2, "graphUsageMode", "%d");
+  NCCL_CONFIG_DEFAULT(internalConfigPtr, maxP2pPeers, PCCL_CONFIG_UNDEF_INT, PCCL_CONFIG_UNDEF_INT,
+                      "maxP2pPeers", "%d");
 
   /* assign config to communicator */
   comm->config.blocking = internalConfigPtr->blocking;
@@ -2332,6 +2353,7 @@ static ncclResult_t parseCommConfig(ncclComm_t comm, ncclConfig_t *config) {
   comm->config.shrinkShare = internalConfigPtr->shrinkShare;
   comm->config.nChannelsPerNetPeer = internalConfigPtr->nChannelsPerNetPeer;
   comm->config.graphUsageMode = internalConfigPtr->graphUsageMode;
+  comm->config.maxP2pPeers = internalConfigPtr->maxP2pPeers;
 
   NCCLCHECK(envConfigOverride(comm));
 
