@@ -1,0 +1,6 @@
+{
+  global:
+    pcclGinPlugin_v13;
+  local:
+    *;
+};

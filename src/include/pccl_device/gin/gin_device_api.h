@@ -16,5 +16,8 @@
 #if PCCL_GIN_PROXY_ENABLE
 #include "proxy/gin_proxy.h"
 #endif
+#if PCCL_GIN_TROCE_ENABLE
+#include "troce/gin_troce.h"
+#endif
 
 #endif

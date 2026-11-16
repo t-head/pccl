@@ -303,6 +303,10 @@ ncclResult_t ncclIbGetGidIndex(struct ibv_context *context, uint8_t portNum, int
 
 ncclResult_t ncclIbCreateQp(uint8_t ib_port, struct ncclIbNetCommDevBase* commDevBase, int access_flags,
                             int oooRq, struct ibv_qp** qp, void* qp_context) {
+  // TROCE GIN flush write needs inline room for the address header and flag.
+  const uint32_t inlineSize =
+      (ncclParamIbUseInline() || ncclIbDevs[commDevBase->ibDevN].ibProvider == IB_PROVIDER_TROCE)
+          ? sizeof(struct ncclIbSendFifo) : 0;
   if (oooRq) {
     struct ibv_qp_init_attr_ex qpInitAttr;
     struct mlx5dv_qp_init_attr mlx5QpInitAttr;
@@ -316,7 +320,7 @@ ncclResult_t ncclIbCreateQp(uint8_t ib_port, struct ncclIbNetCommDevBase* commDe
     qpInitAttr.cap.max_recv_wr = NET_IB_MAX_REQUESTS;
     qpInitAttr.cap.max_send_sge = 1;
     qpInitAttr.cap.max_recv_sge = 1;
-    qpInitAttr.cap.max_inline_data = ncclParamIbUseInline() ? sizeof(struct ncclIbSendFifo) : 0;
+    qpInitAttr.cap.max_inline_data = inlineSize;
     qpInitAttr.comp_mask = IBV_QP_INIT_ATTR_PD;
     qpInitAttr.pd = commDevBase->pd;
     mlx5QpInitAttr.comp_mask = MLX5DV_QP_INIT_ATTR_MASK_QP_CREATE_FLAGS;
@@ -338,7 +342,7 @@ ncclResult_t ncclIbCreateQp(uint8_t ib_port, struct ncclIbNetCommDevBase* commDe
     qpInitAttr.cap.max_recv_wr = NET_IB_MAX_REQUESTS;
     qpInitAttr.cap.max_send_sge = 1;
     qpInitAttr.cap.max_recv_sge = 1;
-    qpInitAttr.cap.max_inline_data = ncclParamIbUseInline() ? sizeof(struct ncclIbSendFifo) : 0;
+    qpInitAttr.cap.max_inline_data = inlineSize;
     NCCLCHECK(wrap_ibv_create_qp(qp, commDevBase->pd, &qpInitAttr));
   }
   struct ibv_qp_attr qpAttr;
