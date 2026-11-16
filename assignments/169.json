@@ -1,18 +1,17 @@
 {
   "classification": {
-    "base_sha": "b480396b4436251ed72274d2906c329d9523c381",
-    "head_sha": "e938fea999e41703b84999366e3928de3574dec9",
-    "input_fingerprint": "8cc454236774172e99f77d63cac12cfe2e1c69c5ed4b9980bab024837da123fc",
+    "base_sha": "747030b6fe8cf6b111f18efb61c6e16ff76e9c0e",
+    "head_sha": "aeae817c46a57c558c8375813af112320b9b4e37",
+    "input_fingerprint": "ee9c64b5effef35f52039c08abd80b710f4573f08fa3f05601d5659d8853e3b2",
     "pr_number": 169,
     "proposal": {
       "modules": [
-        "bootstrap",
         "device-topology",
         "graph-search",
         "communicator",
         "network"
       ],
-      "reason": "Primary change is in **network**: NET/CollNet selection, plugin lifetime, proxy progress/shutdown, and transport memory/connect handling are moved to per-communicator state. **communicator** is also required because comm init/split/cleanup now own `netName`, enforce parent/child shared-resource backend compatibility, and gate teardown paths. **bootstrap** needs review due to OOB device selection and bootstrap net handle setup switching to the communicator-selected backend. **device-topology** is substantively affected because topology/path building and PXN/EIC behavior now depend on the communicator backend. **graph-search** is additionally needed because graph comparison/selection logic now consumes backend-derived topology state (`useEic`) when choosing channel graphs."
+      "reason": "Primary change is in network: NET/CollNet selection, plugin lifetime, transport/proxy operations, and shutdown/progress are moved to per-communicator backend state. Add communicator because init/split/free now own netName config, backend compatibility checks for shared-resource parent/child comms, and per-comm backend/U2MM fields. Add device-topology because topology XML/system construction and NIC property discovery now depend on the communicator-selected backend and EIC mode. Add graph-search because PXN disable logic and graph comparison decisions now use per-communicator backend/version and EIC state, changing graph-selection behavior."
     }
   },
   "reviewers": {
