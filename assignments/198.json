@@ -2,13 +2,13 @@
   "classification": {
     "base_sha": "747030b6fe8cf6b111f18efb61c6e16ff76e9c0e",
     "head_sha": "3cc6d7f89a7fcfa9280d42302f7eb20ecc53de49",
-    "input_fingerprint": "95abb063a185c3888d121104e78a484be7b5f644c56cd9c00b430c4ed2646297",
+    "input_fingerprint": "75e44545c7bd2dec159f74d380e5736d8f309933ceddaa1cc5f1a5fbbe36fe3d",
     "pr_number": 198,
     "proposal": {
       "modules": [
         "ci"
       ],
-      "reason": "The substantive change is CI/test-environment dependency maintenance: bumping the xtest runtime pin to filelock 4.2.10 and synchronizing workflow download/install pins and checksum validation in test workflows and setup scripts. The remaining test assertion update only reflects this CI dependency change, with no independent workflow-policy or runtime-module behavior change."
+      "reason": "Substantive change is in open-source test workflow execution: CI/test environment dependency pin for filelock is bumped to 4.2.10 and aligned in workflow dependency download+SHA checks and test environment setup; requirements/test-contract edits are supporting consistency updates for that same CI behavior."
     }
   },
   "reviewers": {
