@@ -1,14 +1,14 @@
 {
   "classification": {
-    "base_sha": "b480396b4436251ed72274d2906c329d9523c381",
-    "head_sha": "0ab82444d9c1bb9b0851ff214df9787ec3996730",
-    "input_fingerprint": "afd0bd2a42704282921ec4b976cc41420cca27c03c3dbf74b215f35eb68ac2fe",
+    "base_sha": "7d4892d0a7fd0577142b7c996b89fa35117e20f5",
+    "head_sha": "c211b87871cd8fa6ec23124fd8183af2f902cd97",
+    "input_fingerprint": "b3f2218ffb84bbc209c2f24dcaf00b83dcb9244f7785837b1f19198fbac469e0",
     "pr_number": 196,
     "proposal": {
       "modules": [
         "ci"
       ],
-      "reason": "The substantive change is to test/validation infrastructure: the daily workflow adds generated datasets, JSON-driven case-bundle preparation, and a new performance workbook artifact path, with supporting xtest generator/report tooling and tests. These are CI execution/reporting behavior changes, not PCCL runtime module logic."
+      "reason": "Main substantive change is CI/test-execution infrastructure: the daily workflow now supports generated datasets, builds temporary case inputs from JSON families during prepare, and produces/upload a full performance Excel report from retained run artifacts. New xtest generator/report scripts, test-list definitions, and validation tests all support CI dataset selection, grouping, reconciliation, and reporting behavior; retention-day edits are incidental workflow housekeeping within the same CI scope."
     }
   },
   "reviewers": {
