@@ -66,6 +66,7 @@ NCCL_PARAM(CtaPolicy, "CTA_POLICY", PCCL_CONFIG_UNDEF_INT);
 NCCL_PARAM(WinEnable, "WIN_ENABLE", 1);
 NCCL_PARAM(SetCpuStackSize, "SET_CPU_STACK_SIZE", 1);
 NCCL_PARAM(AllocP2pNetLLBuffers, "ALLOC_P2P_NET_LL_BUFFERS", 0);
+NCCL_PARAM(NChannelsPerNetPeer, "NCHANNELS_PER_NET_PEER", PCCL_CONFIG_UNDEF_INT);
 
 // GDRCOPY support: Off by default
 NCCL_PARAM(GdrCopyEnable, "GDRCOPY_ENABLE", 0);
@@ -2122,6 +2123,7 @@ static ncclResult_t envConfigOverride(ncclComm_t comm) {
   int splitShareEnv;
   int ctaPolicyEnv;
   int shrinkShareEnv;
+  int nChannelsPerNetPeerEnv;
 
   /* override configuration from env variable. */
   blockingEnv = ncclParamCommBlocking();
@@ -2159,6 +2161,15 @@ static ncclResult_t envConfigOverride(ncclComm_t comm) {
   ctaPolicyEnv = ncclParamCtaPolicy();
   if (ctaPolicyEnv != PCCL_CONFIG_UNDEF_INT) {
     comm->config.CTAPolicy = ctaPolicyEnv;
+  }
+
+  nChannelsPerNetPeerEnv = ncclParamNChannelsPerNetPeer();
+  if (nChannelsPerNetPeerEnv != PCCL_CONFIG_UNDEF_INT) {
+    if (nChannelsPerNetPeerEnv <= 0) {
+      INFO(NCCL_ENV, "PCCL_NCHANNELS_PER_NET_PEER %d is too low, leaving it set at %d", nChannelsPerNetPeerEnv, comm->config.nChannelsPerNetPeer);
+    } else {
+      comm->config.nChannelsPerNetPeer = nChannelsPerNetPeerEnv;
+    }
   }
 
   /* cap channels if needed */
@@ -2227,10 +2238,10 @@ static ncclResult_t parseCommConfig(ncclComm_t comm, ncclConfig_t *config) {
       internalConfigPtr->CTAPolicy = defaultConfig.CTAPolicy;
       internalConfigPtr->shrinkShare = defaultConfig.shrinkShare;
       internalConfigPtr->nvlsCTAs = defaultConfig.nvlsCTAs;
+      internalConfigPtr->nChannelsPerNetPeer = defaultConfig.nChannelsPerNetPeer;
     }
 
     if (pcclVersion < PCCL_VERSION(2, 3, 0)) {
-      internalConfigPtr->nChannelsPerNetPeer = defaultConfig.nChannelsPerNetPeer;
       internalConfigPtr->nvlinkCentricSched = defaultConfig.nvlinkCentricSched;
       internalConfigPtr->graphUsageMode = defaultConfig.graphUsageMode;
       internalConfigPtr->numRmaCtx = defaultConfig.numRmaCtx;
@@ -2264,12 +2275,17 @@ static ncclResult_t parseCommConfig(ncclComm_t comm, ncclConfig_t *config) {
     goto fail;
   }
 
+  if (internalConfigPtr->nChannelsPerNetPeer != PCCL_CONFIG_UNDEF_INT && (internalConfigPtr->nChannelsPerNetPeer <= 0 || internalConfigPtr->nChannelsPerNetPeer > MAXCHANNELS)) {
+    ERROR("Invalid config nChannelsPerNetPeer attribute value %d", internalConfigPtr->nChannelsPerNetPeer);
+    ret = ncclInvalidArgument;
+    goto fail;
+  }
+
   PCCL_CONFIG_UNSUPPORTED(internalConfigPtr, cgaClusterSize, PCCL_CONFIG_UNDEF_INT);
   PCCL_CONFIG_UNSUPPORTED(internalConfigPtr, netName, PCCL_CONFIG_UNDEF_PTR);
   PCCL_CONFIG_UNSUPPORTED(internalConfigPtr, trafficClass, PCCL_CONFIG_UNDEF_INT);
   PCCL_CONFIG_UNSUPPORTED(internalConfigPtr, collnetEnable, PCCL_CONFIG_UNDEF_INT);
   PCCL_CONFIG_UNSUPPORTED(internalConfigPtr, nvlsCTAs, PCCL_CONFIG_UNDEF_INT);
-  PCCL_CONFIG_UNSUPPORTED(internalConfigPtr, nChannelsPerNetPeer, PCCL_CONFIG_UNDEF_INT);
   PCCL_CONFIG_UNSUPPORTED(internalConfigPtr, nvlinkCentricSched, PCCL_CONFIG_UNDEF_INT);
   PCCL_CONFIG_UNSUPPORTED(internalConfigPtr, graphUsageMode, PCCL_CONFIG_UNDEF_INT);
   PCCL_CONFIG_UNSUPPORTED(internalConfigPtr, numRmaCtx, PCCL_CONFIG_UNDEF_INT);
@@ -2284,6 +2300,7 @@ static ncclResult_t parseCommConfig(ncclComm_t comm, ncclConfig_t *config) {
   NCCL_CONFIG_DEFAULT(internalConfigPtr, commName, PCCL_CONFIG_UNDEF_PTR, NULL, "Comm name", "%s");
   NCCL_CONFIG_DEFAULT(internalConfigPtr, CTAPolicy, PCCL_CONFIG_UNDEF_INT, PCCL_CTA_POLICY_DEFAULT, "CTA policy flags", "%d");
   NCCL_CONFIG_DEFAULT(internalConfigPtr, shrinkShare, PCCL_CONFIG_UNDEF_INT, 0, "shrinkShare", "%d");
+  NCCL_CONFIG_DEFAULT(internalConfigPtr, nChannelsPerNetPeer, PCCL_CONFIG_UNDEF_INT, PCCL_CONFIG_UNDEF_INT, "nChannelsPerNetPeer", "%d");
 
   /* assign config to communicator */
   comm->config.blocking = internalConfigPtr->blocking;
@@ -2294,6 +2311,7 @@ static ncclResult_t parseCommConfig(ncclComm_t comm, ncclConfig_t *config) {
   comm->config.minCTAs = internalConfigPtr->minCTAs;
   comm->config.maxCTAs = internalConfigPtr->maxCTAs;
   comm->config.shrinkShare = internalConfigPtr->shrinkShare;
+  comm->config.nChannelsPerNetPeer = internalConfigPtr->nChannelsPerNetPeer;
 
   NCCLCHECK(envConfigOverride(comm));
 

@@ -21,6 +21,7 @@
 #include <hggc_fp16.h>
 #include <hggc_bf16.h>
 #include <hggc_fp8.h>
+#include <limits.h>
 #include <stdint.h>
 
 #define PCCL_MAJOR ${pccl:Major}
@@ -116,6 +117,7 @@ typedef struct pcclConfig_v22800 {
   int CTAPolicy;
   int shrinkShare;
   int nvlsCTAs;
+  /* Network P2P channel count: PCCL_CONFIG_UNDEF_INT or 1..64, rounded up to a power of two. */
   int nChannelsPerNetPeer;
   int nvlinkCentricSched;
   int graphUsageMode;

@@ -777,8 +777,9 @@ void ncclTopoFree(struct ncclTopoSystem* system) {
 
 PCCL_PARAM(P2pNChannelsFactorNPaths, "P2P_NCHANNELS_FACTOR_NPATHS", 0);
 
-static ncclResult_t ncclTopoGetNchannels(struct ncclTopoSystem* system, int g /*local gpu index*/, int peerRank, int* nChannels) {
+static ncclResult_t ncclTopoGetNchannels(ncclComm_t comm, int g /*local gpu index*/, int peerRank, int* nChannels) {
   int peer;
+  struct ncclTopoSystem* system = comm->topo;
   struct ncclTopoLinkList* path = NULL;
   if (ncclTopoRankToIndex(system, peerRank, &peer) == ncclSuccess) {
     // Same rank
@@ -800,7 +801,7 @@ static ncclResult_t ncclTopoGetNchannels(struct ncclTopoSystem* system, int g /*
     }
   } else {
     // Remote rank, use network
-    *nChannels = 1;
+    *nChannels = comm->config.nChannelsPerNetPeer == PCCL_CONFIG_UNDEF_INT ? 1 : comm->config.nChannelsPerNetPeer;
   }
   return ncclSuccess;
 }
@@ -816,7 +817,7 @@ ncclResult_t ncclTopoComputeP2pChannelsPerPeer(ncclComm_t comm) {
   int minChannels = MAXCHANNELS;
   for (int r = 0; r < comm->nRanks; r++) {
     int nChannels;
-    NCCLCHECK(ncclTopoGetNchannels(comm->topo, g, r, &nChannels));
+    NCCLCHECK(ncclTopoGetNchannels(comm, g, r, &nChannels));
     if (nChannels >= 0) minChannels = std::min(minChannels, nChannels);
   }
   comm->p2pnChannelsPerPeer = minChannels;
@@ -834,7 +835,9 @@ ncclResult_t ncclTopoComputeP2pChannels(ncclComm_t comm) {
 
   comm->p2pnChannels = nextPow2(comm->p2pnChannels);
   comm->p2pnChannelsPerPeer = nextPow2(comm->p2pnChannelsPerPeer);
-  comm->p2pnChannelsPerPeer = std::max(prePow2(comm->p2pnChannels / comm->nRanks), comm->p2pnChannelsPerPeer);
+  if (comm->nNodes == 1 || comm->config.nChannelsPerNetPeer == PCCL_CONFIG_UNDEF_INT) {
+    comm->p2pnChannelsPerPeer = std::max(prePow2(comm->p2pnChannels / comm->nRanks), comm->p2pnChannelsPerPeer);
+  }
   if (pcclEnableGlobalIcnP2pThroughSwitchOpt(comm)) {
     // default to use max channels(24) for 2/4/8 ranks, 16(power of 2) channels for greater nRanks
     comm->p2pnChannels = (MAXCHANNELS_PPU0015 % comm->nRanks == 0) ? MAXCHANNELS_PPU0015 : prePow2(MAXCHANNELS_PPU0015);
@@ -843,6 +846,7 @@ ncclResult_t ncclTopoComputeP2pChannels(ncclComm_t comm) {
     comm->p2pnChannelsPerPeer = comm->p2pnChannels;
   }
   comm->p2pnChannels = std::min(comm->p2pnChannels, pow2Down(ncclDevMaxChannelsForArgsBytes(ncclParamWorkArgsBytes())));
+  comm->p2pnChannelsPerPeer = std::min(comm->p2pnChannelsPerPeer, comm->p2pnChannels);
   if (pcclParamP2pNChannelsPerPeer() > 0) {
     comm->p2pnChannelsPerPeer = pcclParamP2pNChannelsPerPeer();
   }
