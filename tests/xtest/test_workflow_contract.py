@@ -103,7 +103,7 @@ class WorkflowContractTests(unittest.TestCase):
     def test_artifact_upload_download_retention_and_cleanup_are_connected(self):
         for expected in ('name: pccl-build-standard', 'name: pccl-build-notsm',
                          'name: Stage ${{ matrix.profile }} from artifact or valid NAS cache',
-                         't-head/pccl/.github/actions/download-artifact-retry@', 'retention-days: 3',
+                         't-head/pccl/.github/actions/download-artifact-retry@', 'retention-days: 90',
                          'artifact_cache.py publish', 'artifact_cache.py validate',
                          'artifact_cache.py cleanup', 'trap cleanup_shared_build EXIT'):
             self.assertIn(expected, self.text)
