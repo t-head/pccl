@@ -2,14 +2,15 @@
   "classification": {
     "base_sha": "747030b6fe8cf6b111f18efb61c6e16ff76e9c0e",
     "head_sha": "79b1800cb48ab82317a7d4307620501d8efc3a98",
-    "input_fingerprint": "f2b683e175409448883fc908aaefdd1d4af4d9e0ebed331203f84cae00e9119e",
+    "input_fingerprint": "038c12a86fc5288ef3f7642456b7cbda9fe3e30e78a9ca785eac97575855a2b5",
     "pr_number": 142,
     "proposal": {
       "modules": [
         "transport",
-        "memory"
+        "memory",
+        "network"
       ],
-      "reason": "Main functional change is in P2P transport IPC registration/deregistration (src/transport/p2p.cc, proxy interaction) to support multi-segment buffer export/import, FD transfer, and lifecycle cleanup. Add memory because segment-aware allocation mapping/unmapping and free/ownership semantics are substantively changed in src/include/alloc.h (numSegments handling, granularity validation, multi-segment unmap/free paths)."
+      "reason": "Main functional change is in P2P IPC registration/connect lifecycle: transport now supports multi-segment buffer registration/import, segment-aware offsets/sizes, and a feature switch (MULTI_SEGMENT_REGISTER). Added memory-module work is independently substantive because allocation/map/unmap/free helpers now operate across multiple physical segments with stricter granularity/ownership checks. Added network-module work is independently substantive because proxy control-path behavior changed (batched FD query/transfer, per-connection imported-handle tracking, and teardown/deregister cleanup in proxy state)."
     }
   },
   "reviewers": {
