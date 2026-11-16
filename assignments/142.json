@@ -2,7 +2,7 @@
   "classification": {
     "base_sha": "56439f6febc0224c79523161d4e4d5c629837ae7",
     "head_sha": "4ac369581f0a98986ddd831194bd4c30bd9ef74b",
-    "input_fingerprint": "7d1ea124b56b669f4155852c2a832f2a63aae68fd44041ec5126c9949f9d26c0",
+    "input_fingerprint": "48b6996329e982bb80d02ec67d45bda13a3b3fec6477c8c57d07e03d2676d969",
     "pr_number": 142,
     "proposal": {
       "modules": [
@@ -10,7 +10,7 @@
         "memory",
         "network"
       ],
-      "reason": "Primary change is in P2P IPC registration/deregistration flow to support multi-segment physical mappings (segment discovery, export/import, offset handling, and teardown) in src/transport/p2p.cc, so transport is the main review module. Add memory because alloc/free/mapping helpers in src/include/alloc.h now change segment-aware unmap/address-free semantics and ownership cleanup behavior. Add network because src/proxy.cc/src/include/proxy.h introduce proxy-side FD batch query and per-connection imported-handle tracking/cleanup, which is a substantive proxy lifecycle/resource-management change."
+      "reason": "Primary change is in P2P transport registration flow: exporting, importing, mapping, and deregistering multi-segment IPC buffers (including segment-count-aware metadata and feature flag wiring). Include memory because alloc/free and unmap logic now handles segment-aware HG memory ownership and teardown semantics. Include network because shared proxy/UDS FD-conversion and proxy-connection handle lifecycle were substantively extended (batch FD query and tracked cleanup), not just mechanical call-site edits."
     }
   },
   "reviewers": {
