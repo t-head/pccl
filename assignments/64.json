@@ -2,22 +2,22 @@
   "classification": {
     "base_sha": "747030b6fe8cf6b111f18efb61c6e16ff76e9c0e",
     "head_sha": "cafd5c256864ce45f299e0c4b87acbcf20c1e0bf",
-    "input_fingerprint": "1509f7ef9d533648487a70496540f4d1bdd6920daba385d06821cf6f6dabede8",
+    "input_fingerprint": "7e7e48d2fa315804a5067b6ca9023a7d0a39c1397074a91a74985cef97e600e5",
     "pr_number": 64,
     "proposal": {
       "modules": [
-        "communicator",
         "enqueue",
-        "profiler",
         "copy-engine",
+        "device-api",
         "gin"
       ],
-      "reason": "Main change is new host one-sided RMA APIs (PutSignal/Signal/WaitSignal) wired into runtime task creation, planning, and launch flow (enqueue). Additional substantive scopes: a new in-node CE execution path and signal synchronization for RMA operations (copy-engine), a cross-node GIN proxy transport/plugin path with new proxy context/progress/registration behavior (gin), communicator config/capability lifecycle and async-error/property exposure for host RMA enablement (communicator), and new profiler event/ABI surface for RMA API events plus inspector function mapping (profiler)."
+      "reason": "Main change is new public host one-sided RMA interfaces and communicator/window semantics (numRmaCtx/numRmaSig, WaitSignal/PutSignal/Signal behavior, hostRmaSupport reporting), which fits device-api. Add enqueue for the new RMA task type and plan scheduling/launch path integration, copy-engine for the in-node CE execution and signal/wait synchronization implementation, and gin for the cross-node RMA proxy plugin/context lifecycle, memory registration, and progress-thread transport path."
     }
   },
   "reviewers": {
     "communicator": 335730053,
     "copy-engine": 341341178,
+    "device-api": 341341178,
     "enqueue": 341349555,
     "gin": 341353320,
     "network": 341355176,
