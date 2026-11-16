@@ -2,13 +2,13 @@
   "classification": {
     "base_sha": "747030b6fe8cf6b111f18efb61c6e16ff76e9c0e",
     "head_sha": "3cc6d7f89a7fcfa9280d42302f7eb20ecc53de49",
-    "input_fingerprint": "75e44545c7bd2dec159f74d380e5736d8f309933ceddaa1cc5f1a5fbbe36fe3d",
+    "input_fingerprint": "c1b217f30c91efd4aec42452e2d1526053054fcff33216bc175df1308bcbc8d6",
     "pr_number": 198,
     "proposal": {
       "modules": [
         "ci"
       ],
-      "reason": "Substantive change is in open-source test workflow execution: CI/test environment dependency pin for filelock is bumped to 4.2.10 and aligned in workflow dependency download+SHA checks and test environment setup; requirements/test-contract edits are supporting consistency updates for that same CI behavior."
+      "reason": "Updates open-source test execution inputs by bumping filelock and corresponding wheel SHA pins in CI workflows and test environment setup; tests/xtest requirement and contract assertion edits are consistency updates, not separate workflow-policy or build-system changes."
     }
   },
   "reviewers": {
