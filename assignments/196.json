@@ -1,14 +1,14 @@
 {
   "classification": {
-    "base_sha": "56439f6febc0224c79523161d4e4d5c629837ae7",
-    "head_sha": "5db96e06700011bfa9352aed52842cb3f6dd02e7",
-    "input_fingerprint": "3e81315b52f45aad4322d28df1737c573fe1d0cb630dcd0f8e73c9425ae01b8c",
+    "base_sha": "b480396b4436251ed72274d2906c329d9523c381",
+    "head_sha": "1901d388af51f712c61f755c2ea25adc3ec44b4b",
+    "input_fingerprint": "28fbcf599322c4fb75703886f01a92a7844747e85003da5d2123bc24012e0e64",
     "pr_number": 196,
     "proposal": {
       "modules": [
         "ci"
       ],
-      "reason": "Main change is to open-source test workflow behavior: the daily workflow adds generated-smoke/generated-full dataset paths, JSON-driven case generation, performance report artifact production, pinned report dependency handling, and corresponding xtest runner/parser/tests that govern CI execution and reporting rather than PCCL runtime modules."
+      "reason": "Main change is CI/test-workflow behavior: the daily workflow adds generated-smoke/generated-full dataset generation, new test-list inputs, and end-to-end performance workbook artifact production from run logs, with accompanying xtest tooling/tests to drive selection, grouping, reconciliation, and reporting. These are substantive test execution/reporting pipeline changes, not PCCL runtime module logic."
     }
   },
   "reviewers": {
