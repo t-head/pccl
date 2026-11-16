@@ -124,6 +124,13 @@ class PublicGeneratorTests(unittest.TestCase):
         performance_selection = performance_report.write_selection(
             output, "standard", self.root / "performance-cases.json")
         self.assertEqual(len(performance_selection["cases"]), 168)
+        two_node_selection = performance_report.write_selection(
+            output, "standard", self.root / "performance-cases-2.json", nodes=2)
+        self.assertEqual(len(two_node_selection["cases"]), 39)
+        single_suite_selection = performance_report.write_selection(
+            output, "standard", self.root / "performance-cases-suite.json",
+            suite="op_perf_shm_single_node_suite")
+        self.assertEqual(len(single_suite_selection["cases"]), 27)
         plan = group_cases.build_plan(output, 500, allowed_nodes=(1, 2, 4))
         self.assertEqual(len(combined["rows"]), 8899)
         self.assertEqual(len(combined["suites"]), 34)
@@ -163,6 +170,14 @@ class PublicGeneratorTests(unittest.TestCase):
         for relative in ("standard.csv", "suites.csv", "notsm.csv", "export.json", "generation.json",
                          "envs/op_perf.env"):
             self.assertEqual((outputs[0] / relative).read_bytes(), (outputs[1] / relative).read_bytes())
+
+    def test_invalid_staged_bundle_is_not_published(self):
+        bundle = self.bundle("op_perf_shm")
+        bundle["suites"][0]["nodes"] = "invalid"
+        output = self.root / "invalid-output"
+        with self.assertRaises(ValueError):
+            generate_cases.write_bundle(bundle, output, DEFINITIONS / "envs")
+        self.assertFalse(output.exists())
 
     def test_generation_manifest_binds_definition_and_exact_case_keys(self):
         definition_path = DEFINITIONS / "op_perf_shm.json"

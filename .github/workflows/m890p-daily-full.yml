@@ -86,14 +86,9 @@ jobs:
           python3 -S -B -m unittest discover -s tests/xtest -p 'test_daily_smoke.py' -v
           python3 -S -B -m unittest discover -s tests/xtest -p 'test_daily_reconcile.py' -v
           python3 -S -B -m unittest discover -s tests/xtest -p 'test_generate_cases.py' -v
-          python3 -S -B -m unittest discover -s tests/xtest -p 'test_performance_report.py' -v
           GENERATED_INPUT=
           if [[ "$DATASET" == generated-smoke || "$DATASET" == generated-full ]]; then
             GENERATION_PROFILE=${DATASET#generated-}
-            GENERATE_NODES=()
-            if [[ -n "$NODES" ]]; then
-              GENERATE_NODES=(--nodes "$NODES")
-            fi
             GENERATED_DEFINITIONS=(
               --definition tests/xtest/test_lists/op_perf_shm.json
               --definition tests/xtest/test_lists/postsil_daily_shm.json
@@ -118,7 +113,7 @@ jobs:
               "${GENERATED_DEFINITIONS[@]}" \
               --suites tests/xtest/test_lists/suites.json \
               --env-root tests/xtest/test_lists/envs \
-              --profile "$GENERATION_PROFILE" "${GENERATE_NODES[@]}" \
+              --profile "$GENERATION_PROFILE" \
               --source-revision '${{ github.sha }}' \
               --runner-revision '${{ env.PCCL_TESTS_REVISION }}' \
               --output generated-case-input
@@ -158,7 +153,8 @@ jobs:
               allowed_nodes=allowed_nodes)
           group_cases.write_plan(plan, Path('case-groups'), input_directory)
           performance_report.write_selection(
-              input_directory, 'standard', Path('case-groups/performance-cases.json'))
+              input_directory, 'standard', Path('case-groups/performance-cases.json'),
+              nodes=nodes, suite=suite)
           if dataset.startswith('generated-'):
               shutil.copyfile(input_directory / 'generation.json', 'case-groups/generation.json')
           groups = plan['groups']
@@ -237,6 +233,10 @@ jobs:
           printf '%s  %s\n' \
             '4f4824234e1eaf9d95df9a8fe974585ff91d0f5e3d3f12ace5b71e443c1c6abd' \
             'deps/xlsxwriter-3.2.5-py3-none-any.whl' | sha256sum --check -
+          PYTHONPATH=deps/xlsxwriter-3.2.5-py3-none-any.whl \
+            python3 -S -B -c 'import xlsxwriter; assert xlsxwriter.__version__ == "3.2.5"'
+          PYTHONPATH=deps/xlsxwriter-3.2.5-py3-none-any.whl \
+            python3 -S -B -m unittest discover -s tests/xtest -p 'test_performance_report.py' -v
       - uses: actions/upload-artifact@v4
         with:
           name: m890p-daily-full-python-deps
@@ -850,6 +850,7 @@ jobs:
             --groups /wl_nas/devops/pccl-artifact-cache-${{ github.run_id }}/cache/case-groups/${{ needs.prepare.outputs.groups_sha256 }}/groups.json \
             --coverage /wl_nas/devops/pccl-artifact-cache-${{ github.run_id }}/cache/case-groups/${{ needs.prepare.outputs.groups_sha256 }}/execution-coverage.json \
             --results-root /wl_nas/devops/pccl-artifact-cache-${{ github.run_id }}/results/full \
+            --reconciliation-root public-results \
             --output public-results/PCCL_M890P_daily_perf_${{ github.run_id }}.xlsx \
             --run-id '${{ github.run_id }}' \
             --run-url '${{ github.server_url }}/${{ github.repository }}/actions/runs/${{ github.run_id }}' \

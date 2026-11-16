@@ -319,13 +319,13 @@ def write_bundle(bundle, output, env_root):
             if not source.is_file():
                 raise ValueError(f"Missing environment file: {name}")
             shutil.copyfile(source, temporary / "envs" / name)
+        selected = run_cases.load_inputs(temporary, "standard")
+        if len(selected["cases"]) != bundle["generation"]["case_count"]:
+            raise ValueError("Generated output failed exact consumer coverage validation")
         temporary.rename(output)
     except BaseException:
         shutil.rmtree(temporary, ignore_errors=True)
         raise
-    selected = run_cases.load_inputs(output, "standard")
-    if len(selected["cases"]) != bundle["generation"]["case_count"]:
-        raise ValueError("Generated output failed exact consumer coverage validation")
     return output
 
 

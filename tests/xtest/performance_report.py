@@ -64,9 +64,9 @@ def _write_json(path, value):
                     encoding="utf-8")
 
 
-def write_selection(input_directory, profile, output):
+def write_selection(input_directory, profile, output, nodes=None, suite=None):
     """Retain every reportable Case before resource-policy group exclusions."""
-    selected = run_cases.load_inputs(input_directory, profile)
+    selected = run_cases.load_inputs(input_directory, profile, nodes=nodes, suite=suite)
     cases = []
     for case in selected["cases"]:
         category = _category(case)
@@ -195,6 +195,33 @@ def _number(value):
     return int(decimal) if decimal == decimal.to_integral_value() else float(decimal)
 
 
+def _alignment(rows, expected):
+    """Match sizes in order while preserving duplicates and zero placeholders."""
+    if not expected:
+        return 0, True
+    index = 0
+    missing = 0
+    for row in rows:
+        size = int(row["size"])
+        if size == 0:
+            if index < len(expected):
+                index += 1
+        elif index < len(expected) and size == expected[index]:
+            index += 1
+        elif index and size == expected[index - 1]:
+            # Repeated measurement of the preceding expected size.
+            continue
+        elif index < len(expected) and size in expected[index + 1:]:
+            # Missing expected sizes are explicit, but do not hide later rows.
+            following = expected.index(size, index + 1)
+            missing += following - index
+            index = following + 1
+        else:
+            return missing + len(expected) - index, False
+    missing += len(expected) - index
+    return missing, missing == 0
+
+
 def _parse_case(case, log_path, expected):
     """Use the executor's parser, then add non-gating completeness metadata."""
     text = log_path.read_bytes().decode("utf-8", errors="replace")
@@ -204,30 +231,65 @@ def _parse_case(case, log_path, expected):
         for source in (row for row in parsed if row["placement"] == placement):
             wrong = source["wrong"]
             rows.append({"placement": placement, "size": int(source["size"]),
+                         "type": source["type"],
                          "count": int(source["count"]), "time_kind": source["time_kind"],
                          "time": _number(source["time"]), "algbw": _number(source["algbw"]),
                          "busbw": _number(source["busbw"]),
                          "wrong": int(wrong) if wrong.isdigit() else wrong,
                          "source_line": int(source["source_line"]),
                          "metric_status": "UNSUPPORTED" if wrong == "N/A" else "VALID"})
-    valid_out_of_place = sum(row["placement"] == "out-of-place" for row in rows)
-    missing_out_of_place = max(0, len(expected) - valid_out_of_place)
+    valid_out_of_place = sum(row["placement"] == "out-of-place"
+                             and row["metric_status"] == "VALID" for row in rows)
+    out_rows = [row for row in parsed if row["placement"] == "out-of-place"]
+    missing_out_of_place, _ = _alignment(out_rows, expected)
     for placement in PLACEMENTS:
-        actual = sum(row["placement"] == placement for row in rows)
-        for _ in range(max(0, len(expected) - actual)):
+        placement_rows = [row for row in parsed if row["placement"] == placement]
+        missing, _ = _alignment(placement_rows, expected)
+        for _ in range(missing):
             rows.append({"placement": placement, "size": None, "count": None,
+                         "type": None,
                          "time_kind": "", "time": None, "algbw": None, "busbw": None,
                          "wrong": None, "source_line": None,
                          "metric_status": "MISSING_LOG_ROW"})
-    complete = all(sum(row["placement"] == placement for row in rows
-                       if row["metric_status"] != "MISSING_LOG_ROW") >= len(expected)
-                   for placement in PLACEMENTS)
+    complete = all(_alignment([row for row in parsed if row["placement"] == placement],
+                              expected)[1] for placement in PLACEMENTS)
+    observed_types = sorted({row["type"] for row in parsed})
     return {"rows": rows, "data_status": "VALID" if complete else "PARTIAL",
             "valid_out_of_place": valid_out_of_place, "missing_out_of_place": missing_out_of_place,
-            "reason": ""}
+            "reason": "", "types": observed_types}
 
 
-def collect_report(selection_path, groups_path, coverage_path, results_root, metadata):
+def _verification(groups, reconciliation_root):
+    """Consume existing reconciliation errors instead of trusting CSV PASSED alone."""
+    global_unverified = set()
+    unverified_cases = set()
+    root = Path(reconciliation_root)
+    for group in groups:
+        path = root / group["id"] / "reconciliation.json"
+        if not path.is_file():
+            global_unverified.add(group["id"])
+            continue
+        report = json.loads(path.read_text(encoding="utf-8"))
+        errors = report.get("errors", [])
+        if not isinstance(errors, list) or (not report.get("ok", False) and not errors):
+            global_unverified.add(group["id"])
+            continue
+        for error in errors:
+            if not isinstance(error, str):
+                global_unverified.add(group["id"])
+                continue
+            for values in group["case_keys"]:
+                key = tuple(values)
+                if error.startswith("/".join(key) + ": "):
+                    unverified_cases.add(key)
+                    break
+            else:
+                global_unverified.add(group["id"])
+    return global_unverified, unverified_cases
+
+
+def collect_report(selection_path, groups_path, coverage_path, results_root, metadata,
+                   reconciliation_root):
     manifest = _load_selection(selection_path)
     groups = json.loads(Path(groups_path).read_text(encoding="utf-8"))
     coverage = json.loads(Path(coverage_path).read_text(encoding="utf-8"))
@@ -239,6 +301,8 @@ def collect_report(selection_path, groups_path, coverage_path, results_root, met
             if key in selected and selected[key] != group["id"]:
                 raise ValueError(f"Duplicate group assignment: {key}")
             selected[key] = group["id"]
+
+    global_unverified, unverified_cases = _verification(groups, reconciliation_root)
 
     selection = {_key(case): dict(case) for case in manifest["cases"]}
     actual = {}
@@ -285,7 +349,12 @@ def collect_report(selection_path, groups_path, coverage_path, results_root, met
         if actual_result is not None:
             directory = results_root / actual_result[0] / Path(*key)
             log_path = directory / "raw.log"
-            if execution_status != "PASSED":
+            if execution_status == "PASSED" and (group_id in global_unverified or key in unverified_cases):
+                base["data_status"] = "UNVERIFIED"
+                base["reason"] = "Reconciliation failed or is unavailable"
+            elif execution_status == "NOT_RUN":
+                base["data_status"] = "NOT_RUN"
+            elif execution_status != "PASSED":
                 base["data_status"] = "FAILED"
             elif log_path.is_file() and log_path.stat().st_size:
                 base["raw_log_sha256"] = sha256(log_path.read_bytes()).hexdigest()
@@ -297,13 +366,18 @@ def collect_report(selection_path, groups_path, coverage_path, results_root, met
                         else "INVALID"
                     base["reason"] = message
                 else:
-                    base.update({key_: value for key_, value in parsed.items() if key_ != "rows"})
+                    base.update({key_: value for key_, value in parsed.items()
+                                 if key_ not in ("rows", "reason", "types")})
                     base["reason"] = parsed["reason"] or reason
+                    if not dtype and parsed["types"]:
+                        dtype = ",".join(parsed["types"])
+                        base["dtype"] = dtype
                     for row in parsed["rows"]:
                         case_metrics.append({
                             "case_id": case_id, "group": group_id or "",
                             "category": case["category"], "topology": _topology(case),
-                            "path_config": _path_config(case), "operation": operation, "dtype": dtype,
+                            "path_config": _path_config(case), "operation": operation,
+                            "dtype": row.get("type") or dtype,
                             "execution_status": execution_status, **row,
                         })
             else:
@@ -316,24 +390,28 @@ def collect_report(selection_path, groups_path, coverage_path, results_root, met
     for row in coverage_rows:
         summary = topology.setdefault(row["topology"], {
             "passed": 0, "valid": 0, "partial": 0, "failed": 0, "unfinished": 0,
+            "unverified": 0,
             "valid_out_of_place": 0, "missing_out_of_place": 0,
         })
-        summary["passed"] += row["execution_status"] == "PASSED"
+        summary["passed"] += row["execution_status"] == "PASSED" and row["data_status"] != "UNVERIFIED"
         summary["valid"] += row["data_status"] == "VALID"
         summary["partial"] += row["data_status"] == "PARTIAL"
-        summary["failed"] += row["execution_status"] not in ("PASSED", "NO_RESULT", "EXCLUDED")
-        summary["unfinished"] += row["execution_status"] in ("NO_RESULT", "EXCLUDED")
+        summary["failed"] += row["execution_status"] not in (
+            "PASSED", "NO_RESULT", "EXCLUDED", "NOT_RUN", "UNVERIFIED")
+        summary["unfinished"] += row["execution_status"] in ("NO_RESULT", "EXCLUDED", "NOT_RUN")
+        summary["unverified"] += row["data_status"] == "UNVERIFIED"
         summary["valid_out_of_place"] += row["valid_out_of_place"]
         summary["missing_out_of_place"] += row["missing_out_of_place"]
     total = {field: sum(summary[field] for summary in topology.values())
              for field in ("passed", "valid", "partial", "failed", "unfinished",
+                           "unverified",
                            "valid_out_of_place", "missing_out_of_place")}
     selected_result_count = sum(key in actual for key in selected)
     summary = {
         "topology": topology, "performance_total": total,
         "performance_cases": len(coverage_rows), "metric_rows": len(metric_rows),
         "valid_out_of_place_detail": sum(row["placement"] == "out-of-place"
-                                         and row["metric_status"] != "MISSING_LOG_ROW"
+                                         and row["metric_status"] == "VALID"
                                          for row in metric_rows),
         "execution": {
             "total_cases": coverage.get("total_cases"),
@@ -424,19 +502,21 @@ def write_workbook(report, output):
             ws.merge_range(index, 1, index, 5, value, text)
         start = 9
         _row(workbook, ws, start, ["性能子集覆盖"], section)
-        columns = ["范围", "源Case通过", "完整曲线", "含缺行曲线", "执行失败", "未完成",
+        columns = ["范围", "源Case通过", "完整曲线", "含缺行曲线", "执行失败", "未完成", "未验证",
                    "有效OO点数", "缺行数"]
         _row(workbook, ws, start + 1, columns, header)
         for offset, name in enumerate(sorted(summary["topology"], key=_topology_sort), start=2):
             values = summary["topology"][name]
             _row(workbook, ws, start + offset,
                  [name, values["passed"], values["valid"], values["partial"], values["failed"],
-                  values["unfinished"], values["valid_out_of_place"], values["missing_out_of_place"]], text)
+                  values["unfinished"], values["unverified"], values["valid_out_of_place"],
+                  values["missing_out_of_place"]], text)
         total = summary["performance_total"]
         last = start + 2 + len(summary["topology"])
         _row(workbook, ws, last,
              ["性能合计", total["passed"], total["valid"], total["partial"], total["failed"],
-              total["unfinished"], total["valid_out_of_place"], total["missing_out_of_place"]], section)
+              total["unfinished"], total["unverified"], total["valid_out_of_place"],
+              total["missing_out_of_place"]], section)
         ws.write(last + 2, 0, "原始明细独立计数", section)
         ws.write(last + 2, 6, summary["valid_out_of_place_detail"], text)
         ws.write(last + 2, 7,
@@ -581,6 +661,7 @@ def main():
     report.add_argument("--groups", type=Path, required=True)
     report.add_argument("--coverage", type=Path, required=True)
     report.add_argument("--results-root", type=Path, required=True)
+    report.add_argument("--reconciliation-root", type=Path, required=True)
     report.add_argument("--output", type=Path, required=True)
     report.add_argument("--run-id", required=True)
     report.add_argument("--run-url", default="")
@@ -597,7 +678,8 @@ def main():
         "source_revision": args.source_revision, "runner_revision": args.runner_revision,
         "generated_at": datetime.now(ZoneInfo("Asia/Shanghai")).isoformat(timespec="seconds"),
     }
-    report_value = collect_report(args.selection, args.groups, args.coverage, args.results_root, metadata)
+    report_value = collect_report(args.selection, args.groups, args.coverage, args.results_root,
+                                  metadata, args.reconciliation_root)
     write_workbook(report_value, args.output)
     print(json.dumps(report_value["summary"], ensure_ascii=False, sort_keys=True))
     return 0

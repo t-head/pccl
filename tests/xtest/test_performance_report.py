@@ -82,6 +82,10 @@ class PerformanceReportTests(unittest.TestCase):
                                  "error": "executor failed" if status == "FAILED" else "",
                                  "raw_log": "raw.log"})
         (group / "build.json").write_text(json.dumps({"archive_sha256": "abc123"}))
+        self.reconciliation = self.root / "public-results"
+        (self.reconciliation / "g001").mkdir(parents=True)
+        (self.reconciliation / "g001" / "reconciliation.json").write_text(json.dumps({
+            "ok": True, "errors": []}))
 
     def tearDown(self):
         self.temporary.cleanup()
@@ -89,7 +93,7 @@ class PerformanceReportTests(unittest.TestCase):
     def collect(self):
         return performance_report.collect_report(
             self.selection, self.groups, self.coverage, self.results,
-            {"run_id": "123", "dataset": "generated-full"})
+            {"run_id": "123", "dataset": "generated-full"}, self.reconciliation)
 
     def test_exit_code_raw_log_is_reported_without_changing_execution_gate(self):
         report = self.collect()
@@ -125,7 +129,8 @@ class PerformanceReportTests(unittest.TestCase):
 
     def test_report_preserves_duplicates_unsupported_rows_and_interleaved_logs(self):
         zero = "0 0 half null -1 7.88 0.00 0.00 0 7.58 0.00 0.00 0\n"
-        text = (HEADER + zero + zero + performance_log().removeprefix(HEADER)
+        body = performance_log().removeprefix(HEADER).splitlines()
+        text = (HEADER + zero + zero + "\n".join(body[2:]) + "\n"
                 + "262144 262144 half sum -1[na131g][interleaved-log]\n")
         text = text.replace("11.5 2.25 3.5 0", "11.5 2.25 3.5 N/A", 1)
         with self.assertRaises(ValueError):
@@ -135,19 +140,81 @@ class PerformanceReportTests(unittest.TestCase):
         parsed = performance_report._parse_case(
             self.case1, log, performance_report.expected_sizes(self.case1["cmd"]))
         self.assertEqual(parsed["data_status"], "VALID")
-        self.assertEqual(parsed["valid_out_of_place"], 34)
+        self.assertEqual(parsed["valid_out_of_place"], 32)
         self.assertEqual(parsed["missing_out_of_place"], 0)
-        self.assertEqual(len(parsed["rows"]), 68)
+        self.assertEqual(len(parsed["rows"]), 64)
         self.assertEqual(sum(row["metric_status"] == "UNSUPPORTED" for row in parsed["rows"]), 1)
         self.assertEqual(sum(row["size"] == 0 for row in parsed["rows"]), 4)
+
+    def test_duplicate_size_cannot_hide_an_expected_missing_measurement(self):
+        text = HEADER + (
+            "8 2 half sum -1 10 1 2 0 11 2 3 0\n"
+            "8 2 half sum -1 10 1 2 0 11 2 3 0\n"
+            "32 2 half sum -1 10 1 2 0 11 2 3 0\n")
+        log = self.root / "missing-16.log"
+        log.write_text(text)
+        parsed = performance_report._parse_case(self.case1, log, [8, 16, 32])
+        self.assertEqual(parsed["data_status"], "PARTIAL")
+        self.assertEqual(parsed["missing_out_of_place"], 1)
+
+    def test_reconciliation_failure_marks_results_unverified(self):
+        key = performance_report._key(self.case1)
+        (self.reconciliation / "g001" / "reconciliation.json").write_text(json.dumps({
+            "ok": False, "errors": ["/".join(key) + ": result.json mismatch"]}))
+        report = self.collect()
+        row = next(row for row in report["coverage"] if row["name"] == self.case1["name"])
+        self.assertEqual(row["execution_status"], "PASSED")
+        self.assertEqual(row["data_status"], "UNVERIFIED")
+        self.assertEqual(row["valid_out_of_place"], 0)
+        self.assertEqual(report["summary"]["metric_rows"], 0)
+        self.assertEqual(report["summary"]["performance_total"]["unverified"], 1)
+        self.assertEqual(report["summary"]["performance_total"]["passed"], 0)
+
+    def test_not_run_is_unfinished_not_failed(self):
+        path = self.results / "g001" / "results.csv"
+        with path.open(newline="") as stream:
+            rows = list(csv.DictReader(stream))
+        rows[0]["status"] = "NOT_RUN"
+        with path.open("w", newline="") as stream:
+            writer = csv.DictWriter(stream, fieldnames=run_cases.RESULT_FIELDS, lineterminator="\n")
+            writer.writeheader()
+            writer.writerows(rows)
+        report = self.collect()
+        row = next(row for row in report["coverage"] if row["name"] == self.case1["name"])
+        self.assertEqual(row["execution_status"], "NOT_RUN")
+        self.assertEqual(row["data_status"], "NOT_RUN")
+        total = report["summary"]["performance_total"]
+        self.assertEqual(total["unfinished"], 2)
+        self.assertEqual(total["failed"], 1)
+
+    def test_build_identity_failure_makes_the_group_unverified(self):
+        (self.reconciliation / "g001" / "reconciliation.json").write_text(json.dumps({
+            "ok": False, "errors": ["Build identity mismatch"]}))
+        report = self.collect()
+        first = next(row for row in report["coverage"] if row["name"] == self.case1["name"])
+        self.assertEqual(first["data_status"], "UNVERIFIED")
+        self.assertEqual(report["summary"]["metric_rows"], 0)
+        self.assertEqual(report["summary"]["performance_total"]["unverified"], 1)
+
+    def test_dtype_falls_back_to_the_observed_table_type(self):
+        self.case1["cmd"] = "mpirun -np 16 all_reduce_perf -b 8 -e 16G -f 2"
+        self.selection.write_text(json.dumps({
+            "schema_version": 1, "profile": "standard", "cases": self.cases}))
+        report = self.collect()
+        row = next(row for row in report["coverage"] if row["name"] == self.case1["name"])
+        self.assertEqual(row["dtype"], "half")
+        self.assertTrue(all(metric["dtype"] == "half" for metric in report["metrics"]))
 
     def test_workflow_publishes_a_complete_report_with_a_pinned_writer(self):
         workflow = (Path(__file__).resolve().parents[2] /
                     ".github/workflows/m890p-daily-full.yml").read_text()
         self.assertIn("performance-cases.json", workflow)
+        self.assertNotIn("GENERATE_NODES", workflow)
+        self.assertIn("import xlsxwriter; assert xlsxwriter.__version__", workflow)
         self.assertIn("performance_report.write_selection", workflow)
         self.assertIn("performance_report.py report", workflow)
         self.assertIn("--results-root /wl_nas/devops/pccl-artifact-cache-", workflow)
+        self.assertIn("--reconciliation-root public-results", workflow)
         self.assertIn("name: m890p-daily-performance-report", workflow)
         self.assertIn("XlsxWriter==3.2.5", workflow)
         self.assertIn("PYTHONPATH=deps/xlsxwriter-3.2.5-py3-none-any.whl", workflow)
