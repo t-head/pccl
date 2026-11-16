@@ -1,14 +1,14 @@
 {
   "classification": {
-    "base_sha": "56439f6febc0224c79523161d4e4d5c629837ae7",
-    "head_sha": "2125ef1009b01a6944b8e3881f13829f41e487e3",
-    "input_fingerprint": "65e4a3cac0a041f77e9bc2d1f1011adb8a9dbb4c178b2093151aca6b1f5bdcd0",
+    "base_sha": "747030b6fe8cf6b111f18efb61c6e16ff76e9c0e",
+    "head_sha": "184159bad60ca09be06d819bb3f1cd3e0b214ac8",
+    "input_fingerprint": "2e7fb387508d3ef2b778caae82a3536299fdb594a020cb42e27d79497ac300da",
     "pr_number": 194,
     "proposal": {
       "modules": [
         "communicator"
       ],
-      "reason": "Main change is communicator configuration compatibility: `pcclConfig_t` layout/version boundary update and `parseCommConfig`/version-mapping logic in `src/init.cc` now gates NCCL 2.28+ fields and warns-then-ignores unsupported communicator options. `makefiles/version.mk` is a supporting version bump, not an independent build-system change."
+      "reason": "Primary change is communicator configuration compatibility: updates the public `pcclConfig_t` layout/version tag and adjusts `parseCommConfig`/version mapping in `src/init.cc` to gate new fields and warn-then-ignore unsupported communicator settings during init."
     }
   },
   "reviewers": {
