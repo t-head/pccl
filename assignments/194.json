@@ -2,13 +2,13 @@
   "classification": {
     "base_sha": "747030b6fe8cf6b111f18efb61c6e16ff76e9c0e",
     "head_sha": "2a54ad5336556ea52393c59d0d38d4909e1de163",
-    "input_fingerprint": "bdcf009821136c4c76af0508f5d01f917fb65e36290fd82c75ba979bd5b46828",
+    "input_fingerprint": "e4e0abb7344997126d6457e054addde6b312b6e7e1c9e5ab5833a8d69918cfe0",
     "pr_number": 194,
     "proposal": {
       "modules": [
         "communicator"
       ],
-      "reason": "Main change is communicator initialization/config compatibility: it updates public pcclConfig_t layout (NCCL 2.28+ fields/tag), version mapping, and parse-time handling in src/init.cc to validate size/version boundaries and warn-then-ignore unsupported communicator config fields. No independent transport/network/runtime feature implementation changes are introduced."
+      "reason": "Main change is communicator initialization/config compatibility: `pcclConfig_t` layout is extended to align with NCCL 2.30, version mapping in init is updated, and `parseCommConfig` applies version-gated defaults plus warnings for explicitly set unsupported communicator config fields."
     }
   },
   "reviewers": {
