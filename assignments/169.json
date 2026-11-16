@@ -1,21 +1,22 @@
 {
   "classification": {
-    "base_sha": "56439f6febc0224c79523161d4e4d5c629837ae7",
-    "head_sha": "ee27287fe95e58bd40f1307540db359aa9f882fd",
-    "input_fingerprint": "8098bf0bc3b0aab703e3dcd592bf4b846b0cb39a7262eb7f35acf7073c2a2b51",
+    "base_sha": "b480396b4436251ed72274d2906c329d9523c381",
+    "head_sha": "e938fea999e41703b84999366e3928de3574dec9",
+    "input_fingerprint": "8cc454236774172e99f77d63cac12cfe2e1c69c5ed4b9980bab024837da123fc",
     "pr_number": 169,
     "proposal": {
       "modules": [
+        "bootstrap",
         "device-topology",
         "graph-search",
         "communicator",
-        "memory",
         "network"
       ],
-      "reason": "Main change is in **network**: NET/CollNet selection, initialization, lifetime, and proxy/backend operations move from process-global state to per-communicator state (with PCCL_NET override and per-comm plugin handling). **communicator** is additionally needed because comm config/lifecycle now owns netName/backend fields and enforces parent-child shared-resource backend consistency. **device-topology** is needed for substantive per-backend topology behavior (EIC/NIC handling and PXN gating tied to selected net). **graph-search** is needed because graph comparison/selection logic now depends on topology\u2019s per-comm EIC state and updated PXN-disable API usage. **memory** is needed because U2MM/host allocation and shared-memory creation now depend on the communicator-selected net backend for properties/NUMA behavior."
+      "reason": "Primary change is in **network**: NET/CollNet selection, plugin lifetime, proxy progress/shutdown, and transport memory/connect handling are moved to per-communicator state. **communicator** is also required because comm init/split/cleanup now own `netName`, enforce parent/child shared-resource backend compatibility, and gate teardown paths. **bootstrap** needs review due to OOB device selection and bootstrap net handle setup switching to the communicator-selected backend. **device-topology** is substantively affected because topology/path building and PXN/EIC behavior now depend on the communicator backend. **graph-search** is additionally needed because graph comparison/selection logic now consumes backend-derived topology state (`useEic`) when choosing channel graphs."
     }
   },
   "reviewers": {
+    "bootstrap": 341341178,
     "communicator": 335730053,
     "device-topology": 335834228,
     "graph-search": 335834228,
