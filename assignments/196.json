@@ -1,14 +1,14 @@
 {
   "classification": {
     "base_sha": "b480396b4436251ed72274d2906c329d9523c381",
-    "head_sha": "901b6ec912bc140bcca74ef689554e08e5f9f5a2",
-    "input_fingerprint": "1b9c0d01e14492340714fb84b730c0df7e536705728b66b6aae3ad406166865c",
+    "head_sha": "96d6239d02c668b9ca9d6e93a572157b7f9fff7e",
+    "input_fingerprint": "d243b5befa62ce5ca5aad23546517fe490980204678b8ec66a5893f19e3c4180",
     "pr_number": 196,
     "proposal": {
       "modules": [
         "ci"
       ],
-      "reason": "Main change is to the daily test execution pipeline: it adds generated-smoke/generated-full dataset preparation from JSON test-family definitions, introduces performance report generation from retained logs, and wires new validation/reporting steps and artifacts into the existing GitHub Actions test workflow without changing PCCL runtime code."
+      "reason": "Main change is the daily test workflow/test-infra pipeline: new generated datasets in `.github/workflows/m890p-daily-full.yml`, new xtest case-generation/performance-report tooling, and large test-list/suite/env inputs consumed by that pipeline. These are CI execution/reporting changes (not runtime modules, and not contribution/reviewer-policy workflow changes)."
     }
   },
   "reviewers": {
