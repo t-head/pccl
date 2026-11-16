@@ -2,24 +2,27 @@
   "classification": {
     "base_sha": "b480396b4436251ed72274d2906c329d9523c381",
     "head_sha": "4f711d7d659629e1461baba719209181a80e1550",
-    "input_fingerprint": "fbc7c4ada790f8eb4e7d35ab5965144a442e859c6b774784b449766170357ebd",
+    "input_fingerprint": "f26067c1e55c5332edc437bb8b7db7143afc8c0bd71018b9df1f7692c144ddf5",
     "pr_number": 64,
     "proposal": {
       "modules": [
         "communicator",
         "enqueue",
-        "network",
         "profiler",
-        "copy-engine"
+        "copy-engine",
+        "gin",
+        "other"
       ],
-      "reason": "Main change is host one-sided RMA API enqueueing and plan orchestration (PutSignal/Signal/WaitSignal task creation, batching, and RMA launch flow). Additional review is needed for network because cross-node execution adds a dedicated GIN RMA proxy/plugin context and progress engine; for copy-engine because intra-node CE-based put/wait execution and synchronization are newly implemented; for communicator because numRmaCtx/hostRma capability negotiation, config validation, lifecycle teardown/init, and async error surfacing are changed; and for profiler because a new RMA API event type extends profiler descriptors and event-mask behavior."
+      "reason": "Primary change is a new host one-sided RMA API surface (pcclPutSignal/pcclSignal/pcclWaitSignal, new config/ABI fields) that is not explicitly owned by an existing catalog scope, so `other` is required. `enqueue` is needed for new RMA task types, planner queues, batching, and launch-path integration. `gin` is needed for the new cross-node RMA proxy transport path, GIN proxy wrappers, plugin loading/contexts, and progress thread logic. `copy-engine` is needed for the in-node CE RMA execution path (signal windows, CE put/wait launch, stream/event sync). `communicator` is needed for new communicator configuration/validation (`numRmaCtx`), capability negotiation/reporting, lifecycle init/finalize wiring, and async error surfacing. `profiler` is needed for new RMA API event types and profiler schema/integration updates."
     }
   },
   "reviewers": {
     "communicator": 335730053,
     "copy-engine": 341341178,
     "enqueue": 341349555,
+    "gin": 341353320,
     "network": 341355176,
+    "other": 335730053,
     "profiler": 341349555
   }
 }
