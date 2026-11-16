@@ -172,6 +172,7 @@ struct alignas(16) ncclWorkList {
 
 struct ncclTaskColl {
   struct ncclTaskColl* next;
+  struct ncclTaskColl* tuningNext; // grouped selection order, independent of launch order
   ncclFunc_t func;
   void const* sendbuff;
   void* recvbuff;
