@@ -2,13 +2,13 @@
   "classification": {
     "base_sha": "56439f6febc0224c79523161d4e4d5c629837ae7",
     "head_sha": "cfb0dc5c705a2d41ce3e7a94931a2b9c333168b0",
-    "input_fingerprint": "91d19ace88ba5cba55839661e7ecc279ca726104f0307b2786e5befbcc963951",
+    "input_fingerprint": "dca7e7c37db7926f38d18bd961a056b072862ee0afdb31e70280b3538e0158fb",
     "pr_number": 193,
     "proposal": {
       "modules": [
         "ras"
       ],
-      "reason": "Main functional change is a RAS hang-diagnostics refactor: replacing legacy COMMS-embedded diag blobs with unified runtime-state diagnostics collection, monitor-triggered runs, new runtime record formats, analyzer/report persistence paths, and related RAS client/collective flow updates. Other touched files (e.g., comm_dumper wording) are incidental and not independent module changes."
+      "reason": "Main functional change is a RAS/hang-diagnostics refactor: it replaces legacy COMMS-embedded diag blobs with versioned runtime diagnostic records, unifies on-demand and monitor-triggered collection/reporting/persistence paths, updates analyzer/offline parsing accordingly, and adjusts RAS control-flow/client handling for the new diagnostics pipeline."
     }
   },
   "reviewers": {
