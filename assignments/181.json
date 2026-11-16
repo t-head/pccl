@@ -1,14 +1,14 @@
 {
   "classification": {
     "base_sha": "747030b6fe8cf6b111f18efb61c6e16ff76e9c0e",
-    "head_sha": "a7efbd0585dea31bd28e759af8152e3f2a7eee6a",
-    "input_fingerprint": "ccab11c86e334b2709279aef69bfb1885337c5837b79c367e2de39ed26a5d7b1",
+    "head_sha": "d905bc117d6aefc25ecb3db0802840d9e0e7b36c",
+    "input_fingerprint": "556111e984dcfdc5fc0a87ac44ad5c228ae62629c5748fbb2da5f9aae56241e2",
     "pr_number": 181,
     "proposal": {
       "modules": [
         "network"
       ],
-      "reason": "Main functional change is InfiniBand network link-speed detection/fallback in the net_ib transport path (preferring ibv_query_port_speed, then active_speed_ex/active_speed, plus XDR rate support), which is a network backend transport behavior update rather than API/workflow/build changes."
+      "reason": "Main functional change is in InfiniBand network backend speed discovery: it adds optional ibv_query_port_speed usage, falls back to active_speed_ex/active_speed, and updates XDR handling in net_ib initialization. The ibv wrapper/header edits are supporting implementation for this same network transport behavior, not an independent module change."
     }
   },
   "reviewers": {
