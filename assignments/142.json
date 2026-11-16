@@ -7,10 +7,9 @@
     "proposal": {
       "modules": [
         "transport",
-        "memory",
-        "network"
+        "memory"
       ],
-      "reason": "Primary change is in P2P IPC registration/connect flow to support multi-segment buffer export/import, segment-wise mapping, FD batch exchange, and deregistration semantics (`src/transport/p2p.cc`, `src/include/p2p.h`, `src/include/transport.h`). `memory` is independently substantive because shared HG/HGGC free/unmap helpers now enforce and execute segment-aware release behavior (`src/include/alloc.h`). `network` is also needed due to substantive proxy/FD lifecycle and connection-handle tracking changes in proxy IPC request handling and cleanup (`src/proxy.cc`, `src/include/proxy.h`, `src/include/ipcsocket.h`, `src/misc/ipcsocket.cc`)."
+      "reason": "Main functional change is in P2P transport IPC registration/deregistration (src/transport/p2p.cc, proxy interaction) to support multi-segment buffer export/import, FD transfer, and lifecycle cleanup. Add memory because segment-aware allocation mapping/unmapping and free/ownership semantics are substantively changed in src/include/alloc.h (numSegments handling, granularity validation, multi-segment unmap/free paths)."
     }
   },
   "reviewers": {
