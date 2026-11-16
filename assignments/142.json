@@ -1,8 +1,8 @@
 {
   "classification": {
     "base_sha": "56439f6febc0224c79523161d4e4d5c629837ae7",
-    "head_sha": "157ffc340f48da7fe607ddce737056e9ea15927f",
-    "input_fingerprint": "23510b751001a4de3b758079655b107f44872082c5844560efd4f6a6ba046516",
+    "head_sha": "0df10c4796f78199a853bfd6d97e1a6d288c4316",
+    "input_fingerprint": "99edf03711cba9bafeeaaa2e062f495d7f28045f91ad0bcb6238429b03b23b20",
     "pr_number": 142,
     "proposal": {
       "modules": [
@@ -10,7 +10,7 @@
         "memory",
         "network"
       ],
-      "reason": "Main change is in P2P transport IPC registration: it now registers/maps full multi-physical-segment buffers (not just first segment), carries segment counts through register/deregister paths, and adds segment-aware teardown for replay-safe cleanup. Add memory because allocation/map/unmap/free helpers in alloc.h were extended to segment-aware ownership and granularity validation, which changes deallocation semantics. Add network because proxy protocol/lifecycle behavior changed (batch FD query API, per-connection imported-handle tracking queue, and deregistration cleanup coordination), requiring proxy/UDS review."
+      "reason": "Primary change is in transport/p2p IPC registration: it now registers and maps full multi-segment physical ranges, propagates segment metadata, and updates P2P proxy register/deregister flows for correct replay/lifecycle behavior. Add memory because alloc/free helpers in alloc.h were substantively changed to unmap/free multi-segment HG allocations with segment-aware validation and ownership cleanup. Add network because proxy and IPC socket paths gained batched FD conversion/transfer and per-connection imported-handle tracking/teardown, which are independent proxy-resource changes beyond mechanical call-site edits."
     }
   },
   "reviewers": {
