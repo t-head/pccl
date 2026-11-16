@@ -1,14 +1,14 @@
 {
   "classification": {
     "base_sha": "747030b6fe8cf6b111f18efb61c6e16ff76e9c0e",
-    "head_sha": "7fefe365d4e909991232eb1c4594cd24bbe7be85",
-    "input_fingerprint": "2f967ede0690b2ba6353bc0592c45a6f03cd30efa1b8c2d369f0c8a86ce6900d",
+    "head_sha": "3cc6d7f89a7fcfa9280d42302f7eb20ecc53de49",
+    "input_fingerprint": "95abb063a185c3888d121104e78a484be7b5f644c56cd9c00b430c4ed2646297",
     "pr_number": 198,
     "proposal": {
       "modules": [
         "ci"
       ],
-      "reason": "Updates a test-only dependency version in tests/xtest/requirements.txt, which is CI/test-environment maintenance rather than product/runtime module behavior."
+      "reason": "Substantive change is CI/test-workflow dependency management: filelock pin and wheel SHA were updated in workflow jobs and test environment setup. The xtest requirements and contract-test edits are mechanical synchronization to enforce the same CI runtime dependency version, not a separate module change."
     }
   },
   "reviewers": {
