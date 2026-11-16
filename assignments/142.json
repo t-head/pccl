@@ -1,8 +1,8 @@
 {
   "classification": {
     "base_sha": "747030b6fe8cf6b111f18efb61c6e16ff76e9c0e",
-    "head_sha": "79b1800cb48ab82317a7d4307620501d8efc3a98",
-    "input_fingerprint": "038c12a86fc5288ef3f7642456b7cbda9fe3e30e78a9ca785eac97575855a2b5",
+    "head_sha": "7e02864c328aaa5b51fd9aa9eb64b1a3dff852a9",
+    "input_fingerprint": "7280751a3a3890f7cecfe8cb2cf9696752aa6f2d428ce3ee68c071bdea88bb88",
     "pr_number": 142,
     "proposal": {
       "modules": [
@@ -10,7 +10,7 @@
         "memory",
         "network"
       ],
-      "reason": "Main functional change is in P2P IPC registration/connect lifecycle: transport now supports multi-segment buffer registration/import, segment-aware offsets/sizes, and a feature switch (MULTI_SEGMENT_REGISTER). Added memory-module work is independently substantive because allocation/map/unmap/free helpers now operate across multiple physical segments with stricter granularity/ownership checks. Added network-module work is independently substantive because proxy control-path behavior changed (batched FD query/transfer, per-connection imported-handle tracking, and teardown/deregister cleanup in proxy state)."
+      "reason": "Main functional change is in P2P transport registration: it adds multi-segment IPC buffer export/import, segment-count-aware register/deregister flows, and range/offset handling for cached registrations (`src/transport/p2p.cc`, `src/include/p2p.h`, `src/include/transport.h`). `memory` is also required because allocation mapping/unmapping/free semantics were changed to support multi-segment physical ranges and segment-aware teardown (`src/include/alloc.h`). `network` is additionally needed because proxy/FD transfer lifecycle changed with batch FD queries, per-connection imported-handle tracking, and proxy cleanup integration (`src/proxy.cc`, `src/include/proxy.h`, `src/include/ipcsocket.h`, `src/misc/ipcsocket.cc`)."
     }
   },
   "reviewers": {
