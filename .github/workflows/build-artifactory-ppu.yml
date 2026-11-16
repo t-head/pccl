@@ -579,6 +579,23 @@ jobs:
             printf '| result | %s |\n' "${PUBLISH_RESULT}"
           } >> "$GITHUB_STEP_SUMMARY"
 
+  upload:
+    name: Call upload artifact properties template
+    needs: [prepare, publish]
+    uses: t-head/ci-infra/.github/workflows/upload-artifact-properties.yml@main
+    with:
+      artifact_name: ${{ needs.publish.outputs.artifact_name }}
+      # comm.<branch>-<run label>, e.g. comm.main-2026-11-16-1211.
+      version: ${{ format('comm.{0}-{1}', github.ref_name, needs.prepare.outputs.version) }}
+      package_type: "binary"
+      package_name: "pccl"
+      package_version: "master"
+      template_repository: t-head/ci-infra
+      template_ref: main
+    secrets:
+      release_username: ${{ secrets.RELEASE_USERNAME }}
+      release_token: ${{ secrets.RELEASE_TOKEN }}
+
   summary:
     name: Build summary
     needs: [prepare, build, publish]
