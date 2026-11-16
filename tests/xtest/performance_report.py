@@ -229,6 +229,12 @@ def _parse_case(case, log_path, expected):
     rows = []
     for placement in PLACEMENTS:
         for source in (row for row in parsed if row["placement"] == placement):
+            if Decimal(source["time"]) <= 0:
+                raise ValueError("Performance time must be positive")
+            if Decimal(source["algbw"]) < 0 or Decimal(source["busbw"]) < 0:
+                raise ValueError("Performance bandwidth must be nonnegative")
+            if int(source["size"]) < 0 or int(source["count"]) < 0:
+                raise ValueError("Performance size and count must be nonnegative")
             wrong = source["wrong"]
             rows.append({"placement": placement, "size": int(source["size"]),
                          "type": source["type"],
@@ -280,12 +286,27 @@ def _verification(groups, reconciliation_root):
                 continue
             for values in group["case_keys"]:
                 key = tuple(values)
-                if error.startswith("/".join(key) + ": "):
+                name = "/".join(key)
+                if error.startswith(name + ": ") or error.endswith(" for " + name) \
+                        or error.endswith(": " + name):
                     unverified_cases.add(key)
                     break
             else:
                 global_unverified.add(group["id"])
     return global_unverified, unverified_cases
+
+
+def _recover_result(results_root, group_id, key):
+    path = results_root / group_id / Path(*key) / "result.json"
+    try:
+        record = json.loads(path.read_text(encoding="utf-8"))
+    except (OSError, json.JSONDecodeError):
+        return None
+    if not isinstance(record, dict) or not isinstance(record.get("status"), str):
+        return None
+    if not isinstance(record.get("check"), str) or not isinstance(record.get("error", ""), str):
+        return None
+    return record
 
 
 def collect_report(selection_path, groups_path, coverage_path, results_root, metadata,
@@ -312,14 +333,25 @@ def collect_report(selection_path, groups_path, coverage_path, results_root, met
         group_id = group["id"]
         group_build[group_id] = _build_sha(results_root / group_id)
         path = results_root / group_id / "results.csv"
-        if not path.is_file():
-            continue
-        for row in run_cases._read_csv(path, run_cases.RESULT_FIELDS):
+        try:
+            rows = run_cases._read_csv(path, run_cases.RESULT_FIELDS) if path.is_file() else []
+        except (OSError, ValueError):
+            rows = []
+        if not path.is_file() or not rows:
+            global_unverified.add(group_id)
+        for row in rows:
             key = _key(row)
             if key in actual:
                 raise ValueError(f"Duplicate execution result: {key}")
             actual[key] = (group_id, row)
             result_counts[row["status"]] += 1
+        for key in selection:
+            if selected.get(key) != group_id or key in actual:
+                continue
+            record = _recover_result(results_root, group_id, key)
+            if record is not None:
+                actual[key] = (group_id, record)
+                result_counts[record["status"]] += 1
 
     ordered_cases = sorted(selection.values(),
                            key=lambda case: (selected.get(_key(case), "zzz"), _key(case)))

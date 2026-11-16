@@ -160,7 +160,7 @@ class PerformanceReportTests(unittest.TestCase):
     def test_reconciliation_failure_marks_results_unverified(self):
         key = performance_report._key(self.case1)
         (self.reconciliation / "g001" / "reconciliation.json").write_text(json.dumps({
-            "ok": False, "errors": ["/".join(key) + ": result.json mismatch"]}))
+            "ok": False, "errors": ["Result.json status mismatch for " + "/".join(key)]}))
         report = self.collect()
         row = next(row for row in report["coverage"] if row["name"] == self.case1["name"])
         self.assertEqual(row["execution_status"], "PASSED")
@@ -169,6 +169,56 @@ class PerformanceReportTests(unittest.TestCase):
         self.assertEqual(report["summary"]["metric_rows"], 0)
         self.assertEqual(report["summary"]["performance_total"]["unverified"], 1)
         self.assertEqual(report["summary"]["performance_total"]["passed"], 0)
+
+    def test_case_mismatch_preserves_other_passed_case_metrics(self):
+        path = self.results / "g001" / "results.csv"
+        with path.open(newline="") as stream:
+            rows = list(csv.DictReader(stream))
+        rows[1].update(status="PASSED", error="")
+        with path.open("w", newline="") as stream:
+            writer = csv.DictWriter(stream, fieldnames=run_cases.RESULT_FIELDS, lineterminator="\n")
+            writer.writeheader()
+            writer.writerows(rows)
+        key = performance_report._key(self.case1)
+        (self.reconciliation / "g001" / "reconciliation.json").write_text(json.dumps({
+            "ok": False, "errors": ["Result.json status mismatch for " + "/".join(key)]}))
+        report = self.collect()
+        first = next(row for row in report["coverage"] if row["name"] == self.case1["name"])
+        second = next(row for row in report["coverage"] if row["name"] == self.case2["name"])
+        self.assertEqual(first["data_status"], "UNVERIFIED")
+        self.assertEqual(second["data_status"], "PARTIAL")
+        self.assertEqual(report["summary"]["metric_rows"], 64)
+        self.assertEqual(report["summary"]["performance_total"]["unverified"], 1)
+        self.assertEqual(report["summary"]["performance_total"]["passed"], 1)
+
+    def test_nonpositive_time_and_negative_bandwidth_are_not_valid_points(self):
+        log = self.results / "g001" / Path(*performance_report._key(self.case1)) / "raw.log"
+        original = log.read_text()
+        for old, new in (("10.5 1.25 2.5", "0 1.25 2.5"),
+                         ("10.5 1.25 2.5", "10.5 -1.25 2.5")):
+            with self.subTest(new=new):
+                log.write_text(original.replace(old, new, 1))
+                report = self.collect()
+                row = next(row for row in report["coverage"] if row["name"] == self.case1["name"])
+                self.assertEqual(row["execution_status"], "PASSED")
+                self.assertEqual(row["data_status"], "INVALID")
+                self.assertEqual(report["summary"]["metric_rows"], 0)
+
+    def test_missing_or_corrupt_results_csv_recovers_unverified_case_records(self):
+        path = self.results / "g001" / "results.csv"
+        for mode in ("missing", "corrupt"):
+            with self.subTest(mode=mode):
+                if mode == "missing":
+                    path.unlink()
+                else:
+                    path.write_text("not,a,valid,results,file\n")
+                report = self.collect()
+                first = next(row for row in report["coverage"] if row["name"] == self.case1["name"])
+                second = next(row for row in report["coverage"] if row["name"] == self.case2["name"])
+                self.assertEqual(first["execution_status"], "PASSED")
+                self.assertEqual(first["data_status"], "UNVERIFIED")
+                self.assertEqual(second["execution_status"], "FAILED")
+                self.assertEqual(report["summary"]["metric_rows"], 0)
 
     def test_not_run_is_unfinished_not_failed(self):
         path = self.results / "g001" / "results.csv"

@@ -185,6 +185,9 @@ def generate_rows(definition, profile="full", nodes=None):
                             "size_name_underscore": str(values.get("size", "")).replace(".", "_"),
                             "config_name": str(values.get("config", "")).replace(".json", "_json").replace(".", "_"),
                         })
+                        if any(key in filters and values.get(key) not in filters[key]
+                               for key in filters):
+                            continue
                         command = group.get("command", definition["defaults"].get("command"))
                         command = group.get("command_by_nodes", {}).get(str(node_count), command)
                         rows.append({

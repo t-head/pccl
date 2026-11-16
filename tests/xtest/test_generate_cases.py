@@ -152,6 +152,15 @@ class PublicGeneratorTests(unittest.TestCase):
         self.assertEqual(len(self.bundle("pccl_fun_rdma_shm", profile="auto")["rows"]), 6)
         with self.assertRaisesRegex(ValueError, "no node counts"):
             self.bundle("postsil_daily_shm", nodes=2)
+        definition = generate_cases.load_definition(DEFINITIONS / "postsil_daily_shm.json")
+        definition["profiles"]["smoke"] = {"nodes": [1], "filters": {"nproc": [1]}}
+        rows = generate_cases.generate_rows(definition, "smoke")
+        self.assertTrue(rows)
+        self.assertTrue(all("--nproc 1" in row["cmd"] and "--devices" not in row["cmd"]
+                            for row in rows))
+        definition["profiles"]["smoke"]["filters"]["nproc"] = [999]
+        with self.assertRaisesRegex(ValueError, "selected no Cases"):
+            generate_cases.generate_rows(definition, "smoke")
 
     def test_temporary_output_is_deterministic_and_public_consumer_compatible(self):
         outputs = []
@@ -225,6 +234,10 @@ class PublicGeneratorTests(unittest.TestCase):
         self.assertEqual(manifest["suites_sha256"], canonical_sha256(combined["suites"]))
         self.assertFalse(manifest["csv_inputs_used"])
         self.assertFalse(manifest["csv_outputs_written"])
+        for name, expected_hash in manifest["environments"].items():
+            environment = DEFINITIONS / "envs" / name
+            self.assertEqual(sha256(environment.read_bytes()).hexdigest(), expected_hash)
+            self.assertEqual(environment.read_bytes(), (ROOT / "daily-full-csv/envs" / name).read_bytes())
         records = {record["family"]: record for record in manifest["families"]}
         self.assertEqual(set(records), set(ALL_FAMILIES))
         for family in ALL_FAMILIES:
