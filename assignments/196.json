@@ -2,13 +2,13 @@
   "classification": {
     "base_sha": "b480396b4436251ed72274d2906c329d9523c381",
     "head_sha": "901b6ec912bc140bcca74ef689554e08e5f9f5a2",
-    "input_fingerprint": "308dd3558b6de5cb809cf0420fcfca05b8487a306c736262e6189b21fc5fb110",
+    "input_fingerprint": "1b9c0d01e14492340714fb84b730c0df7e536705728b66b6aae3ad406166865c",
     "pr_number": 196,
     "proposal": {
       "modules": [
         "ci"
       ],
-      "reason": "Main change is the daily test workflow/test-harness pipeline: new generated-smoke/generated-full dataset generation from JSON families, expanded test-list/suite/env definitions, performance selection/report artifact generation, and corresponding xtest parser/tests wired into .github workflow execution and reporting."
+      "reason": "Main change is to the daily test execution pipeline: it adds generated-smoke/generated-full dataset preparation from JSON test-family definitions, introduces performance report generation from retained logs, and wires new validation/reporting steps and artifacts into the existing GitHub Actions test workflow without changing PCCL runtime code."
     }
   },
   "reviewers": {
