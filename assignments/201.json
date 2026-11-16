@@ -1,0 +1,17 @@
+{
+  "classification": {
+    "base_sha": "747030b6fe8cf6b111f18efb61c6e16ff76e9c0e",
+    "head_sha": "f08f4adc9676af111f5f156b0056f41715627219",
+    "input_fingerprint": "10e364ff9a5d415457b763b939b3855fca7f63102cf9e5644968b167291b8086",
+    "pr_number": 201,
+    "proposal": {
+      "modules": [
+        "gin"
+      ],
+      "reason": "Updates GIN device utility memory-ordering/load-store assembly instructions (including acquire/release and relaxed ops) in gin_troce_utils.h, a GIN-specific device-initiated networking helper change rather than workflow/docs or generic caller edits."
+    }
+  },
+  "reviewers": {
+    "gin": 262349997
+  }
+}
