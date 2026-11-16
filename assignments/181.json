@@ -2,13 +2,13 @@
   "classification": {
     "base_sha": "dcc16f7527444230dbd33cca1f348760c2df7e97",
     "head_sha": "cdc32c0427e6605d7e267d60dceed150935e0060",
-    "input_fingerprint": "a5c9c394cdcdca6f5b085a42b253084f3cb0e119abbb94dda98578678661226b",
+    "input_fingerprint": "092f97a1e81780145724effe806645d5ef4ffc957676094cf5759b26b1405351",
     "pr_number": 181,
     "proposal": {
       "modules": [
         "network"
       ],
-      "reason": "Main functional change is InfiniBand network-link speed discovery in the net_ib backend: add optional ibv_query_port_speed full-rate query with fallback to active_speed_ex/active_speed (including XDR), and wire wrapper/header support to keep compatibility with older providers."
+      "reason": "Main change is in InfiniBand network backend speed detection during net_ib initialization: prefer optional ibv_query_port_speed, fall back to active_speed_ex/active_speed, and add XDR mapping to fix bandwidth underestimation. ibvwrap header/symbol/ABI updates are supporting changes for this same network transport behavior, not a separate module."
     }
   },
   "reviewers": {
