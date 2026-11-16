@@ -1,8 +1,8 @@
 {
   "classification": {
-    "base_sha": "b480396b4436251ed72274d2906c329d9523c381",
-    "head_sha": "4f711d7d659629e1461baba719209181a80e1550",
-    "input_fingerprint": "f26067c1e55c5332edc437bb8b7db7143afc8c0bd71018b9df1f7692c144ddf5",
+    "base_sha": "747030b6fe8cf6b111f18efb61c6e16ff76e9c0e",
+    "head_sha": "cafd5c256864ce45f299e0c4b87acbcf20c1e0bf",
+    "input_fingerprint": "1509f7ef9d533648487a70496540f4d1bdd6920daba385d06821cf6f6dabede8",
     "pr_number": 64,
     "proposal": {
       "modules": [
@@ -10,10 +10,9 @@
         "enqueue",
         "profiler",
         "copy-engine",
-        "gin",
-        "other"
+        "gin"
       ],
-      "reason": "Primary change is a new host one-sided RMA API surface (pcclPutSignal/pcclSignal/pcclWaitSignal, new config/ABI fields) that is not explicitly owned by an existing catalog scope, so `other` is required. `enqueue` is needed for new RMA task types, planner queues, batching, and launch-path integration. `gin` is needed for the new cross-node RMA proxy transport path, GIN proxy wrappers, plugin loading/contexts, and progress thread logic. `copy-engine` is needed for the in-node CE RMA execution path (signal windows, CE put/wait launch, stream/event sync). `communicator` is needed for new communicator configuration/validation (`numRmaCtx`), capability negotiation/reporting, lifecycle init/finalize wiring, and async error surfacing. `profiler` is needed for new RMA API event types and profiler schema/integration updates."
+      "reason": "Main change is new host one-sided RMA APIs (PutSignal/Signal/WaitSignal) wired into runtime task creation, planning, and launch flow (enqueue). Additional substantive scopes: a new in-node CE execution path and signal synchronization for RMA operations (copy-engine), a cross-node GIN proxy transport/plugin path with new proxy context/progress/registration behavior (gin), communicator config/capability lifecycle and async-error/property exposure for host RMA enablement (communicator), and new profiler event/ABI surface for RMA API events plus inspector function mapping (profiler)."
     }
   },
   "reviewers": {
