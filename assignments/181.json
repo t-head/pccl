@@ -8,7 +8,7 @@
       "modules": [
         "network"
       ],
-      "reason": "Main functional change is InfiniBand network backend link-speed discovery: it now prefers optional ibv_query_port_speed (with fallback to active_speed_ex/active_speed), adds XDR handling, and updates IB verbs wrapping to support that network transport behavior."
+      "reason": "Main functional change is in InfiniBand network transport speed discovery: net_ib now prefers ibv_query_port_speed (with fallback to active_speed_ex/active_speed) and adds XDR rate support to improve NIC bandwidth detection. The ibv wrapper/header updates are supporting ABI/symbol plumbing for that same network behavior, not a separate module."
     }
   },
   "reviewers": {
