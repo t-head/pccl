@@ -643,7 +643,7 @@ ncclResult_t ncclProxySaveOp(ncclComm_t comm, struct ncclProxyOp* op, bool* just
     case ncclPatternPatUp: {
       // Run full algorithm to count the number of steps for each peer.
       ncclResult_t result = ncclSuccess;
-      const ssize_t size = op->nbytes/comm->nRanks;
+      const ssize_t size = op->channelSize;
       const int rank = comm->rank, nranks = comm->nRanks;
       int *nstepsSend = NULL, *nstepsRecv = NULL;
       PatRSAlgorithm<char> algo(op->chunkSize, NCCL_STEPS, 16, 0, size, size, op->chunkSize, rank, nranks);
@@ -677,7 +677,7 @@ ncclResult_t ncclProxySaveOp(ncclComm_t comm, struct ncclProxyOp* op, bool* just
     case ncclPatternPatDown:{
       // Run full algorithm to count the number of steps for each peer.
       ncclResult_t result = ncclSuccess;
-      const ssize_t size = op->nbytes/comm->nRanks;
+      const ssize_t size = op->channelSize;
       const int rank = comm->rank, nranks = comm->nRanks;
       int *nstepsSend = NULL, *nstepsRecv = NULL;
       PatAGAlgorithm<char> algo(op->chunkSize, NCCL_STEPS, 16, 0, size, size, op->chunkSize, rank, nranks);

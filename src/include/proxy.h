@@ -30,6 +30,7 @@ struct ncclProxyOp {
   int channelId;
   int nsteps;
   ssize_t nbytes;
+  size_t channelSize; // useful bytes in this channel's collective partition
   int root;
   int next;
 

@@ -283,6 +283,7 @@ namespace {
     const ssize_t count = work->count;
     ssize_t channelCount = (count + nChannels - 1) / nChannels;
     ssize_t channelOffset = bid * channelCount;
+    if (channelOffset >= count) return;
     if (channelOffset + channelCount > count) channelCount = count - channelOffset;
 
     const int chunkCount = work->lastChunkSize;

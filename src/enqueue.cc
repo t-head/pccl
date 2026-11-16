@@ -893,7 +893,8 @@ static ncclResult_t calcCollChunking(
        || task->protocol == NCCL_PROTO_SIMPLE_BULK || task->protocol == NCCL_PROTO_SIGNAL_BULK
        || task->protocol == NCCL_PROTO_SIMPLE_BULK_AR)) {
     // Optimize chunkSize / nSteps for PAT
-    while ((size_t)chunkSize*nChannels*32 > nBytes && chunkSize > 65536) chunkSize /= 2;
+    int depth = task->func == ncclFuncReduceScatter ? 16 : 32;
+    while ((size_t)chunkSize*nChannels*depth > nBytes && chunkSize > 65536) chunkSize /= 2;
     // Use lastChunkSize as chunkSize
     lastChunkSize = chunkSize / ncclTypeSize(task->datatype);
   } else if (task->protocol == NCCL_PROTO_LL) {
@@ -906,16 +907,24 @@ static ncclResult_t calcCollChunking(
     int nNodes = comm->nNodes;
     float ppn = comm->nRanks / (float)nNodes;
     float nstepsLL128 = 1+log2i(nNodes) + 0.1*ppn;
-    while (nBytes / (nChannels*chunkSize) < nstepsLL128*64/ppn && chunkSize > 131072) chunkSize /= 2;
-    while (nBytes / (nChannels*chunkSize) < nstepsLL128*16/ppn && chunkSize > 32768) chunkSize /= 2;
-    // Use lastChunkSize as chunkSize
-    lastChunkSize = chunkSize*NCCL_LL128_DATAELEMS/(NCCL_LL128_LINEELEMS*ncclTypeSize(task->datatype));
+    // NCCL chooses the depth from payload bytes. Keep PCCL's byte units for
+    // the proxy, and fit the kernel chunk to complete LL128 wire lines.
+    auto payload = [](int wireBytes) -> size_t {
+      return wireBytes/NCCL_LL128_LINESIZE * (NCCL_LL128_LINESIZE-sizeof(uint64_t));
+    };
+    while (payload(chunkSize) > 131072 && nBytes / (nChannels*payload(chunkSize)) < nstepsLL128*64/ppn) chunkSize /= 2;
+    while (payload(chunkSize) > 32768 && nBytes / (nChannels*payload(chunkSize)) < nstepsLL128*16/ppn) chunkSize /= 2;
+    lastChunkSize = payload(chunkSize) / ncclTypeSize(task->datatype);
+    if (lastChunkSize == 0) return ncclInvalidUsage;
   }
 
   // Compute nSteps for proxies
   int chunkEffectiveSize = chunkSize;
   if (task->protocol == NCCL_PROTO_LL) chunkEffectiveSize /= 2;
-  if (task->protocol == NCCL_PROTO_LL128) chunkEffectiveSize = (chunkSize / NCCL_LL128_LINEELEMS) * NCCL_LL128_DATAELEMS;
+  if (task->algorithm == NCCL_ALGO_TREE && task->protocol == NCCL_PROTO_LL128)
+    chunkEffectiveSize = lastChunkSize * ncclTypeSize(task->datatype);
+  else if (task->protocol == NCCL_PROTO_LL128)
+    chunkEffectiveSize = (chunkSize / NCCL_LL128_LINEELEMS) * NCCL_LL128_DATAELEMS;
   if (comm->rank == 0) VERBOSE(NCCL_COLL, "Coll %d, size %ld -> nChannels: %d nThreads: %d, chunkSize %d (algo %d proto %d)\n",
       task->func, nBytes, nChannels, task->nThreads, chunkSize, task->algorithm, task->protocol);
   int nLoops = (int)(DIVUP(nBytes, (((size_t)(nChannels))*nchunksPerLoop*chunkEffectiveSize)));
@@ -934,10 +943,7 @@ static ncclResult_t calcCollChunking(
   // This is used by P2P to reduce the receive buffer size. We don't use it in collectives
   // because some protocols need to transmit more than the total size, plus they sometimes
   // round up
-  if (pattern == ncclPatternPatUp || pattern == ncclPatternPatDown)
-    proxyOp->nbytes = DIVUP(nBytes, nChannels);
-  else
-    proxyOp->nbytes = stepSize*proxyOp->sliceSteps;
+  proxyOp->nbytes = stepSize*proxyOp->sliceSteps;
 
   TRACE(NCCL_COLL,"opCount %lx slicesteps %d spl %d cpl %d nbytes %zi -> protocol %d nchannels %d nthreads %d, nloops %d nsteps %d chunksize %d comm %p",
       proxyOp->opCount, sliceSteps, nstepsPerLoop, nchunksPerLoop, nBytes, task->protocol, nChannels, task->nThreads,
@@ -1663,6 +1669,8 @@ static ncclResult_t scheduleCollTasksToPlan(ncclComm_t comm, struct ncclKernelPl
 
       int nChannels = devWork->nChannels;
       int nSubChannels = (proxyOp.pattern == ncclPatternCollTreeUp || proxyOp.pattern == ncclPatternCollTreeDown) ? 2 : 1;
+      bool isPat = proxyOp.pattern == ncclPatternPatUp || proxyOp.pattern == ncclPatternPatDown;
+      size_t patChannelCount = isPat ? DIVUP(head->count, nChannels) : 0;
 
       uint64_t opCount = uint64_t(plan->collOpCount++)<<1 | 0;
 
@@ -1686,7 +1694,13 @@ static ncclResult_t scheduleCollTasksToPlan(ncclComm_t comm, struct ncclKernelPl
           proxyOp.pattern = (channelId < comm->nChannels/nSubChannels) ? ncclPatternCollTreeUp : ncclPatternCollTreeDown;
         }
 
-        if (proxyOp.nsteps) {
+        if (isPat) {
+          // The device partitions elements, not bytes or aggregate rank counts.
+          size_t offset = bid*patChannelCount;
+          size_t count = offset < head->count ? std::min(patChannelCount, head->count-offset) : 0;
+          proxyOp.channelSize = count*ncclTypeSize(head->datatype);
+        }
+        if (isPat ? proxyOp.channelSize != 0 : proxyOp.nsteps != 0) {
           proxyOp.opCount = opCount;
           NCCLCHECK(ncclAddProxyOpIfNeeded(comm, &proxyOp));
           NCCLCHECK(addProfilerProxyOpIfNeeded(comm, &proxyOp));
