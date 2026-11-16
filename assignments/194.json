@@ -2,13 +2,13 @@
   "classification": {
     "base_sha": "747030b6fe8cf6b111f18efb61c6e16ff76e9c0e",
     "head_sha": "184159bad60ca09be06d819bb3f1cd3e0b214ac8",
-    "input_fingerprint": "c7d1f9f9ac8f241d3a4bf2745dae7948b078ee6a5e0f3c0ce7c570a30e4ea1f4",
+    "input_fingerprint": "f7ff8c30c9502c2c3bf4a4a2c0a91657b5e0fea417ffbcd197f6c5f630e8e85f",
     "pr_number": 194,
     "proposal": {
       "modules": [
         "communicator"
       ],
-      "reason": "Main substantive change is communicator initialization/config compatibility: it updates public pcclConfig layout/version (v22800 with appended NCCL-aligned fields) and modifies init-time parse/version-mapping logic in src/init.cc to gate by compatibility version, reset unsupported fields to defaults, and emit non-recording warnings when unsupported communicator config options are explicitly set."
+      "reason": "Main change is communicator-configuration API compatibility and init-time handling: pcclConfig_t layout/tag is extended for NCCL 2.28+ fields in src/pccl.h.in, and src/init.cc updates version mapping plus parseCommConfig warning/ignore/default-reset behavior for unsupported communicator settings."
     }
   },
   "reviewers": {
