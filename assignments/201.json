@@ -1,17 +1,19 @@
 {
   "classification": {
-    "base_sha": "747030b6fe8cf6b111f18efb61c6e16ff76e9c0e",
-    "head_sha": "f08f4adc9676af111f5f156b0056f41715627219",
-    "input_fingerprint": "10e364ff9a5d415457b763b939b3855fca7f63102cf9e5644968b167291b8086",
+    "base_sha": "7d4892d0a7fd0577142b7c996b89fa35117e20f5",
+    "head_sha": "181532620234939d83d4d3992ef24e67b37bc836",
+    "input_fingerprint": "a826c6e077f1d00a0a07ad4e9a01d0f1e752c51da852ef69c465422cef5913f8",
     "pr_number": 201,
     "proposal": {
       "modules": [
+        "network",
         "gin"
       ],
-      "reason": "Updates GIN device utility memory-ordering/load-store assembly instructions (including acquire/release and relaxed ops) in gin_troce_utils.h, a GIN-specific device-initiated networking helper change rather than workflow/docs or generic caller edits."
+      "reason": "Main change updates GIN device-side utility memory/fence instruction mnemonics to the new `ppu.*` forms in `gin_troce_utils.h`, which is a direct GIN API/backend behavior surface. Additional network review is needed because the same semantic instruction changes are also applied in the Net IB DOCA GPUNetIO device verbs backend (`transport/net_ib/.../doca_gpunetio_dev_verbs_common.cuh`), an independently substantive transport/network implementation path."
     }
   },
   "reviewers": {
-    "gin": 262349997
+    "gin": 262349997,
+    "network": 341353320
   }
 }
