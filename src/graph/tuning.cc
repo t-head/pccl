@@ -649,7 +649,15 @@ ncclResult_t ncclTopoGetAlgoTime(ncclComm_t comm, int coll, int algorithm, int p
   }
 
   int logSize = log2i(nBytes>>6);
-  if (algorithm == NCCL_ALGO_TREE && logSize < 23) bw *= treeCorrectionFactor[protocol][logSize];
+  if (algorithm == NCCL_ALGO_TREE && logSize < 23) {
+    // The generic medium-size penalty underestimates Tree LL128 on two M890P
+    // nodes with eight ranks each. Keep the unpenalized model in this measured range.
+    const bool useM890pTreeModel = comm->ppuType == _ZW_M890P && comm->nNodes == 2 &&
+        comm->nRanks == 16 && comm->maxLocalRanks == 8 && !comm->MNNVL &&
+        coll == ncclFuncAllReduce && protocol == NCCL_PROTO_LL128 &&
+        nBytes >= (8ULL << 20) && nBytes <= (16ULL << 20);
+    if (!useM890pTreeModel) bw *= treeCorrectionFactor[protocol][logSize];
+  }
   if (algorithm == NCCL_ALGO_FC && (comm->ppuType == _ZW_M890P || comm->ppuType == _ZW_M890L) && comm->nRanks == 4 && logSize < 28) {
     auto it = fcCorrectionFactor.find(packKey(coll, protocol));
     if (it != fcCorrectionFactor.end()) {
