@@ -1,14 +1,14 @@
 {
   "classification": {
     "base_sha": "996baac6d4ec098e0cad3942a6dc21846022ff2a",
-    "head_sha": "67aa6033ee1065ee648530269f1e147af81a6534",
-    "input_fingerprint": "bb0482cf4a878454656edb36a16054273362dfa30cf4eb10fdc2e74848a9c720",
+    "head_sha": "35a510645b9467c3cf7c27290faa4a5d35ff8dc5",
+    "input_fingerprint": "ce3515cd5bec6fc88abb833ab02b35b751ea31dd932efaa834b457231c31a2e6",
     "pr_number": 195,
     "proposal": {
       "modules": [
         "workflow"
       ],
-      "reason": "Substantive changes are all in review/merge automation: .github/scripts/commit_message_squash.py adds approval-gated squash-preview publication/removal logic, .github/scripts/review_automation.py changes automated reviewer request withdrawal behavior, .github/scripts/maintainer_approval.py updates pending-approval status messaging, and .github/workflows/commit-message.yml rewires trigger/concurrency for this review workflow; skill/catalog edits (.github/skills/pccl-review-assignment/*) update module-classification policy used by reviewer routing."
+      "reason": "`.github/scripts/review_automation.py` changes reviewer-request lifecycle policy (including automated withdrawal/reinvite handling), `.github/scripts/maintainer_approval.py` changes review-gate status text behavior, and `commit_message_squash.py` plus `.github/workflows/commit-message.yml` move squash-preview publication behind GitHub approval/workflow-run checks; `.github/skills/pccl-review-assignment/*` updates module-classification review rules. These are contribution/review workflow and Actions-wiring contract changes, not runtime PCCL module behavior."
     }
   },
   "reviewers": {
