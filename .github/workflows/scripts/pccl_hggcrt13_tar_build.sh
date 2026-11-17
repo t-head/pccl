@@ -465,6 +465,55 @@ dump_pccl_link_diagnostics() {
     echo "symmetric genobj: $(ls -1 "${sym_root}/genobj/symmetric" 2>/dev/null | wc -l) files under ${sym_root}/genobj/symmetric"
 }
 
+# Public Ubuntu mirrors, tried in this order. The first one is the historical default; the others
+# only exist so that one slow mirror cannot fail a whole matrix row.
+APT_MIRRORS="mirrors.aliyun.com mirrors.tuna.tsinghua.edu.cn mirrors.ustc.edu.cn"
+
+write_public_apt_sources() {
+    local mirror="$1"
+    local codename="$2"
+    # A plain sources.list replaces whatever the image shipped, deb822 .sources files included.
+    # main + universe carry everything this toolchain needs; multiverse and backports would only
+    # add package lists to download, which is the part that gets slow under load.
+    printf '%s\n' \
+        "deb http://${mirror}/ubuntu/ ${codename} main restricted universe" \
+        "deb http://${mirror}/ubuntu/ ${codename}-updates main restricted universe" \
+        "deb http://${mirror}/ubuntu/ ${codename}-security main restricted universe" \
+        > /etc/apt/sources.list
+    rm -f /etc/apt/sources.list.d/*.sources
+}
+
+# Bounded and retried: a stalled transfer is abandoned after 30s instead of being waited out, and a
+# mirror that keeps stalling is replaced by the next one in APT_MIRRORS. A single stalled index
+# fetch used to abort the whole row through the old 900s cap.
+apt_refresh_index() {
+    local codename="$1"
+    local attempt=0
+    local mirror
+    for mirror in ${APT_MIRRORS}; do
+        attempt=$((attempt + 1))
+        if [ -n "${codename}" ]; then
+            echo "refreshing the apt index from ${mirror}"
+            write_public_apt_sources "${mirror}" "${codename}"
+        fi
+        if timeout -k 30 600 apt-get -o Acquire::http::Timeout=30 -o Acquire::https::Timeout=30 \
+            -o Acquire::Retries=2 -o Acquire::ForceIPv4=true -o Acquire::Languages=none \
+            update </dev/null; then
+            return 0
+        fi
+        echo "::warning::apt-get update from ${mirror} failed (attempt ${attempt})"
+        sleep 15
+    done
+    return 1
+}
+
+apt_install_toolchain() {
+    timeout -k 30 1800 apt-get -o Acquire::http::Timeout=30 -o Acquire::https::Timeout=30 \
+        -o Acquire::Retries=2 -o Acquire::ForceIPv4=true \
+        -o Dpkg::Options::=--force-confdef -o Dpkg::Options::=--force-confold \
+        install -y --no-install-recommends wget make gcc g++ cmake git ca-certificates python3 libopenmpi-dev openmpi-bin tzdata </dev/null
+}
+
 # The docker_base images are plain OS images: they carry neither the PPU SDK nor the build
 # toolchain, so install what the build needs before anything else. Some images point apt at an
 # internal-only proxy, hence the mirror rewrite below.
@@ -517,18 +566,21 @@ install_build_dependencies() {
         export TZ="${TZ:-Etc/UTC}"
         echo "Etc/UTC" > /etc/timezone
         ln -sf /usr/share/zoneinfo/Etc/UTC /etc/localtime
-        # A plain `apt-get update` blocks forever when a mirror stops answering; bound every
-        # transfer, force IPv4 and cap the whole run so a stuck mirror fails fast instead of hanging.
-        timeout -k 30 900 apt-get -o Acquire::http::Timeout=60 -o Acquire::https::Timeout=60 \
-            -o Acquire::Retries=3 -o Acquire::ForceIPv4=true update </dev/null
         # ca-certificates is needed for the HTTPS download of the SDK below (keep the trust store
         # current, the bundled one predates the issuer of download.t-head.cn's certificate), and
         # python3 is required by build.sh through argparse.bash: without it the build aborts with
         # "Neither python nor python3 is installed on this system".
-        timeout -k 30 1800 apt-get -o Acquire::http::Timeout=60 -o Acquire::https::Timeout=60 \
-            -o Acquire::Retries=3 -o Acquire::ForceIPv4=true \
-            -o Dpkg::Options::=--force-confdef -o Dpkg::Options::=--force-confold \
-            install -y --no-install-recommends wget make gcc g++ cmake git ca-certificates python3 libopenmpi-dev openmpi-bin tzdata </dev/null
+        # Install against the package index the image already carries first: refreshing ~30 MB of
+        # package lists is the slowest and most failure-prone network step of this row. Only pay
+        # for the refresh when that index cannot satisfy the toolchain.
+        if ! apt_install_toolchain; then
+            echo "::warning::the image's package index could not satisfy the toolchain; refreshing it"
+            apt_refresh_index "${codename}" || {
+                echo "::error::apt-get update failed against every mirror tried"
+                exit 1
+            }
+            apt_install_toolchain
+        fi
         update-ca-certificates >/dev/null 2>&1 || true
     elif command -v yum >/dev/null 2>&1; then
         prepare_yum_sources
@@ -704,43 +756,26 @@ assert_symmetric_tables() {
 }
 assert_symmetric_tables
 
-mkdir -p ${build_output}/comm_internal/pccl
-mkdir -p ${build_output}/comm_release/pccl
-mkdir -p ${build_output}/comm_internal/pccl/lib
-mkdir -p ${build_output}/comm_release/pccl/lib
+mkdir -p ${build_output}/pccl/lib
+find ${source_home}/pccl/build/lib -name "lib*.so*" ! -name "*.dbginfo" | xargs -i cp -arv {} ${build_output}/pccl/lib/
 
-find ${source_home}/pccl/build/lib -name "lib*.so*" ! -name "*.dbginfo" | xargs -i cp -arv {} ${build_output}/comm_internal/pccl/lib/
-find ${source_home}/pccl/build/lib -name "lib*.so*" ! -name "*.dbginfo" | xargs -i cp -arv {} ${build_output}/comm_release/pccl/lib/
+mkdir -p ${build_output}/pccl/include
+cp -arv ${source_home}/pccl/build/include/* ${build_output}/pccl/include/
 
-mkdir -p ${build_output}/comm_internal/pccl/include
-mkdir -p ${build_output}/comm_release/pccl/include
+mkdir -p ${build_output}/pccl/bin
+cp -arv ${source_home}/pccl/build/bin/pcclras ${build_output}/pccl/bin/
+cp -arv ${source_home}/pccl/envsetup.sh ${build_output}/pccl
 
-cp -arv ${source_home}/pccl/build/include/* ${build_output}/comm_internal/pccl/include/
-cp -arv ${source_home}/pccl/build/include/* ${build_output}/comm_release/pccl/include/
+cp ${source_home}/pccl/LICENSE.txt ${build_output}/pccl/LICENSE.txt
+cp ${source_home}/pccl/build/release.yaml ${build_output}/pccl/release.yaml
 
-mkdir -p ${build_output}/comm_internal/pccl/bin
-mkdir -p ${build_output}/comm_release/pccl/bin
-
-cp -arv ${source_home}/pccl/build/bin/pcclras ${build_output}/comm_internal/pccl/bin/
-cp -arv ${source_home}/pccl/build/bin/pcclras ${build_output}/comm_release/pccl/bin/
-cp -arv ${source_home}/pccl/envsetup.sh ${build_output}/comm_internal/pccl
-cp -arv ${source_home}/pccl/envsetup.sh ${build_output}/comm_release/pccl
-
-cp ${source_home}/pccl/LICENSE.txt ${build_output}/comm_internal/pccl/LICENSE.txt
-cp ${source_home}/pccl/LICENSE.txt ${build_output}/comm_release/pccl/LICENSE.txt
-
-cp ${source_home}/pccl/build/release.yaml ${build_output}/comm_internal/pccl/release.yaml
-cp ${source_home}/pccl/build/release.yaml ${build_output}/comm_release/pccl/release.yaml
-
-cd ${build_output}/comm_internal/ 
+cd ${build_output}
 # Archive the staged pccl/ directory explicitly instead of everything in the output directory:
 # the staging dir can outlive the run on a persistent runner, and `*` would then sweep a previous
-# archive back into this one (and a growing archive read back into itself aborts tar).
-tar -zcvf ${build_output}/comm_internal/"${pkg_name}.tar.gz" pccl
-rm -rf ${build_output}/comm_internal/pccl
-cd ${build_output}/comm_release/ 
-tar -zcvf ${build_output}/comm_release/"${pkg_name}.tar.gz" pccl
-rm -rf ${build_output}/comm_release/pccl
+# archive back into this one (and a growing archive read back into itself aborts tar). The tarball
+# lands next to the staging dir, which is the layout the upload step and the transfer back expect.
+tar -zcvf ${build_output}/"${pkg_name}.tar.gz" pccl
+rm -rf ${build_output}/pccl
 echo "BUILD PCCL FINISHED"
 
 # pccl-tests ships from this same run: the perf binaries are linked against the libpccl.so built a
@@ -765,7 +800,7 @@ build_pccl_tests_variant() {
 package_pccl_tests() {
     local repo="${source_home}/pccl-tests"
     local bins="all_gather_perf all_reduce_perf broadcast_perf reduce_scatter_perf reduce_perf"
-    local component bin
+    local bin
     bins="${bins} alltoall_perf gather_perf scatter_perf sendrecv_perf hypercube_perf"
     if [ ! -f "${repo}/build.sh" ]; then
         echo "::warning::${repo} is not checked out, skipping the pccl-tests tarball"
@@ -782,34 +817,27 @@ package_pccl_tests() {
     # spelling ("unknown argument"), hence -Xlinker; src/Makefile only appends to HGLDFLAGS, which
     # keeps the value coming from here.
     export HGLDFLAGS="${HGLDFLAGS:+${HGLDFLAGS} }-Xlinker --allow-shlib-undefined"
-    for component in comm_internal comm_release; do
-        mkdir -p "${build_output}/${component}/comm_tools/single_process"
-        mkdir -p "${build_output}/${component}/comm_tools/multi_process"
-        mkdir -p "${build_output}/${component}/comm_tools/licenses"
-    done
+    mkdir -p "${build_output}/comm_tools/single_process"
+    mkdir -p "${build_output}/comm_tools/multi_process"
+    mkdir -p "${build_output}/comm_tools/licenses"
     cd "${repo}"
     build_pccl_tests_variant pccl-tests-build --rebuild
-    for component in comm_internal comm_release; do
-        for bin in ${bins}; do
-            cp "${repo}/build/${bin}" "${build_output}/${component}/comm_tools/single_process/"
-        done
+    for bin in ${bins}; do
+        cp "${repo}/build/${bin}" "${build_output}/comm_tools/single_process/"
     done
     build_pccl_tests_variant pccl-tests-mpi-build --rebuild --use_mpi
-    for component in comm_internal comm_release; do
-        for bin in ${bins}; do
-            cp "${repo}/build/${bin}" "${build_output}/${component}/comm_tools/multi_process/"
-        done
-        cp "${repo}/LICENSE.txt" "${build_output}/${component}/comm_tools/licenses/nccl-tests-LICENSE.txt"
-        # Archive only this stage's own subtree: the pccl tarball already sits next to it in the
-        # same directory, and the pccl-tests script that used to own this output directory worked
-        # with `tar *` plus a cleanup that would have deleted it.
-        ( cd "${build_output}/${component}" && tar -zcvf "${pccl_tests_pkg_name}.tar.gz" comm_tools )
-        rm -rf "${build_output}/${component}/comm_tools"
-        if [ ! -f "${build_output}/${component}/${pccl_tests_pkg_name}.tar.gz" ]; then
-            echo "::error::${build_output}/${component}/${pccl_tests_pkg_name}.tar.gz was not produced"
-            exit 1
-        fi
+    for bin in ${bins}; do
+        cp "${repo}/build/${bin}" "${build_output}/comm_tools/multi_process/"
     done
+    cp "${repo}/LICENSE.txt" "${build_output}/comm_tools/licenses/nccl-tests-LICENSE.txt"
+    # Archive only this stage's own subtree, next to the pccl tarball built above: the packaging
+    # step that runs a directory-wide `tar *` and then wipes the siblings does not apply here.
+    ( cd "${build_output}" && tar -zcvf "${pccl_tests_pkg_name}.tar.gz" comm_tools )
+    rm -rf "${build_output}/comm_tools"
+    if [ ! -f "${build_output}/${pccl_tests_pkg_name}.tar.gz" ]; then
+        echo "::error::${build_output}/${pccl_tests_pkg_name}.tar.gz was not produced"
+        exit 1
+    fi
     echo "BUILD PCCL-TESTS FINISHED"
 }
 

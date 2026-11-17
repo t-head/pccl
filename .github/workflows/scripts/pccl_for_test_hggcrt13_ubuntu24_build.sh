@@ -490,6 +490,55 @@ dump_pccl_link_diagnostics() {
     echo "symmetric genobj: $(ls -1 "${sym_root}/genobj/symmetric" 2>/dev/null | wc -l) files under ${sym_root}/genobj/symmetric"
 }
 
+# Public Ubuntu mirrors, tried in this order. The first one is the historical default; the others
+# only exist so that one slow mirror cannot fail a whole matrix row.
+APT_MIRRORS="mirrors.aliyun.com mirrors.tuna.tsinghua.edu.cn mirrors.ustc.edu.cn"
+
+write_public_apt_sources() {
+    local mirror="$1"
+    local codename="$2"
+    # A plain sources.list replaces whatever the image shipped, deb822 .sources files included.
+    # main + universe carry everything this toolchain needs; multiverse and backports would only
+    # add package lists to download, which is the part that gets slow under load.
+    printf '%s\n' \
+        "deb http://${mirror}/ubuntu/ ${codename} main restricted universe" \
+        "deb http://${mirror}/ubuntu/ ${codename}-updates main restricted universe" \
+        "deb http://${mirror}/ubuntu/ ${codename}-security main restricted universe" \
+        > /etc/apt/sources.list
+    rm -f /etc/apt/sources.list.d/*.sources
+}
+
+# Bounded and retried: a stalled transfer is abandoned after 30s instead of being waited out, and a
+# mirror that keeps stalling is replaced by the next one in APT_MIRRORS. A single stalled index
+# fetch used to abort the whole row through the old 900s cap.
+apt_refresh_index() {
+    local codename="$1"
+    local attempt=0
+    local mirror
+    for mirror in ${APT_MIRRORS}; do
+        attempt=$((attempt + 1))
+        if [ -n "${codename}" ]; then
+            echo "refreshing the apt index from ${mirror}"
+            write_public_apt_sources "${mirror}" "${codename}"
+        fi
+        if timeout -k 30 600 apt-get -o Acquire::http::Timeout=30 -o Acquire::https::Timeout=30 \
+            -o Acquire::Retries=2 -o Acquire::ForceIPv4=true -o Acquire::Languages=none \
+            update </dev/null; then
+            return 0
+        fi
+        echo "::warning::apt-get update from ${mirror} failed (attempt ${attempt})"
+        sleep 15
+    done
+    return 1
+}
+
+apt_install_toolchain() {
+    timeout -k 30 1800 apt-get -o Acquire::http::Timeout=30 -o Acquire::https::Timeout=30 \
+        -o Acquire::Retries=2 -o Acquire::ForceIPv4=true \
+        -o Dpkg::Options::=--force-confdef -o Dpkg::Options::=--force-confold \
+        install -y --no-install-recommends wget make gcc g++ cmake git ca-certificates python3 libopenmpi-dev openmpi-bin tzdata </dev/null
+}
+
 # The docker_base images are plain OS images: they carry neither the PPU SDK nor the build
 # toolchain, so install what the build needs before anything else. Some images point apt at an
 # internal-only proxy, hence the mirror rewrite below.
@@ -542,18 +591,21 @@ install_build_dependencies() {
         export TZ="${TZ:-Etc/UTC}"
         echo "Etc/UTC" > /etc/timezone
         ln -sf /usr/share/zoneinfo/Etc/UTC /etc/localtime
-        # A plain `apt-get update` blocks forever when a mirror stops answering; bound every
-        # transfer, force IPv4 and cap the whole run so a stuck mirror fails fast instead of hanging.
-        timeout -k 30 900 apt-get -o Acquire::http::Timeout=60 -o Acquire::https::Timeout=60 \
-            -o Acquire::Retries=3 -o Acquire::ForceIPv4=true update </dev/null
         # ca-certificates is needed for the HTTPS download of the SDK below (keep the trust store
         # current, the bundled one predates the issuer of download.t-head.cn's certificate), and
         # python3 is required by build.sh through argparse.bash: without it the build aborts with
         # "Neither python nor python3 is installed on this system".
-        timeout -k 30 1800 apt-get -o Acquire::http::Timeout=60 -o Acquire::https::Timeout=60 \
-            -o Acquire::Retries=3 -o Acquire::ForceIPv4=true \
-            -o Dpkg::Options::=--force-confdef -o Dpkg::Options::=--force-confold \
-            install -y --no-install-recommends wget make gcc g++ cmake git ca-certificates python3 libopenmpi-dev openmpi-bin tzdata </dev/null
+        # Install against the package index the image already carries first: refreshing ~30 MB of
+        # package lists is the slowest and most failure-prone network step of this row. Only pay
+        # for the refresh when that index cannot satisfy the toolchain.
+        if ! apt_install_toolchain; then
+            echo "::warning::the image's package index could not satisfy the toolchain; refreshing it"
+            apt_refresh_index "${codename}" || {
+                echo "::error::apt-get update failed against every mirror tried"
+                exit 1
+            }
+            apt_install_toolchain
+        fi
         update-ca-certificates >/dev/null 2>&1 || true
     elif command -v yum >/dev/null 2>&1; then
         prepare_yum_sources
@@ -812,27 +864,27 @@ package_pccl_tests() {
 package_pccl_tests
 mkdir -p ${build_output}/comm-internal-testbox/tests/pccl-tests
 cp -r ${source_home}/pccl-tests/* ${build_output}/comm-internal-testbox/tests/pccl-tests
-cp -rf ${source_home}/PPU_SDK ${build_output}
 
 # This row exists to hand a ready-to-run test box to the test pipeline, so the whole ${build_output}
-# tree travels as one archive: pccl_build/, comm-internal-testbox/ (pccl-tests sources) and PPU_SDK/
-# next to the tarballs built above. The tarballs stay out of the archive because the staging step
-# already ships them on their own.
+# tree travels as one archive: pccl_build/ and comm-internal-testbox/ (pccl-tests sources).
+# PPU_SDK/ is deliberately NOT copied in: this script already installed it inside the image, it is an
+# order of magnitude bigger than everything else, and it is what used to push the bundle past the
+# transfer-back budget. The consumer installs the same SDK version from ${sdk_url} instead.
+# The archive is written straight into the output directory, next to where the regular rows leave
+# their tarballs, which is the layout the upload step and the transfer back expect.
 package_bundle() {
-    local bundle="${build_output}/comm_internal/${bundle_name}.tar.gz"
+    local bundle="${build_output}/${bundle_name}.tar.gz"
     local scratch
     echo "######################### $(date +%Y%m%d%H%M%S) Bundle ${build_output} into ${bundle} ##########################"
-    # Log what goes in: the SDK tree dwarfs everything else, and the sizes are the only way to
-    # tell from the job log where a multi-GB bundle comes from.
+    # Log what goes in: the sizes are the only way to tell from the job log what a bundle of this
+    # size is made of, and the SDK stays out of it on purpose (see above).
     du -sh "${build_output}"/* 2>/dev/null | sort -h || true
-    mkdir -p "${build_output}/comm_internal"
     # Build the archive next to ${build_output} and move it in afterwards: an archive written into
     # the tree it is walking would be read back into itself.
     scratch="$(dirname "${build_output}")/.${bundle_name}.tar.gz"
     rm -f "${scratch}" "${bundle}"
     tar -zcf "${scratch}" \
-        --exclude='./comm_internal/*.tar.gz' \
-        --exclude='./comm_release/*.tar.gz' \
+        --exclude='./*.tar.gz' \
         -C "${build_output}" .
     mv -f "${scratch}" "${bundle}"
     echo "######################### $(date +%Y%m%d%H%M%S) BUNDLE FINISHED $(du -h "${bundle}" | cut -f1) ##########################"
