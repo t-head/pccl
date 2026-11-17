@@ -1,14 +1,14 @@
 {
   "classification": {
-    "base_sha": "7d4892d0a7fd0577142b7c996b89fa35117e20f5",
-    "head_sha": "94f6b517675033c152208446d80b87659d18cd04",
-    "input_fingerprint": "9d5acc8f1497ada402b678c52eafa5bd96090fa2ceddad3bac6dd1be20b7a685",
+    "base_sha": "996baac6d4ec098e0cad3942a6dc21846022ff2a",
+    "head_sha": "3493d69868b06d6de82e603a3eac4425ed448ead",
+    "input_fingerprint": "154be2c39719010fcc4fd7617a93b88ad7c96ac1f98bb32b8966491122f092de",
     "pr_number": 196,
     "proposal": {
       "modules": [
         "ci"
       ],
-      "reason": "Main functional change is in open-source test workflow execution: the daily Actions pipeline now generates case inputs from JSON families, updates grouping/resource policy (including 8-node and cross-rack allocations), and produces/uploads a performance Excel report with new xtest tooling and validations. These are CI orchestration/reporting changes, not PCCL runtime module behavior."
+      "reason": "Main change is CI test-workflow behavior: new generated daily datasets, expanded 1/2/4/8-node execution grouping (including cross-rack allocation wiring), and new performance-report artifact generation from retained logs via workflow prepare/summary steps and supporting xtest tooling/tests. Other edits (retention/version bumps, docs, and test updates) support this CI execution/reporting path rather than introducing a separate catalog module."
     }
   },
   "reviewers": {
