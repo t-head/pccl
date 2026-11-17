@@ -2,13 +2,13 @@
   "classification": {
     "base_sha": "996baac6d4ec098e0cad3942a6dc21846022ff2a",
     "head_sha": "3493d69868b06d6de82e603a3eac4425ed448ead",
-    "input_fingerprint": "154be2c39719010fcc4fd7617a93b88ad7c96ac1f98bb32b8966491122f092de",
+    "input_fingerprint": "6f1562ac161af99a56b120b1a983fd1f106ffeadf3ea452166fb667b06f6cf3e",
     "pr_number": 196,
     "proposal": {
       "modules": [
         "ci"
       ],
-      "reason": "Main change is CI test-workflow behavior: new generated daily datasets, expanded 1/2/4/8-node execution grouping (including cross-rack allocation wiring), and new performance-report artifact generation from retained logs via workflow prepare/summary steps and supporting xtest tooling/tests. Other edits (retention/version bumps, docs, and test updates) support this CI execution/reporting path rather than introducing a separate catalog module."
+      "reason": "Main change is to CI test orchestration and reporting: workflows now generate on-demand daily case inputs from JSON families, expand scheduling/grouping policy (including cross-rack/rack_nodes and 1/2/4/8-node selection), run updated cluster actions, and produce/upload a validated performance workbook artifact. Added/updated xtest generators, grouping, reconciliation/report logic, and tests are supporting CI execution infrastructure rather than runtime modules."
     }
   },
   "reviewers": {
