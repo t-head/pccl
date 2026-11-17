@@ -1,14 +1,14 @@
 {
   "classification": {
     "base_sha": "996baac6d4ec098e0cad3942a6dc21846022ff2a",
-    "head_sha": "22efa5e9184213d36646aae3fb692908761c997f",
-    "input_fingerprint": "654b860c3499a644139cab98a67ae9c24bda2e2b26c39e4bc1685c2e4c6eceae",
+    "head_sha": "fc992b6ef5121236cfbb5790b8d8afc5b3993049",
+    "input_fingerprint": "5167398c37b18f09758fe9a9d0904fbbe25e388688f04e98e1a0de5da3ee0753",
     "pr_number": 195,
     "proposal": {
       "modules": [
         "workflow"
       ],
-      "reason": "Main functional changes are to contribution/review automation: squash preview publication behavior, maintainer-approval status messaging, and automated reviewer request synchronization/withdrawal, plus supporting Actions permission wiring for that review flow."
+      "reason": "Substantive changes are to review/merge automation: approval-gated squash preview publication via workflow_run, maintainer-gate status messaging, and automated reviewer request withdrawal/synchronization in GitHub scripts and workflows."
     }
   },
   "reviewers": {
