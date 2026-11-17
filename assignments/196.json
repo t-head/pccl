@@ -1,14 +1,14 @@
 {
   "classification": {
     "base_sha": "7d4892d0a7fd0577142b7c996b89fa35117e20f5",
-    "head_sha": "c211b87871cd8fa6ec23124fd8183af2f902cd97",
-    "input_fingerprint": "b3f2218ffb84bbc209c2f24dcaf00b83dcb9244f7785837b1f19198fbac469e0",
+    "head_sha": "51f4db93ddc97addd160eab12a09cade59237615",
+    "input_fingerprint": "decdba2fbc55fc524f1365754b97fd231eb762fea4a4cd7c468c0e4af570f535",
     "pr_number": 196,
     "proposal": {
       "modules": [
         "ci"
       ],
-      "reason": "Main substantive change is CI/test-execution infrastructure: the daily workflow now supports generated datasets, builds temporary case inputs from JSON families during prepare, and produces/upload a full performance Excel report from retained run artifacts. New xtest generator/report scripts, test-list definitions, and validation tests all support CI dataset selection, grouping, reconciliation, and reporting behavior; retention-day edits are incidental workflow housekeeping within the same CI scope."
+      "reason": "The PR substantively changes CI test orchestration and reporting: daily/source workflows add generated-smoke/generated-full inputs, cross-rack group execution metadata, updated runner/action wiring and retention policy, plus new xtest case-generation and performance-report tooling consumed by those workflows."
     }
   },
   "reviewers": {
