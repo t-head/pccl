@@ -2,13 +2,13 @@
   "classification": {
     "base_sha": "7d4892d0a7fd0577142b7c996b89fa35117e20f5",
     "head_sha": "93dc9c0371777c815d96849ebde849cce9d86293",
-    "input_fingerprint": "eadb4ed645be06a6fdd23926dc9d58890963297912ab2b9ae2d3bf5ff56bb222",
+    "input_fingerprint": "a5937155902f30922444a395b49f3989ea8ff890d6bbc8422ae5a73e15041c40",
     "pr_number": 195,
     "proposal": {
       "modules": [
         "workflow"
       ],
-      "reason": "Primary change is to contribution/review automation: squash preview publication moves from PR comments/statuses to a GitHub check-run (create/update matching, size guard, and safe old-comment cleanup), maintainer-gate status text is compacted for merge-box visibility while preserving full Details context, and the workflow permission wiring is updated to checks:write for that publishing job."
+      "reason": "Changes are centered on review/merge automation: squash-message preview publication moved from PR comments to a GitHub check, maintainer-approval gate status wording/visibility was adjusted, and workflow permissions were updated to support that check publication; docs were updated to match this review workflow behavior."
     }
   },
   "reviewers": {
