@@ -236,6 +236,25 @@ class WorkflowContractTests(unittest.TestCase):
         self.assertIn('rm -rf "$SHARED_ROOT"', cleanup)
         self.assertNotIn('rm -rf "$RESULT_ROOT"', cleanup)
 
+    def test_sanity_hardware_uses_the_validated_host_network_rdma_runtime(self):
+        single = self.text[self.text.index('  single-node:'):self.text.index('  two-node:')]
+        cluster = self.job('two-node')
+        for section in (single, cluster):
+            self.assertIn('host_network: true', section)
+            self.assertIn('dns_policy: ClusterFirstWithHostNet', section)
+            self.assertIn('host_volumes: /dev/infiniband:/dev/infiniband', section)
+            self.assertIn('export NCCL_SOCKET_IFNAME="$MPI_INTERFACE"', section)
+            self.assertIn('export OMPI_MCA_btl_tcp_if_include="$MPI_INTERFACE"', section)
+            self.assertIn('export OMPI_MCA_oob_tcp_if_include="$MPI_INTERFACE"', section)
+            self.assertIn('alixpu_peermem is loaded', section)
+            self.assertIn('alixpu_peermem is not loaded; DMA-BUF support is still possible', section)
+            self.assertIn('ibv_devinfo', section)
+            self.assertIn('rdma link show', section)
+            self.assertIn("raise SystemExit('No non-zero RoCE GID is visible inside the worker')", section)
+            self.assertIn('--mpi-interface "$MPI_INTERFACE"', section)
+        self.assertIn("timeout -k 5s 30s cluster-ssh", cluster)
+        self.assertIn('timeout -k 10s 60s mpirun --allow-run-as-root', cluster)
+
     def test_legacy_executor_and_experimental_triggers_are_absent(self):
         for removed in ('source-catalog.json', 'cluster-source-case.json', 'manifest.py',
                         'cluster_ci.py', 'single_node_ci.py', 'runner_capture.py',
