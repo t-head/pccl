@@ -2,13 +2,13 @@
   "classification": {
     "base_sha": "996baac6d4ec098e0cad3942a6dc21846022ff2a",
     "head_sha": "39b8ec66926f7e93c7870df3cba99d45381f03de",
-    "input_fingerprint": "1349af7b89b76385efda00b0d354d562f1b6e473be57c55dc9a9d73d286532ef",
+    "input_fingerprint": "03d36e458346b9364bb28831ab0b67c571f7aeb417940bffb0d61877074f56b6",
     "pr_number": 196,
     "proposal": {
       "modules": [
         "ci"
       ],
-      "reason": "Primary change is CI test orchestration/reporting: workflows now add generated datasets, 1/2/4/8-node and cross-rack execution routing, longer artifact retention, and a new performance workbook pipeline. The large `tests/xtest` additions (case-generation JSON families, grouping metadata, parser/report logic, and workflow contract tests) are supporting CI execution and result aggregation rather than PCCL runtime/module behavior changes."
+      "reason": "Main change is to open-source test workflow execution: daily/source-sanity CI pipelines now support generated datasets, 1/2/4/8-node selection with cross-rack allocations, extended retention, and a new performance workbook/report path, with substantial updates to xtest case-generation/grouping/reporting tooling and their validation tests."
     }
   },
   "reviewers": {
