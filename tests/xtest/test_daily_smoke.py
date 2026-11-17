@@ -124,15 +124,21 @@ class DailySmokeTests(unittest.TestCase):
                           'ucx_perftest', 'p2pBandwidthLatencyTest'):
                 self.assertNotIn(token, row['cmd'])
 
-    def test_daily_resource_policy_excludes_8_and_16_nodes_exactly(self):
-        plan = group_cases.build_plan(FULL_INPUT, 500, allowed_nodes=(1, 2, 4))
-        self.assertEqual(sum(len(group['cases']) for group in plan['groups']), 8180)
-        self.assertEqual(len(plan['groups']), 20)
+    def test_daily_resource_policy_excludes_only_16_nodes_exactly(self):
+        plan = group_cases.build_plan(FULL_INPUT, 500, allowed_nodes=(1, 2, 4, 8))
+        self.assertEqual(sum(len(group['cases']) for group in plan['groups']), 8890)
+        self.assertEqual(len(plan['groups']), 25)
         self.assertEqual({nodes: sum(len(group['cases']) for group in plan['groups']
                                      if group['nodes'] == nodes)
-                          for nodes in (1, 2, 4)}, {1: 4565, 2: 1924, 4: 1691})
+                          for nodes in (1, 2, 4, 8)},
+                         {1: 4565, 2: 1924, 4: 1691, 8: 710})
         self.assertEqual([(record['nodes'], record['case_count']) for record in plan['exclusions']],
-                         [(8, 710), (16, 9)])
+                         [(16, 9)])
+        cross_rack = {group['nodes']: group['rack_nodes'] for group in plan['groups']
+                      if group['cross_rack']}
+        self.assertEqual(cross_rack, {2: 'rack-01=1,rack-02=1',
+                                      4: 'rack-01=2,rack-02=2',
+                                      8: 'rack-01=4,rack-02=4'})
         with tempfile.TemporaryDirectory() as temporary:
             output = Path(temporary) / 'groups'
             group_cases.write_plan(plan, output, FULL_INPUT)
@@ -141,14 +147,15 @@ class DailySmokeTests(unittest.TestCase):
                     for group in plan['groups'] for case in group['cases']}
         excluded = {tuple(key) for key in sum((record['case_keys'] for record in plan['exclusions']), [])}
         self.assertEqual(coverage['total_cases'], 8899)
-        self.assertEqual(coverage['excluded_cases'], 719)
+        self.assertEqual(coverage['excluded_cases'], 9)
         self.assertEqual(len(selected | excluded), 8899)
         self.assertTrue(selected.isdisjoint(excluded))
+        eight_nodes = group_cases.build_plan(FULL_INPUT, 500, nodes=8, allowed_nodes=(1, 2, 4, 8))
+        self.assertEqual(sum(len(group['cases']) for group in eight_nodes['groups']), 710)
+        self.assertEqual(len(eight_nodes['groups']), 3)
         with self.assertRaisesRegex(ValueError, 'disabled by daily resource policy'):
-            group_cases.build_plan(FULL_INPUT, 500, nodes=8, allowed_nodes=(1, 2, 4))
-        with self.assertRaisesRegex(ValueError, 'disabled by daily resource policy'):
-            group_cases.build_plan(FULL_INPUT, 500, nodes=16, allowed_nodes=(1, 2, 4))
-        oversized = group_cases.build_plan(FULL_INPUT, 25, allowed_nodes=(1, 2, 4))
+            group_cases.build_plan(FULL_INPUT, 500, nodes=16, allowed_nodes=(1, 2, 4, 8))
+        oversized = group_cases.build_plan(FULL_INPUT, 25, allowed_nodes=(1, 2, 4, 8))
         self.assertGreater(len(oversized['groups']), 256)
 
     def test_commabort_binary_is_built_into_the_existing_artifact(self):
@@ -165,7 +172,8 @@ class DailySmokeTests(unittest.TestCase):
         self.assertIn('options: [smoke, full, generated-smoke, generated-full]', text)
         self.assertIn('default: smoke', text)
         self.assertIn('default: 500', text)
-        self.assertIn("DAILY_ALLOWED_NODES: '1,2,4'", text)
+        self.assertIn("DAILY_ALLOWED_NODES: '1,2,4,8'", text)
+        self.assertIn('VALIDATION_NODE_SELECTOR: board-type=ZW-M890P,nic-type=cx8', text)
         self.assertIn('execution-coverage.json', text)
         self.assertIn('Unexpected or out-of-policy result groups', text)
         self.assertIn('cancel-in-progress: false', text)
@@ -174,16 +182,18 @@ class DailySmokeTests(unittest.TestCase):
         self.assertIn('groups_sha256: ${{ steps.selection.outputs.groups_sha256 }}', text)
         self.assertIn('test_case_group_cache.py', text)
         self.assertIn('matrix: ${{ fromJSON(needs.prepare.outputs.groups) }}', text)
+        self.assertIn("'cross_rack', 'rack_nodes', 'case_count'", text)
+        self.assertIn("assert {group_cases._rack_nodes(case) for case in selected['cases']}", text)
         self.assertIn('max-parallel: 2', text)
         self.assertIn('fail-fast: false', text)
         self.assertIn('nnodes: ${{ matrix.nodes }}', text)
         self.assertIn('nproc_per_node: ${{ matrix.cards_per_node }}', text)
-        self.assertEqual(text.count('--input "$CASE_INPUT/$GROUP_ID"'), 2)
-        self.assertEqual(text.count('case_group_cache.py stage'), 2)
+        self.assertEqual(text.count('--input "$CASE_INPUT/$GROUP_ID"'), 3)
+        self.assertEqual(text.count('case_group_cache.py stage'), 3)
         self.assertIn('case_group_cache.py publish', text)
         self.assertIn('cache/case-groups/${{ env.EXPECTED_GROUPS_SHA }}', text)
         self.assertIn('Restore the NAS build cache', text)
-        self.assertEqual(text.count('--build-record "$CACHE_DIR/output_standard.build.json"'), 2)
+        self.assertEqual(text.count('--build-record "$CACHE_DIR/output_standard.build.json"'), 3)
         self.assertIn('--profile "$PROFILE"', text)
         self.assertIn('results/full/$GROUP_ID', text)
         self.assertIn('shared-standard/$GROUP_ID', text)
@@ -218,6 +228,23 @@ class DailySmokeTests(unittest.TestCase):
         self.assertNotIn('build-notsm', text)
         self.assertNotIn('default: device_api_shm_single_node_single_process_suite', text)
         self.assertNotIn('--profile standard --nodes "$NODES" --suite "$SUITE"', text)
+
+    def test_cross_rack_groups_use_the_validation_action_without_duplicate_execution(self):
+        text = FULL_WORKFLOW.read_text()
+        ordinary = text.split('name: Run the automatic multi-node group on master', 1)[1].split(
+            'name: Run the automatic cross-rack group on master', 1)[0]
+        cross = text.split('name: Run the automatic cross-rack group on master', 1)[1].split(
+            '\n  summary:', 1)[0]
+        action = 'uses: t-head/ci-infra/cluster-run@feat/rack-node-allocation'
+        self.assertIn(action, ordinary)
+        self.assertIn(action, cross)
+        self.assertIn("if: env.NODES != '1' && env.CROSS_RACK != 'true'", ordinary)
+        self.assertIn("if: env.NODES != '1' && env.CROSS_RACK == 'true'", cross)
+        self.assertNotIn('rack_nodes:', ordinary)
+        self.assertIn('rack_nodes: ${{ matrix.rack_nodes }}', cross)
+        self.assertIn('node_selector: ${{ env.VALIDATION_NODE_SELECTOR }}', cross)
+        self.assertNotIn('icn-rack=', text)
+        self.assertEqual(text.count(action), 2)
 
     def test_schedule_runs_full_daily_at_2200_beijing_time(self):
         text = FULL_WORKFLOW.read_text()

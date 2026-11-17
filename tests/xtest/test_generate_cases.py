@@ -131,12 +131,12 @@ class PublicGeneratorTests(unittest.TestCase):
             output, "standard", self.root / "performance-cases-suite.json",
             suite="op_perf_shm_single_node_suite")
         self.assertEqual(len(single_suite_selection["cases"]), 27)
-        plan = group_cases.build_plan(output, 500, allowed_nodes=(1, 2, 4))
+        plan = group_cases.build_plan(output, 500, allowed_nodes=(1, 2, 4, 8))
         self.assertEqual(len(combined["rows"]), 8899)
         self.assertEqual(len(combined["suites"]), 34)
-        self.assertEqual(sum(len(group["cases"]) for group in plan["groups"]), 8180)
-        self.assertEqual(len(plan["groups"]), 20)
-        self.assertEqual(sum(record["case_count"] for record in plan["exclusions"]), 719)
+        self.assertEqual(sum(len(group["cases"]) for group in plan["groups"]), 8890)
+        self.assertEqual(len(plan["groups"]), 25)
+        self.assertEqual(sum(record["case_count"] for record in plan["exclusions"]), 9)
 
     def test_profiles_filter_before_generating_combinations(self):
         definition = generate_cases.load_definition(DEFINITIONS / "postsil_daily_shm.json")

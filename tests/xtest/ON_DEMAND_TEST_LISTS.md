@@ -62,9 +62,10 @@ passes all fourteen definitions to the same command.
 The experimental branch adds two explicit `workflow_dispatch` choices:
 
 - `generated-smoke`: two Cases in one execution group.
-- `generated-full`: all 8,899 daily Cases in 34 Suites. The current 1/2/4-node
-  resource policy selects 8,180 Cases in twenty groups and records 710
-  eight-node and 9 sixteen-node Cases as excluded.
+- `generated-full`: all 8,899 daily Cases in 34 Suites. The current
+  1/2/4/8-node resource policy selects 8,890 Cases in 25 groups and records
+  only the 9 sixteen-node Cases as excluded. Two-rack Suites are isolated from
+  ordinary same-resource Suites and carry explicit `rack_nodes` allocations.
 
 The existing `smoke` and `full` datasets and the 22:00 Asia/Shanghai schedule
 are unchanged. The schedule still selects the legacy `full` dataset; no
@@ -99,7 +100,7 @@ count per layout rather than a Case-plus-size uniqueness assumption.
 
 The workbook contains an overview, per-topology tables, raw detail, Case
 coverage and run metadata. It is uploaded as the independent
-`m890p-daily-performance-report` artifact with seven-day retention. Raw logs
+`m890p-daily-performance-report` artifact with 90-day retention. Raw logs
 remain in the run-owned NAS `results/` tree; the Excel report does not replace
 that diagnostic evidence or the existing summary artifact.
 
@@ -116,8 +117,8 @@ including commands, checks, Suite resources, shared environments and explicit
 special Cases. Two legacy `device_api` Plan/Suite identities are explicitly
 normalized to the current source names; their 52 commands and resources remain
 unchanged. The existing grouping and public input consumer accept the generated
-bundle and reproduce the same 8,180 selected Cases, twenty groups and 719
-resource exclusions.
+bundle and reproduce the same 8,890 selected Cases, 25 groups and 9 resource
+exclusions.
 
 All current daily full Suites are covered, and no generated Python Case files
 are produced. The legacy CSV remains as a migration oracle and as the unchanged

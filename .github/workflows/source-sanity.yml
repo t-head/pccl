@@ -19,7 +19,7 @@ concurrency:
 
 env:
   VALIDATION_IMAGE: download.t-head.cn/docker_release/ppu:sdk2.2.0-hggcrt3-ubuntu24.04-py312-20261005
-  VALIDATION_NODE_SELECTOR: board-type=ZW-M890P
+  VALIDATION_NODE_SELECTOR: board-type=ZW-M890P,nic-type=cx8
   VALIDATION_CARDS: '8'
   PCCL_TESTS_REVISION: 394556512e87259e9ffa25225632c46b0a0bbcd5
 
@@ -218,7 +218,7 @@ jobs:
           path: pccl-tests
           persist-credentials: false
       - name: Build standard output
-        uses: t-head/ci-infra/cluster-run@main
+        uses: t-head/ci-infra/cluster-run@feat/rack-node-allocation
         with:
           image: ${{ env.VALIDATION_IMAGE }}
           nnodes: 0
@@ -303,7 +303,7 @@ jobs:
           path: pccl-tests
           persist-credentials: false
       - name: Build notsm output
-        uses: t-head/ci-infra/cluster-run@main
+        uses: t-head/ci-infra/cluster-run@feat/rack-node-allocation
         with:
           image: ${{ env.VALIDATION_IMAGE }}
           nnodes: 0
@@ -473,7 +473,7 @@ jobs:
             --pccl-revision '${{ github.sha }}' --pccl-tests-revision '${{ env.PCCL_TESTS_REVISION }}' \
             --expected-sha256 '${{ env.EXPECTED_SHA }}'
       - name: Restore the NAS cache and run single-node Cases
-        uses: t-head/ci-infra/cluster-run@main
+        uses: t-head/ci-infra/cluster-run@feat/rack-node-allocation
         with:
           image: ${{ env.VALIDATION_IMAGE }}
           nnodes: 0
@@ -571,7 +571,7 @@ jobs:
             --pccl-revision '${{ github.sha }}' --pccl-tests-revision '${{ env.PCCL_TESTS_REVISION }}' \
             --expected-sha256 '${{ env.EXPECTED_SHA }}'
       - name: Restore the shared NAS cache and run on master
-        uses: t-head/ci-infra/cluster-run@40165c945cba33ac7b16b41c4485fe53b68f581f
+        uses: t-head/ci-infra/cluster-run@feat/rack-node-allocation
         with:
           image: ${{ env.VALIDATION_IMAGE }}
           launch_mode: master
