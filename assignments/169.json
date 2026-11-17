@@ -2,17 +2,16 @@
   "classification": {
     "base_sha": "747030b6fe8cf6b111f18efb61c6e16ff76e9c0e",
     "head_sha": "aeae817c46a57c558c8375813af112320b9b4e37",
-    "input_fingerprint": "ddbc80e4fb8b2ff4aa2a01113b00b01202eb57a5f8a18cb0a807aa90d98e59a0",
+    "input_fingerprint": "777298522ba006d7cb33bf20578a976f00f2451a227460ecedcfc15fbb7670c2",
     "pr_number": 169,
     "proposal": {
       "modules": [
-        "bootstrap",
         "device-topology",
         "graph-search",
         "communicator",
         "network"
       ],
-      "reason": "Main change is moving NET/CollNet from process-global state to per-communicator backend selection and updating proxy progress/batching/shutdown behavior in transport/proxy paths (network). Communicator allocation/init/free now owns netName config, plugin retain/finalize, split-share backend compatibility, and per-comm U2MM modes (communicator). Bootstrap OOB device selection/listen now binds to each communicator\u2019s selected NET backend instead of global NET state (bootstrap). Topology discovery/path logic and graph comparison now use comm-specific NET/EIC/PXN state via useEic and ncclPxnDisable(comm), affecting NIC width handling and PXN decisions (device-topology, graph-search)."
+      "reason": "Primary change is in network behavior: NET/CollNet/plugin selection and lifetime become per-communicator, and proxy progress/shutdown batching/control is reworked across net/proxy/transport network paths. communicator is also needed because comm init/split/free now own netName config, plugin retain/finalize pairing, and parent-child shared-resource backend compatibility checks. device-topology and graph-search are independently affected because topology/EIC and PXN/graph selection logic now uses communicator-selected backend state (e.g., useEic and per-comm net version) rather than process-global network state."
     }
   },
   "reviewers": {
