@@ -292,6 +292,32 @@ def combine_bundles(bundles):
             "rows": ordered_rows, "generation": generation, "environments": sorted(environments)}
 
 
+def filter_bundles_by_nodes(bundles, nodes):
+    """Filter complete family bundles without requiring every family to match."""
+    if type(nodes) is not int or nodes <= 0:
+        raise ValueError("Node filter must be a positive integer")
+    selected_bundles = []
+    for bundle in bundles:
+        suite_rows = {(row["plan"], row["suite"]): row for row in bundle["suites"]}
+        rows = [row for row in bundle["rows"]
+                if int(suite_rows[(row["plan"], row["suite"])]["nodes"]) == nodes]
+        if not rows:
+            continue
+        selected_suites = {(row["plan"], row["suite"]) for row in rows}
+        suites = [row for row in bundle["suites"] if (row["plan"], row["suite"]) in selected_suites]
+        case_keys = "".join(f"{row['plan']}/{row['suite']}/{row['name']}\n" for row in rows)
+        generation = {**bundle["generation"], "nodes": nodes, "case_count": len(rows),
+                      "case_keys_sha256": sha256(case_keys.encode()).hexdigest()}
+        selected_bundles.append({
+            "metadata": bundle["metadata"], "suites": suites, "rows": rows,
+            "generation": generation,
+            "environments": sorted({row["env"] for row in suites}),
+        })
+    if not selected_bundles:
+        raise ValueError(f"Generation profile selected no Cases for node count {nodes}")
+    return selected_bundles
+
+
 def _write_csv(path, fields, rows):
     with path.open("w", newline="", encoding="utf-8") as stream:
         writer = csv.DictWriter(stream, fieldnames=fields, lineterminator="\n")
@@ -345,9 +371,12 @@ def main():
     args = parser.parse_args()
     try:
         bundles = [generate_bundle(definition, args.suites, args.source_revision,
-                                   args.runner_revision, args.profile, args.nodes)
+                                   args.runner_revision, args.profile)
                    for definition in args.definition]
-        bundle = bundles[0] if len(bundles) == 1 else combine_bundles(bundles)
+        combined = len(bundles) > 1
+        if args.nodes is not None:
+            bundles = filter_bundles_by_nodes(bundles, args.nodes)
+        bundle = combine_bundles(bundles) if combined else bundles[0]
         write_bundle(bundle, args.output, args.env_root)
     except (OSError, ValueError, KeyError, TypeError, json.JSONDecodeError) as error:
         parser.error(str(error))

@@ -5,6 +5,8 @@ import csv
 from hashlib import sha256
 import json
 from pathlib import Path
+import subprocess
+import sys
 import tempfile
 import unittest
 
@@ -161,6 +163,34 @@ class PublicGeneratorTests(unittest.TestCase):
         definition["profiles"]["smoke"]["filters"]["nproc"] = [999]
         with self.assertRaisesRegex(ValueError, "selected no Cases"):
             generate_cases.generate_rows(definition, "smoke")
+
+    def test_cli_filters_the_combined_selection_without_requiring_every_family_to_match(self):
+        output = self.root / "combined-nodes-2"
+        command = [
+            sys.executable, "-S", "-B", str(ROOT / "generate_cases.py"),
+            "--definition", str(DEFINITIONS / "op_perf_shm.json"),
+            "--definition", str(DEFINITIONS / "postsil_daily_shm.json"),
+            "--suites", str(SUITES), "--env-root", str(DEFINITIONS / "envs"),
+            "--profile", "full", "--nodes", "2",
+            "--source-revision", SOURCE_REVISION, "--runner-revision", RUNNER_REVISION,
+            "--output", str(output),
+        ]
+        completed = subprocess.run(command, text=True, capture_output=True)
+        self.assertEqual(completed.returncode, 0, completed.stderr)
+        generation = json.loads(completed.stdout)
+        self.assertEqual(generation["nodes"], 2)
+        self.assertEqual(generation["case_count"], 9)
+        self.assertEqual([record["family"] for record in generation["families"]], ["op_perf_shm"])
+        selected = run_cases.load_inputs(output, "standard")
+        self.assertEqual(len(selected["cases"]), 9)
+        self.assertTrue(all(case["suite_spec"]["nodes"] == 2 for case in selected["cases"]))
+        case_keys = "".join(f"{case['plan']}/{case['suite']}/{case['name']}\n"
+                            for case in selected["cases"])
+        expected_hash = sha256(case_keys.encode()).hexdigest()
+        self.assertEqual(generation["case_keys_sha256"], expected_hash)
+        self.assertEqual(generation["families"][0]["case_count"], 9)
+        self.assertEqual(generation["families"][0]["case_keys_sha256"], expected_hash)
+        self.assertEqual({case["suite_spec"]["env"] for case in selected["cases"]}, {"op_perf.env"})
 
     def test_temporary_output_is_deterministic_and_public_consumer_compatible(self):
         outputs = []

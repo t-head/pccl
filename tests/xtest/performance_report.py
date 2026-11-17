@@ -275,7 +275,14 @@ def _verification(groups, reconciliation_root):
         if not path.is_file():
             global_unverified.add(group["id"])
             continue
-        report = json.loads(path.read_text(encoding="utf-8"))
+        try:
+            report = json.loads(path.read_text(encoding="utf-8"))
+        except (OSError, UnicodeError, json.JSONDecodeError):
+            global_unverified.add(group["id"])
+            continue
+        if not isinstance(report, dict):
+            global_unverified.add(group["id"])
+            continue
         errors = report.get("errors", [])
         if not isinstance(errors, list) or (not report.get("ok", False) and not errors):
             global_unverified.add(group["id"])
@@ -288,7 +295,9 @@ def _verification(groups, reconciliation_root):
                 key = tuple(values)
                 name = "/".join(key)
                 if error.startswith(name + ": ") or error.endswith(" for " + name) \
-                        or error.endswith(": " + name):
+                        or error.endswith(": " + name) \
+                        or any(f"/{name}/{filename}: " in error
+                               for filename in ("result.json", "metrics.csv", "raw.log")):
                     unverified_cases.add(key)
                     break
             else:
@@ -343,7 +352,8 @@ def collect_report(selection_path, groups_path, coverage_path, results_root, met
         for row in rows:
             key = _key(row)
             if key in actual:
-                raise ValueError(f"Duplicate execution result: {key}")
+                unverified_cases.add(key)
+                continue
             actual[key] = (group_id, row)
             result_counts[row["status"]] += 1
         for key in selection:
@@ -361,8 +371,11 @@ def collect_report(selection_path, groups_path, coverage_path, results_root, met
     for index, case in enumerate(ordered_cases, 1):
         key = _key(case)
         case_id = f"C{index:03d}"
-        group_id = selected.get(key)
+        planned_group = selected.get(key)
         actual_result = actual.get(key)
+        actual_group = actual_result[0] if actual_result is not None else None
+        group_id = actual_group if actual_result is not None else planned_group
+        group_mismatch = actual_result is not None and actual_group != planned_group
         execution_status = actual_result[1]["status"] if actual_result else (
             "EXCLUDED" if group_id is None else "NO_RESULT")
         reason = actual_result[1]["error"] if actual_result else (
@@ -382,7 +395,11 @@ def collect_report(selection_path, groups_path, coverage_path, results_root, met
         if actual_result is not None:
             directory = results_root / actual_result[0] / Path(*key)
             log_path = directory / "raw.log"
-            if execution_status == "PASSED" and (group_id in global_unverified or key in unverified_cases):
+            if group_mismatch:
+                base["data_status"] = "UNVERIFIED"
+                base["reason"] = "Result group does not match the planned group"
+            elif execution_status == "PASSED" and (group_id in global_unverified
+                                                   or key in unverified_cases):
                 base["data_status"] = "UNVERIFIED"
                 base["reason"] = "Reconciliation failed or is unavailable"
             elif execution_status == "NOT_RUN":

@@ -191,6 +191,105 @@ class PerformanceReportTests(unittest.TestCase):
         self.assertEqual(report["summary"]["performance_total"]["unverified"], 1)
         self.assertEqual(report["summary"]["performance_total"]["passed"], 1)
 
+    def test_case_file_diagnostics_preserve_other_case_metrics(self):
+        path = self.results / "g001" / "results.csv"
+        with path.open(newline="") as stream:
+            rows = list(csv.DictReader(stream))
+        rows[1].update(status="PASSED", error="")
+        with path.open("w", newline="") as stream:
+            writer = csv.DictWriter(stream, fieldnames=run_cases.RESULT_FIELDS, lineterminator="\n")
+            writer.writeheader()
+            writer.writerows(rows)
+        key = performance_report._key(self.case1)
+        for filename in ("result.json", "metrics.csv"):
+            with self.subTest(filename=filename):
+                diagnostic = self.results / "g001" / Path(*key) / filename
+                (self.reconciliation / "g001" / "reconciliation.json").write_text(json.dumps({
+                    "ok": False, "errors": [f"{diagnostic}: damaged"]}))
+                report = self.collect()
+                first = next(row for row in report["coverage"] if row["name"] == self.case1["name"])
+                second = next(row for row in report["coverage"] if row["name"] == self.case2["name"])
+                self.assertEqual(first["data_status"], "UNVERIFIED")
+                self.assertEqual(second["data_status"], "PARTIAL")
+                self.assertEqual(report["summary"]["metric_rows"], 64)
+
+    def test_malformed_reconciliation_does_not_hide_another_group(self):
+        groups = json.loads(self.groups.read_text())
+        groups.append({"id": "g002", "case_keys": [list(performance_report._key(self.case3))]})
+        self.groups.write_text(json.dumps(groups))
+        self.coverage.write_text(json.dumps({
+            "total_cases": 3, "selected_cases": 3, "excluded_cases": 0,
+            "allowed_nodes": [1, 2, 4], "exclusions": []}))
+        key = performance_report._key(self.case3)
+        directory = self.results / "g002" / Path(*key)
+        directory.mkdir(parents=True)
+        (directory / "raw.log").write_text(performance_log())
+        row = {"plan": self.case3["plan"], "suite": self.case3["suite"], "name": self.case3["name"],
+               "check": self.case3["check"], "status": "PASSED", "return_code": "0",
+               "duration_seconds": 1.0, "error": "", "raw_log": "raw.log"}
+        (directory / "result.json").write_text(json.dumps(row))
+        with (self.results / "g002" / "results.csv").open("w", newline="") as stream:
+            writer = csv.DictWriter(stream, fieldnames=run_cases.RESULT_FIELDS, lineterminator="\n")
+            writer.writeheader()
+            writer.writerow(row)
+        (self.results / "g002" / "build.json").write_text(json.dumps({"archive_sha256": "def456"}))
+        (self.reconciliation / "g002").mkdir()
+        (self.reconciliation / "g002" / "reconciliation.json").write_text(json.dumps({
+            "ok": True, "errors": []}))
+        for content in ("{", "[]"):
+            with self.subTest(content=content):
+                (self.reconciliation / "g001" / "reconciliation.json").write_text(content)
+                report = self.collect()
+                first = next(row for row in report["coverage"] if row["name"] == self.case1["name"])
+                third = next(row for row in report["coverage"] if row["name"] == self.case3["name"])
+                self.assertEqual(first["data_status"], "UNVERIFIED")
+                self.assertEqual(third["data_status"], "VALID")
+                self.assertEqual(third["group"], "g002")
+
+    def test_duplicate_result_marks_only_the_duplicate_unverified(self):
+        path = self.results / "g001" / "results.csv"
+        with path.open(newline="") as stream:
+            rows = list(csv.DictReader(stream))
+        rows[1].update(status="PASSED", error="")
+        rows.append(dict(rows[0]))
+        with path.open("w", newline="") as stream:
+            writer = csv.DictWriter(stream, fieldnames=run_cases.RESULT_FIELDS, lineterminator="\n")
+            writer.writeheader()
+            writer.writerows(rows)
+        report = self.collect()
+        first = next(row for row in report["coverage"] if row["name"] == self.case1["name"])
+        second = next(row for row in report["coverage"] if row["name"] == self.case2["name"])
+        self.assertEqual(first["data_status"], "UNVERIFIED")
+        self.assertEqual(second["data_status"], "PARTIAL")
+        self.assertEqual(report["summary"]["metric_rows"], 64)
+
+    def test_result_from_an_unplanned_group_is_unverified(self):
+        path = self.results / "g001" / "results.csv"
+        with path.open(newline="") as stream:
+            rows = list(csv.DictReader(stream))
+        key = performance_report._key(self.case3)
+        row = {"plan": self.case3["plan"], "suite": self.case3["suite"], "name": self.case3["name"],
+               "check": self.case3["check"], "status": "PASSED", "return_code": "0",
+               "duration_seconds": 1.0, "error": "", "raw_log": "raw.log"}
+        rows.append(row)
+        with path.open("w", newline="") as stream:
+            writer = csv.DictWriter(stream, fieldnames=run_cases.RESULT_FIELDS, lineterminator="\n")
+            writer.writeheader()
+            writer.writerows(rows)
+        directory = self.results / "g001" / Path(*key)
+        directory.mkdir(parents=True)
+        (directory / "raw.log").write_text(performance_log())
+        (directory / "result.json").write_text(json.dumps(row))
+        report = self.collect()
+        first = next(row for row in report["coverage"] if row["name"] == self.case1["name"])
+        third = next(row for row in report["coverage"] if row["name"] == self.case3["name"])
+        self.assertEqual(first["data_status"], "VALID")
+        self.assertEqual(third["execution_status"], "PASSED")
+        self.assertEqual(third["group"], "g001")
+        self.assertEqual(third["data_status"], "UNVERIFIED")
+        self.assertEqual(third["valid_out_of_place"], 0)
+        self.assertIn("does not match the planned group", third["reason"])
+
     def test_nonpositive_time_and_negative_bandwidth_are_not_valid_points(self):
         log = self.results / "g001" / Path(*performance_report._key(self.case1)) / "raw.log"
         original = log.read_text()
