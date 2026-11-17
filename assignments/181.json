@@ -1,14 +1,14 @@
 {
   "classification": {
-    "base_sha": "747030b6fe8cf6b111f18efb61c6e16ff76e9c0e",
-    "head_sha": "f8ecdaa77d957b8a9f246bb261e3cffe06664518",
-    "input_fingerprint": "c8ff2375858648d87f1763630bc9b6c7230ac89de2d20561e7a222925c226913",
+    "base_sha": "7d4892d0a7fd0577142b7c996b89fa35117e20f5",
+    "head_sha": "86e5adab1175a9656b50cdb988e94205526d5d9d",
+    "input_fingerprint": "019eb91c5e6521ac241730d93ef592b7c508ef867f50e84836ca4bb35682acd7",
     "pr_number": 181,
     "proposal": {
       "modules": [
         "network"
       ],
-      "reason": "Main functional change is in InfiniBand network transport speed discovery: net_ib now prefers ibv_query_port_speed (with fallback to active_speed_ex/active_speed) and adds XDR rate support to improve NIC bandwidth detection. The ibv wrapper/header updates are supporting ABI/symbol plumbing for that same network behavior, not a separate module."
+      "reason": "Main substantive change is in the InfiniBand network backend: it adds optional ibv_query_port_speed-based link-rate detection (with active_speed_ex/active_speed fallback), updates IB speed mapping for XDR, and wires the required ibverbs wrapper/ABI compatibility hooks to improve NIC speed discovery in net_ib initialization."
     }
   },
   "reviewers": {
