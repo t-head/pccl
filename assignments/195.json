@@ -2,13 +2,13 @@
   "classification": {
     "base_sha": "996baac6d4ec098e0cad3942a6dc21846022ff2a",
     "head_sha": "35a510645b9467c3cf7c27290faa4a5d35ff8dc5",
-    "input_fingerprint": "ce3515cd5bec6fc88abb833ab02b35b751ea31dd932efaa834b457231c31a2e6",
+    "input_fingerprint": "7b109852eb691a97637c562852058370867e65dc1b1b0cc44ca945ef9ff7f03f",
     "pr_number": 195,
     "proposal": {
       "modules": [
         "workflow"
       ],
-      "reason": "`.github/scripts/review_automation.py` changes reviewer-request lifecycle policy (including automated withdrawal/reinvite handling), `.github/scripts/maintainer_approval.py` changes review-gate status text behavior, and `commit_message_squash.py` plus `.github/workflows/commit-message.yml` move squash-preview publication behind GitHub approval/workflow-run checks; `.github/skills/pccl-review-assignment/*` updates module-classification review rules. These are contribution/review workflow and Actions-wiring contract changes, not runtime PCCL module behavior."
+      "reason": "`.github/scripts/review_automation.py` (automated reviewer withdrawal/sync), `maintainer_approval.py` (pending-gate status behavior), `commit_message_squash.py` + `.github/workflows/commit-message.yml` (approval-gated squash preview publication), and `.github/skills/pccl-review-assignment/*` (evidence-based module-classification policy) are all review/merge workflow automation changes."
     }
   },
   "reviewers": {
