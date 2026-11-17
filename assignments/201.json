@@ -1,15 +1,15 @@
 {
   "classification": {
-    "base_sha": "7d4892d0a7fd0577142b7c996b89fa35117e20f5",
-    "head_sha": "181532620234939d83d4d3992ef24e67b37bc836",
-    "input_fingerprint": "a826c6e077f1d00a0a07ad4e9a01d0f1e752c51da852ef69c465422cef5913f8",
+    "base_sha": "996baac6d4ec098e0cad3942a6dc21846022ff2a",
+    "head_sha": "fa3c68cace49da12cde834e04e5be904847f0d8a",
+    "input_fingerprint": "4de78f014326b50e869864b3cdd30c2cc49e2b0f83541d1542b3fbe2b791a83a",
     "pr_number": 201,
     "proposal": {
       "modules": [
         "network",
         "gin"
       ],
-      "reason": "Main change updates GIN device-side utility memory/fence instruction mnemonics to the new `ppu.*` forms in `gin_troce_utils.h`, which is a direct GIN API/backend behavior surface. Additional network review is needed because the same semantic instruction changes are also applied in the Net IB DOCA GPUNetIO device verbs backend (`transport/net_ib/.../doca_gpunetio_dev_verbs_common.cuh`), an independently substantive transport/network implementation path."
+      "reason": "Primary change updates GIN device-side synchronization/load-store utility semantics (fence acquire/release and relaxed load/store instructions) in GIN troce helpers. A second independently substantive change applies the same memory-ordering instruction migration in the DOCA net_ib device verbs backend under transport/net_ib, which falls under network transport backend behavior and needs network-module review."
     }
   },
   "reviewers": {
