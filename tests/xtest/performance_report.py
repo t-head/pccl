@@ -9,6 +9,7 @@ because its raw log contains a benchmark table.
 """
 
 import argparse
+import csv
 from collections import Counter
 from datetime import datetime
 from decimal import Decimal
@@ -182,7 +183,7 @@ def _build_sha(directory):
         return ""
     try:
         value = json.loads(path.read_text(encoding="utf-8"))
-    except (OSError, json.JSONDecodeError):
+    except (OSError, UnicodeError, json.JSONDecodeError):
         return ""
     if not isinstance(value, dict):
         return ""
@@ -269,6 +270,7 @@ def _verification(groups, reconciliation_root):
     """Consume existing reconciliation errors instead of trusting CSV PASSED alone."""
     global_unverified = set()
     unverified_cases = set()
+    mismatched_cases = set()
     root = Path(reconciliation_root)
     for group in groups:
         path = root / group["id"] / "reconciliation.json"
@@ -291,6 +293,8 @@ def _verification(groups, reconciliation_root):
             if not isinstance(error, str):
                 global_unverified.add(group["id"])
                 continue
+            if error.startswith(("Summary total ", "Summary counts ")):
+                continue
             for values in group["case_keys"]:
                 key = tuple(values)
                 name = "/".join(key)
@@ -299,17 +303,19 @@ def _verification(groups, reconciliation_root):
                         or any(f"/{name}/{filename}: " in error
                                for filename in ("result.json", "metrics.csv", "raw.log")):
                     unverified_cases.add(key)
+                    if not re.match(rf"^{re.escape(name)}: (?:FAILED|TIMEOUT|CANCELLED|NOT_RUN):", error):
+                        mismatched_cases.add(key)
                     break
             else:
                 global_unverified.add(group["id"])
-    return global_unverified, unverified_cases
+    return global_unverified, unverified_cases, mismatched_cases
 
 
 def _recover_result(results_root, group_id, key):
     path = results_root / group_id / Path(*key) / "result.json"
     try:
         record = json.loads(path.read_text(encoding="utf-8"))
-    except (OSError, json.JSONDecodeError):
+    except (OSError, UnicodeError, json.JSONDecodeError):
         return None
     if not isinstance(record, dict) or not isinstance(record.get("status"), str):
         return None
@@ -333,7 +339,7 @@ def collect_report(selection_path, groups_path, coverage_path, results_root, met
                 raise ValueError(f"Duplicate group assignment: {key}")
             selected[key] = group["id"]
 
-    global_unverified, unverified_cases = _verification(groups, reconciliation_root)
+    global_unverified, unverified_cases, mismatched_cases = _verification(groups, reconciliation_root)
 
     selection = {_key(case): dict(case) for case in manifest["cases"]}
     actual = {}
@@ -345,7 +351,7 @@ def collect_report(selection_path, groups_path, coverage_path, results_root, met
         path = results_root / group_id / "results.csv"
         try:
             rows = run_cases._read_csv(path, run_cases.RESULT_FIELDS) if path.is_file() else []
-        except (OSError, ValueError):
+        except (OSError, ValueError, csv.Error):
             rows = []
         if not path.is_file() or not rows:
             global_unverified.add(group_id)
@@ -353,11 +359,12 @@ def collect_report(selection_path, groups_path, coverage_path, results_root, met
             key = _key(row)
             if key in actual:
                 unverified_cases.add(key)
+                mismatched_cases.add(key)
                 continue
             actual[key] = (group_id, row)
             result_counts[row["status"]] += 1
-        for key in selection:
-            if selected.get(key) != group_id or key in actual:
+        for key, planned_group in selected.items():
+            if planned_group != group_id or key in actual:
                 continue
             record = _recover_result(results_root, group_id, key)
             if record is not None:
@@ -395,9 +402,10 @@ def collect_report(selection_path, groups_path, coverage_path, results_root, met
         if actual_result is not None:
             directory = results_root / actual_result[0] / Path(*key)
             log_path = directory / "raw.log"
-            if group_mismatch:
+            if group_mismatch or key in mismatched_cases:
                 base["data_status"] = "UNVERIFIED"
-                base["reason"] = "Result group does not match the planned group"
+                base["reason"] = ("Result group does not match the planned group" if group_mismatch
+                                  else "Reconciliation found inconsistent Case evidence")
             elif execution_status == "PASSED" and (group_id in global_unverified
                                                    or key in unverified_cases):
                 base["data_status"] = "UNVERIFIED"
@@ -446,8 +454,9 @@ def collect_report(selection_path, groups_path, coverage_path, results_root, met
         summary["passed"] += row["execution_status"] == "PASSED" and row["data_status"] != "UNVERIFIED"
         summary["valid"] += row["data_status"] == "VALID"
         summary["partial"] += row["data_status"] == "PARTIAL"
-        summary["failed"] += row["execution_status"] not in (
+        summary["failed"] += (row["execution_status"] not in (
             "PASSED", "NO_RESULT", "EXCLUDED", "NOT_RUN", "UNVERIFIED")
+            and row["data_status"] != "UNVERIFIED")
         summary["unfinished"] += row["execution_status"] in ("NO_RESULT", "EXCLUDED", "NOT_RUN")
         summary["unverified"] += row["data_status"] == "UNVERIFIED"
         summary["valid_out_of_place"] += row["valid_out_of_place"]
@@ -456,7 +465,8 @@ def collect_report(selection_path, groups_path, coverage_path, results_root, met
              for field in ("passed", "valid", "partial", "failed", "unfinished",
                            "unverified",
                            "valid_out_of_place", "missing_out_of_place")}
-    selected_result_count = sum(key in actual for key in selected)
+    selected_result_count = sum(key in actual and actual[key][0] == planned_group
+                                for key, planned_group in selected.items())
     summary = {
         "topology": topology, "performance_total": total,
         "performance_cases": len(coverage_rows), "metric_rows": len(metric_rows),

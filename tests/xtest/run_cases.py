@@ -292,17 +292,33 @@ def parse_performance(text, allow_unsupported=False, skip_malformed=False):
             if skip_malformed:
                 continue
             raise ValueError("Truncated or malformed performance table row")
+        parsed_row = []
+        malformed = False
         for offset, current in ((5, "out-of-place"), (9, "in-place")):
             wrong = tokens[offset + 3]
             if not re.fullmatch(r"[0-9]+", wrong) and not (allow_unsupported and wrong == "N/A"):
+                if skip_malformed:
+                    malformed = True
+                    break
                 raise ValueError("Performance #wrong value must be numeric")
             if wrong != "N/A" and int(wrong) != 0:
                 raise ValueError("Performance data validation reported wrong values")
-            rows.append({"size": tokens[0], "count": tokens[1], "type": tokens[2],
-                         "redop": tokens[3], "root": tokens[4], "placement": current,
-                         "time_kind": header[6], "time": _number(tokens[offset]),
-                         "algbw": _number(tokens[offset + 1]), "busbw": _number(tokens[offset + 2]),
-                         "wrong": wrong, "source_line": line_number})
+            try:
+                values = (_number(tokens[offset]), _number(tokens[offset + 1]),
+                          _number(tokens[offset + 2]))
+            except ValueError:
+                if skip_malformed:
+                    malformed = True
+                    break
+                raise
+            parsed_row.append({"size": tokens[0], "count": tokens[1], "type": tokens[2],
+                               "redop": tokens[3], "root": tokens[4], "placement": current,
+                               "time_kind": header[6], "time": values[0],
+                               "algbw": values[1], "busbw": values[2],
+                               "wrong": wrong, "source_line": line_number})
+        if malformed:
+            continue
+        rows.extend(parsed_row)
     if header is None or not rows:
         raise ValueError("Missing performance table or measurements")
     return rows
