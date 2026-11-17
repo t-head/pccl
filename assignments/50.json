@@ -1,0 +1,21 @@
+{
+  "classification": {
+    "base_sha": "996baac6d4ec098e0cad3942a6dc21846022ff2a",
+    "head_sha": "8629ca864ba4f501eccdc67ba6e00f2cd3832dd7",
+    "input_fingerprint": "622a2790ffc12ee8079731a6dadbcc7b6a1248bc8b3a9d5df79608be4d39f41a",
+    "pr_number": 50,
+    "proposal": {
+      "modules": [
+        "transport",
+        "memory",
+        "network"
+      ],
+      "reason": "Primary change is in network: NET send-credit head storage defaults to sender-local device memory, with new send-connect payload/mapping lifecycle, initialization, and cleanup in src/transport/net.cc. Add transport because src/transport/p2p.cc introduces an allocation-only proxy-buffer path and ownership/teardown flow used to provision those NET heads via P2P proxy connections. Add memory because src/include/alloc.h adds MEM_LEGACY runtime device allocation/free behavior (and tracking path) that changes allocation semantics used by the new transport/network flow."
+    }
+  },
+  "reviewers": {
+    "memory": 341349555,
+    "network": 341355176,
+    "transport": 340104201
+  }
+}
