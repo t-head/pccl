@@ -131,7 +131,7 @@ exit:
 }
 
 NCCL_API(ncclResult_t, pcclCommDeregister, const ncclComm_t comm, void* handle);
-ncclResult_t pcclCommDeregister(const ncclComm_t comm, void *handle) {
+ncclResult_t pcclCommDeregister(const ncclComm_t comm, void* handle) {
   INFO_CALL("PCCL API: pcclCommDeregister(comm=%p, handle=%p)", comm, handle);
   NCCLCHECK(commDeregister(comm, false, (struct ncclReg*)handle));
   return ncclSuccess;

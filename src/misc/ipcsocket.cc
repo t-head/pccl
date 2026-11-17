@@ -269,3 +269,7 @@ fail:
 #endif
   return ncclSuccess;
 }
+
+int ncclIpcFdClose(ncclIpcFd fd) {
+  return close(fd);
+}

@@ -1,7 +1,7 @@
 /*************************************************************************
  * SPDX-FileCopyrightText: Copyright (c) 2019-2026 NVIDIA CORPORATION & AFFILIATES. All rights reserved.
  * SPDX-FileCopyrightText: Modifications Copyright (c) 2020-2026 T-Head (Shanghai) Semiconductor Co., Ltd. All rights reserved.
- * SPDX-License-Identifier: BSD-3-Clause
+ * SPDX-License-Identifier: Apache-2.0
  *
  * See LICENSE.txt for more license information
  *************************************************************************/
@@ -157,27 +157,50 @@ static inline ncclResult_t ncclHgMemMapAndSetAccess(void *ptr, size_t size, HGme
   return result;
 }
 
-static inline ncclResult_t ncclHgMemFreeAddr(void *ptr, struct ncclMemManager* manager = nullptr) {
+// Note: pccl's own allocations use a special hggc driver API that keeps physical memory usage
+//       as low as possible: VA is aligned to 8MB, while PA is allocated in 2MB chunks.
+//       With multiple segments, one 8MB VA range cannot be mapped to several non-contiguous
+//       2MB PA chunks. That mapping fails, and the release logic below can't handle it either.
+//       User sendbuff/recvbuff passed to register/unregister are assumed to come from the
+//       standard hggc allocation APIs. Their PA is also 8MB-aligned, so this case can't happen.
+static inline ncclResult_t ncclHgMemFreeAddr(void *ptr, struct ncclMemManager* manager = nullptr,
+    int numSegments = 1) {
   if (ptr == NULL) return ncclSuccess;
   ncclResult_t result = ncclSuccess;
   size_t sizeAlignedVir = 0;
+  size_t totalSize = 0;
+  size_t maxGranularity = 0;
   ncclMemUntrackInfo info = {};
   if (manager) NCCLCHECKGOTO(ncclMemUntrack(manager, ptr, 0, &info), result, fail);
 
   if (info.memType != ncclMemPersist && info.dynMemState == ncclDynMemStateReleased) {
     sizeAlignedVir = info.reservationSize;
   } else {
-    HGmemGenericAllocationHandle handle;
-    size_t sizeAlignedPhy = 0;
-    size_t granularityVir = 0;
-    HGmemAllocationProp prop = {};
-    HGCHECKGOTO(hgMemRetainAllocationHandle(&handle, ptr), result, fail);
-    HGCHECKGOTO(hgMemRelease(handle), result, fail);
-    HGCHECKGOTO(hgMemGetAllocationPropertiesFromHandle(&prop, handle), result, fail);
-    HGCHECKGOTO(hgMemGetAllocationGranularity(&granularityVir, &prop, HG_MEM_ALLOC_GRANULARITY_MINIMUM), result, fail);
-    HGCHECKGOTO(hgMemGetAddressRange(NULL, &sizeAlignedPhy, (HGdeviceptr)ptr), result, fail);
-    ALIGN_SIZE_WITH_RTN(sizeAlignedPhy, granularityVir, sizeAlignedVir);
-    HGCHECKGOTO(hgMemUnmap((HGdeviceptr)ptr, sizeAlignedPhy), result, fail);
+    for (int segment = 0; segment < numSegments; segment++) {
+      HGmemGenericAllocationHandle handle;
+      size_t sizeAlignedPhy = 0;
+      size_t granularityVir = 0;
+      HGmemAllocationProp prop = {};
+      HGCHECKGOTO(hgMemRetainAllocationHandle(&handle, (void*)((char*)ptr + totalSize)), result, fail);
+      HGCHECKGOTO(hgMemRelease(handle), result, fail);
+      HGCHECKGOTO(hgMemGetAllocationPropertiesFromHandle(&prop, handle), result, fail);
+      HGCHECKGOTO(hgMemGetAllocationGranularity(&granularityVir, &prop, HG_MEM_ALLOC_GRANULARITY_MINIMUM), result, fail);
+      HGCHECKGOTO(hgMemGetAddressRange(NULL, &sizeAlignedPhy, (HGdeviceptr)ptr + totalSize), result, fail);
+      // Internal PCCL allocations always use numSegments == 1.
+      // For IPC registration, a single segment may have different physical and
+      // virtual allocation granularities. With multiple segments, each segment's
+      // sizeAlignedPhy must be a multiple of granularityVir.
+      if (numSegments > 1 && sizeAlignedPhy % granularityVir != 0)  {
+        ERROR("Invalid multi-segment mapping: physical segment size %zu is not a multiple of virtual granularity %zu (numSegments=%d)",
+              sizeAlignedPhy, granularityVir, numSegments);
+        result = ncclInternalError;
+        goto fail;
+      }
+      maxGranularity = std::max(maxGranularity, granularityVir);
+      ALIGN_SIZE_WITH_RTN(totalSize + sizeAlignedPhy, maxGranularity, sizeAlignedVir);
+      HGCHECKGOTO(hgMemUnmap((HGdeviceptr)ptr + totalSize, sizeAlignedPhy), result, fail);
+      totalSize += sizeAlignedPhy;
+    }
   }
 fail:
   HGCHECK(hgMemAddressFree((HGdeviceptr)ptr, sizeAlignedVir));
@@ -234,28 +257,41 @@ static inline ncclResult_t ncclHgMemAlloc(void **ptr, HGmemGenericAllocationHand
   return result;
 }
 
-static inline ncclResult_t ncclHgMemFree(void *ptr, struct ncclMemManager* manager = nullptr) {
+static inline ncclResult_t ncclHgMemFree(void *ptr, struct ncclMemManager* manager = nullptr,
+    int numSegments = 1) {
   if (ptr == NULL) return ncclSuccess;
   ncclResult_t result = ncclSuccess;
   size_t sizeAlignedVir = 0;
+  size_t totalSize = 0;
+  size_t maxGranularity = 0;
   ncclMemUntrackInfo info = {};
   if (manager) NCCLCHECKGOTO(ncclMemUntrack(manager, ptr, 0, &info), result, fail);
 
   if (info.memType != ncclMemPersist && info.dynMemState == ncclDynMemStateReleased) {
     sizeAlignedVir = info.reservationSize;
   } else {
-    HGmemGenericAllocationHandle handle;
-    size_t sizeAlignedPhy = 0;
-    size_t granularityVir = 0;
-    HGmemAllocationProp prop = {};
-    HGCHECKGOTO(hgMemRetainAllocationHandle(&handle, ptr), result, fail);
-    HGCHECKGOTO(hgMemRelease(handle), result, fail);
-    HGCHECKGOTO(hgMemGetAllocationPropertiesFromHandle(&prop, handle), result, fail);
-    HGCHECKGOTO(hgMemGetAllocationGranularity(&granularityVir, &prop, HG_MEM_ALLOC_GRANULARITY_MINIMUM), result, fail);
-    HGCHECKGOTO(hgMemGetAddressRange(NULL, &sizeAlignedPhy, (HGdeviceptr)ptr), result, fail);
-    ALIGN_SIZE_WITH_RTN(sizeAlignedPhy, granularityVir, sizeAlignedVir);
-    HGCHECKGOTO(hgMemUnmap((HGdeviceptr)ptr, sizeAlignedPhy), result, fail);
-    HGCHECKGOTO(hgMemRelease(handle), result, fail);
+    for (int segment = 0; segment < numSegments; segment++) {
+      HGmemGenericAllocationHandle handle;
+      size_t sizeAlignedPhy = 0;
+      size_t granularityVir = 0;
+      HGmemAllocationProp prop = {};
+      HGCHECKGOTO(hgMemRetainAllocationHandle(&handle, (void*)((char*)ptr + totalSize)), result, fail);
+      HGCHECKGOTO(hgMemRelease(handle), result, fail);
+      HGCHECKGOTO(hgMemGetAllocationPropertiesFromHandle(&prop, handle), result, fail);
+      HGCHECKGOTO(hgMemGetAllocationGranularity(&granularityVir, &prop, HG_MEM_ALLOC_GRANULARITY_MINIMUM), result, fail);
+      HGCHECKGOTO(hgMemGetAddressRange(NULL, &sizeAlignedPhy, (HGdeviceptr)ptr + totalSize), result, fail);
+      if (numSegments > 1 && sizeAlignedPhy % granularityVir != 0)  {
+        ERROR("Invalid multi-segment mapping: physical segment size %zu is not a multiple of virtual granularity %zu (numSegments=%d)",
+              sizeAlignedPhy, granularityVir, numSegments);
+        result = ncclInternalError;
+        goto fail;
+      }
+      maxGranularity = std::max(maxGranularity, granularityVir);
+      ALIGN_SIZE_WITH_RTN(totalSize + sizeAlignedPhy, maxGranularity, sizeAlignedVir);
+      HGCHECKGOTO(hgMemUnmap((HGdeviceptr)ptr + totalSize, sizeAlignedPhy), result, fail);
+      HGCHECKGOTO(hgMemRelease(handle), result, fail);
+      totalSize += sizeAlignedPhy;
+    }
   }
 fail:
   HGCHECK(hgMemAddressFree((HGdeviceptr)ptr, sizeAlignedVir));
@@ -492,7 +528,8 @@ finish:
 }
 
 template <typename T>
-static ncclResult_t ncclHggcFreeDebug(const char *filefunc, int line, T* ptr, int memMode=MEM_NORMAL, struct ncclMemManager* manager = nullptr) {
+static ncclResult_t ncclHggcFreeDebug(const char *filefunc, int line, T* ptr, int memMode=MEM_NORMAL,
+    struct ncclMemManager* manager = nullptr, int numSegments = 1) {
   if (!ptr) return ncclSuccess;
   ncclResult_t result = ncclSuccess;
   bool untracked = false;
@@ -504,9 +541,13 @@ static ncclResult_t ncclHggcFreeDebug(const char *filefunc, int line, T* ptr, in
     NCCLCHECKGOTO(nccl_u2mm_gpu_free(ptr), result, finish);
   } else {
     if (ncclCuMemEnable()) {
-      NCCLCHECKGOTO(ncclHgMemFree((void *)ptr, manager), result, finish);
+      NCCLCHECKGOTO(ncclHgMemFree((void *)ptr, manager, numSegments), result, finish);
       untracked = true;
     } else {
+      if (numSegments > 1) {
+        result = ncclUnhandledHggcError;
+        goto finish;
+      }
       HGGCCHECKGOTO(hggcFree(ptr), result, finish);
     }
   }
