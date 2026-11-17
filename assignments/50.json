@@ -2,7 +2,7 @@
   "classification": {
     "base_sha": "996baac6d4ec098e0cad3942a6dc21846022ff2a",
     "head_sha": "8629ca864ba4f501eccdc67ba6e00f2cd3832dd7",
-    "input_fingerprint": "622a2790ffc12ee8079731a6dadbcc7b6a1248bc8b3a9d5df79608be4d39f41a",
+    "input_fingerprint": "b1609f3996a8ea63fbd7657ca4f298a0bd3665d285895cbae0b186b584a86ca4",
     "pr_number": 50,
     "proposal": {
       "modules": [
@@ -10,7 +10,7 @@
         "memory",
         "network"
       ],
-      "reason": "Primary change is in NET transport/proxy behavior: send-credit heads are now defaulted to sender-local device memory with new mapping/open/close lifecycle, connection wiring, and initialization in `src/transport/net.cc`. `transport` is additionally required because P2P transport gained a new allocation-only proxy buffer setup/free path and connection ownership flag (`pcclP2pAllocateProxyBuffer`, `p2pBufferAlloc`) that NET depends on but is substantive transport resource-management logic. `memory` is additionally required because shared allocation semantics were extended with `MEM_LEGACY` and corresponding alloc/free + tracking behavior in `src/include/alloc.h`, changing core memory-management mode handling beyond a mechanical caller edit."
+      "reason": "Main change is in network: NET send-credit TX head storage now defaults to sender-local device memory with new mapping/open/close lifecycle and initialization in src/transport/net.cc. Include transport because src/transport/p2p.cc adds allocation-only proxy P2P buffer setup/teardown and ownership plumbing used by NET connect. Include memory because src/include/alloc.h introduces MEM_LEGACY allocation/free behavior and tracking semantics that affect how these device buffers are allocated and released."
     }
   },
   "reviewers": {
