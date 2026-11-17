@@ -2,13 +2,13 @@
   "classification": {
     "base_sha": "7d4892d0a7fd0577142b7c996b89fa35117e20f5",
     "head_sha": "51f4db93ddc97addd160eab12a09cade59237615",
-    "input_fingerprint": "decdba2fbc55fc524f1365754b97fd231eb762fea4a4cd7c468c0e4af570f535",
+    "input_fingerprint": "e224a1bef2e064b3b1de85f536c7adcecef9070161373096c0d983d25ee98128",
     "pr_number": 196,
     "proposal": {
       "modules": [
         "ci"
       ],
-      "reason": "The PR substantively changes CI test orchestration and reporting: daily/source workflows add generated-smoke/generated-full inputs, cross-rack group execution metadata, updated runner/action wiring and retention policy, plus new xtest case-generation and performance-report tooling consumed by those workflows."
+      "reason": "Main substantive change is the open-source test pipeline: daily workflow now generates case inputs from JSON families, expands scheduling/grouping (including cross-rack and 8-node policy), and adds end-to-end performance report generation/artifacts via xtest tooling and workflow orchestration."
     }
   },
   "reviewers": {
