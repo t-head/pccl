@@ -1,14 +1,14 @@
 {
   "classification": {
     "base_sha": "996baac6d4ec098e0cad3942a6dc21846022ff2a",
-    "head_sha": "35a510645b9467c3cf7c27290faa4a5d35ff8dc5",
-    "input_fingerprint": "7b109852eb691a97637c562852058370867e65dc1b1b0cc44ca945ef9ff7f03f",
+    "head_sha": "fea306c32da5ff671538a37636a4e0df705608e6",
+    "input_fingerprint": "fedf501596c17fc36068277287f944ac8661841bdc6890f5510356b235f13f0f",
     "pr_number": 195,
     "proposal": {
       "modules": [
         "workflow"
       ],
-      "reason": "`.github/scripts/review_automation.py` (automated reviewer withdrawal/sync), `maintainer_approval.py` (pending-gate status behavior), `commit_message_squash.py` + `.github/workflows/commit-message.yml` (approval-gated squash preview publication), and `.github/skills/pccl-review-assignment/*` (evidence-based module-classification policy) are all review/merge workflow automation changes."
+      "reason": "Main functional changes are to review/merge automation policy and wiring: .github/scripts/commit_message_squash.py now gates/publishes squash-preview comments on GitHub approval state, .github/scripts/review_automation.py changes automated reviewer-request withdrawal behavior, .github/scripts/maintainer_approval.py updates pending-gate status messaging, and .github/skills/pccl-review-assignment/* plus .github/workflows/commit-message.yml revise module-classification guardrails and review workflow triggers."
     }
   },
   "reviewers": {
