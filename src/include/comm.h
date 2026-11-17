@@ -301,7 +301,6 @@ struct ncclKernelPlanner {
     struct ncclIntruQueue<struct ncclTaskP2p, &ncclTaskP2p::next> recvQueue;
   };
 
-  size_t collBytesTotal;
   struct Peer* peers/*[nRanks]*/;
   int nTasksColl;
   int nTasksP2p;
@@ -522,7 +521,6 @@ struct pcclComm {
   struct ncclInfo* asyncOps;
   int asyncOpCount;
   size_t asyncTotalSize;
-  int lastChannel;
 
   int localPersistentRefs;
 

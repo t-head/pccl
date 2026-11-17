@@ -122,7 +122,7 @@ struct PrimitivesWithoutDirect {
     static_cast<RealPrimitives*>(this)->recvReduceCopySend(inpIx, outIx, eltN, postOp);
   }
 
-  __device__ void directGather(T* inpIx, int totalN, int eltN, int size, int chunkOffset) {
+  __device__ void directGather(T* inpIx, int totalN, int eltN, ssize_t size, ssize_t chunkOffset) {
     static_cast<RealPrimitives*>(this)->gather(inpIx, totalN, eltN, size);
   }
 };

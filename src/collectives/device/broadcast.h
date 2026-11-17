@@ -15,36 +15,17 @@ namespace {
     const int tid = threadIdx.x;
     int nthreads;
     if (Proto::Id == NCCL_PROTO_LL || Proto::Id == NCCL_PROTO_LL128) {
-      nthreads = work->nThreads;
+      nthreads = (work->nWarps * WARP_SIZE);
     } else {
-      nthreads = work->nThreads-WARP_SIZE;
+      nthreads = (work->nWarps * WARP_SIZE)-WARP_SIZE;
     }
 
-    const int nChannels = work->nChannels;
-    int bid = (blockIdx.x >= work->startChannelId) ?
-      (blockIdx.x - work->startChannelId) :
-      (blockIdx.x + work->commNChannels - work->startChannelId);
-    bid = bid % nChannels;
     struct ncclKernelComm* comm = getShmemComm(work);
     struct ncclDevChannel* channel = &(getShmemPtr(comm)->channel);
     struct ncclRing* ring = &channel->ring;
 
-    int stepSize;
-    ssize_t chunkSize;
-    ssize_t minChunkSize;
-    if (Proto::Id == NCCL_PROTO_LL) {
-      stepSize = comm->buffSizes[NCCL_PROTO_LL] / (sizeof(union ncclLLFifoLine)*NCCL_STEPS);
-      chunkSize = stepSize * sizeof(uint64_t) / sizeof(T);
-    } else if (Proto::Id == NCCL_PROTO_LL128) {
-      stepSize = comm->buffSizes[NCCL_PROTO_LL128] / (sizeof(uint64_t)*NCCL_STEPS);
-      chunkSize = stepSize*NCCL_LL128_DATAELEMS*sizeof(uint64_t) / (NCCL_LL128_LINEELEMS*sizeof(T));
-      minChunkSize = (NCCL_LL128_SHMEM_ELEMS_PER_THREAD*nthreads*NCCL_LL128_DATAELEMS*sizeof(uint64_t))/(NCCL_LL128_LINEELEMS*sizeof(T));
-    } else {
-      stepSize = comm->buffSizes[NCCL_PROTO_SIMPLE] / (sizeof(T)*NCCL_STEPS);
-      chunkSize = stepSize * BROADCAST_CHUNKSTEPS;
-    }
-    const ssize_t loopSize = nChannels*chunkSize;
-    const ssize_t size = work->count;
+    ssize_t size, partOffset, partCount, chunkSize;
+    ncclCollCbdPart(work, getShmemPtr(comm)->channelId, Proto::Id, sizeof(T), &size, &partOffset, &partCount, &chunkSize);
     const int rank = ring->devUserRanks[0];
     const int nextRank = ring->devUserRanks[1];
     const int root = work->root;
@@ -56,24 +37,9 @@ namespace {
     Primitives<T, FUNC, Proto, 1, 1, 0, 0>
       prims(tid, nthreads, &ring->prev, &ring->next, NULL, comm, work->redOpArg, getShmemPtr(comm)->groups, 0, 0, 0, work);
 
-    for (ssize_t gridOffset = 0; gridOffset < size; gridOffset += loopSize) {
-      int realChunkSize;
-
-      if (Proto::Id == NCCL_PROTO_LL) {
-        if (size-gridOffset < loopSize) {
-          chunkSize = work->lastChunkSize;
-        }
-        realChunkSize = chunkSize;
-      } else if (Proto::Id == NCCL_PROTO_LL128) {
-        chunkSize = min(DIVUP(size-gridOffset, nChannels*minChunkSize)*minChunkSize, chunkSize);
-        realChunkSize = chunkSize;
-      } else {
-        realChunkSize = min(chunkSize, DIVUP(size-gridOffset,nChannels));
-        ALIGN_SIZE(realChunkSize, nthreads*sizeof(uint64_t)/sizeof(T));
-      }
-
-      ssize_t offset = gridOffset + bid*realChunkSize;
-      int nelem = min(realChunkSize, size-offset);
+    for (ssize_t elemOffset = 0; elemOffset < partCount; elemOffset += chunkSize) {
+      const ssize_t offset = partOffset + elemOffset;
+      const int nelem = min(chunkSize, partCount - elemOffset);
 
       if (rank == root) {
         if (thisInput == thisOutput) {
@@ -92,41 +58,23 @@ namespace {
   template<class FUNC, typename T, int UNROLL, typename Proto>
   __device__ __forceinline__ void runFC(struct ncclDevWorkColl* work) {
     const int tid = threadIdx.x;
-    const int nChannels = work->nChannels;
-    int bid = (blockIdx.x >= work->startChannelId) ?
-      (blockIdx.x - work->startChannelId) :
-      (blockIdx.x + work->commNChannels - work->startChannelId);
-    bid = bid % nChannels;
     struct ncclKernelComm* comm = getShmemComm(work);
     struct ncclDevChannel* channel = &(getShmemPtr(comm)->channel);
     struct ncclFC* fc = &channel->fc;
     const int rank = comm->rank;
     int root = work->root;
 
-    int nthreads = work->nThreads, nworkers = work->nThreads;
+    int nthreads = (work->nWarps * WARP_SIZE);
 #ifndef NO_EXTRA_WARP
     if (Proto::Id != NCCL_PROTO_LL && Proto::Id != NCCL_PROTO_LL128) {
       // root sends only, its nthreads will increase later
       // nthreads: total threads per block including standalone sync warp
-      // nworkers: total data process threads per block
       nthreads = (rank == root) ? (nthreads - WARP_SIZE) : nthreads;
-      nworkers -= WARP_SIZE;
     }
 #endif
 
-    int stepSize;
-    ssize_t chunkSize;
-    if (Proto::Id == NCCL_PROTO_LL) {
-      stepSize = comm->buffSizes[NCCL_PROTO_LL] / (sizeof(union ncclLLFifoLine)*NCCL_STEPS);
-      chunkSize = stepSize * sizeof(uint64_t) / sizeof(T);
-    } else if (Proto::Id == NCCL_PROTO_LL128) {
-
-    } else {
-      stepSize = comm->buffSizes[NCCL_PROTO_SIMPLE] / (sizeof(T) * NCCL_STEPS);
-      chunkSize = stepSize * BROADCAST_CHUNKSTEPS;
-    }
-    const ssize_t loopSize = nChannels*(ssize_t)chunkSize;
-    const ssize_t size = work->count;
+    ssize_t partOffset, partCount, chunkSize;
+    ncclCollCbdPart(work, getShmemPtr(comm)->channelId, Proto::Id, sizeof(T), (ssize_t*)nullptr, &partOffset, &partCount, &chunkSize);
 
     const T* __restrict__ thisInput = (const T*)work->sendbuff;
     T* __restrict__ thisOutput = (T*)work->recvbuff;
@@ -135,22 +83,18 @@ namespace {
       Primitives<T, FUNC, Proto, 0, NCCL_MAX_FC_ARITY-1, 1, 0>
         prims(tid, nthreads, NULL, fc->peerRanks, thisOutput, comm, work->redOpArg, getShmemPtr(comm)->groups, 0, 0, 0, work);
 
-      for (ssize_t gridOffset = 0; gridOffset < size; gridOffset += loopSize) {
-        ssize_t realChunkSize = min(chunkSize, DIVUP(size-gridOffset, nChannels));
-        ALIGN_SIZE(realChunkSize, nworkers*sizeof(uint64_t)/sizeof(T));
-        ssize_t offset = gridOffset + bid * realChunkSize;
-        int nelem = min(realChunkSize, size-offset);
+      for (ssize_t elemOffset = 0; elemOffset < partCount; elemOffset += chunkSize) {
+        const ssize_t offset = partOffset + elemOffset;
+        int nelem = min(chunkSize, partCount - elemOffset);
         prims.directCopySend(thisInput+offset, thisOutput+offset, offset, nelem);
       }
     } else {
       Primitives<T, FUNC, Proto, 1, 0, 1, 0>
         prims(tid, nthreads, &root, NULL, thisOutput, comm, work->redOpArg, getShmemPtr(comm)->groups, 0, 0, 0, work);
 
-      for (ssize_t gridOffset = 0; gridOffset < size; gridOffset += loopSize) {
-        ssize_t realChunkSize = min(chunkSize, DIVUP(size-gridOffset, nChannels));
-        ALIGN_SIZE(realChunkSize, nworkers*sizeof(uint64_t)/sizeof(T));
-        ssize_t offset = gridOffset + bid * realChunkSize;
-        int nelem = min(realChunkSize, size-offset);
+      for (ssize_t elemOffset = 0; elemOffset < partCount; elemOffset += chunkSize) {
+        const ssize_t offset = partOffset + elemOffset;
+        int nelem = min(chunkSize, partCount - elemOffset);
         prims.directRecv(thisOutput+offset, offset, nelem);
       }
     }
