@@ -2,13 +2,13 @@
   "classification": {
     "base_sha": "996baac6d4ec098e0cad3942a6dc21846022ff2a",
     "head_sha": "22efa5e9184213d36646aae3fb692908761c997f",
-    "input_fingerprint": "25d0bf0c926a3182b0666fe87e6ce43a7eb5c0730f3d6e22505add0bef427c4a",
+    "input_fingerprint": "654b860c3499a644139cab98a67ae9c24bda2e2b26c39e4bc1685c2e4c6eceae",
     "pr_number": 195,
     "proposal": {
       "modules": [
         "workflow"
       ],
-      "reason": "Main change is to contribution/review automation: reviewer request synchronization and withdrawals in `review_automation.py`, approval status wording/summary behavior in `maintainer_approval.py`, and squash-preview publication moving to PR check-runs in `commit_message_squash.py`, plus matching Actions permission wiring and workflow docs. These are review/merge policy and supporting workflow-script changes, not CI test execution or runtime PCCL modules."
+      "reason": "Main functional changes are to contribution/review automation: squash preview publication behavior, maintainer-approval status messaging, and automated reviewer request synchronization/withdrawal, plus supporting Actions permission wiring for that review flow."
     }
   },
   "reviewers": {
