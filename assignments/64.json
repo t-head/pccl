@@ -2,19 +2,23 @@
   "classification": {
     "base_sha": "747030b6fe8cf6b111f18efb61c6e16ff76e9c0e",
     "head_sha": "cafd5c256864ce45f299e0c4b87acbcf20c1e0bf",
-    "input_fingerprint": "7e7e48d2fa315804a5067b6ca9023a7d0a39c1397074a91a74985cef97e600e5",
+    "input_fingerprint": "2978c35ec703251a42c8b9a6faf47088bfe023d466cfd3060dfba85ae2c8fd73",
     "pr_number": 64,
     "proposal": {
       "modules": [
+        "build",
         "enqueue",
+        "profiler",
         "copy-engine",
         "device-api",
-        "gin"
+        "gin",
+        "other"
       ],
-      "reason": "Main change is new public host one-sided RMA interfaces and communicator/window semantics (numRmaCtx/numRmaSig, WaitSignal/PutSignal/Signal behavior, hostRmaSupport reporting), which fits device-api. Add enqueue for the new RMA task type and plan scheduling/launch path integration, copy-engine for the in-node CE execution and signal/wait synchronization implementation, and gin for the cross-node RMA proxy plugin/context lifecycle, memory registration, and progress-thread transport path."
+      "reason": "Primary change is a new host one-sided RMA subsystem (PutSignal/Signal/WaitSignal and RMA task/proxy lifecycle) that is not directly represented in the catalog, so `other` is required. Add `copy-engine` for the new CE-based RMA put/wait execution, `gin` for GIN proxy/plugin context and cross-node RMA progress/registration, `enqueue` for RMA task validation/scheduling/launch integration, `device-api` for new public API/config/property and symmetric-window semantics, `profiler` for new RMA API profiling events/descriptor schema, and `build` for an independent Makefile shared-link change."
     }
   },
   "reviewers": {
+    "build": 341355176,
     "communicator": 335730053,
     "copy-engine": 341341178,
     "device-api": 341341178,
