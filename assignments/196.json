@@ -8,7 +8,7 @@
       "modules": [
         "ci"
       ],
-      "reason": "Main change is to CI test orchestration and reporting: workflows now add generated dataset paths, expand node policy/cross-rack scheduling, stage pinned report dependencies, and produce/upload a new performance workbook; accompanying tests/xtest generators, grouping, reconciliation, and report scripts are CI support logic rather than runtime module behavior changes."
+      "reason": "The substantive change is to open-source test workflow behavior: daily dataset generation from JSON families, case-group/resource-policy updates (including 8-node and cross-rack execution), and new performance-report artifact generation/validation in GitHub Actions and xtest runner tooling. Other edits are supporting tests/docs for this CI pipeline change rather than independent runtime-module changes."
     }
   },
   "reviewers": {
