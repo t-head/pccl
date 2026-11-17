@@ -267,13 +267,13 @@ class WorkflowContractTests(unittest.TestCase):
         self.assertEqual((ROOT / 'tests/xtest/requirements.txt').read_text().strip(),
                          '# Required by the public run_test.py entry point, not the CSV executor.\n'
                          'filelock==4.2.10')
-        action = 'uses: t-head/ci-infra/cluster-run@feat/rack-node-allocation'
+        action = 'uses: t-head/ci-infra/cluster-run@main'
         self.assertIn('VALIDATION_NODE_SELECTOR: board-type=ZW-M890P,nic-type=cx8', self.text)
         for name in ('build-standard', 'build-notsm', 'single-node'):
             self.assertIn(action, self.job(name))
         self.assertIn(action, self.job('two-node'))
         self.assertEqual(self.text.count(action), 4)
-        self.assertNotIn('t-head/ci-infra/cluster-run@main', self.text)
+        self.assertNotIn('t-head/ci-infra/cluster-run@feat/rack-node-allocation', self.text)
 
 
 if __name__ == '__main__':

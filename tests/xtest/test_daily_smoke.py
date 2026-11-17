@@ -235,7 +235,7 @@ class DailySmokeTests(unittest.TestCase):
             'name: Run the automatic cross-rack group on master', 1)[0]
         cross = text.split('name: Run the automatic cross-rack group on master', 1)[1].split(
             '\n  summary:', 1)[0]
-        action = 'uses: t-head/ci-infra/cluster-run@feat/rack-node-allocation'
+        action = 'uses: t-head/ci-infra/cluster-run@main'
         self.assertIn(action, ordinary)
         self.assertIn(action, cross)
         self.assertIn("if: env.NODES != '1' && env.CROSS_RACK != 'true'", ordinary)
@@ -245,6 +245,7 @@ class DailySmokeTests(unittest.TestCase):
         self.assertIn('node_selector: ${{ env.VALIDATION_NODE_SELECTOR }}', cross)
         self.assertNotIn('icn-rack=', text)
         self.assertEqual(text.count(action), 2)
+        self.assertNotIn('t-head/ci-infra/cluster-run@feat/rack-node-allocation', text)
 
     def test_schedule_runs_full_daily_at_2200_beijing_time(self):
         text = FULL_WORKFLOW.read_text()
