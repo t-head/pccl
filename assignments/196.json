@@ -1,14 +1,14 @@
 {
   "classification": {
     "base_sha": "7d4892d0a7fd0577142b7c996b89fa35117e20f5",
-    "head_sha": "51f4db93ddc97addd160eab12a09cade59237615",
-    "input_fingerprint": "e224a1bef2e064b3b1de85f536c7adcecef9070161373096c0d983d25ee98128",
+    "head_sha": "94f6b517675033c152208446d80b87659d18cd04",
+    "input_fingerprint": "f3d85e46e9f973c919b15d678fa8eae786ece91952327f7366b3040567f37e5c",
     "pr_number": 196,
     "proposal": {
       "modules": [
         "ci"
       ],
-      "reason": "Main substantive change is the open-source test pipeline: daily workflow now generates case inputs from JSON families, expands scheduling/grouping (including cross-rack and 8-node policy), and adds end-to-end performance report generation/artifacts via xtest tooling and workflow orchestration."
+      "reason": "Primary change is to open-source test workflow execution: daily workflow datasets are expanded with generated inputs, grouping/resource policy now includes 8-node and cross-rack allocation, and new xtest tooling generates case bundles plus performance-workbook artifacts with updated retention and validation in CI jobs."
     }
   },
   "reviewers": {
