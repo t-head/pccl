@@ -1,14 +1,14 @@
 {
   "classification": {
     "base_sha": "996baac6d4ec098e0cad3942a6dc21846022ff2a",
-    "head_sha": "fc992b6ef5121236cfbb5790b8d8afc5b3993049",
-    "input_fingerprint": "5167398c37b18f09758fe9a9d0904fbbe25e388688f04e98e1a0de5da3ee0753",
+    "head_sha": "67aa6033ee1065ee648530269f1e147af81a6534",
+    "input_fingerprint": "e8b17af9fb7117d54a5c29df6fd6159b8d4844c4209d18899cd54d8e43931d19",
     "pr_number": 195,
     "proposal": {
       "modules": [
         "workflow"
       ],
-      "reason": "Substantive changes are to review/merge automation: approval-gated squash preview publication via workflow_run, maintainer-gate status messaging, and automated reviewer request withdrawal/synchronization in GitHub scripts and workflows."
+      "reason": "` .github/scripts/review_automation.py` (`invite`, `review_request_history`) changes reviewer-request lifecycle by withdrawing obsolete automated requests; `.github/scripts/maintainer_approval.py` changes pending-review gate messaging; `.github/scripts/commit_message_squash.py` plus `.github/workflows/commit-message.yml` move squash-preview publication to approval-gated workflow timing and comment management. These are review/merge automation and policy workflow behaviors, not runtime or CI test execution changes."
     }
   },
   "reviewers": {
