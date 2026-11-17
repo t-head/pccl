@@ -1,14 +1,14 @@
 {
   "classification": {
     "base_sha": "996baac6d4ec098e0cad3942a6dc21846022ff2a",
-    "head_sha": "26fd870751e94c9faa1ddf49f999479fdd6df569",
-    "input_fingerprint": "a3ecc48b9b96aa2be3dec4c5a6a9d6e761bd5df9897348d4aa56745efa81a535",
+    "head_sha": "39b8ec66926f7e93c7870df3cba99d45381f03de",
+    "input_fingerprint": "1349af7b89b76385efda00b0d354d562f1b6e473be57c55dc9a9d73d286532ef",
     "pr_number": 196,
     "proposal": {
       "modules": [
         "ci"
       ],
-      "reason": "The substantive change is to open-source test workflow behavior: daily dataset generation from JSON families, case-group/resource-policy updates (including 8-node and cross-rack execution), and new performance-report artifact generation/validation in GitHub Actions and xtest runner tooling. Other edits are supporting tests/docs for this CI pipeline change rather than independent runtime-module changes."
+      "reason": "Primary change is CI test orchestration/reporting: workflows now add generated datasets, 1/2/4/8-node and cross-rack execution routing, longer artifact retention, and a new performance workbook pipeline. The large `tests/xtest` additions (case-generation JSON families, grouping metadata, parser/report logic, and workflow contract tests) are supporting CI execution and result aggregation rather than PCCL runtime/module behavior changes."
     }
   },
   "reviewers": {
