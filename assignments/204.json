@@ -1,0 +1,17 @@
+{
+  "classification": {
+    "base_sha": "996baac6d4ec098e0cad3942a6dc21846022ff2a",
+    "head_sha": "d692e08028fbbd71b2ae8d7f7463856c47c2d374",
+    "input_fingerprint": "deae1a69018b7f27dc7cfd5335465a3186a6dd5b98c79aa5af70d0c60b8c2e9b",
+    "pr_number": 204,
+    "proposal": {
+      "modules": [
+        "graph-search"
+      ],
+      "reason": "Main functional change is in graph channel/proxy lookup logic (`ncclTopoGetNetDev`) to resolve PXN proxy ownership by mapped channel and outbound-NIC host under MNNVL; header edit only clarifies `proxyDevs` semantics and added tests are regression coverage, not separate module changes."
+    }
+  },
+  "reviewers": {
+    "graph-search": 341355176
+  }
+}
