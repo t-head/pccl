@@ -8,7 +8,7 @@
       "modules": [
         "ci"
       ],
-      "reason": "Main change is CI artifact pipeline behavior: the build workflow now emits one artifact per package, adds per-package transfer-back via reusable workflow, updates schedule/trigger and matrix/upload orchestration, and adjusts build scripts to match CI packaging/verification and runner dependency-install reliability. These are CI execution and artifact-publication mechanics, not reviewer-policy or core library/ABI changes."
+      "reason": "Main change is CI pipeline behavior: the workflow and build scripts now produce one artifact per package, transfer each via reusable upload workflow with per-package metadata, and update CI-side packaging/apt retry logic. These are orchestration and artifact-handling changes in CI, not runtime/module implementation changes."
     }
   },
   "reviewers": {}
