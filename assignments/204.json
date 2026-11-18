@@ -1,14 +1,14 @@
 {
   "classification": {
     "base_sha": "0f79ec8f28df02c07ccf2b47e0bb457bdfe8622b",
-    "head_sha": "a3a6cab8a5122daeb992154b3569ec88664ef00e",
-    "input_fingerprint": "674db28ddc4b4d5f229c61c84a47713c0c8f3a37c1f0e19ce7d3ec37b7c81dc8",
+    "head_sha": "671c87e9d023397d78eb9ab296fa1149eba608aa",
+    "input_fingerprint": "f0916dc514d353e136ead8683bc5a8ba8d83d1794afdf71ea518f04bcfdcb186",
     "pr_number": 204,
     "proposal": {
       "modules": [
         "graph-search"
       ],
-      "reason": "Main functional fix is in graph channel/proxy lookup logic: ncclTopoGetNetDev now maps runtime channels back to retained graph channels (MNNVL path) before reading cached proxyDevs, preventing stale/discarded channel metadata from driving proxy-rank selection. Header comment and new tests reinforce this graph-channel semantics change; no separate network/bootstrap/device-API policy change is shown."
+      "reason": "Main change fixes MNNVL repeated-channel handling in graph-channel proxy lookup inside `ncclTopoGetNetDev`, ensuring cached proxy device/rank resolution uses the mapped graph channel after cross-rank channel alignment; other edits are clarifying comments and regression tests for this behavior."
     }
   },
   "reviewers": {
