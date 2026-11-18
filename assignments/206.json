@@ -1,14 +1,14 @@
 {
   "classification": {
     "base_sha": "a7769ba35a724d84cea481c9b318c30482175471",
-    "head_sha": "37aa10abee57608691891fcd167b8fc732eeca0a",
-    "input_fingerprint": "a9b5d002d2650a1ce53d202060ce56040a474ffec5ff30d86218b7e3bbd987a6",
+    "head_sha": "1e75de84ef7771c0e44731995cde42692828fe46",
+    "input_fingerprint": "f158feb9457815e0794ba115ee6d0ea0490e47d8c5a4d10095a81d3479337e1e",
     "pr_number": 206,
     "proposal": {
       "modules": [
         "ci"
       ],
-      "reason": "Primary change is CI pipeline behavior: the build workflow now publishes per-package run artifacts and performs per-package transfer-back with metadata, while companion workflow scripts adjust CI packaging layout and dependency-install resilience (apt fallback/retry) to support that artifact flow."
+      "reason": "Main change is CI workflow behavior: `build-artifactory-ppu.yml` is reworked to produce/upload one Actions artifact per package, add per-package transfer-back calls/properties, adjust schedule/push triggering and summary reporting, and the three workflow build scripts are updated to match packaging layout plus runner-side dependency/install robustness. These are test/build pipeline orchestration changes, not review-policy (`workflow`) or core compiler/build-definition (`build`) ownership."
     }
   },
   "reviewers": {}
