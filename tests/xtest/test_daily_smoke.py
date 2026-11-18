@@ -280,6 +280,10 @@ class DailySmokeTests(unittest.TestCase):
         self.assertIn('rack_nodes: rack-01=${{ matrix.nodes }}', ordinary)
         self.assertIn('rack_nodes: ${{ matrix.rack_nodes }}', cross)
         self.assertIn('node_selector: ${{ env.VALIDATION_NODE_SELECTOR }}', cross)
+        for section in (ordinary, cross):
+            self.assertNotIn("cluster-ssh \"$host\" 'hostname'", section)
+            self.assertNotIn('mpirun --allow-run-as-root', section)
+            self.assertIn('test "$(wc -l < "$CLUSTER_HOSTS_FILE")" -eq "$NODES"', section)
         self.assertNotIn('icn-rack=', text)
         self.assertEqual(text.count(action), 2)
         self.assertNotIn('t-head/ci-infra/cluster-run@feat/rack-node-allocation', text)

@@ -178,11 +178,22 @@ class CsvRunnerTests(unittest.TestCase):
             with self.assertRaisesRegex(ValueError, 'master/controller'):
                 self.execute(self.inputs([{'cmd': 'true'}], nodes=2), hostfile)
 
-    def test_multinode_failure_stops_remaining_cases(self):
+    def test_multinode_failure_recovers_and_continues(self):
         hostfile = self.root / 'hosts.cfg'
         hostfile.write_text('worker-a\nworker-b\n')
         marker = self.root / 'must-not-exist'
-        rows = self.execute(self.inputs([{'cmd': 'exit 1'}, {'cmd': f'touch {marker}'}], nodes=2), hostfile)
+        with mock.patch.object(run_cases, '_recover_multinode', return_value=True) as recovery:
+            rows = self.execute(self.inputs([{'cmd': 'exit 1'}, {'cmd': f'touch {marker}'}], nodes=2), hostfile)
+        self.assertEqual([row['status'] for row in rows], ['FAILED', 'PASSED'])
+        self.assertTrue(marker.exists())
+        recovery.assert_called_once()
+
+    def test_multinode_recovery_failure_stops_remaining_cases(self):
+        hostfile = self.root / 'hosts.cfg'
+        hostfile.write_text('worker-a\nworker-b\n')
+        marker = self.root / 'must-not-exist'
+        with mock.patch.object(run_cases, '_recover_multinode', return_value=False):
+            rows = self.execute(self.inputs([{'cmd': 'exit 1'}, {'cmd': f'touch {marker}'}], nodes=2), hostfile)
         self.assertEqual([row['status'] for row in rows], ['FAILED', 'NOT_RUN'])
         self.assertFalse(marker.exists())
 

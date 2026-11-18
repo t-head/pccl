@@ -9,6 +9,7 @@ Raw logs are private diagnostic output and are never generically redacted.
 """
 
 import argparse
+from concurrent.futures import ThreadPoolExecutor
 import csv
 from decimal import Decimal, InvalidOperation
 import json
@@ -440,6 +441,55 @@ def _not_run(case, reason):
             "duration_seconds": 0, "error": reason, "raw_log": ""}
 
 
+def _remote_recovery(host, script, max_age):
+    command = ["timeout", "-k", "2s", "10s", "cluster-exec", host,
+               "python3", str(script), "--max-age", f"{max_age:.3f}"]
+    try:
+        result = subprocess.run(command, stdin=subprocess.DEVNULL, capture_output=True,
+                                text=True, timeout=15)
+    except (OSError, subprocess.TimeoutExpired) as error:
+        return {"safe": False, "errors": [str(error)]}
+    lines = [line for line in result.stdout.splitlines() if line.strip()]
+    try:
+        report = json.loads(lines[-1])
+    except (IndexError, json.JSONDecodeError):
+        report = {"safe": False,
+                  "errors": [f"Invalid remote recovery output: {result.stdout[-500:]}{result.stderr[-500:]}"]}
+    if not isinstance(report, dict) or type(report.get("safe")) is not bool:
+        report = {"safe": False,
+                  "errors": [f"Invalid remote recovery response: {result.stdout[-500:]}{result.stderr[-500:]}"]}
+    if result.returncode != 0 and "errors" not in report:
+        report["errors"] = [f"Remote recovery exited with {result.returncode}: {result.stderr[-500:]}"]
+    if result.returncode != 0:
+        report["safe"] = False
+    return report
+
+
+def _recover_multinode(case, runtime, row):
+    """Confirm remote Case processes are gone; never perform another MPI health probe."""
+    hosts = []
+    for line in Path(runtime["hostfile"]).read_text().splitlines():
+        fields = line.split()
+        if fields and not fields[0].startswith("#"):
+            hosts.append(fields[0])
+    script = runtime["test_root"] / "pccl" / "tests" / "xtest" / "remote_recovery.py"
+    max_age = max(1.0, float(row["duration_seconds"]) + 5.0)
+    report = {"safe": False, "workers": {}, "max_process_age": max_age}
+    if not hosts or not script.is_file():
+        report["error"] = "Missing allocated workers or remote recovery helper"
+    else:
+        with ThreadPoolExecutor(max_workers=len(hosts)) as executor:
+            results = executor.map(lambda host: _remote_recovery(host, script, max_age), hosts)
+            report["workers"] = dict(zip(hosts, results))
+        report["safe"] = all(worker.get("safe") is True for worker in report["workers"].values())
+    directory = runtime["output"] / case["plan"] / case["suite"] / case["name"]
+    _write_json(directory / "recovery.json", report)
+    for host, worker in report["workers"].items():
+        residual = len(worker.get("remaining", worker.get("before", [])))
+        print(f"Remote recovery {host}: safe={worker.get('safe')} candidates={residual}", flush=True)
+    return report["safe"]
+
+
 def _write_summary(output, rows):
     by_key = {(row["plan"], row["suite"], row["name"]): row for row in rows}
     if len(by_key) != len(rows):
@@ -495,9 +545,11 @@ def run_all(inputs, test_root, binary_dir, output, hostfile=None, base_environme
             print(f'[{len(rows)}/{len(inputs["cases"])}] '
                   f'{case["plan"]}/{case["suite"]}/{case["name"]}: {row["status"]}', flush=True)
             if row["status"] != "PASSED" and case["suite_spec"]["nodes"] > 1:
-                reason = "Stopped after a multi-node failure; remote rank cleanup is not locally provable"
-                rows.extend(_not_run(remaining, reason) for _, remaining in ordered[len(rows):])
-                break
+                recovered = _recover_multinode(case, runtime, row)
+                if not recovered or row["status"] == "CANCELLED":
+                    reason = "Stopped after multi-node recovery failure; remote process cleanup is not confirmed"
+                    rows.extend(_not_run(remaining, reason) for _, remaining in ordered[len(rows):])
+                    break
     finally:
         for sig, handler in previous.items():
             signal.signal(sig, handler)

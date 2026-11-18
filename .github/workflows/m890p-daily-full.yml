@@ -84,6 +84,7 @@ jobs:
           python3 -S -B -m unittest discover -s tests/xtest -p 'test_case_group_cache.py' -v
           python3 -S -B -m unittest discover -s tests/xtest -p 'test_artifact_cache.py' -v
           python3 -S -B -m unittest discover -s tests/xtest -p 'test_download_artifact_retry.py' -v
+          python3 -S -B -m unittest discover -s tests/xtest -p 'test_remote_recovery.py' -v
           python3 -S -B -m unittest discover -s tests/xtest -p 'test_daily_smoke.py' -v
           python3 -S -B -m unittest discover -s tests/xtest -p 'test_daily_reconcile.py' -v
           python3 -S -B -m unittest discover -s tests/xtest -p 'test_generate_cases.py' -v
@@ -680,14 +681,6 @@ jobs:
             test "$NCCL_SOCKET_IFNAME" = "$MPI_INTERFACE"
             test "$OMPI_MCA_orte_keep_fqdn_hostnames" = 1
             test "$(wc -l < "$CLUSTER_HOSTS_FILE")" -eq "$NODES"
-            checked_hosts=0
-            while read -r host _; do
-              timeout -k 5s 30s cluster-ssh "$host" 'hostname' < /dev/null
-              checked_hosts=$((checked_hosts + 1))
-            done < "$CLUSTER_HOSTS_FILE"
-            test "$checked_hosts" -eq "$NODES"
-            timeout -k 10s 60s mpirun --allow-run-as-root \
-              --hostfile "$CLUSTER_HOSTS_FILE" -np "$NODES" -npernode 1 hostname
             /workspace/minimal-csv-cluster-env/bin/python -B \
               "$build_output/pccl/tests/xtest/run_cases.py" \
               --input "$CASE_INPUT/$GROUP_ID" \
@@ -786,14 +779,6 @@ jobs:
             test "$NCCL_SOCKET_IFNAME" = "$MPI_INTERFACE"
             test "$OMPI_MCA_orte_keep_fqdn_hostnames" = 1
             test "$(wc -l < "$CLUSTER_HOSTS_FILE")" -eq "$NODES"
-            checked_hosts=0
-            while read -r host _; do
-              timeout -k 5s 30s cluster-ssh "$host" 'hostname' < /dev/null
-              checked_hosts=$((checked_hosts + 1))
-            done < "$CLUSTER_HOSTS_FILE"
-            test "$checked_hosts" -eq "$NODES"
-            timeout -k 10s 60s mpirun --allow-run-as-root \
-              --hostfile "$CLUSTER_HOSTS_FILE" -np "$NODES" -npernode 1 hostname
             /workspace/minimal-csv-cluster-env/bin/python -B \
               "$build_output/pccl/tests/xtest/run_cases.py" \
               --input "$CASE_INPUT/$GROUP_ID" \
