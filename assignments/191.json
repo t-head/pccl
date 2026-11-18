@@ -1,14 +1,14 @@
 {
   "classification": {
-    "base_sha": "a909809e63dbf891101c88d45c0b78bfe628fab6",
-    "head_sha": "6e9544aeab9d58b363aa18562911e3fb5c087444",
-    "input_fingerprint": "f7d9b7a3dd96080d369ea3b9b1d2e145f0b74f665118f0707e8289fac7269a48",
+    "base_sha": "996baac6d4ec098e0cad3942a6dc21846022ff2a",
+    "head_sha": "c1318ce67d4ea963803875e39f26954ba4ffaadc",
+    "input_fingerprint": "0f078c3a06c1d5bffd41532219c6b8f95487a4d91f150476517380d5c3433d6f",
     "pr_number": 191,
     "proposal": {
       "modules": [
         "device-topology"
       ],
-      "reason": "Changes PCI topology parsing/classification in ncclTopoAddPci so nodes with a <nic> child are treated as NICs without class-dictionary conversion; this is a device/NIC discovery and topology-data handling fix, with no independent changes to graph construction, transport, or workflow."
+      "reason": "Updates PCI-to-device classification in topology discovery (`src/graph/topo.cc`) by recognizing `0x00ff00` as NIC, affecting how NIC nodes are identified during topology parsing."
     }
   },
   "reviewers": {
