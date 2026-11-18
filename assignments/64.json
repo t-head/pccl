@@ -1,8 +1,8 @@
 {
   "classification": {
-    "base_sha": "996baac6d4ec098e0cad3942a6dc21846022ff2a",
-    "head_sha": "7ed2fdbff0fc0eda451e1fb7ada7371da9d64301",
-    "input_fingerprint": "4d8ef4420d2c8858a9f89d17e8b98d86c17fc354d26fdae1107b15f1a95aee9c",
+    "base_sha": "a7769ba35a724d84cea481c9b318c30482175471",
+    "head_sha": "d13018a8de65bbcefc49765295f81958b0213159",
+    "input_fingerprint": "b9de687ac9eed827b3ee09583d69490a84c57c9d0d3f319d3845289da5a79ac8",
     "pr_number": 64,
     "proposal": {
       "modules": [
@@ -13,7 +13,7 @@
         "gin",
         "other"
       ],
-      "reason": "Primary scope is a new host one-sided RMA API family (PutSignal/Signal/WaitSignal) and semantics that are not explicitly covered by a catalog module, so `other` is required. `enqueue` is needed for new RMA task creation/planning and launch-path integration; `copy-engine` for the in-node CE RMA put/wait execution path and signal synchronization; `gin` for cross-node RMA proxy transport, plugin/context wiring, and progress loop; `communicator` for new `numRmaCtx` config parsing/defaulting and host-RMA capability negotiation/reporting; and `profiler` for new RMA API event types and descriptors."
+      "reason": "Primary change is a new host one-sided RMA feature set (pcclPutSignal/pcclSignal/pcclWaitSignal plus new src/rma/* subsystem) that is outside explicit catalog scopes, so use other. Add enqueue for substantive new RMA task creation/scheduling/plan lifecycle wiring; copy-engine for the CE-based in-node RMA put/wait execution path and signal synchronization; gin for the cross-node GIN proxy/plugin/context/progress and RMA registration path; communicator for numRmaCtx config, communicator capability negotiation/reporting, and init/finalize/async-error lifecycle integration; profiler for new RMA API event schema/mask/start-stop handling."
     }
   },
   "reviewers": {
