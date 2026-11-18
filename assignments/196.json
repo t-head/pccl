@@ -1,14 +1,14 @@
 {
   "classification": {
     "base_sha": "a7769ba35a724d84cea481c9b318c30482175471",
-    "head_sha": "4bf6b6a0488d2323293bc4c2712e53d588172121",
-    "input_fingerprint": "d7be72db497d293d8d511b53b52efc3a04f6c61dd6709ea364228106d1dbb156",
+    "head_sha": "b1458ba4ef91766a210b3641b318a3ef162cf83b",
+    "input_fingerprint": "e03d397d45791c5948d761329d527bee0752fce45bd355b9979ee99926b5dd6e",
     "pr_number": 196,
     "proposal": {
       "modules": [
         "ci"
       ],
-      "reason": "Main change is CI test orchestration: daily/source-sanity workflow logic now generates case inputs from JSON families, updates grouping/resource policy (including 8-node and cross-rack allocation), and adds end-of-run performance workbook generation/artifact handling. Most file churn (workflow YAML, xtest generators/reporting scripts/tests, and removal of legacy daily CSV inputs) directly supports open-source test execution behavior rather than PCCL runtime modules."
+      "reason": "Primary change is the CI test pipeline: daily/source-sanity workflows now generate case inputs from JSON families at prepare time, expand resource/group scheduling (including cross-rack and 8-node handling), and add a new performance-report artifact path with reconciliation-aware parsing and validation. Large CSV deletions/renames and new xtest tooling/tests are supporting this CI execution/reporting redesign rather than changing PCCL runtime modules."
     }
   },
   "reviewers": {
