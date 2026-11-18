@@ -1,14 +1,14 @@
 {
   "classification": {
-    "base_sha": "0f79ec8f28df02c07ccf2b47e0bb457bdfe8622b",
-    "head_sha": "671c87e9d023397d78eb9ab296fa1149eba608aa",
-    "input_fingerprint": "fc645763071e26bf5be424c5a9e0f0aeb4cf972a657bbcd6b965ccc3c9efe508",
+    "base_sha": "a7769ba35a724d84cea481c9b318c30482175471",
+    "head_sha": "ffc199f97779de7f6a5b550ddd7f687d7254f3e8",
+    "input_fingerprint": "606d7c3bdeb3a9a7a6a530795762294787e5f6135fc74eb2c183cef70d939896",
     "pr_number": 204,
     "proposal": {
       "modules": [
         "graph-search"
       ],
-      "reason": "Main functional change fixes graph-channel indexing in PXN proxy lookup during ncclTopoGetNetDev when MNNVL repeats runtime channels, ensuring cached proxy metadata is read from the mapped graph channel. Other edits are supporting comment/header clarification and regression tests, not separate module-owned behavior changes."
+      "reason": "Fixes graph-channel proxy lookup in `ncclTopoGetNetDev` so repeated runtime channels use retained graph-channel metadata instead of stale discarded slots, preventing PXN/MNNVL initialization failures with uneven PPU selection. Other edits are comment/header clarification and regression tests supporting this same graph-search behavior."
     }
   },
   "reviewers": {
