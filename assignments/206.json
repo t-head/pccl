@@ -1,14 +1,14 @@
 {
   "classification": {
-    "base_sha": "0f79ec8f28df02c07ccf2b47e0bb457bdfe8622b",
-    "head_sha": "79cf7abad0e6bee2154449735e5f83bff830017c",
-    "input_fingerprint": "0c45f7ae5c0de655cb3b7b6e9e3571ca6d758bfb59bec259feb442641561ca00",
+    "base_sha": "a7769ba35a724d84cea481c9b318c30482175471",
+    "head_sha": "37aa10abee57608691891fcd167b8fc732eeca0a",
+    "input_fingerprint": "a9b5d002d2650a1ce53d202060ce56040a474ffec5ff30d86218b7e3bbd987a6",
     "pr_number": 206,
     "proposal": {
       "modules": [
         "ci"
       ],
-      "reason": "The substantive change is to CI workflow execution and artifact handling: the GitHub Actions pipeline now emits one artifact per package, adds per-package transfer-back calls with metadata, adjusts scheduled/push trigger behavior, and updates workflow build scripts for packaging layout and runner dependency-install robustness. These are CI orchestration and delivery changes, not PCCL runtime/library module changes."
+      "reason": "Primary change is CI pipeline behavior: the build workflow now publishes per-package run artifacts and performs per-package transfer-back with metadata, while companion workflow scripts adjust CI packaging layout and dependency-install resilience (apt fallback/retry) to support that artifact flow."
     }
   },
   "reviewers": {}
