@@ -1,14 +1,14 @@
 {
   "classification": {
-    "base_sha": "996baac6d4ec098e0cad3942a6dc21846022ff2a",
-    "head_sha": "39b8ec66926f7e93c7870df3cba99d45381f03de",
-    "input_fingerprint": "03d36e458346b9364bb28831ab0b67c571f7aeb417940bffb0d61877074f56b6",
+    "base_sha": "0f79ec8f28df02c07ccf2b47e0bb457bdfe8622b",
+    "head_sha": "4991e94077470402da10d89d177ced03b7f8091d",
+    "input_fingerprint": "c54c8f4a8d6a0a95c4f7bcdee2e624e6e12e2a4f381a708cdf0c9176772aa3c6",
     "pr_number": 196,
     "proposal": {
       "modules": [
         "ci"
       ],
-      "reason": "Main change is to open-source test workflow execution: daily/source-sanity CI pipelines now support generated datasets, 1/2/4/8-node selection with cross-rack allocations, extended retention, and a new performance workbook/report path, with substantial updates to xtest case-generation/grouping/reporting tooling and their validation tests."
+      "reason": "Primary change is to open-source test execution: daily/source-sanity workflow behavior, runner/network setup, dataset generation, grouping, reconciliation, and performance-report artifact production are all CI pipeline logic. Added/removed JSON test-family definitions, xtest generators/reporting code, and CSV-bundle migration are substantive CI test-input/execution infrastructure changes rather than runtime modules."
     }
   },
   "reviewers": {
