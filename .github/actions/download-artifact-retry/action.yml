@@ -1,5 +1,5 @@
 name: Download artifact with retry
-description: Download one Actions artifact up to three times and remove partial output between attempts.
+description: Download one Actions artifact up to three times, optionally verifying content after every attempt.
 inputs:
   name:
     description: Artifact name.
@@ -7,17 +7,41 @@ inputs:
   path:
     description: Workspace-relative destination directory.
     required: true
+  sha256-file:
+    description: Optional download-relative file whose SHA-256 is checked after every attempt.
+    required: false
+  expected-sha256:
+    description: Expected lowercase SHA-256 for sha256-file; both inputs must be provided together.
+    required: false
 runs:
   using: composite
   steps:
+    - name: Validate retry options
+      shell: bash
+      env:
+        DOWNLOAD_PATH: ${{ inputs.path }}
+        SHA256_FILE: ${{ inputs.sha256-file }}
+        EXPECTED_SHA256: ${{ inputs.expected-sha256 }}
+        PREFLIGHT_ONLY: '1'
+      run: python3 -S -B "${{ github.action_path }}/validate_sha256.py"
     - id: first
       continue-on-error: true
       uses: actions/download-artifact@v4
       with:
         name: ${{ inputs.name }}
         path: ${{ inputs.path }}
+    - id: first-validation
+      name: Verify the first download
+      if: steps.first.outcome == 'success' && inputs.expected-sha256 != ''
+      continue-on-error: true
+      shell: bash
+      env:
+        DOWNLOAD_PATH: ${{ inputs.path }}
+        SHA256_FILE: ${{ inputs.sha256-file }}
+        EXPECTED_SHA256: ${{ inputs.expected-sha256 }}
+      run: python3 -S -B "${{ github.action_path }}/validate_sha256.py"
     - name: Clean partial output and wait before the second attempt
-      if: steps.first.outcome == 'failure'
+      if: steps.first.outcome == 'failure' || steps.first-validation.outcome == 'failure'
       shell: bash
       env:
         DOWNLOAD_PATH: ${{ inputs.path }}
@@ -43,14 +67,24 @@ runs:
         PY
         sleep 15
     - id: second
-      if: steps.first.outcome == 'failure'
+      if: steps.first.outcome == 'failure' || steps.first-validation.outcome == 'failure'
       continue-on-error: true
       uses: actions/download-artifact@v4
       with:
         name: ${{ inputs.name }}
         path: ${{ inputs.path }}
+    - id: second-validation
+      name: Verify the second download
+      if: steps.second.outcome == 'success' && inputs.expected-sha256 != ''
+      continue-on-error: true
+      shell: bash
+      env:
+        DOWNLOAD_PATH: ${{ inputs.path }}
+        SHA256_FILE: ${{ inputs.sha256-file }}
+        EXPECTED_SHA256: ${{ inputs.expected-sha256 }}
+      run: python3 -S -B "${{ github.action_path }}/validate_sha256.py"
     - name: Clean partial output and wait before the third attempt
-      if: steps.second.outcome == 'failure'
+      if: steps.second.outcome == 'failure' || steps.second-validation.outcome == 'failure'
       shell: bash
       env:
         DOWNLOAD_PATH: ${{ inputs.path }}
@@ -76,8 +110,16 @@ runs:
         PY
         sleep 30
     - id: third
-      if: steps.second.outcome == 'failure'
+      if: steps.second.outcome == 'failure' || steps.second-validation.outcome == 'failure'
       uses: actions/download-artifact@v4
       with:
         name: ${{ inputs.name }}
         path: ${{ inputs.path }}
+    - name: Verify the third download
+      if: steps.third.outcome == 'success' && inputs.expected-sha256 != ''
+      shell: bash
+      env:
+        DOWNLOAD_PATH: ${{ inputs.path }}
+        SHA256_FILE: ${{ inputs.sha256-file }}
+        EXPECTED_SHA256: ${{ inputs.expected-sha256 }}
+      run: python3 -S -B "${{ github.action_path }}/validate_sha256.py"

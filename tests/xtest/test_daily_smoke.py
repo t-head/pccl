@@ -297,7 +297,10 @@ class DailySmokeTests(unittest.TestCase):
     def test_all_daily_downloads_use_the_bounded_retry_action(self):
         action = RETRY_ACTION.read_text()
         self.assertEqual(action.count('uses: actions/download-artifact@v4'), 3)
-        self.assertEqual(action.count('continue-on-error: true'), 2)
+        self.assertEqual(action.count('continue-on-error: true'), 4)
+        self.assertIn('PREFLIGHT_ONLY', action)
+        self.assertIn('validate_sha256.py', action)
+        self.assertEqual(action.count('validation.outcome'), 4)
         self.assertIn('sleep 15', action)
         self.assertIn('sleep 30', action)
         self.assertIn('shutil.rmtree(target)', action)
