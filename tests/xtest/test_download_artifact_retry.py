@@ -5,6 +5,7 @@ import hashlib
 import importlib.util
 from pathlib import Path
 import tempfile
+import textwrap
 import unittest
 
 
@@ -51,6 +52,13 @@ class DownloadArtifactRetryTests(unittest.TestCase):
         self.archive.symlink_to(self.root / 'elsewhere.tar.gz')
         with self.assertRaisesRegex(ValueError, 'regular file'):
             VALIDATOR.validate_download(self.root, 'download', 'output_standard.tar.gz', self.sha256)
+
+    def test_action_embeds_the_same_validator_without_action_path(self):
+        action = (Path(__file__).resolve().parents[2] /
+                  '.github/actions/download-artifact-retry/action.yml').read_text()
+        self.assertNotIn('github.action_path', action)
+        embedded = action.split("cat > \"$VALIDATOR_PATH\" <<'PY'\n", 1)[1].split('\n        PY\n', 1)[0]
+        self.assertEqual(textwrap.dedent(embedded).rstrip('\n') + '\n', SCRIPT.read_text())
 
 
 if __name__ == '__main__':
