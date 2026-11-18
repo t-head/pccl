@@ -374,7 +374,8 @@ static int ncclTopoGraphProxyImbalance(const struct ncclTopoGraph* graph) {
   return imbalance;
 }
 
-ncclResult_t ncclTopoCompareGraphs(struct ncclTopoGraph* graph, struct ncclTopoGraph* refGraph, int* copy) {
+ncclResult_t ncclTopoCompareGraphs(struct ncclTopoSystem* system, struct ncclTopoGraph* graph,
+                                 struct ncclTopoGraph* refGraph, int* copy) {
   // 1. Constraint to get the same nChannels between Rings and Trees
   if (graph->nChannels < graph->minChannels) return ncclSuccess;
 
@@ -410,7 +411,7 @@ ncclResult_t ncclTopoCompareGraphs(struct ncclTopoGraph* graph, struct ncclTopoG
   } else if (graph->typeInter == refGraph->typeInter) {
     if (graph->typeIntra < refGraph->typeIntra) {
       *copy = 1;
-    } else if (nccl_use_eic && graph->typeIntra == refGraph->typeIntra &&
+    } else if (system->useEic && graph->typeIntra == refGraph->typeIntra &&
         graph->pattern == NCCL_TOPO_PATTERN_RING && refGraph->pattern == NCCL_TOPO_PATTERN_RING &&
         graph->crossNic == 0 && refGraph->crossNic == 0 && graph->typeInter == PATH_PXN &&
         graph->nChannels == refGraph->nChannels && graph->speedInter == refGraph->speedInter &&
@@ -487,7 +488,7 @@ ncclResult_t ncclTopoSearchRecGpu(struct ncclTopoSystem* system, struct ncclTopo
     // Determine whether we found a better solution or not
     int copy = 0;
     graph->nChannels++;
-    NCCLCHECK(ncclTopoCompareGraphs(graph, saveGraph, &copy));
+    NCCLCHECK(ncclTopoCompareGraphs(system, graph, saveGraph, &copy));
     if (copy) {
       memcpy(saveGraph, graph, sizeof(struct ncclTopoGraph));
       if (graph->nChannels == graph->maxChannels) *time = -1;
@@ -1310,7 +1311,7 @@ ncclResult_t ncclTopoGetNetDev(ncclComm_t comm, int rank, struct ncclTopoGraph* 
 
     *proxyRank = rank;
 
-    int pxnLevel = ncclPxnDisable() == 1 ? 0 : ncclParamP2pPxnLevel();
+    int pxnLevel = ncclPxnDisable(comm) == 1 ? 0 : ncclParamP2pPxnLevel();
     // See whether we can use the remote rank preferred device.
     if (ncclParamCrossNic() == 0 || (pxnLevel != 0)) {
       int hgmlDev = comm->peerInfo[peerRank].hgmlDev;

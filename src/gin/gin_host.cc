@@ -119,7 +119,7 @@ static ncclResult_t pcclGinGetDeviceFromNetDevice(struct pcclComm* comm, int net
     return ncclSuccess;
 
   ncclNetProperties_t netProps = {};
-  NCCLCHECK(ncclNetGetProperties(netDev, &netProps));
+  NCCLCHECK(comm->ncclNet->getProperties(netDev, &netProps));
   int ndev;
   NCCLCHECK(ginState->ncclGin->devices(&ndev));
   for (int dev = 0; dev < ndev; dev++) {
