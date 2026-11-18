@@ -622,7 +622,7 @@ ncclResult_t ncclGinTroceCreateContext(void *collComm, int nSignals, int nCounte
   const int qpsPerContext = nranks + 1;
   const int nqps = nContexts * qpsPerContext;
   int64_t sqDepth = std::max<int64_t>(1024, queueDepth > 0 ? queueDepth : ncclParamGinGdakiQpDepth());
-  const uint32_t maxSqDepth = PCCL_GIN_TROCE_MAX_SQ_WQES / TROCE_SEND_WQE_BB_FACTOR;
+  const uint32_t maxSqDepth = PCCLX_GIN_TROCE_MAX_SQ_WQES / TROCE_SEND_WQE_BB_FACTOR;
   if (sqDepth > maxSqDepth) {
     WARN("GIN/TROCE: requested SQ depth %lld exceeds maximum %u", (long long)sqDepth, maxSqDepth);
     return ncclInvalidArgument;
@@ -760,7 +760,7 @@ ncclResult_t ncclGinTroceCreateContext(void *collComm, int nSignals, int nCounte
 
   NCCLCHECKGOTO(ncclCalloc(&devHandle, 1), status, fail);
   devHandle->netDeviceType = PCCLX_NET_DEVICE_GIN_TROCE;
-  devHandle->netDeviceVersion = PCCL_GIN_TROCE_VERSION;
+  devHandle->netDeviceVersion = PCCLX_GIN_TROCE_VERSION;
   devHandle->handle = gpuCtx->gpuBuf;
   devHandle->size = sizeof(pcclxGinTroceGPUContext) * nContexts;
   devHandle->needsProxyProgress = 0;

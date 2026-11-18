@@ -5,8 +5,8 @@
  * See LICENSE.txt for more license information
  *************************************************************************/
 
-#ifndef _PCCL_DEVICE_GIN_TROCE_HW_H_
-#define _PCCL_DEVICE_GIN_TROCE_HW_H_
+#ifndef _PCCLX_DEVICE_GIN_TROCE_HW_H_
+#define _PCCLX_DEVICE_GIN_TROCE_HW_H_
 
 #include <stdint.h>
 
@@ -103,33 +103,33 @@ struct troce_atomic_seg {
   uint64_t comp_dat;
 };
 
-typedef struct troce_sqe_ctrl_seg pcclTroceCtrlSeg;
-typedef struct troce_raddr_seg pcclTroceRaddrSeg;
-typedef struct troce_sqe_data_seg pcclTroceDataSeg;
-typedef struct troce_atomic_seg pcclTroceAtomicSeg;
-typedef troce_sq_db_u pcclTroceSqDb;
+typedef struct troce_sqe_ctrl_seg pcclxTroceCtrlSeg;
+typedef struct troce_raddr_seg pcclxTroceRaddrSeg;
+typedef struct troce_sqe_data_seg pcclxTroceDataSeg;
+typedef struct troce_atomic_seg pcclxTroceAtomicSeg;
+typedef troce_sq_db_u pcclxTroceSqDb;
 
-#define PCCL_TROCE_16B_PAD(_len) (((0x10 - ((_len) & 0xf))) & 0xf)
-#define PCCL_TROCE_ATOMIC_SIZE 8
-#define PCCL_TROCE_DIV_ROUND_UP(size, alignment) (((size) + (alignment) - 1) / (alignment))
-#define PCCL_TROCE_SEND_WQE_BB 64
+#define PCCLX_TROCE_16B_PAD(_len) (((0x10 - ((_len) & 0xf))) & 0xf)
+#define PCCLX_TROCE_ATOMIC_SIZE 8
+#define PCCLX_TROCE_DIV_ROUND_UP(size, alignment) (((size) + (alignment) - 1) / (alignment))
+#define PCCLX_TROCE_SEND_WQE_BB 64
 
-enum pcclTroceQType {
-  PCCL_PAU_QTYPE_ROCE_SQ = 0,
-  PCCL_PAU_QTYPE_ROCE_RQ = 1,
-  PCCL_PAU_QTYPE_ROCE_SRQ = 2,
-  PCCL_PAU_QTYPE_ROCE_CQ = 3,
+enum pcclxTroceQType {
+  PCCLX_PAU_QTYPE_ROCE_SQ = 0,
+  PCCLX_PAU_QTYPE_ROCE_RQ = 1,
+  PCCLX_PAU_QTYPE_ROCE_SRQ = 2,
+  PCCLX_PAU_QTYPE_ROCE_CQ = 3,
 };
 
-enum pcclTroceOpcode {
-  PCCL_TROCE_OPCODE_RDMA_READ = 0x00,
-  PCCL_TROCE_OPCODE_SEND_INVAL = 0x02,  // TROCE inline flush write.
-  PCCL_TROCE_OPCODE_RDMA_WRITE = 0x04,
-  PCCL_TROCE_OPCODE_ATOMIC_FA = 0x07,
+enum pcclxTroceOpcode {
+  PCCLX_TROCE_OPCODE_RDMA_READ = 0x00,
+  PCCLX_TROCE_OPCODE_SEND_INVAL = 0x02,  // TROCE inline flush write.
+  PCCLX_TROCE_OPCODE_RDMA_WRITE = 0x04,
+  PCCLX_TROCE_OPCODE_ATOMIC_FA = 0x07,
 };
 
-enum pcclTroceFence {
-  PCCL_TROCE_FENCE = 2,  // Same ordering as IBV_SEND_FENCE.
+enum pcclxTroceFence {
+  PCCLX_TROCE_FENCE = 2,  // Same ordering as IBV_SEND_FENCE.
 };
 
 struct troce_be_cqe {
@@ -209,22 +209,22 @@ struct troce_cq_db {
 typedef union {
   struct troce_cq_db db;
   uint64_t value;
-} pcclTroceCqDb;
+} pcclxTroceCqDb;
 
-#define PCCL_TROCE_CQ_DB_REQ_NOT 0
+#define PCCLX_TROCE_CQ_DB_REQ_NOT 0
 
-#define PCCL_TROCE_CQE_OWNER_MASK 0x01000000u
-#define PCCL_TROCE_CQE_OWNER_SHIFT 24
-#define PCCL_TROCE_CQE_OPCODE_MASK 0xF0000000u
-#define PCCL_TROCE_CQE_OPCODE_SHIFT 28
-#define PCCL_TROCE_CQE_WQE_IDX_MASK 0xFFFF0000u
-#define PCCL_TROCE_CQE_WQE_IDX_SHIFT 16
+#define PCCLX_TROCE_CQE_OWNER_MASK 0x01000000u
+#define PCCLX_TROCE_CQE_OWNER_SHIFT 24
+#define PCCLX_TROCE_CQE_OPCODE_MASK 0xF0000000u
+#define PCCLX_TROCE_CQE_OPCODE_SHIFT 28
+#define PCCLX_TROCE_CQE_WQE_IDX_MASK 0xFFFF0000u
+#define PCCLX_TROCE_CQE_WQE_IDX_SHIFT 16
 
-enum pcclTroceCqeOpcode {
-  PCCL_TROCE_CQE_REQ = 0x0,
-  PCCL_TROCE_CQE_REQ_ERR = 0x5,
-  PCCL_TROCE_CQE_RESP_ERR = 0x6,
-  PCCL_TROCE_CQE_INVALID = 0xf,
+enum pcclxTroceCqeOpcode {
+  PCCLX_TROCE_CQE_REQ = 0x0,
+  PCCLX_TROCE_CQE_REQ_ERR = 0x5,
+  PCCLX_TROCE_CQE_RESP_ERR = 0x6,
+  PCCLX_TROCE_CQE_INVALID = 0xf,
 };
 
-#endif /* _PCCL_DEVICE_GIN_TROCE_HW_H_ */
+#endif /* _PCCLX_DEVICE_GIN_TROCE_HW_H_ */

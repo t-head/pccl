@@ -5,18 +5,18 @@
  * See LICENSE.txt for more license information
  *************************************************************************/
 
-#ifndef _PCCL_DEVICE_GIN_TROCE_DEVICE_HOST_COMMON_H_
-#define _PCCL_DEVICE_GIN_TROCE_DEVICE_HOST_COMMON_H_
+#ifndef _PCCLX_DEVICE_GIN_TROCE_DEVICE_HOST_COMMON_H_
+#define _PCCLX_DEVICE_GIN_TROCE_DEVICE_HOST_COMMON_H_
 
 #include <linux/types.h>
 #include <stdint.h>
 
 // Host/device ABI version; increment when the shared layout changes.
-#define PCCL_GIN_TROCE_VERSION 100
+#define PCCLX_GIN_TROCE_VERSION 100
 
 // SQ capacity constant expressed in WQEBBs.
-#define PCCL_GIN_TROCE_MAX_SQ_WQES 32768
-#define PCCL_GIN_TROCE_MAX_TRANSFER_SIZE (1UL << 30)
+#define PCCLX_GIN_TROCE_MAX_SQ_WQES 32768
+#define PCCLX_GIN_TROCE_MAX_TRANSFER_SIZE (1UL << 30)
 
 // Per-context view of device-resident signal storage. Remote keys
 // are indexed by peer rank; offset selects this context's slice of the table.
@@ -60,4 +60,4 @@ struct pcclxGinTroceMemHandle {
   __be32 lkey;
 };
 
-#endif /* _PCCL_DEVICE_GIN_TROCE_DEVICE_HOST_COMMON_H_ */
+#endif /* _PCCLX_DEVICE_GIN_TROCE_DEVICE_HOST_COMMON_H_ */

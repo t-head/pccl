@@ -6,12 +6,12 @@
  * See LICENSE.txt for more license information
  *************************************************************************/
 
-#ifndef _PCCL_DEVICE_GIN_TROCE_UTILS_H_
-#define _PCCL_DEVICE_GIN_TROCE_UTILS_H_
+#ifndef _PCCLX_DEVICE_GIN_TROCE_UTILS_H_
+#define _PCCLX_DEVICE_GIN_TROCE_UTILS_H_
 
 #include "../../utility.h"
 
-namespace pccl {
+namespace pcclx {
 namespace gin {
 namespace troce {
 
@@ -80,6 +80,6 @@ PCCL_DEVICE_INLINE uint64_t loadRelaxedSysGlobal(uint64_t *ptr) {
 
 }  // namespace troce
 }  // namespace gin
-}  // namespace pccl
+}  // namespace pcclx
 
-#endif  // _PCCL_DEVICE_GIN_TROCE_UTILS_H_
+#endif  // _PCCLX_DEVICE_GIN_TROCE_UTILS_H_

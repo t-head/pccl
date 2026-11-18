@@ -6,8 +6,8 @@
  * See LICENSE.txt for more license information
  *************************************************************************/
 
-#ifndef PCCL_DEVICE_LSA_BULK_H_
-#define PCCL_DEVICE_LSA_BULK_H_
+#ifndef _PCCLX_DEVICE_LSA_BULK_H_
+#define _PCCLX_DEVICE_LSA_BULK_H_
 
 #include "core.h"
 

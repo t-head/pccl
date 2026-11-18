@@ -85,7 +85,7 @@ static ncclResult_t ncclGinIbTroceGetProperties(int dev, ncclNetProperties_v12_t
   memset(props, 0, sizeof(*props));
   ncclGinIbFillV12Properties(source, props);
   props->netDeviceType = PCCLX_NET_DEVICE_GIN_TROCE;
-  props->netDeviceVersion = PCCL_GIN_TROCE_VERSION;
+  props->netDeviceVersion = PCCLX_GIN_TROCE_VERSION;
   props->vProps.devs[0] = dev;
 
   return ncclSuccess;
