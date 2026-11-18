@@ -1,17 +1,19 @@
 {
   "classification": {
     "base_sha": "4fe24f98fb2a7e68ea5bb3a0179b2c518e7a5870",
-    "head_sha": "ebafd01754f100c4689beee9c6dfef760f980a86",
-    "input_fingerprint": "ae746a3866854f8ec76d462777418670508d8adfa2bd6f69ca33dcc79938d714",
+    "head_sha": "1f5cc445f807c936945f6f9bfa74f548118d0e37",
+    "input_fingerprint": "652270cc6fd491d1af1b9a06514613403b6f13f06237b82465149f16f2ef9a60",
     "pr_number": 211,
     "proposal": {
       "modules": [
-        "graph-search"
+        "graph-search",
+        "ci"
       ],
-      "reason": "Fixes the main runtime behavior in channel graph handling: cached PXN proxy lookup now uses the mapped graph channel after channel-count alignment in ncclTopoGetNetDev, preventing stale/discarded proxy metadata from being read. The graph.h edit is a clarifying comment for the same graph-channel indexing semantics, not a separate module change."
+      "reason": "Main functional change is in topology graph search runtime logic: cached PXN proxy lookup now uses the mapped graph channel (with matching graph.h channel semantics comment), which fixes channel-alignment proxy resolution during communicator init. Additionally, .github/workflows/pr-test-ppu.yml removes explicit checkout token usage in PR test jobs, an independent CI workflow behavior change requiring ci review."
     }
   },
   "reviewers": {
+    "ci": 333302477,
     "graph-search": 335834228
   }
 }
