@@ -6,6 +6,7 @@
  * See LICENSE.txt for more license information
  *************************************************************************/
 
+#include "a2a_request_tag.h"
 #include "comm.h"
 #include "transport.h"
 #include "net.h"
@@ -167,6 +168,16 @@ PCCL_PARAM(NetByPass, "NET_BYPASS", 0);
 PCCL_PARAM(GdrCpuFlush, "GDR_CPU_FLUSH", 0);
 PCCL_PARAM(SnicCpuFlush, "SNIC_CPU_FLUSH", 1);
 PCCL_PARAM(CpuFlushAsync, "CPU_FLUSH_ASYNC", 0);
+
+// Only an unset option allows AlltoAll to opt in. Use the normal config-file
+// and PCCL/NCCL-prefix lookup, and cache it like the numeric public option.
+static bool a2aAutoCpuFlushEnabled() {
+  static const bool enabled = ncclGetEnv("PCCL_CPU_FLUSH_ASYNC") == nullptr;
+  return enabled;
+}
+
+PCCL_PARAM(A2aSendWindow, "A2A_SEND_WINDOW", 4);
+PCCL_PARAM(A2aSendWindowMinBytes, "A2A_SEND_WINDOW_MIN_BYTES", 2097152);
 PCCL_PARAM(GdrUseDevMemForRxTail, "GDR_USE_DEV_MEM_FOR_RX_TAIL", 1);
 
 // Sentinel stored in subGroup->requests[slot] to mark that this step issued an
@@ -1121,7 +1132,9 @@ static ncclResult_t sendProxyProgress(struct ncclProxyState* proxyState, struct 
         continue;
       }
       // Check whether we received data from the GPU and send it to the network
-      if (sub->transmitted < sub->posted && sub->transmitted < sub->done + NCCL_STEPS) {
+      // Keep every connection eligible; bound only its outstanding network data.
+      // Prepared slots and receive-side scheduling retain their original layout.
+      if (sub->transmitted < sub->posted && sub->transmitted < sub->done + sub->a2aSendWindow) {
         int buffSlot = (sub->base + sub->transmitted) % NCCL_STEPS;
         volatile int* sizesFifo = resources->recvMem->sizesFifo;
         volatile uint64_t* recvTail = &resources->recvMem->tail;
@@ -1160,13 +1173,15 @@ static ncclResult_t sendProxyProgress(struct ncclProxyState* proxyState, struct 
           if (ready) {
             ncclProfilerRecordProxyStepEventState(s, args, transmittedStepId, ncclProfilerProxyStepSendPeerWait_v4);
             // Data is ready, try to send.
+            const int requestTag = resources->tpRank |
+                (sub->a2aOptimized ? PCCL_A2A_REQUEST_TAG : 0);
 #ifdef NET_BYPASS
             if (args->bypass)
               sub->requests[buffSlot] = &sub;
             else
-              NCCLCHECK(ncclNetIsend(resources->netSendComm, buff, size, resources->tpRank, mhandle, sub->requests + buffSlot));
+              NCCLCHECK(ncclNetIsend(resources->netSendComm, buff, size, requestTag, mhandle, sub->requests + buffSlot));
 #else
-            NCCLCHECK(ncclNetIsend(resources->netSendComm, buff, size, resources->tpRank, mhandle, sub->requests + buffSlot));
+            NCCLCHECK(ncclNetIsend(resources->netSendComm, buff, size, requestTag, mhandle, sub->requests + buffSlot));
 #endif
             if (sub->requests[buffSlot] != NULL) {
               TRACE(NCCL_NET, "sendProxy [%ld/%d/%d] Isend posted, req %p, buff %p, size %d, proto %d, myRank %d, channelId %d",
@@ -1258,6 +1273,28 @@ static ncclResult_t recvProxyProgress(struct ncclProxyState* proxyState, struct 
       for (int i = 0; i < groupSize; i++) sub[-i].groupSize = groupSize;
       ncclProfilerRecordProxyOpEventState(s, args, ncclProfilerProxyOpInProgress_v4);
     }
+    // Explicit settings own the flush policy: 0 keeps synchronous flush,
+    // 1 uses the public async path. Only an unset option permits task opt-in.
+    // Pooled arguments have a2aAsyncFlush cleared in ncclProxyOpToArgs.
+    if ((args->protocol == NCCL_PROTO_SIMPLE || args->protocol == NCCL_PROTO_SIMPLE_BULK) &&
+        !pcclParamCpuFlushAsync() && a2aAutoCpuFlushEnabled()) {
+      for (int s = 0; s < args->nsubs; s += args->subs[s].groupSize) {
+        struct ncclProxySubArgs* subGroup = args->subs + s;
+        bool allA2a = true;
+        for (int i = 0; i < subGroup->groupSize; ++i) {
+          if (!subGroup[i].a2aAutoAsyncFlush) {
+            allA2a = false;
+            break;
+          }
+        }
+        subGroup->a2aAsyncFlush = allA2a;
+        struct recvResources* resources =
+            (struct recvResources*)subGroup->connection->transportResources;
+        if (allA2a && resources->gdcFlush) {
+          ncclProxyEnsureA2aCpuFlush(proxyState);
+        }
+      }
+    }
     args->state = ncclProxyOpProgress;
 #ifdef NET_BYPASS
     args->bypass = pcclParamNetByPass();
@@ -1298,7 +1335,8 @@ static ncclResult_t recvProxyProgress(struct ncclProxyState* proxyState, struct 
             sizes[subCount] = stepSize * args->sliceSteps;
           }
           if (sub->nbytes < sizes[subCount]) sizes[subCount] = sub->nbytes;
-          tags[subCount] = resources->tpRemoteRank;
+          tags[subCount] = resources->tpRemoteRank | (sub->a2aOptimized ?
+              PCCL_A2A_REQUEST_TAG | (sub->a2aSingleQp ? PCCL_A2A_SINGLE_QP_TAG : 0) : 0);
           mhandles[subCount] = resources->mhandles[p];
           subCount++;
         }
@@ -1378,7 +1416,7 @@ static ncclResult_t recvProxyProgress(struct ncclProxyState* proxyState, struct 
               // Only take the async path once the flush thread's dedicated
               // scratch is ready; otherwise fall back to the synchronous read
               // so we never signal completion without a real PCI-E flush.
-              if (pcclParamCpuFlushAsync()
+              if ((pcclParamCpuFlushAsync() || subGroup->a2aAsyncFlush)
                   && __atomic_load_n(&proxyState->progressState.flushScratch, __ATOMIC_ACQUIRE)) {
                 // Async: take a ticket (bump flushReqSeq) to signal demand; the
                 // per-proxyState flush thread performs the real PCI-E read and

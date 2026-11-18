@@ -221,10 +221,42 @@ struct ncclTaskColl {
   int nWarps;            // kernel-selected warp count for this task group
 };
 
+// Precomputed settings for one channel portion and one protocol.
+struct ncclA2aPartPolicy {
+  uint8_t sendWindow;
+  uint8_t pollFlags;
+  uint8_t singleQp[2]; // [0] dedicated buffer, [1] shared buffer.
+};
+
+// One AlltoAll call owns this CPU-only object in comm->memScoped. Its tasks
+// borrow the pointer; connections never retain it. The layout is prepared at
+// entry, request settings after preconnect, then both are read-only.
+struct ncclA2aCallPolicy {
+  size_t peerBytes; // This invocation's payload for one peer.
+  int partProtocol; // Base protocol used for its channel split.
+  uint64_t netSendConnections; // Stops at minNetConnections; not a full connection count.
+  uint64_t minNetConnections; // Per-call snapshot of the enable threshold.
+  bool connectionsReady; // Finalized once, after preconnect and before planning.
+  ssize_t partBytes; // Exact result of the existing channel-split helper.
+  int partChannels;
+  // [full portion / short tail][base protocol / optional LL].
+  ncclA2aPartPolicy parts[2][2];
+
+  int64_t sendWindowMinBytes; // Per-network-task byte threshold, not per-peer bytes.
+  uint8_t sendWindow; // Zero: no reduced window; tasks retain NCCL_STEPS.
+  uint32_t pollTicks; // Base timer ticks at pollReference active sends.
+  uint16_t pollReference; // Calibrated concurrency; zero disables waiting.
+  uint8_t pollFlags; // PCCL_A2A_POLL_* bits defined in a2a_send_poll.h.
+  bool optimized; // Candidate at entry, final decision when connectionsReady is true.
+};
+
 struct ncclTaskP2p {
   ncclTaskP2p *next;
   ncclFunc_t func;
   ncclFunc_t collAPI;
+  ncclA2aCallPolicy* a2aCallPolicy; // Shared per-call CPU decision, or null.
+  bool a2aOptimized; // Request-local eligibility; never a permanent connection flag.
+  bool a2aAutoAsyncFlush; // Independent of the request-policy connection threshold.
   void *buff;
   size_t count;
   ncclDataType_t datatype;
@@ -306,6 +338,8 @@ struct ncclKernelPlanner {
   int nTasksColl;
   int nTasksP2p;
   int nTasksP2pAlltoall; // subset of nTasksP2p coming from the Alltoall API
+  bool a2aHasCallPolicies; // Group-scoped: skip policy walks when every call fell back early.
+  bool a2aHasAutoAsyncFlush; // Also check mixed-group fallback for small AlltoAll calls.
   bool persistent;
   bool isCeColl;
   bool isExtKernel;

@@ -610,6 +610,9 @@ exit:
   return ret;
 }
 
+extern int64_t pcclParamA2aPollMaxTicks();
+extern int64_t pcclParamA2aOptimize();
+
 static ncclResult_t commAlloc(ncclComm_t comm, ncclComm_t parentComm, int ndev, int rank) {
   if (ndev < 1) {
     ERROR("invalid device count (%d) requested", ndev);
@@ -637,6 +640,10 @@ static ncclResult_t commAlloc(ncclComm_t comm, ncclComm_t parentComm, int ndev, 
 
   comm->devMemUsed = 0;
   comm->pinnedMemUsed = 0;
+  const int64_t pollMax = (pcclParamA2aOptimize() == 1) ? pcclParamA2aPollMaxTicks() : 0;
+  if (pollMax < 0 || pollMax > 65536) return ncclInvalidArgument;
+  comm->hostDevComm.comm.a2aPollMaxTicks = uint32_t(pollMax);
+  comm->hostDevComm.comm.a2aActiveNetSends = 0;
   comm->rank = comm->hostDevComm.comm.rank = rank;
   comm->nRanks = comm->hostDevComm.comm.nRanks = ndev;
   comm->hostDevComm.comm.stateMonitorLevel = ncclParamStateMonitorLevelFlag;
