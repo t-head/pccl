@@ -1,14 +1,14 @@
 {
   "classification": {
-    "base_sha": "a7769ba35a724d84cea481c9b318c30482175471",
-    "head_sha": "9d4c6ab1be5b163bba15a51b257867220f4b45bf",
-    "input_fingerprint": "083787f3ab03679dcdc2d74023c4389e4e3e2b24d122aadf4939fbea4655ea11",
+    "base_sha": "f0a820ec5a1ef1ae8187ac1b43e256d0d94e84eb",
+    "head_sha": "c767c6f5d3c73c69ed92909e6f8bbb8d49392389",
+    "input_fingerprint": "c232f0be481f62e8b9f6459c870b1e71721773857d8107214c4bd23b2b5f0846",
     "pr_number": 206,
     "proposal": {
       "modules": [
         "ci"
       ],
-      "reason": "Main change is CI pipeline behavior: the Actions workflow and build scripts now publish per-package artifacts, run per-package transfer-back uploads with metadata, adjust matrix/summary/reporting, and harden packaging/dependency-install steps for reliable workflow execution. Script edits are in service of CI artifact orchestration rather than a standalone library/runtime module change."
+      "reason": "Main change is CI artifact pipeline behavior: the build workflow now emits one artifact per package, adds per-package transfer-back via reusable workflow, updates schedule/trigger and matrix/upload orchestration, and adjusts build scripts to match CI packaging/verification and runner dependency-install reliability. These are CI execution and artifact-publication mechanics, not reviewer-policy or core library/ABI changes."
     }
   },
   "reviewers": {}
