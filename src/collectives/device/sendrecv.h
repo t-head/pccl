@@ -83,7 +83,8 @@ __device__ __forceinline__ void runSendRecv(struct ncclDevWorkP2p* work) {
           for (ssize_t offset=0; offset<sendCount; offset += blockSize) {
             size_t remaining = sendCount - offset;
             if (remaining < blockSize) blockSize = remaining;
-            ReduceOrCopyMultiBulk<ncclSendRecvLocalUnroll(), FUNC, T, 1, 1, 1, 1, 1, 1, Proto::RTMD, CONN_ICN, CONN_ICN>(tid, nThreads, FUNC(), false, false, 1, &sendbuff, 1, &recvbuff, blockSize);
+            ReduceOrCopyMulti<ncclSendRecvLocalUnroll(), FUNC, T, 1, 1, 1, 1>(
+                tid, nThreads, FUNC(), false, false, 1, &sendbuff, 1, &recvbuff, blockSize);
             sendbuff += blockSize; recvbuff += blockSize;
           }
         }
@@ -138,8 +139,8 @@ template<class FUNC, typename T, int UNROLL>
 class RunWorkP2p<ncclFuncSendRecv, NCCL_ALGO_RING, NCCL_PROTO_SIMPLE_BULK, FUNC, T, UNROLL> {
   public:
     __device__ void run(struct ncclDevWorkP2p* work) {
-      using Proto = ProtoSimpleBulk<UNROLL, 1, 1>;
-      runSendRecv<FUNC, T, UNROLL, Proto>(work);
+      using Proto = ProtoSimpleBulk<2, 1, 1>;
+      runSendRecv<FUNC, T, 2, Proto>(work);
     }
 };
 
