@@ -2,7 +2,7 @@
   "classification": {
     "base_sha": "a7769ba35a724d84cea481c9b318c30482175471",
     "head_sha": "6f44f4d2a18ac8ef39a388618c5c6042cf178b4c",
-    "input_fingerprint": "7c7cfa70ade8eb72fa88b27b313be7d7aa4c13657c8f2a78c08fc28caa6e1079",
+    "input_fingerprint": "7d29283627a50910dc905dea88f4aea2fc5188d392c8bfe41a76b9219021393e",
     "pr_number": 50,
     "proposal": {
       "modules": [
@@ -10,7 +10,7 @@
         "memory",
         "network"
       ],
-      "reason": "Primary change is in network transport/proxy behavior: NET send-credit TX head storage defaults to sender-local device memory, with new mapping/open/close lifecycle and connect handshake updates in src/transport/net.cc. transport is additionally required because src/transport/p2p.cc and shared proxy state add a new allocation-only P2P proxy-buffer path and ownership/cleanup flow used to provision that head storage. memory is additionally required because src/include/alloc.h introduces MEM_LEGACY allocation/free semantics and tracking differences (including untrack bypass), which changes allocator behavior beyond a pure call-site refactor."
+      "reason": "Main change is in NET transport/proxy behavior: default TX send-credit head storage moves to sender-local device memory with explicit mapping/open/close and initialization in send connect/free paths. Include transport because this adds allocation-only P2P proxy connection APIs/ownership flow used to provision and tear down those head buffers. Include memory because allocator semantics add MEM_LEGACY runtime device allocation/free and explicitly bypass mem-manager untrack for that mode, changing memory-ownership/tracking behavior."
     }
   },
   "reviewers": {
