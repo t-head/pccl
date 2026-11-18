@@ -276,7 +276,7 @@ class DailySmokeTests(unittest.TestCase):
         self.assertIn(action, cross)
         self.assertIn("if: env.NODES != '1' && env.CROSS_RACK != 'true'", ordinary)
         self.assertIn("if: env.NODES != '1' && env.CROSS_RACK == 'true'", cross)
-        self.assertNotIn('rack_nodes:', ordinary)
+        self.assertIn('rack_nodes: rack-01=${{ matrix.nodes }}', ordinary)
         self.assertIn('rack_nodes: ${{ matrix.rack_nodes }}', cross)
         self.assertIn('node_selector: ${{ env.VALIDATION_NODE_SELECTOR }}', cross)
         self.assertNotIn('icn-rack=', text)

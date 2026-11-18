@@ -122,6 +122,9 @@ passed or skipped tests.
 cards per node, shared environment and cross-rack allocation, then splits large
 groups by `--max-cases`. The two-rack performance Suites are isolated from
 ordinary Suites and carry explicit `rack_nodes` allocations in `groups.json`.
+Every other multi-node execution explicitly requests `rack-01=<node-count>` so
+all of its workers stay in rack-01. Single-node executions do not pass
+`rack_nodes`.
 There is no hand-maintained shard list. Optional `--nodes` and `--suite`
 arguments are debug filters, not shard definitions.
 

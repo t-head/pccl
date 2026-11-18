@@ -66,6 +66,8 @@ The workflow supports two `workflow_dispatch` choices:
   1/2/4/8-node resource policy selects 8,890 Cases in 25 groups and records
   only the 9 sixteen-node Cases as excluded. Two-rack Suites are isolated from
   ordinary same-resource Suites and carry explicit `rack_nodes` allocations.
+  Ordinary multi-node groups explicitly request `rack-01=<node-count>`, keeping
+  every worker in rack-01.
 
 The 22:00 Asia/Shanghai schedule selects `full`, which uses the same JSON
 generation path as manual dispatch. No legacy daily CSV dataset remains.
