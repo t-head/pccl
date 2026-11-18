@@ -1,14 +1,14 @@
 {
   "classification": {
-    "base_sha": "b480396b4436251ed72274d2906c329d9523c381",
-    "head_sha": "4783a2b7e9b664ea2db98d357ed46e94ee428385",
-    "input_fingerprint": "5ed320d9b2326574605e47b86bf4551d65a648794e4ccf6311bbf65220ea0737",
+    "base_sha": "a7769ba35a724d84cea481c9b318c30482175471",
+    "head_sha": "83a6c7053575221e395f313ea60fee9ad35ee8e3",
+    "input_fingerprint": "ebed2c131104eb6e63a3a011e1630f0753f9dcea72a11ecfa33a758aa4a6c715",
     "pr_number": 184,
     "proposal": {
       "modules": [
         "dispatch"
       ],
-      "reason": "Main functional change is in CU/CE dispatch policy application: strategy cache ownership moves from per-comm/FUNC_INDEX slots to a process-wide (device,kernel)-keyed mirror shared by native and user paths, with applied-state tracking to force correct re-application and launchConfig returned from that cache. init/comm/enqueue edits are supporting wiring for this dispatch behavior change, not independent module changes."
+      "reason": "Main change fixes CU/CE dispatch-state application by replacing per-comm/FUNC_INDEX mirrors with a process-wide cache keyed by (device,kernel), shared across native and user paths, and by forcing correct re-apply/skip decisions from the actual last-applied kernel state. Edits in enqueue/init/comm are supporting call-site and lifecycle plumbing for this dispatch behavior, not independent communicator or enqueue policy changes."
     }
   },
   "reviewers": {
