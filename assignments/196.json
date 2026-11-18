@@ -1,14 +1,14 @@
 {
   "classification": {
     "base_sha": "a7769ba35a724d84cea481c9b318c30482175471",
-    "head_sha": "5642335802c4233517c9b518724b521e950b2f25",
-    "input_fingerprint": "b61be9f1fb296f3705707122584d48269279aa409f9fb6f244361112fef4689c",
+    "head_sha": "b53dd6674f35d2a8718d175468fe239cb0957a25",
+    "input_fingerprint": "8393b12550e1834ef8d17583a76917e217291cccecbf2fc8e9a0451f46147e87",
     "pr_number": 196,
     "proposal": {
       "modules": [
         "ci"
       ],
-      "reason": "Primary change is the test/automation pipeline: daily workflow now generates case inputs from JSON families, expands grouped execution policy (including cross-rack allocation), hardens artifact download/integrity retry logic, and adds full performance-report reconciliation/output handling in CI scripts and tests. Workflow-doc edits and legacy CSV removals support this CI behavior change rather than introducing separate review-policy or runtime-module changes."
+      "reason": "Main change is CI/test-pipeline infrastructure: daily/source-sanity workflow behavior, artifact download/verification retry action, generated JSON-based test-case inputs, grouping/reconciliation/recovery/report tooling, and related CI docs/tests. Removed legacy daily CSV inputs are part of the same CI execution-path migration, not a separate runtime module change."
     }
   },
   "reviewers": {
