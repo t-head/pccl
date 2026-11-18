@@ -1,8 +1,8 @@
 {
   "classification": {
-    "base_sha": "a7769ba35a724d84cea481c9b318c30482175471",
-    "head_sha": "d13018a8de65bbcefc49765295f81958b0213159",
-    "input_fingerprint": "b9de687ac9eed827b3ee09583d69490a84c57c9d0d3f319d3845289da5a79ac8",
+    "base_sha": "8aa6e1d4f0978571a3958bbc20c725607d1b4890",
+    "head_sha": "dc801b8af0ced46355e7f1d6b227a7481755625f",
+    "input_fingerprint": "fd7a6bc0cc2b7a915527ff39791c3444701eec1e37fc56eee2508a8518ac865b",
     "pr_number": 64,
     "proposal": {
       "modules": [
@@ -10,10 +10,10 @@
         "enqueue",
         "profiler",
         "copy-engine",
-        "gin",
-        "other"
+        "device-api",
+        "gin"
       ],
-      "reason": "Primary change is a new host one-sided RMA feature set (pcclPutSignal/pcclSignal/pcclWaitSignal plus new src/rma/* subsystem) that is outside explicit catalog scopes, so use other. Add enqueue for substantive new RMA task creation/scheduling/plan lifecycle wiring; copy-engine for the CE-based in-node RMA put/wait execution path and signal synchronization; gin for the cross-node GIN proxy/plugin/context/progress and RMA registration path; communicator for numRmaCtx config, communicator capability negotiation/reporting, and init/finalize/async-error lifecycle integration; profiler for new RMA API event schema/mask/start-stop handling."
+      "reason": "Main change is new host one-sided public APIs (pcclPutSignal/pcclSignal/pcclWaitSignal), config surface (numRmaCtx), and communicator property reporting, so device-api is primary. enqueue is needed for new RMA task types and plan scheduling/launch integration; copy-engine is needed for the in-node CE put/wait execution path and signal synchronization; gin is needed for the cross-node RMA proxy path, GIN proxy wrappers, plugin loading/selection, and progress logic; communicator is needed for capability negotiation, config parsing/defaults/version gating, async-error/free lifecycle wiring, and per-comm RMA state; profiler is needed for new RMA API event types and descriptors."
     }
   },
   "reviewers": {
