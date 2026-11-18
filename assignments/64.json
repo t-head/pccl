@@ -1,20 +1,19 @@
 {
   "classification": {
-    "base_sha": "747030b6fe8cf6b111f18efb61c6e16ff76e9c0e",
-    "head_sha": "cafd5c256864ce45f299e0c4b87acbcf20c1e0bf",
-    "input_fingerprint": "2978c35ec703251a42c8b9a6faf47088bfe023d466cfd3060dfba85ae2c8fd73",
+    "base_sha": "996baac6d4ec098e0cad3942a6dc21846022ff2a",
+    "head_sha": "7ed2fdbff0fc0eda451e1fb7ada7371da9d64301",
+    "input_fingerprint": "4d8ef4420d2c8858a9f89d17e8b98d86c17fc354d26fdae1107b15f1a95aee9c",
     "pr_number": 64,
     "proposal": {
       "modules": [
-        "build",
+        "communicator",
         "enqueue",
         "profiler",
         "copy-engine",
-        "device-api",
         "gin",
         "other"
       ],
-      "reason": "Primary change is a new host one-sided RMA subsystem (PutSignal/Signal/WaitSignal and RMA task/proxy lifecycle) that is not directly represented in the catalog, so `other` is required. Add `copy-engine` for the new CE-based RMA put/wait execution, `gin` for GIN proxy/plugin context and cross-node RMA progress/registration, `enqueue` for RMA task validation/scheduling/launch integration, `device-api` for new public API/config/property and symmetric-window semantics, `profiler` for new RMA API profiling events/descriptor schema, and `build` for an independent Makefile shared-link change."
+      "reason": "Primary scope is a new host one-sided RMA API family (PutSignal/Signal/WaitSignal) and semantics that are not explicitly covered by a catalog module, so `other` is required. `enqueue` is needed for new RMA task creation/planning and launch-path integration; `copy-engine` for the in-node CE RMA put/wait execution path and signal synchronization; `gin` for cross-node RMA proxy transport, plugin/context wiring, and progress loop; `communicator` for new `numRmaCtx` config parsing/defaulting and host-RMA capability negotiation/reporting; and `profiler` for new RMA API event types and descriptors."
     }
   },
   "reviewers": {
