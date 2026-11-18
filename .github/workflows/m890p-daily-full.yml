@@ -1,4 +1,4 @@
-name: M890P daily grouped execution (experimental)
+name: M890P daily grouped execution
 
 on:
   push:
@@ -14,7 +14,7 @@ on:
         required: true
         default: smoke
         type: choice
-        options: [smoke, full, generated-smoke, generated-full]
+        options: [smoke, full]
       max_cases_per_group:
         description: Maximum Cases in each automatic same-environment shard
         required: true
@@ -86,40 +86,34 @@ jobs:
           python3 -S -B -m unittest discover -s tests/xtest -p 'test_daily_smoke.py' -v
           python3 -S -B -m unittest discover -s tests/xtest -p 'test_daily_reconcile.py' -v
           python3 -S -B -m unittest discover -s tests/xtest -p 'test_generate_cases.py' -v
-          GENERATED_INPUT=
-          if [[ "$DATASET" == generated-smoke || "$DATASET" == generated-full ]]; then
-            GENERATION_PROFILE=${DATASET#generated-}
-            GENERATED_DEFINITIONS=(
-              --definition tests/xtest/test_lists/op_perf_shm.json
-              --definition tests/xtest/test_lists/postsil_daily_shm.json
+          GENERATED_DEFINITIONS=(
+            --definition tests/xtest/test_lists/op_perf_shm.json
+            --definition tests/xtest/test_lists/postsil_daily_shm.json
+          )
+          if [[ "$DATASET" == full ]]; then
+            GENERATED_DEFINITIONS+=(
+              --definition tests/xtest/test_lists/pccl_fun_rdma_shm.json
+              --definition tests/xtest/test_lists/register_test_shm.json
+              --definition tests/xtest/test_lists/sanity_m890p_register.json
+              --definition tests/xtest/test_lists/sym_test_shm.json
+              --definition tests/xtest/test_lists/f8_test_shm.json
+              --definition tests/xtest/test_lists/device_api_shm.json
+              --definition tests/xtest/test_lists/local_register_perf_shm.json
+              --definition tests/xtest/test_lists/symetric_perf_shm.json
+              --definition tests/xtest/test_lists/copyengine_perf_shm.json
+              --definition tests/xtest/test_lists/op_perf_shm_2_rack.json
+              --definition tests/xtest/test_lists/op_perf_rdma_shm.json
+              --definition tests/xtest/test_lists/commabort_test_shm.json
             )
-            if [[ "$DATASET" == generated-full ]]; then
-              GENERATED_DEFINITIONS+=(
-                --definition tests/xtest/test_lists/pccl_fun_rdma_shm.json
-                --definition tests/xtest/test_lists/register_test_shm.json
-                --definition tests/xtest/test_lists/sanity_m890p_register.json
-                --definition tests/xtest/test_lists/sym_test_shm.json
-                --definition tests/xtest/test_lists/f8_test_shm.json
-                --definition tests/xtest/test_lists/device_api_shm.json
-                --definition tests/xtest/test_lists/local_register_perf_shm.json
-                --definition tests/xtest/test_lists/symetric_perf_shm.json
-                --definition tests/xtest/test_lists/copyengine_perf_shm.json
-                --definition tests/xtest/test_lists/op_perf_shm_2_rack.json
-                --definition tests/xtest/test_lists/op_perf_rdma_shm.json
-                --definition tests/xtest/test_lists/commabort_test_shm.json
-              )
-            fi
-            python3 -S -B tests/xtest/generate_cases.py \
-              "${GENERATED_DEFINITIONS[@]}" \
-              --suites tests/xtest/test_lists/suites.json \
-              --env-root tests/xtest/test_lists/envs \
-              --profile "$GENERATION_PROFILE" \
-              --source-revision '${{ github.sha }}' \
-              --runner-revision '${{ env.PCCL_TESTS_REVISION }}' \
-              --output generated-case-input
-            GENERATED_INPUT=generated-case-input
           fi
-          export GENERATED_INPUT
+          python3 -S -B tests/xtest/generate_cases.py \
+            "${GENERATED_DEFINITIONS[@]}" \
+            --suites tests/xtest/test_lists/suites.json \
+            --env-root tests/xtest/test_lists/envs \
+            --profile "$DATASET" \
+            --source-revision '${{ github.sha }}' \
+            --runner-revision '${{ env.PCCL_TESTS_REVISION }}' \
+            --output generated-case-input
           python3 -S -B - <<'PY'
           import hashlib
           import json
@@ -137,12 +131,9 @@ jobs:
           from artifact_cache import PCCL_TESTS_REVISION, RUNNER_HASHES
 
           dataset = os.environ['DATASET']
-          if dataset not in ('smoke', 'full', 'generated-smoke', 'generated-full'):
+          if dataset not in ('smoke', 'full'):
               raise ValueError('Unsupported daily dataset')
-          if dataset.startswith('generated-'):
-              input_directory = Path(os.environ['GENERATED_INPUT'])
-          else:
-              input_directory = Path(f'tests/xtest/daily-{dataset if dataset == "full" else "minimal"}-csv')
+          input_directory = Path('generated-case-input')
           nodes = int(os.environ['NODES']) if os.environ['NODES'] else None
           suite = os.environ['SUITE'] or None
           if nodes is not None and nodes not in (1, 2, 4, 8, 16):
@@ -155,8 +146,7 @@ jobs:
           performance_report.write_selection(
               input_directory, 'standard', Path('case-groups/performance-cases.json'),
               nodes=nodes, suite=suite)
-          if dataset.startswith('generated-'):
-              shutil.copyfile(input_directory / 'generation.json', 'case-groups/generation.json')
+          shutil.copyfile(input_directory / 'generation.json', 'case-groups/generation.json')
           groups = plan['groups']
           groups_sha256 = case_group_cache.tree_sha256(Path('case-groups'))
           manifest = json.loads(Path('case-groups/groups.json').read_text())

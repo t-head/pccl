@@ -1,7 +1,6 @@
 # SPDX-FileCopyrightText: Copyright (c) 2026 T-Head (Shanghai) Semiconductor Co., Ltd. All rights reserved.
 # SPDX-License-Identifier: Apache-2.0
 
-import csv
 from hashlib import sha256
 import json
 from pathlib import Path
@@ -27,31 +26,6 @@ ALL_FAMILIES = (
     "local_register_perf_shm", "symetric_perf_shm", "copyengine_perf_shm",
     "op_perf_shm_2_rack", "op_perf_rdma_shm", "commabort_test_shm",
 )
-LEGACY_SUITE_IDENTITIES = {
-    ("pccl_shm_device_api_single_node1_plan", "device_api_shm_single_node_single_process_suite"):
-        ("pccl_shm_device_api_perf_shm_single_node1_plan",
-         "device_api_perf_shm_single_node_single_process_suite"),
-    ("pccl_shm_device_api_multi_node2_plan", "device_api_shm_multi_nodes2_suite"):
-        ("pccl_shm_device_api_perf_shm_multi_node2_plan",
-         "device_api_perf_shm_multi_nodes2_suite"),
-}
-
-
-def read_csv(path):
-    with Path(path).open(newline="", encoding="utf-8") as stream:
-        return list(csv.DictReader(stream))
-
-
-def sort_rows(rows):
-    return sorted(rows, key=lambda row: (row["plan"], row["suite"], row["name"]))
-
-
-def current_source_row(row):
-    identity = LEGACY_SUITE_IDENTITIES.get((row["plan"], row["suite"]),
-                                           (row["plan"], row["suite"]))
-    return {**row, "plan": identity[0], "suite": identity[1]}
-
-
 def canonical_sha256(value):
     encoded = json.dumps(value, ensure_ascii=False, sort_keys=True,
                          separators=(",", ":")).encode("utf-8")
@@ -70,34 +44,26 @@ class PublicGeneratorTests(unittest.TestCase):
         return generate_cases.generate_bundle(
             DEFINITIONS / f"{family}.json", SUITES, SOURCE_REVISION, RUNNER_REVISION, profile, nodes)
 
-    def assert_matches_committed_export(self, family, expected_count):
+    def assert_matches_source_export(self, family, expected_count):
         bundle = self.bundle(family)
-        suite_keys = {(row["plan"], row["suite"]) for row in bundle["rows"]}
-        expected = sort_rows(
-            row for row in map(current_source_row, read_csv(ROOT / "daily-full-csv/standard.csv"))
-            if (row["plan"], row["suite"]) in suite_keys)
+        manifest = json.loads((DEFINITIONS / "source-export.json").read_text())
+        expected = next(record for record in manifest["families"] if record["family"] == family)
         self.assertEqual(len(bundle["rows"]), expected_count)
-        self.assertEqual(bundle["rows"], expected)
-        expected_suites = []
-        for row in map(current_source_row, read_csv(ROOT / "daily-full-csv/suites.csv")):
-            if (row["plan"], row["suite"]) in suite_keys:
-                expected_suites.append({**row, "nodes": int(row["nodes"]),
-                                        "cards_per_node": int(row["cards_per_node"]),
-                                        "timeout": int(row["timeout"])})
-        self.assertEqual(bundle["suites"], sorted(expected_suites,
-                                                  key=lambda row: (row["plan"], row["suite"])))
+        self.assertEqual(expected["case_count"], expected_count)
+        self.assertEqual(canonical_sha256(bundle["rows"]), expected["source_rows_sha256"])
+        self.assertEqual(bundle["generation"]["definition_sha256"], expected["definition_sha256"])
         self.assertEqual(bundle["metadata"]["xtest_version"], "not-used")
 
     def test_op_perf_matches_all_54_committed_rows(self):
-        self.assert_matches_committed_export("op_perf_shm", 54)
+        self.assert_matches_source_export("op_perf_shm", 54)
 
     def test_postsil_matches_all_3940_committed_rows_including_special_cases(self):
-        self.assert_matches_committed_export("postsil_daily_shm", 3940)
+        self.assert_matches_source_export("postsil_daily_shm", 3940)
         rows = self.bundle("postsil_daily_shm")["rows"]
         self.assertEqual(sum(row["name"].startswith("all_reduce_ranks_") for row in rows), 2)
 
     def test_multi_node_rdma_matches_all_4090_committed_rows(self):
-        self.assert_matches_committed_export("pccl_fun_rdma_shm", 4090)
+        self.assert_matches_source_export("pccl_fun_rdma_shm", 4090)
 
     def test_every_other_family_matches_its_committed_rows(self):
         expected_counts = {
@@ -108,19 +74,13 @@ class PublicGeneratorTests(unittest.TestCase):
         }
         for family, expected_count in expected_counts.items():
             with self.subTest(family=family):
-                self.assert_matches_committed_export(family, expected_count)
+                self.assert_matches_source_export(family, expected_count)
 
     def test_all_families_match_the_complete_8899_case_export_and_execution_plan(self):
         combined = generate_cases.combine_bundles([self.bundle(family) for family in ALL_FAMILIES])
-        expected = sort_rows(map(current_source_row, read_csv(ROOT / "daily-full-csv/standard.csv")))
-        self.assertEqual(combined["rows"], expected)
-        expected_suites = []
-        for row in map(current_source_row, read_csv(ROOT / "daily-full-csv/suites.csv")):
-            expected_suites.append({**row, "nodes": int(row["nodes"]),
-                                    "cards_per_node": int(row["cards_per_node"]),
-                                    "timeout": int(row["timeout"])})
-        self.assertEqual(combined["suites"], sorted(expected_suites,
-                                                  key=lambda row: (row["plan"], row["suite"])))
+        manifest = json.loads((DEFINITIONS / "source-export.json").read_text())
+        self.assertEqual(canonical_sha256(combined["rows"]), manifest["case_rows_sha256"])
+        self.assertEqual(canonical_sha256(combined["suites"]), manifest["suites_sha256"])
         output = self.root / "all-generated"
         generate_cases.write_bundle(combined, output, DEFINITIONS / "envs")
         performance_selection = performance_report.write_selection(
@@ -267,7 +227,6 @@ class PublicGeneratorTests(unittest.TestCase):
         for name, expected_hash in manifest["environments"].items():
             environment = DEFINITIONS / "envs" / name
             self.assertEqual(sha256(environment.read_bytes()).hexdigest(), expected_hash)
-            self.assertEqual(environment.read_bytes(), (ROOT / "daily-full-csv/envs" / name).read_bytes())
         records = {record["family"]: record for record in manifest["families"]}
         self.assertEqual(set(records), set(ALL_FAMILIES))
         for family in ALL_FAMILIES:
@@ -296,15 +255,19 @@ class PublicGeneratorTests(unittest.TestCase):
 
     def test_workflow_generates_explicit_datasets_before_grouping(self):
         workflow = (ROOT.parent.parent / ".github/workflows/m890p-daily-full.yml").read_text()
-        self.assertIn('options: [smoke, full, generated-smoke, generated-full]', workflow)
+        self.assertIn('options: [smoke, full]', workflow)
         self.assertIn('tests/xtest/generate_cases.py', workflow)
         self.assertIn('--definition tests/xtest/test_lists/op_perf_shm.json', workflow)
         self.assertIn('--definition tests/xtest/test_lists/postsil_daily_shm.json', workflow)
         for family in ALL_FAMILIES:
             self.assertIn(f'tests/xtest/test_lists/{family}.json', workflow)
-        self.assertIn('if [[ "$DATASET" == generated-full ]]', workflow)
+        self.assertIn('if [[ "$DATASET" == full ]]', workflow)
         self.assertIn("--output generated-case-input", workflow)
         self.assertIn("case-groups/generation.json", workflow)
+        self.assertNotIn("GENERATED_INPUT", workflow)
+        self.assertNotIn("dataset.startswith('generated-')", workflow)
+        self.assertNotIn("daily-full-csv", workflow)
+        self.assertNotIn("daily-minimal-csv", workflow)
         self.assertLess(workflow.index('--output generated-case-input'),
                         workflow.index('group_cases.build_plan'))
 

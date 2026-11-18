@@ -106,12 +106,13 @@ result reconciliation, a final `always()` cleanup removes only this run's
 logs remain intact. Cache reuse is content-verified; file existence alone is
 never sufficient.
 
-## Experimental M890P daily execution
+## M890P daily execution
 
-`daily-minimal-csv` contains 19 smoke Cases on one and two nodes.
-`daily-full-csv` currently contains 8,899 standard Cases from 34 Suites, with
-unsupported or out-of-scope selections recorded in `coverage.json`. The notsm
-daily profile is intentionally empty.
+The `smoke` dataset generates two Cases from the op_perf and postsil families.
+The `full` dataset generates 8,899 standard Cases from 34 Suites, with
+unsupported or out-of-scope source selections recorded in
+`test_lists/source-coverage.json`. The notsm daily profile is intentionally
+empty. Generated CSV is a temporary prepare artifact, not a maintained input.
 The current resource policy executes 1/2/4/8-node groups: 8,890 Cases in 25
 groups. The 9 sixteen-node Cases remain in the export but are listed as
 `EXCLUDED_BY_POLICY` in `execution-coverage.json`; they are not reported as
@@ -125,8 +126,16 @@ There is no hand-maintained shard list. Optional `--nodes` and `--suite`
 arguments are debug filters, not shard definitions.
 
 ```bash
+python3 -S -B tests/xtest/generate_cases.py \
+  --definition tests/xtest/test_lists/op_perf_shm.json \
+  --definition tests/xtest/test_lists/postsil_daily_shm.json \
+  --suites tests/xtest/test_lists/suites.json \
+  --env-root tests/xtest/test_lists/envs \
+  --profile smoke --source-revision 1111111111111111111111111111111111111111 \
+  --runner-revision 2222222222222222222222222222222222222222 \
+  --output /tmp/daily-case-input
 python3 -S -B tests/xtest/group_cases.py \
-  --input tests/xtest/daily-minimal-csv \
+  --input /tmp/daily-case-input \
   --output /tmp/daily-case-groups --max-cases 500
 ```
 

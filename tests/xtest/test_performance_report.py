@@ -94,7 +94,7 @@ class PerformanceReportTests(unittest.TestCase):
     def collect(self):
         return performance_report.collect_report(
             self.selection, self.groups, self.coverage, self.results,
-            {"run_id": "123", "dataset": "generated-full"}, self.reconciliation)
+            {"run_id": "123", "dataset": "full"}, self.reconciliation)
 
     def test_exit_code_raw_log_is_reported_without_changing_execution_gate(self):
         report = self.collect()

@@ -1,6 +1,6 @@
 # On-demand public test lists
 
-This experimental path generates Case inputs in the public `pccl` repository at
+This path generates Case inputs in the public `pccl` repository at
 workflow prepare time. It uses only the Python standard library and the existing
 public CSV consumer; xtest and mmengine are neither installed nor imported.
 
@@ -32,9 +32,9 @@ that publication step.
 - `test_lists/source-export.json`: full source selection, per-family row
   digests, definition hashes and the combined Case/Suite equivalence manifest.
 
-Generated CSV is a temporary execution artifact, not a maintained input. The
-legacy `daily-*-csv` directories are used only by migration tests as equivalence
-oracles and by the unchanged legacy datasets.
+Generated CSV is a temporary execution artifact, not a maintained input. All
+daily datasets use this generation path; the source-sanity CSV is independent
+and remains unchanged.
 
 ## Generate locally
 
@@ -54,22 +54,21 @@ Use `--profile smoke` to generate two Cases, one from each family. Family
 definitions also support their own more specific profiles and `--nodes` filter.
 The output must not already exist.
 
-The two-family example is a subset. The workflow's `generated-full` selection
+The two-family example is a subset. The workflow's `full` selection
 passes all fourteen definitions to the same command.
 
 ## Workflow datasets
 
-The experimental branch adds two explicit `workflow_dispatch` choices:
+The workflow supports two `workflow_dispatch` choices:
 
-- `generated-smoke`: two Cases in one execution group.
-- `generated-full`: all 8,899 daily Cases in 34 Suites. The current
+- `smoke`: two Cases in one execution group.
+- `full`: all 8,899 daily Cases in 34 Suites. The current
   1/2/4/8-node resource policy selects 8,890 Cases in 25 groups and records
   only the 9 sixteen-node Cases as excluded. Two-rack Suites are isolated from
   ordinary same-resource Suites and carry explicit `rack_nodes` allocations.
 
-The existing `smoke` and `full` datasets and the 22:00 Asia/Shanghai schedule
-are unchanged. The schedule still selects the legacy `full` dataset; no
-production cutover is implied by this experiment.
+The 22:00 Asia/Shanghai schedule selects `full`, which uses the same JSON
+generation path as manual dispatch. No legacy daily CSV dataset remains.
 
 Each generated bundle contains `generation.json` with definition and Suite
 hashes, the selected profile, and the exact Case-key hash. The workflow copies
@@ -111,8 +110,8 @@ required report cannot pass silently.
 
 ## Validation boundary
 
-Migration tests compare every generated row with the existing export and with
-the source-export digests: all 8,899 Cases and all 34 Suite definitions match,
+Tests compare every generated row with the source-export digests: all 8,899
+Cases and all 34 Suite definitions match,
 including commands, checks, Suite resources, shared environments and explicit
 special Cases. Two legacy `device_api` Plan/Suite identities are explicitly
 normalized to the current source names; their 52 commands and resources remain
@@ -121,11 +120,9 @@ bundle and reproduce the same 8,890 selected Cases, 25 groups and 9 resource
 exclusions.
 
 All current daily full Suites are covered, and no generated Python Case files
-are produced. The legacy CSV remains as a migration oracle and as the unchanged
-input of the legacy datasets. Hardware validation is limited to the explicitly
-triggered generated smoke dataset.
+are produced. Hardware validation is limited to explicitly filtered datasets;
+no unfiltered full hardware run has been started.
 
 Workflow run `43585016370` consumed source-exported families during prepare,
 passed both single-node hardware Cases, retained source provenance in the
-Case-groups artifact, and completed exact reconciliation and NAS cleanup. No
-unfiltered generated-full hardware run has been started.
+Case-groups artifact, and completed exact reconciliation and NAS cleanup.

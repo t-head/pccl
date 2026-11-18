@@ -8,26 +8,57 @@ import re
 import tempfile
 import unittest
 
+import generate_cases
 import group_cases
 import run_cases
 
 
 ROOT = Path(__file__).resolve().parents[2]
-INPUT = ROOT / 'tests/xtest/daily-minimal-csv'
-FULL_INPUT = ROOT / 'tests/xtest/daily-full-csv'
+DEFINITIONS = ROOT / 'tests/xtest/test_lists'
+ALL_FAMILIES = (
+    "op_perf_shm", "postsil_daily_shm", "pccl_fun_rdma_shm", "register_test_shm",
+    "sanity_m890p_register", "sym_test_shm", "f8_test_shm", "device_api_shm",
+    "local_register_perf_shm", "symetric_perf_shm", "copyengine_perf_shm",
+    "op_perf_shm_2_rack", "op_perf_rdma_shm", "commabort_test_shm",
+)
+FULL_INPUT = None
+SMOKE_INPUT = None
+SOURCE_COVERAGE = DEFINITIONS / 'source-coverage.json'
 FULL_WORKFLOW = ROOT / '.github/workflows/m890p-daily-full.yml'
 BUILD_SCRIPT = ROOT / '.github/workflows/scripts/build.sh'
 RETRY_ACTION = ROOT / '.github/actions/download-artifact-retry/action.yml'
 
 
+def generate_input(output, profile, families):
+    bundles = [generate_cases.generate_bundle(
+        DEFINITIONS / f'{family}.json', DEFINITIONS / 'suites.json',
+        '1' * 40, '2' * 40, profile) for family in families]
+    bundle = generate_cases.combine_bundles(bundles) if len(bundles) > 1 else bundles[0]
+    generate_cases.write_bundle(bundle, output, DEFINITIONS / 'envs')
+
+
 class DailySmokeTests(unittest.TestCase):
-    def test_eleven_supported_single_node_suites_are_selected(self):
-        selected = run_cases.load_inputs(INPUT, 'standard', nodes=1)
-        self.assertEqual(len(selected['cases']), 11)
+    @classmethod
+    def setUpClass(cls):
+        cls.temporary = tempfile.TemporaryDirectory()
+        root = Path(cls.temporary.name)
+        global FULL_INPUT, SMOKE_INPUT
+        FULL_INPUT = root / 'full'
+        SMOKE_INPUT = root / 'smoke'
+        generate_input(FULL_INPUT, 'full', ALL_FAMILIES)
+        generate_input(SMOKE_INPUT, 'smoke', ('op_perf_shm', 'postsil_daily_shm'))
+
+    @classmethod
+    def tearDownClass(cls):
+        cls.temporary.cleanup()
+
+    def test_full_daily_commands_cover_expected_suites_and_resources(self):
+        selected = run_cases.load_inputs(FULL_INPUT, 'standard', nodes=1)
+        self.assertEqual(len(selected['cases']), 4565)
         self.assertEqual(len({(row['plan'], row['suite']) for row in selected['cases']}), 11)
-        cluster = run_cases.load_inputs(INPUT, 'standard', nodes=2)
-        self.assertEqual(len(cluster['cases']), 8)
-        self.assertEqual(len({(row['plan'], row['suite']) for row in cluster['cases']}), 8)
+        cluster = run_cases.load_inputs(FULL_INPUT, 'standard', nodes=2)
+        self.assertEqual(len(cluster['cases']), 1924)
+        self.assertEqual(len({(row['plan'], row['suite']) for row in cluster['cases']}), 10)
         self.assertTrue(all(row['suite_spec']['nodes'] == 2 for row in cluster['cases']))
         register = next(row for row in cluster['cases']
                         if row['suite'] == 'register_test_shm_multi_nodes2_suite')
@@ -41,7 +72,7 @@ class DailySmokeTests(unittest.TestCase):
         self.assertIn('-npernode 8', copyengine['cmd'])
         self.assertIn('--hostfile {hostfile}', copyengine['cmd'])
         direct_multi = [row for row in cluster['cases'] if row['cmd'].startswith('mpirun ')]
-        self.assertEqual(len(direct_multi), 7)
+        self.assertEqual(len(direct_multi), 92)
         for row in direct_multi:
             if row['suite'] == 'commabort_test_shm_multi_nodes2_suite':
                 self.assertIn('-np 4', row['cmd'])
@@ -55,7 +86,7 @@ class DailySmokeTests(unittest.TestCase):
         self.assertIn('NCCL_MNNVL_ENABLE=0', rdma['cmd'])
         self.assertNotIn('orte_keep_fqdn_hostnames', rdma['cmd'])
         self.assertNotIn('NCCL_SOCKET_IFNAME', rdma['cmd'])
-        for suite in ('device_api_shm_single_node_single_process_suite',
+        for suite in ('device_api_perf_shm_single_node_single_process_suite',
                       'f8_test_shm_single_node_suite', 'sym_test_shm_single_node_suite'):
             self.assertIn(suite, {row['suite'] for row in selected['cases']})
         commabort = next(row for row in cluster['cases']
@@ -70,36 +101,36 @@ class DailySmokeTests(unittest.TestCase):
             self.assertIn('-mca btl ^openib', case['cmd'])
         sanity = next(row for row in selected['cases'] if row['suite'] == 'sanity_m890p_register_suite')
         self.assertIn('--register 1', sanity['cmd'])
-        self.assertEqual(sum(row['check'] == 'performance' for row in selected['cases']), 1)
-        self.assertEqual(sum(row['check'] == 'exit_code' for row in selected['cases']), 10)
+        self.assertEqual(sum(row['check'] == 'performance' for row in selected['cases']), 45)
+        self.assertEqual(sum(row['check'] == 'exit_code' for row in selected['cases']), 4520)
         self.assertTrue(all(row['suite_spec']['nodes'] == 1 for row in selected['cases']))
         self.assertEqual({row['suite_spec']['timeout'] for row in selected['cases']}, {300, 3600, 7200})
 
     def test_daily_commands_use_only_documented_runtime_bindings(self):
-        with (INPUT / 'standard.csv').open(newline='') as stream:
+        with (FULL_INPUT / 'standard.csv').open(newline='') as stream:
             rows = list(csv.DictReader(stream))
         for row in rows:
             self.assertNotIn('bond1', row['cmd'])
             self.assertNotIn('$PPU_HOME', row['cmd'])
             self.assertNotIn('/home/image', row['cmd'])
             self.assertNotIn('unit_test.py', row['cmd'])
-        self.assertEqual(sum('{python_env}' in row['cmd'] for row in rows), 1)
-        self.assertEqual(sum(row['cmd'].startswith('python3 run_test.py') for row in rows), 5)
-        single_node_rows = run_cases.load_inputs(INPUT, 'standard', nodes=1)['cases']
-        self.assertEqual(sum(row['cmd'].startswith('mpirun ') for row in single_node_rows), 5)
-        self.assertEqual(sum(row['cmd'].startswith('mpirun ') for row in rows), 12)
+        self.assertEqual(sum('{python_env}' in row['cmd'] for row in rows), 8028)
+        self.assertEqual(sum(row['cmd'].startswith('python3 run_test.py') for row in rows), 510)
+        single_node_rows = run_cases.load_inputs(FULL_INPUT, 'standard', nodes=1)['cases']
+        self.assertEqual(sum(row['cmd'].startswith('mpirun ') for row in single_node_rows), 148)
+        self.assertEqual(sum(row['cmd'].startswith('mpirun ') for row in rows), 335)
 
     def test_daily_metadata_and_empty_notsm_are_explicit(self):
-        metadata = json.loads((INPUT / 'export.json').read_text())
-        self.assertEqual(metadata['xtest_version'], '0.12.0')
+        metadata = json.loads((SMOKE_INPUT / 'export.json').read_text())
+        self.assertEqual(metadata['xtest_version'], 'not-used')
         self.assertTrue(re.fullmatch(r'[0-9a-f]{40}', metadata['source_revision']))
-        with (INPUT / 'notsm.csv').open(newline='') as stream:
+        with (SMOKE_INPUT / 'notsm.csv').open(newline='') as stream:
             self.assertEqual(list(csv.DictReader(stream)), [])
         with self.assertRaisesRegex(ValueError, 'no Cases'):
-            run_cases.load_inputs(INPUT, 'notsm', nodes=1)
+            run_cases.load_inputs(SMOKE_INPUT, 'notsm', nodes=1)
 
     def test_full_export_is_runner_scoped_and_available_as_an_explicit_dataset(self):
-        coverage = json.loads((FULL_INPUT / 'coverage.json').read_text())
+        coverage = json.loads(SOURCE_COVERAGE.read_text())
         self.assertEqual(coverage['selected_cases'], 8899)
         self.assertEqual(coverage['skipped_cases'], 3391)
         self.assertEqual(len(coverage['selected_suites']), 34)
@@ -116,7 +147,8 @@ class DailySmokeTests(unittest.TestCase):
             rows = list(csv.DictReader(stream))
         self.assertEqual(len(rows), 8899)
         self.assertEqual(sum('pcclCommAbortTest' in row['cmd'] for row in rows), 16)
-        self.assertIn('!tests/xtest/daily-full-csv/*.csv', (ROOT / '.gitignore').read_text())
+        self.assertFalse((ROOT / 'tests/xtest/daily-full-csv').exists())
+        self.assertFalse((ROOT / 'tests/xtest/daily-minimal-csv').exists())
         for row in rows:
             self.assertNotIn('no_tsm', row['plan'])
             self.assertNotIn('no_tsm', row['suite'])
@@ -169,7 +201,11 @@ class DailySmokeTests(unittest.TestCase):
         text = FULL_WORKFLOW.read_text()
         self.assertIn('workflow_dispatch:', text)
         self.assertIn('paths: [.github/workflows/m890p-daily-full.yml]', text)
-        self.assertIn('options: [smoke, full, generated-smoke, generated-full]', text)
+        self.assertIn('options: [smoke, full]', text)
+        self.assertNotIn('generated-smoke', text)
+        self.assertNotIn('generated-full', text)
+        self.assertNotIn('daily-full-csv', text)
+        self.assertNotIn('daily-minimal-csv', text)
         self.assertIn('default: smoke', text)
         self.assertIn('default: 500', text)
         self.assertIn("DAILY_ALLOWED_NODES: '1,2,4,8'", text)
@@ -219,14 +255,14 @@ class DailySmokeTests(unittest.TestCase):
         self.assertIn("raise SystemExit('No non-zero RoCE GID is visible inside the worker')", single)
         self.assertIn('alixpu_peermem is not loaded; DMA-BUF support is still possible', single)
         selected = run_cases.load_inputs(FULL_INPUT, 'standard', nodes=1,
-                                        suite='device_api_shm_single_node_single_process_suite')
+                                        suite='device_api_perf_shm_single_node_single_process_suite')
         self.assertEqual(len(selected['cases']), 26)
         self.assertNotIn('pull_request:', text)
         self.assertNotIn('pull-requests: write', text)
         self.assertNotIn('statuses: write', text)
         self.assertNotIn('PCCL Tests Gate', text)
         self.assertNotIn('build-notsm', text)
-        self.assertNotIn('default: device_api_shm_single_node_single_process_suite', text)
+        self.assertNotIn('default: device_api_perf_shm_single_node_single_process_suite', text)
         self.assertNotIn('--profile standard --nodes "$NODES" --suite "$SUITE"', text)
 
     def test_cross_rack_groups_use_the_validation_action_without_duplicate_execution(self):
