@@ -1,14 +1,14 @@
 {
   "classification": {
-    "base_sha": "0f79ec8f28df02c07ccf2b47e0bb457bdfe8622b",
-    "head_sha": "4991e94077470402da10d89d177ced03b7f8091d",
-    "input_fingerprint": "f4627acc9a5b04a54e95ddf969dfb50f9f059312ef3db6c1501ac40aeda38d60",
+    "base_sha": "a7769ba35a724d84cea481c9b318c30482175471",
+    "head_sha": "4bf6b6a0488d2323293bc4c2712e53d588172121",
+    "input_fingerprint": "4f39edae67daf029a4234f5874be468d1b0a85021a86d6d0b807682d59f4fbcf",
     "pr_number": 196,
     "proposal": {
       "modules": [
         "ci"
       ],
-      "reason": "Primary change is to open-source test workflow execution and reporting: daily/smoke inputs are now generated from JSON test-family definitions at prepare time, grouping policy is updated (including 1/2/4/8-node and cross-rack rack_nodes scheduling), and summary now builds/uploads a full performance workbook from reconciled raw logs. Source-sanity runner/network validation updates and cache/artifact retention changes are CI execution/reporting behavior, not reviewer-policy workflow automation."
+      "reason": "Main change is to open-source test workflow execution: daily/source-sanity GitHub Actions now generate case inputs from JSON families, expand node/rack scheduling, and publish validated performance-report artifacts. Added/removed test-list data, generator/report Python tooling, and related tests/docs are substantive CI pipeline/input-management changes supporting that execution path rather than runtime module logic."
     }
   },
   "reviewers": {
