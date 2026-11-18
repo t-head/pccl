@@ -1,0 +1,15 @@
+{
+  "classification": {
+    "base_sha": "996baac6d4ec098e0cad3942a6dc21846022ff2a",
+    "head_sha": "249712dcabd15483cb84ca6b44e2b0708530ecd5",
+    "input_fingerprint": "24c81e98cf268e332ee097c879dcd18cc17d0962772ac81f4638612b7edf002b",
+    "pr_number": 206,
+    "proposal": {
+      "modules": [
+        "ci"
+      ],
+      "reason": "The substantive change is in CI build workflow behavior: matrix job orchestration, per-package artifact upload/transfer-back wiring, scheduled slot commit/version labeling, and packaging/verification logic in workflow scripts. These are test/build pipeline execution changes, not library/runtime module changes."
+    }
+  },
+  "reviewers": {}
+}
