@@ -1,14 +1,14 @@
 {
   "classification": {
     "base_sha": "a7769ba35a724d84cea481c9b318c30482175471",
-    "head_sha": "b1c939351049ef8488052f2d0ee4def686d11893",
-    "input_fingerprint": "65baead5279f1fad55d524c7c2fc0a420a6ea7f474bd87a09608586b33a27a07",
+    "head_sha": "c935f924bcca672fbcde3d53cad5afb9fc1ca1fe",
+    "input_fingerprint": "b33e9edd3afc48aed4e8b50d5c4acb078beb8d49973ea04e9666fcf4e72edc7d",
     "pr_number": 196,
     "proposal": {
       "modules": [
         "ci"
       ],
-      "reason": "Main change is to open-source test workflow execution: daily/source-sanity pipelines now generate case inputs from JSON families, change grouping/resource policy (including cross-rack and 8-node selection), harden artifact download verification/recovery, and add performance-report generation plus related runner/tests. These are CI workflow behavior changes, not runtime/build or review-policy ownership."
+      "reason": "Primary change is the open-source test/workflow system: daily and source-sanity GitHub Actions behavior, artifact download/verification retry logic, generated test-case inputs, grouping/resource policy (including cross-rack allocation), remote recovery, reconciliation, and performance report publication. Added/removed test-list CSV/JSON assets and omitted patches are all part of this same CI execution-data path rather than PCCL runtime modules."
     }
   },
   "reviewers": {
