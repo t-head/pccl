@@ -314,7 +314,7 @@ class DailySmokeTests(unittest.TestCase):
         text = FULL_WORKFLOW.read_text()
         self.assertNotIn('uses: actions/download-artifact@v4', text)
         self.assertEqual(text.count('uses: t-head/pccl/.github/actions/download-artifact-retry@'
-                                    '7d775341fad20ebd8b11cc02de2afab9feffc835'), 7)
+                                    '42c06876282e700ae0434b4577fedd757b6f2db1'), 7)
         self.assertEqual(text.count('expected-sha256: ${{ env.EXPECTED_SHA }}'), 2)
         self.assertEqual(text.count('sha256-file: output_standard.tar.gz'), 2)
 

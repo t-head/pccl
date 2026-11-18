@@ -346,7 +346,7 @@ jobs:
           else
             echo 'state=miss' >> "$GITHUB_OUTPUT"
           fi
-      - uses: t-head/pccl/.github/actions/download-artifact-retry@7d775341fad20ebd8b11cc02de2afab9feffc835
+      - uses: t-head/pccl/.github/actions/download-artifact-retry@42c06876282e700ae0434b4577fedd757b6f2db1
         if: steps.cache.outputs.state == 'miss'
         with:
           name: m890p-daily-full-build-standard
@@ -382,7 +382,7 @@ jobs:
           else
             echo 'state=miss' >> "$GITHUB_OUTPUT"
           fi
-      - uses: t-head/pccl/.github/actions/download-artifact-retry@7d775341fad20ebd8b11cc02de2afab9feffc835
+      - uses: t-head/pccl/.github/actions/download-artifact-retry@42c06876282e700ae0434b4577fedd757b6f2db1
         if: steps.groups-cache.outputs.state == 'miss'
         with:
           name: m890p-daily-case-groups
@@ -425,7 +425,7 @@ jobs:
         with:
           path: pccl
           persist-credentials: false
-      - uses: t-head/pccl/.github/actions/download-artifact-retry@7d775341fad20ebd8b11cc02de2afab9feffc835
+      - uses: t-head/pccl/.github/actions/download-artifact-retry@42c06876282e700ae0434b4577fedd757b6f2db1
         with:
           name: m890p-daily-full-python-deps
           path: deps
@@ -440,7 +440,7 @@ jobs:
           else
             echo 'state=miss' >> "$GITHUB_OUTPUT"
           fi
-      - uses: t-head/pccl/.github/actions/download-artifact-retry@7d775341fad20ebd8b11cc02de2afab9feffc835
+      - uses: t-head/pccl/.github/actions/download-artifact-retry@42c06876282e700ae0434b4577fedd757b6f2db1
         if: steps.groups-cache.outputs.state == 'miss'
         with:
           name: m890p-daily-case-groups
@@ -466,7 +466,7 @@ jobs:
           else
             echo 'state=miss' >> "$GITHUB_OUTPUT"
           fi
-      - uses: t-head/pccl/.github/actions/download-artifact-retry@7d775341fad20ebd8b11cc02de2afab9feffc835
+      - uses: t-head/pccl/.github/actions/download-artifact-retry@42c06876282e700ae0434b4577fedd757b6f2db1
         if: steps.build-cache.outputs.state == 'miss'
         with:
           name: m890p-daily-full-build-standard
@@ -806,7 +806,7 @@ jobs:
         with:
           path: pccl
           persist-credentials: false
-      - uses: t-head/pccl/.github/actions/download-artifact-retry@7d775341fad20ebd8b11cc02de2afab9feffc835
+      - uses: t-head/pccl/.github/actions/download-artifact-retry@42c06876282e700ae0434b4577fedd757b6f2db1
         if: always()
         with:
           name: m890p-daily-full-python-deps
@@ -823,7 +823,7 @@ jobs:
           else
             echo 'state=miss' >> "$GITHUB_OUTPUT"
           fi
-      - uses: t-head/pccl/.github/actions/download-artifact-retry@7d775341fad20ebd8b11cc02de2afab9feffc835
+      - uses: t-head/pccl/.github/actions/download-artifact-retry@42c06876282e700ae0434b4577fedd757b6f2db1
         if: always() && steps.groups-cache.outputs.state == 'miss'
         with:
           name: m890p-daily-case-groups

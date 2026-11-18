@@ -40,7 +40,7 @@ class WorkflowContractTests(unittest.TestCase):
         workflow = (ROOT / '.github/workflows/source-sanity.yml').read_text()
         self.assertNotIn('uses: actions/download-artifact@v4', workflow)
         self.assertEqual(workflow.count('uses: t-head/pccl/.github/actions/download-artifact-retry@'
-                                        '7d775341fad20ebd8b11cc02de2afab9feffc835'), 5)
+                                        '42c06876282e700ae0434b4577fedd757b6f2db1'), 5)
         self.assertEqual(workflow.count('expected-sha256: ${{ env.EXPECTED_SHA }}'), 3)
         self.assertEqual(workflow.count('sha256-file: output_'), 3)
 
