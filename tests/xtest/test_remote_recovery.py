@@ -37,8 +37,12 @@ class RemoteRecoveryTests(unittest.TestCase):
         self.process(103, 1, 103, 99500, '/usr/bin/ssh worker', 'ssh')
         self.process(104, 1, 104, 99500, 'sleep 300', 'sleep', state='Z')
         self.process(105, 1, 105, 99500, 'sleep 300', 'sleep')
+        self.process(106, 1, 106, 99500, '/bin/sleep 0.2', 'sleep')
+        self.process(107, 1, 107, 99500, '/bin/bash /run/cluster-config/master-worker.sh', 'bash')
+        self.process(108, 1, 108, 99500, 'timeout cluster-exec python3 remote_recovery.py', 'timeout')
+        self.process(109, 1, 109, 99500, 'python3 run_cases.py', 'python3')
 
-        candidates = remote_recovery.scan_candidates(5, self.proc, protected_pids={105})
+        candidates = remote_recovery.scan_candidates(5, self.proc, protected_pids={105, 109})
 
         self.assertEqual([process['pid'] for process in candidates], [100])
 

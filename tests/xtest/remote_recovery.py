@@ -13,6 +13,7 @@ import time
 
 INFRA_EXECUTABLES = {"ssh", "sshd"}
 INFRA_CHILD_EXECUTABLES = {"bash", "sh", "cat", "hostname", "jq", "ps", "sleep", "timeout"}
+INFRA_COMMANDS = {"/bin/sleep 0.2", "sleep 0.2"}
 
 
 def _processes(proc_root):
@@ -64,7 +65,8 @@ def scan_candidates(max_age, proc_root="/proc", protected_pids=None):
         if pid <= 1 or pid in protected or process["executable"] in INFRA_EXECUTABLES:
             continue
         command = process["cmdline"]
-        if not command or "/run/cluster/" in command:
+        if (not command or "/run/cluster/" in command or "/run/cluster-config/" in command
+                or "remote_recovery.py" in command or command in INFRA_COMMANDS):
             continue
         parent = processes.get(process["ppid"], {})
         if ("/run/cluster/" in parent.get("cmdline", "")
@@ -78,14 +80,24 @@ def _groups(candidates):
     return sorted({process["pgid"] for process in candidates if process["pgid"] > 1})
 
 
-def recover(max_age, scanner=scan_candidates, sleeper=time.sleep, killer=os.killpg):
-    before = scanner(max_age)
+def recover(max_age, controller_pid=0, scanner=scan_candidates, sleeper=time.sleep, killer=os.killpg):
+    def scan(age):
+        if scanner is scan_candidates:
+            protected = _protected_pids(_processes("/proc"))
+            if controller_pid > 0:
+                protected.add(controller_pid)
+            return scanner(age, protected_pids=protected)
+        return scanner(age)
+
+    before = scan(max_age)
     report = {"safe": False, "before": before, "term_pgids": [], "kill_pgids": [],
               "remaining": [], "errors": []}
     if not before:
         report["safe"] = True
         return report
     protected = _protected_pids(_processes("/proc")) if scanner is scan_candidates else set()
+    if controller_pid > 0:
+        protected.add(controller_pid)
     protected_groups = {process["pgid"] for process in _processes("/proc").values()
                         if process["pid"] in protected} if scanner is scan_candidates else set()
     try:
@@ -100,16 +112,16 @@ def recover(max_age, scanner=scan_candidates, sleeper=time.sleep, killer=os.kill
         report["term_pgids"] = groups
     except (OSError, ValueError) as error:
         report["errors"].append(str(error))
-        report["remaining"] = scanner(max_age)
+        report["remaining"] = scan(max_age)
         return report
     deadline = time.monotonic() + 2
     while time.monotonic() < deadline:
-        remaining = scanner(max_age)
+        remaining = scan(max_age)
         if not remaining:
             report["safe"] = True
             return report
         sleeper(0.1)
-    remaining = scanner(max_age)
+    remaining = scan(max_age)
     try:
         groups = _groups(remaining)
         if protected_groups.intersection(groups):
@@ -123,7 +135,7 @@ def recover(max_age, scanner=scan_candidates, sleeper=time.sleep, killer=os.kill
     except (OSError, ValueError) as error:
         report["errors"].append(str(error))
     sleeper(0.2)
-    report["remaining"] = scanner(max_age)
+    report["remaining"] = scan(max_age)
     report["safe"] = not report["remaining"] and not report["errors"]
     return report
 
@@ -131,10 +143,13 @@ def recover(max_age, scanner=scan_candidates, sleeper=time.sleep, killer=os.kill
 def main():
     parser = argparse.ArgumentParser(description=__doc__)
     parser.add_argument("--max-age", type=float, required=True)
+    parser.add_argument("--controller-pid", type=int, default=0)
     args = parser.parse_args()
     if args.max_age <= 0 or args.max_age > 86400:
         parser.error("--max-age must be in (0, 86400]")
-    report = recover(args.max_age)
+    if args.controller_pid < 0:
+        parser.error("--controller-pid must be non-negative")
+    report = recover(args.max_age, args.controller_pid)
     print(json.dumps(report, sort_keys=True))
     return 0 if report["safe"] else 1
 

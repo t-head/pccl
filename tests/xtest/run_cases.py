@@ -441,9 +441,11 @@ def _not_run(case, reason):
             "duration_seconds": 0, "error": reason, "raw_log": ""}
 
 
-def _remote_recovery(host, script, max_age):
+def _remote_recovery(host, script, max_age, controller_pid=0):
     command = ["timeout", "-k", "2s", "10s", "cluster-exec", host,
                "python3", str(script), "--max-age", f"{max_age:.3f}"]
+    if controller_pid > 0:
+        command.extend(["--controller-pid", str(controller_pid)])
     try:
         result = subprocess.run(command, stdin=subprocess.DEVNULL, capture_output=True,
                                 text=True, timeout=15)
@@ -479,7 +481,10 @@ def _recover_multinode(case, runtime, row):
         report["error"] = "Missing allocated workers or remote recovery helper"
     else:
         with ThreadPoolExecutor(max_workers=len(hosts)) as executor:
-            results = executor.map(lambda host: _remote_recovery(host, script, max_age), hosts)
+            results = executor.map(
+                lambda item: _remote_recovery(
+                    item[1], script, max_age, os.getpid() if item[0] == 0 else 0),
+                enumerate(hosts))
             report["workers"] = dict(zip(hosts, results))
         report["safe"] = all(worker.get("safe") is True for worker in report["workers"].values())
     directory = runtime["output"] / case["plan"] / case["suite"] / case["name"]
@@ -487,6 +492,8 @@ def _recover_multinode(case, runtime, row):
     for host, worker in report["workers"].items():
         residual = len(worker.get("remaining", worker.get("before", [])))
         print(f"Remote recovery {host}: safe={worker.get('safe')} candidates={residual}", flush=True)
+    if not report["safe"]:
+        print("Remote recovery report: " + json.dumps(report, sort_keys=True), flush=True)
     return report["safe"]
 
 
