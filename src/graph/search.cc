@@ -1294,8 +1294,10 @@ ncclResult_t ncclTopoGetNetDev(ncclComm_t comm, int rank, struct ncclTopoGraph* 
     if (dev) *dev = netDev;
     if (id) *id = netId;
     if (proxyRank) { // recv is null
-      if (graph->proxyDevs[channelId] != -1) {
-        NCCLCHECK(ncclTopoDevToRank(comm->topo, comm->topo->systemId, graph->proxyDevs[channelId], proxyRank));
+      // Runtime channels may repeat a smaller graph after cross-rank alignment.
+      int proxyChannel = channel;
+      if (graph->proxyDevs[proxyChannel] != -1) {
+        NCCLCHECK(ncclTopoDevToRank(comm->topo, comm->topo->systemId, graph->proxyDevs[proxyChannel], proxyRank));
       } else {
         NCCLCHECK(ncclTopoGetIntermediateRank(comm->topo, rank, netId, proxyRank));
       }

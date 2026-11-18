@@ -283,6 +283,131 @@ TEST_EIC_CASE(graphSearchTestWithPXN, PXN16PPUs4EIC, "./16PPU1.1_4EIC_7Links_PXN
 // 16PPU 4EIC under RUND
 TEST_EIC_CASE(graphSearchTestWithPXN, PXN16PPUs4EICRUND, "./16PPU1.1_4EIC_7Links_RUND_PXN/", "graph.xml", TWO_NODES, ALGO_AUTO, 0,1,2,3,4,5,6,7,8,9,10,11,12,13,14,15)
 
+class graphNetDevTest : public ::testing::Test {
+ protected:
+  ncclTopoSystem* system = nullptr;
+  ncclTopoGraph* graph = nullptr;
+  ncclComm_t comm = nullptr;
+
+  void SetUp() override {
+    ASSERT_EQ(ncclCalloc(&system, 1), ncclSuccess);
+    ASSERT_EQ(ncclCalloc(&graph, 1), ncclSuccess);
+    ASSERT_EQ(ncclCalloc(&comm, 1), ncclSuccess);
+    comm->topo = system;
+    comm->MNNVL = 1;
+    comm->nChannels = 8;
+    system->systemId = 0;
+    system->nodes[GPU].count = 3;
+    system->nodes[NET].count = 2;
+    for (int g=0; g<2; g++) {
+      auto& gpu = system->nodes[GPU].nodes[g];
+      gpu.id = NCCL_TOPO_ID(0, g == 0 ? 0x95000 : 0x6b000);
+      gpu.gpu.dev = g == 0 ? 4 : 6;
+      gpu.gpu.rank = g == 0 ? 0 : 2;
+      ASSERT_EQ(ncclCalloc(&gpu.paths[NET], 2), ncclSuccess);
+    }
+    auto& remoteGpu = system->nodes[GPU].nodes[2];
+    remoteGpu.id = NCCL_TOPO_ID(1, 0x103000);
+    remoteGpu.gpu.dev = 0;
+    remoteGpu.gpu.rank = 4;
+    for (int n=0; n<2; n++) {
+      system->nodes[NET].nodes[n].id = NCCL_TOPO_ID(n, 0);
+      system->nodes[NET].nodes[n].net.dev = n;
+    }
+    graph->nChannels = graph->nGraphChannels = 4;
+    for (int c=0; c<MAXCHANNELS; c++) graph->proxyDevs[c] = -1;
+    for (int c=0; c<graph->nChannels; c++) {
+      graph->intra[c*3] = 0;
+      graph->intra[c*3+1] = 4;
+      graph->intra[c*3+2] = 2;
+      graph->inter[c*2] = graph->inter[c*2+1] = NCCL_TOPO_ID(0, 0);
+      graph->proxyDevs[c] = c < 2 ? 4 : 6;
+    }
+    // These graph slots were discarded when channel counts were aligned.
+    for (int c=4; c<8; c++) {
+      graph->inter[c*2] = graph->inter[c*2+1] = NCCL_TOPO_ID(1, 0);
+      graph->proxyDevs[c] = 0;
+    }
+  }
+
+  void TearDown() override {
+    if (system) {
+      for (int g=0; g<2; g++) EXPECT_EQ(ncclFree(system->nodes[GPU].nodes[g].paths[NET]), ncclSuccess);
+    }
+    EXPECT_EQ(ncclFree(comm), ncclSuccess);
+    EXPECT_EQ(ncclFree(graph), ncclSuccess);
+    EXPECT_EQ(ncclFree(system), ncclSuccess);
+  }
+
+  void ExpectNetDev(int channelId, int expectedProxy) {
+    int64_t netId = -1;
+    int netDev = -1, proxyRank = -1;
+    ASSERT_EQ(ncclTopoGetNetDev(comm, 2, graph, channelId, 12, &netId, &netDev, &proxyRank), ncclSuccess);
+    EXPECT_EQ(netId, NCCL_TOPO_ID(0, 0));
+    EXPECT_EQ(netDev, 0);
+    EXPECT_EQ(proxyRank, expectedProxy);
+  }
+};
+
+TEST_F(graphNetDevTest, CachedLocalProxyWithSparseDevices) {
+  ExpectNetDev(0, 0);
+}
+
+TEST_F(graphNetDevTest, RepeatedChannelsIgnoreStaleRemoteDevices) {
+  // Device 0 exists only on the other host, outside the retained graph channels.
+  for (int c=4; c<8; c++) ExpectNetDev(c, c < 6 ? 0 : 2);
+}
+
+TEST_F(graphNetDevTest, RepeatedChannelIgnoresStaleLocalDevice) {
+  // A stale ordinal can also resolve successfully to the wrong local rank.
+  graph->proxyDevs[4] = 6;
+  ExpectNetDev(4, 0);
+}
+
+TEST_F(graphNetDevTest, RepeatedChannelUsesCacheWhenTailIsUnset) {
+  graph->proxyDevs[4] = -1;
+  ExpectNetDev(4, 0);
+}
+
+TEST_F(graphNetDevTest, NonMnnvlRepeatedChannelUsesMappedProxy) {
+  comm->MNNVL = 0;
+  graph->proxyDevs[4] = 6;
+  ExpectNetDev(4, 0);
+}
+
+TEST_F(graphNetDevTest, UnrecordedProxyUsesPath) {
+  graph->proxyDevs[0] = -1;
+  ncclTopoLink link = {};
+  link.remNode = &system->nodes[GPU].nodes[0];
+  auto& path = system->nodes[GPU].nodes[1].paths[NET][0];
+  path.type = PATH_PXN;
+  path.count = 1;
+  path.list[0] = &link;
+  ExpectNetDev(0, 0);
+}
+
+TEST_F(graphNetDevTest, UnrecordedDirectPathUsesCaller) {
+  graph->proxyDevs[0] = -1;
+  ExpectNetDev(0, 2);
+}
+
+TEST_F(graphNetDevTest, ReceiveQueryDoesNotRequireProxy) {
+  graph->proxyDevs[0] = 7;
+  int64_t netId = -1;
+  int netDev = -1;
+  ASSERT_EQ(ncclTopoGetNetDev(comm, 0, graph, 4, 15, &netId, &netDev, nullptr), ncclSuccess);
+  EXPECT_EQ(netId, NCCL_TOPO_ID(0, 0));
+  EXPECT_EQ(netDev, 0);
+}
+
+TEST_F(graphNetDevTest, MissingMappedProxyRemainsAnError) {
+  graph->proxyDevs[0] = 7;
+  graph->proxyDevs[4] = 4;
+  int proxyRank = -1;
+  EXPECT_EQ(ncclTopoGetNetDev(comm, 2, graph, 4, 12, nullptr, nullptr, &proxyRank), ncclInternalError);
+  EXPECT_EQ(proxyRank, -1);
+}
+
 int main(int argc, char **argv) {
   ::testing::InitGoogleTest(&argc, argv);
   auto args = argparse::parse<graphSearchTestArgs>(argc, argv);
