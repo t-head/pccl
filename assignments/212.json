@@ -2,13 +2,13 @@
   "classification": {
     "base_sha": "9c6178a54a7da8738e5f0c4c32f14441b54e99fe",
     "head_sha": "dfc232c3f3fe0a7c8f6188393cfd237854b9306a",
-    "input_fingerprint": "47780059ea0bdd01303ede10f76c899cfede294ce924358a7786962086a9a11b",
+    "input_fingerprint": "ad271e69da3fca45b12a3b5c00a082eb95e9459fac0c91d8415febb76c8ca4df",
     "pr_number": 212,
     "proposal": {
       "modules": [
         "graph-search"
       ],
-      "reason": "Fixes runtime channel-to-graph-channel mapping for cached PXN proxy lookup in topology graph logic (`ncclTopoGetNetDev`), preventing stale/discarded proxy metadata from being read after channel alignment; the `graph.h` edit is a clarifying comment, not a separate module change."
+      "reason": "Fixes PXN cached proxy lookup to use the mapped graph channel during channel-count alignment in ncclTopoGetNetDev, with a matching ncclTopoGraph::proxyDevs indexing contract comment update; this is a graph-channel mapping/search behavior change, not an independent network/API module change."
     }
   },
   "reviewers": {
