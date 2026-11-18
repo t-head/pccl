@@ -15,41 +15,36 @@ namespace pccl {
 namespace gin {
 namespace troce {
 
-// Scoped fences and relaxed loads adapted from NCCL v2.32.3-1 GPI helpers.
 template <hggc::thread_scope scope = hggc::thread_scope_device>
 PCCL_DEVICE_INLINE void fenceAcquire() {
-  uint32_t dummy;
-  uint32_t value;
   if (scope == hggc::thread_scope_block)
-    asm volatile("ld.acquire.cta.b32 %0, [%1];" : "=r"(value) : "l"(&dummy));
+    asm volatile("ppu.fence.acquire.blk;" ::: "memory");
   else if (scope == hggc::thread_scope_device)
-    asm volatile("ld.acquire.gpu.b32 %0, [%1];" : "=r"(value) : "l"(&dummy));
+    asm volatile("ppu.fence.acquire.gpu;" ::: "memory");
   else if (scope == hggc::thread_scope_system)
-    asm volatile("ld.acquire.sys.b32 %0, [%1];" : "=r"(value) : "l"(&dummy));
+    asm volatile("ppu.fence.acquire.sys;" ::: "memory");
 }
 
 template <hggc::thread_scope scope = hggc::thread_scope_device>
 PCCL_DEVICE_INLINE void fenceRelease() {
-  uint32_t dummy;
-  const uint32_t value = 0;
   if (scope == hggc::thread_scope_block)
-    asm volatile("st.release.cta.u32 [%0], %1;" : : "l"(&dummy), "r"(value));
+    asm volatile("ppu.fence.release.blk;" ::: "memory");
   else if (scope == hggc::thread_scope_device)
-    asm volatile("st.release.gpu.u32 [%0], %1;" : : "l"(&dummy), "r"(value));
+    asm volatile("ppu.fence.release.gpu;" ::: "memory");
   else if (scope == hggc::thread_scope_system)
-    asm volatile("st.release.sys.u32 [%0], %1;" : : "l"(&dummy), "r"(value));
+    asm volatile("ppu.fence.release.sys;" ::: "memory");
 }
 
 PCCL_DEVICE_INLINE void storeRelaxed(uint8_t *ptr, uint8_t val) {
-  asm volatile("st.weak.cs.u8 [%0], %1;" : : "l"(ptr), "r"(uint32_t(val)));
+  asm volatile("ppu.st.weak.cs.u8 [%0], %1;" : : "l"(ptr), "r"(uint32_t(val)));
 }
 
 PCCL_DEVICE_INLINE void storeRelaxed(uint16_t *ptr, uint16_t val) {
-  asm volatile("st.weak.cs.u16 [%0], %1;" : : "l"(ptr), "r"(uint32_t(val)));
+  asm volatile("ppu.st.weak.cs.u16 [%0], %1;" : : "l"(ptr), "r"(uint32_t(val)));
 }
 
 PCCL_DEVICE_INLINE void storeRelaxed(uint32_t *ptr, uint32_t val) {
-  asm volatile("st.weak.cs.u32 [%0], %1;" : : "l"(ptr), "r"(val));
+  asm volatile("ppu.st.weak.cs.u32 [%0], %1;" : : "l"(ptr), "r"(val));
 }
 
 // Publish preceding writes before updating the system-visible doorbell.
@@ -68,18 +63,18 @@ template <hggc::thread_scope scope = hggc::thread_scope_device>
 PCCL_DEVICE_INLINE uint64_t loadRelaxed(uint64_t *ptr) {
   if (scope == hggc::thread_scope_block) {
     uint64_t value;
-    asm volatile("ld.relaxed.cta.b64 %0, [%1];" : "=l"(value) : "l"(ptr));
+    asm volatile("ppu.ld.relaxed.blk.b64 %0, [%1];" : "=l"(value) : "l"(ptr));
     return value;
   } else {
     uint64_t value;
-    asm volatile("ld.relaxed.gpu.b64 %0, [%1];" : "=l"(value) : "l"(ptr));
+    asm volatile("ppu.ld.relaxed.gpu.b64 %0, [%1];" : "=l"(value) : "l"(ptr));
     return value;
   }
 }
 
 PCCL_DEVICE_INLINE uint64_t loadRelaxedSysGlobal(uint64_t *ptr) {
   uint64_t value;
-  asm volatile("ld.relaxed.sys.global.b64 %0, [%1];" : "=l"(value) : "l"(ptr));
+  asm volatile("ppu.ld.relaxed.sys.global.b64 %0, [%1];" : "=l"(value) : "l"(ptr));
   return value;
 }
 
