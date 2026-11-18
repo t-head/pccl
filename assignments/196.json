@@ -8,7 +8,7 @@
       "modules": [
         "ci"
       ],
-      "reason": "Primary change is the CI test pipeline: daily/source-sanity workflows now generate case inputs from JSON families at prepare time, expand resource/group scheduling (including cross-rack and 8-node handling), and add a new performance-report artifact path with reconciliation-aware parsing and validation. Large CSV deletions/renames and new xtest tooling/tests are supporting this CI execution/reporting redesign rather than changing PCCL runtime modules."
+      "reason": "Main change is CI test orchestration: daily/source-sanity workflows now generate case inputs from JSON families, update node/rack scheduling and artifact retention, and add end-to-end performance report generation/reconciliation logic and validation tests. Other edits (docs, deleted legacy CSV inputs, .gitignore) are supporting changes to this CI pipeline migration rather than separate module behavior."
     }
   },
   "reviewers": {
