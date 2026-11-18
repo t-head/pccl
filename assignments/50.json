@@ -10,7 +10,7 @@
         "memory",
         "network"
       ],
-      "reason": "Primary change is in NET transport/proxy behavior: send-credit TX heads now default to sender-local device memory with new mapping/open/close and connect/free handling in src/transport/net.cc. It also introduces a distinct transport-level allocation-only P2P proxy buffer path (setup/connect/free API and ownership flow) in src/transport/p2p.cc and shared proxy/p2p interfaces. Additionally, allocator semantics are extended with MEM_LEGACY and corresponding free/untrack behavior in src/include/alloc.h, which is a substantive memory-ownership/lifecycle change supporting this feature."
+      "reason": "Primary change is in network transport/proxy behavior: NET send-credit TX head storage defaults to sender-local device memory, with new mapping/open/close lifecycle and connect handshake updates in src/transport/net.cc. transport is additionally required because src/transport/p2p.cc and shared proxy state add a new allocation-only P2P proxy-buffer path and ownership/cleanup flow used to provision that head storage. memory is additionally required because src/include/alloc.h introduces MEM_LEGACY allocation/free semantics and tracking differences (including untrack bypass), which changes allocator behavior beyond a pure call-site refactor."
     }
   },
   "reviewers": {
