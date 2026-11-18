@@ -1,14 +1,14 @@
 {
   "classification": {
-    "base_sha": "996baac6d4ec098e0cad3942a6dc21846022ff2a",
-    "head_sha": "249712dcabd15483cb84ca6b44e2b0708530ecd5",
-    "input_fingerprint": "24c81e98cf268e332ee097c879dcd18cc17d0962772ac81f4638612b7edf002b",
+    "base_sha": "0f79ec8f28df02c07ccf2b47e0bb457bdfe8622b",
+    "head_sha": "79cf7abad0e6bee2154449735e5f83bff830017c",
+    "input_fingerprint": "0c45f7ae5c0de655cb3b7b6e9e3571ca6d758bfb59bec259feb442641561ca00",
     "pr_number": 206,
     "proposal": {
       "modules": [
         "ci"
       ],
-      "reason": "The substantive change is in CI build workflow behavior: matrix job orchestration, per-package artifact upload/transfer-back wiring, scheduled slot commit/version labeling, and packaging/verification logic in workflow scripts. These are test/build pipeline execution changes, not library/runtime module changes."
+      "reason": "The substantive change is to CI workflow execution and artifact handling: the GitHub Actions pipeline now emits one artifact per package, adds per-package transfer-back calls with metadata, adjusts scheduled/push trigger behavior, and updates workflow build scripts for packaging layout and runner dependency-install robustness. These are CI orchestration and delivery changes, not PCCL runtime/library module changes."
     }
   },
   "reviewers": {}
