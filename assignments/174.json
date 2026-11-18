@@ -1,8 +1,8 @@
 {
   "classification": {
-    "base_sha": "4f4a89f2e99f6c2778d3ffc8070a0f16f434df69",
-    "head_sha": "e9287d5ee56da88c4222b84cc0b463e7b5efea91",
-    "input_fingerprint": "93aa25bf68ed37db7418325de9f14a66814e4d4ccb5531ea5a565e644e004c71",
+    "base_sha": "8aa6e1d4f0978571a3958bbc20c725607d1b4890",
+    "head_sha": "42da14bad60fd647f7ce4bcb458249a03a8926cc",
+    "input_fingerprint": "7883097e48f79b48e5123a4a6283c4de5ed8271ef0e9959fd6c7e75f07b3ac70",
     "pr_number": 174,
     "proposal": {
       "modules": [
@@ -10,11 +10,10 @@
         "graph-search",
         "transport",
         "tuning",
-        "enqueue",
         "network",
         "kernels"
       ],
-      "reason": "Main change removes CollNet execution and connection paths from transport (deleted CollNet transport implementation, connection APIs, channel peer/root handling). Also requires network for CollNet plugin-loading removal while keeping Net v4/v5/v6, graph-search and device-topology for removing CollNet graph construction/search and NIC CollNet metadata paths, enqueue and tuning for disabling reserved algorithm slot 2 in runtime planning/selection with tuner fallback guards, and kernels for removing CollNet device kernel specializations while preserving table indices via reserved null entries."
+      "reason": "Main change is removing CollNet network functionality: CollNet plugin loading/state, proxy handling, and CollNet transport implementation are deleted while keeping legacy interface compatibility slots. Additional substantive changes require kernels (CollNet device kernel paths and function-table entries removed/reserved), graph-search (CollNet graph preset/connect/search paths removed and graph wiring updated), tuning (algorithm/protocol model and external tuner fallback logic now hard-disables reserved CollNet slot), device-topology (NIC topology parsing/autodetect no longer tracks CollNet capability), and transport (generic transport/channel connection logic and transport registry no longer include CollNet)."
     }
   },
   "reviewers": {
