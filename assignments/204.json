@@ -2,13 +2,13 @@
   "classification": {
     "base_sha": "0f79ec8f28df02c07ccf2b47e0bb457bdfe8622b",
     "head_sha": "671c87e9d023397d78eb9ab296fa1149eba608aa",
-    "input_fingerprint": "f0916dc514d353e136ead8683bc5a8ba8d83d1794afdf71ea518f04bcfdcb186",
+    "input_fingerprint": "fc645763071e26bf5be424c5a9e0f0aeb4cf972a657bbcd6b965ccc3c9efe508",
     "pr_number": 204,
     "proposal": {
       "modules": [
         "graph-search"
       ],
-      "reason": "Main change fixes MNNVL repeated-channel handling in graph-channel proxy lookup inside `ncclTopoGetNetDev`, ensuring cached proxy device/rank resolution uses the mapped graph channel after cross-rank channel alignment; other edits are clarifying comments and regression tests for this behavior."
+      "reason": "Main functional change fixes graph-channel indexing in PXN proxy lookup during ncclTopoGetNetDev when MNNVL repeats runtime channels, ensuring cached proxy metadata is read from the mapped graph channel. Other edits are supporting comment/header clarification and regression tests, not separate module-owned behavior changes."
     }
   },
   "reviewers": {
