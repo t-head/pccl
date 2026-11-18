@@ -2,13 +2,13 @@
   "classification": {
     "base_sha": "a7769ba35a724d84cea481c9b318c30482175471",
     "head_sha": "ffc199f97779de7f6a5b550ddd7f687d7254f3e8",
-    "input_fingerprint": "606d7c3bdeb3a9a7a6a530795762294787e5f6135fc74eb2c183cef70d939896",
+    "input_fingerprint": "26552b2054d0b6788c3872f2ecdbf18e7f25b2f52181f4b8d5ca835982ce1164",
     "pr_number": 204,
     "proposal": {
       "modules": [
         "graph-search"
       ],
-      "reason": "Fixes graph-channel proxy lookup in `ncclTopoGetNetDev` so repeated runtime channels use retained graph-channel metadata instead of stale discarded slots, preventing PXN/MNNVL initialization failures with uneven PPU selection. Other edits are comment/header clarification and regression tests supporting this same graph-search behavior."
+      "reason": "Fixes ncclTopoGetNetDev to use the mapped graph channel when reading cached PXN proxy devices, preventing stale tail-channel metadata from selecting the wrong proxy rank after channel-count alignment (including MNNVL/non-MNNVL paths). Test additions are regression coverage of this graph-channel/proxy lookup behavior, not a separate module change."
     }
   },
   "reviewers": {
