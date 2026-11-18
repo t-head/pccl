@@ -10,6 +10,7 @@ import unittest
 from unittest import mock
 import zipfile
 
+import daily_reconcile
 import performance_report
 import run_cases
 
@@ -95,6 +96,68 @@ class PerformanceReportTests(unittest.TestCase):
         return performance_report.collect_report(
             self.selection, self.groups, self.coverage, self.results,
             {"run_id": "123", "dataset": "full"}, self.reconciliation)
+
+    def prepare_actual_reconciliation(self):
+        """Run the real reconciler with one ordinary and one healthy performance Case."""
+        self.case2["cmd"] = "mpirun -np 2 all_reduce_perf -t 1 -g 1 -d half -b 8 -e 8 -f 2"
+        self.selection.write_text(json.dumps({
+            "schema_version": 1, "profile": "standard", "cases": self.cases}))
+        key2 = performance_report._key(self.case2)
+        directory2 = self.results / "g001" / Path(*key2)
+        (directory2 / "raw.log").write_text(HEADER + (
+            "8 2 half sum -1 10.5 1.25 2.5 0 11.5 2.25 3.5 0\n"
+            "# Out of bounds values : 0 OK\n"))
+        for case in (self.case1, self.case2):
+            path = self.results / "g001" / Path(*performance_report._key(case)) / "result.json"
+            record = json.loads(path.read_text())
+            record.update(status="PASSED", error="")
+            path.write_text(json.dumps(record))
+        metrics = run_cases._check_result(self.case2, 0, directory2 / "raw.log")
+        with (directory2 / "metrics.csv").open("w", newline="") as stream:
+            writer = csv.DictWriter(stream, fieldnames=run_cases.METRIC_FIELDS, lineterminator="\n")
+            writer.writeheader()
+            writer.writerows(metrics)
+        group = self.results / "g001"
+        rows = [json.loads((group / Path(*performance_report._key(case)) / "result.json").read_text())
+                for case in (self.case1, self.case2)]
+        with (group / "results.csv").open("w", newline="") as stream:
+            writer = csv.DictWriter(stream, fieldnames=run_cases.RESULT_FIELDS, lineterminator="\n")
+            writer.writeheader()
+            writer.writerows(rows)
+        (group / "summary.json").write_text(json.dumps({
+            "total": 2, "counts": {"PASSED": 2}}))
+        pccl_revision = "3" * 40
+        build_sha256 = "4" * 64
+        (group / "build.json").write_text(json.dumps({
+            "schema_version": 1, "pccl_revision": pccl_revision,
+            "pccl_tests_revision": "2" * 40, "build_profile": "standard",
+            "artifact_sha256": build_sha256}))
+        input_directory = self.root / "actual-input"
+        (input_directory / "envs").mkdir(parents=True)
+        (input_directory / "envs" / "suite.env").write_text("PATH=/usr/bin\n")
+        (input_directory / "export.json").write_text(json.dumps({
+            "format_version": 1, "source_revision": "1" * 40,
+            "runner_revision": "2" * 40, "xtest_version": "0.12.0"}))
+        suites = [{"plan": case["plan"], "suite": case["suite"], "nodes": "1",
+                   "cards_per_node": "8", "timeout": "10", "env": "suite.env"}
+                  for case in (self.case1, self.case2)]
+        with (input_directory / "suites.csv").open("w", newline="") as stream:
+            writer = csv.DictWriter(stream, fieldnames=run_cases.SUITE_FIELDS, lineterminator="\n")
+            writer.writeheader()
+            writer.writerows(suites)
+        with (input_directory / "standard.csv").open("w", newline="") as stream:
+            writer = csv.DictWriter(stream, fieldnames=run_cases.CASE_FIELDS, lineterminator="\n")
+            writer.writeheader()
+            for case in (self.case1, self.case2):
+                writer.writerow({field: case[field] for field in run_cases.CASE_FIELDS})
+        output = self.root / "actual-reconciliation" / "g001"
+
+        def reconcile():
+            return daily_reconcile.reconcile(
+                input_directory, "standard", 1, None, group, output,
+                pccl_revision, build_sha256)
+
+        return rows, output, reconcile
 
     def test_exit_code_raw_log_is_reported_without_changing_execution_gate(self):
         report = self.collect()
@@ -397,6 +460,113 @@ class PerformanceReportTests(unittest.TestCase):
         self.assertEqual(third["data_status"], "UNVERIFIED")
         self.assertEqual(report["summary"]["execution"]["selected_result_count"], 2)
         self.assertEqual(report["summary"]["execution"]["missing_selected_results"], 1)
+        self.assertEqual(report["summary"]["execution"]["result_counts"],
+                         {"FAILED": 1, "PASSED": 1})
+
+    def test_planned_result_wins_over_wrong_group_in_either_traversal_order(self):
+        groups = json.loads(self.groups.read_text())
+        groups.append({"id": "g002", "case_keys": [list(performance_report._key(self.case3))]})
+        self.coverage.write_text(json.dumps({
+            "total_cases": 3, "selected_cases": 3, "excluded_cases": 0,
+            "allowed_nodes": [1, 2, 4], "exclusions": []}))
+        key = performance_report._key(self.case3)
+        row = {"plan": self.case3["plan"], "suite": self.case3["suite"], "name": self.case3["name"],
+               "check": self.case3["check"], "status": "PASSED", "return_code": "0",
+               "duration_seconds": 1.0, "error": "", "raw_log": "raw.log"}
+        with (self.results / "g001" / "results.csv").open("a", newline="") as stream:
+            writer = csv.DictWriter(stream, fieldnames=run_cases.RESULT_FIELDS, lineterminator="\n")
+            writer.writerow(row)
+        directory = self.results / "g002" / Path(*key)
+        directory.mkdir(parents=True)
+        (directory / "raw.log").write_text(performance_log())
+        (directory / "result.json").write_text(json.dumps(row))
+        with (self.results / "g002" / "results.csv").open("w", newline="") as stream:
+            writer = csv.DictWriter(stream, fieldnames=run_cases.RESULT_FIELDS, lineterminator="\n")
+            writer.writeheader()
+            writer.writerow(row)
+        (self.results / "g002" / "build.json").write_text(json.dumps({"archive_sha256": "def456"}))
+        (self.reconciliation / "g002").mkdir()
+        (self.reconciliation / "g002" / "reconciliation.json").write_text(json.dumps({
+            "ok": True, "errors": []}))
+
+        executions = []
+        for ordered in (groups, list(reversed(groups))):
+            self.groups.write_text(json.dumps(ordered))
+            report = self.collect()
+            third = next(row for row in report["coverage"] if row["name"] == self.case3["name"])
+            self.assertEqual(third["group"], "g002")
+            self.assertEqual(third["execution_status"], "PASSED")
+            self.assertEqual(third["data_status"], "UNVERIFIED")
+            execution = report["summary"]["execution"]
+            self.assertEqual(execution["selected_result_count"], 3)
+            self.assertEqual(execution["missing_selected_results"], 0)
+            self.assertEqual(execution["result_counts"], {"FAILED": 1, "PASSED": 2})
+            executions.append(execution)
+        self.assertEqual(executions[0], executions[1])
+
+    def test_invalid_utf8_record_isolated_by_actual_reconciliation(self):
+        _, output, reconcile = self.prepare_actual_reconciliation()
+        baseline = self.collect()
+        healthy = next(row for row in baseline["coverage"] if row["name"] == self.case2["name"])
+        self.assertEqual(healthy["valid_out_of_place"], 1)
+        path = self.results / "g001" / Path(*performance_report._key(self.case1)) / "result.json"
+        path.write_bytes(b"\xff\xfe")
+
+        reconciliation = reconcile()
+
+        self.assertFalse(reconciliation["ok"])
+        self.assertTrue((output / "reconciliation.json").is_file())
+        self.assertTrue(any("result.json" in error and "utf-8" in error
+                            for error in reconciliation["errors"]))
+        self.reconciliation = output.parent
+        report = self.collect()
+        damaged = next(row for row in report["coverage"] if row["name"] == self.case1["name"])
+        healthy = next(row for row in report["coverage"] if row["name"] == self.case2["name"])
+        self.assertEqual(damaged["data_status"], "UNVERIFIED")
+        self.assertEqual(healthy["data_status"], "VALID")
+        self.assertEqual(healthy["valid_out_of_place"], 1)
+        self.assertEqual(report["summary"]["metric_rows"], 2)
+
+    def test_unexpected_row_isolated_by_actual_reconciliation(self):
+        rows, output, reconcile = self.prepare_actual_reconciliation()
+        unexpected = dict(rows[0])
+        unexpected.update(suite="unexpected_suite", name="unexpected_case")
+        rows.append(unexpected)
+        group = self.results / "g001"
+        with (group / "results.csv").open("w", newline="") as stream:
+            writer = csv.DictWriter(stream, fieldnames=run_cases.RESULT_FIELDS, lineterminator="\n")
+            writer.writeheader()
+            writer.writerows(rows)
+        (group / "summary.json").write_text(json.dumps({
+            "total": 3, "counts": {"PASSED": 3}}))
+
+        reconciliation = reconcile()
+
+        self.assertFalse(reconciliation["ok"])
+        self.assertTrue(any("Unexpected result" in error for error in reconciliation["errors"]))
+        self.reconciliation = output.parent
+        report = self.collect()
+        healthy = next(row for row in report["coverage"] if row["name"] == self.case2["name"])
+        self.assertEqual(healthy["data_status"], "VALID")
+        self.assertEqual(healthy["valid_out_of_place"], 1)
+        self.assertEqual(report["summary"]["execution"]["result_counts"], {"PASSED": 2})
+        self.assertEqual(report["summary"]["metric_rows"], 66)
+
+    def test_report_skips_a_malformed_root_without_changing_the_strict_parser(self):
+        text = HEADER + (
+            "8 2 half sum -1 10 1 2 0 11 2 3 0\n"
+            "16 2 half sum -1[WARN] 10 1 2 0 11 2 3 0\n"
+            "32 2 half sum -1 10 1 2 0 11 2 3 0\n")
+        strict = run_cases.parse_performance(text)
+        self.assertEqual(len(strict), 6)
+        self.assertIn("-1[WARN]", {row["root"] for row in strict})
+        log = self.root / "interleaved-root.log"
+        log.write_text(text)
+        parsed = performance_report._parse_case(self.case1, log, [8, 16, 32])
+        self.assertEqual(parsed["data_status"], "PARTIAL")
+        self.assertEqual(parsed["valid_out_of_place"], 2)
+        self.assertEqual(parsed["missing_out_of_place"], 1)
+        self.assertEqual(len(parsed["rows"]), 6)
 
     def test_report_skips_a_numeric_token_with_interleaved_log_text(self):
         text = HEADER + (

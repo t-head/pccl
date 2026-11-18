@@ -12,8 +12,13 @@ PPU tests. `PCCL Tests Gate` reports the results of the required jobs.
 | File | Purpose |
 | --- | --- |
 | [source-sanity.yml](workflows/source-sanity.yml) | The sole PPU test pipeline and publisher of `PCCL Tests Gate`: PR prechecks and AI/human approval precede self-hosted builds, artifact-backed build distribution, one single-node job per profile, and one two-node job reusing the standard build. |
-| [m890p-daily-full.yml](workflows/m890p-daily-full.yml) | Experimental M890P daily smoke/full execution with automatic same-environment groups, artifact-backed build and Case-group distribution, and exact per-group reconciliation. Current execution is limited to 1/2/4 nodes and it is not a PR gate. |
+| [m890p-daily-full.yml](workflows/m890p-daily-full.yml) | Experimental M890P daily smoke/full execution with automatic same-environment groups, artifact-backed build and Case-group distribution, and exact per-group reconciliation. Full execution selects 1/2/4/8-node groups and is not a PR gate. |
 | [workflows/scripts/](workflows/scripts/) | Build PCCL and the pinned public benchmark runner. |
+
+The daily workflow generates its inputs from JSON test families. Its only dataset names are
+`smoke` and `full`; the former `generated-smoke` and `generated-full` names do not exist.
+`smoke` intentionally contains two single-node Cases. For multi-node debugging, select
+`full` together with `nodes=2`, `nodes=4` or `nodes=8`, and optionally an exact Suite name.
 
 `source-sanity.yml` runs on same-repository and fork pull requests, pushes to `main`, and manual dispatch. Every PR runs secret scanning, commit checks, AI review and human approval on GitHub-hosted runners first. Self-hosted builds and internal result processing start only after those gates succeed, so an unapproved fork PR receives no self-hosted allocation. The maintained Plan/Suite/Case definitions are the only test source. Their reviewed commands are exported to the versioned CSV files under `tests/xtest/minimal-csv`; GitHub does not install or import xtest/mmengine.
 

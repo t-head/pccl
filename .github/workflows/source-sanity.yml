@@ -125,6 +125,9 @@ jobs:
           python3 -S -B -W error::ResourceWarning -m unittest discover \
             -s tests/xtest -p 'test_run_cases.py' -v
           python3 -S -B -m unittest discover -s tests/xtest -p 'test_artifact_cache.py' -v
+          python3 -S -B -m unittest discover -s tests/xtest -p 'test_generate_cases.py' -v
+          python3 -S -B -m unittest discover -s tests/xtest -p 'test_group_cases.py' -v
+          python3 -S -B -m unittest discover -s tests/xtest -p 'test_daily_smoke.py' -v
           python3 -S -B -m unittest discover -s tests/xtest -p 'test_reconcile_results.py' -v
           python3 -S -B -m unittest discover -s tests/xtest -p 'test_workflow_contract.py' -v
           python3 -S -B - <<'PY'
@@ -502,8 +505,8 @@ jobs:
             ulimit -s 65536
             if ! command -v ibv_devinfo >/dev/null || ! command -v rdma >/dev/null || ! command -v ip >/dev/null; then
               export DEBIAN_FRONTEND=noninteractive
-              apt-get update
-              apt-get install -y --no-install-recommends rdma-core ibverbs-utils iproute2
+              timeout -k 30s 300s apt-get update
+              timeout -k 30s 600s apt-get install -y --no-install-recommends rdma-core ibverbs-utils iproute2
             fi
             if test -d /sys/module/alixpu_peermem; then
               echo 'alixpu_peermem is loaded'
@@ -653,8 +656,8 @@ jobs:
             ulimit -s 65536
             if ! command -v ibv_devinfo >/dev/null || ! command -v rdma >/dev/null || ! command -v ip >/dev/null; then
               export DEBIAN_FRONTEND=noninteractive
-              apt-get update
-              apt-get install -y --no-install-recommends rdma-core ibverbs-utils iproute2
+              timeout -k 30s 300s apt-get update
+              timeout -k 30s 600s apt-get install -y --no-install-recommends rdma-core ibverbs-utils iproute2
             fi
             if test -d /sys/module/alixpu_peermem; then
               echo 'alixpu_peermem is loaded'

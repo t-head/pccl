@@ -10,7 +10,7 @@ on:
   workflow_dispatch:
     inputs:
       dataset:
-        description: Exported Case selection to execute
+        description: JSON-generated selection; smoke has two single-node Cases, full has all families
         required: true
         default: smoke
         type: choice
@@ -21,7 +21,7 @@ on:
         default: 500
         type: number
       nodes:
-        description: Optional debug node filter; empty selects every exported node count
+        description: Optional full-selection node filter; smoke only supports nodes=1
         required: false
         type: string
       suite:

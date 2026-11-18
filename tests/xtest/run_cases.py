@@ -292,6 +292,8 @@ def parse_performance(text, allow_unsupported=False, skip_malformed=False):
             if skip_malformed:
                 continue
             raise ValueError("Truncated or malformed performance table row")
+        if skip_malformed and not re.fullmatch(r"-?[0-9]+", tokens[4]):
+            continue
         parsed_row = []
         malformed = False
         for offset, current in ((5, "out-of-place"), (9, "in-place")):

@@ -222,6 +222,8 @@ class WorkflowContractTests(unittest.TestCase):
                          '--notsm-sha256'):
             self.assertIn(expected, results)
         prepare = self.text[self.text.index('  prepare:'):self.text.index('  ai-code-review:')]
+        for module in ('test_generate_cases.py', 'test_group_cases.py', 'test_daily_smoke.py'):
+            self.assertIn(f"-p '{module}'", prepare)
         self.assertIn("test_reconcile_results.py", prepare)
         self.assertIn("test_workflow_contract.py", prepare)
         self.assertIn('reconcile_results.load_selections(', prepare)
@@ -240,6 +242,8 @@ class WorkflowContractTests(unittest.TestCase):
         single = self.text[self.text.index('  single-node:'):self.text.index('  two-node:')]
         cluster = self.job('two-node')
         for section in (single, cluster):
+            self.assertIn('timeout -k 30s 300s apt-get update', section)
+            self.assertIn('timeout -k 30s 600s apt-get install', section)
             self.assertIn('host_network: true', section)
             self.assertIn('dns_policy: ClusterFirstWithHostNet', section)
             self.assertIn('host_volumes: /dev/infiniband:/dev/infiniband', section)

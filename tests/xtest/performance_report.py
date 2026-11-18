@@ -293,7 +293,7 @@ def _verification(groups, reconciliation_root):
             if not isinstance(error, str):
                 global_unverified.add(group["id"])
                 continue
-            if error.startswith(("Summary total ", "Summary counts ")):
+            if error.startswith(("Summary total ", "Summary counts ", "Unexpected result: ")):
                 continue
             for values in group["case_keys"]:
                 key = tuple(values)
@@ -343,6 +343,8 @@ def collect_report(selection_path, groups_path, coverage_path, results_root, met
 
     selection = {_key(case): dict(case) for case in manifest["cases"]}
     actual = {}
+    planned_actual = {}
+    seen = set()
     group_build = {}
     result_counts = Counter()
     for group in groups:
@@ -357,17 +359,27 @@ def collect_report(selection_path, groups_path, coverage_path, results_root, met
             global_unverified.add(group_id)
         for row in rows:
             key = _key(row)
-            if key in actual:
+            if key not in selection:
+                continue
+            if key in seen:
                 unverified_cases.add(key)
                 mismatched_cases.add(key)
-                continue
-            actual[key] = (group_id, row)
-            result_counts[row["status"]] += 1
+            seen.add(key)
+            if key not in actual:
+                actual[key] = (group_id, row)
+            if selected.get(key) == group_id and key not in planned_actual:
+                planned_actual[key] = (group_id, row)
+                actual[key] = (group_id, row)
+                result_counts[row["status"]] += 1
         for key, planned_group in selected.items():
-            if planned_group != group_id or key in actual:
+            if planned_group != group_id or key in planned_actual:
                 continue
             record = _recover_result(results_root, group_id, key)
             if record is not None:
+                if key in seen:
+                    unverified_cases.add(key)
+                    mismatched_cases.add(key)
+                planned_actual[key] = (group_id, record)
                 actual[key] = (group_id, record)
                 result_counts[record["status"]] += 1
 
@@ -465,8 +477,7 @@ def collect_report(selection_path, groups_path, coverage_path, results_root, met
              for field in ("passed", "valid", "partial", "failed", "unfinished",
                            "unverified",
                            "valid_out_of_place", "missing_out_of_place")}
-    selected_result_count = sum(key in actual and actual[key][0] == planned_group
-                                for key, planned_group in selected.items())
+    selected_result_count = len(planned_actual)
     summary = {
         "topology": topology, "performance_total": total,
         "performance_cases": len(coverage_rows), "metric_rows": len(metric_rows),

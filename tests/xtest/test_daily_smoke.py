@@ -202,6 +202,7 @@ class DailySmokeTests(unittest.TestCase):
         self.assertIn('workflow_dispatch:', text)
         self.assertIn('paths: [.github/workflows/m890p-daily-full.yml]', text)
         self.assertIn('options: [smoke, full]', text)
+        self.assertIn('smoke only supports nodes=1', text)
         self.assertNotIn('generated-smoke', text)
         self.assertNotIn('generated-full', text)
         self.assertNotIn('daily-full-csv', text)
