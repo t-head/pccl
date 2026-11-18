@@ -2,13 +2,13 @@
   "classification": {
     "base_sha": "0f79ec8f28df02c07ccf2b47e0bb457bdfe8622b",
     "head_sha": "4991e94077470402da10d89d177ced03b7f8091d",
-    "input_fingerprint": "c54c8f4a8d6a0a95c4f7bcdee2e624e6e12e2a4f381a708cdf0c9176772aa3c6",
+    "input_fingerprint": "f4627acc9a5b04a54e95ddf969dfb50f9f059312ef3db6c1501ac40aeda38d60",
     "pr_number": 196,
     "proposal": {
       "modules": [
         "ci"
       ],
-      "reason": "Primary change is to open-source test execution: daily/source-sanity workflow behavior, runner/network setup, dataset generation, grouping, reconciliation, and performance-report artifact production are all CI pipeline logic. Added/removed JSON test-family definitions, xtest generators/reporting code, and CSV-bundle migration are substantive CI test-input/execution infrastructure changes rather than runtime modules."
+      "reason": "Primary change is to open-source test workflow execution and reporting: daily/smoke inputs are now generated from JSON test-family definitions at prepare time, grouping policy is updated (including 1/2/4/8-node and cross-rack rack_nodes scheduling), and summary now builds/uploads a full performance workbook from reconciled raw logs. Source-sanity runner/network validation updates and cache/artifact retention changes are CI execution/reporting behavior, not reviewer-policy workflow automation."
     }
   },
   "reviewers": {
