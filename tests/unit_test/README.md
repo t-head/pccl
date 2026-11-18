@@ -32,6 +32,25 @@ cd pccl/tests/unit_test && ./build.sh
 
 ## Usage
 
+### Grouped Collective Sorting Regression
+
+On a dedicated test host, run `pcclCollectiveSortTest <ranks> <register>` with
+2 or 4 devices. Each group mixes 192 independent operations across AllReduce,
+AllGather, ReduceScatter, Broadcast and Reduce, with remainder counts, changing
+roots, sum/max and per-rank PreMulSum scalars. It checks int32 groups and groups
+mixing int32/float32, repeated three times. The second argument enables buffer
+registration; use `PCCL_WORK_ARGS_BYTES=512` to exercise plan budget splitting
+while retaining the default work FIFO capacity.
+
+```shell
+PCCL_ENABLE_EXT_KERNEL=0 timeout 180s ./build/pcclCollectiveSortTest 2 0
+PCCL_ENABLE_EXT_KERNEL=0 PCCL_WORK_ARGS_BYTES=512 timeout 180s ./build/pcclCollectiveSortTest 4 1
+```
+
+The CI case `run_collective_sort_test.sh` builds and runs these combinations.
+This test checks data and completion; it does not measure performance or cover
+cross-node transport, graph replay, external kernels or overlapping buffers.
+
 ### Single Process PCCL Collective Kernel Test
 
 #### Examples

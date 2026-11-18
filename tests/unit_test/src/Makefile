@@ -57,7 +57,8 @@ define build_func_rdc
   fi
 endef
 
-BIN_FILES_LIST := collPcclUnit sendRecvPcclUnit hggcGraphUnit pcclCommAbort pcclGroupSimulateEnd pcclCommMemManager
+BIN_FILES_LIST := collPcclUnit sendRecvPcclUnit hggcGraphUnit pcclCommAbort pcclGroupSimulateEnd \
+                  pcclCommMemManager pcclCollectiveSort
 ifeq ($(MPI), 1)
 BIN_FILES_LIST += pcclCommShrink
 endif
@@ -103,6 +104,9 @@ ${BUILDDIR}/pcclCommMemManagerTest: pcclCommMemManagerTest.cu
 
 ${BUILDDIR}/pcclGroupSimulateEndTest: pcclGroupSimulateEndTest.cu
 	$(call build_func, $@, pcclGroupSimulateEndTest)
+
+${BUILDDIR}/pcclCollectiveSortTest: pcclCollectiveSortTest.cu
+	$(call build_func, $@, pcclCollectiveSortTest)
 
 # All of bench_oki is one RDC translation unit. Keep SIMT on compile and dlink.
 ifeq ($(USE_OKI), 1)

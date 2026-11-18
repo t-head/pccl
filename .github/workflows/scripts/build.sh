@@ -56,6 +56,7 @@ cp ${SCRIPT_DIR}/pr-ut-runner.py ${build_output}
 cp ${SCRIPT_DIR}/casecmd.list ${build_output}
 cp ${SCRIPT_DIR}/setup_test_env.sh ${build_output}
 cp ${SCRIPT_DIR}/run_*.sh ${build_output}
+cp ${source_home}/pccl/tests/unit_test/src/pcclCollectiveSortTest.cu ${build_output}
 cp ${PCCL_TESTS_DIR}/run_test.py ${build_output}
 cp ${PCCL_TESTS_DIR}/run_test_config.py ${build_output}
 

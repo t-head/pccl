@@ -748,11 +748,24 @@ static ncclResult_t defaultGetAlgoInfo(ncclComm_t comm, ncclTaskColl* info) {
   return ncclSuccess;
 }
 
+static void setCollSimInfo(ncclComm_t comm, const ncclTaskColl* task, ncclSimInfo_t* simInfo) {
+  float time = -1.f;
+  if (comm->nRanks == 1) {
+    simInfo->estimatedTime = 0.f;
+  } else if (ncclTopoGetAlgoTime(comm, task->func, task->algorithm, task->protocol,
+                 task->nBytes, task->nChannels, &time) == ncclSuccess && time >= 0.f) {
+    simInfo->estimatedTime = time;
+  } else {
+    simInfo->estimatedTime = 0.f;
+  }
+}
+
 // Use the default topo-based tuner if tuner plugin is not successful.
 // Call the plugin first. Let it set algo+proto, and/or nChannels.
 // Then, defaultGetAlgoInfo will set algo/proto if not set, then nChannels and nThreads based on algo/proto.
 // Finally, nChannels will be overridden by the plugin setting.
-static ncclResult_t getAlgoInfo(ncclComm_t comm, ncclTaskColl* info, ncclSimInfo_t* simInfo = NULL) {
+static ncclResult_t getAlgoInfo(
+    ncclComm_t comm, ncclTaskColl* info, ncclSimInfo_t* simInfo = NULL, int nTasksPerChannel = 1) {
   if (comm->nRanks == 1) {
     // Single-rank: no inter-rank communication is performed, so the estimated
     // time is 0. Keep this aligned with NCCL upstream, where the single-rank
@@ -768,7 +781,7 @@ static ncclResult_t getAlgoInfo(ncclComm_t comm, ncclTaskColl* info, ncclSimInfo
   if (comm->tuner != NULL) {
     NCCLCHECK(comm->tuner->getCollInfo(
           info->func, comm->nRanks, info->nBytes,
-          0, 0, 0,
+          0, 0, nTasksPerChannel,
           &info->algorithm, &info->protocol, &nChannels, &info->nThreads));
 
     if (nChannels > 0 && (info->algorithm < 0 || info->algorithm >= NCCL_NUM_ALGORITHMS ||
@@ -801,14 +814,7 @@ static ncclResult_t getAlgoInfo(ncclComm_t comm, ncclTaskColl* info, ncclSimInfo
     // This guarantees a sensible non-zero value regardless of whether the
     // tuner plugin participated in algo selection, and keeps the estimate
     // self-consistent with how algo/proto were selected.
-    float time = -1.f;
-    if (ncclTopoGetAlgoTime(comm, info->func, info->algorithm, info->protocol,
-                            info->nBytes, info->nChannels, &time) == ncclSuccess
-        && time >= 0.f) {
-      simInfo->estimatedTime = time;
-    } else {
-      simInfo->estimatedTime = 0.f;
-    }
+    setCollSimInfo(comm, info, simInfo);
   }
   return ncclSuccess;
 }
@@ -2485,6 +2491,92 @@ fail:
   goto exit;
 }
 
+static size_t ncclTaskCollTrafficBytes(const ncclTaskColl* task) {
+  // nBytes already includes the rank multiplier for AllGather/ReduceScatter.
+  return task->func == ncclFuncAllReduce ?
+      task->nBytes + std::min(task->nBytes, SIZE_MAX-task->nBytes) : task->nBytes;
+}
+
+static int ncclTaskCollFnOpTy(const ncclTaskColl* task) {
+  return (task->func*ncclNumDevRedOps + task->opDev.op)*ncclNumTypes + task->datatype;
+}
+
+// NCCL 2.27 preparation order: approximate traffic sort, then (fn,op,ty)
+// bins in first-encounter order, with approximately ascending sizes inside each bin.
+// Rebuild the execution queue BEFORE registration creates its matching work
+// and cleanup queues. Only rank-invariant collective metadata is a sort key;
+// roots and reduction scalars remain attached to the original task.
+static ncclResult_t ncclSortAndTuneCollTasks(ncclComm_t comm, ncclSimInfo_t* simInfo) {
+  auto planner = &comm->planner;
+  constexpr int unitLog2 = 10, maxLog2 = 30, bitsPerPow2 = 2;
+  constexpr int sizeBinCount = 1 + (maxLog2-unitLog2)*(1<<bitsPerPow2);
+  ncclTaskColl* sizeBins[sizeBinCount] = {};
+  ncclTaskColl* last = nullptr;
+  while (!ncclIntruQueueEmpty(&planner->collTaskQueue)) {
+    ncclTaskColl* task = ncclIntruQueueDequeue(&planner->collTaskQueue);
+    last = task;
+    int bin = u32fpEncode(std::min(size_t(1)<<maxLog2, ncclTaskCollTrafficBytes(task))>>unitLog2,
+        bitsPerPow2);
+    task->next = sizeBins[bin];
+    sizeBins[bin] = task;
+  }
+
+  constexpr int fnOpTyBinCount = NCCL_NUM_FUNCTIONS*ncclNumDevRedOps*ncclNumTypes;
+  ncclTaskColl* tasksByFnOpTy[fnOpTyBinCount] = {};
+  int fnOpTyIndices[fnOpTyBinCount];
+  int fnOpTyCount = 0;
+  for (int bin = sizeBinCount-1; bin >= 0; --bin) {
+    for (ncclTaskColl* task = sizeBins[bin]; task != nullptr;) {
+      ncclTaskColl* next = task->next;
+      int index = ncclTaskCollFnOpTy(task);
+      if (tasksByFnOpTy[index] == nullptr) fnOpTyIndices[fnOpTyCount++] = index;
+      task->next = tasksByFnOpTy[index];
+      tasksByFnOpTy[index] = task;
+      task = next;
+    }
+  }
+  // Publish the complete queue before any fallible tuning call, so error paths
+  // can still find every task. PCCL has no CollNet/NVLS scheduling bins.
+  for (int cursor = 0; cursor < fnOpTyCount; ++cursor) {
+    for (ncclTaskColl* task = tasksByFnOpTy[fnOpTyIndices[cursor]]; task != nullptr;) {
+      ncclTaskColl* next = task->next;
+      ncclIntruQueueEnqueue(&planner->collTaskQueue, task);
+      task = next;
+    }
+  }
+
+  int nTasksPerChannel = DIVUP(planner->nTasksColl, comm->nChannels);
+  for (ncclTaskColl* begin = ncclIntruQueueHead(&planner->collTaskQueue); begin != nullptr;) {
+    ncclTaskColl aggregate = *begin;
+    ncclTaskColl* end = begin->next;
+    size_t trafficBytes = ncclTaskCollTrafficBytes(begin);
+    // Division expresses next < 4*first without overflowing. The two LIFO
+    // passes preserve submission order within a size bin (as in NCCL).
+    while (end != nullptr && ncclTaskCollFnOpTy(end) == ncclTaskCollFnOpTy(begin) &&
+        ncclTaskCollTrafficBytes(end)/4 < trafficBytes &&
+        end->nBytes <= SIZE_MAX-aggregate.nBytes && end->count <= SIZE_MAX-aggregate.count) {
+      aggregate.count += end->count;
+      aggregate.nBytes += end->nBytes;
+      end = end->next;
+    }
+    NCCLCHECK(getAlgoInfo(comm, &aggregate, nullptr, nTasksPerChannel));
+    do {
+      begin->algorithm = aggregate.algorithm;
+      begin->protocol = aggregate.protocol;
+      begin->nChannels = aggregate.nChannels;
+      begin->nThreads = aggregate.nThreads;
+      begin = begin->next;
+    } while (begin != end);
+  }
+  // Dispatch attribution describes the last API call, not a synthetic aggregate.
+  comm->collType = last->func;
+  comm->nBytes = last->nBytes;
+  // Preserve PCCL's last-submitted-collective simulation result, using its
+  // original size and the strategy chosen for its aggregation group.
+  if (simInfo) setCollSimInfo(comm, last, simInfo);
+  return ncclSuccess;
+}
+
 // Called once per ncclGroup to organize the user submitted tasks in
 // comm->planner so that they can be peeled off into plans.
 ncclResult_t ncclPrepareTasks(ncclComm_t comm, bool* algoNeedConnect, bool* needConnect, ncclSimInfo_t* simInfo) {
@@ -2533,10 +2625,7 @@ ncclResult_t ncclPrepareTasks(ncclComm_t comm, bool* algoNeedConnect, bool* need
     return ncclSuccess;
   }
 
-  while(task) {
-    NCCLCHECK(getAlgoInfo(comm, task, simInfo));
-    task = task->next;
-  }
+  NCCLCHECK(ncclSortAndTuneCollTasks(comm, simInfo));
 
   task = ncclIntruQueueHead(&planner->collTaskQueue);
   while(task) {

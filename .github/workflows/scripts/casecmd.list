@@ -8,6 +8,7 @@
 # workflow only keeps pccl and pccl-tests repositories.
 
 bash run_common_test.sh
+bash run_collective_sort_test.sh
 bash run_register_test.sh
 bash run_memcpy_test.sh
 bash run_nonblocking_test.sh
