@@ -397,11 +397,13 @@ jobs:
           else
             echo 'state=miss' >> "$GITHUB_OUTPUT"
           fi
-      - uses: t-head/pccl/.github/actions/download-artifact-retry@c7eb80eadb2ca48976a02d8f0fcc1c020534ce73
+      - uses: t-head/pccl/.github/actions/download-artifact-retry@7d775341fad20ebd8b11cc02de2afab9feffc835
         if: steps.cache.outputs.state == 'miss'
         with:
           name: pccl-build-${{ matrix.profile }}
           path: download
+          sha256-file: output_${{ matrix.profile }}.tar.gz
+          expected-sha256: ${{ env.EXPECTED_SHA }}
       - name: Publish the validated artifact to NAS
         if: steps.cache.outputs.state == 'miss'
         env:
@@ -445,7 +447,7 @@ jobs:
         with:
           path: pccl
           persist-credentials: false
-      - uses: t-head/pccl/.github/actions/download-artifact-retry@c7eb80eadb2ca48976a02d8f0fcc1c020534ce73
+      - uses: t-head/pccl/.github/actions/download-artifact-retry@7d775341fad20ebd8b11cc02de2afab9feffc835
         with:
           name: minimal-csv-artifact-python-deps
           path: deps
@@ -462,11 +464,13 @@ jobs:
           else
             echo 'state=miss' >> "$GITHUB_OUTPUT"
           fi
-      - uses: t-head/pccl/.github/actions/download-artifact-retry@c7eb80eadb2ca48976a02d8f0fcc1c020534ce73
+      - uses: t-head/pccl/.github/actions/download-artifact-retry@7d775341fad20ebd8b11cc02de2afab9feffc835
         if: steps.build-cache.outputs.state == 'miss'
         with:
           name: pccl-build-${{ matrix.profile }}
           path: build-download
+          sha256-file: output_${{ matrix.profile }}.tar.gz
+          expected-sha256: ${{ env.EXPECTED_SHA }}
       - name: Restore a cleaned NAS cache from the build artifact
         if: steps.build-cache.outputs.state == 'miss'
         env:
@@ -592,7 +596,7 @@ jobs:
         with:
           path: pccl
           persist-credentials: false
-      - uses: t-head/pccl/.github/actions/download-artifact-retry@c7eb80eadb2ca48976a02d8f0fcc1c020534ce73
+      - uses: t-head/pccl/.github/actions/download-artifact-retry@7d775341fad20ebd8b11cc02de2afab9feffc835
         with:
           name: minimal-csv-artifact-python-deps
           path: deps
@@ -609,11 +613,13 @@ jobs:
           else
             echo 'state=miss' >> "$GITHUB_OUTPUT"
           fi
-      - uses: t-head/pccl/.github/actions/download-artifact-retry@c7eb80eadb2ca48976a02d8f0fcc1c020534ce73
+      - uses: t-head/pccl/.github/actions/download-artifact-retry@7d775341fad20ebd8b11cc02de2afab9feffc835
         if: steps.build-cache.outputs.state == 'miss'
         with:
           name: pccl-build-standard
           path: build-download
+          sha256-file: output_standard.tar.gz
+          expected-sha256: ${{ env.EXPECTED_SHA }}
       - name: Restore a cleaned NAS cache from the build artifact
         if: steps.build-cache.outputs.state == 'miss'
         env:
