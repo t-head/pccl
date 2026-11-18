@@ -2,13 +2,13 @@
   "classification": {
     "base_sha": "a7769ba35a724d84cea481c9b318c30482175471",
     "head_sha": "5642335802c4233517c9b518724b521e950b2f25",
-    "input_fingerprint": "90aebebc33ad931ed8af0487778c2849426b95668d04751b30d2243a0e397e33",
+    "input_fingerprint": "b61be9f1fb296f3705707122584d48269279aa409f9fb6f244361112fef4689c",
     "pr_number": 196,
     "proposal": {
       "modules": [
         "ci"
       ],
-      "reason": "Main change is to open-source test workflow execution: daily/source-sanity GitHub Actions now generate cases from JSON families at prepare time, update node/rack scheduling and artifact verification, and add performance-report publishing with new xtest tooling/tests; removed legacy daily CSV inputs are part of this CI path migration."
+      "reason": "Primary change is the test/automation pipeline: daily workflow now generates case inputs from JSON families, expands grouped execution policy (including cross-rack allocation), hardens artifact download/integrity retry logic, and adds full performance-report reconciliation/output handling in CI scripts and tests. Workflow-doc edits and legacy CSV removals support this CI behavior change rather than introducing separate review-policy or runtime-module changes."
     }
   },
   "reviewers": {
