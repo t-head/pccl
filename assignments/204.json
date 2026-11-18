@@ -2,13 +2,13 @@
   "classification": {
     "base_sha": "0f79ec8f28df02c07ccf2b47e0bb457bdfe8622b",
     "head_sha": "a3a6cab8a5122daeb992154b3569ec88664ef00e",
-    "input_fingerprint": "3c71b5a7a86dea044b860889f48ce242d7a3bda2f9cd04d29f29a801a873c4b6",
+    "input_fingerprint": "674db28ddc4b4d5f229c61c84a47713c0c8f3a37c1f0e19ce7d3ec37b7c81dc8",
     "pr_number": 204,
     "proposal": {
       "modules": [
         "graph-search"
       ],
-      "reason": "Main functional change is in topology graph-query logic (`ncclTopoGetNetDev`) to use the mapped graph channel for MNNVL when reading cached PXN proxy devices, fixing wrong proxy-rank/host resolution with repeated runtime channels under uneven PPU selection. `graph.h` comment update and added graph-search tests support this same behavior; no independent policy/protocol change in other modules is shown."
+      "reason": "Main functional fix is in graph channel/proxy lookup logic: ncclTopoGetNetDev now maps runtime channels back to retained graph channels (MNNVL path) before reading cached proxyDevs, preventing stale/discarded channel metadata from driving proxy-rank selection. Header comment and new tests reinforce this graph-channel semantics change; no separate network/bootstrap/device-API policy change is shown."
     }
   },
   "reviewers": {
