@@ -1,0 +1,632 @@
+<!doctype html><html lang="zh-CN"><head><meta charset="utf-8"><meta name="viewport" content="width=device-width,initial-scale=1">
+<title>PCCL grouped collective 回退分析与修复</title><style>
+:root{color-scheme:light}body{margin:0;background:#f3f6fa;color:#203247;font:16px/1.75 system-ui,-apple-system,sans-serif}main{max-width:1220px;margin:auto;padding:44px 30px 80px}h1{font-size:32px;line-height:1.3}h2{font-size:23px;margin-top:38px;border-bottom:2px solid #d9e4ee;padding-bottom:8px}h3{font-size:18px}p,li{max-width:1100px}a{color:#1265aa}code{background:#e7eef6;padding:2px 5px;overflow-wrap:anywhere}pre{white-space:pre-wrap;background:#17304b;color:#edf5ff;padding:20px;border-radius:8px}.callout{background:#e8f4ee;border-left:5px solid #2f8461;padding:18px}.warning{background:#fff2d9;border-left:5px solid #c28b29;padding:18px}.scroll{overflow:auto;margin:16px 0}table{border-collapse:collapse;background:white;width:100%;font-size:13px;font-variant-numeric:tabular-nums}th,td{padding:9px 11px;border-bottom:1px solid #dde5ed;text-align:right;white-space:nowrap}th{background:#e3ecf5}td:nth-child(2),th:nth-child(2){text-align:left}small,.muted{color:#60748a}nav{display:flex;gap:16px;flex-wrap:wrap}select{padding:7px;margin:8px}details{margin-top:20px}summary{cursor:pointer;font-weight:600}@media(max-width:700px){main{padding:24px 14px}h1{font-size:25px}}@media print{body{background:white}main{max-width:none;padding:0}nav,.filters{display:none}h2{break-after:avoid}tr{break-inside:avoid}}.prose td,.prose th{white-space:normal;text-align:left;overflow-wrap:anywhere}.prose td:first-child{width:28%}pre{overflow-wrap:anywhere}</style></head><body><main>
+<p class="muted">2026-11-18 · PCCL · 单机 M890P · 可独立打开，无外部资源依赖</p>
+<h1>Grouped collective 回退：定位、消融与修复</h1>
+<div class="callout"><strong>结论：</strong>保留实际任务排序，恢复原 CBD 的逐任务调优，消除了本次测试中稳定的同类型 grouped 性能回退。修复后的 336 个完整矩阵点和 18 个七轮复测点，中位数均未超过“比原 CBD 慢 10% 且增加 0.5 µs”的筛选阈值。非 grouped 基本持平，混合 grouped 仍有收益，但弱于部分聚合调优场景。</div>
+<nav><a href="#change">修改</a><a href="#patch-details">Patch 详解与 diff</a><a href="#nccl">NCCL 关系</a><a href="#regression">初始回退</a><a href="#ablation">消融</a><a href="#final">最终 A/B</a><a href="#validation">验证与边界</a><a href="#details">逐点数据</a></nav>
+<h2 id="change">1. 两笔提交分别做什么</h2>
+<p>基线为 <code>1d5f6eee10addeaea6d27b257c770a59ddf9bad0</code>，原 CBD 分支 <code>perf/coll-fc-tree-cbd</code>。本次提交到独立分支 <code>perf/cbd-collective-sort</code>，关联 <a href="https://github.com/t-head/pccl/issues/152">runtime 跟踪 issue #152</a>。</p>
+<ol><li><strong>第一笔：排序＋聚合调优及回归测试。</strong>提交 <a href="https://github.com/t-head/pccl/commit/b8243b533f572466b4b7264883d82c00c3ece9ec"><code>b8243b533f572466b4b7264883d82c00c3ece9ec</code></a>。先按近似通信量排序，再按 collective / device reduction op / datatype 分组，组合相近大小任务进行调优。重排发生在注册和对应 work/cleanup 队列建立之前。加入混合类型、root、用户归约操作、注册缓冲区及小预算测试与 CI 接线。这笔中间提交存在本文记录的性能回退，应连同第二笔使用。</li>
+<li><strong>第二笔：恢复逐任务调优。</strong>即本文件所在提交。保留执行队列排序，删除累计 count / nBytes 后共用策略的逻辑；对排序后的每个原始任务单独调用 <code>getAlgoInfo</code>，恢复原 CBD tuner 插件输入。算法、协议、通道数、线程数均按任务本身确定。没有修改 device kernel 或重新调整整套性能模型。</li></ol>
+<p>root、count、datatype、归约 scalar 仍跟随原任务；通信流量只用于排序。保留最后一次 API 调用的 dispatch attribution 与模拟估时语义。单任务路径仍使用原大小进行调优。</p>
+<h3>为什么五个 64 KiB 任务会退化</h3>
+<table><tr><th>版本</th><th>调优输入</th><th>4 卡实际选择</th></tr><tr><td>原 CBD</td><td>每个任务 64 KiB</td><td>Ring / LL</td></tr><tr><td>初版排序＋聚合</td><td>五个任务合计 320 KiB，再回填策略</td><td>Tree / LL128</td></tr><tr><td>修复版</td><td>排序后仍逐任务 64 KiB</td><td>Ring / LL</td></tr></table>
+<pre>初版：sort(tasks) → aggregate(similar tasks) → tune(sum bytes) → copy strategy
+修复：sort(tasks) → for each task: tune(task.bytes)</pre>
+<p>这些 API 操作仍保留各自的 count 与缓冲区；聚合调优没有把它们变成一个语义上的 320 KiB collective。总大小改变了策略选择，而执行负载仍由独立任务组成。这里“独立任务”不表示每个任务必须独占一次 kernel launch。消融只关闭聚合调优便消除了回退，支持聚合调优不适配当前 PCCL 路径这一判断；单份 trace 本身不能证明所有尺寸的详细硬件瓶颈。</p>
+<h2 id="patch-details">1.1 Patch 详细说明：从 API 任务到执行队列</h2>
+<p>阅读入口：<a href="https://github.com/t-head/pccl/commit/b8243b533f572466b4b7264883d82c00c3ece9ec">第一笔完整提交</a>与<a href="https://github.com/t-head/pccl/blob/perf/cbd-collective-sort/src/enqueue.cc">分支最终 enqueue.cc</a>。下面分别解释第一笔引入的机制，以及第二笔保留、撤回的部分；文末可展开两笔代码 diff。第二笔的文档本身不递归包含在 diff 中。</p>
+<h3>A. 修改落在哪里，什么时候执行</h3>
+<pre>API 提交 → collTaskAppend：保存原始任务及 opDev 快照
+          → ncclPrepareTasks
+              ├─ symmetric 路径先提取可处理任务
+              ├─ 没有普通 collective：返回
+              ├─ 一个 collective 且无 P2P：保留原单任务/外部 kernel 分支
+              └─ 普通多任务路径：ncclSortAndTuneCollTasks
+                    → 重排 collTaskQueue
+                    → 最终版逐任务 getAlgoInfo
+                    → 设置所需算法连接标志
+          → 后续注册、work/cleanup 队列构建、plan 划分和执行</pre>
+<p>改动直接重建 planner 的 <code>collTaskQueue</code>，因此改变的是后续真正消费的任务顺序，而不只是调优遍历顺序。重排必须在注册创建配套 work/cleanup 队列之前完成，避免任务链表与这些配套队列错位。任务数量、用户缓冲区、原始 count、root 和归约参数没有被合并或重写。该路径不重排 P2P 队列，也不新增外部 kernel 的 grouped 支持。</p>
+<h3>B. 第一笔：通信量近似排序和 (fn, op, type) 分组</h3>
+<ol>
+<li><strong>计算排序权重。</strong><code>ncclTaskCollTrafficBytes</code> 对 AllReduce 取饱和的两倍 <code>nBytes</code>：<code>nBytes + min(nBytes, SIZE_MAX - nBytes)</code>；其他 collective 直接使用 <code>nBytes</code>。AllGather/ReduceScatter 的该字段已包含 rank 倍率，不能再次乘 ranks。权重用于粗略比较通信量，不是测得的网络字节数，也不会替换任务自身的调优大小。</li>
+<li><strong>分入大小桶。</strong>使用 <code>unitLog2=10</code>、<code>maxLog2=30</code>、<code>bitsPerPow2=2</code>，共 81 个固定桶。排序输入先截到 1 GiB，再右移 10 位，交给 <code>u32fpEncode</code> 编码；两个有效分档位提供近似大小等级。小于 1 KiB 的输入落入零档，超过上限的输入落入顶部档位。截断只影响排序键，不截断实际消息。这里不是按精确字节数做全排序。</li>
+<li><strong>再按类型组合成桶。</strong><code>ncclTaskCollFnOpTy</code> 将 <code>func</code>、<code>opDev.op</code>、<code>datatype</code> 编为整数索引。遍历大小桶时从大到小扫描，记录各类型桶第一次出现的次序；任务再以头插法放入类型桶，使每个类型桶内部按近似大小递增。</li>
+<li><strong>恢复实际执行链表。</strong>按记录的类型桶次序重新入队。两次头插使同一大小桶、同一类型组合内的任务保留提交顺序；不同大小桶或不同类型组合之间允许重排。最终结果是“类型桶按首次遇到顺序排列、桶内近似升序”，并非整个 group 全局升序。</li>
+</ol>
+<p>例如只考虑 AllReduce 和 Broadcast，原始序列为 <code>AR 64 KiB → Bcast 8 KiB → AR 4 KiB</code>，权重分别为 128、8、8 KiB。先遇到的较大 AR 确定 AR 类型桶在前，桶内恢复升序后形成 <code>AR 4 KiB → AR 64 KiB → Bcast 8 KiB</code>。这个例子只说明队列顺序，不表示三个任务会融合成一次 collective。</p>
+<p>排序阶段复用原任务的 <code>next</code> 指针，使用固定大小栈数组，不新建任务、不为每个任务分配堆对象。遍历代价随任务数线性增长，另有固定桶扫描开销。排序可能改善同类型任务的调度局部性；具体收益以本文混合用例实测为准，不能仅凭排序推断 kernel 数量减少。</p>
+<h3>C. 正确性约束：哪些字段可以排序，哪些必须留在任务上</h3>
+<div class="scroll"><table class="prose"><thead><tr><th>约束</th><th>实现选择与原因</th></tr></thead><tbody>
+<tr><td>所有 rank 产生相同次序</td><td>使用一致的 collective 元数据；不以本地缓冲区地址、用户 op 句柄或 scalar 值作为键。</td></tr>
+<tr><td>用户归约操作</td><td>以设备操作类别 opDev.op 分桶；scalarArg/scalarArgIsPtr 随原任务快照保留，允许各 rank 的 PreMulSum scalar 不同。</td></tr>
+<tr><td>root 和消息大小</td><td>root、count、nBytes 留在原任务；同一类型桶允许不同 root 和 count，不把分桶视为语义合并。</td></tr>
+<tr><td>异常路径能找到任务</td><td>在任何可能失败的 getAlgoInfo 调用之前，先把所有任务重新发布到完整 collTaskQueue。</td></tr>
+<tr><td>注册与资源清理顺序</td><td>重排在配套 work/cleanup 队列建立之前；后续阶段统一消费重排后的同一条任务链。</td></tr>
+<tr><td>原 API 调用归属</td><td>出队时保存排序前最后一个普通 collective；调优结束后恢复 comm-&gt;collType 和 comm-&gt;nBytes。</td></tr>
+<tr><td>模拟估时</td><td>setCollSimInfo 用最后提交任务的原 nBytes 和最终策略计算 estimatedTime；不是所有任务耗时求和。</td></tr>
+</tbody></table></div>
+<p>上述一致性依赖各 rank 按 collective 契约提交匹配的元数据。排序也不能为任意缓冲区重叠或跨任务数据依赖提供正确性保证；新增测试使用独立缓冲区，未验证重叠缓冲区和图重放。队列完整性设计避免“调优失败后任务丢在局部桶里”，但不等价于对全部错误恢复路径做过故障注入。</p>
+<p><code>setCollSimInfo</code> 从既有调优函数提取：单 rank 返回 0；正常情况调用 <code>ncclTopoGetAlgoTime</code>，查询失败或估时为负时回退到 0。保存 <code>last</code> 是为了防止排序后的尾任务覆盖原来“最后提交 collective”的估时语义。</p>
+<h3>D. 第一笔中后来撤回的部分：相近任务聚合调优</h3>
+<p>第一笔在排序后复制首任务到栈上 <code>aggregate</code>，沿同一 (fn, op, type) 连续段累加 <code>count</code> 和 <code>nBytes</code>。下一任务必须满足 <code>nextTraffic / 4 &lt; firstTraffic</code>，等价于正整数大小下的 <code>nextTraffic &lt; 4 × firstTraffic</code>，并且两项求和均不溢出 <code>SIZE_MAX</code>。这里用除法避免比较式乘四溢出；比较基准始终是段首任务，不是上一个任务。</p>
+<p>对累计任务调用一次 <code>getAlgoInfo</code> 后，把 <code>algorithm</code>、<code>protocol</code>、<code>nChannels</code>、<code>nThreads</code> 四个字段回写给段内各原任务。同时把 tuner 调用的原始零值参数替换为 <code>DIVUP(planner-&gt;nTasksColl, comm-&gt;nChannels)</code>。累计对象只用于选策略，实际任务仍保持各自缓冲区和大小，因此可能出现本文的 64 KiB → 320 KiB 策略跨阈值问题。</p>
+<h3>E. 第二笔：精确撤回什么，最终保留什么</h3>
+<pre>// 最终源码的调优循环（位于完整队列重建之后）
+for (ncclTaskColl* task = ncclIntruQueueHead(&amp;planner-&gt;collTaskQueue);
+     task != nullptr; task = task-&gt;next) {
+  NCCLCHECK(getAlgoInfo(comm, task));
+}</pre>
+<ul>
+<li>删除累计对象、相近大小扫描、count/nBytes 累加，以及四个策略字段的批量回填；每个任务都通过既有 tuner/default 调优流程独立决定策略。</li>
+<li>将 <code>getAlgoInfo</code> 的签名恢复为原 CBD 的参数集合，删除 <code>nTasksPerChannel</code> 形参；传给 <code>getCollInfo</code> 的对应参数恢复为 <code>0</code>。这恢复了原插件输入约定，但本次没有实测 tuner 插件。</li>
+<li>完整保留大小/类型分桶、实际队列重排、错误路径可达性，以及最后 API 调用归属；模拟估时使用该任务独立选出的策略。</li>
+<li>不增加按消息尺寸硬编码的 Ring/Tree/LL/LL128 特判，也不改性能模型系数、CBD 划分规则或设备 kernel。策略与 CBD 相同是恢复输入粒度后的结果。</li>
+</ul>
+<p>因此，第二笔相对第一笔的源码改动仅在 <code>src/enqueue.cc</code>，为 10 行新增、26 行删除。原有非 grouped 的单 collective 快速路径仍在排序函数之前返回；最终修复又恢复了该路径可见的 tuner 参数。非 grouped 是否出现间接开销仍由 A/B 数据判断，本文已列出对应结果。</p>
+<h3>F. 文件级改动与测试为什么这样设计</h3>
+<div class="scroll"><table class="prose"><thead><tr><th>文件</th><th>作用</th></tr></thead><tbody>
+<tr><td>src/enqueue.cc</td><td>排序、调优、估时与调用归属；两笔代码改动均在此。</td></tr>
+<tr><td>tests/unit_test/src/pcclCollectiveSortTest.cu</td><td>新增原生正确性测试，验证重排后数据与完成性。</td></tr>
+<tr><td>tests/unit_test/src/Makefile</td><td>把 pcclCollectiveSortTest 纳入单测构建目标。</td></tr>
+<tr><td>tests/unit_test/README.md</td><td>记录测试命令、覆盖内容和未覆盖范围。</td></tr>
+<tr><td>.github/workflows/scripts/build.sh、notsm_build.sh</td><td>将测试源码打包进两条 CI 构建产物路径。</td></tr>
+<tr><td>.github/workflows/scripts/run_collective_sort_test.sh</td><td>用产物中的头文件/库编译测试；运行 2/4 卡 × 注册/非注册。</td></tr>
+<tr><td>.github/workflows/scripts/casecmd.list</td><td>把上述脚本接入既有用例列表。</td></tr>
+<tr><td>docs/collective-sorting-regression.html</td><td>第二笔附带的本文，汇集实现、消融和性能证据。</td></tr>
+</tbody></table></div>
+<p>原生测试每 group 为 192 个独立任务，count 在 <code>{1, 257, 16385, 65, 2049, 513}</code> 间交错，故意覆盖大小乱序及余数。七类轮换为 AllReduce sum、AllReduce max、AllGather、ReduceScatter、Broadcast、Reduce、AllReduce PreMulSum；Broadcast/Reduce 的 root 随任务变化。先运行纯 int32，再运行 int32/float32 混合 group，各重复三次，每次同步后按 CPU 参考值逐元素比较。</p>
+<p>PreMulSum 使用随 rank 和任务变化的 host-immediate scalar，并在提交操作后、GroupEnd 前销毁用户 op 句柄，检查排队任务保留的归约快照是否仍正确。每个任务独立分配输入/输出，注册变体对两者都注册，最后逐一注销和释放。注册运行设置 <code>PCCL_WORK_ARGS_BYTES=512</code>，覆盖较小 work 参数预算下的 plan 拆分，不修改默认 work FIFO 容量。</p>
+<p>CI 脚本关闭外部 kernel，每个组合超时 180 秒；默认 CI 组合只有 2/4 卡。本文“六项原生测试”来自此前额外手动运行的 2/4/8 卡 × 注册/非注册，不能将 8 卡说成已纳入默认 CI。这个测试不计性能，也不直接断言排序精确次序；主机队列验证和独立性能 benchmark 是另外的证据。</p>
+<h3>G. 完整代码 diff，便于离线审阅</h3>
+<details><summary>第一笔：排序＋聚合调优及测试（8 个文件）</summary><pre>diff --git a/.github/workflows/scripts/build.sh b/.github/workflows/scripts/build.sh
+index 9495836..a0e32ff 100644
+--- a/.github/workflows/scripts/build.sh
++++ b/.github/workflows/scripts/build.sh
+@@ -56,6 +56,7 @@ cp ${SCRIPT_DIR}/pr-ut-runner.py ${build_output}
+&#32;cp ${SCRIPT_DIR}/casecmd.list ${build_output}
+&#32;cp ${SCRIPT_DIR}/setup_test_env.sh ${build_output}
+&#32;cp ${SCRIPT_DIR}/run_*.sh ${build_output}
++cp ${source_home}/pccl/tests/unit_test/src/pcclCollectiveSortTest.cu ${build_output}
+&#32;cp ${PCCL_TESTS_DIR}/run_test.py ${build_output}
+&#32;cp ${PCCL_TESTS_DIR}/run_test_config.py ${build_output}
+&#32;
+diff --git a/.github/workflows/scripts/casecmd.list b/.github/workflows/scripts/casecmd.list
+index 4ab9ae8..3d0e502 100644
+--- a/.github/workflows/scripts/casecmd.list
++++ b/.github/workflows/scripts/casecmd.list
+@@ -8,6 +8,7 @@
+&#32;# workflow only keeps pccl and pccl-tests repositories.
+&#32;
+&#32;bash run_common_test.sh
++bash run_collective_sort_test.sh
+&#32;bash run_register_test.sh
+&#32;bash run_memcpy_test.sh
+&#32;bash run_nonblocking_test.sh
+diff --git a/.github/workflows/scripts/notsm_build.sh b/.github/workflows/scripts/notsm_build.sh
+index e9fefa8..d977300 100644
+--- a/.github/workflows/scripts/notsm_build.sh
++++ b/.github/workflows/scripts/notsm_build.sh
+@@ -56,6 +56,7 @@ cp ${SCRIPT_DIR}/pr-ut-runner.py ${build_output}
+&#32;cp ${SCRIPT_DIR}/casecmd.list ${build_output}
+&#32;cp ${SCRIPT_DIR}/setup_test_env.sh ${build_output}
+&#32;cp ${SCRIPT_DIR}/run_*.sh ${build_output}
++cp ${source_home}/pccl/tests/unit_test/src/pcclCollectiveSortTest.cu ${build_output}
+&#32;cp ${PCCL_TESTS_DIR}/run_test.py ${build_output}
+&#32;cp ${PCCL_TESTS_DIR}/run_test_config.py ${build_output}
+&#32;
+diff --git a/.github/workflows/scripts/run_collective_sort_test.sh b/.github/workflows/scripts/run_collective_sort_test.sh
+new file mode 100644
+index 0000000..f2e8684
+--- /dev/null
++++ b/.github/workflows/scripts/run_collective_sort_test.sh
+@@ -0,0 +1,12 @@
++#!/bin/bash
++set -eo pipefail
++source &quot;$(dirname &quot;$0&quot;)/setup_test_env.sh&quot;
++hgcc -std=c++14 -I&quot;${TEST_ROOT}/include&quot; \
++  &quot;${TEST_ROOT}/pcclCollectiveSortTest.cu&quot; \
++  -L&quot;${TEST_ROOT}/lib&quot; -lpccl -lhggc_wrapper -lhg_wrapper \
++  -o &quot;${TEST_ROOT}/pcclCollectiveSortTest&quot;
++export PCCL_ENABLE_EXT_KERNEL=0
++for ranks in 2 4; do
++  timeout 180s &quot;${TEST_ROOT}/pcclCollectiveSortTest&quot; &quot;$ranks&quot; 0
++  PCCL_WORK_ARGS_BYTES=512 timeout 180s &quot;${TEST_ROOT}/pcclCollectiveSortTest&quot; &quot;$ranks&quot; 1
++done
+diff --git a/src/enqueue.cc b/src/enqueue.cc
+index 5bf5e31..37e86f2 100644
+--- a/src/enqueue.cc
++++ b/src/enqueue.cc
+@@ -748,11 +748,24 @@ static ncclResult_t defaultGetAlgoInfo(ncclComm_t comm, ncclTaskColl* info) {
+&#32;  return ncclSuccess;
+&#32;}
+&#32;
++static void setCollSimInfo(ncclComm_t comm, const ncclTaskColl* task, ncclSimInfo_t* simInfo) {
++  float time = -1.f;
++  if (comm-&gt;nRanks == 1) {
++    simInfo-&gt;estimatedTime = 0.f;
++  } else if (ncclTopoGetAlgoTime(comm, task-&gt;func, task-&gt;algorithm, task-&gt;protocol,
++                 task-&gt;nBytes, task-&gt;nChannels, &amp;time) == ncclSuccess &amp;&amp; time &gt;= 0.f) {
++    simInfo-&gt;estimatedTime = time;
++  } else {
++    simInfo-&gt;estimatedTime = 0.f;
++  }
++}
++
+&#32;// Use the default topo-based tuner if tuner plugin is not successful.
+&#32;// Call the plugin first. Let it set algo+proto, and/or nChannels.
+&#32;// Then, defaultGetAlgoInfo will set algo/proto if not set, then nChannels and nThreads based on algo/proto.
+&#32;// Finally, nChannels will be overridden by the plugin setting.
+-static ncclResult_t getAlgoInfo(ncclComm_t comm, ncclTaskColl* info, ncclSimInfo_t* simInfo = NULL) {
++static ncclResult_t getAlgoInfo(
++    ncclComm_t comm, ncclTaskColl* info, ncclSimInfo_t* simInfo = NULL, int nTasksPerChannel = 1) {
+&#32;  if (comm-&gt;nRanks == 1) {
+&#32;    // Single-rank: no inter-rank communication is performed, so the estimated
+&#32;    // time is 0. Keep this aligned with NCCL upstream, where the single-rank
+@@ -768,7 +781,7 @@ static ncclResult_t getAlgoInfo(ncclComm_t comm, ncclTaskColl* info, ncclSimInfo
+&#32;  if (comm-&gt;tuner != NULL) {
+&#32;    NCCLCHECK(comm-&gt;tuner-&gt;getCollInfo(
+&#32;          info-&gt;func, comm-&gt;nRanks, info-&gt;nBytes,
+-          0, 0, 0,
++          0, 0, nTasksPerChannel,
+&#32;          &amp;info-&gt;algorithm, &amp;info-&gt;protocol, &amp;nChannels, &amp;info-&gt;nThreads));
+&#32;
+&#32;    if (nChannels &gt; 0 &amp;&amp; (info-&gt;algorithm &lt; 0 || info-&gt;algorithm &gt;= NCCL_NUM_ALGORITHMS ||
+@@ -801,14 +814,7 @@ static ncclResult_t getAlgoInfo(ncclComm_t comm, ncclTaskColl* info, ncclSimInfo
+&#32;    // This guarantees a sensible non-zero value regardless of whether the
+&#32;    // tuner plugin participated in algo selection, and keeps the estimate
+&#32;    // self-consistent with how algo/proto were selected.
+-    float time = -1.f;
+-    if (ncclTopoGetAlgoTime(comm, info-&gt;func, info-&gt;algorithm, info-&gt;protocol,
+-                            info-&gt;nBytes, info-&gt;nChannels, &amp;time) == ncclSuccess
+-        &amp;&amp; time &gt;= 0.f) {
+-      simInfo-&gt;estimatedTime = time;
+-    } else {
+-      simInfo-&gt;estimatedTime = 0.f;
+-    }
++    setCollSimInfo(comm, info, simInfo);
+&#32;  }
+&#32;  return ncclSuccess;
+&#32;}
+@@ -2485,6 +2491,92 @@ fail:
+&#32;  goto exit;
+&#32;}
+&#32;
++static size_t ncclTaskCollTrafficBytes(const ncclTaskColl* task) {
++  // nBytes already includes the rank multiplier for AllGather/ReduceScatter.
++  return task-&gt;func == ncclFuncAllReduce ?
++      task-&gt;nBytes + std::min(task-&gt;nBytes, SIZE_MAX-task-&gt;nBytes) : task-&gt;nBytes;
++}
++
++static int ncclTaskCollFnOpTy(const ncclTaskColl* task) {
++  return (task-&gt;func*ncclNumDevRedOps + task-&gt;opDev.op)*ncclNumTypes + task-&gt;datatype;
++}
++
++// NCCL 2.27 preparation order: approximate traffic sort, then (fn,op,ty)
++// bins in first-encounter order, with approximately ascending sizes inside each bin.
++// Rebuild the execution queue BEFORE registration creates its matching work
++// and cleanup queues. Only rank-invariant collective metadata is a sort key;
++// roots and reduction scalars remain attached to the original task.
++static ncclResult_t ncclSortAndTuneCollTasks(ncclComm_t comm, ncclSimInfo_t* simInfo) {
++  auto planner = &amp;comm-&gt;planner;
++  constexpr int unitLog2 = 10, maxLog2 = 30, bitsPerPow2 = 2;
++  constexpr int sizeBinCount = 1 + (maxLog2-unitLog2)*(1&lt;&lt;bitsPerPow2);
++  ncclTaskColl* sizeBins[sizeBinCount] = {};
++  ncclTaskColl* last = nullptr;
++  while (!ncclIntruQueueEmpty(&amp;planner-&gt;collTaskQueue)) {
++    ncclTaskColl* task = ncclIntruQueueDequeue(&amp;planner-&gt;collTaskQueue);
++    last = task;
++    int bin = u32fpEncode(std::min(size_t(1)&lt;&lt;maxLog2, ncclTaskCollTrafficBytes(task))&gt;&gt;unitLog2,
++        bitsPerPow2);
++    task-&gt;next = sizeBins[bin];
++    sizeBins[bin] = task;
++  }
++
++  constexpr int fnOpTyBinCount = NCCL_NUM_FUNCTIONS*ncclNumDevRedOps*ncclNumTypes;
++  ncclTaskColl* tasksByFnOpTy[fnOpTyBinCount] = {};
++  int fnOpTyIndices[fnOpTyBinCount];
++  int fnOpTyCount = 0;
++  for (int bin = sizeBinCount-1; bin &gt;= 0; --bin) {
++    for (ncclTaskColl* task = sizeBins[bin]; task != nullptr;) {
++      ncclTaskColl* next = task-&gt;next;
++      int index = ncclTaskCollFnOpTy(task);
++      if (tasksByFnOpTy[index] == nullptr) fnOpTyIndices[fnOpTyCount++] = index;
++      task-&gt;next = tasksByFnOpTy[index];
++      tasksByFnOpTy[index] = task;
++      task = next;
++    }
++  }
++  // Publish the complete queue before any fallible tuning call, so error paths
++  // can still find every task. PCCL has no CollNet/NVLS scheduling bins.
++  for (int cursor = 0; cursor &lt; fnOpTyCount; ++cursor) {
++    for (ncclTaskColl* task = tasksByFnOpTy[fnOpTyIndices[cursor]]; task != nullptr;) {
++      ncclTaskColl* next = task-&gt;next;
++      ncclIntruQueueEnqueue(&amp;planner-&gt;collTaskQueue, task);
++      task = next;
++    }
++  }
++
++  int nTasksPerChannel = DIVUP(planner-&gt;nTasksColl, comm-&gt;nChannels);
++  for (ncclTaskColl* begin = ncclIntruQueueHead(&amp;planner-&gt;collTaskQueue); begin != nullptr;) {
++    ncclTaskColl aggregate = *begin;
++    ncclTaskColl* end = begin-&gt;next;
++    size_t trafficBytes = ncclTaskCollTrafficBytes(begin);
++    // Division expresses next &lt; 4*first without overflowing. The two LIFO
++    // passes preserve submission order within a size bin (as in NCCL).
++    while (end != nullptr &amp;&amp; ncclTaskCollFnOpTy(end) == ncclTaskCollFnOpTy(begin) &amp;&amp;
++        ncclTaskCollTrafficBytes(end)/4 &lt; trafficBytes &amp;&amp;
++        end-&gt;nBytes &lt;= SIZE_MAX-aggregate.nBytes &amp;&amp; end-&gt;count &lt;= SIZE_MAX-aggregate.count) {
++      aggregate.count += end-&gt;count;
++      aggregate.nBytes += end-&gt;nBytes;
++      end = end-&gt;next;
++    }
++    NCCLCHECK(getAlgoInfo(comm, &amp;aggregate, nullptr, nTasksPerChannel));
++    do {
++      begin-&gt;algorithm = aggregate.algorithm;
++      begin-&gt;protocol = aggregate.protocol;
++      begin-&gt;nChannels = aggregate.nChannels;
++      begin-&gt;nThreads = aggregate.nThreads;
++      begin = begin-&gt;next;
++    } while (begin != end);
++  }
++  // Dispatch attribution describes the last API call, not a synthetic aggregate.
++  comm-&gt;collType = last-&gt;func;
++  comm-&gt;nBytes = last-&gt;nBytes;
++  // Preserve PCCL&#x27;s last-submitted-collective simulation result, using its
++  // original size and the strategy chosen for its aggregation group.
++  if (simInfo) setCollSimInfo(comm, last, simInfo);
++  return ncclSuccess;
++}
++
+&#32;// Called once per ncclGroup to organize the user submitted tasks in
+&#32;// comm-&gt;planner so that they can be peeled off into plans.
+&#32;ncclResult_t ncclPrepareTasks(ncclComm_t comm, bool* algoNeedConnect, bool* needConnect, ncclSimInfo_t* simInfo) {
+@@ -2533,10 +2625,7 @@ ncclResult_t ncclPrepareTasks(ncclComm_t comm, bool* algoNeedConnect, bool* need
+&#32;    return ncclSuccess;
+&#32;  }
+&#32;
+-  while(task) {
+-    NCCLCHECK(getAlgoInfo(comm, task, simInfo));
+-    task = task-&gt;next;
+-  }
++  NCCLCHECK(ncclSortAndTuneCollTasks(comm, simInfo));
+&#32;
+&#32;  task = ncclIntruQueueHead(&amp;planner-&gt;collTaskQueue);
+&#32;  while(task) {
+diff --git a/tests/unit_test/README.md b/tests/unit_test/README.md
+index 735e9f8..25524a9 100644
+--- a/tests/unit_test/README.md
++++ b/tests/unit_test/README.md
+@@ -32,6 +32,25 @@ cd pccl/tests/unit_test &amp;&amp; ./build.sh
+&#32;
+&#32;## Usage
+&#32;
++### Grouped Collective Sorting Regression
++
++On a dedicated test host, run `pcclCollectiveSortTest &lt;ranks&gt; &lt;register&gt;` with
++2 or 4 devices. Each group mixes 192 independent operations across AllReduce,
++AllGather, ReduceScatter, Broadcast and Reduce, with remainder counts, changing
++roots, sum/max and per-rank PreMulSum scalars. It checks int32 groups and groups
++mixing int32/float32, repeated three times. The second argument enables buffer
++registration; use `PCCL_WORK_ARGS_BYTES=512` to exercise plan budget splitting
++while retaining the default work FIFO capacity.
++
++```shell
++PCCL_ENABLE_EXT_KERNEL=0 timeout 180s ./build/pcclCollectiveSortTest 2 0
++PCCL_ENABLE_EXT_KERNEL=0 PCCL_WORK_ARGS_BYTES=512 timeout 180s ./build/pcclCollectiveSortTest 4 1
++```
++
++The CI case `run_collective_sort_test.sh` builds and runs these combinations.
++This test checks data and completion; it does not measure performance or cover
++cross-node transport, graph replay, external kernels or overlapping buffers.
++
+&#32;### Single Process PCCL Collective Kernel Test
+&#32;
+&#32;#### Examples
+diff --git a/tests/unit_test/src/Makefile b/tests/unit_test/src/Makefile
+index d3e3069..65489df 100644
+--- a/tests/unit_test/src/Makefile
++++ b/tests/unit_test/src/Makefile
+@@ -57,7 +57,8 @@ define build_func_rdc
+&#32;  fi
+&#32;endef
+&#32;
+-BIN_FILES_LIST := collPcclUnit sendRecvPcclUnit hggcGraphUnit pcclCommAbort pcclGroupSimulateEnd pcclCommMemManager
++BIN_FILES_LIST := collPcclUnit sendRecvPcclUnit hggcGraphUnit pcclCommAbort pcclGroupSimulateEnd \
++                  pcclCommMemManager pcclCollectiveSort
+&#32;ifeq ($(MPI), 1)
+&#32;BIN_FILES_LIST += pcclCommShrink
+&#32;endif
+@@ -104,6 +105,9 @@ ${BUILDDIR}/pcclCommMemManagerTest: pcclCommMemManagerTest.cu
+&#32;${BUILDDIR}/pcclGroupSimulateEndTest: pcclGroupSimulateEndTest.cu
+&#32;&#9;$(call build_func, $@, pcclGroupSimulateEndTest)
+&#32;
++${BUILDDIR}/pcclCollectiveSortTest: pcclCollectiveSortTest.cu
++&#9;$(call build_func, $@, pcclCollectiveSortTest)
++
+&#32;# All of bench_oki is one RDC translation unit. Keep SIMT on compile and dlink.
+&#32;ifeq ($(USE_OKI), 1)
+&#32;${BUILDDIR}/bench_oki: bench_oki.cu Makefile makefiles/common.mk
+diff --git a/tests/unit_test/src/pcclCollectiveSortTest.cu b/tests/unit_test/src/pcclCollectiveSortTest.cu
+new file mode 100644
+index 0000000..fb4c320
+--- /dev/null
++++ b/tests/unit_test/src/pcclCollectiveSortTest.cu
+@@ -0,0 +1,166 @@
++//*************************************************************************
++// SPDX-FileCopyrightText: Copyright (c) 2026 T-Head (Shanghai) Semiconductor Co., Ltd. All rights reserved.
++// SPDX-License-Identifier: Apache-2.0
++// See LICENSE.txt for more license information
++//*************************************************************************
++
++#include &quot;pccl.h&quot;
++#include &quot;hggc_runtime.h&quot;
++#include &lt;cstdio&gt;
++#include &lt;cstdlib&gt;
++#include &lt;cstring&gt;
++#include &lt;type_traits&gt;
++#include &lt;vector&gt;
++
++#define CHECK(call) do { if ((call) != 0) { \
++  std::fprintf(stderr, &quot;Failed line %d: %s\n&quot;, __LINE__, #call); std::exit(1); \
++} } while (0)
++
++struct Task {
++  void* send;
++  void* recv;
++  void* sendReg;
++  void* recvReg;
++  size_t count;
++};
++
++template&lt;typename T&gt;
++static void run(pcclComm_t* comms, hggcStream_t* streams, int ranks, bool registered) {
++  const int tasks = 192;
++  const size_t counts[] = {1, 257, 16385, 65, 2049, 513};
++  const bool mixedTypes = std::is_same&lt;T, float&gt;::value;
++  std::vector&lt;Task&gt; buffers(ranks*tasks);
++  for (int rank = 0; rank &lt; ranks; ++rank) {
++    CHECK(hggcSetDevice(rank));
++    for (int t = 0; t &lt; tasks; ++t) {
++      Task&amp; b = buffers[rank*tasks+t];
++      b.count = counts[t%6];
++      size_t sendCount = b.count * (t%7 == 3 ? ranks : 1);
++      size_t recvCount = b.count * (t%7 == 2 ? ranks : 1);
++      CHECK(hggcMalloc(&amp;b.send, sendCount*sizeof(T)));
++      CHECK(hggcMalloc(&amp;b.recv, recvCount*sizeof(T)));
++      std::vector&lt;T&gt; input(sendCount);
++      for (size_t i = 0; i &lt; sendCount; ++i) {
++        int value = rank+1 + t%5 + i%7;
++        input[i] = T(value);
++        if (mixedTypes &amp;&amp; t%2) std::memcpy(&amp;input[i], &amp;value, sizeof(value));
++      }
++      CHECK(hggcMemcpy(b.send, input.data(), sendCount*sizeof(T), hggcMemcpyHostToDevice));
++      CHECK(hggcMemset(b.recv, 0, recvCount*sizeof(T)));
++      if (registered) {
++        CHECK(pcclCommRegister(comms[rank], b.send, sendCount*sizeof(T), &amp;b.sendReg));
++        CHECK(pcclCommRegister(comms[rank], b.recv, recvCount*sizeof(T), &amp;b.recvReg));
++      }
++    }
++  }
++  // All ranks submit identical metadata and order, while buffers, user-op
++  // handles and scalar values differ by rank. Every operation owns its buffers.
++  for (int iteration = 0; iteration &lt; 3; ++iteration) {
++    CHECK(pcclGroupStart());
++    for (int t = 0; t &lt; tasks; ++t) {
++      for (int rank = 0; rank &lt; ranks; ++rank) {
++        CHECK(hggcSetDevice(rank));
++        Task&amp; b = buffers[rank*tasks+t];
++        pcclDataType_t type = mixedTypes &amp;&amp; t%2 == 0 ? pcclFloat32 : pcclInt32;
++        pcclRedOp_t op = pcclSum;
++        T scalar = T(rank+1+t%3);
++        int intScalar = rank+1+t%3;
++        if (t%7 == 6) {
++          void* scalarPtr = type == pcclFloat32 ? static_cast&lt;void*&gt;(&amp;scalar) : static_cast&lt;void*&gt;(&amp;intScalar);
++          CHECK(pcclRedOpCreatePreMulSum(&amp;op, scalarPtr, type, pcclScalarHostImmediate, comms[rank]));
++        }
++        switch (t%7) {
++        case 0: case 1: case 6:
++          CHECK(pcclAllReduce(b.send, b.recv, b.count, type, t%7 == 1 ? pcclMax : op,
++              comms[rank], streams[rank]));
++          break;
++        case 2:
++          CHECK(pcclAllGather(b.send, b.recv, b.count, type, comms[rank], streams[rank]));
++          break;
++        case 3:
++          CHECK(pcclReduceScatter(b.send, b.recv, b.count, type, pcclSum, comms[rank], streams[rank]));
++          break;
++        case 4:
++          CHECK(pcclBroadcast(b.send, b.recv, b.count, type, t%ranks, comms[rank], streams[rank]));
++          break;
++        case 5:
++          CHECK(pcclReduce(b.send, b.recv, b.count, type, pcclSum, t%ranks, comms[rank], streams[rank]));
++          break;
++        }
++        // The queued task must own a snapshot of the reduction operation.
++        if (t%7 == 6) CHECK(pcclRedOpDestroy(op, comms[rank]));
++      }
++    }
++    CHECK(pcclGroupEnd());
++    for (int rank = 0; rank &lt; ranks; ++rank) {
++      CHECK(hggcSetDevice(rank));
++      CHECK(hggcStreamSynchronize(streams[rank]));
++      for (int t = 0; t &lt; tasks; ++t) {
++        Task&amp; b = buffers[rank*tasks+t];
++        if (t%7 == 5 &amp;&amp; rank != t%ranks) continue;
++        size_t recvCount = b.count * (t%7 == 2 ? ranks : 1);
++        std::vector&lt;T&gt; result(recvCount);
++        CHECK(hggcMemcpy(result.data(), b.recv, recvCount*sizeof(T), hggcMemcpyDeviceToHost));
++        for (size_t i = 0; i &lt; recvCount; ++i) {
++          size_t index = t%7 == 3 ? rank*b.count+i : (t%7 == 2 ? i%b.count : i);
++          T expected = T(0);
++          for (int source = 0; source &lt; ranks; ++source) {
++            T value = T(source+1+t%5+index%7);
++            if (t%7 == 6) value *= T(source+1+t%3);
++            if (t%7 == 1) expected = value;
++            else if (t%7 == 2) { if (source == int(i/b.count)) expected = value; }
++            else if (t%7 == 4) { if (source == t%ranks) expected = value; }
++            else expected += value;
++          }
++          T actual = result[i];
++          if (mixedTypes &amp;&amp; t%2) {
++            int value;
++            std::memcpy(&amp;value, &amp;result[i], sizeof(value));
++            actual = T(value);
++          }
++          if (actual != expected) {
++            std::fprintf(stderr, &quot;Mismatch rank=%d task=%d index=%zu got=%g expected=%g\n&quot;,
++                rank, t, i, double(actual), double(expected));
++            std::exit(1);
++          }
++        }
++      }
++    }
++  }
++  for (int rank = 0; rank &lt; ranks; ++rank) {
++    CHECK(hggcSetDevice(rank));
++    for (int t = 0; t &lt; tasks; ++t) {
++      Task&amp; b = buffers[rank*tasks+t];
++      if (registered) {
++        CHECK(pcclCommDeregister(comms[rank], b.sendReg));
++        CHECK(pcclCommDeregister(comms[rank], b.recvReg));
++      }
++      CHECK(hggcFree(b.send));
++      CHECK(hggcFree(b.recv));
++    }
++  }
++}
++
++int main(int argc, char** argv) {
++  int ranks = argc &gt; 1 ? std::atoi(argv[1]) : 2;
++  bool registered = argc &gt; 2 &amp;&amp; std::atoi(argv[2]) != 0;
++  int devices;
++  CHECK(hggcGetDeviceCount(&amp;devices));
++  if (ranks &lt; 2 || ranks &gt; devices) return 1;
++  std::vector&lt;pcclComm_t&gt; comms(ranks);
++  std::vector&lt;hggcStream_t&gt; streams(ranks);
++  CHECK(pcclCommInitAll(comms.data(), ranks, nullptr));
++  for (int rank = 0; rank &lt; ranks; ++rank) {
++    CHECK(hggcSetDevice(rank));
++    CHECK(hggcStreamCreate(&amp;streams[rank]));
++  }
++  run&lt;int&gt;(comms.data(), streams.data(), ranks, registered);
++  run&lt;float&gt;(comms.data(), streams.data(), ranks, registered);
++  for (int rank = 0; rank &lt; ranks; ++rank) {
++    CHECK(hggcSetDevice(rank));
++    CHECK(hggcStreamDestroy(streams[rank]));
++    CHECK(pcclCommDestroy(comms[rank]));
++  }
++  std::printf(&quot;COLLECTIVE_SORT_PASS ranks=%d registered=%d tasks=192 repeats=3 types=int32,mixed-int32-float32\n&quot;,
++      ranks, int(registered));
++}
+</pre></details>
+<details><summary>第二笔：恢复逐任务调优（仅源码 diff）</summary><pre>diff --git a/src/enqueue.cc b/src/enqueue.cc
+index 37e86f2..dbfbcde 100644
+--- a/src/enqueue.cc
++++ b/src/enqueue.cc
+@@ -764,8 +764,7 @@ static void setCollSimInfo(ncclComm_t comm, const ncclTaskColl* task, ncclSimInf
+&#32;// Call the plugin first. Let it set algo+proto, and/or nChannels.
+&#32;// Then, defaultGetAlgoInfo will set algo/proto if not set, then nChannels and nThreads based on algo/proto.
+&#32;// Finally, nChannels will be overridden by the plugin setting.
+-static ncclResult_t getAlgoInfo(
+-    ncclComm_t comm, ncclTaskColl* info, ncclSimInfo_t* simInfo = NULL, int nTasksPerChannel = 1) {
++static ncclResult_t getAlgoInfo(ncclComm_t comm, ncclTaskColl* info, ncclSimInfo_t* simInfo = NULL) {
+&#32;  if (comm-&gt;nRanks == 1) {
+&#32;    // Single-rank: no inter-rank communication is performed, so the estimated
+&#32;    // time is 0. Keep this aligned with NCCL upstream, where the single-rank
+@@ -781,7 +780,7 @@ static ncclResult_t getAlgoInfo(
+&#32;  if (comm-&gt;tuner != NULL) {
+&#32;    NCCLCHECK(comm-&gt;tuner-&gt;getCollInfo(
+&#32;          info-&gt;func, comm-&gt;nRanks, info-&gt;nBytes,
+-          0, 0, nTasksPerChannel,
++          0, 0, 0,
+&#32;          &amp;info-&gt;algorithm, &amp;info-&gt;protocol, &amp;nChannels, &amp;info-&gt;nThreads));
+&#32;
+&#32;    if (nChannels &gt; 0 &amp;&amp; (info-&gt;algorithm &lt; 0 || info-&gt;algorithm &gt;= NCCL_NUM_ALGORITHMS ||
+@@ -2545,34 +2544,19 @@ static ncclResult_t ncclSortAndTuneCollTasks(ncclComm_t comm, ncclSimInfo_t* sim
+&#32;    }
+&#32;  }
+&#32;
+-  int nTasksPerChannel = DIVUP(planner-&gt;nTasksColl, comm-&gt;nChannels);
+-  for (ncclTaskColl* begin = ncclIntruQueueHead(&amp;planner-&gt;collTaskQueue); begin != nullptr;) {
+-    ncclTaskColl aggregate = *begin;
+-    ncclTaskColl* end = begin-&gt;next;
+-    size_t trafficBytes = ncclTaskCollTrafficBytes(begin);
+-    // Division expresses next &lt; 4*first without overflowing. The two LIFO
+-    // passes preserve submission order within a size bin (as in NCCL).
+-    while (end != nullptr &amp;&amp; ncclTaskCollFnOpTy(end) == ncclTaskCollFnOpTy(begin) &amp;&amp;
+-        ncclTaskCollTrafficBytes(end)/4 &lt; trafficBytes &amp;&amp;
+-        end-&gt;nBytes &lt;= SIZE_MAX-aggregate.nBytes &amp;&amp; end-&gt;count &lt;= SIZE_MAX-aggregate.count) {
+-      aggregate.count += end-&gt;count;
+-      aggregate.nBytes += end-&gt;nBytes;
+-      end = end-&gt;next;
+-    }
+-    NCCLCHECK(getAlgoInfo(comm, &amp;aggregate, nullptr, nTasksPerChannel));
+-    do {
+-      begin-&gt;algorithm = aggregate.algorithm;
+-      begin-&gt;protocol = aggregate.protocol;
+-      begin-&gt;nChannels = aggregate.nChannels;
+-      begin-&gt;nThreads = aggregate.nThreads;
+-      begin = begin-&gt;next;
+-    } while (begin != end);
++  // PCCL&#x27;s topology model predicts one collective. Summing independent tasks
++  // can cross an algorithm/protocol threshold although each task still runs
++  // at its original size (for example, five 64 KiB AllReduces). Keep sorting
++  // for scheduling locality, but preserve per-task tuning and plugin inputs.
++  for (ncclTaskColl* task = ncclIntruQueueHead(&amp;planner-&gt;collTaskQueue);
++       task != nullptr; task = task-&gt;next) {
++    NCCLCHECK(getAlgoInfo(comm, task));
+&#32;  }
+&#32;  // Dispatch attribution describes the last API call, not a synthetic aggregate.
+&#32;  comm-&gt;collType = last-&gt;func;
+&#32;  comm-&gt;nBytes = last-&gt;nBytes;
+&#32;  // Preserve PCCL&#x27;s last-submitted-collective simulation result, using its
+-  // original size and the strategy chosen for its aggregation group.
++  // original size and its individually selected strategy.
+&#32;  if (simInfo) setCollSimInfo(comm, last, simInfo);
+&#32;  return ncclSuccess;
+&#32;}
+</pre></details>
+
+<h2 id="nccl">2. 哪些参考 NCCL，哪些是 PCCL 的选择</h2>
+<p>主要参考版本为 NCCL v2.27.3-1，提交 <code>72d2432094d6ae36abd6e511c3a16a2d052dbf94</code>。其 <a href="https://github.com/NVIDIA/nccl/blob/72d2432094d6ae36abd6e511c3a16a2d052dbf94/src/enqueue.cc#L349-L409">任务分组和聚合调优源码</a>明确将相近大小任务聚合、调用调优，再将策略写回各任务。</p>
+<ul><li><strong>排序：</strong>参考 NCCL 的近似通信量排序与 (fn, op, type) 分组；PCCL 保留自身可用的调度路径，不引入 CollNet/NVLS 分桶。</li><li><strong>初版聚合调优：</strong>同样参考 NCCL，对大小相近的任务进行累计调优；这是带来本次回退的迁移部分。</li><li><strong>最终逐任务调优：</strong>针对当前 PCCL 模型和设备路径的实测适配，恢复原 CBD 行为。它不是从 NCCL 移植来的“修复补丁”，最终实现也不是完整照搬 NCCL。</li></ul>
+<p>不能由本次结果推断 NCCL 自身的聚合调优有问题，也没有证明逐任务调优在所有 PCCL 拓扑、协议和未来版本上都最优。若将来重新引入聚合调优，需要将任务数量、执行分布、协议阈值与调度模型一起验证。</p>
+<h2 id="regression">3. 初始回退与证据边界</h2>
+<p>初版在同类型 grouped 的中小消息上出现稳定回退。早期 driver 2.3.0 环境七轮长测：4 卡 AllReduce 32 KiB 约 +28%，64/128 KiB 约 +14～25%；8 卡 AllReduce 64 KiB 约 +14%，512 KiB 约 +31～34%；8 卡 AllGather 512 KiB 约 +19～21%；8 卡 ReduceScatter 512 KiB 约 +30～31%。这些是初版结果，不是修复版结果。</p>
+<div class="warning">另一个 driver 2.2.2 节点初筛曾出现 4 卡 64 KiB grouped 非原地 AllReduce 6.85 → 25.82 µs（约 +277%）。这个极端幅度未在原环境做加长复测。不同节点、驱动、预热和迭代数同时变化，不能把幅度差异单独归因于驱动，也不应把 +277% 当作普遍回退幅度。下面的消融与最终 A/B 在同一最终节点内比较。</div>
+<h2 id="ablation">4. 消融：只改变是否聚合调优</h2>
+<p>三个版本依次为原 CBD、仅排序、排序＋聚合。仅排序消融版关闭聚合循环，保持排序与其余调度不变；正式修复还恢复了原 CBD 的 tuner 参数。本轮无 tuner 插件参与，因此插件参数不是此次性能差异的来源。</p>
+<p>9 个用例，每版本 3 轮，轮换运行顺序，合计 81 次进程运行。标准用例 group=5、30 次预热、500 次迭代、同时测原地/非原地；混合用例包含 10 个独立缓冲区任务、500 次序列迭代，表中延迟为每个 collective 的平均时间。所有输出正确。单位：µs；百分比为相对原 CBD 延迟变化。</p>
+<div class="scroll"><table><thead><tr><th>卡数</th><th>类型</th><th>基准字节</th><th>模式</th><th>CBD</th><th>仅排序</th><th>聚合版</th><th>仅排序/CBD</th><th>聚合/CBD</th></tr></thead><tbody><tr><td>4</td><td>all_reduce</td><td>131072</td><td>in</td><td>6.500</td><td>6.460</td><td>7.450</td><td>-0.62%</td><td>+14.62%</td></tr><tr><td>4</td><td>all_reduce</td><td>131072</td><td>out</td><td>6.500</td><td>6.480</td><td>8.800</td><td>-0.31%</td><td>+35.38%</td></tr><tr><td>4</td><td>all_reduce</td><td>32768</td><td>in</td><td>4.290</td><td>4.440</td><td>5.590</td><td>+3.50%</td><td>+30.30%</td></tr><tr><td>4</td><td>all_reduce</td><td>32768</td><td>out</td><td>4.410</td><td>4.450</td><td>5.600</td><td>+0.91%</td><td>+26.98%</td></tr><tr><td>4</td><td>all_reduce</td><td>65536</td><td>in</td><td>5.750</td><td>5.700</td><td>6.450</td><td>-0.87%</td><td>+12.17%</td></tr><tr><td>4</td><td>all_reduce</td><td>65536</td><td>out</td><td>5.760</td><td>5.700</td><td>7.720</td><td>-1.04%</td><td>+34.03%</td></tr><tr><td>4</td><td>mixed</td><td>524288</td><td>out</td><td>13.517</td><td>10.106</td><td>9.216</td><td>-25.24%</td><td>-31.82%</td></tr><tr><td>8</td><td>all_gather</td><td>524288</td><td>in</td><td>9.190</td><td>9.220</td><td>10.920</td><td>+0.33%</td><td>+18.82%</td></tr><tr><td>8</td><td>all_gather</td><td>524288</td><td>out</td><td>9.510</td><td>9.530</td><td>11.260</td><td>+0.21%</td><td>+18.40%</td></tr><tr><td>8</td><td>all_reduce</td><td>524288</td><td>in</td><td>15.660</td><td>15.670</td><td>20.550</td><td>+0.06%</td><td>+31.23%</td></tr><tr><td>8</td><td>all_reduce</td><td>524288</td><td>out</td><td>15.650</td><td>15.670</td><td>21.940</td><td>+0.13%</td><td>+40.19%</td></tr><tr><td>8</td><td>all_reduce</td><td>65536</td><td>in</td><td>8.500</td><td>8.780</td><td>9.820</td><td>+3.29%</td><td>+15.53%</td></tr><tr><td>8</td><td>all_reduce</td><td>65536</td><td>out</td><td>8.450</td><td>8.800</td><td>9.750</td><td>+4.14%</td><td>+15.38%</td></tr><tr><td>8</td><td>mixed</td><td>524288</td><td>out</td><td>20.165</td><td>17.533</td><td>16.172</td><td>-13.05%</td><td>-19.80%</td></tr><tr><td>8</td><td>reduce_scatter</td><td>524288</td><td>in</td><td>9.880</td><td>9.960</td><td>12.910</td><td>+0.81%</td><td>+30.67%</td></tr><tr><td>8</td><td>reduce_scatter</td><td>524288</td><td>out</td><td>9.970</td><td>9.980</td><td>12.920</td><td>+0.10%</td><td>+29.59%</td></tr></tbody></table></div>
+<p>同类型回退点仅排序中位数约 -1%～+4%，而聚合版约 +12%～+40%。混合 512 KiB 基准用例仍从排序受益：4/8 卡仅排序约快 25%/13%，聚合版约快 32%/20%。这说明取消聚合调优存在收益取舍，但可以避免同类型 grouped 的明显回退。</p>
+<h2 id="final">5. 正式修复版与原 CBD、主线的 A/B</h2>
+<p>主线固定为 <code>0f79ec8f28df02c07ccf2b47e0bb457bdfe8622b</code>，从该版本自己的主机和设备源码独立构建；没有把原 CBD 当作主线。最终对照全部在同一台 8×M890P 节点运行，driver <code>2.3.0-r95ae4</code>、SDK/hgcc <code>2.2.0-663c22</code>、runtime API v3。各点三个版本使用相同 benchmark 二进制并检查实际加载库。</p>
+<p>正数表示延迟增加，负数表示加速。先取每点三轮中位数，再对延迟比做几何平均。不能用分类均值替代逐点回退检查。standard 为五种同类型 collective；mixed 为十任务混合序列。</p>
+<div class="scroll"><table><thead><tr><th>卡数</th><th>类型</th><th>Grouped</th><th>点数</th><th>修复/CBD</th><th>修复/主线</th><th>CBD/主线</th><th>回退候选</th></tr></thead><tbody><tr><td>4</td><td>standard</td><td>False</td><td>80</td><td>+0.31%</td><td>+0.44%</td><td>+0.13%</td><td>0</td></tr><tr><td>4</td><td>standard</td><td>True</td><td>80</td><td>+1.33%</td><td>-11.37%</td><td>-12.53%</td><td>0</td></tr><tr><td>4</td><td>mixed</td><td>False</td><td>4</td><td>+0.68%</td><td>-0.49%</td><td>-1.16%</td><td>0</td></tr><tr><td>4</td><td>mixed</td><td>True</td><td>4</td><td>-10.16%</td><td>-13.85%</td><td>-4.10%</td><td>0</td></tr><tr><td>8</td><td>standard</td><td>False</td><td>80</td><td>-0.08%</td><td>+0.05%</td><td>+0.12%</td><td>0</td></tr><tr><td>8</td><td>standard</td><td>True</td><td>80</td><td>+1.46%</td><td>-11.21%</td><td>-12.48%</td><td>0</td></tr><tr><td>8</td><td>mixed</td><td>False</td><td>4</td><td>-0.13%</td><td>+0.52%</td><td>+0.66%</td><td>0</td></tr><tr><td>8</td><td>mixed</td><td>True</td><td>4</td><td>-1.54%</td><td>-9.98%</td><td>-8.58%</td><td>0</td></tr></tbody></table></div>
+<p>完整矩阵 324 次运行、336 个比较点、3,024 个延迟观测，全部正确。回退筛选同时要求比原 CBD 慢 &gt;10% 且绝对增加 &gt;0.5 µs；修复版没有符合条件的点。此阈值是本次筛选口径，不是统计置信区间，也不代表零开销。标准 grouped 仍有约 1～2% 的汇总开销。</p>
+<h3>七轮加长复测</h3><p>9 个候选及邻近尺寸，每版本 7 轮，50 次预热、1,000 次迭代，189 次运行，18 个原地/非原地比较点。所有中位数相对 CBD 为 -1.04%～+1.84%。4 卡 32 KiB 原地有 1/7 轮超过筛选阈值，其余 17 点为 0/7；该单轮抖动未形成稳定中位数回退。</p>
+<div class="scroll"><table><thead><tr><th>卡数</th><th>类型</th><th>Group</th><th>字节</th><th>模式</th><th>CBD µs</th><th>修复 µs</th><th>主线 µs</th><th>修复/CBD</th><th>修复/主线</th><th>回退轮数/7</th></tr></thead><tbody><tr><td>4</td><td>all_reduce</td><td>1</td><td>128</td><td>in</td><td>15.360</td><td>15.240</td><td>13.720</td><td>-0.78%</td><td>+11.08%</td><td>0</td></tr><tr><td>4</td><td>all_reduce</td><td>1</td><td>128</td><td>out</td><td>15.340</td><td>15.180</td><td>13.680</td><td>-1.04%</td><td>+10.96%</td><td>0</td></tr><tr><td>4</td><td>all_reduce</td><td>5</td><td>32768</td><td>in</td><td>4.360</td><td>4.420</td><td>5.240</td><td>+1.38%</td><td>-15.65%</td><td>1</td></tr><tr><td>4</td><td>all_reduce</td><td>5</td><td>32768</td><td>out</td><td>4.350</td><td>4.430</td><td>5.240</td><td>+1.84%</td><td>-15.46%</td><td>0</td></tr><tr><td>4</td><td>all_reduce</td><td>5</td><td>65536</td><td>in</td><td>5.640</td><td>5.680</td><td>5.510</td><td>+0.71%</td><td>+3.09%</td><td>0</td></tr><tr><td>4</td><td>all_reduce</td><td>5</td><td>65536</td><td>out</td><td>5.670</td><td>5.680</td><td>5.490</td><td>+0.18%</td><td>+3.46%</td><td>0</td></tr><tr><td>4</td><td>all_reduce</td><td>5</td><td>131072</td><td>in</td><td>6.470</td><td>6.470</td><td>7.030</td><td>+0.00%</td><td>-7.97%</td><td>0</td></tr><tr><td>4</td><td>all_reduce</td><td>5</td><td>131072</td><td>out</td><td>6.480</td><td>6.480</td><td>7.010</td><td>+0.00%</td><td>-7.56%</td><td>0</td></tr><tr><td>8</td><td>all_gather</td><td>5</td><td>524288</td><td>in</td><td>9.190</td><td>9.180</td><td>12.980</td><td>-0.11%</td><td>-29.28%</td><td>0</td></tr><tr><td>8</td><td>all_gather</td><td>5</td><td>524288</td><td>out</td><td>9.490</td><td>9.520</td><td>13.010</td><td>+0.32%</td><td>-26.83%</td><td>0</td></tr><tr><td>8</td><td>all_reduce</td><td>5</td><td>65536</td><td>in</td><td>8.550</td><td>8.670</td><td>8.750</td><td>+1.40%</td><td>-0.91%</td><td>0</td></tr><tr><td>8</td><td>all_reduce</td><td>5</td><td>65536</td><td>out</td><td>8.540</td><td>8.680</td><td>8.810</td><td>+1.64%</td><td>-1.48%</td><td>0</td></tr><tr><td>8</td><td>all_reduce</td><td>5</td><td>524288</td><td>in</td><td>15.750</td><td>15.740</td><td>20.010</td><td>-0.06%</td><td>-21.34%</td><td>0</td></tr><tr><td>8</td><td>all_reduce</td><td>5</td><td>524288</td><td>out</td><td>15.740</td><td>15.700</td><td>20.130</td><td>-0.25%</td><td>-22.01%</td><td>0</td></tr><tr><td>8</td><td>reduce</td><td>5</td><td>128</td><td>in</td><td>8.010</td><td>8.110</td><td>7.790</td><td>+1.25%</td><td>+4.11%</td><td>0</td></tr><tr><td>8</td><td>reduce</td><td>5</td><td>128</td><td>out</td><td>8.020</td><td>8.140</td><td>7.930</td><td>+1.50%</td><td>+2.65%</td><td>0</td></tr><tr><td>8</td><td>reduce_scatter</td><td>5</td><td>524288</td><td>in</td><td>9.900</td><td>9.930</td><td>13.600</td><td>+0.30%</td><td>-26.99%</td><td>0</td></tr><tr><td>8</td><td>reduce_scatter</td><td>5</td><td>524288</td><td>out</td><td>9.890</td><td>9.910</td><td>13.600</td><td>+0.20%</td><td>-27.13%</td><td>0</td></tr></tbody></table></div>
+<p>4 卡 128 B 非 grouped AllReduce 仍比主线慢约 11%，但原 CBD 已有同等差距；修复版相对原 CBD 快约 1%。本次修复没有消除原 CBD 全部历史性能差距。</p>
+<h3>修复后独立 trace</h3><p>15 次独立 TRACE 运行全部完成，未计入性能样本。下表五组修复/CBD 算法和协议一致，调优字节数均为原任务大小。</p><div class="scroll"><table><thead><tr><th>卡数</th><th>类型</th><th>字节</th><th>版本</th><th>调优字节</th><th>算法</th><th>协议</th></tr></thead><tbody><tr><td>4</td><td>all_reduce</td><td>65536</td><td>cbd</td><td>65536</td><td>Ring</td><td>LL</td></tr><tr><td>4</td><td>all_reduce</td><td>65536</td><td>main</td><td>65536</td><td>Ring</td><td>LL</td></tr><tr><td>4</td><td>all_reduce</td><td>65536</td><td>sort</td><td>65536</td><td>Ring</td><td>LL</td></tr><tr><td>8</td><td>all_gather</td><td>524288</td><td>cbd</td><td>524288</td><td>Ring</td><td>LL</td></tr><tr><td>8</td><td>all_gather</td><td>524288</td><td>main</td><td>524288</td><td>Ring</td><td>LL</td></tr><tr><td>8</td><td>all_gather</td><td>524288</td><td>sort</td><td>524288</td><td>Ring</td><td>LL</td></tr><tr><td>8</td><td>all_reduce</td><td>524288</td><td>cbd</td><td>524288</td><td>Tree</td><td>LL128</td></tr><tr><td>8</td><td>all_reduce</td><td>524288</td><td>main</td><td>524288</td><td>Tree</td><td>LL128</td></tr><tr><td>8</td><td>all_reduce</td><td>524288</td><td>sort</td><td>524288</td><td>Tree</td><td>LL128</td></tr><tr><td>8</td><td>all_reduce</td><td>65536</td><td>cbd</td><td>65536</td><td>Ring</td><td>LL</td></tr><tr><td>8</td><td>all_reduce</td><td>65536</td><td>main</td><td>65536</td><td>Ring</td><td>LL</td></tr><tr><td>8</td><td>all_reduce</td><td>65536</td><td>sort</td><td>65536</td><td>Ring</td><td>LL</td></tr><tr><td>8</td><td>reduce_scatter</td><td>524288</td><td>cbd</td><td>524288</td><td>Ring</td><td>LL</td></tr><tr><td>8</td><td>reduce_scatter</td><td>524288</td><td>main</td><td>524288</td><td>Ring</td><td>LL</td></tr><tr><td>8</td><td>reduce_scatter</td><td>524288</td><td>sort</td><td>524288</td><td>Ring</td><td>LL</td></tr></tbody></table></div>
+<h2 id="validation">6. 验证口径、构建标识与限制</h2>
+<ul><li>标准矩阵：4/8 卡；AllReduce、AllGather、ReduceScatter、Broadcast、Reduce；128 B 至 256 MiB，倍率 8；float32 sum；group=1/5；10 次预热、80 次迭代；同时测原地与非原地；CPU elapsed，每个 collective 的时间。</li><li>混合矩阵：每序列 10 个独立任务，包含五种 collective、不同 root、1×/3× 基准大小；基准 128 B、8 KiB、512 KiB、8 MiB；grouped 是一个十任务 group，非 grouped 是十个单任务 group；10 次预热、200 次序列迭代。其 bytes 是基准值，不是每个任务统一消息大小。</li><li>运行顺序：三轮轮换 CBD/候选/主线，候选/主线/CBD，主线/CBD/候选。单进程、单主机，无 P2P collective 测试。</li><li>通用路径：<code>PCCL_ENABLE_EXT_KERNEL=0 PCCL_WIN_ENABLE=0 PCCL_MNNVL_ENABLE=0</code>，不强制算法/协议。构建 TRACE=1、O3、ppu_15。标准运行关闭 TRACE 输出。</li><li>主线只生成实测需要的 i8/f32 sum 五类真实 kernel；其他条目为桩，不能外推到其他 datatype/op。AllGather/Broadcast 使用字节归一化 kernel。标准 benchmark 源码 revision 未被证实，以二进制校验和为准。</li><li>最终库额外通过 2/4/8 卡 × 注册/非注册六项原生测试，每组 192 个任务、三次重复，含 int32/float32、sum/max/PreMulSum、变化 root；注册用例使用 512 B work 参数预算。真实 ncclPrepareTasks 主机验证通过 100 轮、19,801 个任务。</li><li>共享节点每 5 秒检查设备持有者；真实外部计算作业重叠的早期尝试排除。已核实 command/cgroup 的 amperf 与只读 cron 查询作为监控放行。不能排除短于采样间隔的活动或所有 CPU 争用。</li><li>未验证跨节点 NET、外部定制 kernel、tuner/profiler 插件实测。没有本地编译或本地设备测试。拆分提交后校验源码树与已测快照一致；没有因只拆历史再次运行整套设备矩阵。CI 状态应另行查看。</li></ul>
+<details><summary>源码与库 SHA256</summary><pre>原聚合版 enqueue.cc
+059a7aa883e740bf8458a6baa39e0edaf56b4ab550e09572439c84b89740eca9
+仅排序消融 enqueue.cc
+48c81102bb8a8944568676c2d859866402b4aef8e9582dde767e2704c68b9fc6
+最终修复 enqueue.cc
+38a80005bd602cdc5f65556174fc07db218f9583d622d2e0a2927e22a2e54fcf
+
+libpccl.so.2.2.1：
+CBD       13e22505aa282bfd7a364f3c33d27ed40b433f9e9c94dbd54abbf0d70b1767c6
+聚合版    17a675a88776e4e734b824482640b5d1cde7962033feae7c2fe977c1ee047ee9
+仅排序    0136ec0e3c511fead77559b6bb019b599d17fb88e6e761c1f1b8a3425c20a639
+最终修复  1b24e49b705e239a36eb9f0281605756fc48bdbb76770b1722919374cf9ad011
+主线      96909ca61feeef160b4786b7005d3ab88620cb330abd3cd82de9c1a6b865fe63</pre></details>
+<h2 id="details">7. 完整逐点矩阵</h2><div class="filters">卡数 <select id="rank"><option value="">全部</option><option>4</option><option>8</option></select>场景 <select id="group"><option value="">全部</option><option value="1">非 grouped</option><option value="g">grouped</option></select>类型 <select id="op"><option value="">全部</option><option>all_reduce</option><option>all_gather</option><option>reduce_scatter</option><option>broadcast</option><option>reduce</option><option>mixed</option></select><span id="count"></span></div>
+<div id="matrix"><div class="scroll"><table><thead><tr><th>卡数</th><th>类型</th><th>Group</th><th>字节</th><th>模式</th><th>CBD µs</th><th>修复 µs</th><th>主线 µs</th><th>修复/CBD</th><th>修复/主线</th></tr></thead><tbody><tr><td>4</td><td>all_gather</td><td>1</td><td>128</td><td>in</td><td>13.790</td><td>14.300</td><td>13.970</td><td>+3.70%</td><td>+2.36%</td></tr><tr><td>4</td><td>all_gather</td><td>1</td><td>128</td><td>out</td><td>13.580</td><td>13.880</td><td>13.980</td><td>+2.21%</td><td>-0.72%</td></tr><tr><td>4</td><td>all_gather</td><td>1</td><td>1024</td><td>in</td><td>13.570</td><td>13.760</td><td>13.360</td><td>+1.40%</td><td>+2.99%</td></tr><tr><td>4</td><td>all_gather</td><td>1</td><td>1024</td><td>out</td><td>13.640</td><td>13.860</td><td>13.380</td><td>+1.61%</td><td>+3.59%</td></tr><tr><td>4</td><td>all_gather</td><td>1</td><td>8192</td><td>in</td><td>13.540</td><td>13.650</td><td>13.180</td><td>+0.81%</td><td>+3.57%</td></tr><tr><td>4</td><td>all_gather</td><td>1</td><td>8192</td><td>out</td><td>13.460</td><td>14.360</td><td>13.290</td><td>+6.69%</td><td>+8.05%</td></tr><tr><td>4</td><td>all_gather</td><td>1</td><td>65536</td><td>in</td><td>13.880</td><td>14.530</td><td>13.580</td><td>+4.68%</td><td>+7.00%</td></tr><tr><td>4</td><td>all_gather</td><td>1</td><td>65536</td><td>out</td><td>13.870</td><td>14.140</td><td>13.550</td><td>+1.95%</td><td>+4.35%</td></tr><tr><td>4</td><td>all_gather</td><td>1</td><td>524288</td><td>in</td><td>15.260</td><td>15.950</td><td>15.100</td><td>+4.52%</td><td>+5.63%</td></tr><tr><td>4</td><td>all_gather</td><td>1</td><td>524288</td><td>out</td><td>15.960</td><td>15.950</td><td>15.880</td><td>-0.06%</td><td>+0.44%</td></tr><tr><td>4</td><td>all_gather</td><td>1</td><td>4194304</td><td>in</td><td>31.840</td><td>31.770</td><td>33.520</td><td>-0.22%</td><td>-5.22%</td></tr><tr><td>4</td><td>all_gather</td><td>1</td><td>4194304</td><td>out</td><td>32.700</td><td>32.770</td><td>33.960</td><td>+0.21%</td><td>-3.50%</td></tr><tr><td>4</td><td>all_gather</td><td>1</td><td>33554432</td><td>in</td><td>102.140</td><td>102.030</td><td>104.440</td><td>-0.11%</td><td>-2.31%</td></tr><tr><td>4</td><td>all_gather</td><td>1</td><td>33554432</td><td>out</td><td>104.250</td><td>104.480</td><td>105.890</td><td>+0.22%</td><td>-1.33%</td></tr><tr><td>4</td><td>all_gather</td><td>1</td><td>268435456</td><td>in</td><td>667.220</td><td>667.340</td><td>669.700</td><td>+0.02%</td><td>-0.35%</td></tr><tr><td>4</td><td>all_gather</td><td>1</td><td>268435456</td><td>out</td><td>671.040</td><td>671.330</td><td>673.340</td><td>+0.04%</td><td>-0.30%</td></tr><tr><td>4</td><td>all_gather</td><td>5</td><td>128</td><td>in</td><td>4.220</td><td>4.400</td><td>4.160</td><td>+4.27%</td><td>+5.77%</td></tr><tr><td>4</td><td>all_gather</td><td>5</td><td>128</td><td>out</td><td>4.180</td><td>4.320</td><td>4.250</td><td>+3.35%</td><td>+1.65%</td></tr><tr><td>4</td><td>all_gather</td><td>5</td><td>1024</td><td>in</td><td>4.130</td><td>4.340</td><td>4.170</td><td>+5.08%</td><td>+4.08%</td></tr><tr><td>4</td><td>all_gather</td><td>5</td><td>1024</td><td>out</td><td>4.210</td><td>4.350</td><td>4.190</td><td>+3.33%</td><td>+3.82%</td></tr><tr><td>4</td><td>all_gather</td><td>5</td><td>8192</td><td>in</td><td>4.130</td><td>4.430</td><td>7.570</td><td>+7.26%</td><td>-41.48%</td></tr><tr><td>4</td><td>all_gather</td><td>5</td><td>8192</td><td>out</td><td>4.170</td><td>4.370</td><td>7.790</td><td>+4.80%</td><td>-43.90%</td></tr><tr><td>4</td><td>all_gather</td><td>5</td><td>65536</td><td>in</td><td>4.500</td><td>4.810</td><td>7.930</td><td>+6.89%</td><td>-39.34%</td></tr><tr><td>4</td><td>all_gather</td><td>5</td><td>65536</td><td>out</td><td>4.550</td><td>4.780</td><td>8.090</td><td>+5.05%</td><td>-40.91%</td></tr><tr><td>4</td><td>all_gather</td><td>5</td><td>524288</td><td>in</td><td>8.630</td><td>8.650</td><td>10.540</td><td>+0.23%</td><td>-17.93%</td></tr><tr><td>4</td><td>all_gather</td><td>5</td><td>524288</td><td>out</td><td>9.240</td><td>9.260</td><td>11.170</td><td>+0.22%</td><td>-17.10%</td></tr><tr><td>4</td><td>all_gather</td><td>5</td><td>4194304</td><td>in</td><td>20.390</td><td>20.490</td><td>26.500</td><td>+0.49%</td><td>-22.68%</td></tr><tr><td>4</td><td>all_gather</td><td>5</td><td>4194304</td><td>out</td><td>20.830</td><td>20.880</td><td>27.090</td><td>+0.24%</td><td>-22.92%</td></tr><tr><td>4</td><td>all_gather</td><td>5</td><td>33554432</td><td>in</td><td>83.580</td><td>83.540</td><td>89.910</td><td>-0.05%</td><td>-7.08%</td></tr><tr><td>4</td><td>all_gather</td><td>5</td><td>33554432</td><td>out</td><td>83.700</td><td>83.690</td><td>92.450</td><td>-0.01%</td><td>-9.48%</td></tr><tr><td>4</td><td>all_gather</td><td>5</td><td>268435456</td><td>in</td><td>635.350</td><td>634.740</td><td>639.480</td><td>-0.10%</td><td>-0.74%</td></tr><tr><td>4</td><td>all_gather</td><td>5</td><td>268435456</td><td>out</td><td>652.380</td><td>651.680</td><td>654.980</td><td>-0.11%</td><td>-0.50%</td></tr><tr><td>4</td><td>all_reduce</td><td>1</td><td>128</td><td>in</td><td>15.430</td><td>15.400</td><td>13.930</td><td>-0.19%</td><td>+10.55%</td></tr><tr><td>4</td><td>all_reduce</td><td>1</td><td>128</td><td>out</td><td>15.830</td><td>15.790</td><td>14.160</td><td>-0.25%</td><td>+11.51%</td></tr><tr><td>4</td><td>all_reduce</td><td>1</td><td>1024</td><td>in</td><td>15.610</td><td>15.530</td><td>14.830</td><td>-0.51%</td><td>+4.72%</td></tr><tr><td>4</td><td>all_reduce</td><td>1</td><td>1024</td><td>out</td><td>16.420</td><td>16.420</td><td>15.120</td><td>+0.00%</td><td>+8.60%</td></tr><tr><td>4</td><td>all_reduce</td><td>1</td><td>8192</td><td>in</td><td>16.020</td><td>15.910</td><td>16.140</td><td>-0.69%</td><td>-1.43%</td></tr><tr><td>4</td><td>all_reduce</td><td>1</td><td>8192</td><td>out</td><td>16.710</td><td>16.700</td><td>16.810</td><td>-0.06%</td><td>-0.65%</td></tr><tr><td>4</td><td>all_reduce</td><td>1</td><td>65536</td><td>in</td><td>17.030</td><td>17.130</td><td>17.080</td><td>+0.59%</td><td>+0.29%</td></tr><tr><td>4</td><td>all_reduce</td><td>1</td><td>65536</td><td>out</td><td>18.000</td><td>17.990</td><td>18.040</td><td>-0.06%</td><td>-0.28%</td></tr><tr><td>4</td><td>all_reduce</td><td>1</td><td>524288</td><td>in</td><td>30.840</td><td>30.640</td><td>31.190</td><td>-0.65%</td><td>-1.76%</td></tr><tr><td>4</td><td>all_reduce</td><td>1</td><td>524288</td><td>out</td><td>31.420</td><td>31.310</td><td>31.740</td><td>-0.35%</td><td>-1.35%</td></tr><tr><td>4</td><td>all_reduce</td><td>1</td><td>4194304</td><td>in</td><td>54.530</td><td>54.690</td><td>54.960</td><td>+0.29%</td><td>-0.49%</td></tr><tr><td>4</td><td>all_reduce</td><td>1</td><td>4194304</td><td>out</td><td>56.660</td><td>56.390</td><td>57.340</td><td>-0.48%</td><td>-1.66%</td></tr><tr><td>4</td><td>all_reduce</td><td>1</td><td>33554432</td><td>in</td><td>177.280</td><td>177.120</td><td>179.300</td><td>-0.09%</td><td>-1.22%</td></tr><tr><td>4</td><td>all_reduce</td><td>1</td><td>33554432</td><td>out</td><td>178.050</td><td>177.920</td><td>179.750</td><td>-0.07%</td><td>-1.02%</td></tr><tr><td>4</td><td>all_reduce</td><td>1</td><td>268435456</td><td>in</td><td>1252.130</td><td>1252.330</td><td>1253.960</td><td>+0.02%</td><td>-0.13%</td></tr><tr><td>4</td><td>all_reduce</td><td>1</td><td>268435456</td><td>out</td><td>1252.010</td><td>1252.370</td><td>1253.870</td><td>+0.03%</td><td>-0.12%</td></tr><tr><td>4</td><td>all_reduce</td><td>5</td><td>128</td><td>in</td><td>4.350</td><td>4.610</td><td>4.230</td><td>+5.98%</td><td>+8.98%</td></tr><tr><td>4</td><td>all_reduce</td><td>5</td><td>128</td><td>out</td><td>4.490</td><td>4.540</td><td>4.360</td><td>+1.11%</td><td>+4.13%</td></tr><tr><td>4</td><td>all_reduce</td><td>5</td><td>1024</td><td>in</td><td>4.290</td><td>4.470</td><td>4.230</td><td>+4.20%</td><td>+5.67%</td></tr><tr><td>4</td><td>all_reduce</td><td>5</td><td>1024</td><td>out</td><td>4.340</td><td>4.430</td><td>4.280</td><td>+2.07%</td><td>+3.50%</td></tr><tr><td>4</td><td>all_reduce</td><td>5</td><td>8192</td><td>in</td><td>4.320</td><td>4.380</td><td>4.800</td><td>+1.39%</td><td>-8.75%</td></tr><tr><td>4</td><td>all_reduce</td><td>5</td><td>8192</td><td>out</td><td>4.430</td><td>4.430</td><td>4.810</td><td>+0.00%</td><td>-7.90%</td></tr><tr><td>4</td><td>all_reduce</td><td>5</td><td>65536</td><td>in</td><td>5.980</td><td>5.990</td><td>5.830</td><td>+0.17%</td><td>+2.74%</td></tr><tr><td>4</td><td>all_reduce</td><td>5</td><td>65536</td><td>out</td><td>6.100</td><td>6.140</td><td>5.960</td><td>+0.66%</td><td>+3.02%</td></tr><tr><td>4</td><td>all_reduce</td><td>5</td><td>524288</td><td>in</td><td>15.100</td><td>15.030</td><td>20.880</td><td>-0.46%</td><td>-28.02%</td></tr><tr><td>4</td><td>all_reduce</td><td>5</td><td>524288</td><td>out</td><td>15.640</td><td>15.620</td><td>22.160</td><td>-0.13%</td><td>-29.51%</td></tr><tr><td>4</td><td>all_reduce</td><td>5</td><td>4194304</td><td>in</td><td>38.680</td><td>38.640</td><td>53.160</td><td>-0.10%</td><td>-27.31%</td></tr><tr><td>4</td><td>all_reduce</td><td>5</td><td>4194304</td><td>out</td><td>39.200</td><td>39.220</td><td>53.920</td><td>+0.05%</td><td>-27.26%</td></tr><tr><td>4</td><td>all_reduce</td><td>5</td><td>33554432</td><td>in</td><td>156.730</td><td>156.760</td><td>197.350</td><td>+0.02%</td><td>-20.57%</td></tr><tr><td>4</td><td>all_reduce</td><td>5</td><td>33554432</td><td>out</td><td>156.850</td><td>156.820</td><td>197.300</td><td>-0.02%</td><td>-20.52%</td></tr><tr><td>4</td><td>all_reduce</td><td>5</td><td>268435456</td><td>in</td><td>1214.780</td><td>1214.410</td><td>1218.070</td><td>-0.03%</td><td>-0.30%</td></tr><tr><td>4</td><td>all_reduce</td><td>5</td><td>268435456</td><td>out</td><td>1214.820</td><td>1214.380</td><td>1218.850</td><td>-0.04%</td><td>-0.37%</td></tr><tr><td>4</td><td>broadcast</td><td>1</td><td>128</td><td>in</td><td>13.970</td><td>14.120</td><td>13.690</td><td>+1.07%</td><td>+3.14%</td></tr><tr><td>4</td><td>broadcast</td><td>1</td><td>128</td><td>out</td><td>14.110</td><td>13.920</td><td>13.800</td><td>-1.35%</td><td>+0.87%</td></tr><tr><td>4</td><td>broadcast</td><td>1</td><td>1024</td><td>in</td><td>13.500</td><td>13.660</td><td>13.270</td><td>+1.19%</td><td>+2.94%</td></tr><tr><td>4</td><td>broadcast</td><td>1</td><td>1024</td><td>out</td><td>13.700</td><td>13.750</td><td>13.510</td><td>+0.36%</td><td>+1.78%</td></tr><tr><td>4</td><td>broadcast</td><td>1</td><td>8192</td><td>in</td><td>13.440</td><td>13.630</td><td>13.310</td><td>+1.41%</td><td>+2.40%</td></tr><tr><td>4</td><td>broadcast</td><td>1</td><td>8192</td><td>out</td><td>13.470</td><td>13.670</td><td>13.320</td><td>+1.48%</td><td>+2.63%</td></tr><tr><td>4</td><td>broadcast</td><td>1</td><td>65536</td><td>in</td><td>13.840</td><td>13.900</td><td>13.580</td><td>+0.43%</td><td>+2.36%</td></tr><tr><td>4</td><td>broadcast</td><td>1</td><td>65536</td><td>out</td><td>13.910</td><td>13.990</td><td>13.640</td><td>+0.58%</td><td>+2.57%</td></tr><tr><td>4</td><td>broadcast</td><td>1</td><td>524288</td><td>in</td><td>16.450</td><td>16.440</td><td>17.220</td><td>-0.06%</td><td>-4.53%</td></tr><tr><td>4</td><td>broadcast</td><td>1</td><td>524288</td><td>out</td><td>16.600</td><td>16.540</td><td>17.390</td><td>-0.36%</td><td>-4.89%</td></tr><tr><td>4</td><td>broadcast</td><td>1</td><td>4194304</td><td>in</td><td>27.620</td><td>27.630</td><td>28.330</td><td>+0.04%</td><td>-2.47%</td></tr><tr><td>4</td><td>broadcast</td><td>1</td><td>4194304</td><td>out</td><td>28.720</td><td>28.730</td><td>29.600</td><td>+0.03%</td><td>-2.94%</td></tr><tr><td>4</td><td>broadcast</td><td>1</td><td>33554432</td><td>in</td><td>117.990</td><td>118.300</td><td>119.590</td><td>+0.26%</td><td>-1.08%</td></tr><tr><td>4</td><td>broadcast</td><td>1</td><td>33554432</td><td>out</td><td>118.300</td><td>118.490</td><td>119.610</td><td>+0.16%</td><td>-0.94%</td></tr><tr><td>4</td><td>broadcast</td><td>1</td><td>268435456</td><td>in</td><td>818.090</td><td>818.160</td><td>821.580</td><td>+0.01%</td><td>-0.42%</td></tr><tr><td>4</td><td>broadcast</td><td>1</td><td>268435456</td><td>out</td><td>818.750</td><td>818.530</td><td>821.840</td><td>-0.03%</td><td>-0.40%</td></tr><tr><td>4</td><td>broadcast</td><td>5</td><td>128</td><td>in</td><td>4.390</td><td>4.520</td><td>4.210</td><td>+2.96%</td><td>+7.36%</td></tr><tr><td>4</td><td>broadcast</td><td>5</td><td>128</td><td>out</td><td>4.300</td><td>4.530</td><td>4.260</td><td>+5.35%</td><td>+6.34%</td></tr><tr><td>4</td><td>broadcast</td><td>5</td><td>1024</td><td>in</td><td>4.240</td><td>4.340</td><td>4.150</td><td>+2.36%</td><td>+4.58%</td></tr><tr><td>4</td><td>broadcast</td><td>5</td><td>1024</td><td>out</td><td>4.260</td><td>4.380</td><td>4.210</td><td>+2.82%</td><td>+4.04%</td></tr><tr><td>4</td><td>broadcast</td><td>5</td><td>8192</td><td>in</td><td>4.300</td><td>4.360</td><td>4.310</td><td>+1.40%</td><td>+1.16%</td></tr><tr><td>4</td><td>broadcast</td><td>5</td><td>8192</td><td>out</td><td>4.280</td><td>4.380</td><td>4.310</td><td>+2.34%</td><td>+1.62%</td></tr><tr><td>4</td><td>broadcast</td><td>5</td><td>65536</td><td>in</td><td>4.640</td><td>4.690</td><td>4.300</td><td>+1.08%</td><td>+9.07%</td></tr><tr><td>4</td><td>broadcast</td><td>5</td><td>65536</td><td>out</td><td>4.700</td><td>4.760</td><td>4.360</td><td>+1.28%</td><td>+9.17%</td></tr><tr><td>4</td><td>broadcast</td><td>5</td><td>524288</td><td>in</td><td>5.980</td><td>5.960</td><td>6.430</td><td>-0.33%</td><td>-7.31%</td></tr><tr><td>4</td><td>broadcast</td><td>5</td><td>524288</td><td>out</td><td>5.940</td><td>5.950</td><td>6.570</td><td>+0.17%</td><td>-9.44%</td></tr><tr><td>4</td><td>broadcast</td><td>5</td><td>4194304</td><td>in</td><td>16.260</td><td>16.250</td><td>20.540</td><td>-0.06%</td><td>-20.89%</td></tr><tr><td>4</td><td>broadcast</td><td>5</td><td>4194304</td><td>out</td><td>16.390</td><td>16.440</td><td>20.950</td><td>+0.31%</td><td>-21.53%</td></tr><tr><td>4</td><td>broadcast</td><td>5</td><td>33554432</td><td>in</td><td>103.390</td><td>103.350</td><td>131.970</td><td>-0.04%</td><td>-21.69%</td></tr><tr><td>4</td><td>broadcast</td><td>5</td><td>33554432</td><td>out</td><td>103.400</td><td>103.350</td><td>132.060</td><td>-0.05%</td><td>-21.74%</td></tr><tr><td>4</td><td>broadcast</td><td>5</td><td>268435456</td><td>in</td><td>794.260</td><td>794.980</td><td>799.720</td><td>+0.09%</td><td>-0.59%</td></tr><tr><td>4</td><td>broadcast</td><td>5</td><td>268435456</td><td>out</td><td>795.290</td><td>795.210</td><td>800.430</td><td>-0.01%</td><td>-0.65%</td></tr><tr><td>4</td><td>mixed</td><td>1</td><td>128</td><td>out</td><td>13.244</td><td>13.656</td><td>13.277</td><td>+3.12%</td><td>+2.86%</td></tr><tr><td>4</td><td>mixed</td><td>1</td><td>8192</td><td>out</td><td>14.323</td><td>14.328</td><td>14.417</td><td>+0.03%</td><td>-0.62%</td></tr><tr><td>4</td><td>mixed</td><td>1</td><td>524288</td><td>out</td><td>26.792</td><td>26.711</td><td>27.582</td><td>-0.30%</td><td>-3.16%</td></tr><tr><td>4</td><td>mixed</td><td>1</td><td>8388608</td><td>out</td><td>93.839</td><td>93.739</td><td>94.653</td><td>-0.11%</td><td>-0.97%</td></tr><tr><td>4</td><td>mixed</td><td>10</td><td>128</td><td>out</td><td>3.198</td><td>3.330</td><td>3.139</td><td>+4.12%</td><td>+6.09%</td></tr><tr><td>4</td><td>mixed</td><td>10</td><td>8192</td><td>out</td><td>3.779</td><td>3.453</td><td>3.513</td><td>-8.62%</td><td>-1.73%</td></tr><tr><td>4</td><td>mixed</td><td>10</td><td>524288</td><td>out</td><td>13.594</td><td>10.135</td><td>15.344</td><td>-25.45%</td><td>-33.95%</td></tr><tr><td>4</td><td>mixed</td><td>10</td><td>8388608</td><td>out</td><td>56.796</td><td>52.154</td><td>65.187</td><td>-8.17%</td><td>-19.99%</td></tr><tr><td>4</td><td>reduce</td><td>1</td><td>128</td><td>in</td><td>13.940</td><td>13.870</td><td>13.660</td><td>-0.50%</td><td>+1.54%</td></tr><tr><td>4</td><td>reduce</td><td>1</td><td>128</td><td>out</td><td>13.530</td><td>13.730</td><td>13.620</td><td>+1.48%</td><td>+0.81%</td></tr><tr><td>4</td><td>reduce</td><td>1</td><td>1024</td><td>in</td><td>13.680</td><td>13.460</td><td>13.410</td><td>-1.61%</td><td>+0.37%</td></tr><tr><td>4</td><td>reduce</td><td>1</td><td>1024</td><td>out</td><td>13.710</td><td>13.560</td><td>13.480</td><td>-1.09%</td><td>+0.59%</td></tr><tr><td>4</td><td>reduce</td><td>1</td><td>8192</td><td>in</td><td>13.640</td><td>13.450</td><td>13.240</td><td>-1.39%</td><td>+1.59%</td></tr><tr><td>4</td><td>reduce</td><td>1</td><td>8192</td><td>out</td><td>13.630</td><td>13.540</td><td>13.340</td><td>-0.66%</td><td>+1.50%</td></tr><tr><td>4</td><td>reduce</td><td>1</td><td>65536</td><td>in</td><td>14.090</td><td>13.870</td><td>13.480</td><td>-1.56%</td><td>+2.89%</td></tr><tr><td>4</td><td>reduce</td><td>1</td><td>65536</td><td>out</td><td>13.930</td><td>13.830</td><td>13.590</td><td>-0.72%</td><td>+1.77%</td></tr><tr><td>4</td><td>reduce</td><td>1</td><td>524288</td><td>in</td><td>15.990</td><td>15.920</td><td>16.160</td><td>-0.44%</td><td>-1.49%</td></tr><tr><td>4</td><td>reduce</td><td>1</td><td>524288</td><td>out</td><td>15.930</td><td>15.940</td><td>16.130</td><td>+0.06%</td><td>-1.18%</td></tr><tr><td>4</td><td>reduce</td><td>1</td><td>4194304</td><td>in</td><td>27.340</td><td>27.420</td><td>27.430</td><td>+0.29%</td><td>-0.04%</td></tr><tr><td>4</td><td>reduce</td><td>1</td><td>4194304</td><td>out</td><td>27.300</td><td>27.400</td><td>27.380</td><td>+0.37%</td><td>+0.07%</td></tr><tr><td>4</td><td>reduce</td><td>1</td><td>33554432</td><td>in</td><td>116.740</td><td>116.610</td><td>117.330</td><td>-0.11%</td><td>-0.61%</td></tr><tr><td>4</td><td>reduce</td><td>1</td><td>33554432</td><td>out</td><td>116.590</td><td>116.560</td><td>117.470</td><td>-0.03%</td><td>-0.77%</td></tr><tr><td>4</td><td>reduce</td><td>1</td><td>268435456</td><td>in</td><td>804.200</td><td>803.830</td><td>804.530</td><td>-0.05%</td><td>-0.09%</td></tr><tr><td>4</td><td>reduce</td><td>1</td><td>268435456</td><td>out</td><td>804.280</td><td>803.630</td><td>804.500</td><td>-0.08%</td><td>-0.11%</td></tr><tr><td>4</td><td>reduce</td><td>5</td><td>128</td><td>in</td><td>4.190</td><td>4.310</td><td>4.090</td><td>+2.86%</td><td>+5.38%</td></tr><tr><td>4</td><td>reduce</td><td>5</td><td>128</td><td>out</td><td>4.270</td><td>4.330</td><td>4.160</td><td>+1.41%</td><td>+4.09%</td></tr><tr><td>4</td><td>reduce</td><td>5</td><td>1024</td><td>in</td><td>4.170</td><td>4.270</td><td>4.080</td><td>+2.40%</td><td>+4.66%</td></tr><tr><td>4</td><td>reduce</td><td>5</td><td>1024</td><td>out</td><td>4.190</td><td>4.280</td><td>4.120</td><td>+2.15%</td><td>+3.88%</td></tr><tr><td>4</td><td>reduce</td><td>5</td><td>8192</td><td>in</td><td>4.200</td><td>4.330</td><td>4.240</td><td>+3.10%</td><td>+2.12%</td></tr><tr><td>4</td><td>reduce</td><td>5</td><td>8192</td><td>out</td><td>4.210</td><td>4.300</td><td>4.230</td><td>+2.14%</td><td>+1.65%</td></tr><tr><td>4</td><td>reduce</td><td>5</td><td>65536</td><td>in</td><td>4.550</td><td>4.610</td><td>4.290</td><td>+1.32%</td><td>+7.46%</td></tr><tr><td>4</td><td>reduce</td><td>5</td><td>65536</td><td>out</td><td>4.580</td><td>4.640</td><td>4.300</td><td>+1.31%</td><td>+7.91%</td></tr><tr><td>4</td><td>reduce</td><td>5</td><td>524288</td><td>in</td><td>5.750</td><td>5.680</td><td>6.050</td><td>-1.22%</td><td>-6.12%</td></tr><tr><td>4</td><td>reduce</td><td>5</td><td>524288</td><td>out</td><td>5.700</td><td>5.750</td><td>6.040</td><td>+0.88%</td><td>-4.80%</td></tr><tr><td>4</td><td>reduce</td><td>5</td><td>4194304</td><td>in</td><td>16.000</td><td>15.960</td><td>19.450</td><td>-0.25%</td><td>-17.94%</td></tr><tr><td>4</td><td>reduce</td><td>5</td><td>4194304</td><td>out</td><td>15.920</td><td>15.960</td><td>19.450</td><td>+0.25%</td><td>-17.94%</td></tr><tr><td>4</td><td>reduce</td><td>5</td><td>33554432</td><td>in</td><td>102.170</td><td>102.100</td><td>122.680</td><td>-0.07%</td><td>-16.78%</td></tr><tr><td>4</td><td>reduce</td><td>5</td><td>33554432</td><td>out</td><td>102.160</td><td>102.090</td><td>122.650</td><td>-0.07%</td><td>-16.76%</td></tr><tr><td>4</td><td>reduce</td><td>5</td><td>268435456</td><td>in</td><td>788.200</td><td>788.220</td><td>788.570</td><td>+0.00%</td><td>-0.04%</td></tr><tr><td>4</td><td>reduce</td><td>5</td><td>268435456</td><td>out</td><td>788.270</td><td>788.230</td><td>788.620</td><td>-0.01%</td><td>-0.05%</td></tr><tr><td>4</td><td>reduce_scatter</td><td>1</td><td>128</td><td>in</td><td>14.030</td><td>13.890</td><td>14.150</td><td>-1.00%</td><td>-1.84%</td></tr><tr><td>4</td><td>reduce_scatter</td><td>1</td><td>128</td><td>out</td><td>13.760</td><td>13.810</td><td>14.110</td><td>+0.36%</td><td>-2.13%</td></tr><tr><td>4</td><td>reduce_scatter</td><td>1</td><td>1024</td><td>in</td><td>13.620</td><td>13.600</td><td>13.670</td><td>-0.15%</td><td>-0.51%</td></tr><tr><td>4</td><td>reduce_scatter</td><td>1</td><td>1024</td><td>out</td><td>13.850</td><td>13.890</td><td>13.900</td><td>+0.29%</td><td>-0.07%</td></tr><tr><td>4</td><td>reduce_scatter</td><td>1</td><td>8192</td><td>in</td><td>13.660</td><td>13.710</td><td>13.960</td><td>+0.37%</td><td>-1.79%</td></tr><tr><td>4</td><td>reduce_scatter</td><td>1</td><td>8192</td><td>out</td><td>13.610</td><td>13.730</td><td>13.490</td><td>+0.88%</td><td>+1.78%</td></tr><tr><td>4</td><td>reduce_scatter</td><td>1</td><td>65536</td><td>in</td><td>13.920</td><td>14.020</td><td>13.820</td><td>+0.72%</td><td>+1.45%</td></tr><tr><td>4</td><td>reduce_scatter</td><td>1</td><td>65536</td><td>out</td><td>14.000</td><td>13.960</td><td>14.110</td><td>-0.29%</td><td>-1.06%</td></tr><tr><td>4</td><td>reduce_scatter</td><td>1</td><td>524288</td><td>in</td><td>17.770</td><td>17.830</td><td>18.230</td><td>+0.34%</td><td>-2.19%</td></tr><tr><td>4</td><td>reduce_scatter</td><td>1</td><td>524288</td><td>out</td><td>17.660</td><td>17.640</td><td>17.950</td><td>-0.11%</td><td>-1.73%</td></tr><tr><td>4</td><td>reduce_scatter</td><td>1</td><td>4194304</td><td>in</td><td>32.550</td><td>32.590</td><td>33.430</td><td>+0.12%</td><td>-2.51%</td></tr><tr><td>4</td><td>reduce_scatter</td><td>1</td><td>4194304</td><td>out</td><td>33.450</td><td>33.450</td><td>34.400</td><td>+0.00%</td><td>-2.76%</td></tr><tr><td>4</td><td>reduce_scatter</td><td>1</td><td>33554432</td><td>in</td><td>101.920</td><td>101.690</td><td>103.930</td><td>-0.23%</td><td>-2.16%</td></tr><tr><td>4</td><td>reduce_scatter</td><td>1</td><td>33554432</td><td>out</td><td>102.120</td><td>102.100</td><td>104.400</td><td>-0.02%</td><td>-2.20%</td></tr><tr><td>4</td><td>reduce_scatter</td><td>1</td><td>268435456</td><td>in</td><td>673.330</td><td>673.400</td><td>675.690</td><td>+0.01%</td><td>-0.34%</td></tr><tr><td>4</td><td>reduce_scatter</td><td>1</td><td>268435456</td><td>out</td><td>674.570</td><td>674.460</td><td>677.380</td><td>-0.02%</td><td>-0.43%</td></tr><tr><td>4</td><td>reduce_scatter</td><td>5</td><td>128</td><td>in</td><td>4.420</td><td>4.500</td><td>4.260</td><td>+1.81%</td><td>+5.63%</td></tr><tr><td>4</td><td>reduce_scatter</td><td>5</td><td>128</td><td>out</td><td>4.370</td><td>4.420</td><td>4.280</td><td>+1.14%</td><td>+3.27%</td></tr><tr><td>4</td><td>reduce_scatter</td><td>5</td><td>1024</td><td>in</td><td>4.320</td><td>4.420</td><td>4.170</td><td>+2.31%</td><td>+6.00%</td></tr><tr><td>4</td><td>reduce_scatter</td><td>5</td><td>1024</td><td>out</td><td>4.350</td><td>4.390</td><td>4.220</td><td>+0.92%</td><td>+4.03%</td></tr><tr><td>4</td><td>reduce_scatter</td><td>5</td><td>8192</td><td>in</td><td>4.340</td><td>4.500</td><td>8.270</td><td>+3.69%</td><td>-45.59%</td></tr><tr><td>4</td><td>reduce_scatter</td><td>5</td><td>8192</td><td>out</td><td>4.350</td><td>4.350</td><td>8.420</td><td>+0.00%</td><td>-48.34%</td></tr><tr><td>4</td><td>reduce_scatter</td><td>5</td><td>65536</td><td>in</td><td>4.660</td><td>4.750</td><td>8.620</td><td>+1.93%</td><td>-44.90%</td></tr><tr><td>4</td><td>reduce_scatter</td><td>5</td><td>65536</td><td>out</td><td>4.650</td><td>4.900</td><td>8.760</td><td>+5.38%</td><td>-44.06%</td></tr><tr><td>4</td><td>reduce_scatter</td><td>5</td><td>524288</td><td>in</td><td>10.810</td><td>10.710</td><td>13.520</td><td>-0.93%</td><td>-20.78%</td></tr><tr><td>4</td><td>reduce_scatter</td><td>5</td><td>524288</td><td>out</td><td>10.810</td><td>10.770</td><td>13.580</td><td>-0.37%</td><td>-20.69%</td></tr><tr><td>4</td><td>reduce_scatter</td><td>5</td><td>4194304</td><td>in</td><td>16.630</td><td>16.640</td><td>24.800</td><td>+0.06%</td><td>-32.90%</td></tr><tr><td>4</td><td>reduce_scatter</td><td>5</td><td>4194304</td><td>out</td><td>16.790</td><td>16.800</td><td>24.920</td><td>+0.06%</td><td>-32.58%</td></tr><tr><td>4</td><td>reduce_scatter</td><td>5</td><td>33554432</td><td>in</td><td>83.490</td><td>83.470</td><td>88.710</td><td>-0.02%</td><td>-5.91%</td></tr><tr><td>4</td><td>reduce_scatter</td><td>5</td><td>33554432</td><td>out</td><td>83.670</td><td>83.700</td><td>88.600</td><td>+0.04%</td><td>-5.53%</td></tr><tr><td>4</td><td>reduce_scatter</td><td>5</td><td>268435456</td><td>in</td><td>639.300</td><td>638.450</td><td>642.100</td><td>-0.13%</td><td>-0.57%</td></tr><tr><td>4</td><td>reduce_scatter</td><td>5</td><td>268435456</td><td>out</td><td>640.110</td><td>640.570</td><td>643.590</td><td>+0.07%</td><td>-0.47%</td></tr><tr><td>8</td><td>all_gather</td><td>1</td><td>128</td><td>in</td><td>27.500</td><td>27.170</td><td>27.470</td><td>-1.20%</td><td>-1.09%</td></tr><tr><td>8</td><td>all_gather</td><td>1</td><td>128</td><td>out</td><td>27.470</td><td>27.090</td><td>27.680</td><td>-1.38%</td><td>-2.13%</td></tr><tr><td>8</td><td>all_gather</td><td>1</td><td>1024</td><td>in</td><td>27.140</td><td>26.560</td><td>26.380</td><td>-2.14%</td><td>+0.68%</td></tr><tr><td>8</td><td>all_gather</td><td>1</td><td>1024</td><td>out</td><td>27.480</td><td>26.710</td><td>26.810</td><td>-2.80%</td><td>-0.37%</td></tr><tr><td>8</td><td>all_gather</td><td>1</td><td>8192</td><td>in</td><td>26.820</td><td>27.350</td><td>26.150</td><td>+1.98%</td><td>+4.59%</td></tr><tr><td>8</td><td>all_gather</td><td>1</td><td>8192</td><td>out</td><td>27.090</td><td>26.490</td><td>26.280</td><td>-2.21%</td><td>+0.80%</td></tr><tr><td>8</td><td>all_gather</td><td>1</td><td>65536</td><td>in</td><td>27.060</td><td>26.770</td><td>26.290</td><td>-1.07%</td><td>+1.83%</td></tr><tr><td>8</td><td>all_gather</td><td>1</td><td>65536</td><td>out</td><td>27.670</td><td>27.480</td><td>26.340</td><td>-0.69%</td><td>+4.33%</td></tr><tr><td>8</td><td>all_gather</td><td>1</td><td>524288</td><td>in</td><td>29.970</td><td>29.500</td><td>28.950</td><td>-1.57%</td><td>+1.90%</td></tr><tr><td>8</td><td>all_gather</td><td>1</td><td>524288</td><td>out</td><td>29.700</td><td>29.690</td><td>29.210</td><td>-0.03%</td><td>+1.64%</td></tr><tr><td>8</td><td>all_gather</td><td>1</td><td>4194304</td><td>in</td><td>39.170</td><td>38.960</td><td>39.710</td><td>-0.54%</td><td>-1.89%</td></tr><tr><td>8</td><td>all_gather</td><td>1</td><td>4194304</td><td>out</td><td>40.010</td><td>39.860</td><td>40.260</td><td>-0.37%</td><td>-0.99%</td></tr><tr><td>8</td><td>all_gather</td><td>1</td><td>33554432</td><td>in</td><td>118.070</td><td>118.010</td><td>120.360</td><td>-0.05%</td><td>-1.95%</td></tr><tr><td>8</td><td>all_gather</td><td>1</td><td>33554432</td><td>out</td><td>120.300</td><td>120.460</td><td>121.990</td><td>+0.13%</td><td>-1.25%</td></tr><tr><td>8</td><td>all_gather</td><td>1</td><td>268435456</td><td>in</td><td>736.980</td><td>736.770</td><td>739.190</td><td>-0.03%</td><td>-0.33%</td></tr><tr><td>8</td><td>all_gather</td><td>1</td><td>268435456</td><td>out</td><td>740.480</td><td>740.210</td><td>742.020</td><td>-0.04%</td><td>-0.24%</td></tr><tr><td>8</td><td>all_gather</td><td>5</td><td>128</td><td>in</td><td>8.120</td><td>8.290</td><td>8.480</td><td>+2.09%</td><td>-2.24%</td></tr><tr><td>8</td><td>all_gather</td><td>5</td><td>128</td><td>out</td><td>8.060</td><td>8.600</td><td>8.560</td><td>+6.70%</td><td>+0.47%</td></tr><tr><td>8</td><td>all_gather</td><td>5</td><td>1024</td><td>in</td><td>7.980</td><td>8.190</td><td>8.290</td><td>+2.63%</td><td>-1.21%</td></tr><tr><td>8</td><td>all_gather</td><td>5</td><td>1024</td><td>out</td><td>7.990</td><td>8.200</td><td>8.570</td><td>+2.63%</td><td>-4.32%</td></tr><tr><td>8</td><td>all_gather</td><td>5</td><td>8192</td><td>in</td><td>7.980</td><td>8.200</td><td>12.410</td><td>+2.76%</td><td>-33.92%</td></tr><tr><td>8</td><td>all_gather</td><td>5</td><td>8192</td><td>out</td><td>8.040</td><td>8.180</td><td>12.630</td><td>+1.74%</td><td>-35.23%</td></tr><tr><td>8</td><td>all_gather</td><td>5</td><td>65536</td><td>in</td><td>8.220</td><td>8.400</td><td>12.900</td><td>+2.19%</td><td>-34.88%</td></tr><tr><td>8</td><td>all_gather</td><td>5</td><td>65536</td><td>out</td><td>8.180</td><td>8.460</td><td>13.040</td><td>+3.42%</td><td>-35.12%</td></tr><tr><td>8</td><td>all_gather</td><td>5</td><td>524288</td><td>in</td><td>9.620</td><td>9.630</td><td>13.560</td><td>+0.10%</td><td>-28.98%</td></tr><tr><td>8</td><td>all_gather</td><td>5</td><td>524288</td><td>out</td><td>9.890</td><td>9.900</td><td>13.620</td><td>+0.10%</td><td>-27.31%</td></tr><tr><td>8</td><td>all_gather</td><td>5</td><td>4194304</td><td>in</td><td>23.280</td><td>23.310</td><td>33.470</td><td>+0.13%</td><td>-30.36%</td></tr><tr><td>8</td><td>all_gather</td><td>5</td><td>4194304</td><td>out</td><td>23.340</td><td>23.290</td><td>34.130</td><td>-0.21%</td><td>-31.76%</td></tr><tr><td>8</td><td>all_gather</td><td>5</td><td>33554432</td><td>in</td><td>96.020</td><td>96.090</td><td>106.350</td><td>+0.07%</td><td>-9.65%</td></tr><tr><td>8</td><td>all_gather</td><td>5</td><td>33554432</td><td>out</td><td>95.790</td><td>95.740</td><td>108.100</td><td>-0.05%</td><td>-11.43%</td></tr><tr><td>8</td><td>all_gather</td><td>5</td><td>268435456</td><td>in</td><td>717.350</td><td>717.200</td><td>720.360</td><td>-0.02%</td><td>-0.44%</td></tr><tr><td>8</td><td>all_gather</td><td>5</td><td>268435456</td><td>out</td><td>721.290</td><td>721.560</td><td>724.470</td><td>+0.04%</td><td>-0.40%</td></tr><tr><td>8</td><td>all_reduce</td><td>1</td><td>128</td><td>in</td><td>27.920</td><td>28.160</td><td>27.560</td><td>+0.86%</td><td>+2.18%</td></tr><tr><td>8</td><td>all_reduce</td><td>1</td><td>128</td><td>out</td><td>27.260</td><td>27.850</td><td>36.620</td><td>+2.16%</td><td>-23.95%</td></tr><tr><td>8</td><td>all_reduce</td><td>1</td><td>1024</td><td>in</td><td>26.870</td><td>26.850</td><td>27.050</td><td>-0.07%</td><td>-0.74%</td></tr><tr><td>8</td><td>all_reduce</td><td>1</td><td>1024</td><td>out</td><td>27.500</td><td>27.390</td><td>27.310</td><td>-0.40%</td><td>+0.29%</td></tr><tr><td>8</td><td>all_reduce</td><td>1</td><td>8192</td><td>in</td><td>26.660</td><td>26.900</td><td>26.900</td><td>+0.90%</td><td>+0.00%</td></tr><tr><td>8</td><td>all_reduce</td><td>1</td><td>8192</td><td>out</td><td>27.190</td><td>27.210</td><td>27.370</td><td>+0.07%</td><td>-0.58%</td></tr><tr><td>8</td><td>all_reduce</td><td>1</td><td>65536</td><td>in</td><td>27.440</td><td>27.610</td><td>27.760</td><td>+0.62%</td><td>-0.54%</td></tr><tr><td>8</td><td>all_reduce</td><td>1</td><td>65536</td><td>out</td><td>29.240</td><td>29.290</td><td>29.450</td><td>+0.17%</td><td>-0.54%</td></tr><tr><td>8</td><td>all_reduce</td><td>1</td><td>524288</td><td>in</td><td>43.590</td><td>43.680</td><td>44.050</td><td>+0.21%</td><td>-0.84%</td></tr><tr><td>8</td><td>all_reduce</td><td>1</td><td>524288</td><td>out</td><td>44.260</td><td>44.360</td><td>44.600</td><td>+0.23%</td><td>-0.54%</td></tr><tr><td>8</td><td>all_reduce</td><td>1</td><td>4194304</td><td>in</td><td>70.950</td><td>70.830</td><td>67.110</td><td>-0.17%</td><td>+5.54%</td></tr><tr><td>8</td><td>all_reduce</td><td>1</td><td>4194304</td><td>out</td><td>75.470</td><td>75.260</td><td>71.450</td><td>-0.28%</td><td>+5.33%</td></tr><tr><td>8</td><td>all_reduce</td><td>1</td><td>33554432</td><td>in</td><td>209.610</td><td>208.640</td><td>210.730</td><td>-0.46%</td><td>-0.99%</td></tr><tr><td>8</td><td>all_reduce</td><td>1</td><td>33554432</td><td>out</td><td>210.650</td><td>210.220</td><td>211.570</td><td>-0.20%</td><td>-0.64%</td></tr><tr><td>8</td><td>all_reduce</td><td>1</td><td>268435456</td><td>in</td><td>1418.580</td><td>1418.610</td><td>1419.660</td><td>+0.00%</td><td>-0.07%</td></tr><tr><td>8</td><td>all_reduce</td><td>1</td><td>268435456</td><td>out</td><td>1418.660</td><td>1418.720</td><td>1419.530</td><td>+0.00%</td><td>-0.06%</td></tr><tr><td>8</td><td>all_reduce</td><td>5</td><td>128</td><td>in</td><td>8.410</td><td>8.720</td><td>8.230</td><td>+3.69%</td><td>+5.95%</td></tr><tr><td>8</td><td>all_reduce</td><td>5</td><td>128</td><td>out</td><td>8.320</td><td>8.600</td><td>8.400</td><td>+3.37%</td><td>+2.38%</td></tr><tr><td>8</td><td>all_reduce</td><td>5</td><td>1024</td><td>in</td><td>8.280</td><td>8.530</td><td>8.190</td><td>+3.02%</td><td>+4.15%</td></tr><tr><td>8</td><td>all_reduce</td><td>5</td><td>1024</td><td>out</td><td>8.330</td><td>8.610</td><td>8.270</td><td>+3.36%</td><td>+4.11%</td></tr><tr><td>8</td><td>all_reduce</td><td>5</td><td>8192</td><td>in</td><td>8.240</td><td>8.700</td><td>8.670</td><td>+5.58%</td><td>+0.35%</td></tr><tr><td>8</td><td>all_reduce</td><td>5</td><td>8192</td><td>out</td><td>8.280</td><td>8.580</td><td>8.880</td><td>+3.62%</td><td>-3.38%</td></tr><tr><td>8</td><td>all_reduce</td><td>5</td><td>65536</td><td>in</td><td>8.490</td><td>8.740</td><td>9.030</td><td>+2.94%</td><td>-3.21%</td></tr><tr><td>8</td><td>all_reduce</td><td>5</td><td>65536</td><td>out</td><td>8.520</td><td>8.790</td><td>9.160</td><td>+3.17%</td><td>-4.04%</td></tr><tr><td>8</td><td>all_reduce</td><td>5</td><td>524288</td><td>in</td><td>17.850</td><td>17.880</td><td>23.740</td><td>+0.17%</td><td>-24.68%</td></tr><tr><td>8</td><td>all_reduce</td><td>5</td><td>524288</td><td>out</td><td>18.400</td><td>18.380</td><td>24.630</td><td>-0.11%</td><td>-25.38%</td></tr><tr><td>8</td><td>all_reduce</td><td>5</td><td>4194304</td><td>in</td><td>47.240</td><td>47.340</td><td>68.200</td><td>+0.21%</td><td>-30.59%</td></tr><tr><td>8</td><td>all_reduce</td><td>5</td><td>4194304</td><td>out</td><td>48.570</td><td>48.500</td><td>69.880</td><td>-0.14%</td><td>-30.60%</td></tr><tr><td>8</td><td>all_reduce</td><td>5</td><td>33554432</td><td>in</td><td>188.010</td><td>187.970</td><td>224.620</td><td>-0.02%</td><td>-16.32%</td></tr><tr><td>8</td><td>all_reduce</td><td>5</td><td>33554432</td><td>out</td><td>187.990</td><td>187.970</td><td>224.760</td><td>-0.01%</td><td>-16.37%</td></tr><tr><td>8</td><td>all_reduce</td><td>5</td><td>268435456</td><td>in</td><td>1397.260</td><td>1397.090</td><td>1399.870</td><td>-0.01%</td><td>-0.20%</td></tr><tr><td>8</td><td>all_reduce</td><td>5</td><td>268435456</td><td>out</td><td>1397.040</td><td>1397.130</td><td>1399.870</td><td>+0.01%</td><td>-0.20%</td></tr><tr><td>8</td><td>broadcast</td><td>1</td><td>128</td><td>in</td><td>27.330</td><td>27.520</td><td>27.580</td><td>+0.70%</td><td>-0.22%</td></tr><tr><td>8</td><td>broadcast</td><td>1</td><td>128</td><td>out</td><td>27.050</td><td>26.940</td><td>27.620</td><td>-0.41%</td><td>-2.46%</td></tr><tr><td>8</td><td>broadcast</td><td>1</td><td>1024</td><td>in</td><td>26.560</td><td>26.690</td><td>26.540</td><td>+0.49%</td><td>+0.57%</td></tr><tr><td>8</td><td>broadcast</td><td>1</td><td>1024</td><td>out</td><td>27.010</td><td>27.130</td><td>27.080</td><td>+0.44%</td><td>+0.18%</td></tr><tr><td>8</td><td>broadcast</td><td>1</td><td>8192</td><td>in</td><td>26.990</td><td>27.130</td><td>26.520</td><td>+0.52%</td><td>+2.30%</td></tr><tr><td>8</td><td>broadcast</td><td>1</td><td>8192</td><td>out</td><td>27.000</td><td>27.140</td><td>26.760</td><td>+0.52%</td><td>+1.42%</td></tr><tr><td>8</td><td>broadcast</td><td>1</td><td>65536</td><td>in</td><td>27.290</td><td>27.040</td><td>26.460</td><td>-0.92%</td><td>+2.19%</td></tr><tr><td>8</td><td>broadcast</td><td>1</td><td>65536</td><td>out</td><td>27.440</td><td>27.280</td><td>26.780</td><td>-0.58%</td><td>+1.87%</td></tr><tr><td>8</td><td>broadcast</td><td>1</td><td>524288</td><td>in</td><td>30.800</td><td>30.660</td><td>29.660</td><td>-0.45%</td><td>+3.37%</td></tr><tr><td>8</td><td>broadcast</td><td>1</td><td>524288</td><td>out</td><td>31.400</td><td>30.640</td><td>29.990</td><td>-2.42%</td><td>+2.17%</td></tr><tr><td>8</td><td>broadcast</td><td>1</td><td>4194304</td><td>in</td><td>32.080</td><td>31.280</td><td>30.830</td><td>-2.49%</td><td>+1.46%</td></tr><tr><td>8</td><td>broadcast</td><td>1</td><td>4194304</td><td>out</td><td>32.210</td><td>31.350</td><td>30.670</td><td>-2.67%</td><td>+2.22%</td></tr><tr><td>8</td><td>broadcast</td><td>1</td><td>33554432</td><td>in</td><td>120.140</td><td>120.130</td><td>121.190</td><td>-0.01%</td><td>-0.87%</td></tr><tr><td>8</td><td>broadcast</td><td>1</td><td>33554432</td><td>out</td><td>120.280</td><td>120.310</td><td>121.470</td><td>+0.02%</td><td>-0.95%</td></tr><tr><td>8</td><td>broadcast</td><td>1</td><td>268435456</td><td>in</td><td>821.780</td><td>821.630</td><td>824.090</td><td>-0.02%</td><td>-0.30%</td></tr><tr><td>8</td><td>broadcast</td><td>1</td><td>268435456</td><td>out</td><td>822.090</td><td>821.650</td><td>823.720</td><td>-0.05%</td><td>-0.25%</td></tr><tr><td>8</td><td>broadcast</td><td>5</td><td>128</td><td>in</td><td>8.540</td><td>8.450</td><td>8.100</td><td>-1.05%</td><td>+4.32%</td></tr><tr><td>8</td><td>broadcast</td><td>5</td><td>128</td><td>out</td><td>8.440</td><td>8.590</td><td>8.230</td><td>+1.78%</td><td>+4.37%</td></tr><tr><td>8</td><td>broadcast</td><td>5</td><td>1024</td><td>in</td><td>8.290</td><td>8.370</td><td>8.140</td><td>+0.97%</td><td>+2.83%</td></tr><tr><td>8</td><td>broadcast</td><td>5</td><td>1024</td><td>out</td><td>8.390</td><td>8.370</td><td>8.120</td><td>-0.24%</td><td>+3.08%</td></tr><tr><td>8</td><td>broadcast</td><td>5</td><td>8192</td><td>in</td><td>8.250</td><td>8.500</td><td>8.410</td><td>+3.03%</td><td>+1.07%</td></tr><tr><td>8</td><td>broadcast</td><td>5</td><td>8192</td><td>out</td><td>8.450</td><td>8.430</td><td>8.410</td><td>-0.24%</td><td>+0.24%</td></tr><tr><td>8</td><td>broadcast</td><td>5</td><td>65536</td><td>in</td><td>8.600</td><td>8.580</td><td>8.480</td><td>-0.23%</td><td>+1.18%</td></tr><tr><td>8</td><td>broadcast</td><td>5</td><td>65536</td><td>out</td><td>8.530</td><td>8.630</td><td>8.500</td><td>+1.17%</td><td>+1.53%</td></tr><tr><td>8</td><td>broadcast</td><td>5</td><td>524288</td><td>in</td><td>9.390</td><td>9.590</td><td>8.940</td><td>+2.13%</td><td>+7.27%</td></tr><tr><td>8</td><td>broadcast</td><td>5</td><td>524288</td><td>out</td><td>9.720</td><td>9.710</td><td>9.010</td><td>-0.10%</td><td>+7.77%</td></tr><tr><td>8</td><td>broadcast</td><td>5</td><td>4194304</td><td>in</td><td>16.640</td><td>16.680</td><td>20.890</td><td>+0.24%</td><td>-20.15%</td></tr><tr><td>8</td><td>broadcast</td><td>5</td><td>4194304</td><td>out</td><td>16.790</td><td>16.810</td><td>21.340</td><td>+0.12%</td><td>-21.23%</td></tr><tr><td>8</td><td>broadcast</td><td>5</td><td>33554432</td><td>in</td><td>103.850</td><td>103.890</td><td>132.480</td><td>+0.04%</td><td>-21.58%</td></tr><tr><td>8</td><td>broadcast</td><td>5</td><td>33554432</td><td>out</td><td>103.860</td><td>103.830</td><td>132.640</td><td>-0.03%</td><td>-21.72%</td></tr><tr><td>8</td><td>broadcast</td><td>5</td><td>268435456</td><td>in</td><td>795.710</td><td>795.760</td><td>802.160</td><td>+0.01%</td><td>-0.80%</td></tr><tr><td>8</td><td>broadcast</td><td>5</td><td>268435456</td><td>out</td><td>795.720</td><td>795.850</td><td>800.280</td><td>+0.02%</td><td>-0.55%</td></tr><tr><td>8</td><td>mixed</td><td>1</td><td>128</td><td>out</td><td>26.881</td><td>27.010</td><td>26.454</td><td>+0.48%</td><td>+2.10%</td></tr><tr><td>8</td><td>mixed</td><td>1</td><td>8192</td><td>out</td><td>26.958</td><td>26.789</td><td>26.355</td><td>-0.63%</td><td>+1.65%</td></tr><tr><td>8</td><td>mixed</td><td>1</td><td>524288</td><td>out</td><td>38.796</td><td>38.707</td><td>39.301</td><td>-0.23%</td><td>-1.51%</td></tr><tr><td>8</td><td>mixed</td><td>1</td><td>8388608</td><td>out</td><td>138.981</td><td>138.776</td><td>138.913</td><td>-0.15%</td><td>-0.10%</td></tr><tr><td>8</td><td>mixed</td><td>10</td><td>128</td><td>out</td><td>6.333</td><td>6.664</td><td>6.247</td><td>+5.22%</td><td>+6.67%</td></tr><tr><td>8</td><td>mixed</td><td>10</td><td>8192</td><td>out</td><td>6.796</td><td>6.891</td><td>6.815</td><td>+1.40%</td><td>+1.11%</td></tr><tr><td>8</td><td>mixed</td><td>10</td><td>524288</td><td>out</td><td>20.137</td><td>17.541</td><td>22.346</td><td>-12.89%</td><td>-21.50%</td></tr><tr><td>8</td><td>mixed</td><td>10</td><td>8388608</td><td>out</td><td>83.132</td><td>84.073</td><td>108.409</td><td>+1.13%</td><td>-22.45%</td></tr><tr><td>8</td><td>reduce</td><td>1</td><td>128</td><td>in</td><td>27.540</td><td>27.320</td><td>27.150</td><td>-0.80%</td><td>+0.63%</td></tr><tr><td>8</td><td>reduce</td><td>1</td><td>128</td><td>out</td><td>27.160</td><td>27.460</td><td>27.960</td><td>+1.10%</td><td>-1.79%</td></tr><tr><td>8</td><td>reduce</td><td>1</td><td>1024</td><td>in</td><td>26.500</td><td>26.680</td><td>26.960</td><td>+0.68%</td><td>-1.04%</td></tr><tr><td>8</td><td>reduce</td><td>1</td><td>1024</td><td>out</td><td>26.750</td><td>26.950</td><td>26.670</td><td>+0.75%</td><td>+1.05%</td></tr><tr><td>8</td><td>reduce</td><td>1</td><td>8192</td><td>in</td><td>26.770</td><td>26.850</td><td>26.510</td><td>+0.30%</td><td>+1.28%</td></tr><tr><td>8</td><td>reduce</td><td>1</td><td>8192</td><td>out</td><td>26.760</td><td>26.870</td><td>26.830</td><td>+0.41%</td><td>+0.15%</td></tr><tr><td>8</td><td>reduce</td><td>1</td><td>65536</td><td>in</td><td>26.940</td><td>27.190</td><td>26.910</td><td>+0.93%</td><td>+1.04%</td></tr><tr><td>8</td><td>reduce</td><td>1</td><td>65536</td><td>out</td><td>27.100</td><td>27.150</td><td>27.090</td><td>+0.18%</td><td>+0.22%</td></tr><tr><td>8</td><td>reduce</td><td>1</td><td>524288</td><td>in</td><td>30.130</td><td>30.390</td><td>29.830</td><td>+0.86%</td><td>+1.88%</td></tr><tr><td>8</td><td>reduce</td><td>1</td><td>524288</td><td>out</td><td>30.300</td><td>30.460</td><td>31.540</td><td>+0.53%</td><td>-3.42%</td></tr><tr><td>8</td><td>reduce</td><td>1</td><td>4194304</td><td>in</td><td>30.970</td><td>31.650</td><td>30.760</td><td>+2.20%</td><td>+2.89%</td></tr><tr><td>8</td><td>reduce</td><td>1</td><td>4194304</td><td>out</td><td>30.920</td><td>31.350</td><td>30.680</td><td>+1.39%</td><td>+2.18%</td></tr><tr><td>8</td><td>reduce</td><td>1</td><td>33554432</td><td>in</td><td>118.540</td><td>118.430</td><td>119.140</td><td>-0.09%</td><td>-0.60%</td></tr><tr><td>8</td><td>reduce</td><td>1</td><td>33554432</td><td>out</td><td>118.520</td><td>118.480</td><td>119.260</td><td>-0.03%</td><td>-0.65%</td></tr><tr><td>8</td><td>reduce</td><td>1</td><td>268435456</td><td>in</td><td>806.330</td><td>806.220</td><td>806.560</td><td>-0.01%</td><td>-0.04%</td></tr><tr><td>8</td><td>reduce</td><td>1</td><td>268435456</td><td>out</td><td>806.420</td><td>806.160</td><td>806.500</td><td>-0.03%</td><td>-0.04%</td></tr><tr><td>8</td><td>reduce</td><td>5</td><td>128</td><td>in</td><td>8.190</td><td>8.320</td><td>8.070</td><td>+1.59%</td><td>+3.10%</td></tr><tr><td>8</td><td>reduce</td><td>5</td><td>128</td><td>out</td><td>8.210</td><td>8.280</td><td>8.230</td><td>+0.85%</td><td>+0.61%</td></tr><tr><td>8</td><td>reduce</td><td>5</td><td>1024</td><td>in</td><td>8.040</td><td>8.200</td><td>8.110</td><td>+1.99%</td><td>+1.11%</td></tr><tr><td>8</td><td>reduce</td><td>5</td><td>1024</td><td>out</td><td>8.130</td><td>8.220</td><td>8.150</td><td>+1.11%</td><td>+0.86%</td></tr><tr><td>8</td><td>reduce</td><td>5</td><td>8192</td><td>in</td><td>8.120</td><td>8.270</td><td>8.370</td><td>+1.85%</td><td>-1.19%</td></tr><tr><td>8</td><td>reduce</td><td>5</td><td>8192</td><td>out</td><td>8.130</td><td>8.300</td><td>8.420</td><td>+2.09%</td><td>-1.43%</td></tr><tr><td>8</td><td>reduce</td><td>5</td><td>65536</td><td>in</td><td>8.420</td><td>8.550</td><td>8.540</td><td>+1.54%</td><td>+0.12%</td></tr><tr><td>8</td><td>reduce</td><td>5</td><td>65536</td><td>out</td><td>8.420</td><td>8.630</td><td>8.480</td><td>+2.49%</td><td>+1.77%</td></tr><tr><td>8</td><td>reduce</td><td>5</td><td>524288</td><td>in</td><td>9.130</td><td>9.400</td><td>8.640</td><td>+2.96%</td><td>+8.80%</td></tr><tr><td>8</td><td>reduce</td><td>5</td><td>524288</td><td>out</td><td>9.190</td><td>9.400</td><td>8.750</td><td>+2.29%</td><td>+7.43%</td></tr><tr><td>8</td><td>reduce</td><td>5</td><td>4194304</td><td>in</td><td>16.350</td><td>16.360</td><td>19.870</td><td>+0.06%</td><td>-17.66%</td></tr><tr><td>8</td><td>reduce</td><td>5</td><td>4194304</td><td>out</td><td>16.350</td><td>16.310</td><td>19.830</td><td>-0.24%</td><td>-17.75%</td></tr><tr><td>8</td><td>reduce</td><td>5</td><td>33554432</td><td>in</td><td>102.600</td><td>102.550</td><td>123.280</td><td>-0.05%</td><td>-16.82%</td></tr><tr><td>8</td><td>reduce</td><td>5</td><td>33554432</td><td>out</td><td>102.540</td><td>102.550</td><td>123.240</td><td>+0.01%</td><td>-16.79%</td></tr><tr><td>8</td><td>reduce</td><td>5</td><td>268435456</td><td>in</td><td>788.740</td><td>788.700</td><td>789.210</td><td>-0.01%</td><td>-0.06%</td></tr><tr><td>8</td><td>reduce</td><td>5</td><td>268435456</td><td>out</td><td>788.710</td><td>788.770</td><td>789.140</td><td>+0.01%</td><td>-0.05%</td></tr><tr><td>8</td><td>reduce_scatter</td><td>1</td><td>128</td><td>in</td><td>28.030</td><td>27.240</td><td>27.760</td><td>-2.82%</td><td>-1.87%</td></tr><tr><td>8</td><td>reduce_scatter</td><td>1</td><td>128</td><td>out</td><td>28.430</td><td>28.050</td><td>27.620</td><td>-1.34%</td><td>+1.56%</td></tr><tr><td>8</td><td>reduce_scatter</td><td>1</td><td>1024</td><td>in</td><td>26.640</td><td>27.180</td><td>26.480</td><td>+2.03%</td><td>+2.64%</td></tr><tr><td>8</td><td>reduce_scatter</td><td>1</td><td>1024</td><td>out</td><td>27.130</td><td>27.010</td><td>27.090</td><td>-0.44%</td><td>-0.30%</td></tr><tr><td>8</td><td>reduce_scatter</td><td>1</td><td>8192</td><td>in</td><td>26.510</td><td>26.710</td><td>26.540</td><td>+0.75%</td><td>+0.64%</td></tr><tr><td>8</td><td>reduce_scatter</td><td>1</td><td>8192</td><td>out</td><td>26.700</td><td>27.420</td><td>26.670</td><td>+2.70%</td><td>+2.81%</td></tr><tr><td>8</td><td>reduce_scatter</td><td>1</td><td>65536</td><td>in</td><td>26.880</td><td>27.240</td><td>26.760</td><td>+1.34%</td><td>+1.79%</td></tr><tr><td>8</td><td>reduce_scatter</td><td>1</td><td>65536</td><td>out</td><td>27.050</td><td>27.190</td><td>26.810</td><td>+0.52%</td><td>+1.42%</td></tr><tr><td>8</td><td>reduce_scatter</td><td>1</td><td>524288</td><td>in</td><td>29.900</td><td>29.790</td><td>29.200</td><td>-0.37%</td><td>+2.02%</td></tr><tr><td>8</td><td>reduce_scatter</td><td>1</td><td>524288</td><td>out</td><td>30.000</td><td>30.080</td><td>29.320</td><td>+0.27%</td><td>+2.59%</td></tr><tr><td>8</td><td>reduce_scatter</td><td>1</td><td>4194304</td><td>in</td><td>48.960</td><td>48.830</td><td>50.050</td><td>-0.27%</td><td>-2.44%</td></tr><tr><td>8</td><td>reduce_scatter</td><td>1</td><td>4194304</td><td>out</td><td>49.260</td><td>49.020</td><td>50.280</td><td>-0.49%</td><td>-2.51%</td></tr><tr><td>8</td><td>reduce_scatter</td><td>1</td><td>33554432</td><td>in</td><td>113.830</td><td>113.680</td><td>116.650</td><td>-0.13%</td><td>-2.55%</td></tr><tr><td>8</td><td>reduce_scatter</td><td>1</td><td>33554432</td><td>out</td><td>114.270</td><td>114.340</td><td>117.230</td><td>+0.06%</td><td>-2.47%</td></tr><tr><td>8</td><td>reduce_scatter</td><td>1</td><td>268435456</td><td>in</td><td>737.350</td><td>736.870</td><td>739.630</td><td>-0.07%</td><td>-0.37%</td></tr><tr><td>8</td><td>reduce_scatter</td><td>1</td><td>268435456</td><td>out</td><td>738.200</td><td>738.260</td><td>740.820</td><td>+0.01%</td><td>-0.35%</td></tr><tr><td>8</td><td>reduce_scatter</td><td>5</td><td>128</td><td>in</td><td>8.120</td><td>8.620</td><td>8.200</td><td>+6.16%</td><td>+5.12%</td></tr><tr><td>8</td><td>reduce_scatter</td><td>5</td><td>128</td><td>out</td><td>8.170</td><td>8.390</td><td>8.330</td><td>+2.69%</td><td>+0.72%</td></tr><tr><td>8</td><td>reduce_scatter</td><td>5</td><td>1024</td><td>in</td><td>7.950</td><td>8.440</td><td>8.210</td><td>+6.16%</td><td>+2.80%</td></tr><tr><td>8</td><td>reduce_scatter</td><td>5</td><td>1024</td><td>out</td><td>7.980</td><td>8.420</td><td>8.260</td><td>+5.51%</td><td>+1.94%</td></tr><tr><td>8</td><td>reduce_scatter</td><td>5</td><td>8192</td><td>in</td><td>8.030</td><td>8.360</td><td>13.400</td><td>+4.11%</td><td>-37.61%</td></tr><tr><td>8</td><td>reduce_scatter</td><td>5</td><td>8192</td><td>out</td><td>8.070</td><td>8.380</td><td>13.780</td><td>+3.84%</td><td>-39.19%</td></tr><tr><td>8</td><td>reduce_scatter</td><td>5</td><td>65536</td><td>in</td><td>8.260</td><td>8.560</td><td>15.070</td><td>+3.63%</td><td>-43.20%</td></tr><tr><td>8</td><td>reduce_scatter</td><td>5</td><td>65536</td><td>out</td><td>8.310</td><td>8.620</td><td>15.190</td><td>+3.73%</td><td>-43.25%</td></tr><tr><td>8</td><td>reduce_scatter</td><td>5</td><td>524288</td><td>in</td><td>11.940</td><td>11.910</td><td>16.040</td><td>-0.25%</td><td>-25.75%</td></tr><tr><td>8</td><td>reduce_scatter</td><td>5</td><td>524288</td><td>out</td><td>12.070</td><td>12.060</td><td>16.120</td><td>-0.08%</td><td>-25.19%</td></tr><tr><td>8</td><td>reduce_scatter</td><td>5</td><td>4194304</td><td>in</td><td>31.050</td><td>31.630</td><td>42.850</td><td>+1.87%</td><td>-26.18%</td></tr><tr><td>8</td><td>reduce_scatter</td><td>5</td><td>4194304</td><td>out</td><td>31.230</td><td>31.560</td><td>42.900</td><td>+1.06%</td><td>-26.43%</td></tr><tr><td>8</td><td>reduce_scatter</td><td>5</td><td>33554432</td><td>in</td><td>96.120</td><td>96.120</td><td>100.280</td><td>+0.00%</td><td>-4.15%</td></tr><tr><td>8</td><td>reduce_scatter</td><td>5</td><td>33554432</td><td>out</td><td>96.120</td><td>96.130</td><td>100.290</td><td>+0.01%</td><td>-4.15%</td></tr><tr><td>8</td><td>reduce_scatter</td><td>5</td><td>268435456</td><td>in</td><td>717.690</td><td>717.570</td><td>720.110</td><td>-0.02%</td><td>-0.35%</td></tr><tr><td>8</td><td>reduce_scatter</td><td>5</td><td>268435456</td><td>out</td><td>718.380</td><td>718.130</td><td>720.890</td><td>-0.03%</td><td>-0.38%</td></tr></tbody></table></div></div>
+<script>const controls=['rank','group','op'].map(id=>document.getElementById(id));const entries=[...document.querySelectorAll('#matrix tbody tr')];function filter(){let n=0;for(const tr of entries){const c=tr.children;let ok=(!controls[0].value||c[0].textContent===controls[0].value)&&(!controls[2].value||c[1].textContent===controls[2].value)&&(!controls[1].value||(controls[1].value==='1'?+c[2].textContent===1:+c[2].textContent>1));tr.hidden=!ok;if(ok)n++;}document.getElementById('count').textContent=n+' 个点';}controls.forEach(c=>c.addEventListener('change',filter));filter();</script>
+</main></body></html>
