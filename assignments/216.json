@@ -2,13 +2,13 @@
   "classification": {
     "base_sha": "0da8662eb0e6d164ebd790d4a45b6007314a8b10",
     "head_sha": "968dfa0682449c7aeb184f512543699b4c7ef05f",
-    "input_fingerprint": "bca0044dc069e3474d16c29f95923171be57a57cb8a91687c78cf23140ee40c6",
+    "input_fingerprint": "97ce6b479f8e7e5f373c10d5500729dcd616462e2f00fad31486627c39dab921",
     "pr_number": 216,
     "proposal": {
       "modules": [
-        "transport"
+        "device-topology"
       ],
-      "reason": "Changes the host-side P2P channel-selection policy: default MAX_P2P_NCHANNELS handling, SM89 non-switch round-down-to-power-of-two behavior, shared-resource clamping, and per-peer/channel cap interactions for P2P transport setup."
+      "reason": "`src/graph/paths.cc` changes topology-driven P2P channel derivation (SM89 non-switch default, min/max handling, and round-down-to-power-of-two behavior) inside `ncclTopoComputeP2pChannels`, which is a communication-path/channel-sizing policy tied to topology/path computation rather than an independent scheduler or transport implementation change."
     }
   },
   "reviewers": {
