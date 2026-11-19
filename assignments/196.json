@@ -2,13 +2,13 @@
   "classification": {
     "base_sha": "a7769ba35a724d84cea481c9b318c30482175471",
     "head_sha": "bbce3f57ce2b2c1274ff63a2178ee60dd4b6d303",
-    "input_fingerprint": "d0b2c02b68e89d6a27afc73f3eb82a3f47bdcffd5e3325cfb86ca831dbd5d132",
+    "input_fingerprint": "ba9335e4d4722f7f42b4c79eec2cccba7ae1c10d6f57371e9a6caa7597851a93",
     "pr_number": 196,
     "proposal": {
       "modules": [
         "ci"
       ],
-      "reason": "Main change is the test pipeline itself: daily inputs now generated from JSON families, expanded grouped execution (including 8-node/cross-rack), NAS/artifact cache validation+retry behavior, cgroup-based multi-node recovery, and performance workbook publishing in workflow/jobs and xtest runner scripts. Docs/tests here are supporting updates to that CI execution/reporting path, not review-policy workflow ownership."
+      "reason": "The core change is to CI test execution: daily datasets are now generated from JSON families, workflows and helper scripts were reworked for grouping/cache/reconciliation/retry behavior, and a new performance-report artifact pipeline was added; these are substantive test-workflow and result-orchestration changes rather than runtime or review-policy changes."
     }
   },
   "reviewers": {
