@@ -2,13 +2,13 @@
   "classification": {
     "base_sha": "a7769ba35a724d84cea481c9b318c30482175471",
     "head_sha": "6bbd35161520d49786856160bc1344a4fc848239",
-    "input_fingerprint": "4a8ec984d55fd267901011e57b69f8e2419e490a12aa24683fe6efe65198c1f1",
+    "input_fingerprint": "ca67314ac0150855782734f821b078471113ef29b8db8e74d775e65ed651c92a",
     "pr_number": 196,
     "proposal": {
       "modules": [
         "ci"
       ],
-      "reason": "Main change is a substantive redesign of test workflow execution and reporting: daily/source-sanity pipelines now generate case inputs from JSON families, add artifact integrity/retry and NAS cache probing/publish logic, expand node/rack scheduling behavior, and produce/validate performance report artifacts with new CI-side helper scripts and tests."
+      "reason": "Primary change is to open-source test workflow execution: daily/source-sanity GitHub Actions now generate case inputs from JSON families, add grouping/resource-policy updates (including cross-rack and 8-node handling), strengthen artifact/NAS cache validation and retry behavior, and produce/upload a performance report artifact. The large test-list/script additions and legacy CSV removals support this CI pipeline behavior rather than PCCL runtime modules."
     }
   },
   "reviewers": {
