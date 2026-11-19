@@ -303,10 +303,19 @@ jobs:
             --pccl-revision '${{ github.sha }}' --pccl-tests-revision '${{ env.PCCL_TESTS_REVISION }}' \
             --expected-sha256 "$EXPECTED_SHA"
           echo "artifact_sha256=$EXPECTED_SHA" >> "$GITHUB_OUTPUT"
+      - name: Publish the standard NAS cache
+        env:
+          STAGING: /wl_nas/devops/pccl-artifact-cache-${{ github.run_id }}/staging/standard
+          CACHE_DIR: /wl_nas/devops/pccl-artifact-cache-${{ github.run_id }}/cache/standard/${{ steps.identity.outputs.artifact_sha256 }}
+        run: |
+          python3 -S -B pccl/tests/xtest/artifact_cache.py publish \
+            --download "$STAGING" --cache "$CACHE_DIR" --profile standard \
+            --pccl-revision '${{ github.sha }}' --pccl-tests-revision '${{ env.PCCL_TESTS_REVISION }}' \
+            --expected-sha256 '${{ steps.identity.outputs.artifact_sha256 }}'
       - uses: actions/upload-artifact@v4
         with:
           name: m890p-daily-full-build-standard
-          path: /wl_nas/devops/pccl-artifact-cache-${{ github.run_id }}/staging/standard/
+          path: /wl_nas/devops/pccl-artifact-cache-${{ github.run_id }}/cache/standard/${{ steps.identity.outputs.artifact_sha256 }}/
           if-no-files-found: error
           overwrite: true
           retention-days: 90
@@ -338,14 +347,19 @@ jobs:
         env:
           CACHE_DIR: /wl_nas/devops/pccl-artifact-cache-${{ github.run_id }}/cache/standard/${{ env.EXPECTED_SHA }}
         run: |
-          if python3 -S -B pccl/tests/xtest/artifact_cache.py validate \
+          STATE=$(python3 -S -B pccl/tests/xtest/artifact_cache.py probe \
             --directory "$CACHE_DIR" --profile standard \
             --pccl-revision '${{ github.sha }}' --pccl-tests-revision '${{ env.PCCL_TESTS_REVISION }}' \
-            --expected-sha256 '${{ env.EXPECTED_SHA }}'; then
-            echo 'state=hit' >> "$GITHUB_OUTPUT"
-          else
-            echo 'state=miss' >> "$GITHUB_OUTPUT"
-          fi
+            --expected-sha256 '${{ env.EXPECTED_SHA }}')
+          case "$STATE" in
+            hit)
+              echo 'state=hit' >> "$GITHUB_OUTPUT" ;;
+            miss|invalid)
+              echo 'state=miss' >> "$GITHUB_OUTPUT" ;;
+            *)
+              echo "Unexpected cache state: $STATE"
+              exit 1 ;;
+          esac
       - uses: t-head/pccl/.github/actions/download-artifact-retry@42c06876282e700ae0434b4577fedd757b6f2db1
         if: steps.cache.outputs.state == 'miss'
         with:
@@ -366,11 +380,11 @@ jobs:
         env:
           CACHE_DIR: /wl_nas/devops/pccl-artifact-cache-${{ github.run_id }}/cache/standard/${{ env.EXPECTED_SHA }}
         run: |
-          chmod -R a+rwX "$CACHE_DIR"
-          python3 -S -B pccl/tests/xtest/artifact_cache.py validate \
+          STATE=$(python3 -S -B pccl/tests/xtest/artifact_cache.py probe \
             --directory "$CACHE_DIR" --profile standard \
             --pccl-revision '${{ github.sha }}' --pccl-tests-revision '${{ env.PCCL_TESTS_REVISION }}' \
-            --expected-sha256 '${{ env.EXPECTED_SHA }}'
+            --expected-sha256 '${{ env.EXPECTED_SHA }}')
+          test "$STATE" = hit
       - id: groups-cache
         name: Check for valid NAS Case groups
         env:
@@ -457,14 +471,19 @@ jobs:
         env:
           CACHE_DIR: /wl_nas/devops/pccl-artifact-cache-${{ github.run_id }}/cache/standard/${{ env.EXPECTED_SHA }}
         run: |
-          if python3 -S -B pccl/tests/xtest/artifact_cache.py validate \
+          STATE=$(python3 -S -B pccl/tests/xtest/artifact_cache.py probe \
             --directory "$CACHE_DIR" --profile standard \
             --pccl-revision '${{ github.sha }}' --pccl-tests-revision '${{ env.PCCL_TESTS_REVISION }}' \
-            --expected-sha256 '${{ env.EXPECTED_SHA }}'; then
-            echo 'state=hit' >> "$GITHUB_OUTPUT"
-          else
-            echo 'state=miss' >> "$GITHUB_OUTPUT"
-          fi
+            --expected-sha256 '${{ env.EXPECTED_SHA }}')
+          case "$STATE" in
+            hit)
+              echo 'state=hit' >> "$GITHUB_OUTPUT" ;;
+            miss|invalid)
+              echo 'state=miss' >> "$GITHUB_OUTPUT" ;;
+            *)
+              echo "Unexpected cache state: $STATE"
+              exit 1 ;;
+          esac
       - uses: t-head/pccl/.github/actions/download-artifact-retry@42c06876282e700ae0434b4577fedd757b6f2db1
         if: steps.build-cache.outputs.state == 'miss'
         with:
@@ -486,11 +505,11 @@ jobs:
           BUILD_CACHE: /wl_nas/devops/pccl-artifact-cache-${{ github.run_id }}/cache/standard/${{ env.EXPECTED_SHA }}
           GROUPS_CACHE: /wl_nas/devops/pccl-artifact-cache-${{ github.run_id }}/cache/case-groups/${{ env.EXPECTED_GROUPS_SHA }}
         run: |
-          chmod -R a+rwX "$BUILD_CACHE"
-          python3 -S -B pccl/tests/xtest/artifact_cache.py validate \
+          STATE=$(python3 -S -B pccl/tests/xtest/artifact_cache.py probe \
             --directory "$BUILD_CACHE" --profile standard \
             --pccl-revision '${{ github.sha }}' --pccl-tests-revision '${{ env.PCCL_TESTS_REVISION }}' \
-            --expected-sha256 '${{ env.EXPECTED_SHA }}'
+            --expected-sha256 '${{ env.EXPECTED_SHA }}')
+          test "$STATE" = hit
           python3 -S -B pccl/tests/xtest/case_group_cache.py validate \
             --directory "$GROUPS_CACHE" --expected-sha256 '${{ env.EXPECTED_GROUPS_SHA }}'
       - name: Run the automatic group on one node
@@ -958,10 +977,31 @@ jobs:
       - id: cleanup
         name: Remove run-owned NAS build artifacts
         if: always()
+        env:
+          NEEDS: ${{ toJSON(needs) }}
         run: |
-          python3 -S -B pccl/tests/xtest/artifact_cache.py cleanup \
-            --root /wl_nas/devops/pccl-artifact-cache-${{ github.run_id }} \
-            --run-id '${{ github.run_id }}'
+          PRESERVE=$(python3 - <<'PY'
+          import json
+          import os
+
+          needs = json.loads(os.environ['NEEDS'])
+          failed = any(needs[name]['result'] != 'success'
+                       for name in ('prepare', 'build-standard', 'stage-cache', 'execute'))
+          outcomes = ('${{ steps.groups.outcome }}', '${{ steps.reconcile.outcome }}',
+                      '${{ steps.performance-report.outcome }}')
+          failed = failed or any(result != 'success' for result in outcomes)
+          print(int(failed))
+          PY
+          )
+          if [[ "$PRESERVE" == 1 ]]; then
+            python3 -S -B pccl/tests/xtest/artifact_cache.py cleanup \
+              --root /wl_nas/devops/pccl-artifact-cache-${{ github.run_id }} \
+              --run-id '${{ github.run_id }}' --preserve-cache
+          else
+            python3 -S -B pccl/tests/xtest/artifact_cache.py cleanup \
+              --root /wl_nas/devops/pccl-artifact-cache-${{ github.run_id }} \
+              --run-id '${{ github.run_id }}'
+          fi
       - name: Report daily execution and cleanup failures
         if: always()
         env:

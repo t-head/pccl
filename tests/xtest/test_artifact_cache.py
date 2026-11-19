@@ -48,6 +48,21 @@ class ArtifactCacheTests(unittest.TestCase):
         self.assertEqual(record["artifact_sha256"], self.sha)
         self.assertEqual(artifact_cache.read_record(output), record)
 
+    def test_probe_distinguishes_hit_missing_and_invalid_caches(self):
+        self.assertEqual(artifact_cache.probe(self.download, "standard", PCCL, RUNNER, self.sha), "hit")
+        self.assertEqual(artifact_cache.probe(self.root / "missing", "standard", PCCL, RUNNER, self.sha), "miss")
+        self.archive.write_bytes(b"corrupt")
+        self.assertEqual(artifact_cache.probe(self.download, "standard", PCCL, RUNNER, self.sha), "invalid")
+        self.assertEqual(artifact_cache.probe(self.download, "standard", "c" * 40, RUNNER, self.sha), "invalid")
+
+    def test_probe_does_not_hide_nas_access_errors(self):
+        with mock.patch.object(Path, "lstat", side_effect=PermissionError("denied")):
+            with self.assertRaisesRegex(PermissionError, "denied"):
+                artifact_cache.probe(self.download, "standard", PCCL, RUNNER, self.sha)
+        with mock.patch.object(artifact_cache, "validate", side_effect=OSError("NAS offline")):
+            with self.assertRaisesRegex(OSError, "NAS offline"):
+                artifact_cache.probe(self.download, "standard", PCCL, RUNNER, self.sha)
+
     def test_validate_and_publish_roundtrip(self):
         self.validate()
         cache = self.root / "cache" / "standard" / self.sha
@@ -233,6 +248,19 @@ print(cache.stat().st_ino)
         self.assertTrue(other.is_dir())
         with self.assertRaisesRegex(ValueError, "run-scoped"):
             artifact_cache.cleanup(root, "99999")
+
+    def test_cleanup_can_preserve_the_formal_cache_for_failed_retries(self):
+        root = self.root / "devops" / "pccl-artifact-cache-12345"
+        for name in ("staging", "cache", "shared-standard", "results"):
+            (root / name).mkdir(parents=True)
+            (root / name / "keep-or-delete").write_text(name)
+
+        artifact_cache.cleanup(root, "12345", preserve_cache=True)
+
+        self.assertTrue((root / "cache" / "keep-or-delete").is_file())
+        self.assertFalse((root / "staging").exists())
+        self.assertFalse((root / "shared-standard").exists())
+        self.assertTrue((root / "results" / "keep-or-delete").is_file())
 
 
 if __name__ == "__main__":

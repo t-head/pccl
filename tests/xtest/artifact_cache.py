@@ -112,6 +112,22 @@ def validate(directory, profile, pccl_revision, pccl_tests_revision, expected_sh
     return archive
 
 
+def probe(directory, profile, pccl_revision, pccl_tests_revision, expected_sha):
+    """Return hit/miss/invalid without hiding NAS access errors."""
+    for path in paths(directory, profile):
+        try:
+            path.lstat()
+        except FileNotFoundError:
+            return "miss"
+    try:
+        validate(directory, profile, pccl_revision, pccl_tests_revision, expected_sha)
+    except FileNotFoundError:
+        return "miss"
+    except (ValueError, json.JSONDecodeError):
+        return "invalid"
+    return "hit"
+
+
 @contextmanager
 def _publication_lock(cache, timeout=PUBLICATION_TIMEOUT):
     # Keep the lock outside the replaceable directory and never unlink it:
@@ -196,7 +212,7 @@ def publish(download, cache, profile, pccl_revision, pccl_tests_revision, expect
             shutil.rmtree(temporary)
 
 
-def cleanup(root, run_id):
+def cleanup(root, run_id, preserve_cache=False):
     """Remove only build artifacts owned by this run; preserve all test results."""
     if not run_id.isdigit():
         raise ValueError("Run ID must be numeric")
@@ -205,7 +221,8 @@ def cleanup(root, run_id):
         raise ValueError("Cleanup refuses a symlinked run root")
     if root.name != f"pccl-artifact-cache-{run_id}" or root.parent.name != "devops":
         raise ValueError("Cleanup root is not the expected run-scoped artifact directory")
-    for name in ("staging", "cache", "shared-standard"):
+    names = ("staging", "shared-standard") if preserve_cache else ("staging", "cache", "shared-standard")
+    for name in names:
         path = root / name
         if path.is_symlink():
             raise ValueError("Cleanup refuses a symlinked artifact directory")
@@ -222,29 +239,35 @@ def main():
     create_parser.add_argument("--profile", choices=("standard", "notsm"), required=True)
     create_parser.add_argument("--pccl-revision", required=True)
     create_parser.add_argument("--pccl-tests-revision", required=True)
-    for operation in ("validate", "publish"):
+    for operation in ("validate", "publish", "probe"):
         command = subparsers.add_parser(operation)
         command.add_argument("--profile", choices=("standard", "notsm"), required=True)
         command.add_argument("--pccl-revision", required=True)
         command.add_argument("--pccl-tests-revision", required=True)
         command.add_argument("--expected-sha256", required=True)
-        command.add_argument("--directory" if operation == "validate" else "--download", type=Path, required=True)
+        command.add_argument("--directory" if operation in ("validate", "probe") else "--download",
+                             type=Path, required=True)
         if operation == "publish":
             command.add_argument("--cache", type=Path, required=True)
     cleanup_parser = subparsers.add_parser("cleanup")
     cleanup_parser.add_argument("--root", type=Path, required=True)
     cleanup_parser.add_argument("--run-id", required=True)
+    cleanup_parser.add_argument("--preserve-cache", action="store_true")
     args = parser.parse_args()
     try:
         if args.operation == "cleanup":
-            cleanup(args.root, args.run_id)
+            cleanup(args.root, args.run_id, args.preserve_cache)
             return 0
         if args.operation == "create":
             record = create_record(args.archive, args.pccl_revision, args.pccl_tests_revision, args.profile)
             write_record(args.output, record)
             print(json.dumps(record, sort_keys=True))
             return 0
-        directory = args.directory if args.operation == "validate" else args.cache
+        directory = args.directory if args.operation in ("validate", "probe") else args.cache
+        if args.operation == "probe":
+            print(probe(directory, args.profile, args.pccl_revision,
+                        args.pccl_tests_revision, args.expected_sha256))
+            return 0
         if args.operation == "publish":
             publish(args.download, args.cache, args.profile, args.pccl_revision,
                     args.pccl_tests_revision, args.expected_sha256)

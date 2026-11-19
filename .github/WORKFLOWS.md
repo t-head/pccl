@@ -28,6 +28,8 @@ and cleanup are a separate `results` job; PRs must pass secret scanning, commit
 checks, AI review, human approval and preparation before it can run. Approved
 failed runs still clean up, while rejected PRs never execute internal result scripts.
 
+Build jobs validate and publish the current Run's build archive to its run-scoped NAS cache before uploading the same files as a GitHub artifact backup. Test jobs probe that cache first and download the artifact only when the cache is missing or invalid. Successful runs remove transient build caches after testing and backup; failed or cancelled runs retain the formal cache for failed-job retries. Cache checks still enforce source revisions, build profile and archive SHA-256, while NAS permission or mount errors fail explicitly instead of being treated as cache misses.
+
 ### CSV Cases and commands
 
 - `suites.csv` holds the composite Plan/Suite key, node and card resources, outer timeout and shared environment filename.

@@ -119,6 +119,17 @@ class WorkflowContractTests(unittest.TestCase):
                         self.text.index('name: Remove run-owned NAS build artifacts'))
         self.assertIn("needs: [precheck, commit-checks, prepare, ai-code-review, human-review", self.text)
 
+    def test_build_publishes_nas_before_backup_and_consumers_probe_without_chmod(self):
+        for profile in ('standard', 'notsm'):
+            publish = self.text.index(f'name: Publish the {profile} NAS cache')
+            upload = self.text.index(f'name: pccl-build-{profile}', publish)
+            self.assertLess(publish, upload)
+            self.assertIn(f'cache/{profile}/${{{{ steps.identity.outputs.artifact_sha256 }}}}', self.text[publish:upload])
+        self.assertEqual(self.text.count('artifact_cache.py probe'), 4)
+        self.assertNotIn('chmod -R a+rwX "$CACHE_DIR"', self.text)
+        self.assertIn('--preserve-cache', self.text)
+        self.assertIn("names = ('prepare', 'build-standard', 'build-notsm', 'stage-cache',", self.text)
+
     def test_required_gate_is_preserved_and_support_check_always_runs(self):
         self.assertIn('  summary:\n    name: PCCL Tests Gate\n', self.text)
         summary = self.job('summary')
