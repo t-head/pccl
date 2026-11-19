@@ -143,3 +143,12 @@ The host coverage helper tests live in `tests/host_coverage/` and run explicitly
 in this experiment. They are not xTest executor tests and do not change the
 existing daily/sanity regression inventory or gates. Both inventories are
 validated separately when publishing the experiment.
+
+
+Run `44507363579`, commit `ff40563`, successfully compiled the native host archive
+but failed to link the tests because their shared-library interposing globals
+collided with production globals in the archive. Static host mode now uses the
+production globals without linker error suppression, while preserving the
+original fixture parameter defaults (`PCCL_NO_MEMSET=0`,
+`PCCL_CHANNEL_SHUFFLE=0`) unless explicitly configured otherwise. No assertions
+or Case filters were relaxed.
