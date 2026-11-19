@@ -32,6 +32,11 @@ class CsvRunnerTests(unittest.TestCase):
         self.binary = self.runner / 'build'
         self.binary.mkdir(parents=True)
         (self.test_root / 'lib').mkdir()
+        helpers = self.test_root / 'pccl' / 'tests' / 'xtest'
+        (helpers / 'cluster-bin').mkdir(parents=True)
+        for name in ('cluster-ssh', 'cluster-exec', 'cluster_case_ssh.sh'):
+            (helpers / 'cluster-bin' / name).write_text('# test helper\n')
+        (helpers / 'remote_recovery.py').write_text('# test helper\n')
         (self.runner / 'run_test.py').write_text(
             'import os, sys\n'
             'print("arguments=" + repr(sys.argv[1:]))\n'
@@ -202,10 +207,10 @@ class CsvRunnerTests(unittest.TestCase):
         script = self.root / 'remote_recovery.py'
         completed = mock.Mock(stdout='{"safe": true}\n', stderr='', returncode=0)
         with mock.patch.object(run_cases.subprocess, 'run', return_value=completed) as invoke:
-            result = run_cases._remote_recovery('worker-a', script, 5, 123)
+            result = run_cases._remote_recovery('worker-a', script, 'a' * 32)
         self.assertTrue(result['safe'])
         command = invoke.call_args.args[0]
-        self.assertEqual(command[-2:], ['--controller-pid', '123'])
+        self.assertEqual(command[-2:], ['--case-id', 'a' * 32])
         for result_value in (
                 mock.Mock(stdout='not-json\n', stderr='', returncode=0),
                 mock.Mock(stdout='{"safe": false, "errors": ["worker failed"]}\n',
@@ -217,25 +222,26 @@ class CsvRunnerTests(unittest.TestCase):
                                side_effect=subprocess.TimeoutExpired('cluster-exec', 15)):
             self.assertFalse(run_cases._remote_recovery('worker-a', script, 5)['safe'])
 
-    def test_recover_multinode_isolates_controller_pid_per_worker(self):
+    def test_recover_multinode_uses_one_group_case_id(self):
         hostfile = self.root / 'hosts.cfg'
         hostfile.write_text('worker-a\nworker-b\n')
         script = self.test_root / 'pccl' / 'tests' / 'xtest' / 'remote_recovery.py'
-        script.parent.mkdir(parents=True)
+        script.parent.mkdir(parents=True, exist_ok=True)
         script.write_text('# helper\n')
         case = self.inputs([{'cmd': 'exit 1'}], nodes=2)['cases'][0]
         output = self.root / 'recovery-output'
         directory = output / case['plan'] / case['suite'] / case['name']
         directory.mkdir(parents=True)
-        runtime = {'hostfile': hostfile, 'test_root': self.test_root, 'output': output}
+        runtime = {'hostfile': hostfile, 'test_root': self.test_root, 'output': output,
+                   'recovery_id': 'a' * 32}
         row = {'duration_seconds': 1.0}
         with mock.patch.object(run_cases, '_remote_recovery', return_value={'safe': True}) as recover:
             safe = run_cases._recover_multinode(case, runtime, row)
         self.assertTrue(safe)
         self.assertEqual(recover.call_args_list[0].args[0], 'worker-a')
-        self.assertEqual(recover.call_args_list[0].args[-1], os.getpid())
+        self.assertEqual(recover.call_args_list[0].args[-1], 'a' * 32)
         self.assertEqual(recover.call_args_list[1].args[0], 'worker-b')
-        self.assertEqual(recover.call_args_list[1].args[-1], 0)
+        self.assertEqual(recover.call_args_list[1].args[-1], 'a' * 32)
         self.assertTrue((directory / 'recovery.json').is_file())
         with mock.patch.object(run_cases, '_remote_recovery', side_effect=[{'safe': True}, {'safe': False}]):
             self.assertFalse(run_cases._recover_multinode(case, runtime, row))

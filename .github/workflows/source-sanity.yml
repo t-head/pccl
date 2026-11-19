@@ -819,7 +819,8 @@ jobs:
             --standard-sha256 '${{ needs.build-standard.outputs.artifact_sha256 }}' \
             --notsm-sha256 '${{ needs.build-notsm.outputs.artifact_sha256 }}' \
             --cards-per-node '${{ env.VALIDATION_CARDS }}'
-      - uses: actions/upload-artifact@v4
+      - id: results-upload
+        uses: actions/upload-artifact@v4
         if: always() && steps.reconcile.outcome == 'success'
         with:
           name: single-node-source-sanity-results
@@ -833,6 +834,7 @@ jobs:
         env:
           NEEDS: ${{ toJSON(needs) }}
           RECONCILE_OUTCOME: ${{ steps.reconcile.outcome }}
+          RESULTS_UPLOAD_OUTCOME: ${{ steps.results-upload.outcome }}
         run: |
           PRESERVE=$(python3 - <<'PY'
           import json
@@ -842,7 +844,8 @@ jobs:
           names = ('prepare', 'build-standard', 'build-notsm', 'stage-cache',
                    'single-node', 'two-node')
           failed = any(needs[name]['result'] != 'success' for name in names)
-          failed = failed or os.environ['RECONCILE_OUTCOME'] != 'success'
+          failed = (failed or os.environ['RECONCILE_OUTCOME'] != 'success' or
+                    os.environ['RESULTS_UPLOAD_OUTCOME'] != 'success')
           print(int(failed))
           PY
           )

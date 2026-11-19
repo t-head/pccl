@@ -941,7 +941,8 @@ jobs:
               print(f'::error::Daily group {group_id} did not reconcile successfully')
           sys.exit(bool(failed))
           PY
-      - uses: actions/upload-artifact@v4
+      - id: results-upload
+        uses: actions/upload-artifact@v4
         if: always()
         with:
           name: m890p-daily-full-results
@@ -966,7 +967,8 @@ jobs:
             --dataset '${{ inputs.dataset || (github.event_name == 'schedule' && 'full' || 'smoke') }}' \
             --source-revision '${{ github.sha }}' \
             --runner-revision '${{ env.PCCL_TESTS_REVISION }}'
-      - uses: actions/upload-artifact@v4
+      - id: performance-upload
+        uses: actions/upload-artifact@v4
         if: always()
         with:
           name: m890p-daily-performance-report
@@ -988,7 +990,8 @@ jobs:
           failed = any(needs[name]['result'] != 'success'
                        for name in ('prepare', 'build-standard', 'stage-cache', 'execute'))
           outcomes = ('${{ steps.groups.outcome }}', '${{ steps.reconcile.outcome }}',
-                      '${{ steps.performance-report.outcome }}')
+                      '${{ steps.performance-report.outcome }}', '${{ steps.results-upload.outcome }}',
+                      '${{ steps.performance-upload.outcome }}')
           failed = failed or any(result != 'success' for result in outcomes)
           print(int(failed))
           PY

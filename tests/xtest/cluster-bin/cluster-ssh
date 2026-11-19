@@ -1,0 +1,2 @@
+#!/bin/bash
+exec "$(dirname "$0")/cluster_case_ssh.sh" "$0" "$@"

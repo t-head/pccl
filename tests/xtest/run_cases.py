@@ -21,6 +21,7 @@ import signal
 import subprocess
 import sys
 import time
+import uuid
 
 import artifact_cache
 
@@ -371,8 +372,13 @@ def run_case(case, runtime, interrupted):
             _environment_file(runtime["input"] / "envs" / suite["env"]), runtime["base_environment"], bindings)
         # Keep the build ahead of inherited installations while retaining the
         # exported SDK path order after it.
+        if suite["nodes"] > 1:
+            environment["PCCL_CASE_ID"] = runtime["recovery_id"]
         environment["PATH"] = (str(runtime["binary_dir"]) + os.pathsep
                                + str(runtime["python_bin"]) + os.pathsep + environment.get("PATH", ""))
+        if suite["nodes"] > 1:
+            environment["PATH"] = str(runtime["test_root"] / "pccl" / "tests" / "xtest" / "cluster-bin") \
+                + os.pathsep + environment["PATH"]
         environment["LD_LIBRARY_PATH"] = str(runtime["test_root"] / "lib") + os.pathsep + environment.get(
             "LD_LIBRARY_PATH", "")
         environment["PYTHONUNBUFFERED"] = "1"
@@ -441,11 +447,9 @@ def _not_run(case, reason):
             "duration_seconds": 0, "error": reason, "raw_log": ""}
 
 
-def _remote_recovery(host, script, max_age, controller_pid=0):
+def _remote_recovery(host, script, case_id):
     command = ["timeout", "-k", "2s", "10s", "cluster-exec", host,
-               "python3", str(script), "--max-age", f"{max_age:.3f}"]
-    if controller_pid > 0:
-        command.extend(["--controller-pid", str(controller_pid)])
+               "python3", str(script), "--case-id", case_id]
     try:
         result = subprocess.run(command, stdin=subprocess.DEVNULL, capture_output=True,
                                 text=True, timeout=15)
@@ -475,16 +479,13 @@ def _recover_multinode(case, runtime, row):
         if fields and not fields[0].startswith("#"):
             hosts.append(fields[0])
     script = runtime["test_root"] / "pccl" / "tests" / "xtest" / "remote_recovery.py"
-    max_age = max(1.0, float(row["duration_seconds"]) + 5.0)
-    report = {"safe": False, "workers": {}, "max_process_age": max_age}
+    report = {"safe": False, "case_id": runtime["recovery_id"], "workers": {}}
     if not hosts or not script.is_file():
         report["error"] = "Missing allocated workers or remote recovery helper"
     else:
         with ThreadPoolExecutor(max_workers=len(hosts)) as executor:
             results = executor.map(
-                lambda item: _remote_recovery(
-                    item[1], script, max_age, os.getpid() if item[0] == 0 else 0),
-                enumerate(hosts))
+                lambda host: _remote_recovery(host, script, runtime["recovery_id"]), hosts)
             report["workers"] = dict(zip(hosts, results))
         report["safe"] = all(worker.get("safe") is True for worker in report["workers"].values())
     directory = runtime["output"] / case["plan"] / case["suite"] / case["name"]
@@ -527,12 +528,19 @@ def run_all(inputs, test_root, binary_dir, output, hostfile=None, base_environme
     if any(case["suite_spec"]["nodes"] > 1 for case in inputs["cases"]):
         if hostfile is None or not hostfile.is_file():
             raise ValueError("Multi-node Cases require an allocated hostfile")
+        for relative in ("cluster-bin/cluster-ssh", "cluster-bin/cluster-exec",
+                         "cluster-bin/cluster_case_ssh.sh", "remote_recovery.py"):
+            if not (test_root / "pccl" / "tests" / "xtest" / relative).is_file():
+                raise ValueError(f"Multi-node recovery helper is missing: {relative}")
+        if any("/run/cluster/bin/" in case["cmd"] for case in inputs["cases"]):
+            raise ValueError("Absolute cluster-ssh paths bypass per-Case cgroup ownership")
     output.mkdir(parents=True, exist_ok=False)
     _write_json(output / "build.json", build_identity)
     runtime = {"test_root": test_root, "binary_dir": binary_dir, "runner_root": _runner_root(test_root),
                "output": output, "hostfile": hostfile, "input": inputs["directory"],
                "python_bin": _stage_interpreter(output), "mpi_interface": mpi_interface,
-               "base_environment": dict(os.environ if base_environment is None else base_environment)}
+               "base_environment": dict(os.environ if base_environment is None else base_environment),
+               "recovery_id": uuid.uuid4().hex}
     interrupted = [None]
 
     def cancel(signum, frame):
