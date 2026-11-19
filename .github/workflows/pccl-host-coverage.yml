@@ -1,0 +1,73 @@
+name: PCCL host GCOV experiment
+
+on:
+  # Bootstrap this new workflow without changing the default branch or daily CI.
+  push:
+    branches: [codex/pccl-host-gcov-experiment]
+    paths:
+      - .github/workflows/pccl-host-coverage.yml
+      - .github/workflows/scripts/pccl_host_coverage.py
+      - tests/xtest/test_host_coverage.py
+  workflow_dispatch:
+    inputs:
+      jobs:
+        description: CPU build parallelism
+        type: choice
+        options: ['2', '4', '8']
+        default: '4'
+      ppu_archs:
+        description: Device dependencies to build (device coverage is excluded)
+        type: choice
+        options: ['ppu_10,ppu_15', 'ppu_15']
+        default: 'ppu_10,ppu_15'
+
+concurrency:
+  group: pccl-host-gcov-${{ github.ref }}
+  cancel-in-progress: false
+
+permissions:
+  contents: read
+
+jobs:
+  host-coverage:
+    name: C++ host coverage / graph search
+    runs-on: x86-ubuntu2404-8-32
+    timeout-minutes: 60
+    container:
+      image: download.t-head.cn/docker_release/ppu:sdk2.2.0-hggcrt3-ubuntu24.04-py312-20261005
+      options: --runtime=runc --cpus=${{ inputs.jobs || '8' }} --memory=16g --pids-limit=1024
+    env:
+      COVERAGE_RUN: coverage/host-gcov-${{ github.run_id }}-${{ github.run_attempt }}
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          persist-credentials: false
+      - name: Install coverage build tools
+        run: |
+          apt-get update
+          apt-get install -y --no-install-recommends build-essential cmake git wget unzip libnuma-dev libibverbs-dev libboost-program-options-dev python3-venv
+          python3 -m venv --system-site-packages coverage/tools
+          coverage/tools/bin/python -m pip install --disable-pip-version-check --index-url https://pypi.org/simple gcovr==8.4
+      - name: Validate experiment helpers
+        run: coverage/tools/bin/python -m unittest discover -s tests/xtest -p 'test_host_coverage.py' -v
+      - name: Build instrumented PCCL and run graph tests
+        shell: bash
+        env:
+          BUILD_JOBS: ${{ inputs.jobs || '8' }}
+          PPU_ARCHS: ${{ inputs.ppu_archs || 'ppu_15' }}
+        run: |
+          if [ -r /usr/local/PPU_SDK/envsetup.sh ]; then
+            source /usr/local/PPU_SDK/envsetup.sh
+          fi
+          export PATH="$GITHUB_WORKSPACE/coverage/tools/bin:$PATH"
+          python .github/workflows/scripts/pccl_host_coverage.py \
+            --build-dir "$COVERAGE_RUN/build" --output "$COVERAGE_RUN/report" \
+            --jobs "$BUILD_JOBS" --ppu-archs "$PPU_ARCHS"
+      - name: Upload host coverage and diagnostics
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: pccl-host-coverage-${{ github.run_id }}-${{ github.run_attempt }}
+          path: ${{ env.COVERAGE_RUN }}/report/
+          if-no-files-found: error
+          retention-days: 14
