@@ -167,3 +167,35 @@ The experiment now uses a finite suspicious-hit bound of `2^40` instead of the
 missing-source and other GCOV parser errors remain fatal. Raw profiles and the
 configured bound remain in the report for audit. The prior failed run remains
 failed; a fresh successful Actions result is required for the updated collector.
+
+## Successful native host report — 2026-11-19
+
+GitHub Actions run `44512261349` validated implementation commit
+`4db6626b41bdf3b6ad03bc7218dd2a09ecd3da40`. Native host archive compilation,
+test-executable linking, both existing graph suites, report collection and artifact
+upload all passed. The tests ran without PPU device mappings: 21 without PXN and
+9 with PXN; all 30 passed, with no failures, errors, disabled or skipped tests.
+
+| Host-source metric | Covered / instrumented | Percentage |
+| --- | --- | --- |
+| Lines | 1,996 / 36,272 | 5.50% |
+| Functions | 185 / 2,765 | 6.69% |
+| Branches | 1,810 / 75,525 | 2.40% |
+| Graph-directory lines | 1,627 / 3,685 | 44.15% |
+
+The report contains 154 host-source files and 120 `.gcno` / 109 `.gcda` files in
+the raw profile archive. Source identity, scope, XML/JSON counts, GTest totals and
+profile inventory were checked after downloading the artifact. The denominator
+is the instrumented host build, not every line in the repository. The low overall
+percentage reflects the deliberately graph-focused test scope: communication,
+transport, scheduler and most runtime paths have not been exercised here.
+
+Artifact `pccl-host-coverage-44512261349-1` includes annotated HTML, Cobertura XML,
+JSON summary, raw profiles, compiler flags and build/test/collector logs. The
+complete job took about 50 minutes, mostly SDK container initialization (about
+46 minutes); the native build, graph tests and collection took about 2m33s.
+
+**This is successful native host graph coverage, not a passing full-runtime build,
+PPU kernel correctness result or performance baseline.** The earlier full-runtime
+attempts remain recorded as timeouts. No Issue or PR was created and no default
+branch, daily/sanity workflow or baseline data was modified.
