@@ -475,32 +475,46 @@ static ncclResult_t socketSetFlags(struct ncclSocket* sock) {
   return ncclSuccess;
 }
 
+static void socketResetAccept(struct ncclSocket* sock) {
+  char line[SOCKET_NAME_MAXLEN+1];
+  INFO(NCCL_NET|NCCL_INIT, "socketFinalizeAccept: didn't receive a valid magic from %s",
+       ncclSocketToString(&sock->addr, line));
+  // Ignore spurious connection and accept again
+  (void)close(sock->fd);
+  sock->fd = -1;
+  sock->state = ncclSocketStateAccepting;
+  sock->finalizeCounter = 0;
+}
+
 static ncclResult_t socketFinalizeAccept(struct ncclSocket* sock) {
   uint64_t magic;
   enum ncclSocketType type;
   int received;
-  char line[SOCKET_NAME_MAXLEN + 1];
   // once accepted, linux sockets do NOT inherit file status flags such as O_NONBLOCK (BSD ones do)
   NCCLCHECK(socketSetFlags(sock));
 
   if (sock->asyncFlag == 0 || sock->finalizeCounter < sizeof(magic)) {
     if (sock->asyncFlag == 0) {
       received = 0;
-      NCCLCHECK(socketWait(NCCL_SOCKET_RECV, sock, &magic, sizeof(magic), &received));
+      if (socketWait(NCCL_SOCKET_RECV, sock, &magic, sizeof(magic), &received) != ncclSuccess) {
+        socketResetAccept(sock);
+        return ncclSuccess;
+      }
     } else {
+      int closed = 0;
       received = sock->finalizeCounter;
-      NCCLCHECK(socketProgress(NCCL_SOCKET_RECV, sock, sock->finalizeBuffer, sizeof(magic), &received));
+      NCCLCHECK(socketProgress(NCCL_SOCKET_RECV, sock, sock->finalizeBuffer, sizeof(magic), &received, &closed));
       sock->finalizeCounter = received;
-      if (received < sizeof(magic)) return ncclSuccess;
+      if (received < sizeof(magic)) {
+        if (closed) {
+          socketResetAccept(sock);
+        }
+        return ncclSuccess;
+      }
       memcpy(&magic, sock->finalizeBuffer, sizeof(magic));
     }
     if (magic != sock->magic) {
-      WARN("socketFinalizeAccept from %s: wrong magic %lx != %lx", ncclSocketToString(&sock->addr, line), magic, sock->magic);
-      close(sock->fd);
-      sock->fd = -1;
-      // Ignore spurious connection and accept again
-      sock->state = ncclSocketStateAccepting;
-      sock->finalizeCounter = 0;
+      socketResetAccept(sock);
       return ncclSuccess;
     }
   }
