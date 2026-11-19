@@ -1,8 +1,8 @@
 {
   "classification": {
     "base_sha": "506c3b02235e24dc2a3f127fbb9ed64eef756485",
-    "head_sha": "3d8433e33e4e995b134711b28a382a7522c808ce",
-    "input_fingerprint": "cfe9273662ba2e9a964b2ebf257878382107afc46f77f87a43563f9f2425b590",
+    "head_sha": "a84b7cedff29379e3d699da2e40002b6c236a868",
+    "input_fingerprint": "d8a1a5c88052d18f25832bc95470df7cc63b57c0da09141d26f4bf9a992def4f",
     "pr_number": 219,
     "proposal": {
       "modules": [
@@ -10,7 +10,7 @@
         "communicator",
         "enqueue"
       ],
-      "reason": "Primary change is in communicator configuration lifecycle: new/validated config fields (nChannelsPerNetPeer, graphUsageMode, maxP2pPeers, plus nvlinkCentricSched/numRmaCtx acceptance), env overrides, defaults, and cross-rank propagation in init/comm config paths. Enqueue is additionally needed because strong-stream/graph-capture behavior is materially changed to support graph/non-graph mixing modes (new graphUsageMode plumbing and conditional synchronization semantics in strongstream and enqueue/channel call sites). Device-topology is additionally needed because P2P channel computation logic in src/graph/paths.cc now uses communicator config (network peer channel count and max peer budget) to alter channel-per-peer and multi-node tuning behavior."
+      "reason": "Primary change is communicator configuration control: new config fields are validated/defaulted, overridden from env, stored on comm, and synchronized across ranks during init. enqueue is additionally required because graphUsageMode now changes strong-stream graph capture/mixing acquire/release behavior (strongstream + enqueue/channel call paths). device-topology is additionally required because P2P channel-per-peer computation in topo path logic now uses nChannelsPerNetPeer/maxP2pPeers to alter channel allocation behavior."
     }
   },
   "reviewers": {
