@@ -12,10 +12,14 @@ baselines. It does not collect Python or PPU kernel coverage, and does not enabl
 
 The dedicated library build uses the opt-in `HOST_GCOV=1 GCOV=0 DEBUG=0` mode.
 Host C++ compilation and linking use `--coverage`, with `-O0` overriding the normal
-host optimization. Device dependencies remain complete, normally optimized and
-uninstrumented; no fake kernels or restricted operation/data-type builds are used.
+host optimization. The default `host_archive` mode builds all host C++ objects and
+links the actual graph-test dependencies from `libpccl_host_gcov.a`, discarding
+unreachable sections with normal linker garbage collection. No unresolved-symbol
+errors are ignored, and no fake kernels or changed assertions are introduced.
+This archive is **not a complete PCCL runtime** and cannot validate communication
+or PPU kernel execution. The `full` mode remains available for a complete runtime
+build with all device dependencies normally optimized and uninstrumented.
 The existing default flags and legacy `GCOV=1 DEBUG=1` behavior remain unchanged.
-It builds device dependencies but does not measure them.
 Both documented graph-search suites run: `graphSearchTestWithoutPXN.*` and
 `graphSearchTestWithPXN.*` (with `--pxn`). These tests use topology XML fixtures;
 no PPU device is passed to the CPU-only job. CPU execution with the selected SDK
@@ -122,3 +126,14 @@ device dependencies normally. Helper fixture metrics are also isolated from
 `GITHUB_STEP_SUMMARY`; mocked percentages are never product coverage. No Issue or
 PR was created for this isolated experiment. The host-only trial still requires
 an actual complete build, both graph suites and a verified report.
+
+
+### Native host graph trial
+
+Run `44498202039`, commit `af0b4f0`, also timed out during the full device-dependency
+build after 40 minutes. Host-only instrumentation was effective (119 host notes,
+no device notes), but no tests ran and no counters existed. The default trial now
+builds a native host archive to exercise the actual graph C++ code independently
+of the out-of-scope PPU compiler workload. Select `library_kind=full` to retry the
+complete runtime build separately. Native archive success must never be presented
+as successful full runtime compilation, PPU correctness, or performance data.

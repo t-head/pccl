@@ -134,7 +134,7 @@ endif
 # Opt-in host instrumentation without putting every PPU dependency in debug mode.
 HOST_GCOV ?= 0
 ifeq ($(HOST_GCOV), 1)
-  CXXFLAGS += --coverage -O0 -g -ggdb3
+  CXXFLAGS += --coverage -O0 -g -ggdb3 -ffunction-sections -fdata-sections
   LDFLAGS += --coverage
 endif
 

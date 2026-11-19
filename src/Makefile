@@ -147,6 +147,18 @@ lib : $(INCTARGETS) $(LIBDIR)/$(LIBTARGET) #$(PKGDIR)/$(PKGTARGET)
 
 staticlib : $(LIBDIR)/$(STATICLIBTARGET)
 
+# Native graph-test archive: real host objects only, not a deployable PPU runtime.
+.PHONY: host_gcov_archive host_gcov_flags
+host_gcov_flags:
+	@mkdir -p $(LIBDIR)
+	@printf '%s\n' '$(CXXFLAGS)' > $(LIBDIR)/host_gcov_cxxflags.txt
+
+host_gcov_archive: $(LIBDIR)/libpccl_host_gcov.a
+
+$(LIBDIR)/libpccl_host_gcov.a: $(LIBOBJ)
+	@mkdir -p $(LIBDIR)
+	$(AR) cr $@ $^
+
 binary : $(BINDIR)/$(BINNAME) $(BINDIR)/$(PARAMBIN)
 
 tests : graph_search_test unit_test
