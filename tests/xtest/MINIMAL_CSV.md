@@ -162,7 +162,7 @@ Job adds 30 minutes for setup and cleanup. These workflow limits do not change
 the Suite or Case timeouts in the generated input.
 
 The 810E `full` conversion adds 6,435 selected Cases. The combined export has
-16,631 Cases and selects 16,622 Cases in 43 groups after the same 16-node
+16,628 Cases and selects 16,619 Cases in 43 groups after the same 16-node
 M890P exclusions. This is generation coverage only, not a claim that the full
 hardware dataset has been executed.
 

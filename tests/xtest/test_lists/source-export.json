@@ -2,8 +2,8 @@
   "additional_source_revisions": {
     "postsil_unit_test_shm": "cefc8624ec1a2b58bc54e76eedeefae90046d84f"
   },
-  "case_count": 10196,
-  "case_rows_sha256": "7504facaad243c6009703266a02aa19e81b5952dee5707e3573bc55c57cbdbae",
+  "case_count": 10193,
+  "case_rows_sha256": "64fd5814bedf1e89646b61f78c6177dd281fe24bb44ab77e2e1edfb18a388514",
   "csv_inputs_used": false,
   "csv_outputs_written": false,
   "environments": {
@@ -97,10 +97,10 @@
       "source_rows_sha256": "c5ead5aaeb72d1f6db9b3497212fa6f330c1a10aba1d009a2da8cf26636b8f25"
     },
     {
-      "case_count": 1297,
-      "definition_sha256": "64cac4e8ed16a768c888c53c26a9e1d4824874c15755c369598592b6b46e7941",
+      "case_count": 1294,
+      "definition_sha256": "dd650d751cb720563e87b008cba7a61cde60e21d07751634f96d97ab09c94e8a",
       "family": "postsil_unit_test_shm",
-      "source_rows_sha256": "b83773fe7431b775b7b699713831e09f822e15a822f71798cbef068630e60532"
+      "source_rows_sha256": "268d3230e7ad8f24a6d0aabb61bf6afcdac0b825d30d11a3ef4aa7959c406e48"
     }
   ],
   "runner_revision": "394556512e87259e9ffa25225632c46b0a0bbcd5",
