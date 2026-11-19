@@ -1,14 +1,14 @@
 {
   "classification": {
-    "base_sha": "bb1ecedd525723dbb986710831d2db19552050b4",
-    "head_sha": "4ba925f2d98d4397c2baab0d2a47cd2d5e6b19fe",
-    "input_fingerprint": "77003a219d909776625a927d11fa16018685fa8dea5c3b29c3408b01b33f7e19",
+    "base_sha": "506c3b02235e24dc2a3f127fbb9ed64eef756485",
+    "head_sha": "7427ffac6269cb96faad20561e016d00d041e668",
+    "input_fingerprint": "44dea84214ea4e106ffc812c751c9be64c54aad034b7cfd3bf18add49d395d2d",
     "pr_number": 130,
     "proposal": {
       "modules": [
         "gin"
       ],
-      "reason": "Main functional change is in GIN-specific networking backends: adding LAG-aware QP TX-port affinity and context/peer rotation for GDAKI and PROXY connection setup, plus allowing nonzero PROXY queue depth. The mlx5 symbol/wrapper and DOCA verbs updates are supporting plumbing for this GIN behavior, not an independent non-GIN subsystem change."
+      "reason": "Main functional change is in GIN-specific networking: GDAKI and PROXY now apply capability-gated LAG TX-port affinity and per-context/peer QP member rotation with fallback/read-back behavior, plus PROXY accepts positive queueDepth requests without resizing. The mlx5 wrapper/symbol and DOCA verbs updates are supporting plumbing for this GIN behavior, not an independent generic-network policy change."
     }
   },
   "reviewers": {
