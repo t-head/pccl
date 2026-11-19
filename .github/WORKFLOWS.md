@@ -83,9 +83,14 @@ visible while a replacement is generated. A red gate removes the old preview.
 
 ## Reviewer assignment
 
-When a PR is ready for review or receives new changes, PCCL identifies the affected modules,
-assigns Reviewers by rotation within each module and invites the corresponding Maintainers.
-It keeps existing assignments and invites each person once across modules.
+When a PR is ready for review or updated, PCCL selects modules by ownership of
+the main changes, rotates Reviewers, and invites their Maintainers.
+The prompt requests at most two modules in priority order, regardless of changed line
+count, without filling the second slot unnecessarily; scripts do not enforce this limit.
+Other affected modules appear in the PR comment for optional manual invitations,
+without required module approvals.
+
+PCCL keeps existing assignments and invites each person once across modules.
 
 | File | Purpose |
 | --- | --- |
@@ -98,7 +103,7 @@ It keeps existing assignments and invites each person once across modules.
 
 ## Module approval
 
-`PCCL Review Gate` checks that the Maintainers of the affected modules have approved the
+`PCCL Review Gate` checks that the Maintainers of the primary modules have approved the
 current commit. Authors are exempt from this check for modules they maintain. The Lead
 Maintainer can approve all modules on another author's PR.
 

@@ -121,17 +121,19 @@ def classification_fingerprint(pr, files, roster, skill):
 
 
 def validate_classification(proposal, roster):
-    """Reject malformed or unknown modules before model output can affect routing or approvals."""
-    if not isinstance(proposal, dict) or set(proposal) != {"modules", "reason"}:
-        raise ValueError("Expected module IDs and a reason")
-    modules, reason = (proposal[key] for key in ("modules", "reason"))
-    if (not isinstance(modules, list) or not modules or
+    """Reject malformed classifications before routing or approval checks."""
+    if not isinstance(proposal, dict) or set(proposal) != {"modules", "additional_modules", "reason"}:
+        raise ValueError("Expected primary modules, additional modules and a reason")
+    modules, additional, reason = (proposal[key] for key in ("modules", "additional_modules", "reason"))
+    if (not isinstance(modules, list) or not modules or not isinstance(additional, list) or
             not isinstance(reason, str) or not reason.strip() or len(reason) > 1000):
         raise ValueError("No valid module classification")
-    if any(not isinstance(module, str) or module not in roster["modules"] for module in modules):
+    all_modules = modules + additional
+    if any(not isinstance(module, str) or module not in roster["modules"] for module in all_modules):
         raise ValueError("Unknown module")
-    return {"modules": [module for module in roster["modules"] if module in modules],
-            "reason": reason.strip()}
+    if len(all_modules) != len(set(all_modules)):
+        raise ValueError("Primary and additional modules must be unique and disjoint")
+    return {"modules": modules, "additional_modules": additional, "reason": reason.strip()}
 
 
 def ask_copilot(prompt):
@@ -171,7 +173,8 @@ def classification_summary(pr, proposal, files):
     reason = re.sub(r"([\\`*_\[\]])", r"\\\1", reason)
     summary = (f"### Module classification · PR #{pr['number']}\n\n"
                f"- Commit: `{pr['head']['sha']}`\n"
-               f"- Modules: {', '.join(proposal['modules'])}\n"
+               f"- Primary modules: {', '.join(proposal['modules'])}\n"
+               f"- Additional modules (manual review): {', '.join(proposal['additional_modules']) or 'none'}\n"
                f"- Reason: {reason}\n")
     omitted = [{"filename": file["filename"], "reason": file["patch_omitted"]}
                for file in files if "patch_omitted" in file]
@@ -190,7 +193,8 @@ def invite(api, pr, recommendation, roster, skill):
     if (recommendation.get("base_sha") != pr["base"]["sha"] or
             recommendation.get("input_fingerprint") != classification_fingerprint(pr, files, roster, skill)):
         raise ValueError("PR or configuration changed; rerun classification")
-    modules = validate_classification(recommendation.get("proposal"), roster)["modules"]
+    proposal = validate_classification(recommendation.get("proposal"), roster)
+    modules = proposal["modules"]
     previous, latest, revision = reviewer_state.read_assignments(api, number)
     author = pr["user"]["id"]
     active = [module for module in modules
@@ -226,7 +230,7 @@ def invite(api, pr, recommendation, roster, skill):
                              if roster["modules"][module]["maintainer"] == author}
     notice_users = new_users + ([author] if roles_by_user[author] else [])
     # Refresh existing notices even when everyone has already been invited.
-    notify_reviewers(api, number, notice_users, roles_by_user, author)
+    notify_reviewers(api, number, notice_users, roles_by_user, proposal, author)
     if new_users:
         api.request("POST", f"/pulls/{number}/requested_reviewers", {"reviewers": logins})
     return (f"### Reviewer invitations · PR #{number}\n\n"
@@ -261,15 +265,19 @@ def module_maintainer(roster, module, author):
     return None if maintainer == author else maintainer
 
 
-def notify_reviewers(api, number, new_users, roles_by_user, author=None):
+def notify_reviewers(api, number, new_users, roles_by_user, proposal, author=None):
     """Keep module notices current and retain account IDs for retry deduplication."""
     notices = []
     notified = set()
+    module_notice = None
+    module_marker = "<!-- pccl-module-summary -->\n"
     for comment in api.pages(f"/issues/{number}/comments"):
         if (comment["user"].get("login") != "github-actions[bot]" or
                 comment["user"].get("type") != "Bot"):
             continue
         existing_body = (comment.get("body") or "").replace("\r\n", "\n")
+        if existing_body.startswith(module_marker):
+            module_notice = comment
         marker = re.match(r"<!-- pccl-review-notice:([0-9]+(?:,[0-9]+)*) -->\n", existing_body)
         if marker:
             recipients = [int(user_id) for user_id in marker[1].split(",")]
@@ -292,6 +300,15 @@ def notify_reviewers(api, number, new_users, roles_by_user, author=None):
     if recipients:
         api.request("POST", f"/issues/{number}/comments",
                     {"body": review_notice_body(api, recipients, roles_by_user, author)})
+    body = (module_marker + "\n### Review modules\n\n"
+            f"- Primary modules: {', '.join(proposal['modules'])}\n"
+            f"- Additional modules: {', '.join(proposal['additional_modules']) or 'none'}\n\n"
+            "Only primary modules receive automatic invitations and require module approvals. "
+            "Invite reviewers for other modules manually if needed.\n")
+    if module_notice is None:
+        api.request("POST", f"/issues/{number}/comments", {"body": body})
+    elif module_notice["body"].replace("\r\n", "\n") != body:
+        api.request("PATCH", f"/issues/comments/{module_notice['id']}", {"body": body})
 
 
 def review_notice_body(api, recipients, roles_by_user, author=None):
@@ -306,7 +323,7 @@ def review_notice_body(api, recipients, roles_by_user, author=None):
                        if len(assignments) > 1 else assignments[0])
         if user_id == author:
             lines.append(f"@{api.login(user_id)}: {description} (PR author; Maintainer approval waived). "
-                         "Other modules follow the normal approval rules.")
+                         "Other primary modules follow the normal approval rules.")
         else:
             lines.append(f"@{api.login(user_id)}, please review as {description}.")
     marker = "<!-- pccl-review-notice:" + ",".join(str(user_id) for user_id in recipients) + " -->\n"

@@ -40,21 +40,28 @@ Use the supplied module catalog, complete PR file list and available API patches
 - Use `other` for changes outside the catalog or when the available evidence does not
   allow reliable classification. Explain the uncovered scope or uncertainty.
 
-## Size guidance
+## Primary-module priority
 
-- Sum additions and deletions across all file records; do not use net growth.
-  Zero line counts do not imply a file is unchanged when its patch is unavailable.
-- Below 500 changed lines, prefer one primary module and usually no more than two.
-- This is not a hard limit. Include additional independently substantive modules
-  when necessary and explain why.
-- Larger PRs do not automatically need more modules; follow the actual changes.
+1. Prefer the most specific module owning the core behavior or contract changed by the PR, not the broadest caller or the file's location.
+2. When several modules own independent changes, prioritize the implementation central to the main functional change, then the contract, synchronization, protocol or resource-ownership change with the greatest correctness impact.
+3. Use substantive implementation size only to break otherwise comparable choices. Do not rank by raw line count, file count or catalog order; exclude mechanical edits and supporting setup, tests, docs and build changes from this comparison.
+
+## Automatic invitation limits
+
+- Select one or two modules in `modules`, regardless of the total changed line count.
+- Put the primary module first and the optional secondary module second, following the priority rules above.
+- Include a secondary module when another independently substantive change needs its expertise; do not fill the second slot otherwise.
+- Put all remaining modules with independently substantive changes in `additional_modules`, not in `modules`. These are listed for optional manual review, without automatic invitations or required module approvals.
+- Do not hide an independent scope or call it incidental merely because the two-module limit is reached.
 
 ## Output
 
-Return only JSON with module IDs and a short reason describing the main change.
-For every selected module, name a changed file or symbol and the behavior or contract
-that requires its review; for `other`, explain the uncovered scope or uncertainty.
+Return only JSON with `modules`, `additional_modules` and a `reason` of at most 1,000 characters total.
+List the primary module first and the optional secondary module second; use unique catalog IDs with no overlap between the two lists.
+Explain the main behavior change, its key implementation, and why its owner takes priority over other candidates.
+Give one brief evidence clause per module in either list, naming a changed file or symbol and the behavior
+or contract that requires its review; for `other`, explain the uncovered scope or uncertainty.
 
 ```json
-{"modules":["workflow"],"reason":"review_automation.py changes module-based invitation routing."}
+{"modules":["workflow"],"additional_modules":[],"reason":"review_automation.py implements the main change to module-based invitation routing, owned by workflow."}
 ```
