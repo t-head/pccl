@@ -407,7 +407,6 @@ jobs:
     needs: [prepare, build-standard, stage-cache]
     strategy:
       fail-fast: false
-      max-parallel: 2
       matrix: ${{ fromJSON(needs.prepare.outputs.groups) }}
     env:
       EXPECTED_SHA: ${{ needs.build-standard.outputs.artifact_sha256 }}

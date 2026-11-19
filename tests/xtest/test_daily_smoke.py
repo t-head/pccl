@@ -221,7 +221,7 @@ class DailySmokeTests(unittest.TestCase):
         self.assertIn('matrix: ${{ fromJSON(needs.prepare.outputs.groups) }}', text)
         self.assertIn("'cross_rack', 'rack_nodes', 'case_count'", text)
         self.assertIn("assert {group_cases._rack_nodes(case) for case in selected['cases']}", text)
-        self.assertIn('max-parallel: 2', text)
+        self.assertNotIn('max-parallel:', text)
         self.assertIn('fail-fast: false', text)
         self.assertIn('nnodes: ${{ matrix.nodes }}', text)
         self.assertIn('nproc_per_node: ${{ matrix.cards_per_node }}', text)
