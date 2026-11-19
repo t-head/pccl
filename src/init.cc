@@ -1040,10 +1040,13 @@ static ncclResult_t copyChannel(ncclComm_t comm, struct ncclTopoGraph* graph, in
     int localRanks = comm->localRanks;
     memcpy(graph->intra+graph->nChannels*localRanks, graph->intra, num*localRanks*sizeof(int));
     memcpy(graph->inter+graph->nChannels*2, graph->inter, num*2*sizeof(int64_t));
+    memcpy(graph->proxyDevs+graph->nChannels, graph->proxyDevs, num*sizeof(int));
     graph->nChannels += num;
   } else {
-    copyChannel(comm, graph, graph->nChannels);
-    copyChannel(comm, graph, num - graph->nChannels);
+    // Recursive copying updates graph->nChannels; preserve the original count.
+    const int nChannels = graph->nChannels;
+    NCCLCHECK(copyChannel(comm, graph, nChannels));
+    NCCLCHECK(copyChannel(comm, graph, num - nChannels));
   }
   return ncclSuccess;
 }
