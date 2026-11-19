@@ -258,6 +258,15 @@ class WorkflowContractTests(unittest.TestCase):
             with self.subTest(module=module):
                 self.assertIn(f"-p '{module}'", prepare)
 
+    def test_hpn_sdk_url_is_optional_and_connected_to_every_hardware_step(self):
+        daily = (ROOT / '.github/workflows/m890p-daily-full.yml').read_text()
+        for workflow in (self.text, daily):
+            self.assertIn('hpn_sdk_url:', workflow)
+            self.assertIn("HPN_SDK_URL: ${{ inputs.hpn_sdk_url || '' }}", workflow)
+            self.assertEqual(workflow.count('scripts/install_hpn_sdk.sh'), 4)
+        self.assertIn('--image "$VALIDATION_IMAGE"', daily)
+        self.assertIn('--hpn-sdk-url "$HPN_SDK_URL"', daily)
+
     def test_shared_build_is_cleaned_only_by_master_and_results_are_separate(self):
         self.assertIn('SHARED_ROOT=/mnt/wl_nas/devops/pccl-artifact-cache-${{ github.run_id }}/shared-standard/', self.text)
         self.assertIn('RESULT_ROOT=/mnt/wl_nas/devops/pccl-artifact-cache-${{ github.run_id }}/results/', self.text)
