@@ -1,0 +1,17 @@
+{
+  "classification": {
+    "base_sha": "fbb18ceee8c1f3f3cfb9dfdb23e864a4ae777783",
+    "head_sha": "51f2585b51ae0250464087228da53a3e6822b3c8",
+    "input_fingerprint": "da25bfc3f3a97785fe2f84c421a8c39d4de047c9d064bb12c8dfe1ea12cacec0",
+    "pr_number": 221,
+    "proposal": {
+      "modules": [
+        "bootstrap"
+      ],
+      "reason": "Updates control-plane socket accept behavior to ignore truncated/closed pre-magic handshakes and continue accepting valid peers during bootstrap rendezvous; this is a bootstrap connection-state fix, not a separate network/proxy policy change."
+    }
+  },
+  "reviewers": {
+    "bootstrap": 341341178
+  }
+}
