@@ -4,6 +4,7 @@
 from hashlib import sha256
 import json
 from pathlib import Path
+import shlex
 import subprocess
 import sys
 import tempfile
@@ -71,6 +72,16 @@ class PublicGeneratorTests(unittest.TestCase):
         self.assertTrue(all("--auto-detect" not in row["cmd"] for row in rows))
         self.assertTrue(all("--devices=" not in row["cmd"] for row in rows))
         self.assertEqual(sum("HGGC_VISIBLE_DEVICES=" in row["cmd"] for row in rows), 717)
+        allowed = {
+            "collPcclUnitTest": {"coll_type", "dtype", "num_gpus", "num_iterations",
+                                  "max_num_elems", "min_num_elems", "num_elems"},
+            "hggcGraphUnitTest": {"num_threads", "test_config_file", "num_gpus"},
+        }
+        for row in rows:
+            binary = next(name for name in allowed if name in row["cmd"])
+            for token in shlex.split(row["cmd"]):
+                if token.startswith("--"):
+                    self.assertIn(token[2:].split("=", 1)[0], allowed[binary])
         smoke = self.bundle("postsil_unit_test_shm", profile="smoke")["rows"]
         self.assertEqual(len(smoke), 2)
         self.assertEqual(sum("build/collPcclUnitTest" in row["cmd"] for row in smoke), 1)
