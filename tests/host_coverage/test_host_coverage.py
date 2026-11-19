@@ -80,6 +80,14 @@ class HostCoverageTests(unittest.TestCase):
         self.assertNotIn("--allow-shlib-undefined", helper)
         self.assertIn('f"PCCL_SO={library}"', helper)
 
+    def test_static_graph_tests_use_production_globals_without_linker_suppression(self):
+        header = (ROOT / "tests/graph_search_test/include/globals.h").read_text()
+        self.assertIn("#ifndef PCCL_GRAPH_TEST_STATIC_HOST", header)
+        helper = (ROOT / ".github/workflows/scripts/pccl_host_coverage.py").read_text()
+        self.assertIn("-DPCCL_GRAPH_TEST_STATIC_HOST=1", helper)
+        self.assertNotIn("--allow-multiple-definition", helper)
+        self.assertIn('env.setdefault("PCCL_CHANNEL_SHUFFLE", "0")', helper)
+
     def test_summary_metrics_are_computed_from_counts(self):
         metrics = coverage.coverage_summary(*self.xml(), self.source)
         self.assertEqual(metrics["lines"], {"covered": 2, "total": 4, "percent": 50.0})

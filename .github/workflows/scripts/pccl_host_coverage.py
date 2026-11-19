@@ -190,11 +190,17 @@ def experiment(args):
         if library_kind == "host_archive":
             # Drop unreachable host functions, not unresolved symbols; missing dependencies still fail the link.
             ldflags += " -Wl,--gc-sections -llt_oki"
+            # Match the original test fixture defaults while using real production getters.
+            env.setdefault("PCCL_NO_MEMSET", "0")
+            env.setdefault("PCCL_CHANNEL_SHUFFLE", "0")
+            report["test_configuration"] = {name: env[name] for name in ("PCCL_NO_MEMSET", "PCCL_CHANNEL_SHUFFLE")}
         flags_file = build / "lib/host_gcov_cxxflags.txt"
         defines = [flag for flag in shlex.split(flags_file.read_text()) if flag.startswith("-D")]
         report["host_cpp_defines"] = defines
         shutil.copyfile(flags_file, output / "host-cxx-flags.txt")
         test_flags = " ".join(defines) + " -std=c++17 -g -O0 --coverage -ffunction-sections -fdata-sections -Wno-unused-function -Wno-unused-parameter -Wno-sign-compare"
+        if library_kind == "host_archive":
+            test_flags += " -DPCCL_GRAPH_TEST_STATIC_HOST=1"
         rc = command(["make", f"-j{args.jobs}", f"CXX={cxx}", f"PCCL_HOME={build}",
                       f"TESTBUILDDIR={build}/graph-search", f"PCCL_SO={library}",
                       f"TESTCXXFLAGS={test_flags}", f"TESTLDFLAGS={ldflags}"],

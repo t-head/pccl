@@ -13,6 +13,9 @@
 #include "devcomm.h"
 #include "gdrwrap.h"
 
+// Shared-runtime tests supply interposing globals; static host tests use the
+// production definitions from the archive instead of defining them twice.
+#ifndef PCCL_GRAPH_TEST_STATIC_HOST
 #ifdef ENABLE_TRACE
 std::chrono::high_resolution_clock::time_point ncclEpoch;
 #endif
@@ -52,10 +55,13 @@ NCCL_PARAM(BuffSize, "BUFFSIZE", -2);
 NCCL_PARAM(LlBuffSize, "LL_BUFFSIZE", -2);
 NCCL_PARAM(Ll128BuffSize, "LL128_BUFFSIZE", -2);
 
-extern int64_t ncclParamCrossNic();
 NCCL_PARAM(GraphDumpFileRank, "GRAPH_DUMP_FILE_RANK", 0);
 
 // GDRCOPY support
 gdr_t ncclGdrCopy = NULL;
+
+#endif  // !PCCL_GRAPH_TEST_STATIC_HOST
+
+extern int64_t ncclParamCrossNic();
 
 #endif  // _NCCL_GLOBALS_H
