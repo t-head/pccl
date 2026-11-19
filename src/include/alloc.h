@@ -34,7 +34,8 @@ enum {
   MEM_NORMAL = 0,       // normal ppu mem alloc & free mode.
   MEM_U2MM = 1,         // u2mm mem alloc & free mode.
   MEM_ALIGN_2M = 2,     // u2mm host mem alloc for old rund arch
-  MEM_U2MM_DIRECT = 3   // direct alloc u2mm cuda mem
+  MEM_U2MM_DIRECT = 3,  // direct alloc u2mm cuda mem
+  MEM_LEGACY = 4        // runtime device allocation; caller initializes memory
 };
 
 // use allocFlag to check if we need other memory allocation method like u2mm alloc
@@ -450,8 +451,12 @@ static ncclResult_t ncclHggcCallocU2mmDebug(const char *filefunc, int line, T** 
   hggcStreamCaptureMode mode = hggcStreamCaptureModeRelaxed;
   HGGCCHECK(hggcThreadExchangeStreamCaptureMode(&mode));
 
-  // use memMode to specify other kinds of memory alloc
-  NCCLCHECKGOTO(ncclHggcCallocOrigin(ptr, nelem, &sizeAligned, memMode, manager, memType), result, finish);
+  if (memMode == MEM_LEGACY) {
+    HGGCCHECKGOTO(hggcMalloc(ptr, nelem*sizeof(T)), result, finish);
+  } else {
+    // use memMode to specify other kinds of memory alloc
+    NCCLCHECKGOTO(ncclHggcCallocOrigin(ptr, nelem, &sizeAligned, memMode, manager, memType), result, finish);
+  }
 
 finish:
   HGGCCHECK(hggcThreadExchangeStreamCaptureMode(&mode));
@@ -538,7 +543,9 @@ static ncclResult_t ncclHggcFreeDebug(const char *filefunc, int line, T* ptr, in
   VERBOSE(NCCL_ALLOC, "%s:%d Hggc Free pointer %p", filefunc, line, ptr);
   HGGCCHECK(hggcThreadExchangeStreamCaptureMode(&mode));
 
-  if (memMode == MEM_U2MM) {
+  if (memMode == MEM_LEGACY) {
+    HGGCCHECKGOTO(hggcFree(ptr), result, finish);
+  } else if (memMode == MEM_U2MM) {
     NCCLCHECKGOTO(nccl_u2mm_gpu_free(ptr), result, finish);
   } else {
     if (ncclCuMemEnable()) {
@@ -552,7 +559,8 @@ static ncclResult_t ncclHggcFreeDebug(const char *filefunc, int line, T* ptr, in
       HGGCCHECKGOTO(hggcFree(ptr), result, finish);
     }
   }
-  if (manager && !untracked) NCCLCHECKGOTO(ncclMemUntrack(manager, (void*)ptr, 0), result, finish);
+  if (manager && memMode != MEM_LEGACY && !untracked)
+    NCCLCHECKGOTO(ncclMemUntrack(manager, (void*)ptr, 0), result, finish);
   ptr = NULL;
 
 finish:
