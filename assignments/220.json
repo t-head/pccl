@@ -1,14 +1,14 @@
 {
   "classification": {
     "base_sha": "50423c27f1dc6a6ef765f20e504c47f561d948f9",
-    "head_sha": "4f2d39945632a0ccf1001848b40d18a5b87429bb",
-    "input_fingerprint": "12ff68c7a228f998443fe9209b75b9f23ca5a0b8d2f05502e44c64f4418f9e57",
+    "head_sha": "46830607fcea297aa3170c312d337499d2749a2e",
+    "input_fingerprint": "5c16d67bd5a460672ea7cfdf2bed331d673d3d3ce2cedebec7e861aeeb71b2dc",
     "pr_number": 220,
     "proposal": {
       "modules": [
         "ci"
       ],
-      "reason": "Main substantive change is in open-source test workflow execution: adds optional `hpn_sdk_url` dispatch input, shared pre-build/test SDK installer wiring across hardware steps, and report metadata plumbing for selected image/SDK URL. Added script, contract tests, and docs are supporting this CI behavior change rather than independent module changes."
+      "reason": "Adds optional `hpn_sdk_url` handling to source-sanity and daily test workflows, wires a shared worker-side SDK installer into build/test hardware steps, and updates CI reporting metadata and workflow contract tests for image/SDK selection behavior."
     }
   },
   "reviewers": {
