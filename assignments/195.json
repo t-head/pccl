@@ -1,14 +1,14 @@
 {
   "classification": {
-    "base_sha": "dd507710fa250caa8ff4d98d5382b49a286c8802",
-    "head_sha": "63bad3ddc368851ab7c3cb7b0de088b0c114077f",
-    "input_fingerprint": "043c97fffa95cc8ca91ae5659d8227f99d9de23e98e399bbea349a9f3667afe9",
+    "base_sha": "3d9103c41c272713a1a0a84d335bf780f344d7ae",
+    "head_sha": "ed01ef2903d2f7c2bd7d2ea60370618e67fab434",
+    "input_fingerprint": "4b6987c0285d26dadf4692710c983e401d0f883756a40ddbc6a4dea6d60e7ad9",
     "pr_number": 195,
     "proposal": {
       "modules": [
         "workflow"
       ],
-      "reason": "The substantive changes are to review/merge automation behavior in .github/scripts/review_automation.py, maintainer_approval.py, commit_message_squash.py, and related .github/workflows/* files (primary-module selection, reviewer+maintainer approval rules, automated request withdrawal, and gate-driven squash preview publishing). Other edits are supporting documentation/catalog wording updates for the same workflow system, not independent module changes."
+      "reason": "Main functional changes are to reviewer-routing and approval policy automation: .github/scripts/review_automation.py adds manual /review-module command handling, invitation synchronization, and module notice updates; .github/scripts/maintainer_approval.py expands gate logic to Reviewer+Maintainer requirements; and related .github/workflows/* wiring updates review/approval/preview workflow behavior. Other edits are supporting docs/skill/catalog updates for this same review workflow system, not separate runtime modules."
     }
   },
   "reviewers": {
