@@ -1,14 +1,14 @@
 {
   "classification": {
     "base_sha": "a7769ba35a724d84cea481c9b318c30482175471",
-    "head_sha": "8f355972cad5a2bd6afe8d6b296e36c99f0410bf",
-    "input_fingerprint": "a317d9a7f67b6a58580d83199f9704b32f956b501f5ae65ab9e32468e9495dd1",
+    "head_sha": "bbce3f57ce2b2c1274ff63a2178ee60dd4b6d303",
+    "input_fingerprint": "d0b2c02b68e89d6a27afc73f3eb82a3f47bdcffd5e3325cfb86ca831dbd5d132",
     "pr_number": 196,
     "proposal": {
       "modules": [
         "ci"
       ],
-      "reason": "Main change is CI test-orchestration: source-sanity and daily workflows now generate case inputs from JSON families, manage NAS/artifact cache probe/publish with SHA validation and retries, add cross-rack execution grouping/recovery, and produce/upload the daily performance workbook. Other edits are supporting tests/docs for this CI behavior, not separate workflow-policy or runtime-module changes."
+      "reason": "Main change is the test pipeline itself: daily inputs now generated from JSON families, expanded grouped execution (including 8-node/cross-rack), NAS/artifact cache validation+retry behavior, cgroup-based multi-node recovery, and performance workbook publishing in workflow/jobs and xtest runner scripts. Docs/tests here are supporting updates to that CI execution/reporting path, not review-policy workflow ownership."
     }
   },
   "reviewers": {
