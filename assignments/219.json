@@ -1,8 +1,8 @@
 {
   "classification": {
-    "base_sha": "506c3b02235e24dc2a3f127fbb9ed64eef756485",
-    "head_sha": "d33e079495d7ee89b5ffb074c3388237887ba917",
-    "input_fingerprint": "7695f5dbbe06bc9326c2795ce779da42a64dc2ff452a38b5328e7e41e39509ac",
+    "base_sha": "3d9103c41c272713a1a0a84d335bf780f344d7ae",
+    "head_sha": "3ca5a61ce6ddd02cb9c9eb6c9cfcb5005e1d7315",
+    "input_fingerprint": "b86dad3c5db8b09b3cf2108bd6177574b9f0838746412fdd3131ebe8988cdb89",
     "pr_number": 219,
     "proposal": {
       "modules": [
@@ -10,7 +10,7 @@
         "communicator",
         "enqueue"
       ],
-      "reason": "Primary change is communicator configuration lifecycle: new config fields are validated/defaulted, overridden from env, stored on comm, and synchronized across ranks (including nChannelsPerNetPeer, graphUsageMode, maxP2pPeers, and placeholder acceptance of nvlinkCentricSched/numRmaCtx). Enqueue is additionally needed because graphUsageMode now changes strong-stream graph/uncaptured acquire-release and capture detection behavior used by enqueue/channel paths. Device-topology is additionally needed because P2P channel-per-peer computation in topology paths now uses nChannelsPerNetPeer and maxP2pPeers to cap/tune per-peer channel allocation."
+      "reason": "Main change is communicator configuration lifecycle: new comm config fields are validated/defaulted, overridden from env, stored on comm, and synchronized across ranks (nChannelsPerNetPeer, graphUsageMode, maxP2pPeers, plus accepted nvlinkCentricSched/numRmaCtx). Add enqueue because graphUsageMode now changes strong-stream/graph-capture behavior in enqueue/strongstream paths. Add device-topology because P2P per-peer channel computation now derives remote-net channels from topology bandwidth and max-peer budget, changing channel selection logic."
     }
   },
   "reviewers": {
