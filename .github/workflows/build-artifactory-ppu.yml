@@ -1,13 +1,18 @@
 name: build_artifactory
 
 # Build the pccl distribution tarballs *and* the pccl-tests perf binaries for every supported
-# OS / HGGCRT combination inside the matching docker image, and publish them as this repository's
-# own Actions artifacts:
+# OS / HGGCRT combination inside the matching docker image, keep one Actions artifact per package
+# and transfer every one of them back to the internal artifact server:
 #
-#   comm_internal/<pkg_name>.tar.gz              pccl: lib/, include/, bin/, envsetup.sh
-#   comm_internal/<pccl_tests_pkg_name>.tar.gz   pccl-tests: comm_tools/*_perf
-#   comm_release/<pkg_name>.tar.gz
-#   comm_release/<pccl_tests_pkg_name>.tar.gz
+#   <pkg_name>                      (Actions artifact, always a zip)
+#     <pkg_name>.tar.gz             pccl: lib/, include/, bin/, envsetup.sh, release.yaml
+#   <pccl_tests_pkg_name>           (Actions artifact, always a zip)
+#     <pccl_tests_pkg_name>.tar.gz  pccl-tests: comm_tools/*_perf
+#
+# <pkg_name> is pccl_hggcrt<12|13>_<os> and <pccl_tests_pkg_name> is its pccl_tests_ counterpart, so
+# the OS, the runtime and the package a download belongs to are readable from the file name alone.
+# The two packages stay separate artifacts: a consumer installs one of them, and a download that
+# mixed them would only have to be split again.
 #
 # Both tarballs come out of the same job: the perf binaries link against the libpccl.so that this
 # very run just built, so one commit, one SDK install and one toolchain setup produce a matched
@@ -16,23 +21,43 @@ name: build_artifactory
 #
 # One extra matrix row compiles ubuntu2404 / hggcrt13 a second time for the test pipeline and names
 # its output pccl_for_test_hggcrt13_ubuntu24, using its own copy of the build script, so that package
-# can diverge without perturbing the release one. That row does not emit pccl / pccl-tests tarballs
-# at all: it ships the whole ${build_output} tree (pccl_build/, comm-internal-testbox/, PPU_SDK/) as
-# one comm_internal/<bundle_name>.tar.gz, which is what the test box consumes.
+# can diverge without perturbing the release one. That row emits neither package above: it ships the
+# ${build_output} tree (pccl_build/, comm-internal-testbox/) as one <bundle_name>.tar.gz, which is
+# what the test box consumes. The bundle is transferred back like every other package, tagged with
+# the test edition so a query can tell it apart from the release items. It carries no PPU_SDK/: the
+# build script installs the SDK inside the image and the copy used to be bigger than the rest of the
+# bundle together, so a consumer installs the matching SDK version on its side.
 #
 # Everything runs on the internal x86-ubuntu2404-8-32 runner pool (8 vCPU / 32 GB): the matching
 # distribution image is started locally with docker and the workspace is bind-mounted at
 # /workspace/source, the layout the build scripts already assume, so no internal k8s cluster,
 # NAS mount or scheduler worker pod is involved.
 #
-# Each matrix entry uploads its own artifact; the publish job merges them into a single
-# "pccl-tarballs-<ref>-<label>" artifact, where <ref> is the branch or tag that triggered the
-# run (characters other than [A-Za-z0-9._-] become "-") and <label> is the UTC+8 "YYYY-MM-DD-HHmm"
-# timestamp shown in the run summary. Nothing is uploaded to an external server, so no
-# Artifactory credentials are required.
+# The transfer back is one call per package to t-head/ci-infra's upload-artifact-properties
+# workflow, which publishes the package artifact as the zip it already is, so nothing is packed a
+# second time. The artifact names carry no run suffix, so a file name is stable across runs and a
+# re-run of one slot replaces that zip instead of leaving a second one behind:
+#   github_generic/nightly/<owner>/<repo>/comm.<ref>-<stamp>/<artifact>.zip
+# Every item of one run shares that version directory, so a consumer that knows the ref and the
+# label can build the URL directly; the items differ by file name and by the os / runtime /
+# edition properties set on each one, and the run id / attempt travel as item properties too. Only
+# that job needs secrets (RELEASE_USERNAME / RELEASE_TOKEN); the build jobs themselves need none.
 #
-# The artifact label is a UTC+8 (Asia/Shanghai) "YYYY-MM-DD-HHmm" timestamp shared by every
-# job of a run; it is part of the merged artifact name and tags the run summary.
+# Each item also carries a note in the free-form `extra_info` property, which is the field an
+# artifact page shows next to a package. The note is one JSON object with a single key, so the whole
+# comment travels as one value instead of a structure a consumer has to know:
+#   {"comment":"pccl-main-79cf7ab@sail-2.2.1-184ee6"}
+# The value is <repo>-<branch>-<commit 7>@sail-<SDK version>-<SDK build hash>: repo/branch/commit
+# name what was built (a nightly names its slot commit, not the triggering one), sail names the SDK
+# the row compiled against as recorded in PPU_SDK/release.yaml, which the build step compares against
+# the installer name before publishing. A pccl-tests item names its own source instead
+# (pccl-tests-main-<commit 7>@...), because that package is built from a different repository.
+#
+# The artifact label is the UTC+8 YYYY-MM-DD-1900 nightly slot of a scheduled run, and a nightly
+# run also builds the default-branch commit as of that 19:00 timestamp: a queued-late run still
+# produces the slot's code and a predictable upload path. Push and manual runs are not that slot and
+# keep their real YYYY-MM-DD-HHmm start time and their triggering commit, so two builds of one day
+# never share a version; artifact_version overrides the label.
 #
 # Each matrix entry calls one of the tar build scripts in .github/workflows/scripts:
 #   hggcrt 12 -> pccl_hggcrt12_tar_build.sh
@@ -43,15 +68,14 @@ name: build_artifactory
 # HGGCRT runtime: the tar build script downloads sdk_url into sdk_name and installs it under
 # ${source_home}, which lets one base image serve both hggcrt rows. Every enabled row must carry
 # a container image, otherwise the prepare job fails fast.
-#
-# No repository / organization secrets are needed.
 
 on:
-  # Nightly artifact build at 21:00 UTC+8 (13:00 UTC; GitHub cron is always UTC). GitHub only
+  # Nightly artifact build at 19:00 UTC+8 (11:00 UTC; GitHub cron is always UTC). GitHub only
   # picks schedule triggers up from the default branch, so this stays dormant until the file
-  # is merged there.
+  # is merged there. The scheduler queues runs instead of starting them on the minute, so the
+  # build really starts a few minutes after 19:00; the label and the built commit are the slot's.
   schedule:
-    - cron: '0 13 * * *'
+    - cron: '0 11 * * *'
   # Build on every push to the default branch. `paths` keeps ordinary source commits from
   # burning a full matrix build; the nightly schedule above is what produces regular artifacts.
   push:
@@ -75,7 +99,7 @@ on:
         type: string
         default: '["12","13"]'
       artifact_version:
-        description: 'Label shown in the run summary; empty means the UTC+8 "YYYY-MM-DD-HHmm" timestamp of this run'
+        description: 'Label used for the upload version and the run summary; empty means the UTC+8 "YYYY-MM-DD-1900" slot for a scheduled run and the actual "YYYY-MM-DD-HHmm" start time otherwise'
         required: false
         type: string
         default: ''
@@ -97,8 +121,9 @@ on:
 
 permissions:
   contents: read
-  # Merging the per-matrix artifacts lists them through the Actions API, so the scope has to
-  # be granted explicitly; an explicit permissions block sets everything else to none.
+  # The build jobs upload through the Actions artifact API and the transfer-back job downloads
+  # through it again, so the scope is granted explicitly; an explicit permissions block sets
+  # everything else to none.
   actions: read
 
 concurrency:
@@ -118,7 +143,16 @@ jobs:
     timeout-minutes: 10
     outputs:
       matrix: ${{ steps.matrix.outputs.matrix }}
+      # One entry per package instead of per row: a regular row transfers two packages back, the
+      # for-test row one.
+      upload_matrix: ${{ steps.matrix.outputs.upload_matrix }}
       version: ${{ steps.matrix.outputs.version }}
+      # The two halves of the upload destination, resolved once here so every package and the run
+      # summary agree on them.
+      ref_slug: ${{ steps.matrix.outputs.ref_slug }}
+      upload_stamp: ${{ steps.matrix.outputs.upload_stamp }}
+      # Commit the build checks out; empty for push and dispatch, which build the triggered commit.
+      slot_commit: ${{ steps.matrix.outputs.slot_commit }}
       buildable: ${{ steps.matrix.outputs.buildable }}
       max_parallel: ${{ steps.matrix.outputs.max_parallel }}
       pccl_tests_sha: ${{ steps.pccl_tests.outputs.sha }}
@@ -165,6 +199,9 @@ jobs:
           HGGCRT_VERSIONS: ${{ inputs.hggcrt_versions || '["12","13"]' }}
           ARTIFACT_VERSION: ${{ inputs.artifact_version || '' }}
           MAX_PARALLEL: ${{ inputs.max_parallel || '8' }}
+          # Resolved by the step above; the note of a pccl-tests item names the commit that package
+          # was built from, which is not the pccl one.
+          PCCL_TESTS_SHA: ${{ steps.pccl_tests.outputs.sha }}
         run: |
           python3 - <<'PY'
           import json
@@ -242,22 +279,95 @@ jobs:
               return normalized
 
 
-          def resolve_version(raw):
-              # The value ends up in the run summary, so keep it to a single safe token.
+          def resolve_slot(now):
+              # The nightly slot is 19:00 UTC+8. GitHub only ever queues a slot late, never early, so
+              # a run that starts before 19:00 belongs to the previous day's slot.
+              day = now if now.hour >= 19 else now - timedelta(days=1)
+              return day.replace(hour=19, minute=0, second=0, microsecond=0)
+
+
+          def resolve_version(raw, event_name):
+              # The value names the upload directory, so keep it to a single safe token.
               if raw:
                   if not re.fullmatch(PATH_PATTERN, raw):
                       fail("artifact_version must contain only letters, digits and . _ + -")
                   return raw
-              # One label per run, taken from a single UTC+8 timestamp so every job of the run
-              # reports the same value.
-              return datetime.now(timezone(timedelta(hours=8))).strftime("%Y-%m-%d-%H%M")
+              now = datetime.now(timezone(timedelta(hours=8)))
+              if event_name == "schedule":
+                  # Label the slot instead of the moment this job happened to run, so the upload
+                  # path of a night does not move with the scheduler delay.
+                  return resolve_slot(now).strftime("%Y-%m-%d-1900")
+              # A push or a manual dispatch is not the nightly slot, so the real start time tells
+              # two builds of the same day apart.
+              return now.strftime("%Y-%m-%d-%H%M")
+
+
+          def resolve_slot_commit(slot_start):
+              # A delayed run must still build the code as of the slot, not whatever was pushed
+              # while it queued, so the default-branch commit at the slot is resolved explicitly.
+              for revision in ("origin/main", "HEAD"):
+                  try:
+                      found = subprocess.run(
+                          ["git", "-C", str(SOURCE_DIR), "rev-list", "-1",
+                           f"--before={slot_start.isoformat()}", revision],
+                          check=True, capture_output=True, text=True).stdout.strip()
+                  except (subprocess.CalledProcessError, FileNotFoundError):
+                      continue
+                  if found:
+                      return found
+              print("::warning::could not resolve the default-branch commit of the slot; "
+                    "building the commit that triggered the run", flush=True)
+              return ""
+
+
+          def sdk_identity(sdk_name):
+              # The installer file name carries the identity that PPU_SDK/release.yaml records in its
+              # `version` field (<sdk version>-<build hash>), so the note can be built here before the
+              # SDK is installed. The build step compares the two once it is.
+              match = re.search(r"-(\d+\.\d+\.\d+)-([0-9A-Za-z]+)\.run$", sdk_name)
+              if not match:
+                  return {"branch": "unknown", "commit": "unknown"}
+              return {"branch": match.group(1), "commit": match.group(2)}
 
 
           selected_os = parse_filter(os.environ["OS_VERSIONS"], "os_versions", OS_LABELS)
           selected_hggcrt = parse_filter(os.environ["HGGCRT_VERSIONS"], "hggcrt_versions", HGGCRT_LABELS)
-          version = resolve_version(os.environ.get("ARTIFACT_VERSION", "").strip())
+          event_name = os.environ.get("GITHUB_EVENT_NAME", "")
+          now = datetime.now(timezone(timedelta(hours=8)))
+          version = resolve_version(os.environ.get("ARTIFACT_VERSION", "").strip(), event_name)
+          # Only a scheduled run is pinned; a push or a dispatch builds exactly what it triggered on.
+          slot_commit = resolve_slot_commit(resolve_slot(now)) if event_name == "schedule" else ""
+          # The upload directory is comm.<ref>-<stamp> and is shared by every item of the run: the
+          # label loses its dashes (2026-11-17-1900 -> 202611171900) and the ref keeps only
+          # characters a path accepts, so callers can build the URL and no two runs collide.
+          upload_stamp = re.sub(r"[^A-Za-z0-9._]", "_", version.replace("-", ""))
+          ref_slug = re.sub(r"[^A-Za-z0-9._-]", "_", os.environ.get("GITHUB_REF_NAME") or "unknown")
+          ref_slug = ref_slug.strip("_") or "unknown"
 
           entries = []
+          # What an artifact page shows as the note of an item. The source half follows the package,
+          # so a pccl-tests item names the pccl-tests commit it was built from instead of the pccl
+          # one, and the sail half names the SDK that row compiled against.
+          note_branch = os.environ.get("GITHUB_REF_NAME") or "unknown"
+          note_commit = slot_commit or os.environ.get("GITHUB_SHA", "")
+          note_tests_commit = os.environ.get("PCCL_TESTS_SHA", "")
+
+          def extra_info_for(package, sdk_name):
+              # `extra_info` is one free-form field, so the note travels as a single value under a
+              # single key: <repo>-<branch>-<sha7>@sail-<SDK version>-<SDK build hash>. A branch name
+              # may itself contain dashes and slashes, so the value stays opaque and only the reader
+              # that parses it decides how to split it.
+              sdk = sdk_identity(sdk_name)
+              sail = f"sail-{sdk['branch']}-{sdk['commit']}"
+              if package == "pccl-tests":
+                  note = f"pccl-tests-main-{note_tests_commit[:7] or 'unknown'}@{sail}"
+              else:
+                  note = f"pccl-{note_branch}-{note_commit[:7] or 'unknown'}@{sail}"
+              return json.dumps({"comment": note}, separators=(",", ":"))
+
+          # One transfer-back call per package: a regular row delivers the pccl tarball and the
+          # pccl-tests tarball, the for-test row delivers its bundle as one more item.
+          uploads = []
           for row in BUILD_TABLE:
               os_label, hggcrt, sdk_name, image = row[:4]
               # Rows carry an optional 5th element: the package name of an extra build that targets
@@ -273,18 +383,23 @@ jobs:
                   # reach the matrix; fail here with an actionable message instead.
                   fail(f"entry ({os_label}, hggcrt{hggcrt}) is selected but has no container image configured")
               row_key = pkg_name[len("pccl_"):]
+              # Identifies the row in the UI and in the run summary; the for-test row must not read
+              # like its twin.
+              label = f"{os_label} (hggcrt{hggcrt}{' for test' if for_test else ''})"
+              tests_pkg_name = f"pccl_tests_{row_key}"
+              # Empty for the regular rows. A for-test row ships one archive holding the whole
+              # ${build_output} tree instead of the two separate packages.
+              bundle_name = f"{pkg_name}_bundle" if for_test else ""
               entries.append({
                   "os": os_label,
                   "hggcrt": hggcrt,
-                  # Identifies the job in the UI; the for-test row must not read like its twin.
-                  "label": f"{os_label} (hggcrt{hggcrt}{' for test' if for_test else ''})",
-                  # Distinct artifact name per matrix row so the merge pattern is unambiguous.
+                  "label": label,
+                  # Distinct artifact name per package, so the transfer-back call below addresses
+                  # exactly one of them.
                   "pkg_name": pkg_name,
-                  # The same job also packages pccl-tests, so one artifact carries both tarballs.
-                  "tests_pkg_name": f"pccl_tests_{row_key}",
-                  # Empty for the regular rows. A for-test row ships one archive holding the whole
-                  # ${build_output} tree instead of the separate pccl-tests tarball.
-                  "bundle_name": f"{pkg_name}_bundle" if for_test else "",
+                  # The same job also packages pccl-tests, so one row delivers both tarballs.
+                  "tests_pkg_name": tests_pkg_name,
+                  "bundle_name": bundle_name,
                   "output_dir": f"output_{row_key}",
                   "build_script": f"{pkg_name}_build.sh" if for_test else f"pccl_hggcrt{hggcrt}_tar_build.sh",
                   # The script wgets sdk_url into sdk_name and installs it under ${source_home}.
@@ -292,12 +407,37 @@ jobs:
                   "sdk_name": sdk_name,
                   "image": image,
               })
+              # The artifact name is what the transfer-back call addresses, and the file a consumer
+              # downloads is that name plus .zip. The edition tells the release packages of a row
+              # apart from the bundle that only the test pipeline consumes.
+              packages = [(bundle_name, "pccl", "test")] if for_test else [
+                  (pkg_name, "pccl", "standard"),
+                  (tests_pkg_name, "pccl-tests", "standard"),
+              ]
+              for artifact, package, edition in packages:
+                  uploads.append({
+                      "artifact": artifact,
+                      "file": f"{artifact}.tar.gz",
+                      "package": package,
+                      "edition": edition,
+                      "os": os_label,
+                      "hggcrt": hggcrt,
+                      "label": label,
+                      # The item's extra_info property is the note, so it has to follow the package:
+                      # the pccl and bundle items name the pccl source, the pccl-tests item names
+                      # the pccl-tests commit.
+                      "extra_info": extra_info_for(package, sdk_name),
+                  })
           if not entries:
               fail("the selected os_versions/hggcrt_versions combination produced an empty matrix")
 
           buildable = len(entries)
           print(f"matrix entries: {buildable}, all with container images")
           print(f"artifact version: {version}")
+          print(f"upload destination directory: comm.{ref_slug}-{upload_stamp}/")
+          print(f"built commit: {slot_commit or os.environ.get('GITHUB_SHA', 'triggered commit')}")
+          print(f"artifact extra_info: {sorted({item['extra_info'] for item in uploads})}")
+          print(f"packages to transfer back: {len(uploads)}")
           # `max-parallel` is consumed through fromJSON at job level, where a non-numeric value
           # fails the whole matrix, so normalise the input here instead of trusting the dispatcher.
           raw_parallel = (os.environ.get("MAX_PARALLEL") or "").strip()
@@ -308,7 +448,11 @@ jobs:
           print(f"max parallel rows: {max_parallel}")
           with open(os.environ["GITHUB_OUTPUT"], "a", encoding="utf-8") as output:
               output.write("matrix=" + json.dumps({"include": entries}, separators=(",", ":")) + "\n")
+              output.write("upload_matrix=" + json.dumps({"include": uploads}, separators=(",", ":")) + "\n")
               output.write(f"version={version}\n")
+              output.write(f"ref_slug={ref_slug}\n")
+              output.write(f"upload_stamp={upload_stamp}\n")
+              output.write(f"slot_commit={slot_commit}\n")
               output.write(f"buildable={buildable}\n")
               output.write(f"max_parallel={max_parallel}\n")
           PY
@@ -347,8 +491,8 @@ jobs:
       # The tar build script packages pccl-tests against the pccl build of this job and writes this
       # tarball next to the pccl one.
       pccl_tests_pkg_name: ${{ matrix.tests_pkg_name }}
-      # Set for the for-test row only. The build script then also tars the whole ${build_output}
-      # tree into comm_internal/${bundle_name}.tar.gz, which is the package that row delivers.
+      # Set for the for-test row only. The build script then tars the whole ${build_output} tree
+      # into ${build_output}/${bundle_name}.tar.gz, which is the single package that row delivers.
       bundle_name: ${{ matrix.bundle_name }}
       # Passed to build.sh as --cpu_num; 0 means "as many make jobs as cores", which keeps the
       # hosted runner's 4 vCPU / 16 GB from being oversubscribed by an unbounded make -j.
@@ -358,6 +502,9 @@ jobs:
       - name: Check out source
         uses: actions/checkout@v4
         with:
+          # A nightly run builds the code as of 19:00 UTC+8 even when the run is queued late; push
+          # and dispatch runs leave the ref empty and get the triggered commit.
+          ref: ${{ needs.prepare.outputs.slot_commit || github.sha }}
           fetch-depth: 0
           path: pccl
           persist-credentials: false
@@ -378,12 +525,12 @@ jobs:
 
       - name: Reset the staging directory
         # `actions/checkout` only cleans the two source paths it manages, so on a persistent runner
-        # this row would inherit the previous run's tarballs: the packaging step would sweep them
-        # into the new archive and the upload glob would publish them.
+        # this row would inherit the previous run's tarballs: the verification step would judge them
+        # and the upload step would publish them.
         run: |
           set -euo pipefail
           rm -rf "${workspace_output}" 2>/dev/null || sudo -n rm -rf "${workspace_output}"
-          mkdir -p "${workspace_output}/comm_internal" "${workspace_output}/comm_release"
+          mkdir -p "${workspace_output}"
 
       - name: Reclaim disk space
         # Only the GitHub-hosted image carries ~25 GB of preinstalled toolchains this build never
@@ -452,6 +599,24 @@ jobs:
 
           echo "######################### $(date +%Y%m%d%H%M%S) Build ${pkg_name} in ${{ matrix.image }} ##########################"
           bash "pccl/.github/workflows/scripts/${{ matrix.build_script }}"
+          # `prepare` derived the note's sail part from this row's installer file name; the SDK's own
+          # release.yaml is the authority on that identity. Its `version` is recorded as
+          # "<version>-<hash>", so a '+' separator is normalised before the comparison and the raw
+          # value is echoed either way. A mismatch would publish a note pointing at a different SDK
+          # than the package was built against, so it fails here instead.
+          expected_sdk="$(printf '%s' "${sdk_name}" | sed -E 's/.*-([0-9]+\.[0-9]+\.[0-9]+)-([0-9A-Za-z]+)\.run$/\1-\2/')"
+          sdk_release="${source_home}/PPU_SDK/release.yaml"
+          if [ ! -f "${sdk_release}" ]; then
+            echo "::warning::${sdk_release} is missing; the artifact note keeps the installer-derived SDK identity ${expected_sdk}"
+          else
+            actual_raw="$(awk '/^[[:space:]]*version:[[:space:]]*/ {print $2; exit}' "${sdk_release}")"
+            actual_sdk="$(printf '%s' "${actual_raw}" | sed -E 's/^v//' | tr '+' '-')"
+            echo "SDK release.yaml version: ${actual_raw:-<empty>} (the installer name implies ${expected_sdk})"
+            if [ "${actual_sdk}" != "${expected_sdk}" ]; then
+              echo "::error::PPU_SDK/release.yaml reports version ${actual_raw:-<empty>} but ${sdk_name} implies ${expected_sdk}; reconcile the SDK package name with its release.yaml before the note can be trusted"
+              exit 1
+            fi
+          fi
           INSIDE
           docker run --rm \
             --user root \
@@ -471,117 +636,146 @@ jobs:
             -e HOST_GID="$(id -g)" \
             "${{ matrix.image }}" \
             bash /tmp/build-inside.sh
-      - name: Verify the expected tarballs were produced
+      - name: Verify the expected packages were produced
         # Host-side check on the files the container wrote: the container's EXIT trap already handed
         # ownership back to the runner user, so this step only has to find the tarballs where the
-        # upload step will read them.
+        # upload step will read them, and to look inside them, so an empty or wrongly staged archive
+        # is caught here instead of by whoever downloads it. Each member list goes through a file
+        # instead of a `tar -tzf | grep -qx` pipeline: with `pipefail` on, a tar that dies of SIGPIPE
+        # after grep matched reads as "member missing", and a tar that cannot read the archive looks
+        # the same, so the members themselves are reported when a check fails.
         run: |
           set -euo pipefail
 
+          verify_tarball() {
+            local tarball="$1"
+            local member="$2"
+            local listing="${RUNNER_TEMP}/${tarball##*/}.entries"
+            ls -lh "${tarball}"
+            if ! tar -tzf "${tarball}" >"${listing}" 2>"${listing}.err"; then
+              echo "::error::${tarball##*/} cannot be read: $(tr '\n' ' ' <"${listing}.err" | cut -c1-400)"
+              exit 1
+            fi
+            echo "${tarball##*/} holds $(wc -l <"${listing}") entries"
+            head -n 20 "${listing}"
+            grep -qxE "${member}" "${listing}" || {
+              echo "::error::${tarball##*/} has no ${member}; entries: $(tr '\n' ' ' <"${listing}" | cut -c1-500)"
+              exit 1
+            }
+          }
+
           if [ -n "${bundle_name}" ]; then
-            expected="${workspace_output}/comm_internal/${bundle_name}.tar.gz"
+            tarballs="${workspace_output}/${bundle_name}.tar.gz"
           else
-            expected=""
-            for component in comm_internal comm_release; do
-              for tarball in "${pkg_name}" "${pccl_tests_pkg_name}"; do
-                expected="${expected} ${workspace_output}/${component}/${tarball}.tar.gz"
-              done
-            done
+            tarballs="${workspace_output}/${pkg_name}.tar.gz ${workspace_output}/${pccl_tests_pkg_name}.tar.gz"
           fi
-          for tarball in ${expected}; do
+          for tarball in ${tarballs}; do
             if [ ! -f "${tarball}" ]; then
               echo "::error::${tarball} was not produced"
-              ls -la "${workspace_output}/comm_internal" "${workspace_output}/comm_release" 2>&1 | head -n 30 || true
+              ls -la "${workspace_output}" 2>&1 | head -n 30 || true
               exit 1
             fi
           done
 
-          echo "######################### $(date +%Y%m%d%H%M%S) Tarballs of ${pkg_name}${bundle_name:+, bundle ${bundle_name}} ##########################"
-          find "${workspace_output}" -maxdepth 2 -name '*.tar.gz' -type f -print
+          echo "######################### $(date +%Y%m%d%H%M%S) Packages of ${pkg_name}${bundle_name:+, bundle ${bundle_name}} ##########################"
 
-      - name: Upload tarballs as run artifact
+          if [ -n "${bundle_name}" ]; then
+            # The test box has to carry a runnable pccl build; the pccl-tests sources sit next to it
+            # and the SDK is not part of the bundle at all (the consumer installs it).
+            verify_tarball "${workspace_output}/${bundle_name}.tar.gz" '(\./)?pccl_build/bin/pcclras'
+          else
+            # Each release package must still carry its own top level: pccl/ for the library
+            # package, comm_tools/ for the perf binaries.
+            verify_tarball "${workspace_output}/${pkg_name}.tar.gz" '(\./)?pccl/envsetup.sh'
+            verify_tarball "${workspace_output}/${pccl_tests_pkg_name}.tar.gz" '(\./)?comm_tools/single_process/all_reduce_perf'
+          fi
+
+      - name: Upload the pccl tarball as run artifact
+        # Only the regular rows deliver these two packages.
+        if: ${{ matrix.bundle_name == '' }}
         uses: actions/upload-artifact@v4
         with:
-          # run_id / run_attempt keep re-runs of the same commit from colliding.
-          name: ${{ matrix.pkg_name }}-${{ github.run_id }}-${{ github.run_attempt }}
-          path: |
-            ${{ matrix.output_dir }}/comm_internal/*.tar.gz
-            ${{ matrix.output_dir }}/comm_release/*.tar.gz
+          # Fixed per package: the artifact name is the only thing the transfer-back call knows,
+          # and a name without a run suffix keeps the published file name stable (<pkg_name>.zip).
+          name: ${{ matrix.pkg_name }}
+          # A re-run of the same run re-uploads this very name, which v4 rejects unless it may
+          # replace; each package has its own name, so nothing is overwritten across packages.
+          overwrite: true
+          # One file at the top level of the artifact, so the stored zip holds a single entry.
+          path: ${{ matrix.output_dir }}/${{ matrix.pkg_name }}.tar.gz
           if-no-files-found: error
           compression-level: 0
           retention-days: 30
 
-  # Merge the per-matrix artifacts into one. The tarballs stay inside this repository's own
-  # Actions artifacts; nothing is pushed to an external server.
-  publish:
-    name: Publish run artifact
-    needs: [prepare, build]
-    if: >-
-      ${{ !cancelled() &&
-          needs.prepare.result == 'success' &&
-          needs.prepare.outputs.buildable != '0' &&
-          (needs.build.result == 'success' || needs.build.result == 'failure') }}
-    runs-on: x86-ubuntu2404-8-32
-    timeout-minutes: 30
-    defaults:
-      run:
-        shell: bash
-    outputs:
-      artifact_name: ${{ steps.name.outputs.artifact_name }}
-    steps:
-      - name: Resolve merged artifact name
-        id: name
-        env:
-          LABEL: ${{ needs.prepare.outputs.version }}
-          REF_NAME: ${{ github.ref_name }}
-        run: |
-          set -euo pipefail
-          # The label is the UTC+8 "YYYY-MM-DD-HHmm" timestamp the prepare job resolves once
-          # per run, so the artifact reads like a release stamp instead of an internal run id
-          # and matches the value shown in the run summary.
-          if [ -z "${LABEL:-}" ]; then
-            echo "::error::the artifact label is empty; the prepare job did not export outputs.version"
-            exit 1
-          fi
-          # The git ref tells main-branch and release-branch builds apart. Branch names contain
-          # "/" and tags may contain other characters an artifact name rejects, so fold anything
-          # outside [A-Za-z0-9._-] into a single "-".
-          ref_slug=$(printf '%s' "${REF_NAME:-unknown}" | sed -e 's/[^A-Za-z0-9._-]/-/g' -e 's/--*/-/g' -e 's/^-//' -e 's/-$//')
-          ref_slug=${ref_slug:-unknown}
-          echo "artifact_name=pccl-tarballs-${ref_slug}-${LABEL}" >> "$GITHUB_OUTPUT"
-
-      - name: Merge tarball artifacts
-        uses: actions/upload-artifact/merge@v4
+      - name: Upload the pccl-tests tarball as run artifact
+        if: ${{ matrix.bundle_name == '' }}
+        uses: actions/upload-artifact@v4
         with:
-          name: ${{ steps.name.outputs.artifact_name }}
-          # Matches every per-row artifact of this run, including the for-test one whose package
-          # name starts with pccl_for_test instead of pccl_hggcrt.
-          pattern: pccl*-${{ github.run_id }}-${{ github.run_attempt }}
-          delete-merged: true
-          # The merge republishes a fresh archive and does not inherit the per-row compression-level
-          # (its own default is 6). The inputs are already gzipped tarballs, so store them as they are
-          # instead of spending zlib work on data that cannot shrink further.
+          name: ${{ matrix.tests_pkg_name }}
+          overwrite: true
+          path: ${{ matrix.output_dir }}/${{ matrix.tests_pkg_name }}.tar.gz
+          if-no-files-found: error
           compression-level: 0
           retention-days: 30
 
-      - name: Write artifact summary
-        if: always()
-        env:
-          ARTIFACT_NAME: ${{ steps.name.outputs.artifact_name }}
-          RUN_URL: ${{ github.server_url }}/${{ github.repository }}/actions/runs/${{ github.run_id }}
-          PUBLISH_RESULT: ${{ job.status }}
-        run: |
-          {
-            printf '### pccl tarballs\n\n'
-            printf '| item | value |\n| --- | --- |\n'
-            printf '| artifact | `%s` |\n' "${ARTIFACT_NAME}"
-            printf '| download | [run artifacts](%s) |\n' "${RUN_URL}"
-            printf '| result | %s |\n' "${PUBLISH_RESULT}"
-          } >> "$GITHUB_STEP_SUMMARY"
+      - name: Upload the for-test bundle as run artifact
+        # That row delivers one archive instead of the two packages above, so exactly one of the
+        # three upload steps runs per row.
+        if: ${{ matrix.bundle_name != '' }}
+        uses: actions/upload-artifact@v4
+        with:
+          name: ${{ matrix.bundle_name }}
+          overwrite: true
+          path: ${{ matrix.output_dir }}/${{ matrix.bundle_name }}.tar.gz
+          if-no-files-found: error
+          compression-level: 0
+          retention-days: 30
+
+  # One transfer-back call per package. The reusable workflow publishes the package artifact as the
+  # zip it already is, so a consumer downloads <artifact>.zip and unpacks the single tarball inside.
+  upload:
+    name: Transfer back ${{ matrix.artifact }}
+    needs: [prepare, build]
+    # A failed row must not keep the other packages away from the artifact server: what did build is
+    # still transferred, and a package whose artifact is missing fails here instead of being skipped
+    # silently.
+    if: ${{ !cancelled() && needs.prepare.result == 'success' }}
+    # The called workflow downloads the artifact with the token of this job, so the scope it needs
+    # is granted on this side: a called workflow can narrow permissions but never add them.
+    permissions:
+      contents: read
+      actions: read
+    strategy:
+      fail-fast: false
+      # Transfers are cheap next to a compile, so the cap only keeps the parallel uploads from
+      # swamping the destination; it reuses the build input instead of adding another one.
+      max-parallel: ${{ fromJSON(needs.prepare.outputs.max_parallel) }}
+      matrix: ${{ fromJSON(needs.prepare.outputs.upload_matrix) }}
+    uses: t-head/ci-infra/.github/workflows/upload-artifact-properties.yml@main
+    with:
+      artifact_name: ${{ matrix.artifact }}
+      # comm.<ref>-<stamp>: one destination directory per run, shared by every package.
+      version: comm.${{ needs.prepare.outputs.ref_slug }}-${{ needs.prepare.outputs.upload_stamp }}
+      package_type: binary
+      package_name: ${{ matrix.package }}
+      package_version: main
+      # Per-package properties, so a query can pick one OS / runtime / edition out of the directory.
+      os: ${{ matrix.os }}
+      runtime: HGGCRT ${{ matrix.hggcrt }}
+      package_edition: ${{ matrix.edition }}
+      # branch, tag, commit, log_url, run_id and run_attempt are derived from the caller context;
+      # the note is the one-key JSON comment that names the source the item was built from and the
+      # SDK it was built against, which is what an artifact page shows for a package.
+      extra_info: ${{ matrix.extra_info }}
+      template_repository: t-head/ci-infra
+      template_ref: main
+    secrets:
+      release_username: ${{ secrets.RELEASE_USERNAME }}
+      release_token: ${{ secrets.RELEASE_TOKEN }}
 
   summary:
     name: Build summary
-    needs: [prepare, build, publish]
+    needs: [prepare, build, upload]
     if: always()
     runs-on: x86-ubuntu2404-8-32
     timeout-minutes: 10
@@ -590,34 +784,56 @@ jobs:
         shell: bash
         env:
           MATRIX_JSON: ${{ needs.prepare.outputs.matrix }}
+          UPLOAD_JSON: ${{ needs.prepare.outputs.upload_matrix }}
           PREPARE_RESULT: ${{ needs.prepare.result }}
           VERSION: ${{ needs.prepare.outputs.version }}
+          REF_SLUG: ${{ needs.prepare.outputs.ref_slug }}
+          UPLOAD_STAMP: ${{ needs.prepare.outputs.upload_stamp }}
+          SLOT_COMMIT: ${{ needs.prepare.outputs.slot_commit }}
           BUILD_RESULT: ${{ needs.build.result }}
-          PUBLISH_RESULT: ${{ needs.publish.result }}
-          ARTIFACT_NAME: ${{ needs.publish.outputs.artifact_name }}
+          UPLOAD_RESULT: ${{ needs.upload.result }}
+          RUN_ID: ${{ github.run_id }}
+          RUN_ATTEMPT: ${{ github.run_attempt }}
+          RUN_URL: ${{ github.server_url }}/${{ github.repository }}/actions/runs/${{ github.run_id }}
         run: |
           python3 - <<'PY' >> "$GITHUB_STEP_SUMMARY"
           import json
           import os
 
+          env = os.environ
+          ref_slug = env.get("REF_SLUG") or "unknown"
+          stamp = env.get("UPLOAD_STAMP") or "unknown"
+          # Every package lands in this one directory, so it is reported once instead of per row.
+          upload_dir = f"`comm.{ref_slug}-{stamp}/`" if stamp != "unknown" else "n/a"
           print("### pccl build artifacts\n")
-          print(f"| item | value |\n| --- | --- |")
-          print(f"| label | {os.environ.get('VERSION') or 'n/a'} |")
-          print(f"| artifact | `{os.environ.get('ARTIFACT_NAME') or 'n/a'}` |")
-          print(f"| prepare | {os.environ.get('PREPARE_RESULT', '')} |")
-          print(f"| build | {os.environ.get('BUILD_RESULT', '')} |")
-          print(f"| publish | {os.environ.get('PUBLISH_RESULT', '')} |")
+          print("| item | value |\n| --- | --- |")
+          print(f"| label | {env.get('VERSION') or 'n/a'} |")
+          print(f"| upload directory | {upload_dir} |")
+          print(f"| built commit | `{env.get('SLOT_COMMIT') or 'triggered commit'}` |")
+          print(f"| artifacts | [run {env.get('RUN_ID', '')}, attempt {env.get('RUN_ATTEMPT', '')}]({env.get('RUN_URL', '')}) |")
+          print(f"| prepare | {env.get('PREPARE_RESULT', '')} |")
+          print(f"| build | {env.get('BUILD_RESULT', '')} |")
+          print(f"| transfer back | {env.get('UPLOAD_RESULT', '')} |")
 
-          raw = os.environ.get("MATRIX_JSON") or ""
-          if not raw:
+          rows = json.loads(env.get("MATRIX_JSON") or "{}").get("include", [])
+          uploads = json.loads(env.get("UPLOAD_JSON") or "{}").get("include", [])
+          if not rows:
               print("\nNo matrix was generated.")
               raise SystemExit(0)
-          entries = json.loads(raw).get("include", [])
           # Two rows can share one OS/runtime pair (the extra for-test row does), so the row label
-          # rather than the bare OS name identifies a line.
-          print("\n| row | hggcrt | pccl package | pccl-tests / bundle package | image |\n| --- | --- | --- | --- | --- |")
-          for entry in entries:
-              # The for-test row has no pccl-tests tarball and ships a bundle instead.
-              tests_pkg = entry.get("bundle_name") or entry.get("tests_pkg_name", "n/a")
-              print(f"| {entry.get('label', entry['os'])} | {entry['hggcrt']} | `{entry['pkg_name']}.tar.gz` | `{tests_pkg}.tar.gz` | `{entry['image']}` |")
+          # identifies a line, and the packages of a row share one cell instead of repeating it.
+          by_row = {}
+          for item in uploads:
+              by_row.setdefault(item["label"], []).append(item)
+          print("\n| row | github artifacts | uploaded zips | image |")
+          print("| --- | --- | --- | --- |")
+          for row in rows:
+              # A regular row leaves two artifacts in the run, the bundle row leaves one.
+              if row.get("bundle_name"):
+                  artifacts = f"`{row['bundle_name']}`"
+              else:
+                  artifacts = f"`{row['pkg_name']}`<br>`{row['tests_pkg_name']}`"
+              items = by_row.get(row["label"], [])
+              zips = "<br>".join(f"`{item['artifact']}.zip`" for item in items) or "not transferred back"
+              print(f"| {row['label']} | {artifacts} | {zips} | `{row['image']}` |")
           PY
