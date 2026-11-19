@@ -1,14 +1,14 @@
 {
   "classification": {
     "base_sha": "a7769ba35a724d84cea481c9b318c30482175471",
-    "head_sha": "f124512e23a8166e1af0e42a8db2cececf06e415",
-    "input_fingerprint": "04a01f9eafb8255c896b7e666ffbd3a60329b9fa572290a6e009d1fca0811a35",
+    "head_sha": "6bbd35161520d49786856160bc1344a4fc848239",
+    "input_fingerprint": "4a8ec984d55fd267901011e57b69f8e2419e490a12aa24683fe6efe65198c1f1",
     "pr_number": 196,
     "proposal": {
       "modules": [
         "ci"
       ],
-      "reason": "Main change is the test-execution pipeline itself: daily/source-sanity workflows, artifact download validation/retry, cluster run allocation (including cross-rack), generated test-case inputs from JSON families, and performance-report artifact generation from run logs. Added/removed test data and xtest helper scripts are all in service of CI execution/reporting behavior rather than runtime modules or review-policy automation."
+      "reason": "Main change is a substantive redesign of test workflow execution and reporting: daily/source-sanity pipelines now generate case inputs from JSON families, add artifact integrity/retry and NAS cache probing/publish logic, expand node/rack scheduling behavior, and produce/validate performance report artifacts with new CI-side helper scripts and tests."
     }
   },
   "reviewers": {
