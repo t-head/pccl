@@ -1,14 +1,14 @@
 {
   "classification": {
     "base_sha": "50423c27f1dc6a6ef765f20e504c47f561d948f9",
-    "head_sha": "40e2240f47431173c3a6456b8c71a4308fec2f6c",
-    "input_fingerprint": "2713dab8e108058c6f4b33f3043d96f21600f8a1e76de7b1df95427e460bd010",
+    "head_sha": "c89b3959b01d35ba2e286573580a17a65bf4c685",
+    "input_fingerprint": "5b2a5cce0b064f599f6a367a98237a1bb8b0ea98debf6ec504938371d9221b14",
     "pr_number": 223,
     "proposal": {
       "modules": [
         "ci"
       ],
-      "reason": "Adds the native unit-test family to M890P daily smoke/full CI generation and execution (new postsil_unit_test_shm definitions, suite/coverage manifests, and workflow/test updates), plus CI build-script staging of required native test binaries for those jobs. This is test workflow orchestration and dataset selection, not runtime PCCL module behavior."
+      "reason": "Main substantive change is to open-source test workflow execution: daily M890P dataset now includes the new native unit family, updates generated suite/case manifests and coverage metadata, and adjusts CI build staging to produce/copy the required native test binaries for those runs. Documentation and test updates are supporting validation of this CI behavior, not separate module changes."
     }
   },
   "reviewers": {
