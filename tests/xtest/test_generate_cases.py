@@ -70,8 +70,7 @@ class PublicGeneratorTests(unittest.TestCase):
         self.assertTrue(all("unit_test.py" not in row["cmd"] for row in rows))
         smoke = self.bundle("postsil_unit_test_shm", profile="smoke")["rows"]
         self.assertEqual(len(smoke), 2)
-        self.assertEqual({row["cmd"].split()[2] for row in smoke if row["cmd"].startswith("NCCL_")},
-                         {"build/collPcclUnitTest"})
+        self.assertEqual(sum("build/collPcclUnitTest" in row["cmd"] for row in smoke), 1)
         self.assertEqual(sum("build/hggcGraphUnitTest" in row["cmd"] for row in smoke), 1)
 
     def test_multi_node_rdma_matches_all_4090_committed_rows(self):
