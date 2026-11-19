@@ -59,7 +59,7 @@ def save_review_state(api, number, previous, record, latest, revision):
     if record == previous:
         return revision
     new_choices = {module: reviewer for module, reviewer in record["reviewers"].items()
-                   if module not in previous["reviewers"]}
+                   if previous["reviewers"].get(module) != reviewer}
     files = {f"assignments/{number}.json": record}
     if new_choices or not revision:
         files["rotation.json"] = {**latest, **new_choices}

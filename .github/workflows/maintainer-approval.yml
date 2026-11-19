@@ -27,7 +27,7 @@ jobs:
         with:
           ref: ${{ github.sha }}
           persist-credentials: false
-      - name: Verify current module Maintainer approvals
+      - name: Verify current module Reviewer and Maintainer approvals
         env:
           GITHUB_TOKEN: ${{ github.token }}
         run: python3 .github/scripts/maintainer_approval.py

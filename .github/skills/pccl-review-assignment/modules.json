@@ -239,8 +239,7 @@
       "maintainer": {"login": "xuyinxin-xyx", "id": 333302477},
       "reviewers": [
         {"login": "xuyinxin-xyx", "id": 333302477}
-      ],
-      "author_review_exemption": 333302477
+      ]
     },
     "other": {
       "name": "Other changes",

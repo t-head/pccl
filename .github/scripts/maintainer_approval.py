@@ -1,4 +1,4 @@
-"""Refresh the module Maintainer check when routing finishes or a review changes."""
+"""Refresh module Reviewer and Maintainer approvals after routing or review changes."""
 
 import json
 import os
@@ -46,30 +46,47 @@ def verify_review_trigger(api, sha):
         raise ValueError("The PR must include the deployed review notification workflow to refresh approvals")
 
 
-def saved_classification(api, number):
-    record = reviewer_state.read_state_file(api, reviewer_state.STATE_BRANCH,
-                                            f"assignments/{number}.json", optional=True)
-    return record.get("classification") if record else None
+def saved_review_state(api, number):
+    return reviewer_state.read_assignments(api, number)[0]
 
 
-def module_approval(api, pr, roster, skill, classification, approvals):
+def module_approval(api, pr, roster, skill, record, approvals):
+    classification = record["classification"]
     if (not classification or classification.get("pr_number") != pr["number"] or
             classification.get("head_sha") != pr["head"]["sha"]):
-        return False, "Waiting for module classification of the current commit"
+        return False, "Waiting for module classification of the current commit", {}
     files = routing.fetch_pr_diff(api, pr)
     if classification.get("input_fingerprint") != routing.classification_fingerprint(pr, files, roster, skill):
-        return False, "Module classification is stale. Rerun reviewer routing"
+        return False, "Module classification is stale. Rerun reviewer routing", {}
     modules = routing.validate_classification(classification["proposal"], roster)["modules"]
-    missing = {}
+    author = pr["user"]["id"]
+    missing = {"Reviewer": {}, "Maintainer": {}}
     for module in modules:
-        owner = routing.module_maintainer(roster, module, pr["user"]["id"])
+        candidates = [candidate for candidate in roster["modules"][module]["reviewers"] if candidate != author]
+        if candidates and not approvals.intersection(candidates):
+            reviewer = record["reviewers"].get(module)
+            if reviewer not in candidates:
+                return False, f"Waiting for Reviewer assignment for {module}; rerun reviewer routing", {}
+            missing["Reviewer"].setdefault(reviewer, []).append(module)
+        owner = routing.module_maintainer(roster, module, author)
         if owner is not None and owner not in approvals:
-            missing.setdefault(owner, []).append(module)
-    if missing:
-        maintainers = [f"@{api.login(owner)} ({', '.join(owned_modules)})"
-                       for owner, owned_modules in missing.items()]
-        return False, "Awaiting Maintainer approval: " + ", ".join(maintainers)
-    return True, "Maintainer requirements satisfied for the current commit"
+            missing["Maintainer"].setdefault(owner, []).append(module)
+    pending, details = {}, []
+    for role, users in missing.items():
+        if users:
+            pending[role] = [f"@{api.login(user)}" for user in users]
+            accounts = [f"{login} ({', '.join(owned_modules)})"
+                        for login, owned_modules in zip(pending[role], users.values())]
+            details.append(f"{role} approval: " + ", ".join(accounts))
+    if pending:
+        reason = "Awaiting " + "; ".join(details)
+        if "Reviewer" in pending:
+            reason += (". Any non-author Reviewer in the same module's roster can approve the current commit "
+                       "instead of the named default; Maintainer approval is still required")
+        reason += (". The Lead Maintainer can approve both roles for all modules on another author's PR "
+                   "at the current commit")
+        return False, reason, pending
+    return True, "Reviewer and Maintainer requirements satisfied for the current commit", {}
 
 
 def refresh(api, number):
@@ -79,30 +96,37 @@ def refresh(api, number):
         return
     # Match PCCL Tests Gate: a status on the test merge makes GitHub require checks there instead.
     sha = pr["head"]["sha"]
-    publish_status(api, sha, "pending", "Checking module Maintainer approvals")
+    publish_status(api, sha, "pending", "Checking module Reviewer and Maintainer approvals")
     try:
         roster, skill = routing.load_config()
         approved = routing.current_approvals(pr, api.pages(f"/pulls/{number}/reviews"))
-        classification = None
+        record = None
         if roster["lead_maintainer"] in approved:
-            ready, reason = True, "Lead Maintainer approved the current commit"
+            ready, reason, pending = (True,
+                "Lead Maintainer approved all module Reviewer and Maintainer requirements for the current commit", {})
         else:
-            classification = saved_classification(api, number)
-            ready, reason = module_approval(api, pr, roster, skill, classification, approved)
+            record = saved_review_state(api, number)
+            ready, reason, pending = module_approval(api, pr, roster, skill, record, approved)
         if ready:
             verify_review_trigger(api, sha)
             fresh = api.request("GET", f"/pulls/{number}")
             if (routing.pr_snapshot_key(fresh) != routing.pr_snapshot_key(pr) or
-                    (classification is not None and saved_classification(api, number) != classification) or
+                    (record is not None and saved_review_state(api, number) != record) or
                     routing.current_approvals(fresh, api.pages(f"/pulls/{number}/reviews")) != approved):
-                raise ValueError("PR or approvals changed during verification. Rerun the approval check")
-        description = (reason if len(reason) <= 140 else
-                       "Awaiting Maintainer approval; see Details for the full list")
+                raise ValueError("PR, assignments or approvals changed during verification. Rerun the approval check")
+        reviewer_hint = " (or a same-module Reviewer)"
+        description = ("Awaiting " + "; ".join(f"{role} approval: {', '.join(users)}" +
+                                              (reviewer_hint if role == "Reviewer" else "")
+                                              for role, users in pending.items()) if pending else reason)
+        if len(description) > 140:
+            description = ("Awaiting " + "; ".join(f"{role} approval: {len(users)}" +
+                                                  (reviewer_hint if role == "Reviewer" else "")
+                                                  for role, users in pending.items()) + "; see Details")
         publish_status(api, sha, "success" if ready else "pending", description)
         with open(os.environ["GITHUB_STEP_SUMMARY"], "a") as output:
             output.write(f"PR #{number} at `{pr['head']['sha']}`\n\n{reason}.\n")
     except Exception:
-        publish_status(api, sha, "error", "Could not verify Maintainer approval. See workflow logs")
+        publish_status(api, sha, "error", "Could not verify module approvals. See workflow logs")
         raise
 
 
