@@ -6,8 +6,8 @@
  * See LICENSE.txt for more license information
  *************************************************************************/
 
-#ifndef PCCL_DEVICE_KERNEL_DISPATCH_H_
-#define PCCL_DEVICE_KERNEL_DISPATCH_H_
+#ifndef _PCCLX_DEVICE_KERNEL_DISPATCH_H_
+#define _PCCLX_DEVICE_KERNEL_DISPATCH_H_
 
 #include "pccl.h"
 #include "utility.h"
@@ -56,4 +56,4 @@ PCCL_EXTERN_C __host__ pcclResult_t pcclxKernelSetDispatchConfigByHandle(
 
 #endif // __clang_llvm_bitcode_lib__
 
-#endif // PCCL_DEVICE_KERNEL_DISPATCH_H_
+#endif // _PCCLX_DEVICE_KERNEL_DISPATCH_H_

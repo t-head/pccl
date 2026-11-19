@@ -5,13 +5,13 @@
  * See LICENSE.txt for more license information
  *************************************************************************/
 
-#ifndef _PCCL_DEVICE_GIN_TROCE_H_
-#define _PCCL_DEVICE_GIN_TROCE_H_
+#ifndef _PCCLX_DEVICE_GIN_TROCE_H_
+#define _PCCLX_DEVICE_GIN_TROCE_H_
 
 #include <cstdint>
 #include <errno.h>
 
-#ifdef PCCL_DEVICE_GIN_TROCE_ENABLE_DEBUG
+#ifdef PCCLX_DEVICE_GIN_TROCE_ENABLE_DEBUG
 #include <stdio.h>
 #endif
 
@@ -29,15 +29,15 @@ struct pcclxGinTroceRequest {
 static_assert(sizeof(pcclxGinTroceRequest) <= sizeof(pcclGinRequest_t),
               "pcclxGinTroceRequest must fit in pcclGinRequest_t");
 
-namespace pccl {
+namespace pcclx {
 namespace gin {
 namespace troce {
 
-#define PCCL_TROCE_BSWAP32(x) __builtin_bswap32(x)
-#define PCCL_TROCE_BSWAP64(x) __builtin_bswap64(x)
-#define PCCL_TROCE_HTOBE32(x) __builtin_bswap32(x)
-#define PCCL_TROCE_HTOBE64(x) __builtin_bswap64(x)
-#define PCCL_TROCE_POLL_SUCCESS 0
+#define PCCLX_TROCE_BSWAP32(x) __builtin_bswap32(x)
+#define PCCLX_TROCE_BSWAP64(x) __builtin_bswap64(x)
+#define PCCLX_TROCE_HTOBE32(x) __builtin_bswap32(x)
+#define PCCLX_TROCE_HTOBE64(x) __builtin_bswap64(x)
+#define PCCLX_TROCE_POLL_SUCCESS 0
 
 template <hggc::thread_scope scope = hggc::thread_scope_device>
 PCCL_DEVICE_INLINE bool tryLock(int *lockPtr) {
@@ -76,7 +76,7 @@ PCCL_DEVICE_INLINE uint64_t reserveWqeSlots(struct pcclxGinTroceQp *qp, uint32_t
 
 PCCL_DEVICE_INLINE void *getWqePtr(struct pcclxGinTroceQp *qp, uint64_t wqeIdx) {
   uint16_t idx = (uint16_t)(wqeIdx & (qp->nwqes - 1));
-  return (void *)((uintptr_t)qp->sq_wqe + ((uintptr_t)idx * PCCL_TROCE_SEND_WQE_BB));
+  return (void *)((uintptr_t)qp->sq_wqe + ((uintptr_t)idx * PCCLX_TROCE_SEND_WQE_BB));
 }
 
 // ---------------------------------------------------------------------------
@@ -86,15 +86,15 @@ PCCL_DEVICE_INLINE void *getWqePtr(struct pcclxGinTroceQp *qp, uint64_t wqeIdx) 
 // Only explicit submission paths may call this helper. Callers must hold
 // qp->db_lock (see submit).
 PCCL_DEVICE_INLINE void troceRingDb(struct pcclxGinTroceQp *qp, uint16_t prodIdx) {
-  pcclTroceSqDb db;
+  pcclxTroceSqDb db;
   db.value = 0;
   db.db.dw0.bs.qid = qp->qpn;
-  db.db.dw0.bs.q_type = PCCL_PAU_QTYPE_ROCE_SQ;
+  db.db.dw0.bs.q_type = PCCLX_PAU_QTYPE_ROCE_SQ;
   db.db.dw1.bs.pi = prodIdx;
   // Use the QP traffic class queried after RTR.
   db.db.dw1.bs.tc = qp->traffic_class;
-  db.db.dw0.value = PCCL_TROCE_HTOBE32(db.db.dw0.value);
-  db.db.dw1.value = PCCL_TROCE_HTOBE32(db.db.dw1.value);
+  db.db.dw0.value = PCCLX_TROCE_HTOBE32(db.db.dw0.value);
+  db.db.dw1.value = PCCLX_TROCE_HTOBE32(db.db.dw1.value);
   storeRelease((uint64_t *)qp->sq_db, db.value);
 }
 
@@ -142,51 +142,51 @@ PCCL_DEVICE_INLINE void troceWriteRdmaWqe(struct pcclxGinTroceQp *qp, uint64_t l
                                           uint64_t raddr, __be32 rkey, uint32_t bytes,
                                           uint16_t wqeIdx, bool needCqe, void *wqePtr,
                                           bool isWrite, bool fence = false) {
-  pcclTroceCtrlSeg ctrl = {};
-  pcclTroceRaddrSeg raddrSeg = {};
-  pcclTroceDataSeg dataSeg = {};
+  pcclxTroceCtrlSeg ctrl = {};
+  pcclxTroceRaddrSeg raddrSeg = {};
+  pcclxTroceDataSeg dataSeg = {};
 
-  pcclTroceCtrlSeg *ctrlPtr = (pcclTroceCtrlSeg *)wqePtr;
-  pcclTroceRaddrSeg *raddrPtr =
-    (pcclTroceRaddrSeg *)((uintptr_t)ctrlPtr + sizeof(pcclTroceCtrlSeg));
-  uintptr_t after = (uintptr_t)raddrPtr + sizeof(pcclTroceRaddrSeg);
+  pcclxTroceCtrlSeg *ctrlPtr = (pcclxTroceCtrlSeg *)wqePtr;
+  pcclxTroceRaddrSeg *raddrPtr =
+    (pcclxTroceRaddrSeg *)((uintptr_t)ctrlPtr + sizeof(pcclxTroceCtrlSeg));
+  uintptr_t after = (uintptr_t)raddrPtr + sizeof(pcclxTroceRaddrSeg);
 
-  size_t wqeSize = sizeof(pcclTroceCtrlSeg) + sizeof(pcclTroceRaddrSeg);
-  pcclTroceDataSeg *dataPtr = (pcclTroceDataSeg *)(after + PCCL_TROCE_16B_PAD(wqeSize));
+  size_t wqeSize = sizeof(pcclxTroceCtrlSeg) + sizeof(pcclxTroceRaddrSeg);
+  pcclxTroceDataSeg *dataPtr = (pcclxTroceDataSeg *)(after + PCCLX_TROCE_16B_PAD(wqeSize));
 
-  raddrSeg.raddr = PCCL_TROCE_HTOBE64(raddr);
+  raddrSeg.raddr = PCCLX_TROCE_HTOBE64(raddr);
   raddrSeg.rkey = rkey;
-  raddrSeg.len = PCCL_TROCE_HTOBE32(bytes);
+  raddrSeg.len = PCCLX_TROCE_HTOBE32(bytes);
 
   const bool hasSge = bytes > 0;
   if (hasSge) {
-    dataSeg.len = PCCL_TROCE_HTOBE32(bytes);
-    dataSeg.dw3.bs.lkey = PCCL_TROCE_BSWAP32(lkey);
-    dataSeg.dw3.value = PCCL_TROCE_HTOBE32(dataSeg.dw3.value);
-    dataSeg.addr = PCCL_TROCE_HTOBE64(laddr);
+    dataSeg.len = PCCLX_TROCE_HTOBE32(bytes);
+    dataSeg.dw3.bs.lkey = PCCLX_TROCE_BSWAP32(lkey);
+    dataSeg.dw3.value = PCCLX_TROCE_HTOBE32(dataSeg.dw3.value);
+    dataSeg.addr = PCCLX_TROCE_HTOBE64(laddr);
   }
 
-  wqeSize += sizeof(pcclTroceDataSeg);
-  wqeSize = PCCL_TROCE_DIV_ROUND_UP(wqeSize, PCCL_TROCE_SEND_WQE_BB);
+  wqeSize += sizeof(pcclxTroceDataSeg);
+  wqeSize = PCCLX_TROCE_DIV_ROUND_UP(wqeSize, PCCLX_TROCE_SEND_WQE_BB);
 
   ctrl.dw0.bs.qpn = (uint16_t)qp->qpn;
-  ctrl.dw0.bs.q_type = PCCL_PAU_QTYPE_ROCE_SQ;
+  ctrl.dw0.bs.q_type = PCCLX_PAU_QTYPE_ROCE_SQ;
   ctrl.dw0.bs.tc = qp->traffic_class;
   ctrl.dw0.bs.wqe_size = (uint8_t)(wqeSize - 1);
-  ctrl.dw0.value = PCCL_TROCE_HTOBE32(ctrl.dw0.value);
+  ctrl.dw0.value = PCCLX_TROCE_HTOBE32(ctrl.dw0.value);
 
   ctrl.dw1.bs.ce = needCqe ? 2 : 0;
-  ctrl.dw1.bs.opc = isWrite ? PCCL_TROCE_OPCODE_RDMA_WRITE : PCCL_TROCE_OPCODE_RDMA_READ;
+  ctrl.dw1.bs.opc = isWrite ? PCCLX_TROCE_OPCODE_RDMA_WRITE : PCCLX_TROCE_OPCODE_RDMA_READ;
   ctrl.dw1.bs.wqe_idx = wqeIdx;
-  ctrl.dw1.bs.fm = fence ? PCCL_TROCE_FENCE : 0;
+  ctrl.dw1.bs.fm = fence ? PCCLX_TROCE_FENCE : 0;
   if (!hasSge) {
     ctrl.dw1.bs.in_dat = 1;
   }
-  ctrl.dw1.value = PCCL_TROCE_HTOBE32(ctrl.dw1.value);
+  ctrl.dw1.value = PCCLX_TROCE_HTOBE32(ctrl.dw1.value);
 
   ctrl.dw2.bs.local_sge_num = hasSge ? 1 : 0;
-  ctrl.dw2.value = PCCL_TROCE_HTOBE32(ctrl.dw2.value);
-  ctrl.pld_len = PCCL_TROCE_HTOBE32(bytes);
+  ctrl.dw2.value = PCCLX_TROCE_HTOBE32(ctrl.dw2.value);
+  ctrl.pld_len = PCCLX_TROCE_HTOBE32(bytes);
 
   uint32_t *dst = (uint32_t *)ctrlPtr;
   uint32_t *src = (uint32_t *)&ctrl;
@@ -210,39 +210,39 @@ PCCL_DEVICE_INLINE void troceWriteRdmaWqe(struct pcclxGinTroceQp *qp, uint64_t l
 PCCL_DEVICE_INLINE void troceWriteRdmaInlineWqe(struct pcclxGinTroceQp *qp, const void *val,
                                                 uint32_t bytes, uint64_t raddr, __be32 rkey,
                                                 uint16_t wqeIdx, bool needCqe, void *wqePtr) {
-  pcclTroceCtrlSeg ctrl = {};
-  pcclTroceRaddrSeg raddrSeg = {};
+  pcclxTroceCtrlSeg ctrl = {};
+  pcclxTroceRaddrSeg raddrSeg = {};
 
-  pcclTroceCtrlSeg *ctrlPtr = (pcclTroceCtrlSeg *)wqePtr;
-  pcclTroceRaddrSeg *raddrPtr =
-    (pcclTroceRaddrSeg *)((uintptr_t)ctrlPtr + sizeof(pcclTroceCtrlSeg));
-  void *dataPtr = (void *)((uintptr_t)raddrPtr + sizeof(pcclTroceRaddrSeg));
+  pcclxTroceCtrlSeg *ctrlPtr = (pcclxTroceCtrlSeg *)wqePtr;
+  pcclxTroceRaddrSeg *raddrPtr =
+    (pcclxTroceRaddrSeg *)((uintptr_t)ctrlPtr + sizeof(pcclxTroceCtrlSeg));
+  void *dataPtr = (void *)((uintptr_t)raddrPtr + sizeof(pcclxTroceRaddrSeg));
   const uint32_t hdrSize = (uint32_t)((uintptr_t)dataPtr - (uintptr_t)ctrlPtr);
 
   size_t total = hdrSize + bytes;
-  total += PCCL_TROCE_16B_PAD(total);
-  size_t wqeSize = PCCL_TROCE_DIV_ROUND_UP(total, PCCL_TROCE_SEND_WQE_BB);
+  total += PCCLX_TROCE_16B_PAD(total);
+  size_t wqeSize = PCCLX_TROCE_DIV_ROUND_UP(total, PCCLX_TROCE_SEND_WQE_BB);
 
-  raddrSeg.raddr = PCCL_TROCE_HTOBE64(raddr);
+  raddrSeg.raddr = PCCLX_TROCE_HTOBE64(raddr);
   raddrSeg.rkey = rkey;
-  raddrSeg.len = PCCL_TROCE_HTOBE32(bytes);
+  raddrSeg.len = PCCLX_TROCE_HTOBE32(bytes);
 
   ctrl.dw0.bs.qpn = (uint16_t)qp->qpn;
-  ctrl.dw0.bs.q_type = PCCL_PAU_QTYPE_ROCE_SQ;
+  ctrl.dw0.bs.q_type = PCCLX_PAU_QTYPE_ROCE_SQ;
   ctrl.dw0.bs.tc = qp->traffic_class;
   ctrl.dw0.bs.wqe_size = (uint8_t)(wqeSize - 1);
-  ctrl.dw0.value = PCCL_TROCE_HTOBE32(ctrl.dw0.value);
+  ctrl.dw0.value = PCCLX_TROCE_HTOBE32(ctrl.dw0.value);
 
   ctrl.dw1.bs.ce = needCqe ? 2 : 0;
-  ctrl.dw1.bs.opc = PCCL_TROCE_OPCODE_RDMA_WRITE;
+  ctrl.dw1.bs.opc = PCCLX_TROCE_OPCODE_RDMA_WRITE;
   ctrl.dw1.bs.wqe_idx = wqeIdx;
   ctrl.dw1.bs.in_dat = 1;  // payload is inline, not an SGE
   ctrl.dw1.bs.inline_offset = 0;
-  ctrl.dw1.value = PCCL_TROCE_HTOBE32(ctrl.dw1.value);
+  ctrl.dw1.value = PCCLX_TROCE_HTOBE32(ctrl.dw1.value);
 
   ctrl.dw2.bs.local_sge_num = 0;
-  ctrl.dw2.value = PCCL_TROCE_HTOBE32(ctrl.dw2.value);
-  ctrl.pld_len = PCCL_TROCE_HTOBE32(bytes);
+  ctrl.dw2.value = PCCLX_TROCE_HTOBE32(ctrl.dw2.value);
+  ctrl.pld_len = PCCLX_TROCE_HTOBE32(bytes);
 
   uint32_t *dst = (uint32_t *)ctrlPtr;
   uint32_t *src = (uint32_t *)&ctrl;
@@ -287,41 +287,41 @@ PCCL_DEVICE_INLINE void troceWriteFlushWqe(struct pcclxGinTroceQp *qp, uint64_t 
                                          uint64_t raddr, __be32 rkey, uint16_t wqeIdx,
                                          bool needCqe, void *wqePtr) {
   const uint32_t bytes = sizeof(val);
-  pcclTroceCtrlSeg ctrl = {};
-  pcclTroceRaddrSeg raddrSeg = {};
+  pcclxTroceCtrlSeg ctrl = {};
+  pcclxTroceRaddrSeg raddrSeg = {};
 
-  pcclTroceCtrlSeg *ctrlPtr = (pcclTroceCtrlSeg *)wqePtr;
-  pcclTroceRaddrSeg *raddrPtr =
-    (pcclTroceRaddrSeg *)((uintptr_t)ctrlPtr + sizeof(pcclTroceCtrlSeg));
-  void *dataPtr = (void *)((uintptr_t)raddrPtr + sizeof(pcclTroceRaddrSeg));
+  pcclxTroceCtrlSeg *ctrlPtr = (pcclxTroceCtrlSeg *)wqePtr;
+  pcclxTroceRaddrSeg *raddrPtr =
+    (pcclxTroceRaddrSeg *)((uintptr_t)ctrlPtr + sizeof(pcclxTroceCtrlSeg));
+  void *dataPtr = (void *)((uintptr_t)raddrPtr + sizeof(pcclxTroceRaddrSeg));
   const uint32_t hdrSize = (uint32_t)((uintptr_t)dataPtr - (uintptr_t)ctrlPtr);
 
   size_t total = hdrSize + bytes;
-  total += PCCL_TROCE_16B_PAD(total);
-  size_t wqeSize = PCCL_TROCE_DIV_ROUND_UP(total, PCCL_TROCE_SEND_WQE_BB);
+  total += PCCLX_TROCE_16B_PAD(total);
+  size_t wqeSize = PCCLX_TROCE_DIV_ROUND_UP(total, PCCLX_TROCE_SEND_WQE_BB);
 
-  raddrSeg.raddr = PCCL_TROCE_HTOBE64(raddr);
+  raddrSeg.raddr = PCCLX_TROCE_HTOBE64(raddr);
   raddrSeg.rkey = rkey;
   // Flush write carries the address segment inside its inline payload. Its
   // length field follows the TROCE provider's host-endian encoding.
   raddrSeg.len = bytes;
 
   ctrl.dw0.bs.qpn = (uint16_t)qp->qpn;
-  ctrl.dw0.bs.q_type = PCCL_PAU_QTYPE_ROCE_SQ;
+  ctrl.dw0.bs.q_type = PCCLX_PAU_QTYPE_ROCE_SQ;
   ctrl.dw0.bs.tc = qp->traffic_class;
   ctrl.dw0.bs.wqe_size = (uint8_t)(wqeSize - 1);
-  ctrl.dw0.value = PCCL_TROCE_HTOBE32(ctrl.dw0.value);
+  ctrl.dw0.value = PCCLX_TROCE_HTOBE32(ctrl.dw0.value);
 
   ctrl.dw1.bs.ce = needCqe ? 2 : 0;
-  ctrl.dw1.bs.opc = PCCL_TROCE_OPCODE_SEND_INVAL;
+  ctrl.dw1.bs.opc = PCCLX_TROCE_OPCODE_SEND_INVAL;
   ctrl.dw1.bs.wqe_idx = wqeIdx;
   ctrl.dw1.bs.in_dat = 1;  // payload is inline, not an SGE
   ctrl.dw1.bs.inline_offset = 0;
-  ctrl.dw1.value = PCCL_TROCE_HTOBE32(ctrl.dw1.value);
+  ctrl.dw1.value = PCCLX_TROCE_HTOBE32(ctrl.dw1.value);
 
   ctrl.dw2.bs.local_sge_num = 0;
-  ctrl.dw2.value = PCCL_TROCE_HTOBE32(ctrl.dw2.value);
-  ctrl.pld_len = PCCL_TROCE_HTOBE32(bytes + sizeof(pcclTroceRaddrSeg));
+  ctrl.dw2.value = PCCLX_TROCE_HTOBE32(ctrl.dw2.value);
+  ctrl.pld_len = PCCLX_TROCE_HTOBE32(bytes + sizeof(pcclxTroceRaddrSeg));
 
   uint32_t *dst = (uint32_t *)ctrlPtr;
   uint32_t *src = (uint32_t *)&ctrl;
@@ -349,54 +349,54 @@ PCCL_DEVICE_INLINE void troceWriteAtomicFaWqe(struct pcclxGinTroceQp *qp, uint64
                                               uint64_t laddr, __be32 lkey, uint64_t raddr,
                                               __be32 rkey, uint16_t wqeIdx, bool needCqe,
                                               void *wqePtr) {
-  pcclTroceCtrlSeg ctrl = {};
-  pcclTroceRaddrSeg raddrSeg = {};
-  pcclTroceAtomicSeg atomicSeg = {};
-  pcclTroceDataSeg dataSeg = {};
+  pcclxTroceCtrlSeg ctrl = {};
+  pcclxTroceRaddrSeg raddrSeg = {};
+  pcclxTroceAtomicSeg atomicSeg = {};
+  pcclxTroceDataSeg dataSeg = {};
 
-  pcclTroceCtrlSeg *ctrlPtr = (pcclTroceCtrlSeg *)wqePtr;
-  pcclTroceRaddrSeg *raddrPtr =
-    (pcclTroceRaddrSeg *)((uintptr_t)ctrlPtr + sizeof(pcclTroceCtrlSeg));
-  pcclTroceAtomicSeg *atomicPtr =
-    (pcclTroceAtomicSeg *)((uintptr_t)raddrPtr + sizeof(pcclTroceRaddrSeg));
-  uintptr_t after = (uintptr_t)atomicPtr + sizeof(pcclTroceAtomicSeg);
+  pcclxTroceCtrlSeg *ctrlPtr = (pcclxTroceCtrlSeg *)wqePtr;
+  pcclxTroceRaddrSeg *raddrPtr =
+    (pcclxTroceRaddrSeg *)((uintptr_t)ctrlPtr + sizeof(pcclxTroceCtrlSeg));
+  pcclxTroceAtomicSeg *atomicPtr =
+    (pcclxTroceAtomicSeg *)((uintptr_t)raddrPtr + sizeof(pcclxTroceRaddrSeg));
+  uintptr_t after = (uintptr_t)atomicPtr + sizeof(pcclxTroceAtomicSeg);
 
   size_t wqeSize =
-    sizeof(pcclTroceCtrlSeg) + sizeof(pcclTroceRaddrSeg) + sizeof(pcclTroceAtomicSeg);
+    sizeof(pcclxTroceCtrlSeg) + sizeof(pcclxTroceRaddrSeg) + sizeof(pcclxTroceAtomicSeg);
   // An atomic WQE spans more than one WQEBB, so the trailing data segment can
   // cross the SQ wrap point; in that case it lands at the ring base.
   bool wraps = ((wqeIdx + 1) % qp->nwqes) == 0;
-  pcclTroceDataSeg *dataPtr = wraps ? (pcclTroceDataSeg *)qp->sq_wqe
-                                    : (pcclTroceDataSeg *)(after + PCCL_TROCE_16B_PAD(wqeSize));
+  pcclxTroceDataSeg *dataPtr = wraps ? (pcclxTroceDataSeg *)qp->sq_wqe
+                                    : (pcclxTroceDataSeg *)(after + PCCLX_TROCE_16B_PAD(wqeSize));
 
-  raddrSeg.raddr = PCCL_TROCE_HTOBE64(raddr);
+  raddrSeg.raddr = PCCLX_TROCE_HTOBE64(raddr);
   raddrSeg.rkey = rkey;
-  raddrSeg.len = PCCL_TROCE_HTOBE32(PCCL_TROCE_ATOMIC_SIZE);
+  raddrSeg.len = PCCLX_TROCE_HTOBE32(PCCLX_TROCE_ATOMIC_SIZE);
 
-  dataSeg.len = PCCL_TROCE_HTOBE32(PCCL_TROCE_ATOMIC_SIZE);
-  dataSeg.dw3.bs.lkey = PCCL_TROCE_BSWAP32(lkey);
-  dataSeg.dw3.value = PCCL_TROCE_HTOBE32(dataSeg.dw3.value);
-  dataSeg.addr = PCCL_TROCE_HTOBE64(laddr);
+  dataSeg.len = PCCLX_TROCE_HTOBE32(PCCLX_TROCE_ATOMIC_SIZE);
+  dataSeg.dw3.bs.lkey = PCCLX_TROCE_BSWAP32(lkey);
+  dataSeg.dw3.value = PCCLX_TROCE_HTOBE32(dataSeg.dw3.value);
+  dataSeg.addr = PCCLX_TROCE_HTOBE64(laddr);
 
-  atomicSeg.swap_or_add_dat = PCCL_TROCE_HTOBE64(addVal);
+  atomicSeg.swap_or_add_dat = PCCLX_TROCE_HTOBE64(addVal);
 
-  wqeSize += sizeof(pcclTroceDataSeg);
-  wqeSize = PCCL_TROCE_DIV_ROUND_UP(wqeSize, PCCL_TROCE_SEND_WQE_BB);
+  wqeSize += sizeof(pcclxTroceDataSeg);
+  wqeSize = PCCLX_TROCE_DIV_ROUND_UP(wqeSize, PCCLX_TROCE_SEND_WQE_BB);
 
   ctrl.dw0.bs.qpn = (uint16_t)qp->qpn;
-  ctrl.dw0.bs.q_type = PCCL_PAU_QTYPE_ROCE_SQ;
+  ctrl.dw0.bs.q_type = PCCLX_PAU_QTYPE_ROCE_SQ;
   ctrl.dw0.bs.tc = qp->traffic_class;
   ctrl.dw0.bs.wqe_size = (uint8_t)(wqeSize - 1);
-  ctrl.dw0.value = PCCL_TROCE_HTOBE32(ctrl.dw0.value);
+  ctrl.dw0.value = PCCLX_TROCE_HTOBE32(ctrl.dw0.value);
 
   ctrl.dw1.bs.ce = needCqe ? 2 : 0;
-  ctrl.dw1.bs.opc = PCCL_TROCE_OPCODE_ATOMIC_FA;
+  ctrl.dw1.bs.opc = PCCLX_TROCE_OPCODE_ATOMIC_FA;
   ctrl.dw1.bs.wqe_idx = wqeIdx;
-  ctrl.dw1.value = PCCL_TROCE_HTOBE32(ctrl.dw1.value);
+  ctrl.dw1.value = PCCLX_TROCE_HTOBE32(ctrl.dw1.value);
 
   ctrl.dw2.bs.local_sge_num = 1;
-  ctrl.dw2.value = PCCL_TROCE_HTOBE32(ctrl.dw2.value);
-  ctrl.pld_len = PCCL_TROCE_HTOBE32(PCCL_TROCE_ATOMIC_SIZE);
+  ctrl.dw2.value = PCCLX_TROCE_HTOBE32(ctrl.dw2.value);
+  ctrl.pld_len = PCCLX_TROCE_HTOBE32(PCCLX_TROCE_ATOMIC_SIZE);
 
   uint32_t *dst = (uint32_t *)ctrlPtr;
   uint32_t *src = (uint32_t *)&ctrl;
@@ -429,7 +429,7 @@ template <hggc::thread_scope scope = hggc::thread_scope_device>
 PCCL_DEVICE_INLINE int troceCheckCqAt(struct pcclxGinTroceQp *qp, uint64_t idx, uint64_t oldCons,
                                       uint64_t *completedTail) {
   *completedTail = oldCons;
-  if (oldCons > idx) return PCCL_TROCE_POLL_SUCCESS;
+  if (oldCons > idx) return PCCLX_TROCE_POLL_SUCCESS;
 
   // The producer index covers published WQEs.
   hggc::atomic_ref<uint64_t, scope> prodRef(qp->prod_idx);
@@ -441,7 +441,7 @@ PCCL_DEVICE_INLINE int troceCheckCqAt(struct pcclxGinTroceQp *qp, uint64_t idx, 
   uint32_t dw14 = (uint32_t)completion;
   uint32_t dw15 = (uint32_t)(completion >> 32);
   uint16_t wqeCounter = __builtin_bswap16(
-    (uint16_t)((dw14 & PCCL_TROCE_CQE_WQE_IDX_MASK) >> PCCL_TROCE_CQE_WQE_IDX_SHIFT));
+    (uint16_t)((dw14 & PCCLX_TROCE_CQE_WQE_IDX_MASK) >> PCCLX_TROCE_CQE_WQE_IDX_SHIFT));
   // At most nwqes WQEBBs can be outstanding. Relative to oldCons, an older
   // CQE (including the initial all-ones CQ slot) has a distance >= nwqes.
   uint16_t distance = (uint16_t)(wqeCounter - (uint16_t)oldCons);
@@ -449,9 +449,9 @@ PCCL_DEVICE_INLINE int troceCheckCqAt(struct pcclxGinTroceQp *qp, uint64_t idx, 
   uint64_t completedIdx = oldCons + (uint64_t)distance;
   if (completedIdx >= prodIdx) return EBUSY;
 
-  uint8_t opcode = (dw15 & PCCL_TROCE_CQE_OPCODE_MASK) >> PCCL_TROCE_CQE_OPCODE_SHIFT;
-  if (opcode != PCCL_TROCE_CQE_REQ || (dw14 & 0xffu) != 0) {
-#ifdef PCCL_DEVICE_GIN_TROCE_ENABLE_DEBUG
+  uint8_t opcode = (dw15 & PCCLX_TROCE_CQE_OPCODE_MASK) >> PCCLX_TROCE_CQE_OPCODE_SHIFT;
+  if (opcode != PCCLX_TROCE_CQE_REQ || (dw14 & 0xffu) != 0) {
+#ifdef PCCLX_DEVICE_GIN_TROCE_ENABLE_DEBUG
     printf("GIN/TROCE: got completion with err: qpn=%#x, cqn=%#x, wqe_counter=%u, "
            "opcode=%#x, status=%#x, dw14=%#x, dw15=%#x\n",
            qp->qpn, qp->cqn, (unsigned)wqeCounter, (unsigned)opcode, dw14 & 0xffu, dw14, dw15);
@@ -461,12 +461,12 @@ PCCL_DEVICE_INLINE int troceCheckCqAt(struct pcclxGinTroceQp *qp, uint64_t idx, 
 
   // The CQE identifies the first WQEBB. Recover the full WQE length, but only
   // report success when it covers the requested index.
-  pcclTroceCtrlSeg ctrl = {};
-  ctrl.dw0.value = PCCL_TROCE_BSWAP32(atomicRead((uint32_t *)getWqePtr(qp, completedIdx)));
+  pcclxTroceCtrlSeg ctrl = {};
+  ctrl.dw0.value = PCCLX_TROCE_BSWAP32(atomicRead((uint32_t *)getWqePtr(qp, completedIdx)));
   uint64_t newCons = completedIdx + ctrl.dw0.bs.wqe_size + 1;
   if (newCons <= idx || newCons > prodIdx) return EBUSY;
   *completedTail = newCons;
-  return PCCL_TROCE_POLL_SUCCESS;
+  return PCCLX_TROCE_POLL_SUCCESS;
 }
 
 template <hggc::thread_scope scope = hggc::thread_scope_device>
@@ -474,7 +474,7 @@ PCCL_DEVICE_INLINE int trocePollOneCqAt(struct pcclxGinTroceQp *qp, uint64_t idx
   uint64_t oldCons = loadRelaxed<scope>(&qp->cons_idx);
   uint64_t completedTail;
   int status = troceCheckCqAt<scope>(qp, idx, oldCons, &completedTail);
-  if (status != PCCL_TROCE_POLL_SUCCESS) return status;
+  if (status != PCCLX_TROCE_POLL_SUCCESS) return status;
 
   fenceAcquire<hggc::thread_scope_system>();
   if (completedTail != oldCons) {
@@ -483,7 +483,7 @@ PCCL_DEVICE_INLINE int trocePollOneCqAt(struct pcclxGinTroceQp *qp, uint64_t idx
     if (!ref.compare_exchange_strong(oldCons, completedTail,
                                      hggc::memory_order_relaxed, hggc::memory_order_relaxed)) return EBUSY;
   }
-  return PCCL_TROCE_POLL_SUCCESS;
+  return PCCLX_TROCE_POLL_SUCCESS;
 }
 
 template <hggc::thread_scope scope>
@@ -502,12 +502,12 @@ PCCL_DEVICE_INLINE bool troceWait(struct pcclxGinTroceQp *qp, uint64_t idx, uint
     uint32_t steps = 0;
     int status = EBUSY;
     #pragma unroll 1
-    while (status != PCCL_TROCE_POLL_SUCCESS && !testAbort(abortFlag, steps)) {
+    while (status != PCCLX_TROCE_POLL_SUCCESS && !testAbort(abortFlag, steps)) {
       status = trocePollOneCqAt(qp, idx);
     }
-    return status == PCCL_TROCE_POLL_SUCCESS;
+    return status == PCCLX_TROCE_POLL_SUCCESS;
   } else {
-    return trocePollCqAt(qp, idx) == PCCL_TROCE_POLL_SUCCESS;
+    return trocePollCqAt(qp, idx) == PCCLX_TROCE_POLL_SUCCESS;
   }
 }
 
@@ -561,7 +561,7 @@ PCCL_DEVICE_INLINE void putSignal(struct pcclxGinTroceGPUContext *ctx,
                                       pcclGinSignalOp_t signalOp, uint32_t optFlags) {
   const bool signalSet = signalOp == pcclxGinSignalSet;
   const uint32_t signalWqebbs = signalSet ? 1u : 2u;
-  uint32_t numChunks = hasData ? (bytes == 0 ? 1u : uint32_t((bytes - 1) / PCCL_GIN_TROCE_MAX_TRANSFER_SIZE + 1)) : 0u;
+  uint32_t numChunks = hasData ? (bytes == 0 ? 1u : uint32_t((bytes - 1) / PCCLX_GIN_TROCE_MAX_TRANSFER_SIZE + 1)) : 0u;
   uint32_t nwqebbs = numChunks + (hasSignal ? signalWqebbs : 0u);
   if (nwqebbs == 0) return;
 
@@ -570,8 +570,8 @@ PCCL_DEVICE_INLINE void putSignal(struct pcclxGinTroceGPUContext *ctx,
   size_t remaining = bytes;
   #pragma unroll 1
   for (uint32_t i = 0; i < numChunks; i++, idx++) {
-    uint32_t chunk = uint32_t(remaining > PCCL_GIN_TROCE_MAX_TRANSFER_SIZE ?
-                              PCCL_GIN_TROCE_MAX_TRANSFER_SIZE : remaining);
+    uint32_t chunk = uint32_t(remaining > PCCLX_GIN_TROCE_MAX_TRANSFER_SIZE ?
+                              PCCLX_GIN_TROCE_MAX_TRANSFER_SIZE : remaining);
     if (chunk > 0) {
       troceWriteRdmaWqe(qp, srcOff, srcLkey, dstOff, dstRkey, chunk, (uint16_t)idx,
                         /*needCqe=*/true, getWqePtr(qp, idx), /*isWrite=*/true);
@@ -604,7 +604,7 @@ PCCL_DEVICE_INLINE void putSignal(struct pcclxGinTroceGPUContext *ctx,
 
 }  // namespace troce
 }  // namespace gin
-}  // namespace pccl
+}  // namespace pcclx
 
 // ---------------------------------------------------------------------------
 // GIN device API specializations
@@ -675,13 +675,13 @@ struct pcclGinApi_Put<PCCLX_NET_DEVICE_GIN_TROCE> {
       }
 
       if (required == hggc::thread_scope_system && given > required)
-        pccl::gin::troce::fenceRelease<hggc::thread_scope_system>();
-      pccl::gin::troce::putSignal<scope>(gda, qp, hasWins,
+        pcclx::gin::troce::fenceRelease<hggc::thread_scope_system>();
+      pcclx::gin::troce::putSignal<scope>(gda, qp, hasWins,
                                   dstOff, dstRkey, srcOff, srcLkey,
                                   bytes, hasSignal, signalOff, signalRkey, signalVal, signalOp,
                                   optFlags);
-#ifdef PCCL_DEVICE_GIN_TROCE_ENABLE_DEBUG
-      pccl::gin::troce::troceQuiet(qp, nullptr);
+#ifdef PCCLX_DEVICE_GIN_TROCE_ENABLE_DEBUG
+      pcclx::gin::troce::troceQuiet(qp, nullptr);
 #endif
     }
     coop.sync();
@@ -707,30 +707,30 @@ struct pcclGinApi_Get<PCCLX_NET_DEVICE_GIN_TROCE> {
       pcclxGinTroceMemHandle *remoteMh = (pcclxGinTroceMemHandle *)remoteWin;
       pcclxGinTroceMemHandle *localMh = (pcclxGinTroceMemHandle *)localWin;
 
-      uint32_t numChunks = bytes == 0 ? 1u : uint32_t((bytes - 1) / PCCL_GIN_TROCE_MAX_TRANSFER_SIZE + 1);
-      uint64_t base = pccl::gin::troce::reserveWqeSlots(qp, numChunks, optFlags);
+      uint32_t numChunks = bytes == 0 ? 1u : uint32_t((bytes - 1) / PCCLX_GIN_TROCE_MAX_TRANSFER_SIZE + 1);
+      uint64_t base = pcclx::gin::troce::reserveWqeSlots(qp, numChunks, optFlags);
       size_t remaining = bytes;
       #pragma unroll 1
       for (uint32_t i = 0; i < numChunks; i++) {
-        uint32_t chunk = uint32_t(remaining > PCCL_GIN_TROCE_MAX_TRANSFER_SIZE ?
-                                  PCCL_GIN_TROCE_MAX_TRANSFER_SIZE : remaining);
+        uint32_t chunk = uint32_t(remaining > PCCLX_GIN_TROCE_MAX_TRANSFER_SIZE ?
+                                  PCCLX_GIN_TROCE_MAX_TRANSFER_SIZE : remaining);
         if (chunk > 0) {
-          pccl::gin::troce::troceWriteRdmaWqe(
+          pcclx::gin::troce::troceWriteRdmaWqe(
             qp, localOff, loadConst(&localMh->lkey), remoteOff,
             loadConst(loadConst(&remoteMh->rkeys) + peer), chunk, (uint16_t)(base + i),
-            /*needCqe=*/true, pccl::gin::troce::getWqePtr(qp, base + i), /*isWrite=*/false);
+            /*needCqe=*/true, pcclx::gin::troce::getWqePtr(qp, base + i), /*isWrite=*/false);
         } else {
-          pccl::gin::troce::troceWriteRdmaWqe(
+          pcclx::gin::troce::troceWriteRdmaWqe(
             qp, 0, loadConst(&gda->sink_buffer_lkey), 0, loadConst(&qp->sink_rkey),
             0, (uint16_t)(base + i), /*needCqe=*/true,
-            pccl::gin::troce::getWqePtr(qp, base + i), /*isWrite=*/true);
+            pcclx::gin::troce::getWqePtr(qp, base + i), /*isWrite=*/true);
         }
         localOff += chunk;
         remoteOff += chunk;
         remaining -= chunk;
       }
-      pccl::gin::troce::markWqesReady(qp, base, base + numChunks - 1);
-      pccl::gin::troce::submit(qp, base + numChunks, optFlags);
+      pcclx::gin::troce::markWqesReady(qp, base, base + numChunks - 1);
+      pcclx::gin::troce::submit(qp, base + numChunks, optFlags);
     }
     coop.sync();
   }
@@ -745,11 +745,10 @@ struct pcclGinApi_Flush<PCCLX_NET_DEVICE_GIN_TROCE> {
     using pccl::utility::loadConst;
     pcclxGinTroceGPUContext *gda = &((struct pcclxGinTroceGPUContext *)ctx.handle)[ctx.contextId];
     pcclxGinTroceQp *qps = loadConst(&gda->qps);
-    pcclxGinTroceQp *flushQp = qps + ctx.nRanks;
     #pragma unroll 1
     for (int peer = coop.thread_rank(); peer < ctx.nRanks; peer += coop.size()) {
-      uint64_t prodIdx = pccl::gin::troce::troceFlushAsync(qps + peer);
-      if (!pccl::gin::troce::troceFlushWait(gda, qps + peer, flushQp, prodIdx, abortFlag)) break;
+      uint64_t prodIdx = pcclx::gin::troce::troceFlushAsync(qps + peer);
+      if (prodIdx != 0 && !pcclx::gin::troce::troceWait(qps + peer, prodIdx - 1, abortFlag)) break;
     }
   }
 };
@@ -763,7 +762,7 @@ struct pcclGinApi_FlushAsync<PCCLX_NET_DEVICE_GIN_TROCE> {
     pcclxGinTroceGPUContext *gda = &((struct pcclxGinTroceGPUContext *)ctx.handle)[ctx.contextId];
     pcclxGinTroceQp *qp = loadConst(&gda->qps) + peer;
     req->peer = peer;
-    req->prodIdx = pccl::gin::troce::troceFlushAsync(qp);
+    req->prodIdx = pcclx::gin::troce::troceFlushAsync(qp);
     (void)optFlags;  // flushAsync always submits, including AggregateRequests
   }
 };
@@ -778,7 +777,7 @@ struct pcclGinApi_Wait<PCCLX_NET_DEVICE_GIN_TROCE> {
     pcclxGinTroceRequest &req = reinterpret_cast<pcclxGinTroceRequest &>(request);
     pcclxGinTroceGPUContext *gda = &((struct pcclxGinTroceGPUContext *)ctx.handle)[ctx.contextId];
     pcclxGinTroceQp *qp = loadConst(&gda->qps) + req.peer;
-    pccl::gin::troce::troceFlushWait(gda, qp, loadConst(&gda->qps) + ctx.nRanks, req.prodIdx, abortFlag);
+    pcclx::gin::troce::troceFlushWait(gda, qp, loadConst(&gda->qps) + ctx.nRanks, req.prodIdx, abortFlag);
     (void)hasDescriptor;
     (void)descriptor;
   }
@@ -877,34 +876,34 @@ struct pcclGinApi_PutValue<PCCLX_NET_DEVICE_GIN_TROCE> {
       __be32 dstRkey = loadConst(loadConst(&dstMh->rkeys) + peer);
 
       if (required == hggc::thread_scope_system && given > required)
-        pccl::gin::troce::fenceRelease<hggc::thread_scope_system>();
+        pcclx::gin::troce::fenceRelease<hggc::thread_scope_system>();
 
       const bool signalSet = signalOp == pcclxGinSignalSet;
       const uint32_t signalWqebbs = signalSet ? 1u : 2u;
       const uint32_t nWqe = 1u + (hasSignal ? signalWqebbs : 0u);
-      uint64_t base = pccl::gin::troce::reserveWqeSlots<scope>(qp, nWqe, optFlags);
+      uint64_t base = pcclx::gin::troce::reserveWqeSlots<scope>(qp, nWqe, optFlags);
       uint64_t idx = base;
 
-      pccl::gin::troce::troceWriteRdmaInlineWqe(qp, &srcVal, (uint32_t)sizeof(T), dstOff, dstRkey,
+      pcclx::gin::troce::troceWriteRdmaInlineWqe(qp, &srcVal, (uint32_t)sizeof(T), dstOff, dstRkey,
                                               (uint16_t)idx, /*needCqe=*/true,
-                                              pccl::gin::troce::getWqePtr(qp, idx));
+                                              pcclx::gin::troce::getWqePtr(qp, idx));
       idx++;
       if (hasSignal) {
         if (signalSet) {
-          pccl::gin::troce::troceWriteFlushWqe(qp, signalVal, signalOff, signalRkey, (uint16_t)idx,
-                                             /*needCqe=*/true, pccl::gin::troce::getWqePtr(qp, idx));
+          pcclx::gin::troce::troceWriteFlushWqe(qp, signalVal, signalOff, signalRkey, (uint16_t)idx,
+                                             /*needCqe=*/true, pcclx::gin::troce::getWqePtr(qp, idx));
         } else {
-          pccl::gin::troce::troceWriteAtomicFaWqe(qp, signalVal, 0,
+          pcclx::gin::troce::troceWriteAtomicFaWqe(qp, signalVal, 0,
                                               loadConst(&gda->sink_buffer_lkey), signalOff, signalRkey,
                                               (uint16_t)idx, /*needCqe=*/true,
-                                              pccl::gin::troce::getWqePtr(qp, idx));
+                                              pcclx::gin::troce::getWqePtr(qp, idx));
         }
         idx += signalWqebbs;
       }
-      pccl::gin::troce::markWqesReady<scope>(qp, base, idx - 1);
-      pccl::gin::troce::submit<scope>(qp, idx, optFlags);
-#ifdef PCCL_DEVICE_GIN_TROCE_ENABLE_DEBUG
-      pccl::gin::troce::troceQuiet(qp, nullptr);
+      pcclx::gin::troce::markWqesReady<scope>(qp, base, idx - 1);
+      pcclx::gin::troce::submit<scope>(qp, idx, optFlags);
+#ifdef PCCLX_DEVICE_GIN_TROCE_ENABLE_DEBUG
+      pcclx::gin::troce::troceQuiet(qp, nullptr);
 #endif
     }
     coop.sync();
@@ -913,4 +912,4 @@ struct pcclGinApi_PutValue<PCCLX_NET_DEVICE_GIN_TROCE> {
   }
 };
 
-#endif /* _PCCL_DEVICE_GIN_TROCE_H_ */
+#endif /* _PCCLX_DEVICE_GIN_TROCE_H_ */
