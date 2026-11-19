@@ -17,9 +17,9 @@ SOURCES = {".github/workflows/reviewer-routing.yml": {"pull_request_target", "wo
            REVIEW_TRIGGER: {"pull_request_review"}}
 
 
-def event_pr_number(run, repository):
+def event_pr_number(run, repository, sources=SOURCES):
     if (run["repository"]["full_name"] != repository or
-            run["event"] not in SOURCES.get(run["path"].split("@", 1)[0], set())):
+            run["event"] not in sources.get(run["path"].split("@", 1)[0], set())):
         raise ValueError("Unexpected review workflow")
     match = re.fullmatch(r"PCCL review for PR #([1-9][0-9]*)", run["display_title"])
     if not match:

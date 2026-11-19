@@ -66,13 +66,12 @@ results permissions are not narrowed by this repair.
 
 ## Commit message previews
 
-Multi-commit PRs targeting `main` receive a proposed squash commit body, including
-issue references and signing trailers but no title. Publishing a fresh preview
-places it at the end of the conversation and removes older previews. Paste the
-body into the description field in GitHub's **Squash and merge** dialog and review
-the GitHub-filled title separately.
+Multi-commit PRs targeting `main`, including forks, receive a squash body preview
+when `PCCL Review Gate` passes for the current HEAD. Paste it into the **Squash and merge**
+description and check the title separately.
 
-For fork PRs, a Maintainer runs `PCCL Commit Message Preview` from `main` with `pr_number`.
+Previews update or disappear as the PR and approvals change; they do not mean CI or
+other merge checks have passed.
 
 | File | Purpose |
 | --- | --- |

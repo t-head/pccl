@@ -1,9 +1,9 @@
 name: PCCL Commit Message Preview
 
 on:
-  pull_request:
-    branches: [main, 'release/**']
-    types: [opened, synchronize, reopened, ready_for_review, edited]
+  workflow_run:
+    workflows: [Refresh PCCL review gate]
+    types: [completed]
   workflow_dispatch:
     inputs:
       pr_number:
@@ -14,66 +14,37 @@ on:
 permissions: {}
 
 concurrency:
-  group: squash-message-${{ github.event.pull_request.number || inputs.pr_number }}
-  cancel-in-progress: true
+  group: "squash-message-${{ github.event.workflow_run.display_title || format('PCCL review for PR #{0}', inputs.pr_number) }}"
+  queue: max
+  cancel-in-progress: false
 
 jobs:
   squash-message:
-    name: Generate commit message
-    # Fork PRs use a maintainer-triggered run from main with trusted workflow code.
+    name: Squash message preview
+    # Gate notifications, including forks, execute trusted default-branch code.
     if: >-
       github.repository == 't-head/pccl' && (
-        (github.event_name == 'pull_request' && !github.event.pull_request.draft &&
-         github.event.pull_request.head.repo.full_name == github.repository) ||
+        github.event_name == 'workflow_run' ||
         (github.event_name == 'workflow_dispatch' && inputs.pr_number && github.ref == 'refs/heads/main'))
     runs-on: ubuntu-24.04
-    timeout-minutes: 10
-    outputs:
-      draft: ${{ steps.prepare.outputs.draft }}
-    permissions:
-      contents: read
-      pull-requests: read
-      issues: read
-      copilot-requests: write
-    steps:
-      - uses: actions/checkout@d23441a48e516b6c34aea4fa41551a30e30af803 # v6
-        with:
-          persist-credentials: false
-      - name: Prepare standalone Copilot CLI
-        run: bash .github/scripts/install_copilot.sh
-      - name: Prepare a draft for multiple commits
-        id: prepare
-        env:
-          GITHUB_TOKEN: ${{ github.token }}
-          COPILOT_CLI: ${{ runner.temp }}/copilot/bin/copilot
-          PR_NUMBER: ${{ github.event.pull_request.number || inputs.pr_number }}
-          PYTHONUTF8: '1'
-        run: |
-          draft=$(python3 .github/scripts/commit_message_squash.py --pr "$PR_NUMBER")
-          echo "draft=$draft" >> "$GITHUB_OUTPUT"
-
-  publish-squash-message:
-    name: Publish commit message
-    needs: squash-message
-    runs-on: ubuntu-24.04
-    timeout-minutes: 5
-    concurrency:
-      group: squash-message-publish-${{ github.event.pull_request.number || inputs.pr_number }}
-      queue: max
+    timeout-minutes: 15
     permissions:
       contents: read
       pull-requests: write
       issues: read
+      statuses: read
+      copilot-requests: write
     steps:
       - uses: actions/checkout@d23441a48e516b6c34aea4fa41551a30e30af803 # v6
         with:
+          ref: ${{ github.sha }}
           persist-credentials: false
-      - name: Show the message body for multiple commits or remove an old preview
+      - name: Prepare standalone Copilot CLI
+        run: bash .github/scripts/install_copilot.sh
+      - name: Update the squash message preview
         env:
           GITHUB_TOKEN: ${{ github.token }}
-          SQUASH_DRAFT: ${{ needs.squash-message.outputs.draft }}
-          PR_NUMBER: ${{ github.event.pull_request.number || inputs.pr_number }}
+          COPILOT_CLI: ${{ runner.temp }}/copilot/bin/copilot
+          PR_NUMBER: ${{ inputs.pr_number }}
           PYTHONUTF8: '1'
-        run: >-
-          python3 .github/scripts/commit_message_squash.py
-          --publish --expected-pr "$PR_NUMBER"
+        run: python3 .github/scripts/commit_message_squash.py
