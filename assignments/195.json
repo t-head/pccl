@@ -1,14 +1,14 @@
 {
   "classification": {
     "base_sha": "0da8662eb0e6d164ebd790d4a45b6007314a8b10",
-    "head_sha": "f082a5b7d09296a427029fdcc38894adf97e664a",
-    "input_fingerprint": "8ec8add5b4ce391b673cfc4b39516f8d5c2b3a0722aba5ad1d0d95b3446808c0",
+    "head_sha": "ead6e0c035e5a012b00b2031036601ecf2dfcec0",
+    "input_fingerprint": "6e72f54a1ea14c759af553f1a441bdee41bc9edf444a8a21b962fdc4f55a70a3",
     "pr_number": 195,
     "proposal": {
       "modules": [
         "workflow"
       ],
-      "reason": "Changes are concentrated in reviewer-routing and PR review automation policy/wiring: module classification validation, invitation withdrawal logic, maintainer-gate messaging, and squash-preview publication workflows/scripts. Other edited files update the same review-process rules/catalog guidance rather than runtime PCCL modules."
+      "reason": "Main substantive changes are to review/merge automation and policy wiring: reviewer routing and invitation withdrawal logic in .github/scripts/review_automation.py, approval-gate status behavior in .github/scripts/maintainer_approval.py, squash-preview publication flow in .github/scripts/commit_message_squash.py, and related .github/workflows/commit-message.yml and workflow guidance updates."
     }
   },
   "reviewers": {
