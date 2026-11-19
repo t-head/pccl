@@ -48,7 +48,7 @@ class RemoteRecoveryTests(unittest.TestCase):
 
     def test_clean_worker_needs_no_signal(self):
         killer = mock.Mock()
-        report = remote_recovery.recover(5, scanner=lambda _: [], killer=killer)
+        report = remote_recovery.recover(5, scanner=lambda _: [], killer=killer, discovery_grace=0)
         self.assertTrue(report['safe'])
         killer.assert_not_called()
 
@@ -66,7 +66,7 @@ class RemoteRecoveryTests(unittest.TestCase):
         candidate = {'pid': 100, 'ppid': 1, 'pgid': 100, 'cmdline': 'sleep 300'}
         killer = mock.Mock()
         reports = iter([[candidate], [candidate], [candidate], []])
-        with mock.patch.object(remote_recovery.time, 'monotonic', side_effect=[0, 0, 3]):
+        with mock.patch.object(remote_recovery.time, 'monotonic', side_effect=[0, 0, 0, 3]):
             report = remote_recovery.recover(
                 5, scanner=lambda _: next(reports), sleeper=lambda _: None, killer=killer)
         self.assertTrue(report['safe'])
@@ -74,7 +74,7 @@ class RemoteRecoveryTests(unittest.TestCase):
         self.assertEqual(killer.call_args_list, [
             mock.call(100, signal.SIGTERM), mock.call(100, signal.SIGKILL)])
         reports = iter([[candidate], [candidate], [candidate], [candidate]])
-        with mock.patch.object(remote_recovery.time, 'monotonic', side_effect=[0, 0, 3]):
+        with mock.patch.object(remote_recovery.time, 'monotonic', side_effect=[0, 0, 0, 3]):
             report = remote_recovery.recover(
                 5, scanner=lambda _: next(reports), sleeper=lambda _: None, killer=killer)
         self.assertFalse(report['safe'])
@@ -90,6 +90,26 @@ class RemoteRecoveryTests(unittest.TestCase):
         report = json.loads(output.call_args.args[0])
         self.assertTrue(report['safe'])
         self.assertEqual(report['before'], [candidate])
+
+    def test_absolute_case_boundary_does_not_age_out(self):
+        self.process(100, 1, 100, 99600, 'sleep 300', 'sleep')
+        self.assertEqual([process['pid'] for process in
+                          remote_recovery.scan_candidates_since(996, self.proc)], [100])
+        (self.proc / 'uptime').write_text('2000.0 0.0\n')
+        candidates = remote_recovery.scan_candidates_since(996, self.proc)
+        self.assertEqual([process['pid'] for process in candidates], [100])
+        self.assertGreater(candidates[0]['age'], 5)
+
+    def test_delayed_process_is_discovered_before_clean_exit(self):
+        candidate = {'pid': 100, 'ppid': 1, 'pgid': 100, 'start': 123, 'cmdline': 'sleep 300'}
+        killer = mock.Mock()
+        reports = iter([[], [candidate], []])
+        with mock.patch.object(remote_recovery.time, 'monotonic', side_effect=[0, 0, 1, 1, 2]):
+            report = remote_recovery.recover(
+                5, scanner=lambda _: next(reports), sleeper=lambda _: None, killer=killer)
+        self.assertTrue(report['safe'])
+        self.assertEqual(report['term_identities'], [{'pid': 100, 'start': 123}])
+        killer.assert_called_once_with(100, signal.SIGTERM)
 
 
 if __name__ == '__main__':

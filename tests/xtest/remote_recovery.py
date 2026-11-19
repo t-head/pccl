@@ -16,9 +16,13 @@ INFRA_CHILD_EXECUTABLES = {"bash", "sh", "cat", "hostname", "jq", "ps", "sleep",
 INFRA_COMMANDS = {"/bin/sleep 0.2", "sleep 0.2"}
 
 
+def _uptime(proc_root="/proc"):
+    return float((Path(proc_root) / "uptime").read_text().split()[0])
+
+
 def _processes(proc_root):
     proc_root = Path(proc_root)
-    uptime = float((proc_root / "uptime").read_text().split()[0])
+    uptime = _uptime(proc_root)
     ticks = os.sysconf("SC_CLK_TCK")
     result = {}
     for entry in proc_root.iterdir():
@@ -37,8 +41,8 @@ def _processes(proc_root):
                 executable = ""
             result[int(entry.name)] = {
                 "pid": int(entry.name), "ppid": int(fields[1]), "pgid": int(fields[2]),
-                "sid": int(fields[3]), "state": state, "age": max(0, uptime - start),
-                "cmdline": cmdline, "executable": executable,
+                "sid": int(fields[3]), "state": state, "start": start,
+                "age": max(0, uptime - start), "cmdline": cmdline, "executable": executable,
             }
         except (OSError, ValueError, IndexError):
             continue
@@ -54,12 +58,11 @@ def _protected_pids(processes):
     return protected
 
 
-def scan_candidates(max_age, proc_root="/proc", protected_pids=None):
-    processes = _processes(proc_root)
+def _scan(processes, started_after, protected_pids):
     protected = _protected_pids(processes) if protected_pids is None else set(protected_pids)
     candidates = []
     for process in processes.values():
-        if process["age"] > max_age or process["state"].startswith(("Z", "X")):
+        if process["start"] < started_after or process["state"].startswith(("Z", "X")):
             continue
         pid = process["pid"]
         if pid <= 1 or pid in protected or process["executable"] in INFRA_EXECUTABLES:
@@ -76,66 +79,115 @@ def scan_candidates(max_age, proc_root="/proc", protected_pids=None):
     return sorted(candidates, key=lambda process: process["pid"])
 
 
+def scan_candidates(max_age, proc_root="/proc", protected_pids=None):
+    processes = _processes(proc_root)
+    return _scan(processes, _uptime(proc_root) - max_age, protected_pids)
+
+
+def scan_candidates_since(started_after, proc_root="/proc", protected_pids=None):
+    return _scan(_processes(proc_root), started_after, protected_pids)
+
+
 def _groups(candidates):
     return sorted({process["pgid"] for process in candidates if process["pgid"] > 1})
 
 
-def recover(max_age, controller_pid=0, scanner=scan_candidates, sleeper=time.sleep, killer=os.killpg):
-    def scan(age):
-        if scanner is scan_candidates:
+def _identities(candidates):
+    return {(process["pid"], process.get("start")) for process in candidates}
+
+
+def _identity_records(identities):
+    return [{"pid": pid, "start": start}
+            for pid, start in sorted(identities, key=lambda value: (value[0], value[1] or -1))]
+
+
+def recover(max_age, controller_pid=0, scanner=scan_candidates_since, sleeper=time.sleep,
+            killer=os.killpg, discovery_grace=1.0):
+    default_scanner = scanner is scan_candidates_since
+    minimum_start = _uptime("/proc") - max_age if default_scanner else max_age
+
+    def scan():
+        if default_scanner:
             protected = _protected_pids(_processes("/proc"))
             if controller_pid > 0:
                 protected.add(controller_pid)
-            return scanner(age, protected_pids=protected)
-        return scanner(age)
+            return scanner(minimum_start, protected_pids=protected)
+        return scanner(minimum_start)
 
-    before = scan(max_age)
-    report = {"safe": False, "before": before, "term_pgids": [], "kill_pgids": [],
+    before = scan()
+    discovery_deadline = time.monotonic() + discovery_grace
+    while not before and time.monotonic() < discovery_deadline:
+        sleeper(0.1)
+        before = scan()
+    report = {"safe": False, "case_start": minimum_start, "before": before,
+              "term_pgids": [], "kill_pgids": [], "term_identities": [], "kill_identities": [],
               "remaining": [], "errors": []}
     if not before:
         report["safe"] = True
         return report
-    protected = _protected_pids(_processes("/proc")) if scanner is scan_candidates else set()
+
+    protected = _protected_pids(_processes("/proc")) if default_scanner else set()
     if controller_pid > 0:
         protected.add(controller_pid)
     protected_groups = {process["pgid"] for process in _processes("/proc").values()
-                        if process["pid"] in protected} if scanner is scan_candidates else set()
-    try:
-        groups = _groups(before)
+                        if process["pid"] in protected} if default_scanner else set()
+    term_identities = set()
+    kill_identities = set()
+
+    def signal_candidates(candidates, sig):
+        groups = _groups(candidates)
         if protected_groups.intersection(groups):
-            raise ValueError("A candidate process belongs to the recovery session")
+            raise ValueError("A candidate process belongs to the recovery session or controller")
         for pgid in groups:
             try:
-                killer(pgid, signal.SIGTERM)
+                killer(pgid, sig)
             except ProcessLookupError:
                 pass
-        report["term_pgids"] = groups
+        return groups
+
+    try:
+        new_groups = [pgid for pgid in _groups(before) if pgid not in report["term_pgids"]]
+        if new_groups:
+            signal_candidates([process for process in before if process["pgid"] in new_groups],
+                              signal.SIGTERM)
+            report["term_pgids"].extend(new_groups)
+            term_identities.update(_identities(before))
     except (OSError, ValueError) as error:
         report["errors"].append(str(error))
-        report["remaining"] = scan(max_age)
+        report["remaining"] = scan()
         return report
+
     deadline = time.monotonic() + 2
     while time.monotonic() < deadline:
-        remaining = scan(max_age)
+        remaining = scan()
         if not remaining:
+            report["term_identities"] = _identity_records(term_identities)
             report["safe"] = True
             return report
+        try:
+            new_groups = [pgid for pgid in _groups(remaining) if pgid not in report["term_pgids"]]
+            if new_groups:
+                signal_candidates(
+                    [process for process in remaining if process["pgid"] in new_groups], signal.SIGTERM)
+                report["term_pgids"].extend(new_groups)
+                term_identities.update(_identities(remaining))
+        except (OSError, ValueError) as error:
+            report["errors"].append(str(error))
+            report["remaining"] = remaining
+            return report
         sleeper(0.1)
-    remaining = scan(max_age)
+
+    remaining = scan()
     try:
-        groups = _groups(remaining)
-        if protected_groups.intersection(groups):
-            raise ValueError("A remaining process belongs to the recovery session")
-        for pgid in groups:
-            try:
-                killer(pgid, signal.SIGKILL)
-            except ProcessLookupError:
-                pass
-        report["kill_pgids"] = groups
+        kill_identities.update(_identities(remaining))
+        signal_candidates(remaining, signal.SIGKILL)
+        report["kill_pgids"] = _groups(remaining)
     except (OSError, ValueError) as error:
         report["errors"].append(str(error))
     sleeper(0.2)
-    report["remaining"] = scan(max_age)
+    report["remaining"] = scan()
+    report["term_identities"] = _identity_records(term_identities)
+    report["kill_identities"] = _identity_records(kill_identities)
     report["safe"] = not report["remaining"] and not report["errors"]
     return report
 

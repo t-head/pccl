@@ -359,7 +359,7 @@ def collect_report(selection_path, groups_path, coverage_path, results_root, met
             global_unverified.add(group_id)
         for row in rows:
             key = _key(row)
-            if key not in selection:
+            if key not in selected and key not in selection:
                 continue
             if key in seen:
                 unverified_cases.add(key)

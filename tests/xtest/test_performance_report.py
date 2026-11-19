@@ -415,6 +415,32 @@ class PerformanceReportTests(unittest.TestCase):
         self.assertEqual(execution["missing_selected_results"], 0)
         self.assertEqual(report["summary"]["performance_cases"], 3)
 
+    def test_intact_csv_counts_correctness_not_run_without_result_json(self):
+        case4 = {"plan": "plan", "suite": "function_suite", "name": "test_correctness"}
+        groups = json.loads(self.groups.read_text())
+        groups[0]["case_keys"].append(list(performance_report._key(case4)))
+        self.groups.write_text(json.dumps(groups))
+        self.coverage.write_text(json.dumps({
+            "total_cases": 4, "selected_cases": 3, "excluded_cases": 1,
+            "allowed_nodes": [1, 2, 4], "exclusions": []}))
+        row = {"plan": case4["plan"], "suite": case4["suite"], "name": case4["name"],
+               "check": "exit_code", "status": "NOT_RUN", "return_code": "",
+               "duration_seconds": 0, "error": "Stopped after an earlier failure", "raw_log": ""}
+        path = self.results / "g001" / "results.csv"
+        with path.open("a", newline="") as stream:
+            writer = csv.DictWriter(stream, fieldnames=run_cases.RESULT_FIELDS, lineterminator="\n")
+            writer.writerow(row)
+
+        report = self.collect()
+
+        execution = report["summary"]["execution"]
+        self.assertEqual(execution["result_counts"], {"FAILED": 1, "NOT_RUN": 1, "PASSED": 1})
+        self.assertEqual(execution["selected_result_count"], 3)
+        self.assertEqual(execution["missing_selected_results"], 0)
+        self.assertEqual(report["summary"]["performance_cases"], 3)
+        self.assertFalse((self.results / "g001" / Path(*performance_report._key(case4)) /
+                          "result.json").exists())
+
     def test_failed_csv_status_with_a_record_mismatch_is_unverified(self):
         key = performance_report._key(self.case2)
         result = self.results / "g001" / Path(*key) / "result.json"
