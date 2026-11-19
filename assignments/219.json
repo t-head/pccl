@@ -1,16 +1,16 @@
 {
   "classification": {
     "base_sha": "506c3b02235e24dc2a3f127fbb9ed64eef756485",
-    "head_sha": "c08a02311162ee265d1056524d5b4884c13e0c31",
-    "input_fingerprint": "bfd0b75af6e5e3982faca15a92a869f931b48ac1938ba8827fea5707e625a177",
+    "head_sha": "d33e079495d7ee89b5ffb074c3388237887ba917",
+    "input_fingerprint": "7695f5dbbe06bc9326c2795ce779da42a64dc2ff452a38b5328e7e41e39509ac",
     "pr_number": 219,
     "proposal": {
       "modules": [
-        "transport",
+        "device-topology",
         "communicator",
         "enqueue"
       ],
-      "reason": "Primary change is communicator-level configuration controls: new config fields are validated, defaulted, env-overridden, stored on comm, and synchronized across ranks in init/lifecycle paths. enqueue is additionally required because graphUsageMode now changes strong-stream acquire/release and capture handling (including mixed graph/non-graph behavior) used during enqueue/channel setup. transport is additionally required because nChannelsPerNetPeer/maxP2pPeers now directly affect P2P network channel-per-peer budgeting and peer-concurrency limits used for transport channel allocation."
+      "reason": "Primary change is communicator configuration lifecycle: new config fields are validated/defaulted, overridden from env, stored on comm, and synchronized across ranks (including nChannelsPerNetPeer, graphUsageMode, maxP2pPeers, and placeholder acceptance of nvlinkCentricSched/numRmaCtx). Enqueue is additionally needed because graphUsageMode now changes strong-stream graph/uncaptured acquire-release and capture detection behavior used by enqueue/channel paths. Device-topology is additionally needed because P2P channel-per-peer computation in topology paths now uses nChannelsPerNetPeer and maxP2pPeers to cap/tune per-peer channel allocation."
     }
   },
   "reviewers": {
