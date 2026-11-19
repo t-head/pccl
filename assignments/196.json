@@ -1,14 +1,14 @@
 {
   "classification": {
     "base_sha": "a7769ba35a724d84cea481c9b318c30482175471",
-    "head_sha": "bbce3f57ce2b2c1274ff63a2178ee60dd4b6d303",
-    "input_fingerprint": "2ce4fd1d193cd318b992b9a8c75fb35d10575899e8d9969456fd06c62152fd7a",
+    "head_sha": "77e515bc3f93b3c60dceeb79f4d3d125a52d7aaa",
+    "input_fingerprint": "61d0dd0d0d07eef44dfd04f08bf6cffb74665289d8665a8d3aea11bbb0564164",
     "pr_number": 196,
     "proposal": {
       "modules": [
         "ci"
       ],
-      "reason": "Main change is to open-source test execution pipelines: daily/source-sanity workflows now generate cases from JSON families, enforce artifact/NAS cache probe+SHA validation, add rack-aware multi-node scheduling/recovery, and publish a new performance-report artifact; removed legacy daily CSV inputs are part of this CI-path migration."
+      "reason": "Main change is CI pipeline behavior: source-sanity and daily workflows switch from committed daily CSV inputs to prepare-time JSON case generation, add stricter artifact/NAS cache probe+publish+SHA validation, expand grouped execution policy (including cross-rack/8-node handling), strengthen recovery/reconciliation/reporting, and publish an XLSX performance artifact; file deletions/renames of daily CSV assets and related docs/tests are supporting this same CI execution path."
     }
   },
   "reviewers": {
