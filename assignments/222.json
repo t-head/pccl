@@ -1,0 +1,17 @@
+{
+  "classification": {
+    "base_sha": "b4b72fb2d68026b8a12773459cc697a1116bedfd",
+    "head_sha": "98d458f0ca21b5c433753805188f5254da9ecbab",
+    "input_fingerprint": "e367cb872ce571dff82e0c2727a88a47051773543ddff832932d720dfaa80a8c",
+    "pr_number": 222,
+    "proposal": {
+      "modules": [
+        "bootstrap"
+      ],
+      "reason": "The substantive behavior change is in connection-accept handshake handling: incomplete/closed magic reads are now discarded and listener state is reset so bootstrap peer rendezvous can continue accepting valid peers. No independent transport/proxy/RAS policy change is shown."
+    }
+  },
+  "reviewers": {
+    "bootstrap": 340104201
+  }
+}
