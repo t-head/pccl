@@ -148,13 +148,13 @@ standard Cases from 35 Suites, with
 unsupported or out-of-scope source selections recorded in
 `test_lists/source-coverage.json`. The notsm daily profile is intentionally
 empty. Generated CSV is a temporary prepare artifact, not a maintained input.
-The current resource policy executes 1/2/4/8-node groups: 10,187 Cases in 28
+The current resource policy executes 1/2/4/8-node groups: 10,184 Cases in 28
 groups. The 9 sixteen-node Cases remain in the export but are listed as
 `EXCLUDED_BY_POLICY` in `execution-coverage.json`; they are not reported as
 passed or skipped tests.
 
 The 810E `full` conversion adds 6,435 selected Cases. The combined export has
-16,631 Cases and selects 16,622 Cases in 43 groups after the same 16-node
+16,628 Cases and selects 16,619 Cases in 43 groups after the same 16-node
 M890P exclusions. This is generation coverage only, not a claim that the full
 hardware dataset has been executed.
 

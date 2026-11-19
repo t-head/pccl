@@ -9,7 +9,7 @@ full source JSON exporter at source revision
 `80738685d8b2e2066223119594805e5255f4a8c8`. The native unit family was captured
 at `cefc8624ec1a2b58bc54e76eedeefae90046d84f` and is identified separately in
 `source-export.json.additional_source_revisions`.
-`test_lists/source-export.json` records their exact 10,196-Case, 35-Suite
+`test_lists/source-export.json` records their exact 10,193-Case, 35-Suite
 real-Runner comparison and SHA-256 digests. CSV is not an input or output of
 that publication step.
 
@@ -21,10 +21,13 @@ that publication step.
   size, iteration and layout axes, producing 3,938 combinations plus two
   explicit special Cases.
 - `test_lists/postsil_unit_test_shm.json`: 1,252 direct `collPcclUnitTest`
-  combinations and 45 `hggcGraphUnitTest` configurations from the native unit
+  combinations and 42 `hggcGraphUnitTest` configurations from the native unit
   Suite, plus two smoke Cases. The graph names are explicitly normalized from
   the source `cudaGraphUnitTest`/`cuda_graph_test_configs` spelling to the
   public binary and directory names.
+  Source `--devices` lists are preserved through `HGGC_VISIBLE_DEVICES`;
+  `--auto-detect` is removed because public native binaries do not accept it.
+  Three `use_ext_kernel` configurations are explicitly excluded as unsupported.
 - `test_lists/pccl_fun_rdma_shm.json`: 4,090 multi-node combinations, including
   LL128, 4nics, host, socket and ibsplit variants.
 - `test_lists/register_test_shm.json` and
@@ -71,8 +74,8 @@ The workflow supports two `workflow_dispatch` choices:
 
 - `smoke`: four Cases in one execution group, including one collective and one
   graph native unit Case.
-- `full`: all 10,196 daily Cases in 35 Suites. The current
-  1/2/4/8-node resource policy selects 10,187 Cases in 28 groups and records
+- `full`: all 10,193 daily Cases in 35 Suites. The current
+  1/2/4/8-node resource policy selects 10,184 Cases in 28 groups and records
   only the 9 sixteen-node Cases as excluded. Two-rack Suites are isolated from
   ordinary same-resource Suites and carry explicit `rack_nodes` allocations.
   Ordinary multi-node groups explicitly request `rack-01=<node-count>`, keeping
@@ -144,13 +147,13 @@ required report cannot pass silently.
 The performance workbook's `Metadata` sheet records the selected image and
 effective HPN SDK URL, or `image-builtin` when no override was supplied.
 
-Tests compare every generated row with the source-export digests: all 10,196
+Tests compare every generated row with the source-export digests: all 10,193
 Cases and all 35 Suite definitions match,
 including commands, checks, Suite resources, shared environments and explicit
 special Cases. Two legacy `device_api` Plan/Suite identities are explicitly
 normalized to the current source names; their 52 commands and resources remain
 unchanged. The existing grouping and public input consumer accept the generated
-bundle and reproduce the same 10,187 selected Cases, 28 groups and 9 resource
+bundle and reproduce the same 10,184 selected Cases, 28 groups and 9 resource
 exclusions.
 
 All current daily full Suites are covered, and no generated Python Case files
@@ -158,7 +161,9 @@ are produced. Hardware validation is limited to explicitly filtered datasets;
 no unfiltered full hardware run has been started.
 
 The 308 `p2pBandwidthLatencyTest` combinations remain outside the reviewed
-PCCL daily scope and are recorded as skipped rather than generated.
+PCCL daily scope. Three `use_ext_kernel` graph configurations are also skipped
+because the public graph binary does not implement that option. Both exclusions
+are recorded rather than generated.
 
 Workflow run `43585016370` consumed source-exported families during prepare,
 passed both single-node hardware Cases, retained source provenance in the
