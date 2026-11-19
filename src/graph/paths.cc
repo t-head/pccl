@@ -806,7 +806,7 @@ static ncclResult_t ncclTopoGetNchannels(struct ncclTopoSystem* system, int g /*
 }
 
 NCCL_PARAM(MinP2pNChannels, "MIN_P2P_NCHANNELS", 1);
-NCCL_PARAM(MaxP2pNChannels, "MAX_P2P_NCHANNELS", MAXCHANNELS);
+NCCL_PARAM(MaxP2pNChannels, "MAX_P2P_NCHANNELS", -2);
 PCCL_PARAM(P2pNChannelsPerPeer, "P2P_NCHANNELS_PER_PEER", -2);
 extern int64_t ncclParamWorkArgsBytes();
 
@@ -824,12 +824,16 @@ ncclResult_t ncclTopoComputeP2pChannelsPerPeer(ncclComm_t comm) {
 }
 
 ncclResult_t ncclTopoComputeP2pChannels(ncclComm_t comm) {
+  int maxP2pChannels = ncclParamMaxP2pNChannels();
+  if (maxP2pChannels == -2) {
+    // TODO: Evaluate a common default P2P channel limit for direct and switched ICN links.
+    const bool directIcn = comm->icnRmtType == PCCL_ICNLINK_PPU;
+    maxP2pChannels = comm->compCap == 89 && directIcn ? prePow2(comm->nChannels) : MAXCHANNELS;
+  }
+  comm->p2pnChannels = std::min(comm->nChannels, maxP2pChannels);
+  comm->p2pnChannels = std::max(comm->p2pnChannels, (int)ncclParamMinP2pNChannels());
   if (comm->sharedRes->owner != comm) {
-    comm->p2pnChannels = std::min(comm->nChannels, (int)ncclParamMaxP2pNChannels());
-    comm->p2pnChannels = std::min(std::max(comm->p2pnChannels, (int)ncclParamMinP2pNChannels()), comm->sharedRes->tpP2pNChannels);
-  } else {
-    comm->p2pnChannels = std::min(comm->nChannels, (int)ncclParamMaxP2pNChannels());
-    comm->p2pnChannels = std::max(comm->p2pnChannels, (int)ncclParamMinP2pNChannels());
+    comm->p2pnChannels = std::min(comm->p2pnChannels, comm->sharedRes->tpP2pNChannels);
   }
 
   comm->p2pnChannels = nextPow2(comm->p2pnChannels);
@@ -838,7 +842,7 @@ ncclResult_t ncclTopoComputeP2pChannels(ncclComm_t comm) {
   if (pcclEnableGlobalIcnP2pThroughSwitchOpt(comm)) {
     // default to use max channels(24) for 2/4/8 ranks, 16(power of 2) channels for greater nRanks
     comm->p2pnChannels = (MAXCHANNELS_PPU0015 % comm->nRanks == 0) ? MAXCHANNELS_PPU0015 : prePow2(MAXCHANNELS_PPU0015);
-    comm->p2pnChannels = std::min(comm->p2pnChannels, (int)ncclParamMaxP2pNChannels());
+    comm->p2pnChannels = std::min(comm->p2pnChannels, maxP2pChannels);
     comm->p2pnChannels = std::max(comm->p2pnChannels, (int)ncclParamMinP2pNChannels());
     comm->p2pnChannelsPerPeer = comm->p2pnChannels;
   }
