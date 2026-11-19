@@ -1,0 +1,2 @@
+plan,suite,name,check,cmd
+sanity_810e_single_node_plan,sanity_810e_register_suite,test_op_all_reduce_perf_algo_Auto_proto_Auto_datatype_float_datasize_32MB_iters_10_ranks_2_nproc_1_threads_2,exit_code,python3 run_test.py --op all_reduce_perf --algo Auto --proto Auto --data-type float --data-size 32MB --iters 10 --ranks 2 --nproc 1 --threads 2 --auto-detect --register 1

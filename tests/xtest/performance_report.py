@@ -49,6 +49,10 @@ OP_PERF_SUITES = {
     "op_perf_rdma_shm_multi_nodes2_suite",
     "op_perf_rdma_shm_multi_nodes4_suite",
     "op_perf_rdma_shm_multi_nodes8_suite",
+    "op_perf_810e_single_node_suite",
+    "op_perf_810e_multi_nodes2_suite",
+    "op_perf_eic_810e_multi_nodes2_suite",
+    "op_perf_rdma_810e_multi_nodes2_suite",
 }
 LOCAL_REGISTER_SUITES = {
     "local_register_perf_shm_single_node_suite",
@@ -342,6 +346,9 @@ def collect_report(selection_path, groups_path, coverage_path, results_root, met
                    reconciliation_root):
     manifest = _load_selection(selection_path)
     groups = json.loads(Path(groups_path).read_text(encoding="utf-8"))
+    group_platforms = {group["id"]: group.get("platform", "m890p") for group in groups}
+    metadata = dict(metadata)
+    metadata["platforms"] = ",".join(sorted(set(group_platforms.values())))
     coverage = json.loads(Path(coverage_path).read_text(encoding="utf-8"))
     results_root = Path(results_root)
     selected = {}
@@ -407,6 +414,8 @@ def collect_report(selection_path, groups_path, coverage_path, results_root, met
         actual_result = actual.get(key)
         actual_group = actual_result[0] if actual_result is not None else None
         group_id = actual_group if actual_result is not None else planned_group
+        platform = group_platforms.get(group_id, "m890p")
+        topology = _topology(case) if platform == "m890p" else f"{platform}:{_topology(case)}"
         group_mismatch = actual_result is not None and actual_group != planned_group
         execution_status = actual_result[1]["status"] if actual_result else (
             "EXCLUDED" if group_id is None else "NO_RESULT")
@@ -415,7 +424,8 @@ def collect_report(selection_path, groups_path, coverage_path, results_root, met
         operation, dtype = _operation_dtype(case["cmd"])
         base = {
             "case_id": case_id, "group": group_id or "", "category": case["category"],
-            "nodes": case["nodes"], "ranks": _ranks(case), "topology": _topology(case),
+            "nodes": case["nodes"], "ranks": _ranks(case), "platform": platform,
+            "topology": topology,
             "path_config": _path_config(case), "operation": operation, "dtype": dtype,
             "execution_status": execution_status, "data_status": "NO_RESULT",
             "valid_out_of_place": 0, "missing_out_of_place": 0, "reason": reason,
@@ -458,7 +468,7 @@ def collect_report(selection_path, groups_path, coverage_path, results_root, met
                     for row in parsed["rows"]:
                         case_metrics.append({
                             "case_id": case_id, "group": group_id or "",
-                            "category": case["category"], "topology": _topology(case),
+                            "category": case["category"], "platform": platform, "topology": topology,
                             "path_config": _path_config(case), "operation": operation,
                             "dtype": row.get("type") or dtype,
                             "execution_status": execution_status, **row,
@@ -544,7 +554,7 @@ def write_workbook(report, output):
     output.parent.mkdir(parents=True, exist_ok=True)
     temporary = output.with_name(f".{output.name}.tmp.xlsx")
     workbook = xlsxwriter.Workbook(temporary)
-    workbook.set_properties({"title": "PCCL M890P daily performance report",
+    workbook.set_properties({"title": "PCCL daily performance report",
                              "author": "PCCL CI", "comments": "Generated from retained raw logs"})
     title = workbook.add_format({"font_name": "Microsoft YaHei", "font_size": 18, "bold": True,
                                  "font_color": "#17365D"})
@@ -574,7 +584,7 @@ def write_workbook(report, output):
         ws.set_column("A:A", 26)
         ws.set_column("B:H", 16)
         ws.set_column("I:J", 18)
-        ws.merge_range("A1:J1", "PCCL M890P daily 性能报告", title)
+        ws.merge_range("A1:J1", "PCCL daily 性能报告", title)
         ws.merge_range("A2:J2",
                        f"运行 {metadata.get('run_id', '')}；执行状态与性能数据完整性分开统计；未提供性能基线。",
                        subtitle)
@@ -634,7 +644,7 @@ def write_workbook(report, output):
             ws.set_landscape()
             ws.fit_to_pages(1, 0)
             ws.set_margins(0.25, 0.25, 0.4, 0.4)
-            ws.merge_range(0, 0, 0, len(metric_columns) - 1, f"PCCL M890P {topology}性能", title)
+            ws.merge_range(0, 0, 0, len(metric_columns) - 1, f"PCCL {topology}性能", title)
             ws.merge_range(1, 0, 1, len(metric_columns) - 1,
                            "当前值为原始日志中的 event_time；未提供同配置基线。", subtitle)
             _row(workbook, ws, 3, metric_columns, header)
@@ -679,14 +689,15 @@ def write_workbook(report, output):
         ws.set_column(2, 7, 22)
         ws.set_column(8, 17, 16)
 
-        coverage_columns = ["CaseID", "类别", "组", "节点数", "测试Ranks", "路径配置", "操作", "精度",
+        coverage_columns = ["CaseID", "平台", "类别", "组", "节点数", "测试Ranks", "路径配置", "操作", "精度",
                             "执行状态", "数据状态", "有效OO点数", "缺行数", "原因", "源Case名称",
                             "Plan", "Suite", "CSV检查类型", "命令模板", "原始日志SHA256", "构建SHA256"]
         ws = workbook.add_worksheet(_sheet_name("用例与覆盖", used_names))
         _row(workbook, ws, 0, coverage_columns, header)
         for index, case in enumerate(report["coverage"], 1):
             _row(workbook, ws, index,
-                 [case["case_id"], case["category"], case["group"], case["nodes"], case["ranks"],
+                 [case["case_id"], case["platform"], case["category"], case["group"],
+                  case["nodes"], case["ranks"],
                   case["path_config"], case["operation"], case["dtype"], case["execution_status"],
                   case["data_status"], case["valid_out_of_place"], case["missing_out_of_place"],
                   case["reason"], case["name"], case["plan"], case["suite"], case["check"], case["cmd"],

@@ -1,0 +1,9 @@
+{
+  "schema_version": 1,
+  "name": "m890p",
+  "node_selector": "board-type=ZW-M890P,nic-type=cx8",
+  "cards_per_node": 8,
+  "allowed_nodes": [1, 2, 4, 8],
+  "plan_prefixes": ["pccl_shm", "sanity_m890p"],
+  "families": {}
+}

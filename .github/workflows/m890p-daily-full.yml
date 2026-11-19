@@ -1,4 +1,4 @@
-name: M890P daily grouped execution
+name: PCCL dual-platform daily grouped execution
 
 on:
   push:
@@ -96,6 +96,7 @@ jobs:
           python3 -S -B -m unittest discover -s tests/xtest -p 'test_daily_smoke.py' -v
           python3 -S -B -m unittest discover -s tests/xtest -p 'test_daily_reconcile.py' -v
           python3 -S -B -m unittest discover -s tests/xtest -p 'test_generate_cases.py' -v
+          python3 -S -B -m unittest discover -s tests/xtest -p 'test_platform_cases.py' -v
           GENERATED_DEFINITIONS=(
             --definition tests/xtest/test_lists/op_perf_shm.json
             --definition tests/xtest/test_lists/postsil_daily_shm.json
@@ -124,6 +125,33 @@ jobs:
             --source-revision '${{ github.sha }}' \
             --runner-revision '${{ env.PCCL_TESTS_REVISION }}' \
             --output generated-case-input
+          GENERATED_810E_DEFINITIONS=(
+            --definition tests/xtest/test_lists/op_perf_shm.json
+            --definition tests/xtest/test_lists/pccl_fun_rdma_shm.json
+          )
+          if [[ "$DATASET" == full ]]; then
+            GENERATED_810E_DEFINITIONS+=(
+              --definition tests/xtest/test_lists/postsil_daily_shm.json
+              --definition tests/xtest/test_lists/register_test_shm.json
+              --definition tests/xtest/test_lists/sanity_m890p_register.json
+              --definition tests/xtest/test_lists/sym_test_shm.json
+              --definition tests/xtest/test_lists/device_api_shm.json
+              --definition tests/xtest/test_lists/local_register_perf_shm.json
+              --definition tests/xtest/test_lists/symetric_perf_shm.json
+              --definition tests/xtest/test_lists/copyengine_perf_shm.json
+              --definition tests/xtest/test_lists/op_perf_rdma_shm.json
+              --definition tests/xtest/test_lists/commabort_test_shm.json
+            )
+          fi
+          python3 -S -B tests/xtest/generate_cases.py \
+            "${GENERATED_810E_DEFINITIONS[@]}" \
+            --suites tests/xtest/test_lists/suites.json \
+            --env-root tests/xtest/test_lists/envs \
+            --profile "$DATASET" \
+            --platform oam810e_eic \
+            --source-revision '${{ github.sha }}' \
+            --runner-revision '${{ env.PCCL_TESTS_REVISION }}' \
+            --output generated-case-input-oam810e-eic
           python3 -S -B - <<'PY'
           import hashlib
           import json
@@ -135,6 +163,7 @@ jobs:
 
           sys.path.insert(0, 'tests/xtest')
           import case_group_cache
+          import generate_cases
           import group_cases
           import performance_report
           import run_cases
@@ -143,7 +172,11 @@ jobs:
           dataset = os.environ['DATASET']
           if dataset not in ('smoke', 'full'):
               raise ValueError('Unsupported daily dataset')
-          input_directory = Path('generated-case-input')
+          m890p = generate_cases.load_bundle('generated-case-input')
+          eic = generate_cases.load_bundle('generated-case-input-oam810e-eic')
+          combined = generate_cases.combine_bundles([m890p, eic])
+          input_directory = Path('combined-case-input')
+          generate_cases.write_bundle(combined, input_directory, 'tests/xtest/test_lists/envs')
           nodes = int(os.environ['NODES']) if os.environ['NODES'] else None
           suite = os.environ['SUITE'] or None
           if nodes is not None and nodes not in (1, 2, 4, 8, 16):
@@ -201,7 +234,8 @@ jobs:
           assert subprocess.check_output(['git', 'rev-parse', 'HEAD'], text=True).strip() == os.environ['GITHUB_SHA']
           matrix = {'include': [
               {key: group[key] for key in ('id', 'profile', 'nodes', 'cards_per_node', 'env',
-                                           'cross_rack', 'rack_nodes', 'case_count')}
+                                           'cross_rack', 'rack_nodes', 'case_count',
+                                           'platform', 'node_selector')}
               for group in manifest
           ]}
           print(f'Selected {len(actual)} {dataset} Cases in {len(manifest)} automatic groups')
@@ -426,7 +460,7 @@ jobs:
             --directory "$CACHE_DIR" --expected-sha256 '${{ env.EXPECTED_GROUPS_SHA }}'
 
   execute:
-    name: Run ${{ matrix.id }} on ${{ matrix.nodes }} node(s), ${{ matrix.case_count }} Cases
+    name: Run ${{ matrix.id }} on ${{ matrix.platform }}, ${{ matrix.nodes }} node(s), ${{ matrix.case_count }} Cases
     needs: [prepare, build-standard, stage-cache]
     strategy:
       fail-fast: false
@@ -528,7 +562,7 @@ jobs:
           image: ${{ env.VALIDATION_IMAGE }}
           nnodes: 0
           nproc_per_node: ${{ matrix.cards_per_node }}
-          node_selector: ${{ env.VALIDATION_NODE_SELECTOR }}
+          node_selector: ${{ matrix.node_selector }}
           namespace: ppu-sched
           timeout_minutes: 720
           cleanup_policy: always
@@ -632,7 +666,7 @@ jobs:
           nnodes: ${{ matrix.nodes }}
           nproc_per_node: ${{ matrix.cards_per_node }}
           rack_nodes: rack-01=${{ matrix.nodes }}
-          node_selector: ${{ env.VALIDATION_NODE_SELECTOR }}
+          node_selector: ${{ matrix.node_selector }}
           namespace: ppu-sched
           timeout_minutes: 720
           cleanup_policy: always
@@ -731,7 +765,7 @@ jobs:
           nnodes: ${{ matrix.nodes }}
           nproc_per_node: ${{ matrix.cards_per_node }}
           rack_nodes: ${{ matrix.rack_nodes }}
-          node_selector: ${{ env.VALIDATION_NODE_SELECTOR }}
+          node_selector: ${{ matrix.node_selector }}
           namespace: ppu-sched
           timeout_minutes: 720
           cleanup_policy: always

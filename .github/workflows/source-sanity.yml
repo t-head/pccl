@@ -144,6 +144,7 @@ jobs:
           python3 -S -B -m unittest discover -s tests/xtest -p 'test_daily_smoke.py' -v
           python3 -S -B -m unittest discover -s tests/xtest -p 'test_reconcile_results.py' -v
           python3 -S -B -m unittest discover -s tests/xtest -p 'test_workflow_contract.py' -v
+          python3 -S -B -m unittest discover -s tests/xtest -p 'test_platform_cases.py' -v
           python3 -S -B - <<'PY'
           import hashlib
           import json
@@ -163,6 +164,8 @@ jobs:
               assert hashlib.sha256((runner / name).read_bytes()).hexdigest() == expected
           metadata = json.loads(Path('tests/xtest/minimal-csv/export.json').read_text())
           assert metadata['runner_revision'] == revision
+          metadata_810e = json.loads(Path('tests/xtest/minimal-csv-oam810e-eic/export.json').read_text())
+          assert metadata_810e['runner_revision'] == revision
           selections = reconcile_results.load_selections(
               Path('tests/xtest/minimal-csv'), int(os.environ['VALIDATION_CARDS']))
           expected = {'standard': 71, 'cluster': 1, 'notsm': 37}
@@ -170,6 +173,12 @@ jobs:
               selected = selections[name]
               assert len(selected['cases']) == count
               print(f'{name} selection: {count} Cases')
+          selections_810e = reconcile_results.load_selections(
+              Path('tests/xtest/minimal-csv-oam810e-eic'), 16)
+          expected_810e = {'standard': 5, 'cluster': 2, 'notsm': 1}
+          for name, count in expected_810e.items():
+              assert len(selections_810e[name]['cases']) == count
+              print(f'810E {name} selection: {count} Cases')
           assert subprocess.check_output(['git', 'rev-parse', 'HEAD'], text=True).strip() == os.environ['GITHUB_SHA']
           PY
       - name: Stage the pinned benchmark dependency
@@ -462,7 +471,7 @@ jobs:
           test "$STATE" = hit
 
   single-node:
-    name: Single-node CSV (${{ matrix.profile }})
+    name: Single-node CSV (${{ matrix.platform }} / ${{ matrix.profile }})
     needs: [prepare, human-review, build-standard, build-notsm, stage-cache]
     if: >-
       !cancelled() && needs.prepare.result == 'success' &&
@@ -473,9 +482,14 @@ jobs:
     strategy:
       fail-fast: false
       matrix:
-        profile: [standard, notsm]
+        include:
+          - {profile: standard, platform: m890p, cards_per_node: 8, node_selector: 'board-type=ZW-M890P,nic-type=cx8'}
+          - {profile: notsm, platform: m890p, cards_per_node: 8, node_selector: 'board-type=ZW-M890P,nic-type=cx8'}
+          - {profile: standard, platform: oam810e_eic, cards_per_node: 16, node_selector: 'board-type=OAM-810E,nic-type=eic'}
+          - {profile: notsm, platform: oam810e_eic, cards_per_node: 16, node_selector: 'board-type=OAM-810E,nic-type=eic'}
     env:
       EXPECTED_SHA: ${{ matrix.profile == 'standard' && needs.build-standard.outputs.artifact_sha256 || needs.build-notsm.outputs.artifact_sha256 }}
+      INPUT_DIR: ${{ matrix.platform == 'oam810e_eic' && 'tests/xtest/minimal-csv-oam810e-eic' || 'tests/xtest/minimal-csv' }}
     runs-on: k8s-runner-group-cpu-thead
     container:
       image: ghcr.io/actions/actions-runner:latest
@@ -528,8 +542,8 @@ jobs:
         with:
           image: ${{ env.VALIDATION_IMAGE }}
           nnodes: 0
-          nproc_per_node: ${{ env.VALIDATION_CARDS }}
-          node_selector: ${{ env.VALIDATION_NODE_SELECTOR }}
+          nproc_per_node: ${{ matrix.cards_per_node }}
+          node_selector: ${{ matrix.node_selector }}
           namespace: ppu-sched
           timeout_minutes: 300
           cleanup_policy: always
@@ -584,7 +598,7 @@ jobs:
             cd /workspace/source
             export build_output=/workspace/source/output_${{ matrix.profile }}
             CACHE_DIR=/mnt/wl_nas/devops/pccl-artifact-cache-${{ github.run_id }}/cache/${{ matrix.profile }}/${{ env.EXPECTED_SHA }}
-            RESULT_ROOT=/mnt/wl_nas/devops/pccl-artifact-cache-${{ github.run_id }}/results/${{ matrix.profile }}
+            RESULT_ROOT=/mnt/wl_nas/devops/pccl-artifact-cache-${{ github.run_id }}/results/${{ matrix.platform }}/${{ matrix.profile }}
             rm -rf "$RESULT_ROOT"
             mkdir -p "$(dirname "$RESULT_ROOT")"
             unset PIP_INDEX_URL PIP_EXTRA_INDEX_URL 2>/dev/null || true
@@ -611,7 +625,7 @@ jobs:
             test "$OMPI_MCA_orte_keep_fqdn_hostnames" = 1
             /workspace/minimal-csv-env/bin/python -B \
               "$build_output/pccl/tests/xtest/run_cases.py" \
-              --input "$build_output/pccl/tests/xtest/minimal-csv" \
+              --input "$build_output/pccl/$INPUT_DIR" \
               --profile '${{ matrix.profile }}' --nodes 1 \
               --test-root "$build_output" \
               --binary-dir "$build_output/pccl-tests/build" \
@@ -622,15 +636,22 @@ jobs:
               --output "$RESULT_ROOT"
 
   two-node:
-    name: Two-node master-only CSV (16 ranks)
+    name: Two-node master-only CSV (${{ matrix.platform }})
     needs: [prepare, human-review, build-standard, stage-cache]
     if: >-
       !cancelled() && needs.prepare.result == 'success' &&
       (needs.human-review.result == 'success' ||
         (github.event_name != 'pull_request' && needs.human-review.result == 'skipped')) &&
       needs.build-standard.result == 'success' && needs.stage-cache.result == 'success'
+    strategy:
+      fail-fast: false
+      matrix:
+        include:
+          - {platform: m890p, cards_per_node: 8, node_selector: 'board-type=ZW-M890P,nic-type=cx8'}
+          - {platform: oam810e_eic, cards_per_node: 16, node_selector: 'board-type=OAM-810E,nic-type=eic'}
     env:
       EXPECTED_SHA: ${{ needs.build-standard.outputs.artifact_sha256 }}
+      INPUT_DIR: ${{ matrix.platform == 'oam810e_eic' && 'tests/xtest/minimal-csv-oam810e-eic' || 'tests/xtest/minimal-csv' }}
     runs-on: k8s-runner-group-cpu-thead
     container:
       image: ghcr.io/actions/actions-runner:latest
@@ -684,9 +705,9 @@ jobs:
           image: ${{ env.VALIDATION_IMAGE }}
           launch_mode: master
           nnodes: 2
-          nproc_per_node: ${{ env.VALIDATION_CARDS }}
+          nproc_per_node: ${{ matrix.cards_per_node }}
           rack_nodes: rack-01=2
-          node_selector: ${{ env.VALIDATION_NODE_SELECTOR }}
+          node_selector: ${{ matrix.node_selector }}
           namespace: ppu-sched
           timeout_minutes: 300
           cleanup_policy: always
@@ -748,9 +769,9 @@ jobs:
             umask 022
             cd "$SOURCE_DIR"
             CACHE_DIR=/mnt/wl_nas/devops/pccl-artifact-cache-${{ github.run_id }}/cache/standard/${{ env.EXPECTED_SHA }}
-            SHARED_ROOT=/mnt/wl_nas/devops/pccl-artifact-cache-${{ github.run_id }}/shared-standard/${{ env.EXPECTED_SHA }}
+            SHARED_ROOT=/mnt/wl_nas/devops/pccl-artifact-cache-${{ github.run_id }}/shared-standard/${{ matrix.platform }}/${{ env.EXPECTED_SHA }}
             export build_output="$SHARED_ROOT/output_standard"
-            RESULT_ROOT=/mnt/wl_nas/devops/pccl-artifact-cache-${{ github.run_id }}/results/cluster
+            RESULT_ROOT=/mnt/wl_nas/devops/pccl-artifact-cache-${{ github.run_id }}/results/${{ matrix.platform }}/cluster
             rm -rf "$RESULT_ROOT" "$SHARED_ROOT"
             mkdir -p "$(dirname "$RESULT_ROOT")" "$SHARED_ROOT"
             cleanup_shared_build() {
@@ -790,7 +811,7 @@ jobs:
               --hostfile "$CLUSTER_HOSTS_FILE" -np 2 -npernode 1 hostname
             /workspace/minimal-csv-cluster-env/bin/python -B \
               "$build_output/pccl/tests/xtest/run_cases.py" \
-              --input "$build_output/pccl/tests/xtest/minimal-csv" \
+              --input "$build_output/pccl/$INPUT_DIR" \
               --profile standard --nodes 2 \
               --test-root "$build_output" \
               --binary-dir "$build_output/pccl-tests/build" \
@@ -829,12 +850,20 @@ jobs:
         run: |
           python3 -S -B pccl/tests/xtest/reconcile_results.py \
             --input pccl/tests/xtest/minimal-csv \
-            --results /wl_nas/devops/pccl-artifact-cache-${{ github.run_id }}/results \
-            --public public-results \
+            --results /wl_nas/devops/pccl-artifact-cache-${{ github.run_id }}/results/m890p \
+            --public public-results/m890p \
             --pccl-revision '${{ github.sha }}' \
             --standard-sha256 '${{ needs.build-standard.outputs.artifact_sha256 }}' \
             --notsm-sha256 '${{ needs.build-notsm.outputs.artifact_sha256 }}' \
             --cards-per-node '${{ env.VALIDATION_CARDS }}'
+          python3 -S -B pccl/tests/xtest/reconcile_results.py \
+            --input pccl/tests/xtest/minimal-csv-oam810e-eic \
+            --results /wl_nas/devops/pccl-artifact-cache-${{ github.run_id }}/results/oam810e_eic \
+            --public public-results/oam810e_eic \
+            --pccl-revision '${{ github.sha }}' \
+            --standard-sha256 '${{ needs.build-standard.outputs.artifact_sha256 }}' \
+            --notsm-sha256 '${{ needs.build-notsm.outputs.artifact_sha256 }}' \
+            --cards-per-node '16'
       - id: results-upload
         uses: actions/upload-artifact@v4
         if: always() && steps.reconcile.outcome == 'success'
