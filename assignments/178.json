@@ -2,14 +2,14 @@
   "classification": {
     "base_sha": "a7769ba35a724d84cea481c9b318c30482175471",
     "head_sha": "67610b6cc8e996189e6245c7dd71b7f96cb8336d",
-    "input_fingerprint": "608f79e3ba3a1e7c95c1beb8269306892fca0eba0d89e7e46a53126d5d2befd0",
+    "input_fingerprint": "bafbcea71d1028654c98521cbe3bd67b482a5e7a8a439c48316f90b556542743",
     "pr_number": 178,
     "proposal": {
       "modules": [
         "network",
         "gin"
       ],
-      "reason": "Primary change is in the IB network backend (connect/accept handshake state machine, ECE negotiation, FLID/GID routing, traffic-class handling, receive reporting, and MR registration cache), which is core network transport behavior. Add gin because there are independently substantive GIN-path changes (GIN IB connect/accept/cancel integration, listener-close/cancellation semantics, and GIN-specific accept traffic-class handling) beyond mechanical callsite updates."
+      "reason": "Primary change is in the IB network backend (connect/accept handshake redesign, ECE negotiation, FLID/GID routing, traffic-class handling, receive/send readiness semantics, and per-device MR cache for registration reuse), which is squarely network transport/proxy behavior. Added gin because there are independently substantive GIN-path changes (GIN IB connect/accept integration, listener/connection cancellation cleanup, and GIN host/listen lifecycle updates) beyond incidental caller edits."
     }
   },
   "reviewers": {
