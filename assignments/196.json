@@ -1,14 +1,14 @@
 {
   "classification": {
     "base_sha": "a7769ba35a724d84cea481c9b318c30482175471",
-    "head_sha": "bdd5a12f11b8c276f787f0feb938d472eff19f87",
-    "input_fingerprint": "dba88324bcbdcf289554b4bf973441faf4ef3e0480161e7b6bb2e5a10924d151",
+    "head_sha": "f124512e23a8166e1af0e42a8db2cececf06e415",
+    "input_fingerprint": "04a01f9eafb8255c896b7e666ffbd3a60329b9fa572290a6e009d1fca0811a35",
     "pr_number": 196,
     "proposal": {
       "modules": [
         "ci"
       ],
-      "reason": "Main change is the open-source test workflow system: daily/source-sanity pipelines now generate cases from JSON families, expand grouped node scheduling (including cross-rack/8-node selection), add artifact download SHA-256 retry validation, and produce/upload performance report artifacts; accompanying tests/xtest scripts and data define and validate this CI execution/reporting behavior rather than PCCL runtime modules."
+      "reason": "Main change is the test-execution pipeline itself: daily/source-sanity workflows, artifact download validation/retry, cluster run allocation (including cross-rack), generated test-case inputs from JSON families, and performance-report artifact generation from run logs. Added/removed test data and xtest helper scripts are all in service of CI execution/reporting behavior rather than runtime modules or review-policy automation."
     }
   },
   "reviewers": {
