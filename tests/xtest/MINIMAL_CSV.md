@@ -71,6 +71,7 @@ workflow-level input: empty retains the image-builtin HPN SDK, while a nonempty
 trusted HTTPS URL is downloaded and installed once on every allocated worker
 before building or testing. A manual `hpn_sdk_url` dispatch input overrides the
 workflow fallback. One run uses one URL; use separate runs to compare packages.
+The same image and effective HPN SDK selection apply to both hardware platforms.
 Download or installation failure stops the job and never falls back to the
 image-builtin package. The daily performance workbook records both the image
 and the effective URL (or `image-builtin`) in its `Metadata` sheet. URL query
@@ -78,6 +79,11 @@ parameters and fragments are omitted from worker logs and workbook metadata so
 signed download credentials are not published.
 
 ## Result semantics
+
+Every Case inherits `NCCL_IB_ADAPTIVE_ROUTING=1` and `NCCL_IB_OOO_RQ=1`.
+The executor also forwards them through mpirun or `run_test.py` MPI options so
+remote ranks receive them. Injection is idempotent, applies to both platforms,
+and intentionally remains present when `NCCL_IB_DISABLE=1`.
 
 - `exit_code`: command success.
 - `validation_summary`: command success plus a successful validation summary.
@@ -124,9 +130,18 @@ result reconciliation, a final `always()` cleanup removes only this run's
 logs remain intact. Cache reuse is content-verified; file existence alone is
 never sufficient.
 
-## M890P daily execution
+## Dual-platform daily execution
 
-The `smoke` dataset generates two Cases from the op_perf and postsil families.
+The shared test-family JSON is combined with `platforms/m890p.json` or
+`platforms/oam810e_eic.json`. Image selection, HPN SDK selection and the
+standard build are shared. A platform profile owns only the node selector,
+card/rank layout, supported node counts and family-specific layout changes.
+The 810E profile requests `board-type=OAM-810E,nic-type=eic`; M890P keeps
+`board-type=ZW-M890P,nic-type=cx8`. Plan/Suite identities, execution groups,
+logs, reconciliation and performance coverage remain platform-specific.
+
+The `smoke` dataset generates five Cases in three groups: the existing two
+M890P Cases plus 810E single-node op_perf, two-node RDMA and two-node EIC.
 The `full` dataset generates 8,899 standard Cases from 34 Suites, with
 unsupported or out-of-scope source selections recorded in
 `test_lists/source-coverage.json`. The notsm daily profile is intentionally
@@ -136,8 +151,18 @@ groups. The 9 sixteen-node Cases remain in the export but are listed as
 `EXCLUDED_BY_POLICY` in `execution-coverage.json`; they are not reported as
 passed or skipped tests.
 
-`group_cases.py` derives deterministic execution groups by profile, node count,
-cards per node, shared environment and cross-rack allocation, then splits large
+The 810E `full` conversion adds 6,435 selected Cases. The combined export has
+15,334 Cases and selects 15,325 Cases in 40 groups after the same 16-node
+M890P exclusions. This is generation coverage only, not a claim that the full
+hardware dataset has been executed.
+
+`generate_pr_cases.py` writes the reviewed 810E PR input under
+`minimal-csv-oam810e-eic`: seven standard Cases (five single-node and two
+two-node) and one notsm Case. PR CI builds standard and notsm once, then runs
+both platforms with independent inputs, result directories and reconciliation.
+
+`group_cases.py` derives deterministic execution groups by platform, profile,
+node count, cards per node, shared environment and cross-rack allocation, then splits large
 groups by `--max-cases`. The two-rack performance Suites are isolated from
 ordinary Suites and carry explicit `rack_nodes` allocations in `groups.json`.
 Every other multi-node execution explicitly requests `rack-01=<node-count>` so
