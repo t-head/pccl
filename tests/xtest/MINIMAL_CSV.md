@@ -140,9 +140,11 @@ The 810E profile requests `board-type=OAM-810E,nic-type=eic`; M890P keeps
 `board-type=ZW-M890P,nic-type=cx8`. Plan/Suite identities, execution groups,
 logs, reconciliation and performance coverage remain platform-specific.
 
-The `smoke` dataset generates five Cases in three groups: the existing two
-M890P Cases plus 810E single-node op_perf, two-node RDMA and two-node EIC.
-The `full` dataset generates 8,899 standard Cases from 34 Suites, with
+The M890P `smoke` selection generates four Cases from op_perf, postsil daily
+and native unit families. The dual-platform smoke dataset generates seven
+Cases in three groups: those four M890P Cases plus 810E single-node op_perf,
+two-node RDMA and two-node EIC. The M890P `full` dataset generates 10,196
+standard Cases from 35 Suites, with
 unsupported or out-of-scope source selections recorded in
 `test_lists/source-coverage.json`. The notsm daily profile is intentionally
 empty. Generated CSV is a temporary prepare artifact, not a maintained input.
@@ -160,7 +162,7 @@ Job adds 30 minutes for setup and cleanup. These workflow limits do not change
 the Suite or Case timeouts in the generated input.
 
 The 810E `full` conversion adds 6,435 selected Cases. The combined export has
-15,334 Cases and selects 15,325 Cases in 40 groups after the same 16-node
+16,631 Cases and selects 16,622 Cases in 43 groups after the same 16-node
 M890P exclusions. This is generation coverage only, not a claim that the full
 hardware dataset has been executed.
 

@@ -11,7 +11,7 @@ on:
   workflow_dispatch:
     inputs:
       dataset:
-        description: JSON-generated selection; smoke has two single-node Cases, full has all families
+        description: JSON-generated selection; smoke has four single-node Cases, full has all families
         required: true
         default: smoke
         type: choice
@@ -118,6 +118,7 @@ jobs:
           GENERATED_DEFINITIONS=(
             --definition tests/xtest/test_lists/op_perf_shm.json
             --definition tests/xtest/test_lists/postsil_daily_shm.json
+            --definition tests/xtest/test_lists/postsil_unit_test_shm.json
           )
           if [[ "$DATASET" == full ]]; then
             GENERATED_DEFINITIONS+=(
