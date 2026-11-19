@@ -630,16 +630,6 @@ ncclResult_t ncclProxySaveOp(ncclComm_t comm, struct ncclProxyOp* op, bool* just
         NCCLCHECK(SaveProxy(comm, channel, proxyRecv, tree->up, op, 0, justInquire));
       }
     } break;
-    case ncclPatternCollTreeUp: {
-      struct ncclTree* tree = &channel->collTree;
-      NCCLCHECK(SaveProxy(comm, channel, proxyRecv, tree->down[0], op, 0, justInquire));
-      NCCLCHECK(SaveProxy(comm, channel, proxySend, tree->up,      op, 0, justInquire));
-    } break;
-    case ncclPatternCollTreeDown: {
-      struct ncclTree* tree = &channel->collTree;
-      NCCLCHECK(SaveProxy(comm, channel, proxySend, tree->down[0], op, 0, justInquire));
-      NCCLCHECK(SaveProxy(comm, channel, proxyRecv, tree->up,      op, 0, justInquire));
-    } break;
     case ncclPatternPatUp: {
       // Run full algorithm to count the number of steps for each peer.
       ncclResult_t result = ncclSuccess;
@@ -2195,7 +2185,6 @@ ncclResult_t ncclProxyCreate(ncclComm_t comm) {
     proxyState->allocP2pNetLLBuffers = comm->allocP2pNetLLBuffers;
     proxyState->directMode = comm->directMode;
     proxyState->ncclNet = comm->ncclNet;
-    proxyState->ncclCollNet = comm->ncclCollNet;
     proxyState->useU2mmHost = comm->useU2mmHost;
     proxyState->useU2mmDev = comm->useU2mmDev;
     proxyState->profilerContext = comm->profilerContext;

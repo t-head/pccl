@@ -500,7 +500,8 @@ ncclResult_t dumpRawComm(ncclComm_t comm, char* commDumpRawFile, pcclCommDumpMas
   char* recvbuffDump = NULL;
   struct ncclKernelComm devCommDump;
   constexpr int dumpProtoNum = 3;
-  const uint64_t commDumpVersion = (static_cast<uint64_t>(PCCL_VERSION_CODE) << 32) | 0x00000001 ;
+  // Revision 2: removing collTree changes channel field offsets despite the fixed 512-byte size.
+  const uint64_t commDumpVersion = (static_cast<uint64_t>(PCCL_VERSION_CODE) << 32) | 0x00000002;
 
   hggcEitInterface& hggcEit = hggcEitInterface::getInstance();
 
