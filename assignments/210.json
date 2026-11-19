@@ -1,14 +1,14 @@
 {
   "classification": {
-    "base_sha": "f0a820ec5a1ef1ae8187ac1b43e256d0d94e84eb",
-    "head_sha": "5d7fceb953f8fc3bef6b4c552327cd61890d6ec9",
-    "input_fingerprint": "bb51387a93fd3339a89bad5cbae9009df6e4635fdf73f65ea02590d77a50904d",
+    "base_sha": "2371005caa2fa51f8970e116af2041f6d1f38cdb",
+    "head_sha": "55f31f1e261d44741f33518230c614dcd0c6f614",
+    "input_fingerprint": "a576779df11566f16495a44447e43163f8c13a5d4ac0cf0721812e41a9962004",
     "pr_number": 210,
     "proposal": {
       "modules": [
         "gin"
       ],
-      "reason": "Primary change is in the GIN TROCE backend: broad private symbol/namespace/version macro renames across TROCE host/device headers and implementation, plus a substantive flush-completion path simplification in `pcclGinApi_Flush` (switching from `troceFlushWait` via a dedicated flush QP to direct `troceWait` on submitted work). No independent policy/protocol ownership shift outside GIN is evident."
+      "reason": "Changes are concentrated in the GIN TROCE backend: private TROCE symbols/macros/namespaces/version constants are renamed consistently and TROCE flush waiting is adjusted in backend device API logic, while broader header/include-guard edits appear mechanical rather than independent module behavior changes."
     }
   },
   "reviewers": {
