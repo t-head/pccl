@@ -7,7 +7,7 @@ on:
     paths:
       - .github/workflows/pccl-host-coverage.yml
       - .github/workflows/scripts/pccl_host_coverage.py
-      - tests/xtest/test_host_coverage.py
+      - tests/host_coverage/test_host_coverage.py
       - makefiles/common.mk
       - src/Makefile
   workflow_dispatch:
@@ -57,7 +57,7 @@ jobs:
           python3 -m venv --system-site-packages coverage/tools
           coverage/tools/bin/python -m pip install --disable-pip-version-check --index-url https://pypi.org/simple gcovr==8.4
       - name: Validate experiment helpers
-        run: coverage/tools/bin/python -m unittest discover -s tests/xtest -p 'test_host_coverage.py' -v
+        run: coverage/tools/bin/python -m unittest discover -s tests/host_coverage -p 'test_host_coverage.py' -v
       - name: Build instrumented PCCL and run graph tests
         shell: bash
         env:
