@@ -1,14 +1,14 @@
 {
   "classification": {
-    "base_sha": "3d9103c41c272713a1a0a84d335bf780f344d7ae",
-    "head_sha": "ed01ef2903d2f7c2bd7d2ea60370618e67fab434",
-    "input_fingerprint": "4b6987c0285d26dadf4692710c983e401d0f883756a40ddbc6a4dea6d60e7ad9",
+    "base_sha": "50423c27f1dc6a6ef765f20e504c47f561d948f9",
+    "head_sha": "8bd988a108f8b69e9ce696bab62255f5c1071099",
+    "input_fingerprint": "b5f711e8faf6c0f23f6c640bca404ddfa7d8fb3f100d7be183d5882b48191d9c",
     "pr_number": 195,
     "proposal": {
       "modules": [
         "workflow"
       ],
-      "reason": "Main functional changes are to reviewer-routing and approval policy automation: .github/scripts/review_automation.py adds manual /review-module command handling, invitation synchronization, and module notice updates; .github/scripts/maintainer_approval.py expands gate logic to Reviewer+Maintainer requirements; and related .github/workflows/* wiring updates review/approval/preview workflow behavior. Other edits are supporting docs/skill/catalog updates for this same review workflow system, not separate runtime modules."
+      "reason": "Main functional changes are to contribution/review automation: review_automation.py and maintainer_approval.py add primary/additional module handling, role-based approval requirements, invitation withdrawal/reinvite rules, and /review-module commands; commit_message_squash.py and related workflows change when squash previews are generated/published based on Review Gate status. These are review-policy/workflow behaviors, while docs/skill text updates are supporting guidance."
     }
   },
   "reviewers": {
