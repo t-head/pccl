@@ -79,7 +79,7 @@ def _name_numbers(name, numeric):
         "ranks": r"(ranks_)([0-9]+)",
         "nproc": r"(nproc_)([0-9]+)",
         "nprocs": r"(process_)([0-9]+)",
-        "np": r"(np)([0-9]+)",
+        "np": r"((?:^|_)np)([0-9]+)",
     }
     for field, pattern in patterns.items():
         name = re.sub(pattern, lambda match: match.group(1) + str(
@@ -160,8 +160,10 @@ def apply_platforms(bundles, profile, variant_bundles=None):
                 if rule.get("base_family") == family:
                     source = bundle
                     if variant_bundles is not None:
-                        source = next(candidate for candidate in variant_bundles
-                                      if candidate["generation"]["family"] == family)
+                        source = next((candidate for candidate in variant_bundles
+                                       if candidate["generation"]["family"] == family), None)
+                        if source is None:
+                            raise ValueError(f"Missing variant bundle for family {family}")
                     converted.append(_filter_variant(
                         apply_platform(source, profile, target), bundle["generation"]["profile"]))
     return converted
