@@ -152,3 +152,18 @@ production globals without linker error suppression, while preserving the
 original fixture parameter defaults (`PCCL_NO_MEMSET=0`,
 `PCCL_CHANNEL_SHUFFLE=0`) unless explicitly configured otherwise. No assertions
 or Case filters were relaxed.
+
+
+Run `44509124740`, commit `e05c684`, compiled the native archive and test executable
+and passed all 30 graph tests (21 without PXN, 9 with PXN). Report collection
+failed only on gcovr's default suspicious-hit heuristic: the NET-selection loop
+condition had 5,052,574,822 executions. Matching GNU GCOV 13.3 JSON and raw GCDA
+were audited: 4,129,114,662 loop-body traversals plus 923,460,160 exits exactly
+match the condition count, with 18,944,829 function entries. This supports treating
+it as a legitimate large counter, not a failed test or fabricated coverage.
+
+The experiment now uses a finite suspicious-hit bound of `2^40` instead of the
+32-bit heuristic. Counters are not rewritten; negative-hit, malformed-data,
+missing-source and other GCOV parser errors remain fatal. Raw profiles and the
+configured bound remain in the report for audit. The prior failed run remains
+failed; a fresh successful Actions result is required for the updated collector.
