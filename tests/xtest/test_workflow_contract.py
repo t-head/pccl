@@ -250,6 +250,14 @@ class WorkflowContractTests(unittest.TestCase):
         self.assertIn('reconcile_results.load_selections(', prepare)
         self.assertIn('--cards-per-node', results)
 
+    def test_prepare_runs_every_xtest_regression_module(self):
+        prepare = self.text[self.text.index('  prepare:'):self.text.index('  ai-code-review:')]
+        modules = sorted(path.name for path in (ROOT / 'tests/xtest').glob('test_*.py'))
+        self.assertTrue(modules)
+        for module in modules:
+            with self.subTest(module=module):
+                self.assertIn(f"-p '{module}'", prepare)
+
     def test_shared_build_is_cleaned_only_by_master_and_results_are_separate(self):
         self.assertIn('SHARED_ROOT=/mnt/wl_nas/devops/pccl-artifact-cache-${{ github.run_id }}/shared-standard/', self.text)
         self.assertIn('RESULT_ROOT=/mnt/wl_nas/devops/pccl-artifact-cache-${{ github.run_id }}/results/', self.text)
