@@ -30,6 +30,21 @@ FORMAT_VERSION = 1
 SAFE_NAME = re.compile(r"[A-Za-z0-9_.-]+\Z")
 ENV_NAME = re.compile(r"[A-Za-z_][A-Za-z0-9_]*\Z")
 HEX40 = re.compile(r"[0-9a-f]{40}\Z")
+
+
+def _with_ib_environment(command):
+    """Forward the common IB settings to local and remote MPI ranks."""
+    exports = " ".join("-x " + name + "=1" for name in
+                       ("NCCL_IB_ADAPTIVE_ROUTING", "NCCL_IB_OOO_RQ")
+                       if name + "=1" not in command)
+    if not exports:
+        return command
+    if "mpirun" in command:
+        return command.replace("mpirun", "mpirun " + exports, 1)
+    match = re.search(r"(--mpi-options?(?:=|\s+)(['\"]))", command)
+    if match:
+        return command[:match.end()] + exports + " " + command[match.end():]
+    return command
 VARIABLE = re.compile(r"\$(?:\{([A-Za-z_][A-Za-z0-9_]*)\}|([A-Za-z_][A-Za-z0-9_]*))")
 PLACEHOLDER = re.compile(r"(?<!\$)\{([A-Za-z_][A-Za-z0-9_]*)\}")
 SAFE_BINDING = re.compile(r"[A-Za-z0-9_./:+%@^,=-]+\Z")
@@ -370,6 +385,8 @@ def run_case(case, runtime, interrupted):
                     "python_env": str(runtime["output"] / "python-env")}
         environment = _expand_environment(
             _environment_file(runtime["input"] / "envs" / suite["env"]), runtime["base_environment"], bindings)
+        environment["NCCL_IB_ADAPTIVE_ROUTING"] = "1"
+        environment["NCCL_IB_OOO_RQ"] = "1"
         # Keep the build ahead of inherited installations while retaining the
         # exported SDK path order after it.
         if suite["nodes"] > 1:
@@ -392,7 +409,7 @@ def run_case(case, runtime, interrupted):
                 raise ValueError("This Case requires --mpi-interface with a valid interface name")
             bindings["mpi_interface"] = interface
         command_bindings = {key: _command_binding(value) for key, value in bindings.items()}
-        command = _substitute(case["cmd"], command_bindings)
+        command = _substitute(_with_ib_environment(case["cmd"]), command_bindings)
         _stage_work(work, runtime["runner_root"], runtime["binary_dir"], runtime["hostfile"])
         (directory / "command.txt").write_text(command + "\n", encoding="utf-8")
         popen_command = ["/bin/sh", "-c", command]

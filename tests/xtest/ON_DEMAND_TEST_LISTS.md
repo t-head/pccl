@@ -69,6 +69,13 @@ The workflow supports two `workflow_dispatch` choices:
   Ordinary multi-node groups use `rack_policy=same`, keeping every worker in one
   automatically selected rack without binding a physical rack name.
 
+These counts describe the preserved M890P baseline. Daily preparation also
+applies `platforms/oam810e_eic.json` to the supported shared families and adds
+6,435 full-selection Cases. Combined dual-platform generation produces 15,334
+Cases, selects 15,325 in 40 groups, and retains each group's platform and
+`node_selector`. Dual-platform smoke has five Cases: two M890P Cases and three
+810E Cases covering single-node op_perf, two-node RDMA and two-node EIC.
+
 The 22:00 Asia/Shanghai schedule selects `full`, which uses the same JSON
 generation path as manual dispatch. Monday-Thursday allows 1/2/4/8 nodes and
 selects 8,890 Cases in 25 groups with 9 exclusions. Friday allows 1/2/4/8/16
@@ -87,6 +94,13 @@ already installed in `VALIDATION_IMAGE`; a nonempty trusted URL is downloaded
 and installed once per worker before building or testing. Installation failure
 is fatal and never falls back to the image package. One run uses one URL.
 Signed URL query parameters and fragments are redacted from logs and reports.
+The image and HPN selection are common to M890P and 810E; they are not platform
+profile fields. The standard build artifact is shared by both platforms.
+
+Every executed Case inherits `NCCL_IB_ADAPTIVE_ROUTING=1` and
+`NCCL_IB_OOO_RQ=1`, including Cases with `NCCL_IB_DISABLE=1`. The executor
+forwards both settings through mpirun / `run_test.py` MPI options without
+duplicating settings already present in a shared family command.
 
 Each generated bundle contains `generation.json` with definition and Suite
 hashes, the selected profile, and the exact Case-key hash. The workflow copies

@@ -12,6 +12,7 @@ import sys
 import tempfile
 
 import run_cases
+import platform_cases
 
 
 POLICY_EXCLUSION = "disabled by daily resource policy"
@@ -77,6 +78,7 @@ def build_plan(directory, max_cases, nodes=None, suite=None, allowed_nodes=None)
     grouped = {}
     excluded = {}
     metadata = None
+    platforms = platform_cases.load_platforms()
     for profile in ("standard", "notsm"):
         try:
             selected = run_cases.load_inputs(directory, profile, nodes=nodes, suite=suite)
@@ -87,11 +89,12 @@ def build_plan(directory, max_cases, nodes=None, suite=None, allowed_nodes=None)
         metadata = selected["metadata"]
         for case in selected["cases"]:
             spec = case["suite_spec"]
+            platform = platform_cases.case_platform(case, platforms)
             rack_policy, rack_count = _rack_policy(case)
             if allowed_nodes is not None and spec["nodes"] not in allowed_nodes:
                 excluded.setdefault(spec["nodes"], []).append(case)
                 continue
-            key = (profile, spec["nodes"], spec["cards_per_node"], spec["env"], rack_policy, rack_count)
+            key = (platform, profile, spec["nodes"], spec["cards_per_node"], spec["env"], rack_policy, rack_count)
             grouped.setdefault(key, []).append(case)
     if metadata is None:
         raise ValueError("No Cases match the requested selection")
@@ -99,13 +102,15 @@ def build_plan(directory, max_cases, nodes=None, suite=None, allowed_nodes=None)
         raise ValueError("No Cases match the requested selection and resource policy")
     groups = []
     for key in sorted(grouped):
-        profile, group_nodes, cards, env, rack_policy, rack_count = key
+        platform, profile, group_nodes, cards, env, rack_policy, rack_count = key
         cases = sorted(grouped[key], key=lambda case: (case["plan"], case["suite"], case["name"]))
         for start in range(0, len(cases), max_cases):
             chunk = cases[start:start + max_cases]
             groups.append({
                 "id": f"g{len(groups) + 1:03d}",
                 "profile": profile,
+                "platform": platform,
+                "node_selector": platforms[platform]["node_selector"],
                 "nodes": group_nodes,
                 "cards_per_node": cards,
                 "env": env,
@@ -120,6 +125,7 @@ def build_plan(directory, max_cases, nodes=None, suite=None, allowed_nodes=None)
         cases = sorted(excluded[node_count], key=lambda case: (case["plan"], case["suite"], case["name"]))
         exclusions.append({
             "nodes": node_count, "case_count": len(cases), "reason": POLICY_EXCLUSION,
+            "platform": platform_cases.case_platform(cases[0], platforms),
             "case_keys": [[case["plan"], case["suite"], case["name"]] for case in cases],
         })
     return {"groups": groups, "exclusions": exclusions,
@@ -179,6 +185,7 @@ def write_groups(groups, output, input_directory, coverage=None):
                             directory / "envs" / group["env"])
             manifest.append({
                 "id": group["id"], "profile": group["profile"], "nodes": group["nodes"],
+                "platform": group["platform"], "node_selector": group["node_selector"],
                 "cards_per_node": group["cards_per_node"], "env": group["env"],
                 "cross_rack": rack_policy == "spread",
                 "rack_policy": rack_policy, "rack_count": rack_count,

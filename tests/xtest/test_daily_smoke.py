@@ -314,7 +314,7 @@ class DailySmokeTests(unittest.TestCase):
         self.assertIn('rack_policy: same', ordinary)
         self.assertIn('rack_policy: spread', cross)
         self.assertIn('rack_count: ${{ matrix.rack_count }}', cross)
-        self.assertIn('node_selector: ${{ env.VALIDATION_NODE_SELECTOR }}', cross)
+        self.assertIn('node_selector: ${{ matrix.node_selector }}', cross)
         for section in (ordinary, cross):
             self.assertNotIn("cluster-ssh \"$host\" 'hostname'", section)
             self.assertNotIn('mpirun --allow-run-as-root', section)
