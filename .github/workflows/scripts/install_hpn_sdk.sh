@@ -10,7 +10,7 @@ fi
 
 python3 - "$url" <<'PY'
 import sys
-from urllib.parse import urlsplit
+from urllib.parse import urlsplit, urlunsplit
 
 url = sys.argv[1]
 try:
@@ -24,11 +24,12 @@ except ValueError:
     valid = False
 if not valid:
     raise SystemExit('HPN_SDK_URL must be an HTTPS .bin URL on zone-ci.oss-cn-hangzhou.aliyuncs.com')
+print('HPN SDK URL: ' + urlunsplit((parsed.scheme, parsed.netloc, parsed.path, '', '')))
 PY
 
 installer=$(mktemp /tmp/hpnsdk.XXXXXX)
 trap 'rm -f "$installer"' EXIT
-printf 'HPN SDK URL: %s\n' "$url"
-wget --tries=3 --timeout=60 --waitretry=5 -O "$installer" "$url"
+wget --quiet --max-redirect=0 --tries=3 --timeout=60 --waitretry=5 -O "$installer" "$url"
+test -s "$installer" || { echo 'HPN SDK installer is empty' >&2; exit 1; }
 bash "$installer" --install --force
 echo 'HPN SDK installation completed'
