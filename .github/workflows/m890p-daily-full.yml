@@ -665,7 +665,7 @@ jobs:
           launch_mode: master
           nnodes: ${{ matrix.nodes }}
           nproc_per_node: ${{ matrix.cards_per_node }}
-          rack_nodes: rack-01=${{ matrix.nodes }}
+          rack_nodes: ${{ matrix.platform == 'm890p' && format('rack-01={0}', matrix.nodes) || '' }}
           node_selector: ${{ matrix.node_selector }}
           namespace: ppu-sched
           timeout_minutes: 720

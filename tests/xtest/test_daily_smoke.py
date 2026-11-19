@@ -291,7 +291,7 @@ class DailySmokeTests(unittest.TestCase):
         self.assertIn(action, cross)
         self.assertIn("if: env.NODES != '1' && env.CROSS_RACK != 'true'", ordinary)
         self.assertIn("if: env.NODES != '1' && env.CROSS_RACK == 'true'", cross)
-        self.assertIn('rack_nodes: rack-01=${{ matrix.nodes }}', ordinary)
+        self.assertIn("rack_nodes: ${{ matrix.platform == 'm890p' && format('rack-01={0}', matrix.nodes) || '' }}", ordinary)
         self.assertIn('rack_nodes: ${{ matrix.rack_nodes }}', cross)
         self.assertIn('node_selector: ${{ matrix.node_selector }}', cross)
         for section in (ordinary, cross):
