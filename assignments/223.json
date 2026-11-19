@@ -1,14 +1,14 @@
 {
   "classification": {
     "base_sha": "50423c27f1dc6a6ef765f20e504c47f561d948f9",
-    "head_sha": "610b7fd02db5eb519090c3ddb3de96b5cfcf54f0",
-    "input_fingerprint": "b2a012ea824f02218e4aa33af35ded2e0d9a9c21b9501ec4a742ae43c256e13f",
+    "head_sha": "358f721a86569fb8ee1b019e747934fcf013ee9b",
+    "input_fingerprint": "bba629983c54e972e87e6f92b85c5ab094162efd803f7656ee5a03432cca40a7",
     "pr_number": 223,
     "proposal": {
       "modules": [
         "ci"
       ],
-      "reason": "Main change is CI daily-test orchestration: the M890P daily workflow now includes a new native unit test family, updates generated suite/case coverage and grouping counts, and stages additional native test binaries in the workflow build path. Other edits are supporting tests/docs/metadata for that same CI behavior, not separate module-owned runtime changes."
+      "reason": "Main change is CI daily test orchestration: it adds the native unit-test family (`postsil_unit_test_shm`) to workflow-generated datasets, updates suite/source manifests and grouping expectations, and extends the CI build staging script to produce/copy the additional native test binaries used by those runs. No PCCL runtime subsystem behavior is changed."
     }
   },
   "reviewers": {
