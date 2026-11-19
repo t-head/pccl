@@ -1,14 +1,14 @@
 {
   "classification": {
     "base_sha": "dd507710fa250caa8ff4d98d5382b49a286c8802",
-    "head_sha": "32d87cdd3f3df098cb96841a24a75c9745030904",
-    "input_fingerprint": "e5f585ffc01c52b1ac97e3291c2e1efc664c10ce6b441e3346b902e099cdf9b2",
+    "head_sha": "63bad3ddc368851ab7c3cb7b0de088b0c114077f",
+    "input_fingerprint": "043c97fffa95cc8ca91ae5659d8227f99d9de23e98e399bbea349a9f3667afe9",
     "pr_number": 195,
     "proposal": {
       "modules": [
         "workflow"
       ],
-      "reason": "The substantive changes are all in contribution/review automation: reviewer routing and state handling, Reviewer+Maintainer approval gating, automated request withdrawal/reinvite rules, and squash-preview publish/remove behavior in `.github/scripts/*` plus review-related workflow wiring. Other edits are workflow documentation/skill-catalog guidance updates, not PCCL runtime module behavior."
+      "reason": "The substantive changes are to review/merge automation behavior in .github/scripts/review_automation.py, maintainer_approval.py, commit_message_squash.py, and related .github/workflows/* files (primary-module selection, reviewer+maintainer approval rules, automated request withdrawal, and gate-driven squash preview publishing). Other edits are supporting documentation/catalog wording updates for the same workflow system, not independent module changes."
     }
   },
   "reviewers": {
