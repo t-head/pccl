@@ -1,14 +1,14 @@
 {
   "classification": {
-    "base_sha": "0da8662eb0e6d164ebd790d4a45b6007314a8b10",
-    "head_sha": "968dfa0682449c7aeb184f512543699b4c7ef05f",
-    "input_fingerprint": "97ce6b479f8e7e5f373c10d5500729dcd616462e2f00fad31486627c39dab921",
+    "base_sha": "506c3b02235e24dc2a3f127fbb9ed64eef756485",
+    "head_sha": "0e2fe3505a4bedc9fda10c868c66cc742fa89ec7",
+    "input_fingerprint": "28499ab5b5727cbb4314b54de6c18b1dc9f689b9ed60bf7c069d224eb0d40718",
     "pr_number": 216,
     "proposal": {
       "modules": [
         "device-topology"
       ],
-      "reason": "`src/graph/paths.cc` changes topology-driven P2P channel derivation (SM89 non-switch default, min/max handling, and round-down-to-power-of-two behavior) inside `ncclTopoComputeP2pChannels`, which is a communication-path/channel-sizing policy tied to topology/path computation rather than an independent scheduler or transport implementation change."
+      "reason": "Main functional change is in `ncclTopoComputeP2pChannels` (`src/graph/paths.cc`): it changes default P2P channel-limit policy based on detected ICN peer type/SM89 and preserves switch-path behavior, which is topology/path-driven channel planning rather than a separate transport, CI, or workflow change."
     }
   },
   "reviewers": {
