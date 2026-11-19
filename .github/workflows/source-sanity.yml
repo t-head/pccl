@@ -625,7 +625,7 @@ jobs:
             test "$OMPI_MCA_orte_keep_fqdn_hostnames" = 1
             /workspace/minimal-csv-env/bin/python -B \
               "$build_output/pccl/tests/xtest/run_cases.py" \
-              --input "$build_output/pccl/$INPUT_DIR" \
+              --input "$build_output/pccl/${{ env.INPUT_DIR }}" \
               --profile '${{ matrix.profile }}' --nodes 1 \
               --test-root "$build_output" \
               --binary-dir "$build_output/pccl-tests/build" \
@@ -811,7 +811,7 @@ jobs:
               --hostfile "$CLUSTER_HOSTS_FILE" -np 2 -npernode 1 hostname
             /workspace/minimal-csv-cluster-env/bin/python -B \
               "$build_output/pccl/tests/xtest/run_cases.py" \
-              --input "$build_output/pccl/$INPUT_DIR" \
+              --input "$build_output/pccl/${{ env.INPUT_DIR }}" \
               --profile standard --nodes 2 \
               --test-root "$build_output" \
               --binary-dir "$build_output/pccl-tests/build" \
