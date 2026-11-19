@@ -1,14 +1,14 @@
 {
   "classification": {
     "base_sha": "50423c27f1dc6a6ef765f20e504c47f561d948f9",
-    "head_sha": "035839da168fe997b4a186d3c79d1a1d6c634374",
-    "input_fingerprint": "bec7126db08681b8040ed18de4dc2752c072369f27facf98c0dd2f910a4fbefd",
+    "head_sha": "4f2d39945632a0ccf1001848b40d18a5b87429bb",
+    "input_fingerprint": "12ff68c7a228f998443fe9209b75b9f23ca5a0b8d2f05502e44c64f4418f9e57",
     "pr_number": 220,
     "proposal": {
       "modules": [
         "ci"
       ],
-      "reason": "Main substantive change is CI workflow behavior: adding optional `hpn_sdk_url` dispatch input, wiring it through sanity/daily hardware build-test steps, enforcing trusted installer URL validation with fatal install/download failures, and propagating selected image/SDK URL into performance report metadata. The added docs and tests validate this CI contract and are supporting edits, not separate module changes."
+      "reason": "Main substantive change is in open-source test workflow execution: adds optional `hpn_sdk_url` dispatch input, shared pre-build/test SDK installer wiring across hardware steps, and report metadata plumbing for selected image/SDK URL. Added script, contract tests, and docs are supporting this CI behavior change rather than independent module changes."
     }
   },
   "reviewers": {
