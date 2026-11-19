@@ -1,14 +1,14 @@
 {
   "classification": {
-    "base_sha": "506c3b02235e24dc2a3f127fbb9ed64eef756485",
-    "head_sha": "23a69bd9f5a814c782f25daafb79b1d2b2f96a3d",
-    "input_fingerprint": "a3c4115ba42ef784b38020a61cc55ca4e5b10b4732cb07b5c6831a6cb94e186c",
+    "base_sha": "dd507710fa250caa8ff4d98d5382b49a286c8802",
+    "head_sha": "37fc1d625eacb36cfaa7278c4badfc511943c001",
+    "input_fingerprint": "a1ead4dee036c4fb70fd183f8f84758d4a4fb2a67feca4eb600f78511c028996",
     "pr_number": 195,
     "proposal": {
       "modules": [
         "workflow"
       ],
-      "reason": "Main changes are to contributor/review automation behavior: .github/scripts/review_automation.py and maintainer_approval.py alter module classification schema, invitation/withdrawal logic, and approval-gate messaging, while .github/workflows/commit-message.yml and commit_message_squash.py change when and how squash previews are published. These are review/routing policy and workflow wiring changes, not PCCL runtime module implementations."
+      "reason": "Main change is review/approval automation: .github/scripts/review_automation.py and maintainer_approval.py revise module classification/routing and gate messaging, while commit_message_squash.py plus .github/workflows/commit-message.yml synchronize squash-preview publication with Review Gate status; docs/skill/catalog edits support this same review-workflow behavior."
     }
   },
   "reviewers": {
