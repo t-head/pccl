@@ -69,6 +69,17 @@ class HostCoverageTests(unittest.TestCase):
         for field in ("CXX", "HG", "LD", "HGLD"):
             self.assertIn("--coverage", legacy[field])
 
+    def test_native_archive_does_not_request_device_objects_or_ignore_link_errors(self):
+        source_make = (ROOT / "src/Makefile").read_text()
+        archive = source_make.split("$(LIBDIR)/libpccl_host_gcov.a:", 1)[1].split("binary :", 1)[0]
+        self.assertIn("$(LIBOBJ)", archive)
+        self.assertNotIn("$(DEVICELIB)", archive)
+        helper = (ROOT / ".github/workflows/scripts/pccl_host_coverage.py").read_text()
+        self.assertIn("-Wl,--gc-sections", helper)
+        self.assertNotIn("--unresolved-symbols=ignore", helper)
+        self.assertNotIn("--allow-shlib-undefined", helper)
+        self.assertIn('f"PCCL_SO={library}"', helper)
+
     def test_summary_metrics_are_computed_from_counts(self):
         metrics = coverage.coverage_summary(*self.xml(), self.source)
         self.assertEqual(metrics["lines"], {"covered": 2, "total": 4, "percent": 50.0})
@@ -141,7 +152,7 @@ class HostCoverageTests(unittest.TestCase):
         build.mkdir()
         (build / "old.gcda").write_bytes(b"fixture")
         args = argparse.Namespace(source=self.source, build_dir=build, output=self.root / "report",
-                                  jobs=2, ppu_archs="ppu_15", source_revision=None, snapshot_sha256=None)
+                                  jobs=2, ppu_archs="ppu_15", library_kind="host_archive", source_revision=None, snapshot_sha256=None)
         with patch.object(coverage, "collect") as collect:
             self.assertNotEqual(coverage.experiment(args), 0)
             collect.assert_not_called()
@@ -162,19 +173,20 @@ class HostCoverageTests(unittest.TestCase):
         (sdk / "bin/hgcc").write_text("fixture")
         build = self.root / "build"
         args = argparse.Namespace(source=self.source, build_dir=build, output=self.root / "report",
-                                  jobs=2, ppu_archs="ppu_15", source_revision="a" * 40, snapshot_sha256="b" * 64)
+                                  jobs=2, ppu_archs="ppu_15", library_kind="host_archive", source_revision="a" * 40, snapshot_sha256="b" * 64)
 
         def tool(name):
             return str(sdk / "bin/hgcc") if name == "hgcc" else "/usr/bin/g++"
 
         def fake_command(command, log, cwd, env, timeout):
-            if "src.lib" in command:
+            if "src.host_gcov_archive" in command:
                 self.assertIn("HOST_GCOV=1", command)
                 self.assertIn("GCOV=0", command)
                 self.assertIn("DEBUG=0", command)
                 self.assertFalse(any(str(value).startswith(("TEST_DT=", "TEST_OP=")) for value in command))
                 (build / "lib").mkdir()
-                (build / "lib/libpccl.so").write_bytes(b"instrumented-library-fixture")
+                (build / "lib/libpccl_host_gcov.a").write_bytes(b"instrumented-library-fixture")
+                (build / "lib/host_gcov_cxxflags.txt").write_text("-DPCCL_HGGC_VERSION=20200 -DHGGC_MAJOR=2 -DHGGC_MINOR=2")
             if any(str(value).startswith("--gtest_output=") for value in command):
                 xml = next(str(value).split("xml:", 1)[1] for value in command
                            if str(value).startswith("--gtest_output="))
@@ -203,20 +215,23 @@ class HostCoverageTests(unittest.TestCase):
         (sdk / "bin/hgcc").write_text("fixture")
         build = self.root / "build"
         args = argparse.Namespace(source=self.source, build_dir=build, output=self.root / "report",
-                                  jobs=2, ppu_archs="ppu_15", source_revision="a" * 40, snapshot_sha256="b" * 64)
+                                  jobs=2, ppu_archs="ppu_15", library_kind="host_archive", source_revision="a" * 40, snapshot_sha256="b" * 64)
 
         def tool(name):
             return str(sdk / "bin/hgcc") if name == "hgcc" else "/usr/bin/g++"
 
         def fake_command(command, log, cwd, env, timeout):
-            if "src.lib" in command:
+            if "src.host_gcov_archive" in command:
                 self.assertIn("HOST_GCOV=1", command)
                 self.assertIn("GCOV=0", command)
                 self.assertIn("DEBUG=0", command)
                 self.assertFalse(any(str(value).startswith(("TEST_DT=", "TEST_OP=")) for value in command))
                 (build / "lib").mkdir()
-                (build / "lib/libpccl.so").write_bytes(b"instrumented-library-fixture")
+                (build / "lib/libpccl_host_gcov.a").write_bytes(b"instrumented-library-fixture")
+                (build / "lib/host_gcov_cxxflags.txt").write_text("-DPCCL_HGGC_VERSION=20200 -DHGGC_MAJOR=2 -DHGGC_MINOR=2")
             for value in command:
+                if str(value).startswith("TESTCXXFLAGS="):
+                    self.assertIn("-DPCCL_HGGC_VERSION=20200", value)
                 if str(value).startswith("--gtest_output="):
                     Path(str(value).split("xml:", 1)[1]).write_text('<testsuites tests="2" failures="0"/>')
             return 0
@@ -248,7 +263,7 @@ class HostCoverageTests(unittest.TestCase):
         self.assertNotIn("*", push)
         for path in (".github/workflows/pccl-host-coverage.yml",
                      ".github/workflows/scripts/pccl_host_coverage.py", "tests/xtest/test_host_coverage.py",
-                     "makefiles/common.mk"):
+                     "makefiles/common.mk", "src/Makefile"):
             self.assertIn("      - " + path, push)
         self.assertIn("if: always()", text)
         self.assertNotIn("code-quality: write", text)

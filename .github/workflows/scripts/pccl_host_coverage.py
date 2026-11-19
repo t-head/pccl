@@ -6,6 +6,7 @@ import os
 from pathlib import Path
 import re
 import shutil
+import shlex
 import signal
 from hashlib import sha256
 import subprocess
@@ -126,12 +127,15 @@ def version(program):
 
 def experiment(args):
     source = args.source.resolve()
+    library_kind = args.library_kind
     build, output = args.build_dir.resolve(), args.output.resolve()
     output.mkdir(parents=True, exist_ok=False)
     report = {"scope": "pccl-host-cpp", "validation_status": "failed", "report_status": "unavailable",
               "performance_baseline_eligible": False, "gcovr_version_expected": GCOVR_VERSION,
+              "library_kind": library_kind, "complete_runtime_library": False,
               "build_config": {"GCOV": 0, "DEBUG": 0, "HOST_GCOV": 1,
-                               "host_optimization": "O0", "device_optimization": "release",
+                               "host_optimization": "O0",
+                               "device_build": "not_built" if library_kind == "host_archive" else "release",
                                "PPU_ARCHS": args.ppu_archs},
               "test_results": [], "errors": []}
     exit_code = 1
@@ -162,7 +166,9 @@ def experiment(args):
         for name in ("GCOV_PREFIX", "GCOV_PREFIX_STRIP", "LLVM_PROFILE_FILE"):
             env.pop(name, None)
         env["LD_LIBRARY_PATH"] = ":".join([str(build / "lib"), str(sdk / "lib"), env.get("LD_LIBRARY_PATH", "")])
-        build_args = ["make", f"-j{args.jobs}", "src.lib", "GCOV=0", "DEBUG=0", "HOST_GCOV=1", "NO_DLTO=1",
+        target = "src.host_gcov_archive" if library_kind == "host_archive" else "src.lib"
+        library = build / "lib" / ("libpccl_host_gcov.a" if library_kind == "host_archive" else "libpccl.so")
+        build_args = ["make", f"-j{args.jobs}", target, "src.host_gcov_flags", "GCOV=0", "DEBUG=0", "HOST_GCOV=1", "NO_DLTO=1",
                       "HGGCRT_VERSION=13", f"PPU_ARCHS={args.ppu_archs}", f"BUILDDIR={build}",
                       f"CXX={cxx}", f"PPU_OPTION=-ccbin;{cxx}", f"HGCC={hgcc}"]
         rc = command(build_args, output / "build.log", source, env, 2400)
@@ -171,16 +177,27 @@ def experiment(args):
             exit_code = rc
             raise ValueError(f"Instrumented library build failed with exit code {rc}")
         digest = sha256()
-        with (build / "lib/libpccl.so").open("rb") as stream:
+        with library.open("rb") as stream:
             for chunk in iter(lambda: stream.read(1024 * 1024), b""):
                 digest.update(chunk)
         report["library_sha256"] = digest.hexdigest()
+        report["complete_runtime_library"] = library_kind == "full"
+        report["library_artifact_kind"] = "static_host_archive" if library_kind == "host_archive" else "shared_runtime"
         test_root = source / "tests/graph_search_test"
         gtest = test_root / "3rd_party/gtest/lib/libgtest.a"
         # Match the current library's SDK wrapper linkage; the standalone test defaults to legacy runtime names.
-        ldflags = f"-pthread {build}/lib/libpccl.so -Wl,--disable-new-dtags -lrt -ldl -L{sdk}/lib -lhggc_wrapper -lhg_wrapper {gtest} --coverage"
+        ldflags = f"-pthread {library} -Wl,--disable-new-dtags -lrt -ldl -L{sdk}/lib -lhggc_wrapper -lhg_wrapper {gtest} --coverage"
+        if library_kind == "host_archive":
+            # Drop unreachable host functions, not unresolved symbols; missing dependencies still fail the link.
+            ldflags += " -Wl,--gc-sections -llt_oki"
+        flags_file = build / "lib/host_gcov_cxxflags.txt"
+        defines = [flag for flag in shlex.split(flags_file.read_text()) if flag.startswith("-D")]
+        report["host_cpp_defines"] = defines
+        shutil.copyfile(flags_file, output / "host-cxx-flags.txt")
+        test_flags = " ".join(defines) + " -std=c++17 -g -O0 --coverage -ffunction-sections -fdata-sections -Wno-unused-function -Wno-unused-parameter -Wno-sign-compare"
         rc = command(["make", f"-j{args.jobs}", f"CXX={cxx}", f"PCCL_HOME={build}",
-                      f"TESTBUILDDIR={build}/graph-search", f"TESTLDFLAGS={ldflags}"],
+                      f"TESTBUILDDIR={build}/graph-search", f"PCCL_SO={library}",
+                      f"TESTCXXFLAGS={test_flags}", f"TESTLDFLAGS={ldflags}"],
                      output / "test-build.log", test_root, env, 600)
         report["test_build_exit_code"] = rc
         if rc:
@@ -219,6 +236,7 @@ def experiment(args):
             for name in ("lines", "branches"):
                 metric = report["coverage"][name]
                 text += f"- {name.title()}: {metric['covered']}/{metric['total']} ({metric['percent']}%)\n"
+        text += f"\nLibrary kind: **{library_kind}**. The host archive is graph-only, not a complete PPU runtime.\n"
         text += "\nScope: host source only; this is not PPU kernel coverage or performance baseline data.\n"
         (output / "summary.md").write_text(text, encoding="utf-8")
         if os.environ.get("GITHUB_STEP_SUMMARY"):
@@ -235,6 +253,8 @@ def main():
     parser.add_argument("--snapshot-sha256", help="SHA-256 of the exported source archive")
     parser.add_argument("--build-dir", type=Path, required=True)
     parser.add_argument("--output", type=Path, required=True)
+    parser.add_argument("--library-kind", choices=("host_archive", "full"), default="host_archive",
+                        help="Graph-only native host archive, or complete runtime including device dependencies")
     parser.add_argument("--jobs", type=int, choices=(2, 4, 8), default=4)
     parser.add_argument("--ppu-archs", choices=("ppu_10,ppu_15", "ppu_15"), default="ppu_10,ppu_15")
     return experiment(parser.parse_args())

@@ -9,8 +9,14 @@ on:
       - .github/workflows/scripts/pccl_host_coverage.py
       - tests/xtest/test_host_coverage.py
       - makefiles/common.mk
+      - src/Makefile
   workflow_dispatch:
     inputs:
+      library_kind:
+        description: Graph-only native host archive, or full runtime with PPU kernel dependencies
+        type: choice
+        options: ['host_archive', 'full']
+        default: host_archive
       jobs:
         description: CPU build parallelism
         type: choice
@@ -55,6 +61,7 @@ jobs:
       - name: Build instrumented PCCL and run graph tests
         shell: bash
         env:
+          LIBRARY_KIND: ${{ inputs.library_kind || 'host_archive' }}
           BUILD_JOBS: ${{ inputs.jobs || '8' }}
           PPU_ARCHS: ${{ inputs.ppu_archs || 'ppu_15' }}
         run: |
@@ -64,6 +71,7 @@ jobs:
           export PATH="$GITHUB_WORKSPACE/coverage/tools/bin:$PATH"
           python .github/workflows/scripts/pccl_host_coverage.py \
             --source-revision "$GITHUB_SHA" \
+            --library-kind "$LIBRARY_KIND" \
             --build-dir "$COVERAGE_RUN/build" --output "$COVERAGE_RUN/report" \
             --jobs "$BUILD_JOBS" --ppu-archs "$PPU_ARCHS"
       - name: Upload host coverage and diagnostics
