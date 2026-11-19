@@ -2,13 +2,13 @@
   "classification": {
     "base_sha": "a7769ba35a724d84cea481c9b318c30482175471",
     "head_sha": "8f355972cad5a2bd6afe8d6b296e36c99f0410bf",
-    "input_fingerprint": "df2ef56abf9f3867e693ee1591e11d1259324807ad03aa3fb26d6dae8ccea41a",
+    "input_fingerprint": "a317d9a7f67b6a58580d83199f9704b32f956b501f5ae65ab9e32468e9495dd1",
     "pr_number": 196,
     "proposal": {
       "modules": [
         "ci"
       ],
-      "reason": "Main substantive change is the open-source test workflow system: daily/source-sanity GitHub Actions now generate case inputs from JSON families, add artifact/NAS cache validation and retry integrity checks, add cross-rack/eight-node scheduling behavior, and publish performance-report artifacts. The added/removed tests/xtest scripts and large daily CSV deletions support this CI execution/reporting pipeline rather than PCCL runtime modules."
+      "reason": "Main change is CI test-orchestration: source-sanity and daily workflows now generate case inputs from JSON families, manage NAS/artifact cache probe/publish with SHA validation and retries, add cross-rack execution grouping/recovery, and produce/upload the daily performance workbook. Other edits are supporting tests/docs for this CI behavior, not separate workflow-policy or runtime-module changes."
     }
   },
   "reviewers": {
