@@ -1,19 +1,18 @@
 {
   "classification": {
-    "base_sha": "8aa6e1d4f0978571a3958bbc20c725607d1b4890",
-    "head_sha": "dc801b8af0ced46355e7f1d6b227a7481755625f",
-    "input_fingerprint": "035b3f8e6cf793a24d5f42263e0e3bda13b899cfeddeb1814a28cf6e102e86c3",
+    "base_sha": "0da8662eb0e6d164ebd790d4a45b6007314a8b10",
+    "head_sha": "129ff61de6228e68dc48fc895ad038f531d201df",
+    "input_fingerprint": "22db9d580b8da05c9fa89eb147780b525df3f99dbe6e9e5d6bb89952961a1d40",
     "pr_number": 64,
     "proposal": {
       "modules": [
         "communicator",
         "enqueue",
-        "network",
         "copy-engine",
-        "device-api",
+        "gin",
         "other"
       ],
-      "reason": "Primary change adds new host one-sided RMA APIs (PutSignal/Signal/WaitSignal) and semantics that are not explicitly covered by a catalog module, so `other` is needed. `enqueue` is required for new RMA task validation/planning/scheduling and launch routing; `network` for GIN proxy plugin/loading/context/progress and cross-node RMA path; `copy-engine` for in-node CE-based RMA put/wait signal execution; `device-api` for symmetric-window/LSA registration and RMA window-handle integration; and `communicator` for numRmaCtx config parsing, capability negotiation, lifecycle/finalization, and async error plumbing."
+      "reason": "Primary change is a new host one-sided RMA API/subsystem (PutSignal/Signal/WaitSignal) that is not explicitly covered by a single catalog scope, so `other` is needed. `enqueue` is substantively changed to validate/append new RMA ops and schedule dedicated RMA plans/queues. `copy-engine` is independently substantive via the new CE RMA execution path and signal/wait synchronization logic. `gin` is independently substantive via the new cross-node RMA proxy path, plugin loading, context lifecycle, and proxy progress handling. `communicator` is independently substantive via `numRmaCtx` config parsing/defaulting/validation and host-RMA capability negotiation/reporting in communicator properties and init/finalize flow."
     }
   },
   "reviewers": {
