@@ -1,14 +1,14 @@
 {
   "classification": {
     "base_sha": "dd507710fa250caa8ff4d98d5382b49a286c8802",
-    "head_sha": "37fc1d625eacb36cfaa7278c4badfc511943c001",
-    "input_fingerprint": "a1ead4dee036c4fb70fd183f8f84758d4a4fb2a67feca4eb600f78511c028996",
+    "head_sha": "72aab71815eb15cd6c7e8d4f2eb10d4a09e7e4d9",
+    "input_fingerprint": "b866b2a3dcfd3881c5506e1e3be72b3b801df8659a13d6f1580cf53465c45c81",
     "pr_number": 195,
     "proposal": {
       "modules": [
         "workflow"
       ],
-      "reason": "Main change is review/approval automation: .github/scripts/review_automation.py and maintainer_approval.py revise module classification/routing and gate messaging, while commit_message_squash.py plus .github/workflows/commit-message.yml synchronize squash-preview publication with Review Gate status; docs/skill/catalog edits support this same review-workflow behavior."
+      "reason": "Substantive changes are all in review/merge automation: reviewer routing and invitation withdrawal logic, Reviewer+Maintainer gate evaluation/status text, squash-preview generation/publication trigger and gate checks, and related workflow/skill policy wiring in .github scripts/workflows/docs."
     }
   },
   "reviewers": {
