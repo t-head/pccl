@@ -8,6 +8,7 @@ on:
       - .github/workflows/pccl-host-coverage.yml
       - .github/workflows/scripts/pccl_host_coverage.py
       - tests/xtest/test_host_coverage.py
+      - makefiles/common.mk
   workflow_dispatch:
     inputs:
       jobs:

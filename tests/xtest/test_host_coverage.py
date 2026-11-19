@@ -6,6 +6,7 @@ import json
 import os
 from pathlib import Path
 import sys
+import subprocess
 import tempfile
 import unittest
 from unittest.mock import patch
@@ -19,6 +20,10 @@ SPEC.loader.exec_module(coverage)
 
 class HostCoverageTests(unittest.TestCase):
     def setUp(self):
+        # Mocked coverage metrics must never appear in the real Actions job summary.
+        summary_environment = patch.dict(os.environ, {"GITHUB_STEP_SUMMARY": ""})
+        summary_environment.start()
+        self.addCleanup(summary_environment.stop)
         self.temp = tempfile.TemporaryDirectory()
         self.addCleanup(self.temp.cleanup)
         self.root = Path(self.temp.name)
@@ -32,6 +37,37 @@ class HostCoverageTests(unittest.TestCase):
         summary = self.root / "gcovr.json"
         summary.write_text(json.dumps({"function_covered": 1, "function_total": 2}))
         return path, summary
+
+    def make_flags(self, *options):
+        hgcc = self.root / "hgcc"
+        hgcc.write_text("#!/bin/sh\necho 'HGGC version 2.2.0'\n")
+        hgcc.chmod(0o700)
+        makefile = self.root / "flags.mk"
+        makefile.write_text(f"include {ROOT}/makefiles/common.mk\n"
+                            "flags:\n\t@printf '%s\\n' 'CXX=$(CXXFLAGS)' 'HG=$(HGFLAGS)' "
+                            "'LD=$(LDFLAGS)' 'HGLD=$(HGLDFLAGS)'\n")
+        result = subprocess.check_output(["make", "-f", str(makefile), "flags", f"HGCC={hgcc}",
+                                          "PPU_ARCHS=ppu_15", "HGTX=0", *options], text=True)
+        return dict(line.split("=", 1) for line in result.splitlines()
+                    if line.startswith(("CXX=", "HG=", "LD=", "HGLD=")))
+
+    def test_host_gcov_keeps_device_dependencies_uninstrumented(self):
+        flags = self.make_flags("GCOV=0", "DEBUG=0", "HOST_GCOV=1")
+        self.assertIn("--coverage", flags["CXX"])
+        self.assertEqual([flag for flag in flags["CXX"].split() if flag in ("-O0", "-O3")][-1], "-O0")
+        self.assertIn("--coverage", flags["LD"])
+        self.assertIn("-dopt 3", flags["HG"])
+        self.assertNotIn("-G", flags["HG"].split())
+        self.assertNotIn("--coverage", flags["HG"])
+        self.assertNotIn("--coverage", flags["HGLD"])
+
+    def test_default_and_legacy_gcov_build_flags_are_preserved(self):
+        baseline = self.make_flags("GCOV=0", "DEBUG=0")
+        self.assertEqual(baseline, self.make_flags("GCOV=0", "DEBUG=0", "HOST_GCOV=0"))
+        self.assertNotIn("--coverage", " ".join(baseline.values()))
+        legacy = self.make_flags("GCOV=1", "DEBUG=1")
+        for field in ("CXX", "HG", "LD", "HGLD"):
+            self.assertIn("--coverage", legacy[field])
 
     def test_summary_metrics_are_computed_from_counts(self):
         metrics = coverage.coverage_summary(*self.xml(), self.source)
@@ -133,6 +169,10 @@ class HostCoverageTests(unittest.TestCase):
 
         def fake_command(command, log, cwd, env, timeout):
             if "src.lib" in command:
+                self.assertIn("HOST_GCOV=1", command)
+                self.assertIn("GCOV=0", command)
+                self.assertIn("DEBUG=0", command)
+                self.assertFalse(any(str(value).startswith(("TEST_DT=", "TEST_OP=")) for value in command))
                 (build / "lib").mkdir()
                 (build / "lib/libpccl.so").write_bytes(b"instrumented-library-fixture")
             if any(str(value).startswith("--gtest_output=") for value in command):
@@ -170,6 +210,10 @@ class HostCoverageTests(unittest.TestCase):
 
         def fake_command(command, log, cwd, env, timeout):
             if "src.lib" in command:
+                self.assertIn("HOST_GCOV=1", command)
+                self.assertIn("GCOV=0", command)
+                self.assertIn("DEBUG=0", command)
+                self.assertFalse(any(str(value).startswith(("TEST_DT=", "TEST_OP=")) for value in command))
                 (build / "lib").mkdir()
                 (build / "lib/libpccl.so").write_bytes(b"instrumented-library-fixture")
             for value in command:
@@ -203,7 +247,8 @@ class HostCoverageTests(unittest.TestCase):
         self.assertEqual(push.count("branches:"), 1)
         self.assertNotIn("*", push)
         for path in (".github/workflows/pccl-host-coverage.yml",
-                     ".github/workflows/scripts/pccl_host_coverage.py", "tests/xtest/test_host_coverage.py"):
+                     ".github/workflows/scripts/pccl_host_coverage.py", "tests/xtest/test_host_coverage.py",
+                     "makefiles/common.mk"):
             self.assertIn("      - " + path, push)
         self.assertIn("if: always()", text)
         self.assertNotIn("code-quality: write", text)

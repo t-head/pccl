@@ -10,8 +10,12 @@ baselines. It does not collect Python or PPU kernel coverage, and does not enabl
 
 ## Scope and execution
 
-The dedicated library build uses `GCOV=1 DEBUG=1`, with the existing SDK host
-instrumentation flags. It builds device dependencies but does not measure them.
+The dedicated library build uses the opt-in `HOST_GCOV=1 GCOV=0 DEBUG=0` mode.
+Host C++ compilation and linking use `--coverage`, with `-O0` overriding the normal
+host optimization. Device dependencies remain complete, normally optimized and
+uninstrumented; no fake kernels or restricted operation/data-type builds are used.
+The existing default flags and legacy `GCOV=1 DEBUG=1` behavior remain unchanged.
+It builds device dependencies but does not measure them.
 Both documented graph-search suites run: `graphSearchTestWithoutPXN.*` and
 `graphSearchTestWithPXN.*` (with `--pxn`). These tests use topology XML fixtures;
 no PPU device is passed to the CPU-only job. CPU execution with the selected SDK
@@ -101,3 +105,20 @@ Workflow syntax and the exact branch/path trigger restrictions were checked.
 These are local tool/workflow tests, not completed PCCL C++ tests. The branch-only
 push will perform the first GitHub build/test/report validation; consult its
 Actions result before treating the experiment as ready.
+
+
+### First GitHub trial results
+
+- Run `44489627339`, commit `9fe0972`: dependency installation and helper tests
+  passed, but reading Git HEAD failed on container workspace ownership before any
+  build. Checkout is now pinned to `github.sha` and that SHA is passed explicitly.
+- Run `44490388941`, commit `36eeaed`: the combined host/device debug build reached
+  its 40-minute deadline while compiling device dependencies. It produced 120 host
+  notes and 263 device notes, but no tests ran and no counters existed. This is a
+  timeout, not a passing compilation or a valid product coverage percentage.
+
+The next trial therefore uses host-only instrumentation while building **all**
+device dependencies normally. Helper fixture metrics are also isolated from
+`GITHUB_STEP_SUMMARY`; mocked percentages are never product coverage. No Issue or
+PR was created for this isolated experiment. The host-only trial still requires
+an actual complete build, both graph suites and a verified report.
