@@ -32,11 +32,15 @@ while (( $# )); do
 done
 [[ -n $host ]] || { echo 'usage: cluster-ssh [options] host command' >&2; exit 64; }
 (( $# > 0 )) || { echo 'A remote command is required for cgroup ownership' >&2; exit 64; }
-command=
-for argument in "$@"; do
-    quoted=${argument//\'/\'\\\'\'}
-    command="$command'$quoted' "
-done
+if [[ $INVOKED_AS == */cluster-exec ]]; then
+    command=
+    for argument in "$@"; do
+        quoted=${argument//\'/\'\\\'\'}
+        command="$command'$quoted' "
+    done
+else
+    command="$*"
+fi
 cgroup="/sys/fs/cgroup/pccl-recovery-$PCCL_CASE_ID"
 remote="mkdir -p '$cgroup'; printf '%s\\n' \"\$\$\" > '$cgroup/cgroup.procs'; $command"
 if (( ${#options[@]} > 0 )); then

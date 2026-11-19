@@ -36,7 +36,10 @@ class CsvRunnerTests(unittest.TestCase):
         (helpers / 'cluster-bin').mkdir(parents=True)
         for name in ('cluster-ssh', 'cluster-exec', 'cluster_case_ssh.sh'):
             (helpers / 'cluster-bin' / name).write_text('# test helper\n')
-        (helpers / 'remote_recovery.py').write_text('# test helper\n')
+        (helpers / 'remote_recovery.py').write_text(
+            'import os, sys\n'
+            "launch = next(arg for arg in sys.argv if arg.startswith('--launch='))\n"
+            "os.execv('/bin/sh', ['/bin/sh', '-c', launch.partition('=')[2]])\n")
         (self.runner / 'run_test.py').write_text(
             'import os, sys\n'
             'print("arguments=" + repr(sys.argv[1:]))\n'

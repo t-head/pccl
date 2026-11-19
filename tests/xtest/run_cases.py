@@ -223,7 +223,7 @@ def _group_exists(pgid):
 
 
 def _stop_group(process, grace=0.5):
-    """Stop the local process group; remote MPI rank cleanup is infrastructure-owned."""
+    """Stop the process group; detached Case processes are cleaned by cgroup recovery."""
     pgid = process.pid
     existed = _group_exists(pgid)
     group_error = None
@@ -395,8 +395,13 @@ def run_case(case, runtime, interrupted):
         command = _substitute(case["cmd"], command_bindings)
         _stage_work(work, runtime["runner_root"], runtime["binary_dir"], runtime["hostfile"])
         (directory / "command.txt").write_text(command + "\n", encoding="utf-8")
+        popen_command = ["/bin/sh", "-c", command]
+        if suite["nodes"] > 1:
+            launcher = runtime["test_root"] / "pccl" / "tests" / "xtest" / "remote_recovery.py"
+            popen_command = [sys.executable, str(launcher), "--case-id", runtime["recovery_id"],
+                             f"--launch={command}"]
         with log_path.open("wb") as output:
-            process = subprocess.Popen(["/bin/sh", "-c", command], cwd=work, env=environment,
+            process = subprocess.Popen(popen_command, cwd=work, env=environment,
                                        stdout=output, stderr=subprocess.STDOUT, start_new_session=True)
             deadline = time.monotonic() + suite["timeout"]
             while True:

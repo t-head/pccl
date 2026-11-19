@@ -81,6 +81,14 @@ class RemoteRecoveryTests(unittest.TestCase):
         self.assertFalse(report['safe'])
         self.assertIn('Invalid recovery Case ID', report['errors'])
 
+    def test_controller_launch_joins_case_cgroup_before_exec(self):
+        with mock.patch.object(remote_recovery.os, 'execv') as execute:
+            remote_recovery.launch(CASE_ID, 'printf "literal command\\n"', self.root)
+        self.assertEqual((self.cgroup / 'cgroup.procs').read_text(), f'{os.getpid()}\n')
+        execute.assert_called_once_with('/bin/sh', ['/bin/sh', '-c', 'printf "literal command\\n"'])
+        with self.assertRaisesRegex(ValueError, 'Invalid recovery Case ID'):
+            remote_recovery.launch('invalid', 'true', self.root)
+
     def test_wrapper_installs_remote_command_in_case_cgroup(self):
         real_ssh = self.root / 'real-ssh'
         calls = self.root / 'calls'
@@ -97,7 +105,7 @@ class RemoteRecoveryTests(unittest.TestCase):
         command = calls.read_text()
         self.assertIn(f'pccl-recovery-{CASE_ID}', command)
         self.assertIn('cgroup.procs', command)
-        self.assertIn("'sleep' '1'", command)
+        self.assertIn("sleep 1", command)
         environment['PCCL_CASE_ID'] = 'invalid'
         result = subprocess.run([str(wrapper), '/x/cluster-ssh', 'worker.example', 'sleep', '1'],
                                 env=environment, capture_output=True, text=True)

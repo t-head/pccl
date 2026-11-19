@@ -1,7 +1,7 @@
 #!/usr/bin/env python3
 # SPDX-FileCopyrightText: Copyright (c) 2026 T-Head (Shanghai) Semiconductor Co., Ltd. All rights reserved.
 # SPDX-License-Identifier: Apache-2.0
-"""Clean only processes owned by one execution group's cgroup."""
+"""Own and clean processes belonging to one execution group's cgroup."""
 
 import argparse
 import json
@@ -20,6 +20,22 @@ def _pids(path):
 
 def _kill(path):
     (path / "cgroup.kill").write_text("1\n", encoding="ascii")
+
+
+def launch(case_id, command, cgroup_root="/sys/fs/cgroup"):
+    """Exec a controller-side Case after assigning this process to its cgroup.
+
+    subprocess.Popen(start_new_session=True) establishes the process group before
+    this helper runs, so the PID and process-group ID remain stable across exec.
+    """
+    if not CASE_ID.fullmatch(case_id):
+        raise ValueError("Invalid recovery Case ID")
+    directory = Path(cgroup_root) / f"pccl-recovery-{case_id}"
+    directory.mkdir(mode=0o755, exist_ok=True)
+    if directory.is_symlink() or not directory.is_dir():
+        raise ValueError("Recovery cgroup is not a real directory")
+    (directory / "cgroup.procs").write_text(f"{os.getpid()}\n", encoding="ascii")
+    os.execv("/bin/sh", ["/bin/sh", "-c", command])
 
 
 def recover(case_id, cgroup_root="/sys/fs/cgroup", sleeper=time.sleep):
@@ -58,7 +74,15 @@ def main():
     parser = argparse.ArgumentParser(description=__doc__)
     parser.add_argument("--case-id", required=True)
     parser.add_argument("--cgroup-root", default="/sys/fs/cgroup")
+    parser.add_argument("--launch", metavar="COMMAND",
+                        help="Assign this process to the Case cgroup and exec COMMAND via /bin/sh")
     args = parser.parse_args()
+    if args.launch is not None:
+        try:
+            launch(args.case_id, args.launch, args.cgroup_root)
+        except (OSError, ValueError) as error:
+            parser.exit(1, f"Unable to launch Case in its recovery cgroup: {error}\n")
+        raise AssertionError("os.execv returned unexpectedly")
     report = recover(args.case_id, args.cgroup_root)
     print(json.dumps(report, sort_keys=True))
     return 0 if report["safe"] else 1
