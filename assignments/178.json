@@ -1,16 +1,15 @@
 {
   "classification": {
-    "base_sha": "7d4892d0a7fd0577142b7c996b89fa35117e20f5",
-    "head_sha": "5f062d11b1c652bdca252a175df171c781bfef17",
-    "input_fingerprint": "51a679b210417aabf856b8fd884240f01d305d758a4ae4811db9cf8e8574bd2a",
+    "base_sha": "a7769ba35a724d84cea481c9b318c30482175471",
+    "head_sha": "67610b6cc8e996189e6245c7dd71b7f96cb8336d",
+    "input_fingerprint": "608f79e3ba3a1e7c95c1beb8269306892fca0eba0d89e7e46a53126d5d2befd0",
     "pr_number": 178,
     "proposal": {
       "modules": [
-        "memory",
         "network",
         "gin"
       ],
-      "reason": "Primary change is in the IB network backend: connection metadata/handshake and staged connect-accept flow, QP RTR/RTS setup, ECE negotiation, FLID/GID routing, traffic-class handling, and receive-size completion behavior. Add gin because GIN-specific IB connect/accept/listen paths now use new cancellation/cleanup and FIFO-TC behavior, changing GIN integration logic. Add memory because MR registration switched to a per-device, reference-counted cache with new registration reuse and deregistration ownership semantics."
+      "reason": "Primary change is in the IB network backend (connect/accept handshake state machine, ECE negotiation, FLID/GID routing, traffic-class handling, receive reporting, and MR registration cache), which is core network transport behavior. Add gin because there are independently substantive GIN-path changes (GIN IB connect/accept/cancel integration, listener-close/cancellation semantics, and GIN-specific accept traffic-class handling) beyond mechanical callsite updates."
     }
   },
   "reviewers": {
