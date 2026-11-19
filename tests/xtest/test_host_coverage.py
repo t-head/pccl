@@ -216,6 +216,11 @@ class HostCoverageTests(unittest.TestCase):
         self.assertIn("PPU_ARCHS: ${{ inputs.ppu_archs || 'ppu_15' }}", text)
         self.assertIn("cancel-in-progress: false", text)
 
+    def test_workflow_pins_checkout_and_supplies_the_same_source_revision(self):
+        text = (ROOT / ".github/workflows/pccl-host-coverage.yml").read_text()
+        self.assertIn("ref: ${{ github.sha }}", text)
+        self.assertIn('--source-revision "$GITHUB_SHA"', text)
+
 
 if __name__ == "__main__":
     unittest.main()

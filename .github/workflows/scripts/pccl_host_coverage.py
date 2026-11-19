@@ -229,7 +229,7 @@ def experiment(args):
 def main():
     parser = argparse.ArgumentParser(description=__doc__)
     parser.add_argument("--source", type=Path, default=Path(__file__).resolve().parents[3])
-    parser.add_argument("--source-revision", help="Commit of a verified exported source snapshot")
+    parser.add_argument("--source-revision", help="Commit of the pinned checkout or a verified exported source snapshot")
     parser.add_argument("--snapshot-sha256", help="SHA-256 of the exported source archive")
     parser.add_argument("--build-dir", type=Path, required=True)
     parser.add_argument("--output", type=Path, required=True)
