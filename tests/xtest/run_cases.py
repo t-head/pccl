@@ -39,8 +39,9 @@ def _with_ib_environment(command):
                        if name + "=1" not in command)
     if not exports:
         return command
-    if "mpirun" in command:
-        return command.replace("mpirun", "mpirun " + exports, 1)
+    if re.search(r"(?:^|\s)mpirun(?=\s)", command):
+        return re.sub(r"(^|\s)mpirun(?=\s)",
+                      lambda match: match.group(1) + "mpirun " + exports, command, count=1)
     match = re.search(r"(--mpi-options?(?:=|\s+)(['\"]))", command)
     if match:
         return command[:match.end()] + exports + " " + command[match.end():]

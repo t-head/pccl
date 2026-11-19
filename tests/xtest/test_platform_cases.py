@@ -84,6 +84,16 @@ class PlatformCasesTests(unittest.TestCase):
         wrapped = run_cases._with_ib_environment(
             "python3 run_test.py --mpi-options='-x PATH --hostfile hosts'")
         self.assertIn("--mpi-options='-x NCCL_IB_ADAPTIVE_ROUTING=1 -x NCCL_IB_OOO_RQ=1 ", wrapped)
+        unchanged = "python3 helper.py --mpirun-path mpirun_custom"
+        self.assertEqual(run_cases._with_ib_environment(unchanged), unchanged)
+
+    def test_platform_conversion_rejects_missing_variants_and_name_substrings(self):
+        raw = [self.bundle("op_perf_shm", "smoke")]
+        with self.assertRaisesRegex(ValueError, "Missing variant bundle"):
+            platform_cases.apply_platforms(
+                raw, platform_cases.load_platform("oam810e_eic"), [])
+        self.assertEqual(platform_cases._name_numbers("inp2_unp2_np16", {"np": {"16": 32}}),
+                         "inp2_unp2_np32")
 
 
 if __name__ == "__main__":
