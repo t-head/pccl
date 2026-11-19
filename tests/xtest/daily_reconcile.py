@@ -21,7 +21,7 @@ METRIC_FIELDS = run_cases.METRIC_FIELDS
 def _read_json(path, errors):
     try:
         value = json.loads(path.read_text(encoding="utf-8"))
-    except (OSError, json.JSONDecodeError) as error:
+    except (OSError, UnicodeError, json.JSONDecodeError) as error:
         errors.append(f"{path}: {error}")
         return {}
     if not isinstance(value, dict):

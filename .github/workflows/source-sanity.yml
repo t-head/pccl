@@ -19,7 +19,7 @@ concurrency:
 
 env:
   VALIDATION_IMAGE: download.t-head.cn/docker_release/ppu:sdk2.2.0-hggcrt3-ubuntu24.04-py312-20261005
-  VALIDATION_NODE_SELECTOR: board-type=ZW-M890P
+  VALIDATION_NODE_SELECTOR: board-type=ZW-M890P,nic-type=cx8
   VALIDATION_CARDS: '8'
   PCCL_TESTS_REVISION: 394556512e87259e9ffa25225632c46b0a0bbcd5
 
@@ -125,6 +125,14 @@ jobs:
           python3 -S -B -W error::ResourceWarning -m unittest discover \
             -s tests/xtest -p 'test_run_cases.py' -v
           python3 -S -B -m unittest discover -s tests/xtest -p 'test_artifact_cache.py' -v
+          python3 -S -B -m unittest discover -s tests/xtest -p 'test_download_artifact_retry.py' -v
+          python3 -S -B -m unittest discover -s tests/xtest -p 'test_remote_recovery.py' -v
+          python3 -S -B -m unittest discover -s tests/xtest -p 'test_case_group_cache.py' -v
+          python3 -S -B -m unittest discover -s tests/xtest -p 'test_daily_reconcile.py' -v
+          python3 -S -B -m unittest discover -s tests/xtest -p 'test_performance_report.py' -v
+          python3 -S -B -m unittest discover -s tests/xtest -p 'test_generate_cases.py' -v
+          python3 -S -B -m unittest discover -s tests/xtest -p 'test_group_cases.py' -v
+          python3 -S -B -m unittest discover -s tests/xtest -p 'test_daily_smoke.py' -v
           python3 -S -B -m unittest discover -s tests/xtest -p 'test_reconcile_results.py' -v
           python3 -S -B -m unittest discover -s tests/xtest -p 'test_workflow_contract.py' -v
           python3 -S -B - <<'PY'
@@ -169,7 +177,7 @@ jobs:
           path: deps/
           if-no-files-found: error
           overwrite: true
-          retention-days: 3
+          retention-days: 90
 
   ai-code-review:
     name: AI Code Review (Copilot Gate)
@@ -259,13 +267,22 @@ jobs:
             --pccl-revision '${{ github.sha }}' --pccl-tests-revision '${{ env.PCCL_TESTS_REVISION }}' \
             --expected-sha256 "$EXPECTED_SHA"
           echo "artifact_sha256=$EXPECTED_SHA" >> "$GITHUB_OUTPUT"
+      - name: Publish the standard NAS cache
+        env:
+          STAGING: /wl_nas/devops/pccl-artifact-cache-${{ github.run_id }}/staging/standard
+          CACHE_DIR: /wl_nas/devops/pccl-artifact-cache-${{ github.run_id }}/cache/standard/${{ steps.identity.outputs.artifact_sha256 }}
+        run: |
+          python3 -S -B pccl/tests/xtest/artifact_cache.py publish \
+            --download "$STAGING" --cache "$CACHE_DIR" --profile standard \
+            --pccl-revision '${{ github.sha }}' --pccl-tests-revision '${{ env.PCCL_TESTS_REVISION }}' \
+            --expected-sha256 '${{ steps.identity.outputs.artifact_sha256 }}'
       - uses: actions/upload-artifact@v4
         with:
           name: pccl-build-standard
-          path: /wl_nas/devops/pccl-artifact-cache-${{ github.run_id }}/staging/standard/
+          path: /wl_nas/devops/pccl-artifact-cache-${{ github.run_id }}/cache/standard/${{ steps.identity.outputs.artifact_sha256 }}/
           if-no-files-found: error
           overwrite: true
-          retention-days: 3
+          retention-days: 90
       - name: Remove transient standard NAS staging
         if: always()
         run: |
@@ -344,13 +361,22 @@ jobs:
             --pccl-revision '${{ github.sha }}' --pccl-tests-revision '${{ env.PCCL_TESTS_REVISION }}' \
             --expected-sha256 "$EXPECTED_SHA"
           echo "artifact_sha256=$EXPECTED_SHA" >> "$GITHUB_OUTPUT"
+      - name: Publish the notsm NAS cache
+        env:
+          STAGING: /wl_nas/devops/pccl-artifact-cache-${{ github.run_id }}/staging/notsm
+          CACHE_DIR: /wl_nas/devops/pccl-artifact-cache-${{ github.run_id }}/cache/notsm/${{ steps.identity.outputs.artifact_sha256 }}
+        run: |
+          python3 -S -B pccl/tests/xtest/artifact_cache.py publish \
+            --download "$STAGING" --cache "$CACHE_DIR" --profile notsm \
+            --pccl-revision '${{ github.sha }}' --pccl-tests-revision '${{ env.PCCL_TESTS_REVISION }}' \
+            --expected-sha256 '${{ steps.identity.outputs.artifact_sha256 }}'
       - uses: actions/upload-artifact@v4
         with:
           name: pccl-build-notsm
-          path: /wl_nas/devops/pccl-artifact-cache-${{ github.run_id }}/staging/notsm/
+          path: /wl_nas/devops/pccl-artifact-cache-${{ github.run_id }}/cache/notsm/${{ steps.identity.outputs.artifact_sha256 }}/
           if-no-files-found: error
           overwrite: true
-          retention-days: 3
+          retention-days: 90
       - name: Remove transient notsm NAS staging
         if: always()
         run: |
@@ -385,19 +411,26 @@ jobs:
         env:
           CACHE_DIR: /wl_nas/devops/pccl-artifact-cache-${{ github.run_id }}/cache/${{ matrix.profile }}/${{ env.EXPECTED_SHA }}
         run: |
-          if python3 -S -B pccl/tests/xtest/artifact_cache.py validate \
+          STATE=$(python3 -S -B pccl/tests/xtest/artifact_cache.py probe \
             --directory "$CACHE_DIR" --profile '${{ matrix.profile }}' \
             --pccl-revision '${{ github.sha }}' --pccl-tests-revision '${{ env.PCCL_TESTS_REVISION }}' \
-            --expected-sha256 '${{ env.EXPECTED_SHA }}'; then
-            echo 'state=hit' >> "$GITHUB_OUTPUT"
-          else
-            echo 'state=miss' >> "$GITHUB_OUTPUT"
-          fi
-      - uses: t-head/pccl/.github/actions/download-artifact-retry@c7eb80eadb2ca48976a02d8f0fcc1c020534ce73
+            --expected-sha256 '${{ env.EXPECTED_SHA }}')
+          case "$STATE" in
+            hit)
+              echo 'state=hit' >> "$GITHUB_OUTPUT" ;;
+            miss|invalid)
+              echo 'state=miss' >> "$GITHUB_OUTPUT" ;;
+            *)
+              echo "Unexpected cache state: $STATE"
+              exit 1 ;;
+          esac
+      - uses: t-head/pccl/.github/actions/download-artifact-retry@42c06876282e700ae0434b4577fedd757b6f2db1
         if: steps.cache.outputs.state == 'miss'
         with:
           name: pccl-build-${{ matrix.profile }}
           path: download
+          sha256-file: output_${{ matrix.profile }}.tar.gz
+          expected-sha256: ${{ env.EXPECTED_SHA }}
       - name: Publish the validated artifact to NAS
         if: steps.cache.outputs.state == 'miss'
         env:
@@ -411,11 +444,11 @@ jobs:
         env:
           CACHE_DIR: /wl_nas/devops/pccl-artifact-cache-${{ github.run_id }}/cache/${{ matrix.profile }}/${{ env.EXPECTED_SHA }}
         run: |
-          chmod -R a+rwX "$CACHE_DIR"
-          python3 -S -B pccl/tests/xtest/artifact_cache.py validate \
+          STATE=$(python3 -S -B pccl/tests/xtest/artifact_cache.py probe \
             --directory "$CACHE_DIR" --profile '${{ matrix.profile }}' \
             --pccl-revision '${{ github.sha }}' --pccl-tests-revision '${{ env.PCCL_TESTS_REVISION }}' \
-            --expected-sha256 '${{ env.EXPECTED_SHA }}'
+            --expected-sha256 '${{ env.EXPECTED_SHA }}')
+          test "$STATE" = hit
 
   single-node:
     name: Single-node CSV (${{ matrix.profile }})
@@ -441,7 +474,7 @@ jobs:
         with:
           path: pccl
           persist-credentials: false
-      - uses: t-head/pccl/.github/actions/download-artifact-retry@c7eb80eadb2ca48976a02d8f0fcc1c020534ce73
+      - uses: t-head/pccl/.github/actions/download-artifact-retry@42c06876282e700ae0434b4577fedd757b6f2db1
         with:
           name: minimal-csv-artifact-python-deps
           path: deps
@@ -450,19 +483,26 @@ jobs:
         env:
           CACHE_DIR: /wl_nas/devops/pccl-artifact-cache-${{ github.run_id }}/cache/${{ matrix.profile }}/${{ env.EXPECTED_SHA }}
         run: |
-          if python3 -S -B pccl/tests/xtest/artifact_cache.py validate \
+          STATE=$(python3 -S -B pccl/tests/xtest/artifact_cache.py probe \
             --directory "$CACHE_DIR" --profile '${{ matrix.profile }}' \
             --pccl-revision '${{ github.sha }}' --pccl-tests-revision '${{ env.PCCL_TESTS_REVISION }}' \
-            --expected-sha256 '${{ env.EXPECTED_SHA }}'; then
-            echo 'state=hit' >> "$GITHUB_OUTPUT"
-          else
-            echo 'state=miss' >> "$GITHUB_OUTPUT"
-          fi
-      - uses: t-head/pccl/.github/actions/download-artifact-retry@c7eb80eadb2ca48976a02d8f0fcc1c020534ce73
+            --expected-sha256 '${{ env.EXPECTED_SHA }}')
+          case "$STATE" in
+            hit)
+              echo 'state=hit' >> "$GITHUB_OUTPUT" ;;
+            miss|invalid)
+              echo 'state=miss' >> "$GITHUB_OUTPUT" ;;
+            *)
+              echo "Unexpected cache state: $STATE"
+              exit 1 ;;
+          esac
+      - uses: t-head/pccl/.github/actions/download-artifact-retry@42c06876282e700ae0434b4577fedd757b6f2db1
         if: steps.build-cache.outputs.state == 'miss'
         with:
           name: pccl-build-${{ matrix.profile }}
           path: build-download
+          sha256-file: output_${{ matrix.profile }}.tar.gz
+          expected-sha256: ${{ env.EXPECTED_SHA }}
       - name: Restore a cleaned NAS cache from the build artifact
         if: steps.build-cache.outputs.state == 'miss'
         env:
@@ -482,8 +522,52 @@ jobs:
           namespace: ppu-sched
           timeout_minutes: 300
           cleanup_policy: always
+          container_options: |
+            privileged: true
+            host_network: true
+            dns_policy: ClusterFirstWithHostNet
+          host_volumes: /dev/infiniband:/dev/infiniband
           command: |
             set -euo pipefail
+            source /usr/local/PPU_SDK/envsetup.sh
+            MPI_INTERFACE=$(awk '$2 == "00000000" {print $1; exit}' /proc/net/route)
+            test -n "$MPI_INTERFACE"
+            export HWLOC_COMPONENTS=-gl
+            export OMPI_MCA_orte_base_help_aggregate=0
+            export OMPI_MCA_orte_keep_fqdn_hostnames=1
+            export OMPI_MCA_oob_tcp_if_include="$MPI_INTERFACE"
+            export OMPI_MCA_btl_tcp_if_include="$MPI_INTERFACE"
+            export NCCL_SOCKET_IFNAME="$MPI_INTERFACE"
+            ulimit -l unlimited
+            ulimit -s 65536
+            if ! command -v ibv_devinfo >/dev/null || ! command -v rdma >/dev/null || ! command -v ip >/dev/null; then
+              export DEBIAN_FRONTEND=noninteractive
+              timeout -k 30s 300s apt-get update
+              timeout -k 30s 600s apt-get install -y --no-install-recommends rdma-core ibverbs-utils iproute2
+            fi
+            if test -d /sys/module/alixpu_peermem; then
+              echo 'alixpu_peermem is loaded'
+            else
+              echo 'alixpu_peermem is not loaded; DMA-BUF support is still possible'
+            fi
+            echo "MPI and NCCL control interface: $MPI_INTERFACE"
+            ip -4 -o addr show dev "$MPI_INTERFACE"
+            ibv_devinfo
+            rdma link show
+            python3 - <<'PY'
+            import ipaddress
+            from pathlib import Path
+
+            valid = []
+            for path in Path('/sys/class/infiniband').glob('*/ports/*/gids/*'):
+                value = path.read_text().strip()
+                if value and not ipaddress.IPv6Address(value).is_link_local and int(value.replace(':', ''), 16) != 0:
+                    valid.append((str(path), value))
+            if not valid:
+                raise SystemExit('No non-zero RoCE GID is visible inside the worker')
+            for path, value in valid:
+                print(f'Valid RoCE GID: {path} -> {value}')
+            PY
             umask 022
             cd /workspace/source
             export build_output=/workspace/source/output_${{ matrix.profile }}
@@ -509,12 +593,17 @@ jobs:
             /workspace/minimal-csv-env/bin/python -m pip check
             source /usr/local/PPU_SDK/envsetup.sh
             unset PCCL_PATH
+            MPI_INTERFACE=$(awk '$2 == "00000000" {print $1; exit}' /proc/net/route)
+            test -n "$MPI_INTERFACE"
+            test "$NCCL_SOCKET_IFNAME" = "$MPI_INTERFACE"
+            test "$OMPI_MCA_orte_keep_fqdn_hostnames" = 1
             /workspace/minimal-csv-env/bin/python -B \
               "$build_output/pccl/tests/xtest/run_cases.py" \
               --input "$build_output/pccl/tests/xtest/minimal-csv" \
               --profile '${{ matrix.profile }}' --nodes 1 \
               --test-root "$build_output" \
               --binary-dir "$build_output/pccl-tests/build" \
+              --mpi-interface "$MPI_INTERFACE" \
               --build-record "$CACHE_DIR/output_${{ matrix.profile }}.build.json" \
               --pccl-revision '${{ github.sha }}' \
               --expected-sha256 '${{ env.EXPECTED_SHA }}' \
@@ -539,7 +628,7 @@ jobs:
         with:
           path: pccl
           persist-credentials: false
-      - uses: t-head/pccl/.github/actions/download-artifact-retry@c7eb80eadb2ca48976a02d8f0fcc1c020534ce73
+      - uses: t-head/pccl/.github/actions/download-artifact-retry@42c06876282e700ae0434b4577fedd757b6f2db1
         with:
           name: minimal-csv-artifact-python-deps
           path: deps
@@ -548,19 +637,26 @@ jobs:
         env:
           CACHE_DIR: /wl_nas/devops/pccl-artifact-cache-${{ github.run_id }}/cache/standard/${{ env.EXPECTED_SHA }}
         run: |
-          if python3 -S -B pccl/tests/xtest/artifact_cache.py validate \
+          STATE=$(python3 -S -B pccl/tests/xtest/artifact_cache.py probe \
             --directory "$CACHE_DIR" --profile standard \
             --pccl-revision '${{ github.sha }}' --pccl-tests-revision '${{ env.PCCL_TESTS_REVISION }}' \
-            --expected-sha256 '${{ env.EXPECTED_SHA }}'; then
-            echo 'state=hit' >> "$GITHUB_OUTPUT"
-          else
-            echo 'state=miss' >> "$GITHUB_OUTPUT"
-          fi
-      - uses: t-head/pccl/.github/actions/download-artifact-retry@c7eb80eadb2ca48976a02d8f0fcc1c020534ce73
+            --expected-sha256 '${{ env.EXPECTED_SHA }}')
+          case "$STATE" in
+            hit)
+              echo 'state=hit' >> "$GITHUB_OUTPUT" ;;
+            miss|invalid)
+              echo 'state=miss' >> "$GITHUB_OUTPUT" ;;
+            *)
+              echo "Unexpected cache state: $STATE"
+              exit 1 ;;
+          esac
+      - uses: t-head/pccl/.github/actions/download-artifact-retry@42c06876282e700ae0434b4577fedd757b6f2db1
         if: steps.build-cache.outputs.state == 'miss'
         with:
           name: pccl-build-standard
           path: build-download
+          sha256-file: output_standard.tar.gz
+          expected-sha256: ${{ env.EXPECTED_SHA }}
       - name: Restore a cleaned NAS cache from the build artifact
         if: steps.build-cache.outputs.state == 'miss'
         env:
@@ -571,22 +667,65 @@ jobs:
             --pccl-revision '${{ github.sha }}' --pccl-tests-revision '${{ env.PCCL_TESTS_REVISION }}' \
             --expected-sha256 '${{ env.EXPECTED_SHA }}'
       - name: Restore the shared NAS cache and run on master
-        uses: t-head/ci-infra/cluster-run@40165c945cba33ac7b16b41c4485fe53b68f581f
+        uses: t-head/ci-infra/cluster-run@main
         with:
           image: ${{ env.VALIDATION_IMAGE }}
           launch_mode: master
           nnodes: 2
           nproc_per_node: ${{ env.VALIDATION_CARDS }}
+          rack_nodes: rack-01=2
           node_selector: ${{ env.VALIDATION_NODE_SELECTOR }}
           namespace: ppu-sched
           timeout_minutes: 300
           cleanup_policy: always
           container_options: |
             privileged: true
+            host_network: true
+            dns_policy: ClusterFirstWithHostNet
           host_volumes: /dev/infiniband:/dev/infiniband
           setup_command: |
             set -euo pipefail
             source /usr/local/PPU_SDK/envsetup.sh
+            MPI_INTERFACE=$(awk '$2 == "00000000" {print $1; exit}' /proc/net/route)
+            test -n "$MPI_INTERFACE"
+            # Keep hostfile names and MPI/NCCL control traffic on the management route.
+            export HWLOC_COMPONENTS=-gl
+            export OMPI_MCA_plm_rsh_agent=cluster-ssh
+            export OMPI_MCA_orte_base_help_aggregate=0
+            export OMPI_MCA_orte_keep_fqdn_hostnames=1
+            export OMPI_MCA_oob_tcp_if_include="$MPI_INTERFACE"
+            export OMPI_MCA_btl_tcp_if_include="$MPI_INTERFACE"
+            export NCCL_SOCKET_IFNAME="$MPI_INTERFACE"
+            ulimit -l unlimited
+            ulimit -s 65536
+            if ! command -v ibv_devinfo >/dev/null || ! command -v rdma >/dev/null || ! command -v ip >/dev/null; then
+              export DEBIAN_FRONTEND=noninteractive
+              timeout -k 30s 300s apt-get update
+              timeout -k 30s 600s apt-get install -y --no-install-recommends rdma-core ibverbs-utils iproute2
+            fi
+            if test -d /sys/module/alixpu_peermem; then
+              echo 'alixpu_peermem is loaded'
+            else
+              echo 'alixpu_peermem is not loaded; DMA-BUF support is still possible'
+            fi
+            echo "MPI and NCCL control interface: $MPI_INTERFACE"
+            ip -4 -o addr show dev "$MPI_INTERFACE"
+            ibv_devinfo
+            rdma link show
+            python3 - <<'PY'
+            import ipaddress
+            from pathlib import Path
+
+            valid = []
+            for path in Path('/sys/class/infiniband').glob('*/ports/*/gids/*'):
+                value = path.read_text().strip()
+                if value and not ipaddress.IPv6Address(value).is_link_local and int(value.replace(':', ''), 16) != 0:
+                    valid.append((str(path), value))
+            if not valid:
+                raise SystemExit('No non-zero RoCE GID is visible inside the worker')
+            for path, value in valid:
+                print(f'Valid RoCE GID: {path} -> {value}')
+            PY
             test -d /dev/infiniband
             test -r /proc/net/route
             set -- /dev/infiniband/*
@@ -623,12 +762,19 @@ jobs:
             /workspace/minimal-csv-cluster-env/bin/python -m pip check
             source /usr/local/PPU_SDK/envsetup.sh
             unset PCCL_PATH
-            export OMPI_MCA_plm_rsh_agent=cluster-ssh
-            export OMPI_MCA_orte_base_help_aggregate=0
             MPI_INTERFACE=$(awk '$2 == "00000000" {print $1; exit}' /proc/net/route)
             test -n "$MPI_INTERFACE"
-            echo "MPI TCP interface: $MPI_INTERFACE"
+            test "$NCCL_SOCKET_IFNAME" = "$MPI_INTERFACE"
+            test "$OMPI_MCA_orte_keep_fqdn_hostnames" = 1
             test "$(wc -l < "$CLUSTER_HOSTS_FILE")" -eq 2
+            checked_hosts=0
+            while read -r host _; do
+              timeout -k 5s 30s cluster-ssh "$host" 'hostname' < /dev/null
+              checked_hosts=$((checked_hosts + 1))
+            done < "$CLUSTER_HOSTS_FILE"
+            test "$checked_hosts" -eq 2
+            timeout -k 10s 60s mpirun --allow-run-as-root \
+              --hostfile "$CLUSTER_HOSTS_FILE" -np 2 -npernode 1 hostname
             /workspace/minimal-csv-cluster-env/bin/python -B \
               "$build_output/pccl/tests/xtest/run_cases.py" \
               --input "$build_output/pccl/tests/xtest/minimal-csv" \
@@ -676,21 +822,45 @@ jobs:
             --standard-sha256 '${{ needs.build-standard.outputs.artifact_sha256 }}' \
             --notsm-sha256 '${{ needs.build-notsm.outputs.artifact_sha256 }}' \
             --cards-per-node '${{ env.VALIDATION_CARDS }}'
-      - uses: actions/upload-artifact@v4
+      - id: results-upload
+        uses: actions/upload-artifact@v4
         if: always() && steps.reconcile.outcome == 'success'
         with:
           name: single-node-source-sanity-results
           path: public-results/
           if-no-files-found: error
           overwrite: true
-          retention-days: 7
+          retention-days: 90
       - id: cleanup
         name: Remove run-owned NAS build artifacts
         if: always() && steps.checkout.outcome == 'success'
+        env:
+          NEEDS: ${{ toJSON(needs) }}
+          RECONCILE_OUTCOME: ${{ steps.reconcile.outcome }}
+          RESULTS_UPLOAD_OUTCOME: ${{ steps.results-upload.outcome }}
         run: |
-          python3 -S -B pccl/tests/xtest/artifact_cache.py cleanup \
-            --root /wl_nas/devops/pccl-artifact-cache-${{ github.run_id }} \
-            --run-id '${{ github.run_id }}'
+          PRESERVE=$(python3 - <<'PY'
+          import json
+          import os
+
+          needs = json.loads(os.environ['NEEDS'])
+          names = ('prepare', 'build-standard', 'build-notsm', 'stage-cache',
+                   'single-node', 'two-node')
+          failed = any(needs[name]['result'] != 'success' for name in names)
+          failed = (failed or os.environ['RECONCILE_OUTCOME'] != 'success' or
+                    os.environ['RESULTS_UPLOAD_OUTCOME'] != 'success')
+          print(int(failed))
+          PY
+          )
+          if [ "$PRESERVE" = 1 ]; then
+            python3 -S -B pccl/tests/xtest/artifact_cache.py cleanup \
+              --root /wl_nas/devops/pccl-artifact-cache-${{ github.run_id }} \
+              --run-id '${{ github.run_id }}' --preserve-cache
+          else
+            python3 -S -B pccl/tests/xtest/artifact_cache.py cleanup \
+              --root /wl_nas/devops/pccl-artifact-cache-${{ github.run_id }} \
+              --run-id '${{ github.run_id }}'
+          fi
 
   summary:
     name: PCCL Tests Gate

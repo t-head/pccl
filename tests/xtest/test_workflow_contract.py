@@ -27,7 +27,11 @@ class WorkflowContractTests(unittest.TestCase):
     def test_all_artifact_downloads_use_bounded_retries(self):
         action = (ROOT / '.github/actions/download-artifact-retry/action.yml').read_text()
         self.assertEqual(action.count('uses: actions/download-artifact@v4'), 3)
-        self.assertEqual(action.count('continue-on-error: true'), 2)
+        self.assertEqual(action.count('continue-on-error: true'), 4)
+        self.assertIn('PREFLIGHT_ONLY', action)
+        self.assertIn('VALIDATOR_PATH', action)
+        self.assertNotIn('github.action_path', action)
+        self.assertEqual(action.count('validation.outcome'), 4)
         self.assertIn('sleep 15', action)
         self.assertIn('sleep 30', action)
         self.assertIn('shutil.rmtree(target)', action)
@@ -36,7 +40,9 @@ class WorkflowContractTests(unittest.TestCase):
         workflow = (ROOT / '.github/workflows/source-sanity.yml').read_text()
         self.assertNotIn('uses: actions/download-artifact@v4', workflow)
         self.assertEqual(workflow.count('uses: t-head/pccl/.github/actions/download-artifact-retry@'
-                                        'c7eb80eadb2ca48976a02d8f0fcc1c020534ce73'), 5)
+                                        '42c06876282e700ae0434b4577fedd757b6f2db1'), 5)
+        self.assertEqual(workflow.count('expected-sha256: ${{ env.EXPECTED_SHA }}'), 3)
+        self.assertEqual(workflow.count('sha256-file: output_'), 3)
 
     @classmethod
     def setUpClass(cls):
@@ -103,7 +109,7 @@ class WorkflowContractTests(unittest.TestCase):
     def test_artifact_upload_download_retention_and_cleanup_are_connected(self):
         for expected in ('name: pccl-build-standard', 'name: pccl-build-notsm',
                          'name: Stage ${{ matrix.profile }} from artifact or valid NAS cache',
-                         't-head/pccl/.github/actions/download-artifact-retry@', 'retention-days: 3',
+                         't-head/pccl/.github/actions/download-artifact-retry@', 'retention-days: 90',
                          'artifact_cache.py publish', 'artifact_cache.py validate',
                          'artifact_cache.py cleanup', 'trap cleanup_shared_build EXIT'):
             self.assertIn(expected, self.text)
@@ -112,6 +118,21 @@ class WorkflowContractTests(unittest.TestCase):
         self.assertLess(self.text.index('name: Reconcile all selected hardware results'),
                         self.text.index('name: Remove run-owned NAS build artifacts'))
         self.assertIn("needs: [precheck, commit-checks, prepare, ai-code-review, human-review", self.text)
+
+    def test_build_publishes_nas_before_backup_and_consumers_probe_without_chmod(self):
+        for profile in ('standard', 'notsm'):
+            publish = self.text.index(f'name: Publish the {profile} NAS cache')
+            upload = self.text.index(f'name: pccl-build-{profile}', publish)
+            self.assertLess(publish, upload)
+            self.assertIn(f'cache/{profile}/${{{{ steps.identity.outputs.artifact_sha256 }}}}', self.text[publish:upload])
+        self.assertEqual(self.text.count('artifact_cache.py probe'), 4)
+        self.assertNotIn('chmod -R a+rwX "$CACHE_DIR"', self.text)
+        self.assertIn('--preserve-cache', self.text)
+        self.assertIn('id: results-upload', self.text)
+        self.assertIn('RESULTS_UPLOAD_OUTCOME', self.text)
+        self.assertIn('[ "$PRESERVE" = 1 ]', self.text)
+        self.assertNotIn('[[ "$PRESERVE" == 1 ]]', self.text)
+        self.assertIn("names = ('prepare', 'build-standard', 'build-notsm', 'stage-cache',", self.text)
 
     def test_required_gate_is_preserved_and_support_check_always_runs(self):
         self.assertIn('  summary:\n    name: PCCL Tests Gate\n', self.text)
@@ -222,10 +243,20 @@ class WorkflowContractTests(unittest.TestCase):
                          '--notsm-sha256'):
             self.assertIn(expected, results)
         prepare = self.text[self.text.index('  prepare:'):self.text.index('  ai-code-review:')]
+        for module in ('test_generate_cases.py', 'test_group_cases.py', 'test_daily_smoke.py'):
+            self.assertIn(f"-p '{module}'", prepare)
         self.assertIn("test_reconcile_results.py", prepare)
         self.assertIn("test_workflow_contract.py", prepare)
         self.assertIn('reconcile_results.load_selections(', prepare)
         self.assertIn('--cards-per-node', results)
+
+    def test_prepare_runs_every_xtest_regression_module(self):
+        prepare = self.text[self.text.index('  prepare:'):self.text.index('  ai-code-review:')]
+        modules = sorted(path.name for path in (ROOT / 'tests/xtest').glob('test_*.py'))
+        self.assertTrue(modules)
+        for module in modules:
+            with self.subTest(module=module):
+                self.assertIn(f"-p '{module}'", prepare)
 
     def test_shared_build_is_cleaned_only_by_master_and_results_are_separate(self):
         self.assertIn('SHARED_ROOT=/mnt/wl_nas/devops/pccl-artifact-cache-${{ github.run_id }}/shared-standard/', self.text)
@@ -235,6 +266,29 @@ class WorkflowContractTests(unittest.TestCase):
         cleanup = self.text[start:end]
         self.assertIn('rm -rf "$SHARED_ROOT"', cleanup)
         self.assertNotIn('rm -rf "$RESULT_ROOT"', cleanup)
+
+    def test_sanity_hardware_uses_the_validated_host_network_rdma_runtime(self):
+        single = self.text[self.text.index('  single-node:'):self.text.index('  two-node:')]
+        cluster = self.job('two-node')
+        for section in (single, cluster):
+            self.assertIn('timeout -k 30s 300s apt-get update', section)
+            self.assertIn('timeout -k 30s 600s apt-get install', section)
+            self.assertIn('host_network: true', section)
+            self.assertIn('dns_policy: ClusterFirstWithHostNet', section)
+            self.assertIn('host_volumes: /dev/infiniband:/dev/infiniband', section)
+            self.assertIn('export NCCL_SOCKET_IFNAME="$MPI_INTERFACE"', section)
+            self.assertIn('export OMPI_MCA_btl_tcp_if_include="$MPI_INTERFACE"', section)
+            self.assertIn('export OMPI_MCA_oob_tcp_if_include="$MPI_INTERFACE"', section)
+            self.assertIn('alixpu_peermem is loaded', section)
+            self.assertIn('alixpu_peermem is not loaded; DMA-BUF support is still possible', section)
+            self.assertIn('ibv_devinfo', section)
+            self.assertIn('rdma link show', section)
+            self.assertIn("raise SystemExit('No non-zero RoCE GID is visible inside the worker')", section)
+            self.assertIn('--mpi-interface "$MPI_INTERFACE"', section)
+        self.assertIn("timeout -k 5s 30s cluster-ssh", cluster)
+        self.assertIn('timeout -k 10s 60s mpirun --allow-run-as-root', cluster)
+        self.assertIn('rack_nodes: rack-01=2', cluster)
+        self.assertNotIn('icn-rack=', self.text)
 
     def test_legacy_executor_and_experimental_triggers_are_absent(self):
         for removed in ('source-catalog.json', 'cluster-source-case.json', 'manifest.py',
@@ -267,10 +321,13 @@ class WorkflowContractTests(unittest.TestCase):
         self.assertEqual((ROOT / 'tests/xtest/requirements.txt').read_text().strip(),
                          '# Required by the public run_test.py entry point, not the CSV executor.\n'
                          'filelock==4.2.10')
-        self.assertIn('t-head/ci-infra/cluster-run@40165c945cba33ac7b16b41c4485fe53b68f581f', self.text)
+        action = 'uses: t-head/ci-infra/cluster-run@main'
+        self.assertIn('VALIDATION_NODE_SELECTOR: board-type=ZW-M890P,nic-type=cx8', self.text)
         for name in ('build-standard', 'build-notsm', 'single-node'):
-            self.assertIn('uses: t-head/ci-infra/cluster-run@main', self.job(name))
-        self.assertEqual(self.text.count('uses: t-head/ci-infra/cluster-run@main'), 3)
+            self.assertIn(action, self.job(name))
+        self.assertIn(action, self.job('two-node'))
+        self.assertEqual(self.text.count(action), 4)
+        self.assertNotIn('t-head/ci-infra/cluster-run@feat/rack-node-allocation', self.text)
 
 
 if __name__ == '__main__':

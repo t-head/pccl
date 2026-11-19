@@ -8,26 +8,57 @@ import re
 import tempfile
 import unittest
 
+import generate_cases
 import group_cases
 import run_cases
 
 
 ROOT = Path(__file__).resolve().parents[2]
-INPUT = ROOT / 'tests/xtest/daily-minimal-csv'
-FULL_INPUT = ROOT / 'tests/xtest/daily-full-csv'
+DEFINITIONS = ROOT / 'tests/xtest/test_lists'
+ALL_FAMILIES = (
+    "op_perf_shm", "postsil_daily_shm", "pccl_fun_rdma_shm", "register_test_shm",
+    "sanity_m890p_register", "sym_test_shm", "f8_test_shm", "device_api_shm",
+    "local_register_perf_shm", "symetric_perf_shm", "copyengine_perf_shm",
+    "op_perf_shm_2_rack", "op_perf_rdma_shm", "commabort_test_shm",
+)
+FULL_INPUT = None
+SMOKE_INPUT = None
+SOURCE_COVERAGE = DEFINITIONS / 'source-coverage.json'
 FULL_WORKFLOW = ROOT / '.github/workflows/m890p-daily-full.yml'
 BUILD_SCRIPT = ROOT / '.github/workflows/scripts/build.sh'
 RETRY_ACTION = ROOT / '.github/actions/download-artifact-retry/action.yml'
 
 
+def generate_input(output, profile, families):
+    bundles = [generate_cases.generate_bundle(
+        DEFINITIONS / f'{family}.json', DEFINITIONS / 'suites.json',
+        '1' * 40, '2' * 40, profile) for family in families]
+    bundle = generate_cases.combine_bundles(bundles) if len(bundles) > 1 else bundles[0]
+    generate_cases.write_bundle(bundle, output, DEFINITIONS / 'envs')
+
+
 class DailySmokeTests(unittest.TestCase):
-    def test_eleven_supported_single_node_suites_are_selected(self):
-        selected = run_cases.load_inputs(INPUT, 'standard', nodes=1)
-        self.assertEqual(len(selected['cases']), 11)
+    @classmethod
+    def setUpClass(cls):
+        cls.temporary = tempfile.TemporaryDirectory()
+        root = Path(cls.temporary.name)
+        global FULL_INPUT, SMOKE_INPUT
+        FULL_INPUT = root / 'full'
+        SMOKE_INPUT = root / 'smoke'
+        generate_input(FULL_INPUT, 'full', ALL_FAMILIES)
+        generate_input(SMOKE_INPUT, 'smoke', ('op_perf_shm', 'postsil_daily_shm'))
+
+    @classmethod
+    def tearDownClass(cls):
+        cls.temporary.cleanup()
+
+    def test_full_daily_commands_cover_expected_suites_and_resources(self):
+        selected = run_cases.load_inputs(FULL_INPUT, 'standard', nodes=1)
+        self.assertEqual(len(selected['cases']), 4565)
         self.assertEqual(len({(row['plan'], row['suite']) for row in selected['cases']}), 11)
-        cluster = run_cases.load_inputs(INPUT, 'standard', nodes=2)
-        self.assertEqual(len(cluster['cases']), 8)
-        self.assertEqual(len({(row['plan'], row['suite']) for row in cluster['cases']}), 8)
+        cluster = run_cases.load_inputs(FULL_INPUT, 'standard', nodes=2)
+        self.assertEqual(len(cluster['cases']), 1924)
+        self.assertEqual(len({(row['plan'], row['suite']) for row in cluster['cases']}), 10)
         self.assertTrue(all(row['suite_spec']['nodes'] == 2 for row in cluster['cases']))
         register = next(row for row in cluster['cases']
                         if row['suite'] == 'register_test_shm_multi_nodes2_suite')
@@ -41,7 +72,7 @@ class DailySmokeTests(unittest.TestCase):
         self.assertIn('-npernode 8', copyengine['cmd'])
         self.assertIn('--hostfile {hostfile}', copyengine['cmd'])
         direct_multi = [row for row in cluster['cases'] if row['cmd'].startswith('mpirun ')]
-        self.assertEqual(len(direct_multi), 7)
+        self.assertEqual(len(direct_multi), 92)
         for row in direct_multi:
             if row['suite'] == 'commabort_test_shm_multi_nodes2_suite':
                 self.assertIn('-np 4', row['cmd'])
@@ -55,7 +86,7 @@ class DailySmokeTests(unittest.TestCase):
         self.assertIn('NCCL_MNNVL_ENABLE=0', rdma['cmd'])
         self.assertNotIn('orte_keep_fqdn_hostnames', rdma['cmd'])
         self.assertNotIn('NCCL_SOCKET_IFNAME', rdma['cmd'])
-        for suite in ('device_api_shm_single_node_single_process_suite',
+        for suite in ('device_api_perf_shm_single_node_single_process_suite',
                       'f8_test_shm_single_node_suite', 'sym_test_shm_single_node_suite'):
             self.assertIn(suite, {row['suite'] for row in selected['cases']})
         commabort = next(row for row in cluster['cases']
@@ -70,36 +101,36 @@ class DailySmokeTests(unittest.TestCase):
             self.assertIn('-mca btl ^openib', case['cmd'])
         sanity = next(row for row in selected['cases'] if row['suite'] == 'sanity_m890p_register_suite')
         self.assertIn('--register 1', sanity['cmd'])
-        self.assertEqual(sum(row['check'] == 'performance' for row in selected['cases']), 1)
-        self.assertEqual(sum(row['check'] == 'exit_code' for row in selected['cases']), 10)
+        self.assertEqual(sum(row['check'] == 'performance' for row in selected['cases']), 45)
+        self.assertEqual(sum(row['check'] == 'exit_code' for row in selected['cases']), 4520)
         self.assertTrue(all(row['suite_spec']['nodes'] == 1 for row in selected['cases']))
         self.assertEqual({row['suite_spec']['timeout'] for row in selected['cases']}, {300, 3600, 7200})
 
     def test_daily_commands_use_only_documented_runtime_bindings(self):
-        with (INPUT / 'standard.csv').open(newline='') as stream:
+        with (FULL_INPUT / 'standard.csv').open(newline='') as stream:
             rows = list(csv.DictReader(stream))
         for row in rows:
             self.assertNotIn('bond1', row['cmd'])
             self.assertNotIn('$PPU_HOME', row['cmd'])
             self.assertNotIn('/home/image', row['cmd'])
             self.assertNotIn('unit_test.py', row['cmd'])
-        self.assertEqual(sum('{python_env}' in row['cmd'] for row in rows), 1)
-        self.assertEqual(sum(row['cmd'].startswith('python3 run_test.py') for row in rows), 5)
-        single_node_rows = run_cases.load_inputs(INPUT, 'standard', nodes=1)['cases']
-        self.assertEqual(sum(row['cmd'].startswith('mpirun ') for row in single_node_rows), 5)
-        self.assertEqual(sum(row['cmd'].startswith('mpirun ') for row in rows), 12)
+        self.assertEqual(sum('{python_env}' in row['cmd'] for row in rows), 8028)
+        self.assertEqual(sum(row['cmd'].startswith('python3 run_test.py') for row in rows), 510)
+        single_node_rows = run_cases.load_inputs(FULL_INPUT, 'standard', nodes=1)['cases']
+        self.assertEqual(sum(row['cmd'].startswith('mpirun ') for row in single_node_rows), 148)
+        self.assertEqual(sum(row['cmd'].startswith('mpirun ') for row in rows), 335)
 
     def test_daily_metadata_and_empty_notsm_are_explicit(self):
-        metadata = json.loads((INPUT / 'export.json').read_text())
-        self.assertEqual(metadata['xtest_version'], '0.12.0')
+        metadata = json.loads((SMOKE_INPUT / 'export.json').read_text())
+        self.assertEqual(metadata['xtest_version'], 'not-used')
         self.assertTrue(re.fullmatch(r'[0-9a-f]{40}', metadata['source_revision']))
-        with (INPUT / 'notsm.csv').open(newline='') as stream:
+        with (SMOKE_INPUT / 'notsm.csv').open(newline='') as stream:
             self.assertEqual(list(csv.DictReader(stream)), [])
         with self.assertRaisesRegex(ValueError, 'no Cases'):
-            run_cases.load_inputs(INPUT, 'notsm', nodes=1)
+            run_cases.load_inputs(SMOKE_INPUT, 'notsm', nodes=1)
 
     def test_full_export_is_runner_scoped_and_available_as_an_explicit_dataset(self):
-        coverage = json.loads((FULL_INPUT / 'coverage.json').read_text())
+        coverage = json.loads(SOURCE_COVERAGE.read_text())
         self.assertEqual(coverage['selected_cases'], 8899)
         self.assertEqual(coverage['skipped_cases'], 3391)
         self.assertEqual(len(coverage['selected_suites']), 34)
@@ -116,7 +147,8 @@ class DailySmokeTests(unittest.TestCase):
             rows = list(csv.DictReader(stream))
         self.assertEqual(len(rows), 8899)
         self.assertEqual(sum('pcclCommAbortTest' in row['cmd'] for row in rows), 16)
-        self.assertIn('!tests/xtest/daily-full-csv/*.csv', (ROOT / '.gitignore').read_text())
+        self.assertFalse((ROOT / 'tests/xtest/daily-full-csv').exists())
+        self.assertFalse((ROOT / 'tests/xtest/daily-minimal-csv').exists())
         for row in rows:
             self.assertNotIn('no_tsm', row['plan'])
             self.assertNotIn('no_tsm', row['suite'])
@@ -124,15 +156,21 @@ class DailySmokeTests(unittest.TestCase):
                           'ucx_perftest', 'p2pBandwidthLatencyTest'):
                 self.assertNotIn(token, row['cmd'])
 
-    def test_daily_resource_policy_excludes_8_and_16_nodes_exactly(self):
-        plan = group_cases.build_plan(FULL_INPUT, 500, allowed_nodes=(1, 2, 4))
-        self.assertEqual(sum(len(group['cases']) for group in plan['groups']), 8180)
-        self.assertEqual(len(plan['groups']), 20)
+    def test_daily_resource_policy_excludes_only_16_nodes_exactly(self):
+        plan = group_cases.build_plan(FULL_INPUT, 500, allowed_nodes=(1, 2, 4, 8))
+        self.assertEqual(sum(len(group['cases']) for group in plan['groups']), 8890)
+        self.assertEqual(len(plan['groups']), 25)
         self.assertEqual({nodes: sum(len(group['cases']) for group in plan['groups']
                                      if group['nodes'] == nodes)
-                          for nodes in (1, 2, 4)}, {1: 4565, 2: 1924, 4: 1691})
+                          for nodes in (1, 2, 4, 8)},
+                         {1: 4565, 2: 1924, 4: 1691, 8: 710})
         self.assertEqual([(record['nodes'], record['case_count']) for record in plan['exclusions']],
-                         [(8, 710), (16, 9)])
+                         [(16, 9)])
+        cross_rack = {group['nodes']: group['rack_nodes'] for group in plan['groups']
+                      if group['cross_rack']}
+        self.assertEqual(cross_rack, {2: 'rack-01=1,rack-02=1',
+                                      4: 'rack-01=2,rack-02=2',
+                                      8: 'rack-01=4,rack-02=4'})
         with tempfile.TemporaryDirectory() as temporary:
             output = Path(temporary) / 'groups'
             group_cases.write_plan(plan, output, FULL_INPUT)
@@ -141,14 +179,15 @@ class DailySmokeTests(unittest.TestCase):
                     for group in plan['groups'] for case in group['cases']}
         excluded = {tuple(key) for key in sum((record['case_keys'] for record in plan['exclusions']), [])}
         self.assertEqual(coverage['total_cases'], 8899)
-        self.assertEqual(coverage['excluded_cases'], 719)
+        self.assertEqual(coverage['excluded_cases'], 9)
         self.assertEqual(len(selected | excluded), 8899)
         self.assertTrue(selected.isdisjoint(excluded))
+        eight_nodes = group_cases.build_plan(FULL_INPUT, 500, nodes=8, allowed_nodes=(1, 2, 4, 8))
+        self.assertEqual(sum(len(group['cases']) for group in eight_nodes['groups']), 710)
+        self.assertEqual(len(eight_nodes['groups']), 3)
         with self.assertRaisesRegex(ValueError, 'disabled by daily resource policy'):
-            group_cases.build_plan(FULL_INPUT, 500, nodes=8, allowed_nodes=(1, 2, 4))
-        with self.assertRaisesRegex(ValueError, 'disabled by daily resource policy'):
-            group_cases.build_plan(FULL_INPUT, 500, nodes=16, allowed_nodes=(1, 2, 4))
-        oversized = group_cases.build_plan(FULL_INPUT, 25, allowed_nodes=(1, 2, 4))
+            group_cases.build_plan(FULL_INPUT, 500, nodes=16, allowed_nodes=(1, 2, 4, 8))
+        oversized = group_cases.build_plan(FULL_INPUT, 25, allowed_nodes=(1, 2, 4, 8))
         self.assertGreater(len(oversized['groups']), 256)
 
     def test_commabort_binary_is_built_into_the_existing_artifact(self):
@@ -163,9 +202,15 @@ class DailySmokeTests(unittest.TestCase):
         self.assertIn('workflow_dispatch:', text)
         self.assertIn('paths: [.github/workflows/m890p-daily-full.yml]', text)
         self.assertIn('options: [smoke, full]', text)
+        self.assertIn('smoke only supports nodes=1', text)
+        self.assertNotIn('generated-smoke', text)
+        self.assertNotIn('generated-full', text)
+        self.assertNotIn('daily-full-csv', text)
+        self.assertNotIn('daily-minimal-csv', text)
         self.assertIn('default: smoke', text)
         self.assertIn('default: 500', text)
-        self.assertIn("DAILY_ALLOWED_NODES: '1,2,4'", text)
+        self.assertIn("DAILY_ALLOWED_NODES: '1,2,4,8'", text)
+        self.assertIn('VALIDATION_NODE_SELECTOR: board-type=ZW-M890P,nic-type=cx8', text)
         self.assertIn('execution-coverage.json', text)
         self.assertIn('Unexpected or out-of-policy result groups', text)
         self.assertIn('cancel-in-progress: false', text)
@@ -174,16 +219,18 @@ class DailySmokeTests(unittest.TestCase):
         self.assertIn('groups_sha256: ${{ steps.selection.outputs.groups_sha256 }}', text)
         self.assertIn('test_case_group_cache.py', text)
         self.assertIn('matrix: ${{ fromJSON(needs.prepare.outputs.groups) }}', text)
-        self.assertIn('max-parallel: 2', text)
+        self.assertIn("'cross_rack', 'rack_nodes', 'case_count'", text)
+        self.assertIn("assert {group_cases._rack_nodes(case) for case in selected['cases']}", text)
+        self.assertNotIn('max-parallel:', text)
         self.assertIn('fail-fast: false', text)
         self.assertIn('nnodes: ${{ matrix.nodes }}', text)
         self.assertIn('nproc_per_node: ${{ matrix.cards_per_node }}', text)
-        self.assertEqual(text.count('--input "$CASE_INPUT/$GROUP_ID"'), 2)
-        self.assertEqual(text.count('case_group_cache.py stage'), 2)
+        self.assertEqual(text.count('--input "$CASE_INPUT/$GROUP_ID"'), 3)
+        self.assertEqual(text.count('case_group_cache.py stage'), 3)
         self.assertIn('case_group_cache.py publish', text)
         self.assertIn('cache/case-groups/${{ env.EXPECTED_GROUPS_SHA }}', text)
         self.assertIn('Restore the NAS build cache', text)
-        self.assertEqual(text.count('--build-record "$CACHE_DIR/output_standard.build.json"'), 2)
+        self.assertEqual(text.count('--build-record "$CACHE_DIR/output_standard.build.json"'), 3)
         self.assertIn('--profile "$PROFILE"', text)
         self.assertIn('results/full/$GROUP_ID', text)
         self.assertIn('shared-standard/$GROUP_ID', text)
@@ -193,6 +240,20 @@ class DailySmokeTests(unittest.TestCase):
         self.assertNotIn('SHARED_BASE=', text)
         self.assertNotIn('rmdir "$SHARED_PARENT"', text)
         self.assertIn('artifact_cache.py cleanup', text)
+        self.assertIn('name: Publish the standard NAS cache', text)
+        self.assertLess(text.index('name: Publish the standard NAS cache'),
+                        text.index('name: m890p-daily-full-build-standard'))
+        self.assertIn('cache/standard/${{ steps.identity.outputs.artifact_sha256 }}', text)
+        self.assertEqual(text.count('artifact_cache.py probe'), 4)
+        self.assertNotIn('chmod -R a+rwX "$CACHE_DIR"', text)
+        self.assertNotIn('chmod -R a+rwX "$BUILD_CACHE"', text)
+        self.assertIn('--preserve-cache', text)
+        self.assertIn('id: results-upload', text)
+        self.assertIn('id: performance-upload', text)
+        self.assertIn('steps.results-upload.outcome', text)
+        self.assertIn('steps.performance-upload.outcome', text)
+        self.assertIn('[ "$PRESERVE" = 1 ]', text)
+        self.assertNotIn('[[ "$PRESERVE" == 1 ]]', text)
         self.assertIn("'groups.json').read_text())", text)
         self.assertIn('daily_reconcile.py', text)
         self.assertIn('Daily grouped result summary and NAS cleanup', text)
@@ -200,7 +261,7 @@ class DailySmokeTests(unittest.TestCase):
                         text.index('CASE_INPUT="$SHARED_ROOT/case-input"'))
         self.assertIn('GitHub Actions matrix limit of 256', text)
         self.assertIn('timeout-minutes: 750', text)
-        self.assertNotIn('retention-days: 3', text)
+        self.assertIn('retention-days: 90', text)
         self.assertIn('if results_root.is_dir() else set()', text)
         single = text.split('name: Run the automatic group on one node', 1)[1].split(
             'name: Run the automatic multi-node group on master', 1)[0]
@@ -209,15 +270,37 @@ class DailySmokeTests(unittest.TestCase):
         self.assertIn("raise SystemExit('No non-zero RoCE GID is visible inside the worker')", single)
         self.assertIn('alixpu_peermem is not loaded; DMA-BUF support is still possible', single)
         selected = run_cases.load_inputs(FULL_INPUT, 'standard', nodes=1,
-                                        suite='device_api_shm_single_node_single_process_suite')
+                                        suite='device_api_perf_shm_single_node_single_process_suite')
         self.assertEqual(len(selected['cases']), 26)
         self.assertNotIn('pull_request:', text)
         self.assertNotIn('pull-requests: write', text)
         self.assertNotIn('statuses: write', text)
         self.assertNotIn('PCCL Tests Gate', text)
         self.assertNotIn('build-notsm', text)
-        self.assertNotIn('default: device_api_shm_single_node_single_process_suite', text)
+        self.assertNotIn('default: device_api_perf_shm_single_node_single_process_suite', text)
         self.assertNotIn('--profile standard --nodes "$NODES" --suite "$SUITE"', text)
+
+    def test_cross_rack_groups_use_the_validation_action_without_duplicate_execution(self):
+        text = FULL_WORKFLOW.read_text()
+        ordinary = text.split('name: Run the automatic multi-node group on master', 1)[1].split(
+            'name: Run the automatic cross-rack group on master', 1)[0]
+        cross = text.split('name: Run the automatic cross-rack group on master', 1)[1].split(
+            '\n  summary:', 1)[0]
+        action = 'uses: t-head/ci-infra/cluster-run@main'
+        self.assertIn(action, ordinary)
+        self.assertIn(action, cross)
+        self.assertIn("if: env.NODES != '1' && env.CROSS_RACK != 'true'", ordinary)
+        self.assertIn("if: env.NODES != '1' && env.CROSS_RACK == 'true'", cross)
+        self.assertIn('rack_nodes: rack-01=${{ matrix.nodes }}', ordinary)
+        self.assertIn('rack_nodes: ${{ matrix.rack_nodes }}', cross)
+        self.assertIn('node_selector: ${{ env.VALIDATION_NODE_SELECTOR }}', cross)
+        for section in (ordinary, cross):
+            self.assertNotIn("cluster-ssh \"$host\" 'hostname'", section)
+            self.assertNotIn('mpirun --allow-run-as-root', section)
+            self.assertIn('test "$(wc -l < "$CLUSTER_HOSTS_FILE")" -eq "$NODES"', section)
+        self.assertNotIn('icn-rack=', text)
+        self.assertEqual(text.count(action), 2)
+        self.assertNotIn('t-head/ci-infra/cluster-run@feat/rack-node-allocation', text)
 
     def test_schedule_runs_full_daily_at_2200_beijing_time(self):
         text = FULL_WORKFLOW.read_text()
@@ -232,7 +315,11 @@ class DailySmokeTests(unittest.TestCase):
     def test_all_daily_downloads_use_the_bounded_retry_action(self):
         action = RETRY_ACTION.read_text()
         self.assertEqual(action.count('uses: actions/download-artifact@v4'), 3)
-        self.assertEqual(action.count('continue-on-error: true'), 2)
+        self.assertEqual(action.count('continue-on-error: true'), 4)
+        self.assertIn('PREFLIGHT_ONLY', action)
+        self.assertIn('VALIDATOR_PATH', action)
+        self.assertNotIn('github.action_path', action)
+        self.assertEqual(action.count('validation.outcome'), 4)
         self.assertIn('sleep 15', action)
         self.assertIn('sleep 30', action)
         self.assertIn('shutil.rmtree(target)', action)
@@ -241,7 +328,9 @@ class DailySmokeTests(unittest.TestCase):
         text = FULL_WORKFLOW.read_text()
         self.assertNotIn('uses: actions/download-artifact@v4', text)
         self.assertEqual(text.count('uses: t-head/pccl/.github/actions/download-artifact-retry@'
-                                    'c7eb80eadb2ca48976a02d8f0fcc1c020534ce73'), 6)
+                                    '42c06876282e700ae0434b4577fedd757b6f2db1'), 7)
+        self.assertEqual(text.count('expected-sha256: ${{ env.EXPECTED_SHA }}'), 2)
+        self.assertEqual(text.count('sha256-file: output_standard.tar.gz'), 2)
 
 
 if __name__ == '__main__':

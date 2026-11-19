@@ -28,11 +28,11 @@ class GroupCasesTests(unittest.TestCase):
     def tearDown(self):
         self.temp.cleanup()
 
-    def add(self, suite, name, nodes=1, env="common.env"):
+    def add(self, suite, name, nodes=1, env="common.env", plan="plan"):
         if not any(row["suite"] == suite for row in self.suites):
-            self.suites.append({"plan": "plan", "suite": suite, "nodes": str(nodes),
+            self.suites.append({"plan": plan, "suite": suite, "nodes": str(nodes),
                                 "cards_per_node": "8", "timeout": "300", "env": env})
-        self.cases.append({"plan": "plan", "suite": suite, "name": name,
+        self.cases.append({"plan": plan, "suite": suite, "name": name,
                            "check": "exit_code", "cmd": "true"})
 
     def write(self):
@@ -73,6 +73,45 @@ class GroupCasesTests(unittest.TestCase):
         groups = group_cases.build_groups(self.input, max_cases=500)
         self.assertEqual(len(groups), 2)
         self.assertEqual({group["env"] for group in groups}, {"common.env", "other.env"})
+
+    def test_cross_rack_suites_are_isolated_and_carry_exact_allocation(self):
+        self.add("op_perf_shm_2_rack_icn8_suite", "cross", nodes=2,
+                 plan="pccl_shm_op_perf_2_rack_icn8_plan")
+        self.add("ordinary_suite", "ordinary", nodes=2)
+        self.write()
+        groups = group_cases.build_groups(self.input, max_cases=500)
+        self.assertEqual(len(groups), 2)
+        cross = next(group for group in groups if group["cross_rack"])
+        ordinary = next(group for group in groups if not group["cross_rack"])
+        self.assertEqual(cross["rack_nodes"], "rack-01=1,rack-02=1")
+        self.assertEqual(ordinary["rack_nodes"], "")
+        self.assertEqual([case["name"] for case in cross["cases"]], ["cross"])
+        self.assertEqual([case["name"] for case in ordinary["cases"]], ["ordinary"])
+        output = self.root / "groups"
+        group_cases.write_groups(groups, output, self.input)
+        manifest = json.loads((output / "groups.json").read_text())
+        self.assertEqual({entry["rack_nodes"] for entry in manifest},
+                         {"", "rack-01=1,rack-02=1"})
+
+    def test_unknown_or_tampered_rack_allocations_are_rejected(self):
+        self.add("op_perf_shm_2_rack_unknown_suite", "unknown", nodes=2)
+        self.write()
+        with self.assertRaisesRegex(ValueError, "no reviewed rack allocation"):
+            group_cases.build_groups(self.input, max_cases=500)
+        for value in ("rack-02=1,rack-01=1", "rack-01=1,rack-02=2",
+                      "rack-01=0,rack-02=2", "rack-01=1", "rack-01=1,rack-02=1,"):
+            with self.subTest(value=value), self.assertRaisesRegex(ValueError, "rack_nodes"):
+                group_cases._validate_rack_nodes(value, 2)
+
+        self.suites = []
+        self.cases = []
+        self.add("ordinary", "ordinary", nodes=2)
+        self.write()
+        group = group_cases.build_groups(self.input, max_cases=500)[0]
+        group["cross_rack"] = True
+        group["rack_nodes"] = "rack-01=1,rack-02=1"
+        with self.assertRaisesRegex(ValueError, "rack metadata"):
+            group_cases.write_groups([group], self.root / "tampered", self.input)
 
     def test_debug_filters_do_not_create_manual_shards(self):
         self.add("suite_a", "a")

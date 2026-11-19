@@ -1,4 +1,4 @@
-name: M890P daily grouped execution (experimental)
+name: M890P daily grouped execution
 
 on:
   push:
@@ -10,7 +10,7 @@ on:
   workflow_dispatch:
     inputs:
       dataset:
-        description: Exported Case selection to execute
+        description: JSON-generated selection; smoke has two single-node Cases, full has all families
         required: true
         default: smoke
         type: choice
@@ -21,7 +21,7 @@ on:
         default: 500
         type: number
       nodes:
-        description: Optional debug node filter; empty selects every exported node count
+        description: Optional full-selection node filter; smoke only supports nodes=1
         required: false
         type: string
       suite:
@@ -38,10 +38,10 @@ concurrency:
 
 env:
   VALIDATION_IMAGE: download.t-head.cn/docker_release/ppu:sdk2.2.0-hggcrt3-ubuntu24.04-py312-20261005
-  VALIDATION_NODE_SELECTOR: board-type=ZW-M890P
+  VALIDATION_NODE_SELECTOR: board-type=ZW-M890P,nic-type=cx8
   VALIDATION_CARDS: '8'
   PCCL_TESTS_REVISION: 394556512e87259e9ffa25225632c46b0a0bbcd5
-  DAILY_ALLOWED_NODES: '1,2,4'
+  DAILY_ALLOWED_NODES: '1,2,4,8'
 
 jobs:
   prepare:
@@ -83,26 +83,59 @@ jobs:
           python3 -S -B -m unittest discover -s tests/xtest -p 'test_group_cases.py' -v
           python3 -S -B -m unittest discover -s tests/xtest -p 'test_case_group_cache.py' -v
           python3 -S -B -m unittest discover -s tests/xtest -p 'test_artifact_cache.py' -v
+          python3 -S -B -m unittest discover -s tests/xtest -p 'test_download_artifact_retry.py' -v
+          python3 -S -B -m unittest discover -s tests/xtest -p 'test_remote_recovery.py' -v
           python3 -S -B -m unittest discover -s tests/xtest -p 'test_daily_smoke.py' -v
           python3 -S -B -m unittest discover -s tests/xtest -p 'test_daily_reconcile.py' -v
+          python3 -S -B -m unittest discover -s tests/xtest -p 'test_generate_cases.py' -v
+          GENERATED_DEFINITIONS=(
+            --definition tests/xtest/test_lists/op_perf_shm.json
+            --definition tests/xtest/test_lists/postsil_daily_shm.json
+          )
+          if [[ "$DATASET" == full ]]; then
+            GENERATED_DEFINITIONS+=(
+              --definition tests/xtest/test_lists/pccl_fun_rdma_shm.json
+              --definition tests/xtest/test_lists/register_test_shm.json
+              --definition tests/xtest/test_lists/sanity_m890p_register.json
+              --definition tests/xtest/test_lists/sym_test_shm.json
+              --definition tests/xtest/test_lists/f8_test_shm.json
+              --definition tests/xtest/test_lists/device_api_shm.json
+              --definition tests/xtest/test_lists/local_register_perf_shm.json
+              --definition tests/xtest/test_lists/symetric_perf_shm.json
+              --definition tests/xtest/test_lists/copyengine_perf_shm.json
+              --definition tests/xtest/test_lists/op_perf_shm_2_rack.json
+              --definition tests/xtest/test_lists/op_perf_rdma_shm.json
+              --definition tests/xtest/test_lists/commabort_test_shm.json
+            )
+          fi
+          python3 -S -B tests/xtest/generate_cases.py \
+            "${GENERATED_DEFINITIONS[@]}" \
+            --suites tests/xtest/test_lists/suites.json \
+            --env-root tests/xtest/test_lists/envs \
+            --profile "$DATASET" \
+            --source-revision '${{ github.sha }}' \
+            --runner-revision '${{ env.PCCL_TESTS_REVISION }}' \
+            --output generated-case-input
           python3 -S -B - <<'PY'
           import hashlib
           import json
           import os
           from pathlib import Path
+          import shutil
           import subprocess
           import sys
 
           sys.path.insert(0, 'tests/xtest')
           import case_group_cache
           import group_cases
+          import performance_report
           import run_cases
           from artifact_cache import PCCL_TESTS_REVISION, RUNNER_HASHES
 
           dataset = os.environ['DATASET']
           if dataset not in ('smoke', 'full'):
               raise ValueError('Unsupported daily dataset')
-          input_directory = Path(f'tests/xtest/daily-{dataset if dataset == "full" else "minimal"}-csv')
+          input_directory = Path('generated-case-input')
           nodes = int(os.environ['NODES']) if os.environ['NODES'] else None
           suite = os.environ['SUITE'] or None
           if nodes is not None and nodes not in (1, 2, 4, 8, 16):
@@ -112,6 +145,10 @@ jobs:
               input_directory, int(os.environ['MAX_CASES']), nodes=nodes, suite=suite,
               allowed_nodes=allowed_nodes)
           group_cases.write_plan(plan, Path('case-groups'), input_directory)
+          performance_report.write_selection(
+              input_directory, 'standard', Path('case-groups/performance-cases.json'),
+              nodes=nodes, suite=suite)
+          shutil.copyfile(input_directory / 'generation.json', 'case-groups/generation.json')
           groups = plan['groups']
           groups_sha256 = case_group_cache.tree_sha256(Path('case-groups'))
           manifest = json.loads(Path('case-groups/groups.json').read_text())
@@ -134,6 +171,8 @@ jobs:
               keys = [[case['plan'], case['suite'], case['name']] for case in selected['cases']]
               assert keys == group['case_keys']
               assert all(case['suite_spec']['nodes'] == group['nodes'] for case in selected['cases'])
+              assert {group_cases._rack_nodes(case) for case in selected['cases']} == {group['rack_nodes']}
+              assert group['cross_rack'] is bool(group['rack_nodes'])
               actual.extend(tuple(key) for key in keys)
           selected_keys = set(actual)
           excluded_keys = {tuple(key) for record in coverage['exclusions'] for key in record['case_keys']}
@@ -153,7 +192,8 @@ jobs:
           assert groups[0]['metadata']['runner_revision'] == revision
           assert subprocess.check_output(['git', 'rev-parse', 'HEAD'], text=True).strip() == os.environ['GITHUB_SHA']
           matrix = {'include': [
-              {key: group[key] for key in ('id', 'profile', 'nodes', 'cards_per_node', 'env', 'case_count')}
+              {key: group[key] for key in ('id', 'profile', 'nodes', 'cards_per_node', 'env',
+                                           'cross_rack', 'rack_nodes', 'case_count')}
               for group in manifest
           ]}
           print(f'Selected {len(actual)} {dataset} Cases in {len(manifest)} automatic groups')
@@ -176,22 +216,29 @@ jobs:
           path: pccl/case-groups/
           if-no-files-found: error
           overwrite: true
-          retention-days: 7
+          retention-days: 90
       - name: Stage the pinned benchmark dependency
         run: |
           mkdir -p deps
           python3 -m pip download --disable-pip-version-check --only-binary=:all: --no-deps \
-            --dest deps filelock==4.2.10
+            --dest deps filelock==4.2.10 XlsxWriter==3.2.5
           printf '%s  %s\n' \
             '9479aaeb4db20b5a53e3da28493edd24720b66b8a0b84030aa56ccdf243d6857' \
             'deps/filelock-4.2.10-py3-none-any.whl' | sha256sum --check -
+          printf '%s  %s\n' \
+            '4f4824234e1eaf9d95df9a8fe974585ff91d0f5e3d3f12ace5b71e443c1c6abd' \
+            'deps/xlsxwriter-3.2.5-py3-none-any.whl' | sha256sum --check -
+          PYTHONPATH=deps/xlsxwriter-3.2.5-py3-none-any.whl \
+            python3 -S -B -c 'import xlsxwriter; assert xlsxwriter.__version__ == "3.2.5"'
+          PYTHONPATH=deps/xlsxwriter-3.2.5-py3-none-any.whl \
+            python3 -S -B -m unittest discover -s pccl/tests/xtest -p 'test_performance_report.py' -v
       - uses: actions/upload-artifact@v4
         with:
           name: m890p-daily-full-python-deps
           path: deps/
           if-no-files-found: error
           overwrite: true
-          retention-days: 7
+          retention-days: 90
 
   build-standard:
     name: Build and upload standard
@@ -256,13 +303,22 @@ jobs:
             --pccl-revision '${{ github.sha }}' --pccl-tests-revision '${{ env.PCCL_TESTS_REVISION }}' \
             --expected-sha256 "$EXPECTED_SHA"
           echo "artifact_sha256=$EXPECTED_SHA" >> "$GITHUB_OUTPUT"
+      - name: Publish the standard NAS cache
+        env:
+          STAGING: /wl_nas/devops/pccl-artifact-cache-${{ github.run_id }}/staging/standard
+          CACHE_DIR: /wl_nas/devops/pccl-artifact-cache-${{ github.run_id }}/cache/standard/${{ steps.identity.outputs.artifact_sha256 }}
+        run: |
+          python3 -S -B pccl/tests/xtest/artifact_cache.py publish \
+            --download "$STAGING" --cache "$CACHE_DIR" --profile standard \
+            --pccl-revision '${{ github.sha }}' --pccl-tests-revision '${{ env.PCCL_TESTS_REVISION }}' \
+            --expected-sha256 '${{ steps.identity.outputs.artifact_sha256 }}'
       - uses: actions/upload-artifact@v4
         with:
           name: m890p-daily-full-build-standard
-          path: /wl_nas/devops/pccl-artifact-cache-${{ github.run_id }}/staging/standard/
+          path: /wl_nas/devops/pccl-artifact-cache-${{ github.run_id }}/cache/standard/${{ steps.identity.outputs.artifact_sha256 }}/
           if-no-files-found: error
           overwrite: true
-          retention-days: 7
+          retention-days: 90
       - name: Remove transient standard NAS staging
         if: always()
         run: |
@@ -291,19 +347,26 @@ jobs:
         env:
           CACHE_DIR: /wl_nas/devops/pccl-artifact-cache-${{ github.run_id }}/cache/standard/${{ env.EXPECTED_SHA }}
         run: |
-          if python3 -S -B pccl/tests/xtest/artifact_cache.py validate \
+          STATE=$(python3 -S -B pccl/tests/xtest/artifact_cache.py probe \
             --directory "$CACHE_DIR" --profile standard \
             --pccl-revision '${{ github.sha }}' --pccl-tests-revision '${{ env.PCCL_TESTS_REVISION }}' \
-            --expected-sha256 '${{ env.EXPECTED_SHA }}'; then
-            echo 'state=hit' >> "$GITHUB_OUTPUT"
-          else
-            echo 'state=miss' >> "$GITHUB_OUTPUT"
-          fi
-      - uses: t-head/pccl/.github/actions/download-artifact-retry@c7eb80eadb2ca48976a02d8f0fcc1c020534ce73
+            --expected-sha256 '${{ env.EXPECTED_SHA }}')
+          case "$STATE" in
+            hit)
+              echo 'state=hit' >> "$GITHUB_OUTPUT" ;;
+            miss|invalid)
+              echo 'state=miss' >> "$GITHUB_OUTPUT" ;;
+            *)
+              echo "Unexpected cache state: $STATE"
+              exit 1 ;;
+          esac
+      - uses: t-head/pccl/.github/actions/download-artifact-retry@42c06876282e700ae0434b4577fedd757b6f2db1
         if: steps.cache.outputs.state == 'miss'
         with:
           name: m890p-daily-full-build-standard
           path: download
+          sha256-file: output_standard.tar.gz
+          expected-sha256: ${{ env.EXPECTED_SHA }}
       - name: Publish the validated artifact to NAS
         if: steps.cache.outputs.state == 'miss'
         env:
@@ -317,11 +380,11 @@ jobs:
         env:
           CACHE_DIR: /wl_nas/devops/pccl-artifact-cache-${{ github.run_id }}/cache/standard/${{ env.EXPECTED_SHA }}
         run: |
-          chmod -R a+rwX "$CACHE_DIR"
-          python3 -S -B pccl/tests/xtest/artifact_cache.py validate \
+          STATE=$(python3 -S -B pccl/tests/xtest/artifact_cache.py probe \
             --directory "$CACHE_DIR" --profile standard \
             --pccl-revision '${{ github.sha }}' --pccl-tests-revision '${{ env.PCCL_TESTS_REVISION }}' \
-            --expected-sha256 '${{ env.EXPECTED_SHA }}'
+            --expected-sha256 '${{ env.EXPECTED_SHA }}')
+          test "$STATE" = hit
       - id: groups-cache
         name: Check for valid NAS Case groups
         env:
@@ -333,7 +396,7 @@ jobs:
           else
             echo 'state=miss' >> "$GITHUB_OUTPUT"
           fi
-      - uses: t-head/pccl/.github/actions/download-artifact-retry@c7eb80eadb2ca48976a02d8f0fcc1c020534ce73
+      - uses: t-head/pccl/.github/actions/download-artifact-retry@42c06876282e700ae0434b4577fedd757b6f2db1
         if: steps.groups-cache.outputs.state == 'miss'
         with:
           name: m890p-daily-case-groups
@@ -358,7 +421,6 @@ jobs:
     needs: [prepare, build-standard, stage-cache]
     strategy:
       fail-fast: false
-      max-parallel: 2
       matrix: ${{ fromJSON(needs.prepare.outputs.groups) }}
     env:
       EXPECTED_SHA: ${{ needs.build-standard.outputs.artifact_sha256 }}
@@ -366,6 +428,7 @@ jobs:
       GROUP_ID: ${{ matrix.id }}
       PROFILE: ${{ matrix.profile }}
       NODES: ${{ matrix.nodes }}
+      CROSS_RACK: ${{ matrix.cross_rack }}
     runs-on: k8s-runner-group-cpu-thead
     container:
       image: ghcr.io/actions/actions-runner:latest
@@ -375,7 +438,7 @@ jobs:
         with:
           path: pccl
           persist-credentials: false
-      - uses: t-head/pccl/.github/actions/download-artifact-retry@c7eb80eadb2ca48976a02d8f0fcc1c020534ce73
+      - uses: t-head/pccl/.github/actions/download-artifact-retry@42c06876282e700ae0434b4577fedd757b6f2db1
         with:
           name: m890p-daily-full-python-deps
           path: deps
@@ -390,7 +453,7 @@ jobs:
           else
             echo 'state=miss' >> "$GITHUB_OUTPUT"
           fi
-      - uses: t-head/pccl/.github/actions/download-artifact-retry@c7eb80eadb2ca48976a02d8f0fcc1c020534ce73
+      - uses: t-head/pccl/.github/actions/download-artifact-retry@42c06876282e700ae0434b4577fedd757b6f2db1
         if: steps.groups-cache.outputs.state == 'miss'
         with:
           name: m890p-daily-case-groups
@@ -408,19 +471,26 @@ jobs:
         env:
           CACHE_DIR: /wl_nas/devops/pccl-artifact-cache-${{ github.run_id }}/cache/standard/${{ env.EXPECTED_SHA }}
         run: |
-          if python3 -S -B pccl/tests/xtest/artifact_cache.py validate \
+          STATE=$(python3 -S -B pccl/tests/xtest/artifact_cache.py probe \
             --directory "$CACHE_DIR" --profile standard \
             --pccl-revision '${{ github.sha }}' --pccl-tests-revision '${{ env.PCCL_TESTS_REVISION }}' \
-            --expected-sha256 '${{ env.EXPECTED_SHA }}'; then
-            echo 'state=hit' >> "$GITHUB_OUTPUT"
-          else
-            echo 'state=miss' >> "$GITHUB_OUTPUT"
-          fi
-      - uses: t-head/pccl/.github/actions/download-artifact-retry@c7eb80eadb2ca48976a02d8f0fcc1c020534ce73
+            --expected-sha256 '${{ env.EXPECTED_SHA }}')
+          case "$STATE" in
+            hit)
+              echo 'state=hit' >> "$GITHUB_OUTPUT" ;;
+            miss|invalid)
+              echo 'state=miss' >> "$GITHUB_OUTPUT" ;;
+            *)
+              echo "Unexpected cache state: $STATE"
+              exit 1 ;;
+          esac
+      - uses: t-head/pccl/.github/actions/download-artifact-retry@42c06876282e700ae0434b4577fedd757b6f2db1
         if: steps.build-cache.outputs.state == 'miss'
         with:
           name: m890p-daily-full-build-standard
           path: build-download
+          sha256-file: output_standard.tar.gz
+          expected-sha256: ${{ env.EXPECTED_SHA }}
       - name: Restore the NAS build cache
         if: steps.build-cache.outputs.state == 'miss'
         env:
@@ -435,11 +505,11 @@ jobs:
           BUILD_CACHE: /wl_nas/devops/pccl-artifact-cache-${{ github.run_id }}/cache/standard/${{ env.EXPECTED_SHA }}
           GROUPS_CACHE: /wl_nas/devops/pccl-artifact-cache-${{ github.run_id }}/cache/case-groups/${{ env.EXPECTED_GROUPS_SHA }}
         run: |
-          chmod -R a+rwX "$BUILD_CACHE"
-          python3 -S -B pccl/tests/xtest/artifact_cache.py validate \
+          STATE=$(python3 -S -B pccl/tests/xtest/artifact_cache.py probe \
             --directory "$BUILD_CACHE" --profile standard \
             --pccl-revision '${{ github.sha }}' --pccl-tests-revision '${{ env.PCCL_TESTS_REVISION }}' \
-            --expected-sha256 '${{ env.EXPECTED_SHA }}'
+            --expected-sha256 '${{ env.EXPECTED_SHA }}')
+          test "$STATE" = hit
           python3 -S -B pccl/tests/xtest/case_group_cache.py validate \
             --directory "$GROUPS_CACHE" --expected-sha256 '${{ env.EXPECTED_GROUPS_SHA }}'
       - name: Run the automatic group on one node
@@ -544,13 +614,14 @@ jobs:
               --expected-sha256 '${{ env.EXPECTED_SHA }}' \
               --output "$RESULT_ROOT"
       - name: Run the automatic multi-node group on master
-        if: env.NODES != '1'
-        uses: t-head/ci-infra/cluster-run@40165c945cba33ac7b16b41c4485fe53b68f581f
+        if: env.NODES != '1' && env.CROSS_RACK != 'true'
+        uses: t-head/ci-infra/cluster-run@main
         with:
           image: ${{ env.VALIDATION_IMAGE }}
           launch_mode: master
           nnodes: ${{ matrix.nodes }}
           nproc_per_node: ${{ matrix.cards_per_node }}
+          rack_nodes: rack-01=${{ matrix.nodes }}
           node_selector: ${{ env.VALIDATION_NODE_SELECTOR }}
           namespace: ppu-sched
           timeout_minutes: 720
@@ -628,14 +699,104 @@ jobs:
             test "$NCCL_SOCKET_IFNAME" = "$MPI_INTERFACE"
             test "$OMPI_MCA_orte_keep_fqdn_hostnames" = 1
             test "$(wc -l < "$CLUSTER_HOSTS_FILE")" -eq "$NODES"
-            checked_hosts=0
-            while read -r host _; do
-              timeout -k 5s 30s cluster-ssh "$host" 'hostname' < /dev/null
-              checked_hosts=$((checked_hosts + 1))
-            done < "$CLUSTER_HOSTS_FILE"
-            test "$checked_hosts" -eq "$NODES"
-            timeout -k 10s 60s mpirun --allow-run-as-root \
-              --hostfile "$CLUSTER_HOSTS_FILE" -np "$NODES" -npernode 1 hostname
+            /workspace/minimal-csv-cluster-env/bin/python -B \
+              "$build_output/pccl/tests/xtest/run_cases.py" \
+              --input "$CASE_INPUT/$GROUP_ID" \
+              --profile "$PROFILE" \
+              --test-root "$build_output" \
+              --binary-dir "$build_output/pccl-tests/build" \
+              --hostfile "$CLUSTER_HOSTS_FILE" \
+              --mpi-interface "$MPI_INTERFACE" \
+              --build-record "$CACHE_DIR/output_standard.build.json" \
+              --pccl-revision '${{ github.sha }}' \
+              --expected-sha256 '${{ env.EXPECTED_SHA }}' \
+              --output "$RESULT_ROOT"
+      - name: Run the automatic cross-rack group on master
+        if: env.NODES != '1' && env.CROSS_RACK == 'true'
+        uses: t-head/ci-infra/cluster-run@main
+        with:
+          image: ${{ env.VALIDATION_IMAGE }}
+          launch_mode: master
+          nnodes: ${{ matrix.nodes }}
+          nproc_per_node: ${{ matrix.cards_per_node }}
+          rack_nodes: ${{ matrix.rack_nodes }}
+          node_selector: ${{ env.VALIDATION_NODE_SELECTOR }}
+          namespace: ppu-sched
+          timeout_minutes: 720
+          cleanup_policy: always
+          container_options: |
+            privileged: true
+            host_network: true
+            dns_policy: ClusterFirstWithHostNet
+          host_volumes: /dev/infiniband:/dev/infiniband
+          setup_command: |
+            set -euo pipefail
+            source /usr/local/PPU_SDK/envsetup.sh
+            MPI_INTERFACE=$(awk '$2 == "00000000" {print $1; exit}' /proc/net/route)
+            test -n "$MPI_INTERFACE"
+            export HWLOC_COMPONENTS=-gl
+            export OMPI_MCA_plm_rsh_agent=cluster-ssh
+            export OMPI_MCA_orte_base_help_aggregate=0
+            export OMPI_MCA_orte_keep_fqdn_hostnames=1
+            export OMPI_MCA_oob_tcp_if_include="$MPI_INTERFACE"
+            export OMPI_MCA_btl_tcp_if_include="$MPI_INTERFACE"
+            export NCCL_SOCKET_IFNAME="$MPI_INTERFACE"
+            ulimit -l unlimited
+            ulimit -s 65536
+            if ! command -v ibv_devinfo >/dev/null || ! command -v rdma >/dev/null || ! command -v ip >/dev/null; then
+              export DEBIAN_FRONTEND=noninteractive
+              apt-get update
+              apt-get install -y --no-install-recommends rdma-core ibverbs-utils iproute2
+            fi
+            ibv_devinfo
+            rdma link show
+            test -d /dev/infiniband
+          command: |
+            set -euo pipefail
+            umask 022
+            cd "$SOURCE_DIR"
+            CACHE_DIR=/mnt/wl_nas/devops/pccl-artifact-cache-${{ github.run_id }}/cache/standard/${{ env.EXPECTED_SHA }}
+            GROUPS_DIR=/mnt/wl_nas/devops/pccl-artifact-cache-${{ github.run_id }}/cache/case-groups/${{ env.EXPECTED_GROUPS_SHA }}
+            # A group-owned directory avoids both concurrent parent removal and
+            # root-owned intermediate directories that final cleanup cannot remove.
+            SHARED_ROOT=/mnt/wl_nas/devops/pccl-artifact-cache-${{ github.run_id }}/shared-standard/$GROUP_ID
+            CASE_INPUT="$SHARED_ROOT/case-input"
+            export build_output="$SHARED_ROOT/output_standard"
+            RESULT_ROOT=/mnt/wl_nas/devops/pccl-artifact-cache-${{ github.run_id }}/results/full/$GROUP_ID
+            rm -rf "$RESULT_ROOT" "$SHARED_ROOT"
+            mkdir -p "$(dirname "$RESULT_ROOT")" "$SHARED_ROOT"
+            cleanup_shared() {
+              rm -rf "$SHARED_ROOT"
+            }
+            trap cleanup_shared EXIT
+            unset PIP_INDEX_URL PIP_EXTRA_INDEX_URL 2>/dev/null || true
+            git config --global --unset-all url.https://ai-gerrit.eng.t-head.cn/Public/Github/.insteadOf 2>/dev/null || true
+            git config --global --add safe.directory "$SOURCE_DIR"
+            git config --global --add safe.directory '*'
+            python3 -S -B pccl/tests/xtest/artifact_cache.py validate \
+              --directory "$CACHE_DIR" --profile standard \
+              --pccl-revision '${{ github.sha }}' --pccl-tests-revision '${{ env.PCCL_TESTS_REVISION }}' \
+              --expected-sha256 '${{ env.EXPECTED_SHA }}'
+            python3 -S -B pccl/tests/xtest/case_group_cache.py validate \
+              --directory "$GROUPS_DIR" --expected-sha256 '${{ env.EXPECTED_GROUPS_SHA }}'
+            python3 -S -B pccl/tests/xtest/case_group_cache.py stage \
+              --directory "$GROUPS_DIR" --output "$CASE_INPUT" \
+              --expected-sha256 '${{ env.EXPECTED_GROUPS_SHA }}'
+            tar -xzf "$CACHE_DIR/output_standard.tar.gz" -C "$SHARED_ROOT"
+            test "$(git -C "$build_output/pccl" rev-parse HEAD)" = '${{ github.sha }}'
+            test "$(git -C "$build_output/pccl-tests" rev-parse HEAD)" = '${{ env.PCCL_TESTS_REVISION }}'
+            python3 -m venv /workspace/minimal-csv-cluster-env
+            /workspace/minimal-csv-cluster-env/bin/python -m pip install --disable-pip-version-check \
+              --no-index --find-links "$SOURCE_DIR/deps" \
+              -r "$build_output/pccl/tests/xtest/requirements.txt"
+            /workspace/minimal-csv-cluster-env/bin/python -m pip check
+            source /usr/local/PPU_SDK/envsetup.sh
+            unset PCCL_PATH
+            MPI_INTERFACE=$(awk '$2 == "00000000" {print $1; exit}' /proc/net/route)
+            test -n "$MPI_INTERFACE"
+            test "$NCCL_SOCKET_IFNAME" = "$MPI_INTERFACE"
+            test "$OMPI_MCA_orte_keep_fqdn_hostnames" = 1
+            test "$(wc -l < "$CLUSTER_HOSTS_FILE")" -eq "$NODES"
             /workspace/minimal-csv-cluster-env/bin/python -B \
               "$build_output/pccl/tests/xtest/run_cases.py" \
               --input "$CASE_INPUT/$GROUP_ID" \
@@ -663,6 +824,11 @@ jobs:
         with:
           path: pccl
           persist-credentials: false
+      - uses: t-head/pccl/.github/actions/download-artifact-retry@42c06876282e700ae0434b4577fedd757b6f2db1
+        if: always()
+        with:
+          name: m890p-daily-full-python-deps
+          path: deps
       - id: groups-cache
         name: Check the NAS Case-group cache
         if: always()
@@ -675,7 +841,7 @@ jobs:
           else
             echo 'state=miss' >> "$GITHUB_OUTPUT"
           fi
-      - uses: t-head/pccl/.github/actions/download-artifact-retry@c7eb80eadb2ca48976a02d8f0fcc1c020534ce73
+      - uses: t-head/pccl/.github/actions/download-artifact-retry@42c06876282e700ae0434b4577fedd757b6f2db1
         if: always() && steps.groups-cache.outputs.state == 'miss'
         with:
           name: m890p-daily-case-groups
@@ -716,7 +882,7 @@ jobs:
                         'cache/case-groups/${{ needs.prepare.outputs.groups_sha256 }}')
           groups = json.loads((group_root / 'groups.json').read_text())
           coverage = json.loads((group_root / 'execution-coverage.json').read_text())
-          if coverage['allowed_nodes'] != [1, 2, 4]:
+          if coverage['allowed_nodes'] != [1, 2, 4, 8]:
               raise ValueError('Daily execution coverage uses an unsupported resource policy')
           if any(group['nodes'] not in coverage['allowed_nodes'] for group in groups):
               raise ValueError('An execution group exceeds the daily resource policy')
@@ -775,21 +941,70 @@ jobs:
               print(f'::error::Daily group {group_id} did not reconcile successfully')
           sys.exit(bool(failed))
           PY
-      - uses: actions/upload-artifact@v4
+      - id: results-upload
+        uses: actions/upload-artifact@v4
         if: always()
         with:
           name: m890p-daily-full-results
           path: public-results/
           if-no-files-found: error
           overwrite: true
-          retention-days: 7
+          retention-days: 90
+      - id: performance-report
+        name: Generate the complete performance Excel report
+        if: always()
+        run: |
+          PYTHONPATH=deps/xlsxwriter-3.2.5-py3-none-any.whl \
+            python3 -S -B pccl/tests/xtest/performance_report.py report \
+            --selection /wl_nas/devops/pccl-artifact-cache-${{ github.run_id }}/cache/case-groups/${{ needs.prepare.outputs.groups_sha256 }}/performance-cases.json \
+            --groups /wl_nas/devops/pccl-artifact-cache-${{ github.run_id }}/cache/case-groups/${{ needs.prepare.outputs.groups_sha256 }}/groups.json \
+            --coverage /wl_nas/devops/pccl-artifact-cache-${{ github.run_id }}/cache/case-groups/${{ needs.prepare.outputs.groups_sha256 }}/execution-coverage.json \
+            --results-root /wl_nas/devops/pccl-artifact-cache-${{ github.run_id }}/results/full \
+            --reconciliation-root public-results \
+            --output public-results/PCCL_M890P_daily_perf_${{ github.run_id }}.xlsx \
+            --run-id '${{ github.run_id }}' \
+            --run-url '${{ github.server_url }}/${{ github.repository }}/actions/runs/${{ github.run_id }}' \
+            --dataset '${{ inputs.dataset || (github.event_name == 'schedule' && 'full' || 'smoke') }}' \
+            --source-revision '${{ github.sha }}' \
+            --runner-revision '${{ env.PCCL_TESTS_REVISION }}'
+      - id: performance-upload
+        uses: actions/upload-artifact@v4
+        if: always()
+        with:
+          name: m890p-daily-performance-report
+          path: public-results/PCCL_M890P_daily_perf_*.xlsx
+          if-no-files-found: error
+          overwrite: true
+          retention-days: 90
       - id: cleanup
         name: Remove run-owned NAS build artifacts
         if: always()
+        env:
+          NEEDS: ${{ toJSON(needs) }}
         run: |
-          python3 -S -B pccl/tests/xtest/artifact_cache.py cleanup \
-            --root /wl_nas/devops/pccl-artifact-cache-${{ github.run_id }} \
-            --run-id '${{ github.run_id }}'
+          PRESERVE=$(python3 - <<'PY'
+          import json
+          import os
+
+          needs = json.loads(os.environ['NEEDS'])
+          failed = any(needs[name]['result'] != 'success'
+                       for name in ('prepare', 'build-standard', 'stage-cache', 'execute'))
+          outcomes = ('${{ steps.groups.outcome }}', '${{ steps.reconcile.outcome }}',
+                      '${{ steps.performance-report.outcome }}', '${{ steps.results-upload.outcome }}',
+                      '${{ steps.performance-upload.outcome }}')
+          failed = failed or any(result != 'success' for result in outcomes)
+          print(int(failed))
+          PY
+          )
+          if [ "$PRESERVE" = 1 ]; then
+            python3 -S -B pccl/tests/xtest/artifact_cache.py cleanup \
+              --root /wl_nas/devops/pccl-artifact-cache-${{ github.run_id }} \
+              --run-id '${{ github.run_id }}' --preserve-cache
+          else
+            python3 -S -B pccl/tests/xtest/artifact_cache.py cleanup \
+              --root /wl_nas/devops/pccl-artifact-cache-${{ github.run_id }} \
+              --run-id '${{ github.run_id }}'
+          fi
       - name: Report daily execution and cleanup failures
         if: always()
         env:
@@ -807,6 +1022,7 @@ jobs:
                   failed[name] = needs[name]['result']
           outcomes = {'groups': '${{ steps.groups.outcome }}',
                       'reconcile': '${{ steps.reconcile.outcome }}',
+                      'performance-report': '${{ steps.performance-report.outcome }}',
                       'cleanup': '${{ steps.cleanup.outcome }}'}
           for name, result in outcomes.items():
               if result != 'success':

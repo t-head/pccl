@@ -70,13 +70,17 @@ archive SHA-256, then retains the identity as `build.json` beside the results.
 - `performance`: the above plus a valid performance table and `metrics.csv`.
   There is no baseline, bandwidth, latency or sample-stability gate.
 - A single-node failure does not prevent later Cases from running.
-- A multi-node failure stops later Cases because local process cleanup cannot
-  prove remote MPI rank cleanup. Multi-node commands run only on the master.
+- Multi-node commands run only on the master. After a multi-node Case does not
+  pass, the runner cleans its per-execution-group cgroup on every worker. It
+  continues only when the Case was not cancelled and every worker confirms
+  cleanup. If cleanup cannot be confirmed or the Case was cancelled, all
+  remaining Cases are marked `NOT_RUN`.
 
 `raw.log` is the unmodified diagnostic stream used for checks. Results and raw
 logs must remain in the private results area; this executor intentionally
 has no generic public-log redactor. Infrastructure remains responsible for
-node allocation, MPI/RDMA setup and remote cleanup.
+node allocation and MPI/RDMA setup; the executor owns per-execution-group
+cgroup recovery on every worker.
 
 ## Artifact-backed build distribution
 
@@ -106,25 +110,39 @@ result reconciliation, a final `always()` cleanup removes only this run's
 logs remain intact. Cache reuse is content-verified; file existence alone is
 never sufficient.
 
-## Experimental M890P daily execution
+## M890P daily execution
 
-`daily-minimal-csv` contains 19 smoke Cases on one and two nodes.
-`daily-full-csv` currently contains 8,899 standard Cases from 34 Suites, with
-unsupported or out-of-scope selections recorded in `coverage.json`. The notsm
-daily profile is intentionally empty.
-The current resource policy executes only 1/2/4-node groups: 8,180 Cases in 20
-groups. The 710 eight-node and 9 sixteen-node Cases remain in the export but are
-listed as `EXCLUDED_BY_POLICY` in `execution-coverage.json`; they are not
-reported as passed or skipped tests.
+The `smoke` dataset generates two Cases from the op_perf and postsil families.
+The `full` dataset generates 8,899 standard Cases from 34 Suites, with
+unsupported or out-of-scope source selections recorded in
+`test_lists/source-coverage.json`. The notsm daily profile is intentionally
+empty. Generated CSV is a temporary prepare artifact, not a maintained input.
+The current resource policy executes 1/2/4/8-node groups: 8,890 Cases in 25
+groups. The 9 sixteen-node Cases remain in the export but are listed as
+`EXCLUDED_BY_POLICY` in `execution-coverage.json`; they are not reported as
+passed or skipped tests.
 
 `group_cases.py` derives deterministic execution groups by profile, node count,
-cards per node and shared environment, then splits large groups by
-`--max-cases`. There is no hand-maintained shard list. Optional `--nodes` and
-`--suite` arguments are debug filters, not shard definitions.
+cards per node, shared environment and cross-rack allocation, then splits large
+groups by `--max-cases`. The two-rack performance Suites are isolated from
+ordinary Suites and carry explicit `rack_nodes` allocations in `groups.json`.
+Every other multi-node execution explicitly requests `rack-01=<node-count>` so
+all of its workers stay in rack-01. Single-node executions do not pass
+`rack_nodes`.
+There is no hand-maintained shard list. Optional `--nodes` and `--suite`
+arguments are debug filters, not shard definitions.
 
 ```bash
+python3 -S -B tests/xtest/generate_cases.py \
+  --definition tests/xtest/test_lists/op_perf_shm.json \
+  --definition tests/xtest/test_lists/postsil_daily_shm.json \
+  --suites tests/xtest/test_lists/suites.json \
+  --env-root tests/xtest/test_lists/envs \
+  --profile smoke --source-revision 1111111111111111111111111111111111111111 \
+  --runner-revision 2222222222222222222222222222222222222222 \
+  --output /tmp/daily-case-input
 python3 -S -B tests/xtest/group_cases.py \
-  --input tests/xtest/daily-minimal-csv \
+  --input /tmp/daily-case-input \
   --output /tmp/daily-case-groups --max-cases 500
 ```
 
@@ -135,7 +153,7 @@ backup with an atomic, interprocess-locked publication; an invalid tree is
 quarantined rather than deleted while readers may still use it. Every execution
 group creates a private, revalidated, read-only copy before running any Case, so
 concurrent recovery cannot change the commands or environment being executed.
-Build and group downloads use bounded retries, artifacts are retained for seven
+Build and group downloads use bounded retries, artifacts are retained for 90
 days, and no cache is shared across workflow runs.
 
 `daily_reconcile.py` checks exact Case coverage, result records, raw logs,

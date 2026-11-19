@@ -1,0 +1,63 @@
+{
+  "schema_version": 2,
+  "family": "sanity_m890p_register",
+  "defaults": {
+    "check": "exit_code",
+    "case_name": "test_op_{operation}_algo_{algorithm}_proto_{protocol}_datatype_{dtype}_datasize_{size}_iters_{iters}_ranks_{ranks}_{layout}",
+    "command": "python3 run_test.py --op {operation} --algo {algorithm} --proto {protocol} --data-type {dtype} --data-size {size} --iters {iters} --ranks {ranks} {options} --auto-detect --register 1"
+  },
+  "axes": {
+    "operation": ["all_gather_perf", "all_reduce_perf", "alltoall_perf", "gather_perf", "scatter_perf", "sendrecv_perf"],
+    "algorithm": ["Auto", "Ring"],
+    "protocol": ["Auto", "Simple"],
+    "dtype": ["float", "int8"],
+    "size": ["32MB"],
+    "iters": [10]
+  },
+  "layouts": {
+    "auto": [
+      {"name": "nproc_1_threads_2", "values": {"ranks": 2, "nproc": 1, "threads": 2}},
+      {"name": "nproc_2_threads_1", "values": {"ranks": 2, "nproc": 2, "threads": 1}}
+    ],
+    "devices": [
+      {"name": "devices_0_1", "values": {"ranks": 2, "devices": "0,1"}}
+    ]
+  },
+  "bindings": {
+    "1": {"plan": "sanity_m890p_single_node_plan", "suite": "sanity_m890p_register_suite"}
+  },
+  "groups": [
+    {
+      "name": "auto", "nodes": [1], "layout_set": "auto",
+      "axes": ["operation", "algorithm", "protocol", "dtype", "size", "iters"],
+      "select": {
+        "operation": ["all_gather_perf", "all_reduce_perf", "alltoall_perf"],
+        "algorithm": ["Auto"], "protocol": ["Auto"], "dtype": ["float"], "size": ["32MB"], "iters": [10]
+      }
+    },
+    {
+      "name": "simple", "nodes": [1], "layout_set": "devices",
+      "axes": ["operation", "algorithm", "protocol", "dtype", "size", "iters"],
+      "select": {
+        "operation": ["gather_perf", "scatter_perf", "sendrecv_perf"],
+        "algorithm": ["Ring"], "protocol": ["Simple"], "dtype": ["int8"], "size": ["32MB"], "iters": [10]
+      }
+    }
+  ],
+  "profiles": {
+    "full": {},
+    "smoke": {
+      "filters": {"operation": ["all_reduce_perf"], "algorithm": ["Auto"], "layout": ["nproc_1_threads_2"]}
+    }
+  },
+  "provenance": {
+    "source_revision": "80738685d8b2e2066223119594805e5255f4a8c8",
+    "source_selection": "m890p_daily_standard_full",
+    "source_case_count": 9,
+    "source_rows_sha256": "339185c7e01bcf945d66c42777b40634b9992fe989943f2eaeec7447ec04e234",
+    "source_suites": [
+      "sanity_m890p_single_node_plan/sanity_m890p_register_suite"
+    ],
+    "validation": "exact-real-runner-capture"
+  }
+}

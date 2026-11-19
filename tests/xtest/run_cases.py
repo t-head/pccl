@@ -9,6 +9,7 @@ Raw logs are private diagnostic output and are never generically redacted.
 """
 
 import argparse
+from concurrent.futures import ThreadPoolExecutor
 import csv
 from decimal import Decimal, InvalidOperation
 import json
@@ -20,6 +21,7 @@ import signal
 import subprocess
 import sys
 import time
+import uuid
 
 import artifact_cache
 
@@ -221,7 +223,7 @@ def _group_exists(pgid):
 
 
 def _stop_group(process, grace=0.5):
-    """Stop the local process group; remote MPI rank cleanup is infrastructure-owned."""
+    """Stop the process group; detached Case processes are cleaned by cgroup recovery."""
     pgid = process.pid
     existed = _group_exists(pgid)
     group_error = None
@@ -269,8 +271,8 @@ def _number(value):
     return str(result)
 
 
-def parse_performance(text):
-    """Parse observed dual-layout benchmark tables without a performance gate."""
+def parse_performance(text, allow_unsupported=False, skip_malformed=False):
+    """Parse dual-layout tables, with opt-in report tolerance only."""
     rows = []
     header = None
     for line_number, raw in enumerate(text.splitlines(), 1):
@@ -289,18 +291,38 @@ def parse_performance(text):
         if header is None:
             continue
         if len(tokens) != 13 or not re.fullmatch(r"[0-9]+", tokens[1]):
+            if skip_malformed:
+                continue
             raise ValueError("Truncated or malformed performance table row")
+        if skip_malformed and not re.fullmatch(r"-?[0-9]+", tokens[4]):
+            continue
+        parsed_row = []
+        malformed = False
         for offset, current in ((5, "out-of-place"), (9, "in-place")):
             wrong = tokens[offset + 3]
-            if not re.fullmatch(r"[0-9]+", wrong):
+            if not re.fullmatch(r"[0-9]+", wrong) and not (allow_unsupported and wrong == "N/A"):
+                if skip_malformed:
+                    malformed = True
+                    break
                 raise ValueError("Performance #wrong value must be numeric")
-            if int(wrong) != 0:
+            if wrong != "N/A" and int(wrong) != 0:
                 raise ValueError("Performance data validation reported wrong values")
-            rows.append({"size": tokens[0], "count": tokens[1], "type": tokens[2],
-                         "redop": tokens[3], "root": tokens[4], "placement": current,
-                         "time_kind": header[6], "time": _number(tokens[offset]),
-                         "algbw": _number(tokens[offset + 1]), "busbw": _number(tokens[offset + 2]),
-                         "wrong": wrong, "source_line": line_number})
+            try:
+                values = (_number(tokens[offset]), _number(tokens[offset + 1]),
+                          _number(tokens[offset + 2]))
+            except ValueError:
+                if skip_malformed:
+                    malformed = True
+                    break
+                raise
+            parsed_row.append({"size": tokens[0], "count": tokens[1], "type": tokens[2],
+                               "redop": tokens[3], "root": tokens[4], "placement": current,
+                               "time_kind": header[6], "time": values[0],
+                               "algbw": values[1], "busbw": values[2],
+                               "wrong": wrong, "source_line": line_number})
+        if malformed:
+            continue
+        rows.extend(parsed_row)
     if header is None or not rows:
         raise ValueError("Missing performance table or measurements")
     return rows
@@ -350,8 +372,13 @@ def run_case(case, runtime, interrupted):
             _environment_file(runtime["input"] / "envs" / suite["env"]), runtime["base_environment"], bindings)
         # Keep the build ahead of inherited installations while retaining the
         # exported SDK path order after it.
+        if suite["nodes"] > 1:
+            environment["PCCL_CASE_ID"] = runtime["recovery_id"]
         environment["PATH"] = (str(runtime["binary_dir"]) + os.pathsep
                                + str(runtime["python_bin"]) + os.pathsep + environment.get("PATH", ""))
+        if suite["nodes"] > 1:
+            environment["PATH"] = str(runtime["test_root"] / "pccl" / "tests" / "xtest" / "cluster-bin") \
+                + os.pathsep + environment["PATH"]
         environment["LD_LIBRARY_PATH"] = str(runtime["test_root"] / "lib") + os.pathsep + environment.get(
             "LD_LIBRARY_PATH", "")
         environment["PYTHONUNBUFFERED"] = "1"
@@ -368,8 +395,13 @@ def run_case(case, runtime, interrupted):
         command = _substitute(case["cmd"], command_bindings)
         _stage_work(work, runtime["runner_root"], runtime["binary_dir"], runtime["hostfile"])
         (directory / "command.txt").write_text(command + "\n", encoding="utf-8")
+        popen_command = ["/bin/sh", "-c", command]
+        if suite["nodes"] > 1:
+            launcher = runtime["test_root"] / "pccl" / "tests" / "xtest" / "remote_recovery.py"
+            popen_command = [sys.executable, str(launcher), "--case-id", runtime["recovery_id"],
+                             f"--launch={command}"]
         with log_path.open("wb") as output:
-            process = subprocess.Popen(["/bin/sh", "-c", command], cwd=work, env=environment,
+            process = subprocess.Popen(popen_command, cwd=work, env=environment,
                                        stdout=output, stderr=subprocess.STDOUT, start_new_session=True)
             deadline = time.monotonic() + suite["timeout"]
             while True:
@@ -420,6 +452,57 @@ def _not_run(case, reason):
             "duration_seconds": 0, "error": reason, "raw_log": ""}
 
 
+def _remote_recovery(host, script, case_id):
+    command = ["timeout", "-k", "2s", "10s", "cluster-exec", host,
+               "python3", str(script), "--case-id", case_id]
+    try:
+        result = subprocess.run(command, stdin=subprocess.DEVNULL, capture_output=True,
+                                text=True, timeout=15)
+    except (OSError, subprocess.TimeoutExpired) as error:
+        return {"safe": False, "errors": [str(error)]}
+    lines = [line for line in result.stdout.splitlines() if line.strip()]
+    try:
+        report = json.loads(lines[-1])
+    except (IndexError, json.JSONDecodeError):
+        report = {"safe": False,
+                  "errors": [f"Invalid remote recovery output: {result.stdout[-500:]}{result.stderr[-500:]}"]}
+    if not isinstance(report, dict) or type(report.get("safe")) is not bool:
+        report = {"safe": False,
+                  "errors": [f"Invalid remote recovery response: {result.stdout[-500:]}{result.stderr[-500:]}"]}
+    if result.returncode != 0 and "errors" not in report:
+        report["errors"] = [f"Remote recovery exited with {result.returncode}: {result.stderr[-500:]}"]
+    if result.returncode != 0:
+        report["safe"] = False
+    return report
+
+
+def _recover_multinode(case, runtime, row):
+    """Confirm remote Case processes are gone; never perform another MPI health probe."""
+    hosts = []
+    for line in Path(runtime["hostfile"]).read_text().splitlines():
+        fields = line.split()
+        if fields and not fields[0].startswith("#"):
+            hosts.append(fields[0])
+    script = runtime["test_root"] / "pccl" / "tests" / "xtest" / "remote_recovery.py"
+    report = {"safe": False, "case_id": runtime["recovery_id"], "workers": {}}
+    if not hosts or not script.is_file():
+        report["error"] = "Missing allocated workers or remote recovery helper"
+    else:
+        with ThreadPoolExecutor(max_workers=len(hosts)) as executor:
+            results = executor.map(
+                lambda host: _remote_recovery(host, script, runtime["recovery_id"]), hosts)
+            report["workers"] = dict(zip(hosts, results))
+        report["safe"] = all(worker.get("safe") is True for worker in report["workers"].values())
+    directory = runtime["output"] / case["plan"] / case["suite"] / case["name"]
+    _write_json(directory / "recovery.json", report)
+    for host, worker in report["workers"].items():
+        residual = len(worker.get("remaining", worker.get("before", [])))
+        print(f"Remote recovery {host}: safe={worker.get('safe')} candidates={residual}", flush=True)
+    if not report["safe"]:
+        print("Remote recovery report: " + json.dumps(report, sort_keys=True), flush=True)
+    return report["safe"]
+
+
 def _write_summary(output, rows):
     by_key = {(row["plan"], row["suite"], row["name"]): row for row in rows}
     if len(by_key) != len(rows):
@@ -450,12 +533,19 @@ def run_all(inputs, test_root, binary_dir, output, hostfile=None, base_environme
     if any(case["suite_spec"]["nodes"] > 1 for case in inputs["cases"]):
         if hostfile is None or not hostfile.is_file():
             raise ValueError("Multi-node Cases require an allocated hostfile")
+        for relative in ("cluster-bin/cluster-ssh", "cluster-bin/cluster-exec",
+                         "cluster-bin/cluster_case_ssh.sh", "remote_recovery.py"):
+            if not (test_root / "pccl" / "tests" / "xtest" / relative).is_file():
+                raise ValueError(f"Multi-node recovery helper is missing: {relative}")
+        if any("/run/cluster/bin/" in case["cmd"] for case in inputs["cases"]):
+            raise ValueError("Absolute cluster-ssh paths bypass per-Case cgroup ownership")
     output.mkdir(parents=True, exist_ok=False)
     _write_json(output / "build.json", build_identity)
     runtime = {"test_root": test_root, "binary_dir": binary_dir, "runner_root": _runner_root(test_root),
                "output": output, "hostfile": hostfile, "input": inputs["directory"],
                "python_bin": _stage_interpreter(output), "mpi_interface": mpi_interface,
-               "base_environment": dict(os.environ if base_environment is None else base_environment)}
+               "base_environment": dict(os.environ if base_environment is None else base_environment),
+               "recovery_id": uuid.uuid4().hex}
     interrupted = [None]
 
     def cancel(signum, frame):
@@ -475,9 +565,11 @@ def run_all(inputs, test_root, binary_dir, output, hostfile=None, base_environme
             print(f'[{len(rows)}/{len(inputs["cases"])}] '
                   f'{case["plan"]}/{case["suite"]}/{case["name"]}: {row["status"]}', flush=True)
             if row["status"] != "PASSED" and case["suite_spec"]["nodes"] > 1:
-                reason = "Stopped after a multi-node failure; remote rank cleanup is not locally provable"
-                rows.extend(_not_run(remaining, reason) for _, remaining in ordered[len(rows):])
-                break
+                recovered = _recover_multinode(case, runtime, row)
+                if not recovered or row["status"] == "CANCELLED":
+                    reason = "Stopped after multi-node recovery failure; remote process cleanup is not confirmed"
+                    rows.extend(_not_run(remaining, reason) for _, remaining in ordered[len(rows):])
+                    break
     finally:
         for sig, handler in previous.items():
             signal.signal(sig, handler)
