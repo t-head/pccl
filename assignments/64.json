@@ -2,18 +2,18 @@
   "classification": {
     "base_sha": "8aa6e1d4f0978571a3958bbc20c725607d1b4890",
     "head_sha": "dc801b8af0ced46355e7f1d6b227a7481755625f",
-    "input_fingerprint": "fd7a6bc0cc2b7a915527ff39791c3444701eec1e37fc56eee2508a8518ac865b",
+    "input_fingerprint": "035b3f8e6cf793a24d5f42263e0e3bda13b899cfeddeb1814a28cf6e102e86c3",
     "pr_number": 64,
     "proposal": {
       "modules": [
         "communicator",
         "enqueue",
-        "profiler",
+        "network",
         "copy-engine",
         "device-api",
-        "gin"
+        "other"
       ],
-      "reason": "Main change is new host one-sided public APIs (pcclPutSignal/pcclSignal/pcclWaitSignal), config surface (numRmaCtx), and communicator property reporting, so device-api is primary. enqueue is needed for new RMA task types and plan scheduling/launch integration; copy-engine is needed for the in-node CE put/wait execution path and signal synchronization; gin is needed for the cross-node RMA proxy path, GIN proxy wrappers, plugin loading/selection, and progress logic; communicator is needed for capability negotiation, config parsing/defaults/version gating, async-error/free lifecycle wiring, and per-comm RMA state; profiler is needed for new RMA API event types and descriptors."
+      "reason": "Primary change adds new host one-sided RMA APIs (PutSignal/Signal/WaitSignal) and semantics that are not explicitly covered by a catalog module, so `other` is needed. `enqueue` is required for new RMA task validation/planning/scheduling and launch routing; `network` for GIN proxy plugin/loading/context/progress and cross-node RMA path; `copy-engine` for in-node CE-based RMA put/wait signal execution; `device-api` for symmetric-window/LSA registration and RMA window-handle integration; and `communicator` for numRmaCtx config parsing, capability negotiation, lifecycle/finalization, and async error plumbing."
     }
   },
   "reviewers": {
