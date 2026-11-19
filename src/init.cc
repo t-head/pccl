@@ -1226,7 +1226,6 @@ static ncclResult_t initTransportsRank(ncclComm_t comm, ncclComm_t parent, uint6
     int hggcCompCap;
     int nChannels;
     int nGraphChannels;
-    int p2pnChannelsPerPeer;
     int ceAutoAllGatherEligible;
     struct graphInfo graphInfo[NCCL_ALGO_COLLNET + 1];
     struct ncclTopoRanks topoRanks;
@@ -1422,9 +1421,6 @@ static ncclResult_t initTransportsRank(ncclComm_t comm, ncclComm_t parent, uint6
     NCCLCHECKGOTO(ncclTopoDumpGraphs(comm->topo, 3, graphs), res, fail);
   }
 
-  // Compute nChannels per peer for p2p
-  NCCLCHECK(ncclTopoComputeP2pChannelsPerPeer(comm));
-
   timers[TIMER_INIT_CONNECT] = clockNano();
   // AllGather3 - begin
 
@@ -1444,7 +1440,6 @@ static ncclResult_t initTransportsRank(ncclComm_t comm, ncclComm_t parent, uint6
     allGather3Data[rank].graphInfo[a].typeIntra = graphs[a]->typeIntra;
     allGather3Data[rank].graphInfo[a].typeInter = graphs[a]->typeInter;
   }
-  allGather3Data[rank].p2pnChannelsPerPeer = comm->p2pnChannelsPerPeer;
 
   NCCLCHECKGOTO(ncclTopoPreset(comm, treeGraph, ringGraph, collNetGraph, fcGraph, &allGather3Data[rank].topoRanks), res, fail);
 
@@ -1541,7 +1536,6 @@ static ncclResult_t initTransportsRank(ncclComm_t comm, ncclComm_t parent, uint6
       graphs[a]->typeIntra = std::max(allGather3Data[i].graphInfo[a].typeIntra, graphs[a]->typeIntra);
       graphs[a]->typeInter = std::max(allGather3Data[i].graphInfo[a].typeInter, graphs[a]->typeInter);
     }
-    comm->p2pnChannelsPerPeer = std::min(comm->p2pnChannelsPerPeer, allGather3Data[i].p2pnChannelsPerPeer);
   }
 
   if (comm->nChannels < nChannelsOrig) {

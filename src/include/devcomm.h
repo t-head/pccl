@@ -292,11 +292,7 @@ struct alignas(16) ncclDevWorkBatch {
 
 __device__ __forceinline__ constexpr int ncclCollUnroll() {
 #if defined(__HGGC_ARCH__)
-#if __HGGC_ARCH__ >= 150
-  return 4;
-#else
   return 2;
-#endif
 #else
   return 8;
 #endif

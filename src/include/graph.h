@@ -33,7 +33,6 @@ ncclResult_t ncclTopoTrimSystem(struct ncclTopoSystem* system, ncclComm_t comm);
 ncclResult_t ncclTopoAdjustSystemImpl(struct ncclTopoSystem* system);
 ncclResult_t ncclTopoAdjustSystem(struct ncclTopoSystem* system);
 ncclResult_t ncclTopoComputeP2pChannels(ncclComm_t comm);
-ncclResult_t ncclTopoComputeP2pChannelsPerPeer(ncclComm_t comm);
 
 // Query topology
 ncclResult_t ncclTopoGetMinPaths(struct ncclTopoSystem* system, int id1, int id2, int* minPathNum);
