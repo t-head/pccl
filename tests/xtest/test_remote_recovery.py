@@ -105,12 +105,31 @@ class RemoteRecoveryTests(unittest.TestCase):
         command = calls.read_text()
         self.assertIn(f'pccl-recovery-{CASE_ID}', command)
         self.assertIn('cgroup.procs', command)
+        self.assertIn("' || exit; sleep 1", command)
         self.assertIn("sleep 1", command)
         environment['PCCL_CASE_ID'] = 'invalid'
         result = subprocess.run([str(wrapper), '/x/cluster-ssh', 'worker.example', 'sleep', '1'],
                                 env=environment, capture_output=True, text=True)
         self.assertEqual(result.returncode, 64)
         self.assertEqual(calls.read_text(), command)
+
+    def test_wrapper_refuses_remote_command_when_cgroup_setup_fails(self):
+        marker = self.root / 'must-not-run'
+        real_ssh = self.root / 'real-ssh'
+        real_ssh.write_text('#!/bin/bash\n/bin/bash -c "${@: -1}"\n')
+        real_ssh.chmod(0o755)
+        blocked_cgroup = self.root / 'not-a-directory'
+        blocked_cgroup.write_text('')
+        wrapper = self.root / 'cluster_case_ssh.sh'
+        wrapper.write_text(WRAPPER.read_text().replace(
+            'REAL_SSH=/run/cluster/bin/cluster-ssh', f'REAL_SSH={real_ssh}').replace(
+            'cgroup="/sys/fs/cgroup/pccl-recovery-$PCCL_CASE_ID"', f'cgroup={blocked_cgroup}'))
+        wrapper.chmod(0o755)
+        result = subprocess.run(
+            [str(wrapper), '/x/cluster-ssh', 'worker.example', 'touch', str(marker)],
+            env=dict(os.environ, PCCL_CASE_ID=CASE_ID), capture_output=True, text=True)
+        self.assertNotEqual(result.returncode, 0)
+        self.assertFalse(marker.exists())
 
 
 if __name__ == '__main__':

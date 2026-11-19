@@ -42,7 +42,7 @@ else
     command="$*"
 fi
 cgroup="/sys/fs/cgroup/pccl-recovery-$PCCL_CASE_ID"
-remote="mkdir -p '$cgroup'; printf '%s\\n' \"\$\$\" > '$cgroup/cgroup.procs'; $command"
+remote="mkdir -p '$cgroup' && printf '%s\\n' \"\$\$\" > '$cgroup/cgroup.procs' || exit; $command"
 if (( ${#options[@]} > 0 )); then
     exec "$REAL_SSH" "${options[@]}" "$host" "$remote"
 else
