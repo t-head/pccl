@@ -1,8 +1,8 @@
 {
   "classification": {
-    "base_sha": "2371005caa2fa51f8970e116af2041f6d1f38cdb",
-    "head_sha": "7b433937b5414fad1bad3aeba64a6bc6b2d882b3",
-    "input_fingerprint": "efcbb589c102d88aecef99938fb1b487db58902a4476dc05b1b9f3531163f555",
+    "base_sha": "0da8662eb0e6d164ebd790d4a45b6007314a8b10",
+    "head_sha": "e0e55df94c73db2420dc3114ff0aabff2a7fa1f7",
+    "input_fingerprint": "b16829b5c7f9254383c85bbcfe56fd32bb2f938fbe100fc1d5f73030ed04a627",
     "pr_number": 174,
     "proposal": {
       "modules": [
@@ -11,9 +11,10 @@
         "tuning",
         "enqueue",
         "network",
-        "kernels"
+        "kernels",
+        "tuner-plugin"
       ],
-      "reason": "Primary change removes CollNet network transport/plugin/proxy execution paths while preserving compatibility IDs and interfaces. Additional substantive work removes CollNet device-kernel implementations/tables, deletes CollNet graph construction/connection logic, changes NIC/topology discovery data that previously carried CollNet capability, and updates tuning plus enqueue selection/chunking/plugin-fallback logic so algorithm slot 2 stays reserved but non-executable."
+      "reason": "Main change is removing CollNet transport/plugin/proxy functionality and related backend state (`network`). Independently substantive changes also remove CollNet device-kernel implementations while keeping the reserved algorithm slot (`kernels`), remove CollNet logical graph construction/connection (`graph-search`) and CollNet-specific NIC/topology capability discovery fields (`device-topology`), and update built-in selection/runtime planning plus external tuner callback handling so CollNet (slot 2) is reserved/unsupported and invalid tuner IDs fall back to internal tuning (`tuning`, `enqueue`, `tuner-plugin`)."
     }
   },
   "reviewers": {
