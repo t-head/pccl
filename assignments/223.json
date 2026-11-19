@@ -1,0 +1,17 @@
+{
+  "classification": {
+    "base_sha": "50423c27f1dc6a6ef765f20e504c47f561d948f9",
+    "head_sha": "246472e9c3d2523dcbd9bda9d92fd53f9d5b1206",
+    "input_fingerprint": "9a2fe55262afc4e765d38957044a47450fc4444f8b457f28db23cccd1d6857d6",
+    "pr_number": 223,
+    "proposal": {
+      "modules": [
+        "ci"
+      ],
+      "reason": "PR changes are centered on open-source test workflow behavior: it adds the native unit test family to M890P daily smoke/full generation, updates suite/resource selection metadata and assertions, and adjusts workflow build staging to include native unit test binaries for execution. No PCCL runtime/module implementation changes are shown."
+    }
+  },
+  "reviewers": {
+    "ci": 333302477
+  }
+}
