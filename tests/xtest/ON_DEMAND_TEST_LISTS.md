@@ -86,6 +86,7 @@ Both dispatch choices accept an optional `hpn_sdk_url`. Empty uses the HPN SDK
 already installed in `VALIDATION_IMAGE`; a nonempty trusted URL is downloaded
 and installed once per worker before building or testing. Installation failure
 is fatal and never falls back to the image package. One run uses one URL.
+Signed URL query parameters and fragments are redacted from logs and reports.
 
 Each generated bundle contains `generation.json` with definition and Suite
 hashes, the selected profile, and the exact Case-key hash. The workflow copies

@@ -18,12 +18,22 @@ import json
 from pathlib import Path
 import re
 import shlex
+from urllib.parse import urlsplit, urlunsplit
 from zoneinfo import ZoneInfo
 
 import run_cases
 
 
 SCHEMA_VERSION = 1
+
+
+def public_hpn_sdk_url(url):
+    if not url:
+        return "image-builtin"
+    parsed = urlsplit(url)
+    return urlunsplit((parsed.scheme, parsed.netloc, parsed.path, "", ""))
+
+
 OP_PERF_SUITES = {
     "op_perf_shm_single_node_suite",
     "op_perf_shm_multi_nodes2_suite",
@@ -749,7 +759,7 @@ def main():
     metadata = {
         "run_id": args.run_id, "run_url": args.run_url, "dataset": args.dataset,
         "source_revision": args.source_revision, "runner_revision": args.runner_revision,
-        "image": args.image, "hpn_sdk_url": args.hpn_sdk_url or "image-builtin",
+        "image": args.image, "hpn_sdk_url": public_hpn_sdk_url(args.hpn_sdk_url),
         "generated_at": datetime.now(ZoneInfo("Asia/Shanghai")).isoformat(timespec="seconds"),
     }
     report_value = collect_report(args.selection, args.groups, args.coverage, args.results_root,

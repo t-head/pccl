@@ -259,7 +259,7 @@ class WorkflowContractTests(unittest.TestCase):
                 self.assertIn(f"-p '{module}'", prepare)
 
     def test_hpn_sdk_url_is_optional_and_connected_to_every_hardware_step(self):
-        daily = (ROOT / '.github/workflows/m890p-daily-full.yml').read_text()
+        daily = (ROOT / '.github/workflows/m890p-daily-full.yml').read_text(encoding='utf-8')
         for workflow in (self.text, daily):
             self.assertIn('hpn_sdk_url:', workflow)
             self.assertIn("HPN_SDK_URL: ${{ inputs.hpn_sdk_url || '' }}", workflow)

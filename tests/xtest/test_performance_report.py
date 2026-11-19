@@ -724,6 +724,11 @@ class PerformanceReportTests(unittest.TestCase):
                 self.assertEqual(metadata['image'], 'registry.example/ppu:test')
                 self.assertEqual(metadata['hpn_sdk_url'], url or 'image-builtin')
 
+    def test_report_cli_redacts_hpn_sdk_url_credentials(self):
+        url = 'https://zone-ci.oss-cn-hangzhou.aliyuncs.com/hpn-sdk/sdk.bin?Signature=secret'
+        self.assertEqual(performance_report.public_hpn_sdk_url(url), url.split('?', 1)[0])
+        self.assertEqual(performance_report.public_hpn_sdk_url(''), 'image-builtin')
+
     @unittest.skipUnless(importlib.util.find_spec("xlsxwriter"), "XlsxWriter is not installed")
     def test_workbook_is_a_valid_xlsx_artifact(self):
         output = self.root / "performance-report.xlsx"
