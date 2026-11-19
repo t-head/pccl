@@ -30,5 +30,5 @@ installer=$(mktemp /tmp/hpnsdk.XXXXXX)
 trap 'rm -f "$installer"' EXIT
 printf 'HPN SDK URL: %s\n' "$url"
 wget --tries=3 --timeout=60 --waitretry=5 -O "$installer" "$url"
-bash "$installer" install --force
+bash "$installer" --install --force
 echo 'HPN SDK installation completed'

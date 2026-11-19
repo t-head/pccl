@@ -59,9 +59,9 @@ class HpnSdkInstallTests(unittest.TestCase):
         self.assertIn(URL, result.stdout)
         self.assertIn(URL, self.wget.read_text())
         self.assertIn('--tries=3', self.wget.read_text())
-        self.assertIn('install --force', self.install.read_text())
+        self.assertIn('--install --force', self.install.read_text())
         self.assertEqual(self.wget.read_text().count(URL), 1)
-        self.assertEqual(self.install.read_text().count('install --force'), 1)
+        self.assertEqual(self.install.read_text().count('--install --force'), 1)
 
     def test_untrusted_or_non_https_urls_fail_before_download(self):
         for url in ('http://zone-ci.oss-cn-hangzhou.aliyuncs.com/hpn-sdk/sdk.bin',
