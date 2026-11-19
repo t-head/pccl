@@ -192,10 +192,15 @@ class DailySmokeTests(unittest.TestCase):
 
     def test_native_unit_binaries_are_built_into_the_existing_artifact(self):
         text = BUILD_SCRIPT.read_text()
+        make_command = text.split('make -C ${source_home}/pccl/tests/unit_test/src', 1)[1].split(
+            'cp ${NATIVE_UNIT_BUILD}', 1)[0]
+        copy_command = text.split('cp ${NATIVE_UNIT_BUILD}', 1)[1].split('\n\necho', 1)[0]
         for binary in ('collPcclUnitTest', 'hggcGraphUnitTest', 'pcclCommAbortTest'):
-            self.assertIn(f'${{NATIVE_UNIT_BUILD}}/{binary}', text)
+            with self.subTest(binary=binary):
+                self.assertIn(f'${{NATIVE_UNIT_BUILD}}/{binary}', make_command)
+                self.assertIn(f'${{NATIVE_UNIT_BUILD}}/{binary}', copy_command)
         self.assertIn('PPU_ARCHS=ppu_10,ppu_15 MPI=1', text)
-        self.assertIn('${source_home}/pccl-tests/build/', text)
+        self.assertIn('${source_home}/pccl-tests/build/', copy_command)
         self.assertGreater(text.index('Build PCCL native unit tests'), text.index('Build pccl-tests'))
 
     def test_full_workflow_is_grouped_daily_execution_not_a_pr_gate(self):
