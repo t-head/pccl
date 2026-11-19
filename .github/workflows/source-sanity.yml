@@ -473,6 +473,9 @@ jobs:
   single-node:
     name: Single-node CSV (${{ matrix.platform }} / ${{ matrix.profile }})
     needs: [prepare, human-review, build-standard, build-notsm, stage-cache]
+    concurrency:
+      group: ${{ matrix.platform == 'oam810e_eic' && 'pccl-oam810e-eic-hardware' || format('pccl-pr-single-{0}-{1}', github.run_id, matrix.profile) }}
+      cancel-in-progress: false
     if: >-
       !cancelled() && needs.prepare.result == 'success' &&
       (needs.human-review.result == 'success' ||
@@ -638,6 +641,9 @@ jobs:
   two-node:
     name: Two-node master-only CSV (${{ matrix.platform }})
     needs: [prepare, human-review, build-standard, stage-cache]
+    concurrency:
+      group: ${{ matrix.platform == 'oam810e_eic' && 'pccl-oam810e-eic-hardware' || format('pccl-pr-two-node-{0}', github.run_id) }}
+      cancel-in-progress: false
     if: >-
       !cancelled() && needs.prepare.result == 'success' &&
       (needs.human-review.result == 'success' ||
