@@ -1,0 +1,21 @@
+{
+  "classification": {
+    "base_sha": "506c3b02235e24dc2a3f127fbb9ed64eef756485",
+    "head_sha": "83bdc5c1d50d95be4bfec01d9bdcc74ec6ea4e2d",
+    "input_fingerprint": "45a8b8f74271516aefc9a44a25fe67d522fdb93fa9f34f26e9f742eaf17acc08",
+    "pr_number": 218,
+    "proposal": {
+      "modules": [
+        "device-topology",
+        "communicator",
+        "enqueue"
+      ],
+      "reason": "Main change is communicator configuration lifecycle: new config fields are parsed/validated, defaulted, env-overridden, stored, and synchronized across ranks in init/comm structures. Add enqueue because graphUsageMode now changes strong-stream graph/uncaptured synchronization semantics (capture/mixing behavior) across strongstream, enqueue, and channel stream operations. Add device-topology because P2P channel-per-peer and peer-budget computation was substantively changed in topology path/channel logic (including maxP2pPeers and nChannelsPerNetPeer effects), not just mechanical call-site edits."
+    }
+  },
+  "reviewers": {
+    "communicator": 340404662,
+    "device-topology": 341349555,
+    "enqueue": 341355176
+  }
+}
