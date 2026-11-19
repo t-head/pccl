@@ -993,7 +993,7 @@ jobs:
           print(int(failed))
           PY
           )
-          if [[ "$PRESERVE" == 1 ]]; then
+          if [ "$PRESERVE" = 1 ]; then
             python3 -S -B pccl/tests/xtest/artifact_cache.py cleanup \
               --root /wl_nas/devops/pccl-artifact-cache-${{ github.run_id }} \
               --run-id '${{ github.run_id }}' --preserve-cache

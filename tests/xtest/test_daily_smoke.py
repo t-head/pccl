@@ -248,6 +248,8 @@ class DailySmokeTests(unittest.TestCase):
         self.assertNotIn('chmod -R a+rwX "$CACHE_DIR"', text)
         self.assertNotIn('chmod -R a+rwX "$BUILD_CACHE"', text)
         self.assertIn('--preserve-cache', text)
+        self.assertIn('[ "$PRESERVE" = 1 ]', text)
+        self.assertNotIn('[[ "$PRESERVE" == 1 ]]', text)
         self.assertIn("'groups.json').read_text())", text)
         self.assertIn('daily_reconcile.py', text)
         self.assertIn('Daily grouped result summary and NAS cleanup', text)
