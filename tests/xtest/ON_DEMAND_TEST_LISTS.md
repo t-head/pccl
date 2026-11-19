@@ -72,6 +72,11 @@ The workflow supports two `workflow_dispatch` choices:
 The 22:00 Asia/Shanghai schedule selects `full`, which uses the same JSON
 generation path as manual dispatch. No legacy daily CSV dataset remains.
 
+Both dispatch choices accept an optional `hpn_sdk_url`. Empty uses the HPN SDK
+already installed in `VALIDATION_IMAGE`; a nonempty trusted URL is downloaded
+and installed once per worker before building or testing. Installation failure
+is fatal and never falls back to the image package. One run uses one URL.
+
 Each generated bundle contains `generation.json` with definition and Suite
 hashes, the selected profile, and the exact Case-key hash. The workflow copies
 it into the Case-groups artifact. `export.json` retains the existing consumer
@@ -111,6 +116,9 @@ required. Report generation is part of the final failure summary, so a missing
 required report cannot pass silently.
 
 ## Validation boundary
+
+The performance workbook's `Metadata` sheet records the selected image and
+effective HPN SDK URL, or `image-builtin` when no override was supplied.
 
 Tests compare every generated row with the source-export digests: all 8,899
 Cases and all 34 Suite definitions match,

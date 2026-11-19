@@ -739,6 +739,8 @@ def main():
     report.add_argument("--dataset", required=True)
     report.add_argument("--source-revision", required=True)
     report.add_argument("--runner-revision", required=True)
+    report.add_argument("--image", default="")
+    report.add_argument("--hpn-sdk-url", default="")
     args = parser.parse_args()
     if args.command == "selection":
         manifest = write_selection(args.input, args.profile, args.output)
@@ -747,6 +749,7 @@ def main():
     metadata = {
         "run_id": args.run_id, "run_url": args.run_url, "dataset": args.dataset,
         "source_revision": args.source_revision, "runner_revision": args.runner_revision,
+        "image": args.image, "hpn_sdk_url": args.hpn_sdk_url or "image-builtin",
         "generated_at": datetime.now(ZoneInfo("Asia/Shanghai")).isoformat(timespec="seconds"),
     }
     report_value = collect_report(args.selection, args.groups, args.coverage, args.results_root,
