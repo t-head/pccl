@@ -2,14 +2,14 @@
   "classification": {
     "base_sha": "a909809e63dbf891101c88d45c0b78bfe628fab6",
     "head_sha": "f92857a81d226b02483b170c305b53c0c8a96df2",
-    "input_fingerprint": "816b03a3da2c57b3b404b4b54c96399dc1a412d53d7e94703b1313042e1465ef",
+    "input_fingerprint": "f0661a63b2e2b2c57541fcd1debf3804099131f9bf4a236ce06c58c9f2d561df",
     "pr_number": 189,
     "proposal": {
       "modules": [
         "device-api",
         "gin"
       ],
-      "reason": "Main change is in **gin**: adds GIN-only registration behavior and timed waitSignal result semantics, plus GIN connectivity/stride validation and context-count handling in GIN setup paths. **device-api** is also needed because the PR changes public device API contracts (2.2.2 requirements/properties fields, PCCL_WIN_GIN_ONLY flag, window/LSA pointer semantics, and query compatibility behavior)."
+      "reason": "Primary change is in device communicator/window API semantics and compatibility handling: bounded API-version acceptance, new device API versioned structs/fields, GIN-only window flag behavior, safer properties copy sizing, and registration/cleanup/path-selection updates in dev_runtime and public device headers. Additional gin review is needed because there are substantive GIN-specific behavior changes beyond incidental wiring, including GIN connection/stride/backend consistency checks, context-count handling, single-segment GIN window-handle propagation, and new device-side waitSignal timeout overload implementations in GIN headers/funcs."
     }
   },
   "reviewers": {
