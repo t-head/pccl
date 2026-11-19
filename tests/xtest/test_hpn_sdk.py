@@ -27,7 +27,7 @@ class HpnSdkInstallTests(unittest.TestCase):
             '#!/bin/bash\n'
             'printf "%s\\n" "$*" > "$WGET_LOG"\n'
             'while (( $# )); do if [[ $1 == -O ]]; then output=$2; break; fi; shift; done\n'
-            'printf "installer\\n" > "$output"\n'
+            'if [[ ${EMPTY_DOWNLOAD:-0} == 0 ]]; then printf "installer\\n" > "$output"; else : > "$output"; fi\n'
             'exit "${WGET_RC:-0}"\n')
         (self.bin / 'bash').write_text(
             '#!/bin/bash\n'
@@ -40,7 +40,7 @@ class HpnSdkInstallTests(unittest.TestCase):
         self.temporary.cleanup()
 
     def run_install(self, url, extra_environment=None):
-        environment = dict(os.environ, PATH=str(self.bin) + ':/usr/bin:/bin',
+        environment = dict(os.environ, PATH=str(self.bin) + os.pathsep + os.environ.get('PATH', ''),
                            HPN_SDK_URL=url, WGET_LOG=str(self.wget), INSTALL_LOG=str(self.install))
         environment.update(extra_environment or {})
         return subprocess.run(['/bin/bash', str(SCRIPT)], env=environment,
@@ -59,6 +59,8 @@ class HpnSdkInstallTests(unittest.TestCase):
         self.assertIn(URL, result.stdout)
         self.assertIn(URL, self.wget.read_text())
         self.assertIn('--tries=3', self.wget.read_text())
+        self.assertIn('--max-redirect=0', self.wget.read_text())
+        self.assertIn('--quiet', self.wget.read_text())
         self.assertIn('--install --force', self.install.read_text())
         self.assertEqual(self.wget.read_text().count(URL), 1)
         self.assertEqual(self.install.read_text().count('--install --force'), 1)
@@ -84,6 +86,20 @@ class HpnSdkInstallTests(unittest.TestCase):
         self.assertEqual(result.returncode, 7)
         self.assertNotIn('image-builtin', result.stdout)
         self.assertFalse(self.install.exists())
+
+    def test_empty_download_does_not_run_installer(self):
+        result = self.run_install(URL, {'EMPTY_DOWNLOAD': '1'})
+        self.assertNotEqual(result.returncode, 0)
+        self.assertIn('installer is empty', result.stderr)
+        self.assertFalse(self.install.exists())
+
+    def test_signed_url_credentials_are_not_printed(self):
+        signed_url = URL + '?Signature=secret-value&Expires=123'
+        result = self.run_install(signed_url)
+        self.assertEqual(result.returncode, 0, result.stderr)
+        self.assertIn(URL, result.stdout)
+        self.assertNotIn('secret-value', result.stdout + result.stderr)
+        self.assertIn(signed_url, self.wget.read_text())
 
 
 if __name__ == '__main__':

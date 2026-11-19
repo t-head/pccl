@@ -73,7 +73,9 @@ before building or testing. A manual `hpn_sdk_url` dispatch input overrides the
 workflow fallback. One run uses one URL; use separate runs to compare packages.
 Download or installation failure stops the job and never falls back to the
 image-builtin package. The daily performance workbook records both the image
-and the effective URL (or `image-builtin`) in its `Metadata` sheet.
+and the effective URL (or `image-builtin`) in its `Metadata` sheet. URL query
+parameters and fragments are omitted from worker logs and workbook metadata so
+signed download credentials are not published.
 
 ## Result semantics
 
