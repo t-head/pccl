@@ -706,7 +706,7 @@ jobs:
           launch_mode: master
           nnodes: 2
           nproc_per_node: ${{ matrix.cards_per_node }}
-          rack_policy: same
+          rack_policy: ${{ matrix.platform == 'm890p' && 'same' || '' }}
           node_selector: ${{ matrix.node_selector }}
           namespace: ppu-sched
           timeout_minutes: 300

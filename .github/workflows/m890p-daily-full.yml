@@ -684,7 +684,7 @@ jobs:
           launch_mode: master
           nnodes: ${{ matrix.nodes }}
           nproc_per_node: ${{ matrix.cards_per_node }}
-          rack_policy: same
+          rack_policy: ${{ matrix.rack_policy }}
           node_selector: ${{ matrix.node_selector }}
           namespace: ppu-sched
           timeout_minutes: ${{ env.EXECUTION_TIMEOUT_MINUTES }}

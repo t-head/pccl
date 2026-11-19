@@ -311,7 +311,7 @@ class DailySmokeTests(unittest.TestCase):
         self.assertIn(action, cross)
         self.assertIn("if: env.NODES != '1' && env.CROSS_RACK != 'true'", ordinary)
         self.assertIn("if: env.NODES != '1' && env.CROSS_RACK == 'true'", cross)
-        self.assertIn('rack_policy: same', ordinary)
+        self.assertIn('rack_policy: ${{ matrix.rack_policy }}', ordinary)
         self.assertIn('rack_policy: spread', cross)
         self.assertIn('rack_count: ${{ matrix.rack_count }}', cross)
         self.assertIn('node_selector: ${{ matrix.node_selector }}', cross)
