@@ -1,0 +1,21 @@
+{
+  "classification": {
+    "base_sha": "506c3b02235e24dc2a3f127fbb9ed64eef756485",
+    "head_sha": "83bdc5c1d50d95be4bfec01d9bdcc74ec6ea4e2d",
+    "input_fingerprint": "20ff0255abc873a5ace18036fee7e92222355331d66a298791c1530831553244",
+    "pr_number": 219,
+    "proposal": {
+      "modules": [
+        "device-topology",
+        "communicator",
+        "enqueue"
+      ],
+      "reason": "Primary change is communicator configuration lifecycle: new config fields are parsed/validated/defaulted, env-overridden, stored on comm state, and rank-synchronized in init. enqueue is additionally needed because graphUsageMode changes strong-stream capture/mixing semantics (strongstream API/behavior and enqueue/channel call paths). device-topology is additionally needed because P2P channel/peer budgeting logic is changed in topology path/channel computation (nChannelsPerNetPeer and maxP2pPeers effects)."
+    }
+  },
+  "reviewers": {
+    "communicator": 335730053,
+    "device-topology": 341355176,
+    "enqueue": 341349555
+  }
+}
