@@ -54,7 +54,7 @@ class DailySmokeTests(unittest.TestCase):
 
     def test_full_daily_commands_cover_expected_suites_and_resources(self):
         selected = run_cases.load_inputs(FULL_INPUT, 'standard', nodes=1)
-        self.assertEqual(len(selected['cases']), 5862)
+        self.assertEqual(len(selected['cases']), 5859)
         self.assertEqual(len({(row['plan'], row['suite']) for row in selected['cases']}), 12)
         cluster = run_cases.load_inputs(FULL_INPUT, 'standard', nodes=2)
         self.assertEqual(len(cluster['cases']), 1924)
@@ -102,7 +102,7 @@ class DailySmokeTests(unittest.TestCase):
         sanity = next(row for row in selected['cases'] if row['suite'] == 'sanity_m890p_register_suite')
         self.assertIn('--register 1', sanity['cmd'])
         self.assertEqual(sum(row['check'] == 'performance' for row in selected['cases']), 45)
-        self.assertEqual(sum(row['check'] == 'exit_code' for row in selected['cases']), 5817)
+        self.assertEqual(sum(row['check'] == 'exit_code' for row in selected['cases']), 5814)
         self.assertTrue(all(row['suite_spec']['nodes'] == 1 for row in selected['cases']))
         self.assertEqual({row['suite_spec']['timeout'] for row in selected['cases']}, {300, 3600, 7200})
 
@@ -131,21 +131,21 @@ class DailySmokeTests(unittest.TestCase):
 
     def test_full_export_is_runner_scoped_and_available_as_an_explicit_dataset(self):
         coverage = json.loads(SOURCE_COVERAGE.read_text())
-        self.assertEqual(coverage['selected_cases'], 10196)
-        self.assertEqual(coverage['skipped_cases'], 2059)
+        self.assertEqual(coverage['selected_cases'], 10193)
+        self.assertEqual(coverage['skipped_cases'], 2062)
         self.assertEqual(len(coverage['selected_suites']), 35)
         self.assertEqual(len(coverage['skipped_suites']), 10)
         skipped = {record['suite']: record['reasons'] for record in coverage['skipped_suites']}
         self.assertIn('outside PCCL scope', skipped['sailucx_test_shm_single_node_suite'][0])
         self.assertIn('outside PCCL scope', skipped['sailbandwidth_perf_shm_multi_nodes2_suite'][0])
         self.assertIn('PCCL composite_test binary', skipped['composite_test_shm_single_node_suite'][0])
-        expected = {1: 5862, 2: 1924, 4: 1691, 8: 710, 16: 9}
+        expected = {1: 5859, 2: 1924, 4: 1691, 8: 710, 16: 9}
         for nodes, count in expected.items():
             selected = run_cases.load_inputs(FULL_INPUT, 'standard', nodes=nodes)
             self.assertEqual(len(selected['cases']), count)
         with (FULL_INPUT / 'standard.csv').open(newline='') as stream:
             rows = list(csv.DictReader(stream))
-        self.assertEqual(len(rows), 10196)
+        self.assertEqual(len(rows), 10193)
         self.assertEqual(sum('pcclCommAbortTest' in row['cmd'] for row in rows), 16)
         self.assertFalse((ROOT / 'tests/xtest/daily-full-csv').exists())
         self.assertFalse((ROOT / 'tests/xtest/daily-minimal-csv').exists())
@@ -158,12 +158,12 @@ class DailySmokeTests(unittest.TestCase):
 
     def test_daily_resource_policy_excludes_only_16_nodes_exactly(self):
         plan = group_cases.build_plan(FULL_INPUT, 500, allowed_nodes=(1, 2, 4, 8))
-        self.assertEqual(sum(len(group['cases']) for group in plan['groups']), 10187)
+        self.assertEqual(sum(len(group['cases']) for group in plan['groups']), 10184)
         self.assertEqual(len(plan['groups']), 28)
         self.assertEqual({nodes: sum(len(group['cases']) for group in plan['groups']
                                      if group['nodes'] == nodes)
                           for nodes in (1, 2, 4, 8)},
-                         {1: 5862, 2: 1924, 4: 1691, 8: 710})
+                         {1: 5859, 2: 1924, 4: 1691, 8: 710})
         self.assertEqual([(record['nodes'], record['case_count']) for record in plan['exclusions']],
                          [(16, 9)])
         cross_rack = {group['nodes']: group['rack_nodes'] for group in plan['groups']
@@ -178,9 +178,9 @@ class DailySmokeTests(unittest.TestCase):
         selected = {(case['plan'], case['suite'], case['name'])
                     for group in plan['groups'] for case in group['cases']}
         excluded = {tuple(key) for key in sum((record['case_keys'] for record in plan['exclusions']), [])}
-        self.assertEqual(coverage['total_cases'], 10196)
+        self.assertEqual(coverage['total_cases'], 10193)
         self.assertEqual(coverage['excluded_cases'], 9)
-        self.assertEqual(len(selected | excluded), 10196)
+        self.assertEqual(len(selected | excluded), 10193)
         self.assertTrue(selected.isdisjoint(excluded))
         eight_nodes = group_cases.build_plan(FULL_INPUT, 500, nodes=8, allowed_nodes=(1, 2, 4, 8))
         self.assertEqual(sum(len(group['cases']) for group in eight_nodes['groups']), 710)

@@ -113,12 +113,12 @@ never sufficient.
 ## M890P daily execution
 
 The `smoke` dataset generates four Cases from the op_perf, postsil daily and
-native unit families. The `full` dataset generates 10,196 standard Cases from
+native unit families. The `full` dataset generates 10,193 standard Cases from
 35 Suites, with
 unsupported or out-of-scope source selections recorded in
 `test_lists/source-coverage.json`. The notsm daily profile is intentionally
 empty. Generated CSV is a temporary prepare artifact, not a maintained input.
-The current resource policy executes 1/2/4/8-node groups: 10,187 Cases in 28
+The current resource policy executes 1/2/4/8-node groups: 10,184 Cases in 28
 groups. The 9 sixteen-node Cases remain in the export but are listed as
 `EXCLUDED_BY_POLICY` in `execution-coverage.json`; they are not reported as
 passed or skipped tests.

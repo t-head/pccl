@@ -62,12 +62,15 @@ class PublicGeneratorTests(unittest.TestCase):
         rows = self.bundle("postsil_daily_shm")["rows"]
         self.assertEqual(sum(row["name"].startswith("all_reduce_ranks_") for row in rows), 2)
 
-    def test_native_unit_matches_all_1297_committed_rows(self):
-        self.assert_matches_source_export("postsil_unit_test_shm", 1297)
+    def test_native_unit_matches_all_1294_committed_rows(self):
+        self.assert_matches_source_export("postsil_unit_test_shm", 1294)
         rows = self.bundle("postsil_unit_test_shm")["rows"]
         self.assertEqual(sum("build/collPcclUnitTest" in row["cmd"] for row in rows), 1252)
-        self.assertEqual(sum("build/hggcGraphUnitTest" in row["cmd"] for row in rows), 45)
+        self.assertEqual(sum("build/hggcGraphUnitTest" in row["cmd"] for row in rows), 42)
         self.assertTrue(all("unit_test.py" not in row["cmd"] for row in rows))
+        self.assertTrue(all("--auto-detect" not in row["cmd"] for row in rows))
+        self.assertTrue(all("--devices=" not in row["cmd"] for row in rows))
+        self.assertEqual(sum("HGGC_VISIBLE_DEVICES=" in row["cmd"] for row in rows), 717)
         smoke = self.bundle("postsil_unit_test_shm", profile="smoke")["rows"]
         self.assertEqual(len(smoke), 2)
         self.assertEqual(sum("build/collPcclUnitTest" in row["cmd"] for row in smoke), 1)
@@ -87,7 +90,7 @@ class PublicGeneratorTests(unittest.TestCase):
             with self.subTest(family=family):
                 self.assert_matches_source_export(family, expected_count)
 
-    def test_all_families_match_the_complete_10196_case_export_and_execution_plan(self):
+    def test_all_families_match_the_complete_10193_case_export_and_execution_plan(self):
         combined = generate_cases.combine_bundles([self.bundle(family) for family in ALL_FAMILIES])
         manifest = json.loads((DEFINITIONS / "source-export.json").read_text())
         self.assertEqual(canonical_sha256(combined["rows"]), manifest["case_rows_sha256"])
@@ -105,9 +108,9 @@ class PublicGeneratorTests(unittest.TestCase):
             suite="op_perf_shm_single_node_suite")
         self.assertEqual(len(single_suite_selection["cases"]), 27)
         plan = group_cases.build_plan(output, 500, allowed_nodes=(1, 2, 4, 8))
-        self.assertEqual(len(combined["rows"]), 10196)
+        self.assertEqual(len(combined["rows"]), 10193)
         self.assertEqual(len(combined["suites"]), 35)
-        self.assertEqual(sum(len(group["cases"]) for group in plan["groups"]), 10187)
+        self.assertEqual(sum(len(group["cases"]) for group in plan["groups"]), 10184)
         self.assertEqual(len(plan["groups"]), 28)
         self.assertEqual(sum(record["case_count"] for record in plan["exclusions"]), 9)
 
@@ -230,7 +233,7 @@ class PublicGeneratorTests(unittest.TestCase):
         combined = generate_cases.combine_bundles([self.bundle(family) for family in ALL_FAMILIES])
         self.assertEqual(manifest["source_revision"],
                          "80738685d8b2e2066223119594805e5255f4a8c8")
-        self.assertEqual(manifest["case_count"], 10196)
+        self.assertEqual(manifest["case_count"], 10193)
         self.assertEqual(manifest["suite_count"], 35)
         self.assertEqual(manifest["additional_source_revisions"]["postsil_unit_test_shm"],
                          "cefc8624ec1a2b58bc54e76eedeefae90046d84f")
