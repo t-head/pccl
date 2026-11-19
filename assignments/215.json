@@ -2,13 +2,13 @@
   "classification": {
     "base_sha": "0da8662eb0e6d164ebd790d4a45b6007314a8b10",
     "head_sha": "3034e9d2dab1fa161ee302d14625a098724fe3d1",
-    "input_fingerprint": "4c92e4330b773045c27aacf9d6453abd9a891c50af88caba440e0dcd5164f237",
+    "input_fingerprint": "990d9a59c8623cde6998e970bdc52d17c4fd5498e03234cfad2684946b0a82ea",
     "pr_number": 215,
     "proposal": {
       "modules": [
         "bootstrap"
       ],
-      "reason": "Adjusts bootstrap control-plane socket handshake handling so incomplete/closed magic reads during accept reset only the accepted connection and keep listening, preventing spurious peers from aborting valid bootstrap rendezvous."
+      "reason": "Updates accept-side magic-handshake handling so incomplete or closed peer connections are reset and ignored while continuing to listen, preventing bootstrap rendezvous from failing due to spurious connects."
     }
   },
   "reviewers": {
