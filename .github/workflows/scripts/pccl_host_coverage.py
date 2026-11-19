@@ -130,7 +130,9 @@ def experiment(args):
     output.mkdir(parents=True, exist_ok=False)
     report = {"scope": "pccl-host-cpp", "validation_status": "failed", "report_status": "unavailable",
               "performance_baseline_eligible": False, "gcovr_version_expected": GCOVR_VERSION,
-              "build_config": {"GCOV": 1, "DEBUG": 1, "PPU_ARCHS": args.ppu_archs},
+              "build_config": {"GCOV": 0, "DEBUG": 0, "HOST_GCOV": 1,
+                               "host_optimization": "O0", "device_optimization": "release",
+                               "PPU_ARCHS": args.ppu_archs},
               "test_results": [], "errors": []}
     exit_code = 1
     owned_build = False
@@ -160,7 +162,7 @@ def experiment(args):
         for name in ("GCOV_PREFIX", "GCOV_PREFIX_STRIP", "LLVM_PROFILE_FILE"):
             env.pop(name, None)
         env["LD_LIBRARY_PATH"] = ":".join([str(build / "lib"), str(sdk / "lib"), env.get("LD_LIBRARY_PATH", "")])
-        build_args = ["make", f"-j{args.jobs}", "src.lib", "GCOV=1", "DEBUG=1", "NO_DLTO=1",
+        build_args = ["make", f"-j{args.jobs}", "src.lib", "GCOV=0", "DEBUG=0", "HOST_GCOV=1", "NO_DLTO=1",
                       "HGGCRT_VERSION=13", f"PPU_ARCHS={args.ppu_archs}", f"BUILDDIR={build}",
                       f"CXX={cxx}", f"PPU_OPTION=-ccbin;{cxx}", f"HGCC={hgcc}"]
         rc = command(build_args, output / "build.log", source, env, 2400)
