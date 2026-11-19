@@ -2,13 +2,13 @@
   "classification": {
     "base_sha": "506c3b02235e24dc2a3f127fbb9ed64eef756485",
     "head_sha": "2f7beabe93c8c30b7f941ee093cf95cc7b5840f5",
-    "input_fingerprint": "273ac712ba7d3549ee4a7d64d97aaf6dbbe73da34379e113e6ad709b9c47e31a",
+    "input_fingerprint": "337c0220b81322ce92feb873c82eb3868200b5e337950cf6f779de197ea85ed3",
     "pr_number": 195,
     "proposal": {
       "modules": [
         "workflow"
       ],
-      "reason": "The substantive changes are to reviewer-routing and approval automation policy in GitHub workflow/scripts (.github/scripts/review_automation.py, maintainer_approval.py, commit_message_squash.py, and .github/workflows/commit-message.yml): primary-vs-additional module handling, invitation withdrawal rules, approval-gated squash-preview publication, and workflow-run wiring. Other edits (WORKFLOWS.md and skill/catalog text updates) document and support the same review-process behavior rather than changing a separate PCCL runtime module."
+      "reason": "Main substantive changes are to review/merge workflow behavior: reviewer routing and invitation withdrawal logic, maintainer approval-gate messaging, squash-preview publication timing/reuse/removal, and supporting GitHub Actions wiring/docs (.github/scripts/review_automation.py, maintainer_approval.py, commit_message_squash.py, .github/workflows/commit-message.yml, .github/WORKFLOWS.md). No independent CI/build/runtime module behavior changes are present."
     }
   },
   "reviewers": {
