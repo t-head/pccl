@@ -30,7 +30,10 @@ SCHEMA_VERSION = 1
 def public_hpn_sdk_url(url):
     if not url:
         return "image-builtin"
-    parsed = urlsplit(url)
+    try:
+        parsed = urlsplit(url)
+    except ValueError:
+        return "invalid-url"
     return urlunsplit((parsed.scheme, parsed.netloc, parsed.path, "", ""))
 
 
