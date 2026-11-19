@@ -457,6 +457,13 @@ static ncclResult_t symMemoryRegisterGin(struct pcclComm* comm, struct ncclDevrM
       offset += mem->segmentSizes[segment];
     }
     mem->numGinSegments = mem->numSegments;
+    if (mem->numGinSegments == 1) {
+      // Single-segment windows and deregistration use the ordinary handles.
+      for (int i = 0; i < NCCL_GIN_MAX_CONNECTIONS; i++) {
+        mem->ginDevWins[i] = mem->ginSegmentInfos[0].ginDevWins[i];
+        mem->ginHostWins[i] = mem->ginSegmentInfos[0].ginHostWins[i];
+      }
+    }
   }
 exit:
   free(segmentTypes);
@@ -954,6 +961,11 @@ static ncclResult_t checkDevApiVersion(unsigned int magic, unsigned int version)
   unsigned int minimumVersion = magic == PCCL_API_MAGIC ? PCCL_VERSION(2, 2, 0) : NCCL_VERSION(2, 30, 4);
   if (version < minimumVersion) {
     WARN("Unsupported device API version %u (minimum %u)", version, minimumVersion);
+    return ncclInvalidUsage;
+  }
+  unsigned int maximumVersion = magic == PCCL_API_MAGIC ? PCCL_VERSION_CODE : NCCL_VERSION(2, 30, 4);
+  if (version > maximumVersion) {
+    WARN("Unsupported device API version %u (maximum %u)", version, maximumVersion);
     return ncclInvalidUsage;
   }
   return ncclSuccess;
