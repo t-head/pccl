@@ -24,7 +24,7 @@ ALL_FAMILIES = (
     "op_perf_shm", "postsil_daily_shm", "pccl_fun_rdma_shm", "register_test_shm",
     "sanity_m890p_register", "sym_test_shm", "f8_test_shm", "device_api_shm",
     "local_register_perf_shm", "symetric_perf_shm", "copyengine_perf_shm",
-    "op_perf_shm_2_rack", "op_perf_rdma_shm", "commabort_test_shm",
+    "op_perf_shm_2_rack", "op_perf_rdma_shm", "commabort_test_shm", "postsil_unit_test_shm",
 )
 def canonical_sha256(value):
     encoded = json.dumps(value, ensure_ascii=False, sort_keys=True,
@@ -62,6 +62,18 @@ class PublicGeneratorTests(unittest.TestCase):
         rows = self.bundle("postsil_daily_shm")["rows"]
         self.assertEqual(sum(row["name"].startswith("all_reduce_ranks_") for row in rows), 2)
 
+    def test_native_unit_matches_all_1297_committed_rows(self):
+        self.assert_matches_source_export("postsil_unit_test_shm", 1297)
+        rows = self.bundle("postsil_unit_test_shm")["rows"]
+        self.assertEqual(sum("build/collPcclUnitTest" in row["cmd"] for row in rows), 1252)
+        self.assertEqual(sum("build/hggcGraphUnitTest" in row["cmd"] for row in rows), 45)
+        self.assertTrue(all("unit_test.py" not in row["cmd"] for row in rows))
+        smoke = self.bundle("postsil_unit_test_shm", profile="smoke")["rows"]
+        self.assertEqual(len(smoke), 2)
+        self.assertEqual({row["cmd"].split()[2] for row in smoke if row["cmd"].startswith("NCCL_")},
+                         {"build/collPcclUnitTest"})
+        self.assertEqual(sum("build/hggcGraphUnitTest" in row["cmd"] for row in smoke), 1)
+
     def test_multi_node_rdma_matches_all_4090_committed_rows(self):
         self.assert_matches_source_export("pccl_fun_rdma_shm", 4090)
 
@@ -76,7 +88,7 @@ class PublicGeneratorTests(unittest.TestCase):
             with self.subTest(family=family):
                 self.assert_matches_source_export(family, expected_count)
 
-    def test_all_families_match_the_complete_8899_case_export_and_execution_plan(self):
+    def test_all_families_match_the_complete_10196_case_export_and_execution_plan(self):
         combined = generate_cases.combine_bundles([self.bundle(family) for family in ALL_FAMILIES])
         manifest = json.loads((DEFINITIONS / "source-export.json").read_text())
         self.assertEqual(canonical_sha256(combined["rows"]), manifest["case_rows_sha256"])
@@ -94,10 +106,10 @@ class PublicGeneratorTests(unittest.TestCase):
             suite="op_perf_shm_single_node_suite")
         self.assertEqual(len(single_suite_selection["cases"]), 27)
         plan = group_cases.build_plan(output, 500, allowed_nodes=(1, 2, 4, 8))
-        self.assertEqual(len(combined["rows"]), 8899)
-        self.assertEqual(len(combined["suites"]), 34)
-        self.assertEqual(sum(len(group["cases"]) for group in plan["groups"]), 8890)
-        self.assertEqual(len(plan["groups"]), 25)
+        self.assertEqual(len(combined["rows"]), 10196)
+        self.assertEqual(len(combined["suites"]), 35)
+        self.assertEqual(sum(len(group["cases"]) for group in plan["groups"]), 10187)
+        self.assertEqual(len(plan["groups"]), 28)
         self.assertEqual(sum(record["case_count"] for record in plan["exclusions"]), 9)
 
     def test_profiles_filter_before_generating_combinations(self):
@@ -199,8 +211,9 @@ class PublicGeneratorTests(unittest.TestCase):
         self.assertEqual(len(run_cases.load_inputs(output, "standard")["cases"]), 3994)
         smoke = generate_cases.combine_bundles([
             self.bundle("op_perf_shm", profile="smoke"),
-            self.bundle("postsil_daily_shm", profile="smoke")])
-        self.assertEqual(len(smoke["rows"]), 2)
+            self.bundle("postsil_daily_shm", profile="smoke"),
+            self.bundle("postsil_unit_test_shm", profile="smoke")])
+        self.assertEqual(len(smoke["rows"]), 4)
 
     def test_generated_bundle_uses_existing_grouping_and_resource_policy(self):
         bundle = generate_cases.combine_bundles([
@@ -218,8 +231,10 @@ class PublicGeneratorTests(unittest.TestCase):
         combined = generate_cases.combine_bundles([self.bundle(family) for family in ALL_FAMILIES])
         self.assertEqual(manifest["source_revision"],
                          "80738685d8b2e2066223119594805e5255f4a8c8")
-        self.assertEqual(manifest["case_count"], 8899)
-        self.assertEqual(manifest["suite_count"], 34)
+        self.assertEqual(manifest["case_count"], 10196)
+        self.assertEqual(manifest["suite_count"], 35)
+        self.assertEqual(manifest["additional_source_revisions"]["postsil_unit_test_shm"],
+                         "cefc8624ec1a2b58bc54e76eedeefae90046d84f")
         self.assertEqual(manifest["case_rows_sha256"], canonical_sha256(combined["rows"]))
         self.assertEqual(manifest["suites_sha256"], canonical_sha256(combined["suites"]))
         self.assertFalse(manifest["csv_inputs_used"])
@@ -241,12 +256,13 @@ class PublicGeneratorTests(unittest.TestCase):
                                  sha256((DEFINITIONS / f"{family}.json").read_bytes()).hexdigest())
         smoke = generate_cases.combine_bundles([
             self.bundle("op_perf_shm", profile="smoke"),
-            self.bundle("postsil_daily_shm", profile="smoke")])
+            self.bundle("postsil_daily_shm", profile="smoke"),
+            self.bundle("postsil_unit_test_shm", profile="smoke")])
         smoke_output = self.root / "group-smoke-input"
         generate_cases.write_bundle(smoke, smoke_output, DEFINITIONS / "envs")
         smoke_plan = group_cases.build_plan(smoke_output, 500, allowed_nodes=(1, 2, 4))
         self.assertEqual(len(smoke_plan["groups"]), 1)
-        self.assertEqual(len(smoke_plan["groups"][0]["cases"]), 2)
+        self.assertEqual(len(smoke_plan["groups"][0]["cases"]), 4)
 
     def test_runtime_does_not_read_the_legacy_case_csv(self):
         source = (ROOT / "generate_cases.py").read_text()
