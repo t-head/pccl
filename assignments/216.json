@@ -1,17 +1,18 @@
 {
   "classification": {
     "base_sha": "0da8662eb0e6d164ebd790d4a45b6007314a8b10",
-    "head_sha": "8fec3b156bd79ee495ef60e6d72ff14856732ec7",
-    "input_fingerprint": "8e4334ff7902ad630d7ce8ffd2045a030bf3d276123069801d8d48dba263711b",
+    "head_sha": "968dfa0682449c7aeb184f512543699b4c7ef05f",
+    "input_fingerprint": "bca0044dc069e3474d16c29f95923171be57a57cb8a91687c78cf23140ee40c6",
     "pr_number": 216,
     "proposal": {
       "modules": [
-        "device-topology"
+        "transport"
       ],
-      "reason": "The substantive change is in topology path/channel computation: default P2P channel-count derivation and power-of-two rounding are adjusted for non-switch SM89 while preserving the separate switch path, which is a communication-path sizing behavior change in topology logic."
+      "reason": "Changes the host-side P2P channel-selection policy: default MAX_P2P_NCHANNELS handling, SM89 non-switch round-down-to-power-of-two behavior, shared-resource clamping, and per-peer/channel cap interactions for P2P transport setup."
     }
   },
   "reviewers": {
-    "device-topology": 335834228
+    "device-topology": 335834228,
+    "transport": 341355176
   }
 }
