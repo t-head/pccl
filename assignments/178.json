@@ -2,7 +2,7 @@
   "classification": {
     "base_sha": "a7769ba35a724d84cea481c9b318c30482175471",
     "head_sha": "67610b6cc8e996189e6245c7dd71b7f96cb8336d",
-    "input_fingerprint": "81c497cb18128fe0ba10c101374bd6d9f2acbff802c2298bb8e03509dcb81b13",
+    "input_fingerprint": "8d3020f105c3c9cc7578b3cab2e3928e2ce9d62a0b2ed023add43fa82c8b3b96",
     "pr_number": 178,
     "proposal": {
       "modules": [
@@ -10,7 +10,7 @@
         "network",
         "gin"
       ],
-      "reason": "Primary change is in the IB network backend (net_ib): connection handshake/state-machine rewrite, QP RTR/RTS setup, ECE negotiation, FLID/GID routing, and traffic-class behavior, plus send/recv readiness semantics. Add gin because GIN-specific connect/accept/listen-close paths were changed to use the new IB accept/cancel flow and error cleanup. Add memory because IB MR registration moved to a per-device refcounted MR cache with new ownership/release behavior in reg/dereg paths."
+      "reason": "Primary change is in the IB network backend: connection metadata/handshake redesign (Connect/Accept ready sync), IB/RoCE routing and QoS handling (FLID, TC/SL/FIFO TC), ECE negotiation, and related net_ib transport behavior updates. Add gin because GIN-specific connect/accept/listen flows were changed to use the new IB handshake/cancel paths and cleanup semantics. Add memory because net_ib now introduces a per-device, reference-counted MR registration cache with new registration/deregistration ownership and lifetime behavior."
     }
   },
   "reviewers": {
