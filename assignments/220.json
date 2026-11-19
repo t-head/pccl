@@ -1,14 +1,14 @@
 {
   "classification": {
     "base_sha": "50423c27f1dc6a6ef765f20e504c47f561d948f9",
-    "head_sha": "d1255d9fa4856bd7bb9b3e1090d06b333a54d2ee",
-    "input_fingerprint": "dd1e8aef9e21b9c0968f8c3e5724428a8d9a032d2b1b26bbe807ff36653f1841",
+    "head_sha": "035839da168fe997b4a186d3c79d1a1d6c634374",
+    "input_fingerprint": "cf85ccc7fc89ee604ee95e3dad258a21399e4efe31d9d278f0238bc69aad0072",
     "pr_number": 220,
     "proposal": {
       "modules": [
         "ci"
       ],
-      "reason": "Main change is CI workflow behavior: both source-sanity and m890p-daily add optional hpn_sdk_url dispatch input, run a shared SDK installer on each hardware worker, enforce trusted URL validation with fatal download/install failures, and pass image/effective SDK URL into daily report metadata; added tests/docs are contract coverage for this CI path, not separate module behavior."
+      "reason": "Main substantive change is CI workflow execution: it adds an optional hpn_sdk_url input, enforces trusted URL validation via a shared installer run across hardware build/test steps, and propagates selected image/SDK source into daily report metadata; the related docs and tests are supporting CI contract updates."
     }
   },
   "reviewers": {
