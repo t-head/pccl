@@ -2,13 +2,13 @@
   "classification": {
     "base_sha": "50423c27f1dc6a6ef765f20e504c47f561d948f9",
     "head_sha": "40e2240f47431173c3a6456b8c71a4308fec2f6c",
-    "input_fingerprint": "9936b1f58a7e29cf951df83958bfb89b40e8b564a5084a5dcacc0b5ea4384305",
+    "input_fingerprint": "2713dab8e108058c6f4b33f3043d96f21600f8a1e76de7b1df95427e460bd010",
     "pr_number": 223,
     "proposal": {
       "modules": [
         "ci"
       ],
-      "reason": "Primary change is in CI test generation/execution: daily workflow definitions add the native unit family, expected suite/case/resource counts and coverage/export metadata are updated (including the patch-omitted postsil_unit_test_shm definition via related records), and CI build scripting now stages required native unit test binaries for those runs. No separate runtime-feature module or review-policy change is evident."
+      "reason": "Adds the native unit-test family to M890P daily smoke/full CI generation and execution (new postsil_unit_test_shm definitions, suite/coverage manifests, and workflow/test updates), plus CI build-script staging of required native test binaries for those jobs. This is test workflow orchestration and dataset selection, not runtime PCCL module behavior."
     }
   },
   "reviewers": {
