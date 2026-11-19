@@ -462,9 +462,6 @@ jobs:
   execute:
     name: Run ${{ matrix.id }} on ${{ matrix.platform }}, ${{ matrix.nodes }} node(s), ${{ matrix.case_count }} Cases
     needs: [prepare, build-standard, stage-cache]
-    concurrency:
-      group: ${{ matrix.platform == 'oam810e_eic' && 'pccl-oam810e-eic-hardware' || format('pccl-daily-{0}-{1}', github.run_id, matrix.id) }}
-      cancel-in-progress: false
     strategy:
       fail-fast: false
       matrix: ${{ fromJSON(needs.prepare.outputs.groups) }}
