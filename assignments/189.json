@@ -1,15 +1,15 @@
 {
   "classification": {
-    "base_sha": "a909809e63dbf891101c88d45c0b78bfe628fab6",
-    "head_sha": "f92857a81d226b02483b170c305b53c0c8a96df2",
-    "input_fingerprint": "f0661a63b2e2b2c57541fcd1debf3804099131f9bf4a236ce06c58c9f2d561df",
+    "base_sha": "2371005caa2fa51f8970e116af2041f6d1f38cdb",
+    "head_sha": "470955611725e3a98f498c9b618d94bed5c0695f",
+    "input_fingerprint": "8fcf022fde6d4e3a392527b5fa6af3410e90aea1d1c0a754ddafda53bfbee64f",
     "pr_number": 189,
     "proposal": {
       "modules": [
         "device-api",
         "gin"
       ],
-      "reason": "Primary change is in device communicator/window API semantics and compatibility handling: bounded API-version acceptance, new device API versioned structs/fields, GIN-only window flag behavior, safer properties copy sizing, and registration/cleanup/path-selection updates in dev_runtime and public device headers. Additional gin review is needed because there are substantive GIN-specific behavior changes beyond incidental wiring, including GIN connection/stride/backend consistency checks, context-count handling, single-segment GIN window-handle propagation, and new device-side waitSignal timeout overload implementations in GIN headers/funcs."
+      "reason": "Main change is in device API compatibility and window-handle lifecycle: `checkDevApiVersion` now enforces upper bounds for PCCL/NCCL caller versions, and single-segment CPU-backed registration now publishes handles used by single-segment windows/cleanup in `src/dev_runtime.cc`. `gin` is additionally needed because those published handles are sourced from GIN registration state (`ginSegmentInfos`) and affect GIN-backed registration ownership/wiring semantics."
     }
   },
   "reviewers": {
