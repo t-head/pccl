@@ -262,7 +262,7 @@ class HostCoverageTests(unittest.TestCase):
         self.assertEqual(push.count("branches:"), 1)
         self.assertNotIn("*", push)
         for path in (".github/workflows/pccl-host-coverage.yml",
-                     ".github/workflows/scripts/pccl_host_coverage.py", "tests/xtest/test_host_coverage.py",
+                     ".github/workflows/scripts/pccl_host_coverage.py", "tests/host_coverage/test_host_coverage.py",
                      "makefiles/common.mk", "src/Makefile"):
             self.assertIn("      - " + path, push)
         self.assertIn("if: always()", text)

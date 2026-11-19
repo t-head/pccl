@@ -137,3 +137,9 @@ builds a native host archive to exercise the actual graph C++ code independently
 of the out-of-scope PPU compiler workload. Select `library_kind=full` to retry the
 complete runtime build separately. Native archive success must never be presented
 as successful full runtime compilation, PPU correctness, or performance data.
+
+
+The host coverage helper tests live in `tests/host_coverage/` and run explicitly
+in this experiment. They are not xTest executor tests and do not change the
+existing daily/sanity regression inventory or gates. Both inventories are
+validated separately when publishing the experiment.
