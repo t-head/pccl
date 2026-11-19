@@ -16,6 +16,8 @@ import xml.etree.ElementTree as ET
 
 
 GCOVR_VERSION = "8.4"
+# Graph search legitimately exceeds 32-bit hit counts; retain a finite guard.
+SUSPICIOUS_HITS_THRESHOLD = 1 << 40
 TEST_MODES = (("without-pxn", "graphSearchTestWithoutPXN.*", []),
               ("with-pxn", "graphSearchTestWithPXN.*", ["--pxn"]))
 DEVICE_PATHS = ("src/collectives/device/", "src/include/pccl_device/",
@@ -107,7 +109,8 @@ def collect(source, build, output, gcov_command="gcov"):
     (output / "html").mkdir()
     args = ["gcovr", "--config", os.devnull, "--root", str(source),
             "--filter", re.escape(str(source / "src")) + "/",
-            "--gcov-executable", gcov_command]
+            "--gcov-executable", gcov_command,
+            "--gcov-suspicious-hits-threshold", str(SUSPICIOUS_HITS_THRESHOLD)]
     for path in DEVICE_PATHS:
         args += ["--exclude", re.escape(str(source / path).rstrip("/")) + "/"]
     args += ["--exclude", r".*\.(cu|cuh)$", "--html-details", str(output / "html/index.html"),
@@ -133,6 +136,7 @@ def experiment(args):
     report = {"scope": "pccl-host-cpp", "validation_status": "failed", "report_status": "unavailable",
               "performance_baseline_eligible": False, "gcovr_version_expected": GCOVR_VERSION,
               "library_kind": library_kind, "complete_runtime_library": False,
+              "gcov_suspicious_hits_threshold": SUSPICIOUS_HITS_THRESHOLD,
               "build_config": {"GCOV": 0, "DEBUG": 0, "HOST_GCOV": 1,
                                "host_optimization": "O0",
                                "device_build": "not_built" if library_kind == "host_archive" else "release",

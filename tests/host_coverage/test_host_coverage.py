@@ -88,6 +88,14 @@ class HostCoverageTests(unittest.TestCase):
         self.assertNotIn("--allow-multiple-definition", helper)
         self.assertIn('env.setdefault("PCCL_CHANNEL_SHUFFLE", "0")', helper)
 
+    def test_large_counter_guard_is_finite_and_does_not_ignore_parse_errors(self):
+        self.assertEqual(coverage.SUSPICIOUS_HITS_THRESHOLD, 1 << 40)
+        self.assertGreater(coverage.SUSPICIOUS_HITS_THRESHOLD, 5052574822)
+        helper = (ROOT / ".github/workflows/scripts/pccl_host_coverage.py").read_text()
+        self.assertIn('"--gcov-suspicious-hits-threshold"', helper)
+        self.assertNotIn('"--gcov-ignore-parse-errors"', helper)
+        self.assertNotIn('"--gcov-ignore-errors"', helper)
+
     def test_summary_metrics_are_computed_from_counts(self):
         metrics = coverage.coverage_summary(*self.xml(), self.source)
         self.assertEqual(metrics["lines"], {"covered": 2, "total": 4, "percent": 50.0})
