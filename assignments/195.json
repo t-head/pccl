@@ -1,14 +1,14 @@
 {
   "classification": {
     "base_sha": "dd507710fa250caa8ff4d98d5382b49a286c8802",
-    "head_sha": "72aab71815eb15cd6c7e8d4f2eb10d4a09e7e4d9",
-    "input_fingerprint": "4d6927b88667b434b8070cc0fa0a5648a955f38aa1b3644ad723a4336f6e2459",
+    "head_sha": "3d5292ee03e34e6db4f275eae52e34828e22e50d",
+    "input_fingerprint": "54f01dc74ac91d9bc8fec1c4f9097f35ffe7ebfea113e79de1c0631ee5573d1c",
     "pr_number": 195,
     "proposal": {
       "modules": [
         "workflow"
       ],
-      "reason": "Main change is contribution/review automation behavior in .github scripts and workflows: review_automation.py and maintainer_approval.py alter module-routing, invitation withdrawal, and Reviewer+Maintainer approval gate logic, while commit_message_squash.py and commit-message.yml tie squash-preview publication to PCCL Review Gate status. The SKILL.md and modules.json edits are policy/catalog guidance supporting the same workflow system, not separate runtime module changes."
+      "reason": "Main functional changes are in review/merge governance automation: reviewer routing, module classification schema/validation, approval-gate logic, automated request withdrawal, and squash-preview publication triggers in .github/scripts/*.py and .github/workflows/*.yml. Runtime PCCL modules are only catalog text updates here, not substantive feature/code-path changes requiring separate module ownership review."
     }
   },
   "reviewers": {
