@@ -2,14 +2,14 @@
   "classification": {
     "base_sha": "2371005caa2fa51f8970e116af2041f6d1f38cdb",
     "head_sha": "470955611725e3a98f498c9b618d94bed5c0695f",
-    "input_fingerprint": "8fcf022fde6d4e3a392527b5fa6af3410e90aea1d1c0a754ddafda53bfbee64f",
+    "input_fingerprint": "f56f4038995a84fee989f358c7f069380a517d0b4b245c73a77b6a3e12c1ec7d",
     "pr_number": 189,
     "proposal": {
       "modules": [
         "device-api",
         "gin"
       ],
-      "reason": "Main change is in device API compatibility and window-handle lifecycle: `checkDevApiVersion` now enforces upper bounds for PCCL/NCCL caller versions, and single-segment CPU-backed registration now publishes handles used by single-segment windows/cleanup in `src/dev_runtime.cc`. `gin` is additionally needed because those published handles are sourced from GIN registration state (`ginSegmentInfos`) and affect GIN-backed registration ownership/wiring semantics."
+      "reason": "Main change is in device API runtime behavior: checkDevApiVersion now enforces upper version bounds for PCCL/NCCL callers and returns invalid usage for newer unsupported inputs. Additional gin review is needed because single-segment CPU-backed GIN registration now explicitly propagates ginSegmentInfos[0] handles into ginDevWins/ginHostWins used by single-segment window publication and cleanup paths."
     }
   },
   "reviewers": {
