@@ -1,14 +1,14 @@
 {
   "classification": {
     "base_sha": "dd507710fa250caa8ff4d98d5382b49a286c8802",
-    "head_sha": "3d5292ee03e34e6db4f275eae52e34828e22e50d",
-    "input_fingerprint": "54f01dc74ac91d9bc8fec1c4f9097f35ffe7ebfea113e79de1c0631ee5573d1c",
+    "head_sha": "32d87cdd3f3df098cb96841a24a75c9745030904",
+    "input_fingerprint": "e5f585ffc01c52b1ac97e3291c2e1efc664c10ce6b441e3346b902e099cdf9b2",
     "pr_number": 195,
     "proposal": {
       "modules": [
         "workflow"
       ],
-      "reason": "Main functional changes are in review/merge governance automation: reviewer routing, module classification schema/validation, approval-gate logic, automated request withdrawal, and squash-preview publication triggers in .github/scripts/*.py and .github/workflows/*.yml. Runtime PCCL modules are only catalog text updates here, not substantive feature/code-path changes requiring separate module ownership review."
+      "reason": "The substantive changes are all in contribution/review automation: reviewer routing and state handling, Reviewer+Maintainer approval gating, automated request withdrawal/reinvite rules, and squash-preview publish/remove behavior in `.github/scripts/*` plus review-related workflow wiring. Other edits are workflow documentation/skill-catalog guidance updates, not PCCL runtime module behavior."
     }
   },
   "reviewers": {
