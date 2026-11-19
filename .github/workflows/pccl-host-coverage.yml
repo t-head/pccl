@@ -41,6 +41,7 @@ jobs:
     steps:
       - uses: actions/checkout@v4
         with:
+          ref: ${{ github.sha }}
           persist-credentials: false
       - name: Install coverage build tools
         run: |
@@ -61,6 +62,7 @@ jobs:
           fi
           export PATH="$GITHUB_WORKSPACE/coverage/tools/bin:$PATH"
           python .github/workflows/scripts/pccl_host_coverage.py \
+            --source-revision "$GITHUB_SHA" \
             --build-dir "$COVERAGE_RUN/build" --output "$COVERAGE_RUN/report" \
             --jobs "$BUILD_JOBS" --ppu-archs "$PPU_ARCHS"
       - name: Upload host coverage and diagnostics
