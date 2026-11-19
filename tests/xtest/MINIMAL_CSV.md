@@ -70,13 +70,17 @@ archive SHA-256, then retains the identity as `build.json` beside the results.
 - `performance`: the above plus a valid performance table and `metrics.csv`.
   There is no baseline, bandwidth, latency or sample-stability gate.
 - A single-node failure does not prevent later Cases from running.
-- A multi-node failure stops later Cases because local process cleanup cannot
-  prove remote MPI rank cleanup. Multi-node commands run only on the master.
+- Multi-node commands run only on the master. After a multi-node Case does not
+  pass, the runner cleans its per-execution-group cgroup on every worker. It
+  continues only when the Case was not cancelled and every worker confirms
+  cleanup. If cleanup cannot be confirmed or the Case was cancelled, all
+  remaining Cases are marked `NOT_RUN`.
 
 `raw.log` is the unmodified diagnostic stream used for checks. Results and raw
 logs must remain in the private results area; this executor intentionally
 has no generic public-log redactor. Infrastructure remains responsible for
-node allocation, MPI/RDMA setup and remote cleanup.
+node allocation and MPI/RDMA setup; the executor owns per-execution-group
+cgroup recovery on every worker.
 
 ## Artifact-backed build distribution
 
