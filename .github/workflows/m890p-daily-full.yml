@@ -39,6 +39,11 @@ on:
         description: Optional exact Suite debug filter; empty selects every Suite
         required: false
         type: string
+      hpn_sdk_url:
+        description: Optional HPN SDK installer URL; empty uses the image-builtin SDK
+        required: false
+        type: string
+        default: ''
 
 permissions:
   contents: read
@@ -49,6 +54,8 @@ concurrency:
 
 env:
   VALIDATION_IMAGE: download.t-head.cn/docker_release/ppu:sdk2.2.0-hggcrt3-ubuntu24.04-py312-20261005
+  # A dispatch input overrides this workflow fallback; empty retains the image-builtin SDK.
+  HPN_SDK_URL: ${{ inputs.hpn_sdk_url || '' }}
   VALIDATION_NODE_SELECTOR: board-type=ZW-M890P,nic-type=cx8
   VALIDATION_CARDS: '8'
   PCCL_TESTS_REVISION: 394556512e87259e9ffa25225632c46b0a0bbcd5
@@ -99,6 +106,7 @@ jobs:
           python3 -S -B -m unittest discover -s tests/xtest -p 'test_artifact_cache.py' -v
           python3 -S -B -m unittest discover -s tests/xtest -p 'test_download_artifact_retry.py' -v
           python3 -S -B -m unittest discover -s tests/xtest -p 'test_remote_recovery.py' -v
+          python3 -S -B -m unittest discover -s tests/xtest -p 'test_hpn_sdk.py' -v
           python3 -S -B -m unittest discover -s tests/xtest -p 'test_daily_smoke.py' -v
           python3 -S -B -m unittest discover -s tests/xtest -p 'test_daily_reconcile.py' -v
           python3 -S -B -m unittest discover -s tests/xtest -p 'test_generate_cases.py' -v
@@ -292,6 +300,7 @@ jobs:
           command: |
             set -euo pipefail
             cd /workspace/source
+            bash pccl/.github/workflows/scripts/install_hpn_sdk.sh
             export source_home=/workspace/source
             export build_output=/workspace/source/output_standard
             STAGING=/mnt/wl_nas/devops/pccl-artifact-cache-${{ github.run_id }}/staging/standard
@@ -550,6 +559,7 @@ jobs:
           command: |
             set -euo pipefail
             source /usr/local/PPU_SDK/envsetup.sh
+            bash /workspace/source/pccl/.github/workflows/scripts/install_hpn_sdk.sh
             MPI_INTERFACE=$(awk '$2 == "00000000" {print $1; exit}' /proc/net/route)
             test -n "$MPI_INTERFACE"
             export HWLOC_COMPONENTS=-gl
@@ -653,6 +663,7 @@ jobs:
           setup_command: |
             set -euo pipefail
             source /usr/local/PPU_SDK/envsetup.sh
+            bash /workspace/source/pccl/.github/workflows/scripts/install_hpn_sdk.sh
             MPI_INTERFACE=$(awk '$2 == "00000000" {print $1; exit}' /proc/net/route)
             test -n "$MPI_INTERFACE"
             export HWLOC_COMPONENTS=-gl
@@ -752,6 +763,7 @@ jobs:
           setup_command: |
             set -euo pipefail
             source /usr/local/PPU_SDK/envsetup.sh
+            bash /workspace/source/pccl/.github/workflows/scripts/install_hpn_sdk.sh
             MPI_INTERFACE=$(awk '$2 == "00000000" {print $1; exit}' /proc/net/route)
             test -n "$MPI_INTERFACE"
             export HWLOC_COMPONENTS=-gl
@@ -989,7 +1001,9 @@ jobs:
             --run-url '${{ github.server_url }}/${{ github.repository }}/actions/runs/${{ github.run_id }}' \
             --dataset '${{ inputs.dataset || (github.event_name == 'schedule' && 'full' || 'smoke') }}' \
             --source-revision '${{ github.sha }}' \
-            --runner-revision '${{ env.PCCL_TESTS_REVISION }}'
+            --runner-revision '${{ env.PCCL_TESTS_REVISION }}' \
+            --image "$VALIDATION_IMAGE" \
+            --hpn-sdk-url "$HPN_SDK_URL"
       - id: performance-upload
         uses: actions/upload-artifact@v4
         if: always()

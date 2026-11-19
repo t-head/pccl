@@ -45,6 +45,7 @@ before selecting jobs. The supported layout is standard/one-node,
 standard/two-node and notsm/one-node, with `VALIDATION_CARDS` cards per node.
 Any exported Case outside that layout fails explicitly; it is never silently
 dropped by a node filter.
+
 `--hostfile` is required only when the selected profile contains multi-node
 Cases. `test_root` may either contain `run_test.py` directly or contain a
 `pccl-tests` checkout. Each Case gets a separate working directory with
@@ -62,6 +63,17 @@ sourced. Commands alone are passed to `/bin/sh -c`.
 Execution requires the build record that was validated with the restored
 archive. The executor checks its PCCL and runner revisions, build profile and
 archive SHA-256, then retains the identity as `build.json` beside the results.
+
+## HPN SDK selection
+
+`VALIDATION_IMAGE` selects the worker image. `HPN_SDK_URL` is a single optional
+workflow-level input: empty retains the image-builtin HPN SDK, while a nonempty
+trusted HTTPS URL is downloaded and installed once on every allocated worker
+before building or testing. A manual `hpn_sdk_url` dispatch input overrides the
+workflow fallback. One run uses one URL; use separate runs to compare packages.
+Download or installation failure stops the job and never falls back to the
+image-builtin package. The daily performance workbook records both the image
+and the effective URL (or `image-builtin`) in its `Metadata` sheet.
 
 ## Result semantics
 
