@@ -1,19 +1,19 @@
 {
   "classification": {
-    "base_sha": "8aa6e1d4f0978571a3958bbc20c725607d1b4890",
-    "head_sha": "42da14bad60fd647f7ce4bcb458249a03a8926cc",
-    "input_fingerprint": "7883097e48f79b48e5123a4a6283c4de5ed8271ef0e9959fd6c7e75f07b3ac70",
+    "base_sha": "2371005caa2fa51f8970e116af2041f6d1f38cdb",
+    "head_sha": "7b433937b5414fad1bad3aeba64a6bc6b2d882b3",
+    "input_fingerprint": "efcbb589c102d88aecef99938fb1b487db58902a4476dc05b1b9f3531163f555",
     "pr_number": 174,
     "proposal": {
       "modules": [
         "device-topology",
         "graph-search",
-        "transport",
         "tuning",
+        "enqueue",
         "network",
         "kernels"
       ],
-      "reason": "Main change is removing CollNet network functionality: CollNet plugin loading/state, proxy handling, and CollNet transport implementation are deleted while keeping legacy interface compatibility slots. Additional substantive changes require kernels (CollNet device kernel paths and function-table entries removed/reserved), graph-search (CollNet graph preset/connect/search paths removed and graph wiring updated), tuning (algorithm/protocol model and external tuner fallback logic now hard-disables reserved CollNet slot), device-topology (NIC topology parsing/autodetect no longer tracks CollNet capability), and transport (generic transport/channel connection logic and transport registry no longer include CollNet)."
+      "reason": "Primary change removes CollNet network transport/plugin/proxy execution paths while preserving compatibility IDs and interfaces. Additional substantive work removes CollNet device-kernel implementations/tables, deletes CollNet graph construction/connection logic, changes NIC/topology discovery data that previously carried CollNet capability, and updates tuning plus enqueue selection/chunking/plugin-fallback logic so algorithm slot 2 stays reserved but non-executable."
     }
   },
   "reviewers": {
