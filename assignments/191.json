@@ -1,14 +1,14 @@
 {
   "classification": {
-    "base_sha": "996baac6d4ec098e0cad3942a6dc21846022ff2a",
-    "head_sha": "c1318ce67d4ea963803875e39f26954ba4ffaadc",
-    "input_fingerprint": "c16ecfe986422b1f8f7beec10b5b978318d48f081a34f618f7c245da0404b7f9",
+    "base_sha": "50423c27f1dc6a6ef765f20e504c47f561d948f9",
+    "head_sha": "439b93c7b2a35795bef29c46bcc9ca134fffbbcf",
+    "input_fingerprint": "2a9e7bde6e754a47b934bfa3c0a6f98f74fbe1d85c95f2f3e74c7864f1fcaa61",
     "pr_number": 191,
     "proposal": {
       "modules": [
         "device-topology"
       ],
-      "reason": "Adds explicit PCI class mapping `0x00ff00 -> NIC` in `src/graph/topo.cc`, which is topology device/NIC classification behavior used during topology discovery."
+      "reason": "Main functional change is in topology parsing: adds explicit PCI class mapping `0x00ff00 -> NIC` in `src/graph/topo.cc` so erdma endpoints are recognized as NICs instead of hitting class fallback. The XML change is a graph-search test fixture update supporting this behavior, not an independent module-level runtime change."
     }
   },
   "reviewers": {
