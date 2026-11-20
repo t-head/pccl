@@ -2,15 +2,14 @@
   "classification": {
     "base_sha": "8d1fff80b4f1c7c625f22ce835db16961fa9281f",
     "head_sha": "cd25f68ba0eb91f5536c56fce0c938a100e13851",
-    "input_fingerprint": "65824d98117e123261f14640fb4858dea8582a0a6eb926c66e7458bb0e6021ef",
+    "input_fingerprint": "bbceb7f830a3fcc41b8382ea8d9eec924c62ff812f180e9ad3c4bd39feee8954",
     "pr_number": 219,
     "proposal": {
       "modules": [
         "device-topology",
-        "communicator",
         "enqueue"
       ],
-      "reason": "Primary change is communicator-level configuration control: new/validated config fields (nChannelsPerNetPeer, graphUsageMode, maxP2pPeers, nvlinkCentricSched), env overrides, defaults, and cross-rank propagation are implemented in init/comm lifecycle paths. enqueue is additionally needed because graphUsageMode now changes strong-stream acquire/release and capture-mixing behavior in enqueue/strongstream call paths, which is substantive runtime enqueue behavior. device-topology is additionally needed because P2P per-peer channel computation now incorporates nChannelsPerNetPeer/maxP2pPeers policy and caps/tuning in graph path/channel computation logic."
+      "reason": "Primary change is enqueue/runtime stream behavior: graphUsageMode is threaded through strong-stream acquire/release and capture detection, and P2P planning logic in enqueue is altered. Additional device-topology review is needed because src/graph/paths.cc substantively changes topology-driven P2P channel computation, including explicit nChannelsPerNetPeer handling and maxP2pPeers-based channel tuning/capping across multi-node peers."
     }
   },
   "reviewers": {
