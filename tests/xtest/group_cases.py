@@ -17,47 +17,23 @@ import platform_cases
 
 POLICY_EXCLUSION = "disabled by daily resource policy"
 CROSS_RACK_SUITES = {
-    ("pccl_shm_op_perf_2_rack_icn8_plan", "op_perf_shm_2_rack_icn8_suite"):
-        (2, "rack-01=1,rack-02=1"),
-    ("pccl_shm_op_perf_2_rack_icn16_plan", "op_perf_shm_2_rack_icn16_suite"):
-        (4, "rack-01=2,rack-02=2"),
-    ("pccl_shm_op_perf_2_rack_icn32_plan", "op_perf_shm_2_rack_icn32_suite"):
-        (8, "rack-01=4,rack-02=4"),
-    ("pccl_shm_op_perf_2_rack_icn64_plan", "op_perf_shm_2_rack_icn64_suite"):
-        (16, "rack-01=8,rack-02=8"),
+    ("pccl_shm_op_perf_2_rack_icn8_plan", "op_perf_shm_2_rack_icn8_suite"): 2,
+    ("pccl_shm_op_perf_2_rack_icn16_plan", "op_perf_shm_2_rack_icn16_suite"): 4,
+    ("pccl_shm_op_perf_2_rack_icn32_plan", "op_perf_shm_2_rack_icn32_suite"): 8,
+    ("pccl_shm_op_perf_2_rack_icn64_plan", "op_perf_shm_2_rack_icn64_suite"): 16,
 }
 
 
-def _validate_rack_nodes(rack_nodes, nodes):
-    """Validate the Action's ordered RACK=COUNT allocation for two-rack Suites."""
-    if not isinstance(rack_nodes, str):
-        raise ValueError("rack_nodes must be a string")
-    entries = rack_nodes.split(",")
-    if len(entries) != 2:
-        raise ValueError("rack_nodes must allocate both rack-01 and rack-02")
-    counts = []
-    for expected_rack, entry in zip(("rack-01", "rack-02"), entries):
-        rack, separator, count = entry.partition("=")
-        if (rack != expected_rack or not separator or not count.isdigit()
-                or str(int(count)) != count or int(count) <= 0):
-            raise ValueError("rack_nodes must use ordered positive RACK=COUNT entries")
-        counts.append(int(count))
-    if sum(counts) != nodes:
-        raise ValueError("rack_nodes counts must sum to the Suite node count")
-    return rack_nodes
-
-
-def _rack_nodes(case):
+def _rack_policy(case):
     key = (case["plan"], case["suite"])
-    allocation = CROSS_RACK_SUITES.get(key)
-    if allocation is None:
+    expected_nodes = CROSS_RACK_SUITES.get(key)
+    if expected_nodes is None:
         if "2_rack" in case["plan"] or "2_rack" in case["suite"]:
             raise ValueError(f"Cross-rack Suite has no reviewed rack allocation: {key}")
-        return ""
-    expected_nodes, rack_nodes = allocation
+        return ("same", 1) if platform_cases.case_platform(case) == platform_cases.DEFAULT_PLATFORM else ("", 0)
     if case["suite_spec"]["nodes"] != expected_nodes:
         raise ValueError(f"Cross-rack Suite has an unexpected node count: {key}")
-    return _validate_rack_nodes(rack_nodes, expected_nodes)
+    return "spread", 2
 
 
 def _write_csv(path, fields, rows):
@@ -91,11 +67,12 @@ def build_plan(directory, max_cases, nodes=None, suite=None, allowed_nodes=None)
         for case in selected["cases"]:
             spec = case["suite_spec"]
             platform = platform_cases.case_platform(case, platforms)
-            rack_nodes = _rack_nodes(case)
+            rack_policy, rack_count = _rack_policy(case)
             if allowed_nodes is not None and spec["nodes"] not in allowed_nodes:
                 excluded.setdefault(spec["nodes"], []).append(case)
                 continue
-            key = (platform, profile, spec["nodes"], spec["cards_per_node"], spec["env"], rack_nodes)
+            key = (platform, profile, spec["nodes"], spec["cards_per_node"], spec["env"],
+                   rack_policy, rack_count)
             grouped.setdefault(key, []).append(case)
     if metadata is None:
         raise ValueError("No Cases match the requested selection")
@@ -103,7 +80,7 @@ def build_plan(directory, max_cases, nodes=None, suite=None, allowed_nodes=None)
         raise ValueError("No Cases match the requested selection and resource policy")
     groups = []
     for key in sorted(grouped):
-        platform, profile, group_nodes, cards, env, rack_nodes = key
+        platform, profile, group_nodes, cards, env, rack_policy, rack_count = key
         cases = sorted(grouped[key], key=lambda case: (case["plan"], case["suite"], case["name"]))
         for start in range(0, len(cases), max_cases):
             chunk = cases[start:start + max_cases]
@@ -115,8 +92,9 @@ def build_plan(directory, max_cases, nodes=None, suite=None, allowed_nodes=None)
                 "nodes": group_nodes,
                 "cards_per_node": cards,
                 "env": env,
-                "cross_rack": bool(rack_nodes),
-                "rack_nodes": rack_nodes,
+                "cross_rack": rack_policy == "spread",
+                "rack_policy": rack_policy,
+                "rack_count": rack_count,
                 "cases": chunk,
                 "metadata": metadata,
             })
@@ -160,12 +138,13 @@ def write_groups(groups, output, input_directory, coverage=None):
     try:
         manifest = []
         for group in groups:
-            allocations = {_rack_nodes(case) for case in group["cases"]}
+            allocations = {_rack_policy(case) for case in group["cases"]}
             if len(allocations) != 1:
                 raise ValueError("An execution group mixes different rack allocations")
-            rack_nodes = allocations.pop()
-            if (group.get("rack_nodes", "") != rack_nodes
-                    or group.get("cross_rack", bool(rack_nodes)) is not bool(rack_nodes)):
+            rack_policy, rack_count = allocations.pop()
+            if (group.get("rack_policy", "") != rack_policy
+                    or group.get("rack_count", 0) != rack_count
+                    or group.get("cross_rack", rack_policy == "spread") is not (rack_policy == "spread")):
                 raise ValueError("Execution group rack metadata does not match its Cases")
             directory = temporary / group["id"]
             (directory / "envs").mkdir(parents=True)
@@ -186,7 +165,8 @@ def write_groups(groups, output, input_directory, coverage=None):
                 "id": group["id"], "profile": group["profile"], "nodes": group["nodes"],
                 "platform": group["platform"], "node_selector": group["node_selector"],
                 "cards_per_node": group["cards_per_node"], "env": group["env"],
-                "cross_rack": bool(rack_nodes), "rack_nodes": rack_nodes,
+                "cross_rack": rack_policy == "spread",
+                "rack_policy": rack_policy, "rack_count": rack_count,
                 "case_count": len(group["cases"]),
                 "plan_suites": sorted({(case["plan"], case["suite"]) for case in group["cases"]}),
                 "case_keys": [[case["plan"], case["suite"], case["name"]] for case in group["cases"]],

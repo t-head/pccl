@@ -700,13 +700,13 @@ jobs:
             --pccl-revision '${{ github.sha }}' --pccl-tests-revision '${{ env.PCCL_TESTS_REVISION }}' \
             --expected-sha256 '${{ env.EXPECTED_SHA }}'
       - name: Restore the shared NAS cache and run on master
-        uses: t-head/ci-infra/cluster-run@main
+        uses: t-head/ci-infra/cluster-run@feat/automatic-rack-placement
         with:
           image: ${{ env.VALIDATION_IMAGE }}
           launch_mode: master
           nnodes: 2
           nproc_per_node: ${{ matrix.cards_per_node }}
-          rack_nodes: ${{ matrix.platform == 'm890p' && 'rack-01=2' || '' }}
+          rack_policy: ${{ matrix.platform == 'm890p' && 'same' || '' }}
           node_selector: ${{ matrix.node_selector }}
           namespace: ppu-sched
           timeout_minutes: 300

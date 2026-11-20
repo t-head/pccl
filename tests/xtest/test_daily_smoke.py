@@ -166,11 +166,9 @@ class DailySmokeTests(unittest.TestCase):
                          {1: 5859, 2: 1924, 4: 1691, 8: 710})
         self.assertEqual([(record['nodes'], record['case_count']) for record in plan['exclusions']],
                          [(16, 9)])
-        cross_rack = {group['nodes']: group['rack_nodes'] for group in plan['groups']
+        cross_rack = {group['nodes']: (group['rack_policy'], group['rack_count']) for group in plan['groups']
                       if group['cross_rack']}
-        self.assertEqual(cross_rack, {2: 'rack-01=1,rack-02=1',
-                                      4: 'rack-01=2,rack-02=2',
-                                      8: 'rack-01=4,rack-02=4'})
+        self.assertEqual(cross_rack, {2: ('spread', 2), 4: ('spread', 2), 8: ('spread', 2)})
         with tempfile.TemporaryDirectory() as temporary:
             output = Path(temporary) / 'groups'
             group_cases.write_plan(plan, output, FULL_INPUT)
@@ -227,8 +225,8 @@ class DailySmokeTests(unittest.TestCase):
         self.assertIn('groups_sha256: ${{ steps.selection.outputs.groups_sha256 }}', text)
         self.assertIn('test_case_group_cache.py', text)
         self.assertIn('matrix: ${{ fromJSON(needs.prepare.outputs.groups) }}', text)
-        self.assertIn("'cross_rack', 'rack_nodes', 'case_count'", text)
-        self.assertIn("assert {group_cases._rack_nodes(case) for case in selected['cases']}", text)
+        self.assertIn("'cross_rack', 'rack_policy', 'rack_count', 'case_count'", text)
+        self.assertIn("assert {group_cases._rack_policy(case) for case in selected['cases']}", text)
         self.assertNotIn('max-parallel:', text)
         self.assertIn('fail-fast: false', text)
         self.assertIn('nnodes: ${{ matrix.nodes }}', text)
@@ -294,13 +292,14 @@ class DailySmokeTests(unittest.TestCase):
             'name: Run the automatic cross-rack group on master', 1)[0]
         cross = text.split('name: Run the automatic cross-rack group on master', 1)[1].split(
             '\n  summary:', 1)[0]
-        action = 'uses: t-head/ci-infra/cluster-run@main'
+        action = 'uses: t-head/ci-infra/cluster-run@feat/automatic-rack-placement'
         self.assertIn(action, ordinary)
         self.assertIn(action, cross)
         self.assertIn("if: env.NODES != '1' && env.CROSS_RACK != 'true'", ordinary)
         self.assertIn("if: env.NODES != '1' && env.CROSS_RACK == 'true'", cross)
-        self.assertIn("rack_nodes: ${{ matrix.platform == 'm890p' && format('rack-01={0}', matrix.nodes) || '' }}", ordinary)
-        self.assertIn('rack_nodes: ${{ matrix.rack_nodes }}', cross)
+        self.assertIn('rack_policy: ${{ matrix.rack_policy }}', ordinary)
+        self.assertIn('rack_policy: ${{ matrix.rack_policy }}', cross)
+        self.assertIn('rack_count: ${{ matrix.rack_count }}', cross)
         self.assertIn('node_selector: ${{ matrix.node_selector }}', cross)
         for section in (ordinary, cross):
             self.assertNotIn("cluster-ssh \"$host\" 'hostname'", section)

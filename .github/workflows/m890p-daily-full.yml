@@ -217,8 +217,8 @@ jobs:
               keys = [[case['plan'], case['suite'], case['name']] for case in selected['cases']]
               assert keys == group['case_keys']
               assert all(case['suite_spec']['nodes'] == group['nodes'] for case in selected['cases'])
-              assert {group_cases._rack_nodes(case) for case in selected['cases']} == {group['rack_nodes']}
-              assert group['cross_rack'] is bool(group['rack_nodes'])
+              assert {group_cases._rack_policy(case) for case in selected['cases']} == {(group['rack_policy'], group['rack_count'])}
+              assert group['cross_rack'] is (group['rack_policy'] == 'spread')
               actual.extend(tuple(key) for key in keys)
           selected_keys = set(actual)
           excluded_keys = {tuple(key) for record in coverage['exclusions'] for key in record['case_keys']}
@@ -239,7 +239,7 @@ jobs:
           assert subprocess.check_output(['git', 'rev-parse', 'HEAD'], text=True).strip() == os.environ['GITHUB_SHA']
           matrix = {'include': [
               {key: group[key] for key in ('id', 'profile', 'nodes', 'cards_per_node', 'env',
-                                           'cross_rack', 'rack_nodes', 'case_count',
+                                           'cross_rack', 'rack_policy', 'rack_count', 'case_count',
                                            'platform', 'node_selector')}
               for group in manifest
           ]}
@@ -664,13 +664,13 @@ jobs:
               --output "$RESULT_ROOT"
       - name: Run the automatic multi-node group on master
         if: env.NODES != '1' && env.CROSS_RACK != 'true'
-        uses: t-head/ci-infra/cluster-run@main
+        uses: t-head/ci-infra/cluster-run@feat/automatic-rack-placement
         with:
           image: ${{ env.VALIDATION_IMAGE }}
           launch_mode: master
           nnodes: ${{ matrix.nodes }}
           nproc_per_node: ${{ inputs.cards_per_node || matrix.cards_per_node }}
-          rack_nodes: ${{ matrix.platform == 'm890p' && format('rack-01={0}', matrix.nodes) || '' }}
+          rack_policy: ${{ matrix.rack_policy }}
           node_selector: ${{ matrix.node_selector }}
           namespace: ppu-sched
           timeout_minutes: 720
@@ -763,13 +763,14 @@ jobs:
               --output "$RESULT_ROOT"
       - name: Run the automatic cross-rack group on master
         if: env.NODES != '1' && env.CROSS_RACK == 'true'
-        uses: t-head/ci-infra/cluster-run@main
+        uses: t-head/ci-infra/cluster-run@feat/automatic-rack-placement
         with:
           image: ${{ env.VALIDATION_IMAGE }}
           launch_mode: master
           nnodes: ${{ matrix.nodes }}
           nproc_per_node: ${{ inputs.cards_per_node || matrix.cards_per_node }}
-          rack_nodes: ${{ matrix.rack_nodes }}
+          rack_policy: ${{ matrix.rack_policy }}
+          rack_count: ${{ matrix.rack_count }}
           node_selector: ${{ matrix.node_selector }}
           namespace: ppu-sched
           timeout_minutes: 720
