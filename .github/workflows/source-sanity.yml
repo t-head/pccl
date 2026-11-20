@@ -111,24 +111,13 @@ jobs:
       (github.event_name == 'pull_request' ||
        github.event_name == 'workflow_dispatch' ||
        github.event_name == 'push')
-    runs-on: k8s-runner-group-cpu-thead
-    container:
-      image: ghcr.io/actions/actions-runner:latest
+    runs-on: ubuntu-24.04
     timeout-minutes: 20
     steps:
       - uses: actions/checkout@v4
         with:
           path: pccl
           persist-credentials: false
-      - name: Inspect full-run NAS progress and stop
-        run: |
-          for group in g030 g007; do
-            root=/wl_nas/devops/pccl-artifact-cache-44732590636/results/full/$group
-            printf '\n===== %s =====\n' "$group"
-            find "$root" -name result.json | wc -l
-            find "$root" -name result.json -print0 | xargs -0 ls -lt | head -5 || true
-          done
-          exit 1
       - uses: actions/checkout@v4
         with:
           repository: t-head/pccl-tests
