@@ -254,7 +254,7 @@ ncclResult_t ncclGinIbP2PBarrier(struct ncclGinIbCollComm* cComm) {
 
 static ncclResult_t ncclGinIbGetGidIndexAdapter(struct ibv_context* context, uint8_t portNum,
                                                 struct ibv_port_attr* portAttr, int* gidIndex) {
-  return ncclIbGetGidIndex(context, portNum, portAttr->gid_tbl_len, gidIndex);
+  return ncclIbGetGidIndex(context, portNum, portAttr, gidIndex);
 }
 
 ncclResult_t ncclGinIbConnect(void* ctx, void* handles[], int nranks, int rank,
@@ -263,6 +263,7 @@ ncclResult_t ncclGinIbConnect(void* ctx, void* handles[], int nranks, int rank,
   struct ncclGinIbCollComm* cCommArray = nullptr;
   ncclResult_t ret = ncclSuccess;
   int next;
+  void* pendingHandle = NULL;
 
   *collComm = NULL;
   NCCLCHECK(ncclIbMalloc((void**)&cCommArray, sizeof(*cCommArray)));
@@ -275,10 +276,13 @@ ncclResult_t ncclGinIbConnect(void* ctx, void* handles[], int nranks, int rank,
   next = (cComm->rank + 1) % nranks;
   do {
     if (cComm->sendComm == NULL) {
+      // Connect owns cleanup on failure; cancel only a successful pending call.
+      pendingHandle = NULL;
       NCCLCHECKGOTO(ncclNetIb.connect(lComm->dev, handles[next], &cComm->sendComm), ret, fail);
+      if (cComm->sendComm == NULL) pendingHandle = handles[next];
     }
     if (cComm->recvComm == NULL) {
-      NCCLCHECKGOTO(ncclNetIb.accept(lComm, &cComm->recvComm), ret, fail);
+      NCCLCHECKGOTO(pcclIbAcceptForGin(lComm, &cComm->recvComm, true), ret, fail);
     }
   } while (cComm->sendComm == NULL || cComm->recvComm == NULL);
 
@@ -294,9 +298,10 @@ ncclResult_t ncclGinIbConnect(void* ctx, void* handles[], int nranks, int rank,
   *collComm = cCommArray;
   return ncclSuccess;
 fail:
+  if (pendingHandle) NCCLCHECKIGNORE(pcclIbCancelConnect(pendingHandle), ret);
   if (cCommArray) {
-    if (cCommArray->recvComm) ncclNetIb.closeRecv(cCommArray->recvComm);
-    if (cCommArray->sendComm) ncclNetIb.closeSend(cCommArray->sendComm);
+    if (cCommArray->recvComm) NCCLCHECKIGNORE(ncclNetIb.closeRecv(cCommArray->recvComm), ret);
+    if (cCommArray->sendComm) NCCLCHECKIGNORE(ncclNetIb.closeSend(cCommArray->sendComm), ret);
     free(cCommArray);
   }
   return ret;
@@ -397,7 +402,10 @@ ncclResult_t ncclGinIbGdakiQueryLastError(void* ginCtx, bool* hasError) {
 
 // Adapter so the v13 listen-close signature matches the v6 IB closeListen.
 ncclResult_t ncclGinIbCloseListen(void* listenComm) {
-  return ncclNetIb.closeListen(listenComm);
+  ncclResult_t ret = ncclSuccess;
+  NCCLCHECKIGNORE(pcclIbCancelAccept(listenComm), ret);
+  NCCLCHECKIGNORE(ncclNetIb.closeListen(listenComm), ret);
+  return ret;
 }
 
 ncclGin_t ncclGinIbGdaki = {
@@ -494,6 +502,7 @@ ncclResult_t ncclGinIbProxyCreateContext(void* collComm, ncclGinConfig_v13_t* co
   void* lComm = NULL;
   char* handle = NULL;
   char* handles = NULL;
+  void* pendingHandle = NULL;
   NCCLCHECKGOTO(ncclIbMalloc((void**)&handles, NCCL_NET_HANDLE_MAXSIZE * cComm->nranks), ret, end);
   handle = handles + NCCL_NET_HANDLE_MAXSIZE * cComm->rank;
 
@@ -510,32 +519,30 @@ ncclResult_t ncclGinIbProxyCreateContext(void* collComm, ncclGinConfig_v13_t* co
       int connectPeer = (cComm->rank + i) % nranks;
       int acceptPeer = (cComm->rank - i + nranks) % nranks;
       do {
-        if (gc->fullSendComm[connectPeer] == NULL)
+        if (gc->fullSendComm[connectPeer] == NULL) {
+          pendingHandle = NULL;
           NCCLCHECKGOTO(ncclNetIb.connect(cComm->dev,
                                           handles + NCCL_NET_HANDLE_MAXSIZE * connectPeer,
                                           &gc->fullSendComm[connectPeer]),
                         ret, end);
+          if (gc->fullSendComm[connectPeer] == NULL)
+            pendingHandle = handles + NCCL_NET_HANDLE_MAXSIZE * connectPeer;
+        }
         if (gc->fullRecvComm[acceptPeer] == NULL)
-          NCCLCHECKGOTO(ncclNetIb.accept(lComm, &gc->fullRecvComm[acceptPeer]),
+          NCCLCHECKGOTO(pcclIbAcceptForGin(lComm, &gc->fullRecvComm[acceptPeer]),
                         ret, end);
       } while ((gc->fullSendComm[connectPeer] == NULL) ||
                (gc->fullRecvComm[acceptPeer] == NULL));
-      // Phase-2: complete QP transition (INIT → RTR → RTS) on the sender
-      // side and synchronize with the receiver.  Without this the sender's
-      // QP stays in INIT and ibv_post_send in IPut/IGet will fail.
-      while (((struct ncclIbSendComm*)gc->fullSendComm[connectPeer])->base.ready == 0)
-        NCCLCHECKGOTO(ncclSendCheck((struct ncclIbSendComm*)gc->fullSendComm[connectPeer]), ret, end);
-      while (((struct ncclIbRecvComm*)gc->fullRecvComm[acceptPeer])->base.ready == 0)
-        NCCLCHECKGOTO(ncclRecvCheck((struct ncclIbRecvComm*)gc->fullRecvComm[acceptPeer]), ret, end);
       NCCLCHECKGOTO(ncclGinIbP2PBarrier(cComm), ret, end);
     }
   }
 
 end:
+  if (pendingHandle) NCCLCHECKIGNORE(pcclIbCancelConnect(pendingHandle), ret);
+  if (lComm) NCCLCHECKIGNORE(ncclGinIbCloseListen(lComm), ret);
   free(handles);
-  if (lComm) ncclNetIb.closeListen(lComm);
   if (ret != ncclSuccess) {
-    if (ginProxyCtx != NULL) ncclGinIbProxyDestroyContext(ginProxyCtx);
+    if (ginProxyCtx != NULL) NCCLCHECKIGNORE(ncclGinIbProxyDestroyContext(ginProxyCtx), ret);
   } else {
     *ginCtx = ginProxyCtx;
   }

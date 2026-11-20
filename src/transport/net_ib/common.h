@@ -43,6 +43,21 @@ enum ncclIbProvider {
   IB_PROVIDER_MLX5 = 1,
   IB_PROVIDER_TROCE = 2,
 };
+struct ncclIbMr {
+    uintptr_t addr;
+    size_t size;
+    unsigned int flags;
+    int type;
+    int refs;
+    struct ibv_mr* mr;
+};
+
+struct ncclIbMrCache {
+    struct ncclIbMr* slots;
+    size_t capacity;
+    size_t population;
+};
+
 struct ncclIbDev {
     int device;
     uint64_t guid;
@@ -65,6 +80,7 @@ struct ncclIbDev {
     struct ibv_pd* pd;
     int pdRefs;
     std::mutex mutex;
+    struct ncclIbMrCache mrCache;
     // -1 = not probed, 0 = probed and unsupported, 1 = probed and supported.
     int dmaBufSupported;
 };
@@ -104,7 +120,7 @@ struct ncclIbRequest {
     int size;
     void* data;
     uint32_t lkey;
-    int offset;
+    size_t offset;
     } send;
     struct {
       int sizes[NCCL_NET_IB_MAX_RECVS];
@@ -132,6 +148,8 @@ enum ncclIbCommState {
     ncclIbCommStateSend = 4,
     ncclIbCommStateRecv = 5,
     ncclIbCommStateConnected = 6,
+    ncclIbCommStateConnecting = 7,
+    ncclIbCommStatePendingReady = 8,
 };
 
 enum ncclIbRecvMatchingScheme {
@@ -323,7 +341,7 @@ ncclResult_t ncclIbSetTrafficClass(void* ctx, int trafficClass);
 ncclResult_t ncclIbGetPhysProperties(int dev, ncclNetProperties_t* props);
 ncclResult_t ncclIbRegMrDmaBufInternal(void* comm, void* data, size_t size, int type, uint64_t offset, int fd, uint64_t mrFlags, void** mhandle);
 
-ncclResult_t ncclIbGetGidIndex(struct ibv_context *context, uint8_t portNum, int gidTblLen, int *gidIndex);
+ncclResult_t ncclIbGetGidIndex(struct ibv_context *context, uint8_t portNum, const struct ibv_port_attr* portAttr, int *gidIndex);
 int ncclIbGidIndexFromDevice(int netDev);
 ncclResult_t ncclIbGetRequest(struct ncclIbNetCommBase* base, struct ncclIbRequest** req);
 ncclResult_t ncclIbFreeRequest(struct ncclIbRequest* r);
