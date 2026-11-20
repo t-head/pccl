@@ -1,14 +1,14 @@
 {
   "classification": {
     "base_sha": "8d1fff80b4f1c7c625f22ce835db16961fa9281f",
-    "head_sha": "49c0e5135537a551b5f22e4badfc73f969abef78",
-    "input_fingerprint": "acb7454ff21359b620f08e47674abed4232945a299c9b7cd621e48a86bcd78f6",
+    "head_sha": "ab05ebed9f11591dedc84c15fa67c89aeaa09e47",
+    "input_fingerprint": "e0ec931102929216b5a13bb0a0228175ada8abe3eb661061fba1e195ccb07be7",
     "pr_number": 220,
     "proposal": {
       "modules": [
         "ci"
       ],
-      "reason": "The substantive change is a CI test-orchestration expansion: dual-platform (M890P + OAM-810E EIC) workflow execution, optional trusted HPN SDK installation in workflow jobs, updated case generation/grouping/reconciliation/reporting, and large new/updated xtest case-definition assets and CI tests. Build-script edits are CI support for test binaries, not core build-system or runtime module behavior changes."
+      "reason": "Main change is a substantial overhaul of CI validation orchestration: dual-platform (M890P + OAM-810E) case generation/grouping, workflow matrix/rack policy updates, optional HPN SDK install path, expanded native-unit test coverage, result reconciliation/reporting/log capture, and corresponding CI docs/tests. Changes to build/test scripts are CI pipeline support, not product runtime module behavior."
     }
   },
   "reviewers": {
