@@ -1,14 +1,14 @@
 {
   "classification": {
-    "base_sha": "173ba6ac40c60b68410acc28c18902c7f24241ca",
-    "head_sha": "6896b6b67ee06957740d34d850b78d0fa9f9fad7",
-    "input_fingerprint": "a69ac0a71de39f4ff5a66a4460de82c3b15056dec747912facc7bbf8fff4dc6b",
+    "base_sha": "8d1fff80b4f1c7c625f22ce835db16961fa9281f",
+    "head_sha": "6806674ec9b2a2ef4c39e4dcc4904085b30b0b85",
+    "input_fingerprint": "871b5c61c427d997564afd2fcb11e417b03b8fd655ed95fecb881fe0bd486d20",
     "pr_number": 229,
     "proposal": {
       "modules": [
         "ci"
       ],
-      "reason": "Main change is CI test-workflow behavior: daily/source-sanity hardware execution now uses automatic rack policies (`same`/`spread` with `rack_count`), schedule/resource-policy expansion for Friday 16-node runs, and matching prepare/coverage/group-contract validation updates in xtest workflow tooling and tests."
+      "reason": "The substantive change is to open-source test workflow execution policy: replacing explicit rack assignments with automatic rack_policy/rack_count, propagating that through group generation, matrix/prepare/final reconciliation checks, and updating daily schedule/allowed_nodes behavior (including Friday 16-node inclusion). The Python and docs edits are supporting CI workflow-contract updates rather than independent runtime/module changes."
     }
   },
   "reviewers": {
