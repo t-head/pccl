@@ -86,5 +86,12 @@
         </gpu>
       </pci>
     </pci>
+    <pci busid="0000:01:00.0" class="0x060400" vendor="0x1ded" device="0x5000" subsystem_vendor="0x0000" subsystem_device="0x0000" link_speed="32.0 GT/s PCIe" link_width="8">
+      <pci busid="0000:06:00.0" class="0x00ff00" vendor="0x1ded" device="0x107f" subsystem_vendor="0x1ded" subsystem_device="0x1234" link_speed="32.0 GT/s PCIe" link_width="8">
+        <nic>
+          <net name="erdma_0" dev="4" speed="50000" port="1" guid="0x74c501feff3e1602" maxconn="61439" gdr="1"/>
+        </nic>
+      </pci>
+    </pci>
   </cpu>
 </system>
