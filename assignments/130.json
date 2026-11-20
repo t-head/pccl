@@ -9,7 +9,7 @@
         "network",
         "gin"
       ],
-      "reason": "Main functional change is in GIN backends (GDAKI and PROXY) to set/rotate LAG TX port affinity per peer/context, including capability-gated fallback behavior and PROXY queue-depth compatibility handling. Additional network review is needed because shared MLX5 DV symbol/wrapper paths were extended (query/modify QP LAG port and LAG-port discovery with error-policy handling), which is transport-level networking infrastructure beyond a single GIN call site."
+      "reason": "Primary change is in GIN-specific RDMA backends (GDAKI and GIN_IB_PROXY) to rotate/reset QP LAG TX-port affinity across peers/contexts with capability-gated fallback behavior, so `gin` is the main review module. `network` is additionally needed because shared MLX5 direct-verbs wrapper/symbol surfaces and proxy-side QP LAG query/modify handling were extended, which affects network transport/proxy connection behavior beyond a purely local refactor."
     }
   },
   "reviewers": {
