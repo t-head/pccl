@@ -389,10 +389,10 @@ ncclResult_t ncclTopoPostset(ncclComm_t comm, int* firstRanks, int* treePatterns
   // Create rings array and check all is fine
   NCCLCHECKGOTO(ncclBuildRings(nChannels, rings, comm->rank, comm->nRanks, ringPrev, ringNext), res, end);
 
-  if (ncclHggcCompCap() == 80 && comm->channelShuffle) {
-    int ratio = comm->nChannels / comm->nGraphChannels;
+  if (comm->compCap == 80 && comm->channelShuffle && comm->nGraphChannels > 0) {
+    int nGraphChannels = std::min(comm->nGraphChannels, nChannels);
     for (int c = comm->nChannels-1; c>0; c--) {
-      int c0 = c / ratio;
+      int c0 = c*nGraphChannels/nChannels;
       int c1 = c;
       memcpy(comm->channels+c1, comm->channels+c0, sizeof(struct ncclChannel));
       for (int a=0; a<NCCL_NUM_ALGORITHMS; a++) comm->graphs[a].channelMap[c1] = comm->graphs[a].channelMap[c0];

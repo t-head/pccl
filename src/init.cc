@@ -1419,6 +1419,10 @@ static ncclResult_t initTransportsRank(ncclComm_t comm, ncclComm_t parent, uint6
   NCCLCHECKGOTO(ncclTopoCompute(comm->topo, treeGraph), res, fail);
   NCCLCHECKGOTO(ncclTopoPrintGraph(comm->topo, treeGraph), res, fail);
 
+  if (comm->channelShuffle && minCompCap == 80 && (ringGraph->nGraphChannels == 0 || treeGraph->nGraphChannels == 0)) {
+    comm->channelShuffle = false;
+  }
+
   fcGraph->id = 3;
   fcGraph->pattern = NCCL_TOPO_PATTERN_FC;
   fcGraph->minChannels = 1;
