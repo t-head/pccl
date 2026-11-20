@@ -21,11 +21,15 @@ on:
         default: 500
         type: number
       nodes:
-        description: Optional full-selection node filter; smoke only supports nodes=1
+        description: Optional node-count debug filter
         required: false
         type: string
       suite:
         description: Optional exact Suite debug filter; empty selects every Suite
+        required: false
+        type: string
+      cards_per_node:
+        description: Optional debug allocation override; Case rank/layout definitions are unchanged
         required: false
         type: string
       hpn_sdk_url:
@@ -561,7 +565,7 @@ jobs:
         with:
           image: ${{ env.VALIDATION_IMAGE }}
           nnodes: 0
-          nproc_per_node: ${{ matrix.cards_per_node }}
+          nproc_per_node: ${{ inputs.cards_per_node || matrix.cards_per_node }}
           node_selector: ${{ matrix.node_selector }}
           namespace: ppu-sched
           timeout_minutes: 720
@@ -664,7 +668,7 @@ jobs:
           image: ${{ env.VALIDATION_IMAGE }}
           launch_mode: master
           nnodes: ${{ matrix.nodes }}
-          nproc_per_node: ${{ matrix.cards_per_node }}
+          nproc_per_node: ${{ inputs.cards_per_node || matrix.cards_per_node }}
           rack_nodes: ${{ matrix.platform == 'm890p' && format('rack-01={0}', matrix.nodes) || '' }}
           node_selector: ${{ matrix.node_selector }}
           namespace: ppu-sched
@@ -763,7 +767,7 @@ jobs:
           image: ${{ env.VALIDATION_IMAGE }}
           launch_mode: master
           nnodes: ${{ matrix.nodes }}
-          nproc_per_node: ${{ matrix.cards_per_node }}
+          nproc_per_node: ${{ inputs.cards_per_node || matrix.cards_per_node }}
           rack_nodes: ${{ matrix.rack_nodes }}
           node_selector: ${{ matrix.node_selector }}
           namespace: ppu-sched

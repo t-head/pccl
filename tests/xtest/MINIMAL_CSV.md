@@ -170,6 +170,11 @@ all of its workers stay in rack-01. Single-node executions do not pass
 `rack_nodes`.
 There is no hand-maintained shard list. Optional `--nodes` and `--suite`
 arguments are debug filters, not shard definitions.
+Manual dispatch also accepts `cards_per_node` as an allocation-only debug
+override. It does not rewrite Case ranks or layouts; use it only with a
+compatible selection. For example, `nodes=2`, `cards_per_node=1`, and
+`suite=pccl_fun_rdma_810e_multi_nodes2_suite` runs the two-process 810E RDMA
+smoke on one card per node without changing the full 16-card profile.
 
 ```bash
 python3 -S -B tests/xtest/generate_cases.py \
