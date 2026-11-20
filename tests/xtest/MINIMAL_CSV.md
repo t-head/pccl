@@ -159,8 +159,8 @@ M890P exclusions. This is generation coverage only, not a claim that the full
 hardware dataset has been executed.
 
 `generate_pr_cases.py` writes the reviewed 810E PR input under
-`minimal-csv-oam810e-eic`: 23 standard Cases (21 single-node and two two-node)
-and nine notsm Cases. Single-node coverage includes all nine two-rank op_perf
+`minimal-csv-oam810e-eic`: 19 standard Cases (17 single-node and two two-node)
+and nine notsm Cases. Single-node coverage includes five two-rank op_perf
 collectives and the complete nine-Case sanity_register family in both standard
 and notsm. PR CI builds standard and notsm once, then runs both platforms with
 independent inputs, result directories and reconciliation. Every 810E PR Suite
