@@ -135,6 +135,12 @@ class WorkflowContractTests(unittest.TestCase):
         self.assertNotIn('chmod -R a+rwX "$CACHE_DIR"', self.text)
         self.assertIn('--preserve-cache', self.text)
         self.assertIn('id: results-upload', self.text)
+        upload = self.text[self.text.index('id: results-upload'):]
+        upload = upload[:upload.index('- id: cleanup')]
+        self.assertIn('if: always()', upload)
+        self.assertIn('/results/**/raw.log', upload)
+        self.assertIn('/results/**/dmesg*.log', upload)
+        self.assertIn('if-no-files-found: warn', upload)
         self.assertIn('RESULTS_UPLOAD_OUTCOME', self.text)
         self.assertIn('[ "$PRESERVE" = 1 ]', self.text)
         self.assertNotIn('[[ "$PRESERVE" == 1 ]]', self.text)

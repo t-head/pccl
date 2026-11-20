@@ -97,8 +97,12 @@ and intentionally remains present when `NCCL_IB_DISABLE=1`.
   remaining Cases are marked `NOT_RUN`.
 
 `raw.log` is the unmodified diagnostic stream used for checks. Results and raw
-logs must remain in the private results area; this executor intentionally
-has no generic public-log redactor. Infrastructure remains responsible for
+logs remain in the private results area and are uploaded with the run's result
+artifact. Failed, timed out and cancelled Cases also save best-effort `dmesg`
+diagnostics beside the raw log: `dmesg.log` for one node and
+`dmesg-worker-N.log` for multiple nodes. Dmesg capture failures do not replace
+the Case result. This executor intentionally has no generic public-log
+redactor. Infrastructure remains responsible for
 node allocation and MPI/RDMA setup; the executor owns per-execution-group
 cgroup recovery on every worker.
 

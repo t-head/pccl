@@ -82,10 +82,41 @@ class CsvRunnerTests(unittest.TestCase):
             build_identity = {'schema_version': 1, 'pccl_revision': 'c' * 40,
                               'pccl_tests_revision': inputs['metadata']['runner_revision'],
                               'build_profile': inputs['profile'], 'artifact_sha256': 'd' * 64}
-        return run_cases.run_all(inputs, self.test_root, self.binary,
-                                 self.root / f'output-{self.output_number}', hostfile,
-                                 {'PATH': '/usr/bin:/bin', 'LD_LIBRARY_PATH': '', 'PPU_HOME': '/sdk'},
-                                 mpi_interface=mpi_interface, build_identity=build_identity)
+        with mock.patch.object(run_cases, '_capture_dmesg') as self.capture_dmesg:
+            return run_cases.run_all(
+                inputs, self.test_root, self.binary, self.root / f'output-{self.output_number}', hostfile,
+                {'PATH': '/usr/bin:/bin', 'LD_LIBRARY_PATH': '', 'PPU_HOME': '/sdk'},
+                mpi_interface=mpi_interface, build_identity=build_identity)
+
+    def test_dmesg_is_captured_only_for_failed_cases(self):
+        rows = self.execute(self.inputs([{'cmd': 'exit 1'}, {'cmd': 'true'}]))
+        self.assertEqual([row['status'] for row in rows], ['FAILED', 'PASSED'])
+        self.capture_dmesg.assert_called_once()
+        case, runtime = self.capture_dmesg.call_args.args
+        self.assertEqual(case['name'], 'case_0')
+        self.assertEqual(runtime['output'], (self.root / 'output-1').resolve())
+
+    def test_dmesg_capture_writes_local_and_worker_logs(self):
+        case = {'plan': 'plan', 'suite': 'suite', 'name': 'case', 'suite_spec': {'nodes': 1}}
+        runtime = {'output': self.root, 'hostfile': None}
+        directory = self.root / 'plan/suite/case'
+        directory.mkdir(parents=True)
+        completed = mock.Mock(stdout=b'kernel diagnostic\n', returncode=0)
+        with mock.patch.object(run_cases.subprocess, 'run', return_value=completed) as invoke:
+            run_cases._capture_dmesg(case, runtime)
+        self.assertEqual((directory / 'dmesg.log').read_bytes(), b'kernel diagnostic\n')
+        self.assertEqual(invoke.call_args.args[0], ['dmesg'])
+
+        hostfile = self.root / 'hosts.cfg'
+        hostfile.write_text('worker-a slots=2\nworker-b slots=2\n')
+        case['suite_spec']['nodes'] = 2
+        runtime['hostfile'] = hostfile
+        with mock.patch.object(run_cases.subprocess, 'run', return_value=completed) as invoke:
+            run_cases._capture_dmesg(case, runtime)
+        self.assertEqual((directory / 'dmesg-worker-0.log').read_bytes(), b'kernel diagnostic\n')
+        self.assertEqual((directory / 'dmesg-worker-1.log').read_bytes(), b'kernel diagnostic\n')
+        self.assertEqual([call.args[0] for call in invoke.call_args_list],
+                         [['cluster-ssh', 'worker-a', 'dmesg'], ['cluster-ssh', 'worker-b', 'dmesg']])
 
     def test_verified_build_identity_is_retained_with_results(self):
         inputs = self.inputs([{'cmd': 'printf "build identity\\n"'}])

@@ -521,6 +521,29 @@ def _recover_multinode(case, runtime, row):
     return report["safe"]
 
 
+def _capture_dmesg(case, runtime):
+    """Best-effort kernel diagnostics beside a failed Case's raw log."""
+    suite = case["suite_spec"]
+    directory = runtime["output"] / case["plan"] / case["suite"] / case["name"]
+    if suite["nodes"] == 1:
+        captures = [("dmesg.log", ["dmesg"])]
+    else:
+        hosts = [line.split()[0] for line in Path(runtime["hostfile"]).read_text().splitlines()
+                 if line.split() and not line.split()[0].startswith("#")]
+        captures = [(f"dmesg-worker-{index}.log", ["cluster-ssh", host, "dmesg"])
+                    for index, host in enumerate(hosts)]
+    for filename, command in captures:
+        try:
+            result = subprocess.run(command, stdin=subprocess.DEVNULL, stdout=subprocess.PIPE,
+                                    stderr=subprocess.STDOUT, timeout=15, check=False)
+            content = result.stdout
+            if result.returncode:
+                content += f"\n[dmesg command exited {result.returncode}]\n".encode()
+        except (OSError, subprocess.TimeoutExpired) as error:
+            content = f"Unable to capture dmesg: {error}\n".encode()
+        (directory / filename).write_bytes(content)
+
+
 def _write_summary(output, rows):
     by_key = {(row["plan"], row["suite"], row["name"]): row for row in rows}
     if len(by_key) != len(rows):
@@ -582,9 +605,12 @@ def run_all(inputs, test_root, binary_dir, output, hostfile=None, base_environme
             rows.append(row)
             print(f'[{len(rows)}/{len(inputs["cases"])}] '
                   f'{case["plan"]}/{case["suite"]}/{case["name"]}: {row["status"]}', flush=True)
-            if row["status"] != "PASSED" and case["suite_spec"]["nodes"] > 1:
-                recovered = _recover_multinode(case, runtime, row)
-                if not recovered or row["status"] == "CANCELLED":
+            if row["status"] != "PASSED":
+                recovered = True
+                if case["suite_spec"]["nodes"] > 1:
+                    recovered = _recover_multinode(case, runtime, row)
+                _capture_dmesg(case, runtime)
+                if case["suite_spec"]["nodes"] > 1 and (not recovered or row["status"] == "CANCELLED"):
                     reason = "Stopped after multi-node recovery failure; remote process cleanup is not confirmed"
                     rows.extend(_not_run(remaining, reason) for _, remaining in ordered[len(rows):])
                     break
