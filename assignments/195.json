@@ -1,14 +1,14 @@
 {
   "classification": {
     "base_sha": "50423c27f1dc6a6ef765f20e504c47f561d948f9",
-    "head_sha": "556165ab328944fdf1fabfecbfd5364733c7786e",
-    "input_fingerprint": "66ca34df0cc2d027725ce57d239ccaf2be8aa94ae59c634a2daf12c2eca7613b",
+    "head_sha": "45c73b6bfec31f52b635fc157993059d28b1985d",
+    "input_fingerprint": "122f6cdecdf1c78a97c524b16d4d59f1f87c5d42aa04c6a65f291f7d56656ab2",
     "pr_number": 195,
     "proposal": {
       "modules": [
         "workflow"
       ],
-      "reason": "Main functional change is review/merge automation policy and routing logic: .github/scripts/review_automation.py and maintainer_approval.py add role-based module requirements, command-driven module overrides, invitation withdrawal/reinvite rules, and current-HEAD approval gating; related workflow wiring changes in .github/workflows/review-module.yml, maintainer-approval.yml, and commit-message.yml support that same review workflow behavior."
+      "reason": "Main functional change is to contribution/review automation: .github/scripts/review_automation.py adds module-command handling, role-aware requirements, invitation lifecycle and summary updates; .github/scripts/maintainer_approval.py enforces Reviewer+Maintainer gate logic; .github/scripts/commit_message_squash.py ties preview publish/removal to review-gate state; and .github/workflows/{review-module,maintainer-approval,commit-message}.yml rewires trusted triggers and dispatch flow. These are workflow policy/process changes, not runtime/CI system behavior changes."
     }
   },
   "reviewers": {
