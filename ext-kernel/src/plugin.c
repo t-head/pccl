@@ -12,6 +12,7 @@
 #include <stdio.h>
 #include <stdlib.h>
 #include <string.h>
+#include <algorithm>
 #include <atomic>
 #include "errno.h"
 #include <hggc.h>
@@ -32,6 +33,7 @@ PCCL_PARAM(CustomAllReduceDoubleBuffer, "CUSTOM_ALLREDUCE_DOUBLE_BUFFER", -2);
 PCCL_PARAM(CustomAllReduceBlocks, "CUSTOM_ALLREDUCE_BLOCK_NUM", -2);
 PCCL_PARAM(CustomAllReduceThreads, "CUSTOM_ALLREDUCE_THREAD_NUM", -2);
 PCCL_PARAM(CustomAllReduceLLBound, "CUSTOM_ALLREDUCE_LL_BOUND", -2);
+PCCL_PARAM(CustomAllReduceStrategy, "CUSTOM_ALLREDUCE_STRATEGY", -2);
 static_assert((RMT_BULK_ALIGN_SIZE & (RMT_BULK_ALIGN_SIZE-1)) == 0, "RMT_BULK_ALIGN_SIZE should be power of 2");
 
 static ssize_t getFlagsSize(int nRanks) {
@@ -40,22 +42,28 @@ static ssize_t getFlagsSize(int nRanks) {
   return  flagsSize*nRanks*2;
 }
 
-ncclResult_t configHostParams(int nRanks, extTopo topo, struct extKernelHostParams* hostParams) {
+ncclResult_t configHostParams(int nRanks, PPU_TYPE ppuType, extTopo topo, struct extKernelHostParams* hostParams) {
   ncclResult_t result = ncclSuccess;
   size_t llEpochsSize;
   size_t bufAllocSize;
+  size_t pushLimit = 0;
+  size_t pushBufferSize;
+  bool pushEnabled;
+  const int64_t forcedStrategy = pcclParamCustomAllReduceStrategy();
+  const extTopoConfig& topoConfig = topoConfigs[topo];
+  const size_t defaultPushLimit = getOneShotPushDefaultMaxBytes(topo);
 
-  if (topoConfigs[topo].topoId != topo) {
+  if (topoConfig.topoId != topo) {
     ERROR("EXT KERNEL: topo config id should match it's index exactly. topo id:%d", topo);
     return ncclInternalError;
   }
-  hostParams->boundLow = topoConfigs[topo].boundLow;
-  hostParams->boundHigh = topoConfigs[topo].boundHigh;
-  hostParams->agBoundHigh = topoConfigs[topo].agBoundHigh;
-  hostParams->rsBoundHigh = topoConfigs[topo].rsBoundHigh;
-  hostParams->oneShotLLBoundHigh = topoConfigs[topo].oneShotLLBoundHigh;
-  hostParams->twoShotSwitchPoint = topoConfigs[topo].twoShotSwitchPoint;
-  hostParams->maxBlockNum = topoConfigs[topo].maxBlockNum;
+  hostParams->boundLow = topoConfig.boundLow;
+  hostParams->boundHigh = topoConfig.boundHigh;
+  hostParams->agBoundHigh = topoConfig.agBoundHigh;
+  hostParams->rsBoundHigh = topoConfig.rsBoundHigh;
+  hostParams->oneShotLLBoundHigh = topoConfig.oneShotLLBoundHigh;
+  hostParams->twoShotSwitchPoint = topoConfig.twoShotSwitchPoint;
+  hostParams->maxBlockNum = topoConfig.maxBlockNum;
   hostParams->maxThreadNum = MAX_BLOCK_SIZE;
   hostParams->useUsrConfigBlockNum = false;
   hostParams->useUsrConfigThreadNum = false;
@@ -112,6 +120,23 @@ ncclResult_t configHostParams(int nRanks, extTopo topo, struct extKernelHostPara
   // peer buffer; padding per chunk is at most RMT_BULK_ALIGN_SIZE-1 bytes.
   // Reserve the extra space in the allocation only, not in bufSize.
   bufAllocSize = hostParams->bufSize + nRanks * RMT_BULK_ALIGN_SIZE;
+  if (ppuType == _ZW_M890P && hostParams->compCap == 89 && defaultPushLimit != 0 &&
+      getOneShotPushRankIndex(nRanks) >= 0) {
+    if (forcedStrategy == ONESHOT_PUSH) {
+      pushLimit = hostParams->boundHigh;
+    } else if ((forcedStrategy < ONESHOT || forcedStrategy >= STRATEGY_NUM) &&
+               !hostParams->useUsrConfigBlockNum && !hostParams->useUsrConfigThreadNum) {
+      // Automatic selection must respect explicit launch overrides.
+      pushLimit = std::min(defaultPushLimit, static_cast<size_t>(hostParams->boundHigh));
+    }
+  }
+  // One slot per source rank in each of the two phases. The stride is fixed for
+  // the communicator so consecutive operations can use different message sizes.
+  hostParams->pushStrideVecs = pushLimit / PACKED_ELEMS_SIZE;
+  // The core enables Push by setting the block limit after communicator-wide negotiation.
+  hostParams->pushMaxBlocks = 0;
+  pushEnabled = hostParams->pushStrideVecs != 0;
+  pushBufferSize = 2 * nRanks * static_cast<size_t>(hostParams->pushStrideVecs) * PACKED_ELEMS_SIZE;
   hostParams->regionConfig[DEV_REGION_BUFFER]         = { true,                       true,  bufAllocSize };
   hostParams->regionConfig[DEV_REGION_BUFFER_D]       = { hostParams->doubleBuffer != 0, true,  bufAllocSize };
   hostParams->regionConfig[DEV_REGION_BARRIER_IN]     = { true,                       true,  hostParams->barrierSize };
@@ -122,6 +147,8 @@ ncclResult_t configHostParams(int nRanks, extTopo topo, struct extKernelHostPara
   hostParams->regionConfig[DEV_REGION_PEER_RMT_ADDR]  = { true,                       true,  hostParams->peerRmtAddrSize };
   hostParams->regionConfig[DEV_REGION_LL_BUFFER]      = { true,                       true,  hostParams->llBufferSize };
   hostParams->regionConfig[DEV_REGION_LL_EPOCHS]      = { true,                       false, llEpochsSize };
+  hostParams->regionConfig[DEV_REGION_PUSH_BUFFER] = { pushEnabled, pushEnabled, pushBufferSize };
+  hostParams->regionConfig[DEV_REGION_PUSH_PHASE]  = { pushEnabled, false, EXT_KERNEL_PUSH_BLOCKS * sizeof(uint32_t) };
 
   return ncclSuccess;
 fail:
@@ -159,7 +186,7 @@ ncclResult_t pluginInit(const struct pcclExtKernelInitInfo* info, void** params,
   devParams->myRank = rank;
   devParams->abortFlag = info->abortFlagDev;
   *params = reinterpret_cast<void*>(extKernelParams);
-  NCCLCHECKGOTO(configHostParams(nRanks, topo, &extKernelParams->hostParams), result, cleanup);
+  NCCLCHECKGOTO(configHostParams(nRanks, info->ppuType, topo, &extKernelParams->hostParams), result, cleanup);
 
   // devMemSize computed from region config table (single source of truth).
   *devMemSize = computeDevMemTotalSize(extKernelParams->hostParams.regionConfig,
@@ -175,8 +202,6 @@ cleanup:
   }
   goto exit;
 }
-
-PCCL_PARAM(CustomAllReduceStrategy, "CUSTOM_ALLREDUCE_STRATEGY", -2);
 
 ncclResult_t pluginAvailCheck(const struct pcclExtTaskColl* task, const void* params, bool* usingExtKernel) {
   *usingExtKernel = false;
@@ -221,7 +246,7 @@ ncclResult_t pluginAvailCheck(const struct pcclExtTaskColl* task, const void* pa
   }
 
   // AllReduce path
-  if (task->datatype != pcclHalf && task->datatype != pcclFloat && task->datatype != pcclBfloat16)
+  if (dtypeToIndex(task->datatype) < 0)
     return ncclSuccess;
 
   ssize_t eltsPerThread;
@@ -298,8 +323,14 @@ ncclResult_t pluginBuildParams(const struct pcclExtTaskColl* task, void* params)
     } else {
       hostParams->strategy = task->regUsed ? TWOSHOT_REG : TWOSHOT;
     }
-    if (pcclCustomAllReduceStrategy >= ONESHOT && pcclCustomAllReduceStrategy < STRATEGY_NUM) {
+    if (pcclCustomAllReduceStrategy >= ONESHOT && pcclCustomAllReduceStrategy < ONESHOT_PUSH) {
       hostParams->strategy = (extKernelStrategyType)pcclCustomAllReduceStrategy;
+    } else if (hostParams->pushMaxBlocks > 0 &&
+               nBytes >= PACKED_ELEMS_SIZE && nBytes % PACKED_ELEMS_SIZE == 0 &&
+               nBytes <= static_cast<size_t>(hostParams->pushStrideVecs) * PACKED_ELEMS_SIZE) {
+      // Registration can differ across ranks. Push uses local user pointers and
+      // communicator workspace, so all ranks can select it independently of regUsed.
+      hostParams->strategy = ONESHOT_PUSH;
     }
 
     if (task->regUsed) {
@@ -316,12 +347,18 @@ ncclResult_t pluginBuildParams(const struct pcclExtTaskColl* task, void* params)
   return ncclSuccess;
 }
 
+extern "C" void pcclExtKernelSetPushBlockLimit(void* params, int maxBlocks) {
+  auto& hostParams = static_cast<struct extKernelParams*>(params)->hostParams;
+  hostParams.pushMaxBlocks = maxBlocks >= EXT_KERNEL_PUSH_BLOCKS ? EXT_KERNEL_PUSH_BLOCKS : 1;
+}
+
 ncclResult_t pluginConfigWorkspace(void** buffers, int nGpus, void* params) {
   struct extKernelParams* extParams = reinterpret_cast<struct extKernelParams*>(params);
   struct extKernelDevParams* devParams = extParams->devParams;
   struct extKernelHostParams* hostParams = &extParams->hostParams;
 
   int32_t myRank = devParams->myRank;
+  const bool pushEnabled = hostParams->regionConfig[DEV_REGION_PUSH_BUFFER].enabled;
 
   // peerAddrs[gpu][region] = base address of region data on that GPU
   void* peerAddrs[NCCL_MAX_LOCAL_RANKS][DEV_REGION_COUNT];
@@ -344,6 +381,7 @@ ncclResult_t pluginConfigWorkspace(void** buffers, int nGpus, void* params) {
         devParams->peerPtrTables[r] = ptrTables[r];
       // Local-only region (no peer table): expose the data base directly.
       devParams->llEpochs = dataBases[DEV_REGION_LL_EPOCHS];
+      devParams->pushPhase = pushEnabled ? dataBases[DEV_REGION_PUSH_PHASE] : nullptr;
     }
   }
 
@@ -360,6 +398,12 @@ ncclResult_t pluginConfigWorkspace(void** buffers, int nGpus, void* params) {
   HGGCCHECK(hggcMemset(devParams->llEpochs, 0, hostParams->regionConfig[DEV_REGION_LL_EPOCHS].elementSize));
   // Zero-initialize LL buffer to prevent spurious epoch flag matches on first launch
   HGGCCHECK(hggcMemset(peerAddrs[myRank][DEV_REGION_LL_BUFFER], 0, hostParams->llBufferSize));
+  if (pushEnabled) {
+    HGGCCHECK(hggcMemset(peerAddrs[myRank][DEV_REGION_PUSH_BUFFER], 0,
+                         hostParams->regionConfig[DEV_REGION_PUSH_BUFFER].elementSize));
+    HGGCCHECK(hggcMemset(devParams->pushPhase, 0,
+                         hostParams->regionConfig[DEV_REGION_PUSH_PHASE].elementSize));
+  }
 
   // for dump
   extParams->myBarrierIn      = (uint32_t*)peerAddrs[myRank][DEV_REGION_BARRIER_IN];

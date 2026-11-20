@@ -24,26 +24,28 @@
 //   * peerVisible   — allocate a peer pointer table (EXT_KERNEL_PTRS_SIZE bytes)
 //                     that holds the base address of this region on every peer.
 //
-// Most regions are { enabled, peerVisible } (data + peer table). LL_EPOCHS is
-// { enabled, !peerVisible } (local-only, no peer indexing). BUFFER_D when
-// double buffering is off is { !enabled, peerVisible } (no extra data; the
-// pointer table is aliased to BUFFER so kernel indexing stays uniform).
+// Most regions are { enabled, peerVisible } (data + peer table). LL_EPOCHS and
+// PUSH_PHASE are local-only. With double buffering disabled, BUFFER_D is
+// { !enabled, peerVisible } and its table points to BUFFER's data areas.
 //
 // The full per-rank device buffer looks like:
 //
 //   +------------------+  <- basePtr (aligned to RMT_BULK_ALIGN_SIZE)
 //   | data areas       |   one per enabled region, packed in enum order
 //   |   BUFFER         |
-//   |   BUFFER_D       |   (0 bytes if doubleBuffer disabled)
+//   |   BUFFER_D       |   (0 bytes if double buffering is disabled)
 //   |   BARRIER_*      |
 //   |   PEER_RMT_ADDR  |
 //   |   LL_BUFFER      |
-//   |   LL_EPOCHS      |   (no peer table — local-only)
+//   |   LL_EPOCHS      |   local-only
+//   |   PUSH_BUFFER    |   optional, two phases with one slot per source rank in each
+//   |   PUSH_PHASE     |   optional, local uint32_t phase per Push block
 //   +------------------+
-//   | pointer tables   |   one per peerVisible region (LL_EPOCHS skipped)
+//   | pointer tables   |   one per peerVisible region
 //   |   BUFFER     ptrs|   peerPtrTables[BUFFER][peer] -> peer's BUFFER base
 //   |   ...            |
 //   |   LL_BUFFER  ptrs|
+//   |   PUSH_BUFFER ptr|   present when Push workspace is enabled
 //   +------------------+
 //
 // FOR_EACH_DEV_REGION(X) is the single source of truth: adding/removing an
@@ -53,17 +55,16 @@
 //   * for peer-visible regions: read peers via devParams.peerPtrTables[NEW_REGION]
 //   * for local-only regions: read the local base from dataBases[NEW_REGION]
 //     during pluginConfigWorkspace and stash it in a typed devParams field
-//     (see llEpochs).
+//     (see llEpochs and pushPhase).
 //
 // Notes on quirks:
 //   * BUFFER_D with enabled==false still has a pointer table; pluginConfigWorkspace
 //     aliases its dataBase to BUFFER's so kernels can use the same indexing
 //     code regardless of whether double buffering is on.
 //   * Regions are packed back-to-back without per-region alignment padding.
-//     LL_BUFFER needs 16-byte alignment for uint4 loads; this is currently
-//     satisfied incidentally by the barrier/peerRmtAddr sizing for all
-//     supported nRanks ∈ {2,4,8,16}. Adding a new region (or changing one of
-//     these sizes) must preserve that property — add an assert if unsure.
+//     LL_BUFFER and PUSH_BUFFER require 16-byte alignment for uint4 accesses.
+//     Preceding region sizes preserve this alignment on the supported topologies.
+//     Each Push slot has a communicator-wide stride in 16-byte vectors.
 // ============================================================================
 #define FOR_EACH_DEV_REGION(X)       \
     X(BUFFER)                         \
@@ -75,7 +76,9 @@
     X(BARRIER_OUT)                    \
     X(PEER_RMT_ADDR)                  \
     X(LL_BUFFER)                      \
-    X(LL_EPOCHS)
+    X(LL_EPOCHS)                      \
+    X(PUSH_BUFFER)                    \
+    X(PUSH_PHASE)
 
 #define GEN_DEV_REGION_ENUM(id) DEV_REGION_##id,
 typedef enum {
@@ -95,7 +98,8 @@ typedef enum {
   ONESHOT_REG = 2,
   TWOSHOT_REG = 3,
   ONESHOT_LL = 4,
-  STRATEGY_NUM = 5
+  ONESHOT_PUSH = 5,
+  STRATEGY_NUM = 6
 } extKernelStrategyType;
 
 struct extKernelDevParams {
@@ -107,6 +111,7 @@ struct extKernelDevParams {
 
   void* peerPtrTables[DEV_REGION_COUNT];
   void* llEpochs;
+  void* pushPhase;
 
   void* sendbuff;
   void* recvbuff;
@@ -134,6 +139,8 @@ struct extKernelHostParams {
 
   int32_t oneShotLLBoundHigh;
   size_t llBufferSize;
+  uint32_t pushStrideVecs;
+  int pushMaxBlocks;
 
   pcclDataType_t dtype;
   uint8_t dtypeSize;
@@ -175,6 +182,13 @@ struct extKernelParams {
 #define EXT_KERNEL_LL_PACK_SIZE 8       // 8 bytes data per LL slot (uint4 = 16 bytes: {data_lo, epoch, data_hi, epoch})
 #define EXT_KERNEL_LL_MAX_ELT_SIZE 64
 #define LL_EFFICIENCY (1/2)
+
+// Push launch limits shared by 2-, 4-, and 8-rank M890P SHM.
+// Grow the grid after 128 vectors per block, then use more threads when the grid is capped.
+// The workspace reserves a phase slot for every possible block.
+#define EXT_KERNEL_PUSH_TARGET_THREADS 128
+#define EXT_KERNEL_PUSH_BLOCKS 8
+#define EXT_KERNEL_PUSH_THREADS 512
 
 // Template parameter space dimensions shared across collectives
 #define CUSTOM_NRANKS_NUM 5

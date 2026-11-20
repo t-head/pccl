@@ -210,6 +210,16 @@ static ncclResult_t pcclOkiDestroyResources(ncclComm_t comm) {
 }
 #endif
 
+static int extKernelWorkspaceRefCount(ncclComm_t comm) {
+  const struct ncclPeerInfo* myInfo = comm->peerInfo + comm->rank;
+  int refCount = 0;
+  for (int peer = 0; peer < comm->nRanks; peer++) {
+    const struct ncclPeerInfo* peerInfo = comm->peerInfo + peer;
+    if (PCCL_SAME_PID(myInfo, peerInfo) && peerInfo->hggcDev != myInfo->hggcDev) refCount++;
+  }
+  return refCount;
+}
+
 ncclResult_t initExtKernelPlugin(ncclComm_t comm) {
   NCCLCHECK(pcclExtKernelPluginLoad(comm));
   if (comm->extKernel) {
@@ -235,17 +245,7 @@ ncclResult_t initExtKernelPlugin(ncclComm_t comm) {
     NCCLCHECK(initRes);
     comm->extKernelPluginWorkspace.size = extKernelDevWorkspaceSize;
     if (extKernelDevWorkspaceSize > 0) {  // for now extKernel must have non-zero workspace
-      int refCount = 0;
-      struct ncclPeerInfo* myInfo = comm->peerInfo + comm->rank;
-      for (int peer = 0; peer < comm->nRanks; peer++) {
-        struct ncclPeerInfo* peerInfo = comm->peerInfo + peer;
-        // do not allow 2 rank assign to one hggcDev
-        if (PCCL_SAME_PID(myInfo, peerInfo)) {
-          if (peerInfo->hggcDev != myInfo->hggcDev) {
-            refCount++;
-          }
-        }
-      }
+      int refCount = extKernelWorkspaceRefCount(comm);
       NCCLCHECK(ncclP2pAllocateShareableBuffer(extKernelDevWorkspaceSize, refCount, &(comm->extKernelPluginWorkspace.ipcDesc), &comm->extKernelPluginWorkspace.devPtr, &(comm->devMemUsed), MEM_NORMAL, -1, comm->memManager, ncclMemPersist));
     } else {
       NCCLCHECK(pcclExtKernelPluginUnload(comm));
@@ -276,14 +276,42 @@ ncclResult_t destroyExtKernelPlugin(ncclComm_t comm) {
   return ncclSuccess;
 }
 
+static int extKernelPushBlockLimit(ncclComm_t comm) {
+  if (comm->ppuType != _ZW_M890P || comm->compCap != 89) return 1;
+  const uint64_t mask = comm->defaultStrategy.dispMask[CeNumIdxDefault_t];
+  if (mask != 0) {
+    uint8_t deviceMasks[MAX_PPU_CE_NUM] = {};
+    if (hggcEitInterface::getInstance().wrapHggcDeviceGetAttributeCuMasks(
+            deviceMasks, comm->hggcDev) != hggcSuccess) {
+      hggcGetLastError();
+      return 1;
+    }
+    // Ext-kernel dispatch programs the low 32 mask bits. Budget one block per CU.
+    uint32_t available = 0;
+    for (int ce = 0; ce * CU_NUM_PER_CE < 32; ++ce)
+      available |= static_cast<uint32_t>(deviceMasks[ce]) << (ce * CU_NUM_PER_CE);
+    return countOneBits(static_cast<uint32_t>(mask) & available);
+  }
+  int nCUs = 0;
+  if (hggcDeviceGetAttribute(&nCUs, hggcDevAttrMultiProcessorCount, comm->hggcDev) != hggcSuccess) {
+    hggcGetLastError();
+    return 1;
+  }
+  return nCUs;
+}
+
 ncclResult_t buildConnectionForExtKernelPlugin(ncclComm_t comm) {
   ncclResult_t res;
   struct extKernelPeerMemInfo{
     void* directPtr;
     ncclIpcDesc ipcDesc;
     size_t size;
+    int pushBlockLimit;
+    bool hasPushBlockLimitSetter;
   };
   int rank = comm->rank;
+  int pushBlockLimit = 0;
+  auto setPushBlockLimit = pcclExtKernelPluginGetPushBlockLimitSetter();
   void* buffers[NCCL_MAX_LOCAL_RANKS];
   struct ncclPeerInfo* myInfo = comm->peerInfo+comm->rank;
 
@@ -293,8 +321,29 @@ ncclResult_t buildConnectionForExtKernelPlugin(ncclComm_t comm) {
   peerMemInfo[rank].directPtr = comm->extKernelPluginWorkspace.devPtr;
   peerMemInfo[rank].ipcDesc = comm->extKernelPluginWorkspace.ipcDesc;
   peerMemInfo[rank].size = comm->extKernelPluginWorkspace.size;
+  peerMemInfo[rank].hasPushBlockLimitSetter = setPushBlockLimit != nullptr;
+  if (setPushBlockLimit) peerMemInfo[rank].pushBlockLimit = extKernelPushBlockLimit(comm);
 
   NCCLCHECKGOTO(bootstrapAllGather(comm->bootstrap, peerMemInfo, sizeof(struct extKernelPeerMemInfo)), res, fail);
+
+  // Push divides the message using the same grid on every rank.
+  pushBlockLimit = peerMemInfo[0].pushBlockLimit;
+  for (int peer = 1; peer < comm->nRanks; ++peer) {
+    if (peerMemInfo[peer].hasPushBlockLimitSetter != peerMemInfo[0].hasPushBlockLimitSetter) {
+      WARN("EXT: Push block limit support differs between rank 0 and rank %d, disabling ext kernels", peer);
+      // No peer has mapped the workspace yet. Drop the references reserved for local peers.
+      if (ncclCuMemEnable()) {
+        int refCount = extKernelWorkspaceRefCount(comm);
+        for (int i = 0; i < refCount; i++) {
+          HGCHECKIGNORE(hgMemRelease(comm->extKernelPluginWorkspace.ipcDesc.memHandle));
+        }
+      }
+      goto fail;
+    }
+    pushBlockLimit = std::min(pushBlockLimit, peerMemInfo[peer].pushBlockLimit);
+  }
+  if (setPushBlockLimit)
+    setPushBlockLimit(comm->extKernelPluginWorkspace.extKernelPluginParams, pushBlockLimit);
 
   for (int peer=0; peer<comm->nRanks; peer++) {
     struct ncclPeerInfo* peerInfo = comm->peerInfo+peer;
