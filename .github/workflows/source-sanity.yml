@@ -866,11 +866,14 @@ jobs:
             --cards-per-node '2'
       - id: results-upload
         uses: actions/upload-artifact@v4
-        if: always() && steps.reconcile.outcome == 'success'
+        if: always()
         with:
           name: single-node-source-sanity-results
-          path: public-results/
-          if-no-files-found: error
+          path: |
+            public-results/
+            /wl_nas/devops/pccl-artifact-cache-${{ github.run_id }}/results/**/raw.log
+            /wl_nas/devops/pccl-artifact-cache-${{ github.run_id }}/results/**/dmesg*.log
+          if-no-files-found: warn
           overwrite: true
           retention-days: 90
       - id: cleanup

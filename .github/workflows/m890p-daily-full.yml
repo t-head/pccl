@@ -998,8 +998,11 @@ jobs:
         if: always()
         with:
           name: m890p-daily-full-results
-          path: public-results/
-          if-no-files-found: error
+          path: |
+            public-results/
+            /wl_nas/devops/pccl-artifact-cache-${{ github.run_id }}/results/**/raw.log
+            /wl_nas/devops/pccl-artifact-cache-${{ github.run_id }}/results/**/dmesg*.log
+          if-no-files-found: warn
           overwrite: true
           retention-days: 90
       - id: performance-report
