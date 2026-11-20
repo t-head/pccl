@@ -1,16 +1,15 @@
 {
   "classification": {
     "base_sha": "173ba6ac40c60b68410acc28c18902c7f24241ca",
-    "head_sha": "a8cad3e8e4fabaee8e8486c1a5a21f97740c24ff",
-    "input_fingerprint": "d61a8733f53939ead42433b19e26fa321af0453ca1d656f3d7ec59079a857e05",
+    "head_sha": "c4686a34772f9ebd2d69f460ff5a5c823af3d7a0",
+    "input_fingerprint": "104b7630e257714fc35ef9fb8f739dca9bc812f17241592a66a7a1c5e45f0829",
     "pr_number": 219,
     "proposal": {
       "modules": [
-        "device-topology",
-        "communicator",
+        "transport",
         "enqueue"
       ],
-      "reason": "Primary change is communicator configuration lifecycle: new config fields are validated/defaulted, overridden from env, stored on comm, and synchronized across ranks in init/comm structures. Add enqueue because graphUsageMode changes strong-stream capture/mixing behavior and P2P plan channel-cap logic in enqueue/strongstream runtime planning. Add device-topology because per-peer P2P channel derivation and maxP2pPeers-based channel budgeting are implemented in topology path/channel computation, which is a distinct substantive behavior change."
+      "reason": "Primary change is transport-side P2P behavior: new nChannelsPerNetPeer and maxP2pPeers settings are validated, propagated across ranks, and used to tune per-peer/total P2P channel allocation. Enqueue is additionally needed because graphUsageMode changes strong-stream graph/uncaptured synchronization semantics and adjusts P2P plan channel capping in enqueue scheduling."
     }
   },
   "reviewers": {
