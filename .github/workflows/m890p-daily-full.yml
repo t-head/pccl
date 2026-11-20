@@ -68,7 +68,9 @@ env:
 jobs:
   prepare:
     name: Build automatic daily execution groups
-    runs-on: ubuntu-24.04
+    runs-on: k8s-runner-group-cpu-thead
+    container:
+      image: ghcr.io/actions/actions-runner:latest
     timeout-minutes: 20
     outputs:
       case_count: ${{ steps.selection.outputs.case_count }}
@@ -83,6 +85,24 @@ jobs:
         with:
           path: pccl
           persist-credentials: false
+      - name: Read QP diagnostics from passed Cases and stop
+        run: |
+          for run in 44693605326 44690175562; do
+            root=/wl_nas/devops/pccl-artifact-cache-$run/results/oam810e_eic/standard/pccl_810e_op_perf_single_node1_plan/op_perf_810e_single_node_suite
+            if [[ "$run" == 44693605326 ]]; then
+              names='test_op_all_reduce_perf_ranks_2_nnodes1'
+            else
+              names='test_op_reduce_perf_ranks_2_nnodes1 test_op_reduce_scatter_perf_ranks_2_nnodes1 test_op_scatter_perf_ranks_2_nnodes1 test_op_sendrecv_perf_ranks_2_nnodes1'
+            fi
+            for name in $names; do
+              printf '\n===== %s %s =====\n' "$run" "$name"
+              grep -E '"(status|return_code|error)"' "$root/$name/result.json" || true
+              grep -E 'max send wr|create qp|Test PCCL failure|unhandled hggc error' "$root/$name/raw.log" | head -20 || true
+              printf 'QP diagnostic lines: '
+              grep -cE 'max send wr|create qp' "$root/$name/raw.log" || true
+            done
+          done
+          exit 1
       - uses: actions/checkout@v4
         with:
           repository: t-head/pccl-tests
