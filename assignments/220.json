@@ -1,14 +1,14 @@
 {
   "classification": {
     "base_sha": "50423c27f1dc6a6ef765f20e504c47f561d948f9",
-    "head_sha": "a1f4d0023239bf4bdffddcf990e846d40bc7e4cb",
-    "input_fingerprint": "0d7bcd72c2fdab26959152aade4cd54bb97614a90404b1798552c4ed0f0aee42",
+    "head_sha": "f82ba15a99282369fee1f3df335bf40e577be2f3",
+    "input_fingerprint": "6a31118a839bbae4098086e59447f0ea4d3cd250ea7ddad028c9ba0c21acdd68",
     "pr_number": 220,
     "proposal": {
       "modules": [
         "ci"
       ],
-      "reason": "Main change is in open-source test workflow execution: adds optional `hpn_sdk_url` dispatch/install path with fatal validation, extends sanity/daily workflow matrices to dual-platform case generation/execution, and updates xtest case-generation/grouping/reporting contracts plus CI docs/tests to match. Other edits (workflow YAML, workflow scripts, xtest inputs including patch-omitted case list) support this CI behavior rather than changing runtime PCCL modules or review-policy automation."
+      "reason": "Main change is CI workflow/test-orchestration logic: optional HPN SDK installer input and enforcement in sanity/daily workflows, dual-platform (M890P + OAM-810E) case generation/grouping and runner allocation metadata, CI build-step/test-list updates, and performance report metadata plumbing. Docs/tests and the omitted large JSON are all tied to this test workflow behavior rather than core runtime modules."
     }
   },
   "reviewers": {
