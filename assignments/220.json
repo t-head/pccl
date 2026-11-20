@@ -2,13 +2,13 @@
   "classification": {
     "base_sha": "50423c27f1dc6a6ef765f20e504c47f561d948f9",
     "head_sha": "b8deb501d106fa90978cc85a7088262282f552e4",
-    "input_fingerprint": "d8b07b5168d89789c70999a2811bd7f7f8655f5eaac6034819ede39a5ca11589",
+    "input_fingerprint": "8a17f77bba0d69aff02ccf8e09a6227a4cb4347a33f49d9d06f00770a8159c70",
     "pr_number": 220,
     "proposal": {
       "modules": [
         "ci"
       ],
-      "reason": "PR is a substantive overhaul of open-source test workflows and CI tooling: dual-platform (M890P/OAM-810E) case generation/grouping/reconciliation, optional trusted HPN SDK installation wiring, rack-placement execution changes, CI runner script updates, and matching CI test/documentation updates. The large omitted test-list JSON is still CI test-input data tied to this same workflow behavior, not a separate catalog module."
+      "reason": "Primary change is CI test workflow orchestration: dual-platform (M890P and OAM-810E) case generation/grouping, execution matrix/rack-placement policy, optional HPN SDK installation in hardware jobs, and related reconciliation/reporting plus CI tests/docs. These are normal test workflow and validation-path changes, not build-system ownership or review-policy automation."
     }
   },
   "reviewers": {
