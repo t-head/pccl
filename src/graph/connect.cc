@@ -264,6 +264,7 @@ static int copyChannels(ncclComm_t comm, int start, int end, int* ringPrev, int*
     memcpy(ringPrev+c*nranks, ringPrev+(c-start)*nranks, nranks*sizeof(int));
     memcpy(ringNext+c*nranks, ringNext+(c-start)*nranks, nranks*sizeof(int));
     memcpy(comm->channels+c, comm->channels+c-start, sizeof(struct ncclChannel));
+    for (int a=0; a<NCCL_NUM_ALGORITHMS; a++) comm->graphs[a].channelMap[c] = comm->graphs[a].channelMap[c-start];
   }
   return c;
 }
@@ -308,6 +309,10 @@ ncclResult_t ncclTopoPostset(ncclComm_t comm, int* firstRanks, int* treePatterns
   int nChannels = comm->nChannels;
   int envMaxChannels = ncclMaxNchannels(comm);
   int envMinChannels = ncclMinNchannels(comm);
+  for (int a=0; a<NCCL_NUM_ALGORITHMS; a++) {
+    struct ncclTopoGraph* graph = comm->graphs+a;
+    for (int c=0; c<MAXCHANNELS; c++) graph->channelMap[c] = graph->nChannels ? c%graph->nChannels : 0;
+  }
   NCCLCHECKGOTO(ncclCalloc(&ringRecv, nranks*MAXCHANNELS), res, end);
   NCCLCHECKGOTO(ncclCalloc(&ringSend, nranks*MAXCHANNELS), res, end);
   NCCLCHECKGOTO(ncclCalloc(&ringPrev, nranks*MAXCHANNELS), res, end);
@@ -390,6 +395,7 @@ ncclResult_t ncclTopoPostset(ncclComm_t comm, int* firstRanks, int* treePatterns
       int c0 = c / ratio;
       int c1 = c;
       memcpy(comm->channels+c1, comm->channels+c0, sizeof(struct ncclChannel));
+      for (int a=0; a<NCCL_NUM_ALGORITHMS; a++) comm->graphs[a].channelMap[c1] = comm->graphs[a].channelMap[c0];
       memcpy(rings+c1*nranks, rings+c0*nranks, nranks*sizeof(int));
     }
     for (int c = 0; c < comm->nChannels; c++) {

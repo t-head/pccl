@@ -1282,10 +1282,7 @@ ncclResult_t ncclTopoGetNetDev(ncclComm_t comm, int rank, struct ncclTopoGraph* 
   int netDev = -1;
   if (graph) {
     // Honor the net device in the graph
-    int channel = channelId%graph->nChannels;
-    if (ncclHggcCompCap() == 80 && comm->channelShuffle) {
-      channel = channelId / (comm->nChannels / graph->nGraphChannels);
-    }
+    int channel = graph->channelMap[channelId];
     int ngpus = comm->topo->nodes[GPU].count;
     int index = graph->intra[channel*ngpus] == rank ? 0 : 1;
     netId = graph->inter[channel*2+index];

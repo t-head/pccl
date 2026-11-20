@@ -108,6 +108,7 @@ struct ncclTopoGraph {
   int intra[MAXCHANNELS*NCCL_TOPO_MAX_NODES];
   int subIntra[MAXCHANNELS*NCCL_TOPO_MAX_NODES];
   int64_t inter[MAXCHANNELS*2];
+  int channelMap[MAXCHANNELS]; // Execution channel to graph channel.
   int proxyDevs[MAXCHANNELS]; // PXN proxy GPU dev per graph channel (node-local index), -1 = no PXN
 };
 ncclResult_t ncclTopoCompute(struct ncclTopoSystem* system, struct ncclTopoGraph* graph);
