@@ -928,12 +928,12 @@ static ncclResult_t calcCollChunking(
 }
 
 #define RMT_BULK_V4_ALIGN 128
-ncclResult_t ncclUserBuffAlignmentCheck(struct ncclInfo* info) {
+static ncclResult_t ncclUserBuffAlignmentCheck(const void* sendbuff, void* recvbuff) {
   // check kernel input buffers alignment conditions
-  uint64_t sendbuffAligned = (uint64_t)(info->sendbuff) % RMT_BULK_V4_ALIGN;
-  uint64_t recvbuffAligned = (uint64_t)(info->recvbuff) % RMT_BULK_V4_ALIGN;
+  uint64_t sendbuffAligned = (uint64_t)(sendbuff) % RMT_BULK_V4_ALIGN;
+  uint64_t recvbuffAligned = (uint64_t)(recvbuff) % RMT_BULK_V4_ALIGN;
   if (sendbuffAligned != 0 || recvbuffAligned != 0) {
-    TRACE(NCCL_COLL|NCCL_P2P, "sendbuff %p, recvbuff %p not both 128B aligned", info->sendbuff, info->recvbuff);
+    TRACE(NCCL_COLL|NCCL_P2P, "sendbuff %p, recvbuff %p not both 128B aligned", sendbuff, recvbuff);
   }
 
   return ncclSuccess;
@@ -1603,42 +1603,26 @@ static ncclResult_t scheduleCollTasksToPlan(ncclComm_t comm, struct ncclKernelPl
     struct ncclTaskColl* head = ncclIntruQueueHead(&planner->collTaskQueue);
     struct ncclWorkList* workNode = ncclIntruQueueHead(&planner->collWorkQueue);
     struct ncclDevWorkColl* devWork = (struct ncclDevWorkColl*)(workNode+1);
-    struct ncclInfo info = {};
-    info.comm = comm;
-    info.coll = head->func;
-    info.sendbuff = head->sendbuff;
-    info.recvbuff = head->recvbuff;
-    info.count = head->count;
-    info.root = head->root;
-    info.datatype = head->datatype;
-    info.op = head->opHost;
-    info.opFull = head->opDev;
-    info.chunkSteps = head->chunkSteps;
-    info.sliceSteps = head->sliceSteps;
-    info.nThreads = head->nThreads;
-    info.nChannels = head->nChannels;
-    info.algorithm = head->algorithm;
-    info.protocol = head->protocol;
-    info.nBytes = head->nBytes;
+    int taskChannels = head->nChannels;
 
     if (planner->nTasksColl > 1 || channelUsed > 0) {
-      info.nChannels = std::min(std::max(1, (int)DIVUP(head->nBytes, channelSize)), comm->nChannels); // assign number of channels
-      channelUsed += info.nChannels;
+      taskChannels = std::min(std::max(1, (int)DIVUP(head->nBytes, channelSize)), comm->nChannels); // assign number of channels
+      channelUsed += taskChannels;
     }
     if (!plan->usingExtKernel) {
       // Ensure room for worst case of one new batch per channel
-      if (!testBudget(budget, plan->nWorkBatches + info.nChannels, plan->workBytes + workNode->size)) {
+      if (!testBudget(budget, plan->nWorkBatches + taskChannels, plan->workBytes + workNode->size)) {
         return ncclSuccess;
       }
 
-      NCCLCHECK(ncclUserBuffAlignmentCheck(&info));
+      NCCLCHECK(ncclUserBuffAlignmentCheck(head->sendbuff, head->recvbuff));
 
       struct ncclProxyOp proxyOp = {};
-      info.funcIndex = FUNC_INDEX(info.coll, info.opFull.op, info.datatype, info.algorithm, info.protocol);
+      const uint16_t funcIndex = FUNC_INDEX(head->func, head->opDev.op, head->datatype, head->algorithm, head->protocol);
       size_t lastChunkSize;
-      NCCLCHECK(calcCollChunking(comm, head, info.nChannels, info.nBytes, &lastChunkSize, &proxyOp));
+      NCCLCHECK(calcCollChunking(comm, head, taskChannels, head->nBytes, &lastChunkSize, &proxyOp));
       devWork->lastChunkSize = lastChunkSize;
-      devWork->nChannels = info.nChannels;
+      devWork->nChannels = taskChannels;
 
       int nChannels = devWork->nChannels;
 
@@ -1654,7 +1638,7 @@ static ncclResult_t scheduleCollTasksToPlan(ncclComm_t comm, struct ncclKernelPl
         int channelId = comm->lastChannel % comm->nChannels;
         // Proxy
         proxyOp.task.coll = head;
-        proxyOp.coll = info.coll;
+        proxyOp.coll = head->func;
         proxyOp.rank = comm->rank;
         proxyOp.eActivationMask = head->eActivationMask;
         proxyOp.incWorkCounter = true;
@@ -1665,14 +1649,14 @@ static ncclResult_t scheduleCollTasksToPlan(ncclComm_t comm, struct ncclKernelPl
           NCCLCHECK(addProfilerProxyOpIfNeeded(comm, &proxyOp));
         }
 
-        addWorkBatchToPlan(comm, plan, channelId, workNode->workType, info.funcIndex, plan->workBytes);
+        addWorkBatchToPlan(comm, plan, channelId, workNode->workType, funcIndex, plan->workBytes);
         plan->channelWorks[channelId]++;
 
         comm->lastChannel++;
         plan->channelMask |= uint64_t(1)<<channelId;
       }
 
-      plan->threadPerBlock = std::max<unsigned>(plan->threadPerBlock, info.nThreads);
+      plan->threadPerBlock = std::max<unsigned>(plan->threadPerBlock, head->nThreads);
 
     #ifdef KERNEL_LOOPBACK
       if (comm->nRanks == 1) {
@@ -1683,8 +1667,8 @@ static ncclResult_t scheduleCollTasksToPlan(ncclComm_t comm, struct ncclKernelPl
 
       // Inline the first kernel
       if (plan->kernelFn == NULL) {
-        plan->kernelFn = ncclKerns[info.funcIndex];
-        plan->funcIndex = info.funcIndex;
+        plan->kernelFn = ncclKerns[funcIndex];
+        plan->funcIndex = funcIndex;
       }
     }
 
@@ -1695,7 +1679,7 @@ static ncclResult_t scheduleCollTasksToPlan(ncclComm_t comm, struct ncclKernelPl
       ncclIntruQueueEnqueue(&plan->cleanupQueue, ncclIntruQueueDequeue(&planner->collCleanupQueue));
     }
 
-    planner->collBytesTotal -= info.nBytes;
+    planner->collBytesTotal -= head->nBytes;
     ncclIntruQueueDequeue(&planner->collTaskQueue);
     ncclIntruQueueDequeue(&planner->collWorkQueue);
 
