@@ -1,15 +1,14 @@
 {
   "classification": {
     "base_sha": "173ba6ac40c60b68410acc28c18902c7f24241ca",
-    "head_sha": "3e5626603c791b8fcc2c6e6aba645d6dc6091ce1",
-    "input_fingerprint": "9c45d015f6814987675c9449d2a23c01cf72558401dd222d82837476061ff661",
+    "head_sha": "b68c770910f78a6cd5cd1a58355abe014494c751",
+    "input_fingerprint": "cd08cee4fd2424344cc07bd2d8d11c44707dd9737e47a63276032ca08674270f",
     "pr_number": 130,
     "proposal": {
       "modules": [
-        "network",
         "gin"
       ],
-      "reason": "Primary change is in GIN-specific RDMA backends (GDAKI and GIN_IB_PROXY) to rotate/reset QP LAG TX-port affinity across peers/contexts with capability-gated fallback behavior, so `gin` is the main review module. `network` is additionally needed because shared MLX5 direct-verbs wrapper/symbol surfaces and proxy-side QP LAG query/modify handling were extended, which affects network transport/proxy connection behavior beyond a purely local refactor."
+      "reason": "Main functional change is in the GIN GDAKI backend: it adds capability-gated LAG TX-port affinity and context-based remote main-QP connection behavior in GIN host setup, with supporting DOCA verbs capability/attribute plumbing specific to that GIN path."
     }
   },
   "reviewers": {
