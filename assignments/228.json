@@ -1,0 +1,17 @@
+{
+  "classification": {
+    "base_sha": "8d1fff80b4f1c7c625f22ce835db16961fa9281f",
+    "head_sha": "9edab1154fb012b37ff75f0182c30df7adf8970c",
+    "input_fingerprint": "0ed53d167041267d40a2afa219b64b3920871c9a4a567a39fbee62a14e6a3696",
+    "pr_number": 228,
+    "proposal": {
+      "modules": [
+        "graph-search"
+      ],
+      "reason": "Main change is in topology graph connection/search logic: it introduces execution-to-graph channel mapping, reworks ring assembly/reversal timing in postset, and fixes proxy/NIC selection by validating cached proxy endpoints before reuse. Header/init edits are supporting wiring for this same graph-channel behavior, not separate module policy changes."
+    }
+  },
+  "reviewers": {
+    "graph-search": 341349555
+  }
+}
