@@ -1,14 +1,14 @@
 {
   "classification": {
     "base_sha": "8d1fff80b4f1c7c625f22ce835db16961fa9281f",
-    "head_sha": "cac454eb0d912ad7b0a05763a8adad781d47d641",
-    "input_fingerprint": "af3bb648bb8b5b3238e52373e69f61a1d3343e8854b3fc46bf7ae18bbcf0f33d",
+    "head_sha": "49c0e5135537a551b5f22e4badfc73f969abef78",
+    "input_fingerprint": "acb7454ff21359b620f08e47674abed4232945a299c9b7cd621e48a86bcd78f6",
     "pr_number": 220,
     "proposal": {
       "modules": [
         "ci"
       ],
-      "reason": "The substantive change is a CI/test-orchestration overhaul: dual-platform (M890P + OAM-810E EIC) workflow matrices, case generation/grouping/reconciliation updates, optional trusted HPN SDK install wiring, shared artifact handling, and expanded CI validation/reporting (including raw/dmesg artifact capture). These are execution and reporting pipeline changes, not runtime PCCL module logic or review-policy automation."
+      "reason": "The substantive change is a CI test-orchestration expansion: dual-platform (M890P + OAM-810E EIC) workflow execution, optional trusted HPN SDK installation in workflow jobs, updated case generation/grouping/reconciliation/reporting, and large new/updated xtest case-definition assets and CI tests. Build-script edits are CI support for test binaries, not core build-system or runtime module behavior changes."
     }
   },
   "reviewers": {
