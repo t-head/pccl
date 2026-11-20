@@ -8,10 +8,9 @@
       "modules": [
         "communicator",
         "enqueue",
-        "copy-engine",
-        "device-api"
+        "copy-engine"
       ],
-      "reason": "Main change is CE/DMA-backed host one-sided RMA (PutSignal/Signal/WaitSignal), including new RMA CE launch/wait signaling protocol, task chunking, and CE resource lifecycle. enqueue is also needed because these APIs introduce a new planner task/plan path and launch/cleanup flow. communicator is needed for capability gating, config (`numRmaCtx`), init/finalize wiring, and communicator-level support flags. device-api is needed because the PR adds new public PCCL API surface and window/signal contract checks exposed through API/comm properties."
+      "reason": "Primary change is new host one-sided RMA Put/Signal/Wait implemented on CE/DMA (new rma_ce/rma paths, signal/ack sequencing, chunked >1GB puts, graph/eager handling), so copy-engine is main. Enqueue is also required because the PR adds a distinct RMA task type, per-context queues, plan scheduling, launch routing, and cleanup in the runtime planner/group path. Communicator is additionally substantive due to new host-RMA capability/config/lifecycle wiring (numRmaCtx config validation/defaults, platform/all-rank support gating, init/finalize state, and comm property exposure)."
     }
   },
   "reviewers": {
