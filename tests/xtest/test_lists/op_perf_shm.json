@@ -47,6 +47,7 @@
   ],
   "profiles": {
     "full": {},
+    "pr": {"nodes": [1], "filters": {"ranks": [2]}},
     "smoke": {"nodes": [1], "filters": {"operation": ["all_reduce_perf"], "ranks": [2]}}
   },
   "provenance": {

@@ -185,6 +185,13 @@
   ],
   "profiles": {
     "full": {},
+    "pr": {
+      "nodes": [2],
+      "filters": {
+        "operation": ["all_reduce_perf"], "algorithm": ["Ring"], "protocol": ["LL"],
+        "redop": ["sum"], "dtype": ["int8"], "size": ["8MB"], "ranks": [2]
+      }
+    },
     "smoke": {
       "nodes": [2],
       "filters": {
