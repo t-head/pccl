@@ -31,7 +31,7 @@ def _validate_rack_policy(rack_policy, rack_count, nodes):
         if rack_count not in (None, ""):
             raise ValueError("rack_count is valid only with rack_policy=spread")
         return rack_policy, ""
-    if nodes < 2 or type(rack_count) is not int or not 2 <= rack_count <= nodes:
+    if nodes < 2 or not isinstance(rack_count, int) or isinstance(rack_count, bool) or not 2 <= rack_count <= nodes:
         raise ValueError("rack_count must be an integer between 2 and the Suite node count")
     return rack_policy, rack_count
 
