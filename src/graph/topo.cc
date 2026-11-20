@@ -1275,6 +1275,10 @@ ncclResult_t pcclTopoGetNetFromNIC(struct ncclXmlNode* nic, int *netId) {
     struct ncclXmlNode* xmlNet = nic->subs[s];
     // TODO: assumption one NetNode per NicNode
     if (strcmp(xmlNet->name, "net") != 0) continue;
+    // Imported NETs may still carry an old dev until the next trim.
+    const char* keep;
+    NCCLCHECK(xmlGetAttr(xmlNet, "keep", &keep));
+    if (keep == nullptr || strcmp(keep, "1") != 0) continue;
     NCCLCHECK(xmlGetAttrInt(xmlNet, "dev", &id));
     if (id != -1) break;
   }
