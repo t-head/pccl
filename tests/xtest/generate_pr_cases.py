@@ -36,7 +36,7 @@ def build_pr_bundle(source_revision, runner_revision):
     definitions = Path(__file__).resolve().parent / "test_lists"
     raw = [generate_cases.generate_bundle(
         definitions / f"{family}.json", definitions / "suites.json",
-        source_revision, runner_revision, "smoke") for family in FAMILIES]
+        source_revision, runner_revision, "pr") for family in FAMILIES]
     variants = [generate_cases.generate_bundle(
         definitions / "op_perf_shm.json", definitions / "suites.json",
         source_revision, runner_revision, "full")]
@@ -45,7 +45,7 @@ def build_pr_bundle(source_revision, runner_revision):
     combined = generate_cases.combine_bundles(converted)
     notsm = generate_cases.generate_bundle(
         definitions / "sanity_m890p_register.json", definitions / "suites.json",
-        source_revision, runner_revision, "smoke")
+        source_revision, runner_revision, "pr")
     notsm = platform_cases.apply_platform(notsm, _pr_platform())
     generation = {**combined["generation"], "profile": "pr",
                   "notsm_case_count": len(notsm["rows"])}

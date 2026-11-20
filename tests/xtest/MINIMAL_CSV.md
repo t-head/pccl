@@ -159,12 +159,14 @@ M890P exclusions. This is generation coverage only, not a claim that the full
 hardware dataset has been executed.
 
 `generate_pr_cases.py` writes the reviewed 810E PR input under
-`minimal-csv-oam810e-eic`: seven standard Cases (five single-node and two
-two-node) and one notsm Case. PR CI builds standard and notsm once, then runs
-both platforms with independent inputs, result directories and reconciliation.
-Every 810E PR Suite requests two cards per node. Both two-node Cases use four
-ranks, two per node: EIC uses `-np 4 -npernode 2`, and RDMA uses `--ranks 4
---nprocs 2`. This PR-only layout does not change the 16-card daily profile.
+`minimal-csv-oam810e-eic`: 23 standard Cases (21 single-node and two two-node)
+and nine notsm Cases. Single-node coverage includes all nine two-rank op_perf
+collectives and the complete nine-Case sanity_register family in both standard
+and notsm. PR CI builds standard and notsm once, then runs both platforms with
+independent inputs, result directories and reconciliation. Every 810E PR Suite
+requests two cards per node. Both two-node Cases use four ranks, two per node:
+EIC uses `-np 4 -npernode 2`, and RDMA uses `--ranks 4 --nprocs 2`. This PR-only
+layout does not change the 16-card daily profile.
 
 `group_cases.py` derives deterministic execution groups by platform, profile,
 node count, cards per node, shared environment and cross-rack allocation, then splits large

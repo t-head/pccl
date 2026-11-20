@@ -54,8 +54,8 @@ class PlatformCasesTests(unittest.TestCase):
 
     def test_pr_bundle_has_standard_notsm_and_two_node_coverage(self):
         bundle = generate_pr_cases.build_pr_bundle(SHA, SHA)
-        self.assertEqual(len(bundle["standard"]), 7)
-        self.assertEqual(len(bundle["notsm"]), 1)
+        self.assertEqual(len(bundle["standard"]), 23)
+        self.assertEqual(len(bundle["notsm"]), 9)
         self.assertEqual({row["nodes"] for row in bundle["suites"]}, {1, 2})
         self.assertTrue(all(row["cards_per_node"] == 2 for row in bundle["suites"]))
         self.assertTrue(any("op_perf_eic" in row["suite"] for row in bundle["standard"]))
@@ -69,6 +69,15 @@ class PlatformCasesTests(unittest.TestCase):
         self.assertIn("process_2", rdma["name"])
         self.assertIn("--ranks 4", rdma["cmd"])
         self.assertIn("--nprocs 2", rdma["cmd"])
+        single_op = [row for row in bundle["standard"]
+                     if row["suite"] == "op_perf_810e_single_node_suite"]
+        self.assertEqual(len(single_op), 9)
+        self.assertTrue(all("ranks_2_nnodes1" in row["name"] for row in single_op))
+        standard_register = [row for row in bundle["standard"]
+                             if row["suite"] == "sanity_810e_register_suite"]
+        self.assertEqual(len(standard_register), 9)
+        self.assertEqual({row["name"] for row in standard_register},
+                         {row["name"] for row in bundle["notsm"]})
 
     def test_groups_retain_platform_selector_and_results_identity(self):
         raw = [self.bundle("op_perf_shm", "smoke")]
