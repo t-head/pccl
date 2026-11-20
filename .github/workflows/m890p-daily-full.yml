@@ -68,7 +68,9 @@ env:
 jobs:
   prepare:
     name: Build automatic daily execution groups
-    runs-on: ubuntu-24.04
+    runs-on: k8s-runner-group-cpu-thead
+    container:
+      image: ghcr.io/actions/actions-runner:latest
     timeout-minutes: 20
     outputs:
       case_count: ${{ steps.selection.outputs.case_count }}
@@ -83,6 +85,21 @@ jobs:
         with:
           path: pccl
           persist-credentials: false
+      - name: Read preserved 810E failure logs and stop
+        run: |
+          root=/wl_nas/devops/pccl-artifact-cache-44690175562/results/oam810e_eic/standard/pccl_810e_op_perf_single_node1_plan/op_perf_810e_single_node_suite
+          for name in \
+            test_op_all_gather_perf_ranks_2_nnodes1 \
+            test_op_all_reduce_perf_ranks_2_nnodes1 \
+            test_op_alltoall_perf_ranks_2_nnodes1 \
+            test_op_broadcast_perf_ranks_2_nnodes1 \
+            test_op_gather_perf_ranks_2_nnodes1; do
+            printf '\n===== %s/result.json =====\n' "$name"
+            cat "$root/$name/result.json"
+            printf '\n===== %s/raw.log =====\n' "$name"
+            tail -n 120 "$root/$name/raw.log"
+          done
+          exit 1
       - uses: actions/checkout@v4
         with:
           repository: t-head/pccl-tests
