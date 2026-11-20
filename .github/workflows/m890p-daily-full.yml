@@ -682,7 +682,7 @@ jobs:
               --output "$RESULT_ROOT"
       - name: Run the automatic multi-node group on master
         if: env.NODES != '1' && env.CROSS_RACK != 'true'
-        uses: t-head/ci-infra/cluster-run@feat/automatic-rack-placement
+        uses: t-head/ci-infra/cluster-run@main
         with:
           image: ${{ env.VALIDATION_IMAGE }}
           launch_mode: master
@@ -781,7 +781,7 @@ jobs:
               --output "$RESULT_ROOT"
       - name: Run the automatic cross-rack group on master
         if: env.NODES != '1' && env.CROSS_RACK == 'true'
-        uses: t-head/ci-infra/cluster-run@feat/automatic-rack-placement
+        uses: t-head/ci-infra/cluster-run@main
         with:
           image: ${{ env.VALIDATION_IMAGE }}
           launch_mode: master

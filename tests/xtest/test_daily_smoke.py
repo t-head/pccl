@@ -314,7 +314,7 @@ class DailySmokeTests(unittest.TestCase):
             'name: Run the automatic cross-rack group on master', 1)[0]
         cross = text.split('name: Run the automatic cross-rack group on master', 1)[1].split(
             '\n  summary:', 1)[0]
-        action = 'uses: t-head/ci-infra/cluster-run@feat/automatic-rack-placement'
+        action = 'uses: t-head/ci-infra/cluster-run@main'
         self.assertIn(action, ordinary)
         self.assertIn(action, cross)
         self.assertIn("if: env.NODES != '1' && env.CROSS_RACK != 'true'", ordinary)
