@@ -8,7 +8,7 @@
       "modules": [
         "gin"
       ],
-      "reason": "Main functional change is in the GIN GDAKI backend: it adds capability-gated LAG TX-port affinity and context-based remote main-QP connection behavior in GIN host setup, with supporting DOCA verbs capability/attribute plumbing specific to that GIN path."
+      "reason": "Main change is GIN GDAKI connection behavior: capability-gated LAG TX-port affinity is added during RESET-to-INIT for remote main QPs, with context-based member rotation and corresponding GDAKI device/QP attribute plumbing. These are GIN-specific networking backend changes rather than shared transport/proxy policy."
     }
   },
   "reviewers": {
