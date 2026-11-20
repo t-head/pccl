@@ -1,14 +1,14 @@
 {
   "classification": {
     "base_sha": "173ba6ac40c60b68410acc28c18902c7f24241ca",
-    "head_sha": "61a6e4bf50554205b848afcd7c60d0544248a5c7",
-    "input_fingerprint": "74cb1031f50236fbbdac94473b3b008b4afb4edf3a090ae1e598cfe13afff335",
+    "head_sha": "085dcd1fec4e4a96495cf1aa351f72c9f49ed8ba",
+    "input_fingerprint": "c783d36f274e9dfa516cca21ae8e12907ac20162c7c62fbeb24f5cfd70aa861e",
     "pr_number": 220,
     "proposal": {
       "modules": [
         "ci"
       ],
-      "reason": "The substantive change is CI orchestration: dual-platform (M890P/OAM-810E) workflow execution, case generation/grouping/reconciliation/reporting updates, optional HPN SDK installation in build/test jobs, and CI dataset expansion (including the patch-omitted postsil_unit_test_shm test-list artifact). These are test workflow/runtime pipeline changes rather than PCCL runtime module implementation changes."
+      "reason": "Main change is CI orchestration: dual-platform (M890P + OAM-810E) case generation/selection/grouping, workflow matrix and rack policy updates, optional HPN SDK install wiring, expanded native unit coverage, and CI reconciliation/reporting/test updates. Added/modified test-list artifacts (including patch_omitted postsil_unit_test_shm.json) are CI dataset inputs supporting that same execution pipeline, not product runtime modules."
     }
   },
   "reviewers": {
