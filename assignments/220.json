@@ -1,14 +1,14 @@
 {
   "classification": {
     "base_sha": "50423c27f1dc6a6ef765f20e504c47f561d948f9",
-    "head_sha": "f82ba15a99282369fee1f3df335bf40e577be2f3",
-    "input_fingerprint": "97f08cebcae046a625db13adb4928f61b02ac6b9f76f3452915d839ba82acd03",
+    "head_sha": "b8deb501d106fa90978cc85a7088262282f552e4",
+    "input_fingerprint": "d8b07b5168d89789c70999a2811bd7f7f8655f5eaac6034819ede39a5ca11589",
     "pr_number": 220,
     "proposal": {
       "modules": [
         "ci"
       ],
-      "reason": "Main change is the CI test system: dual-platform (M890P + OAM-810E) workflow execution, case generation/grouping/reconciliation/reporting updates, optional HPN SDK install wiring, rack placement policy inputs, and expanded xtest coverage/data (including new postsil unit-test family). These are substantive test workflow/orchestration changes rather than PCCL runtime modules."
+      "reason": "PR is a substantive overhaul of open-source test workflows and CI tooling: dual-platform (M890P/OAM-810E) case generation/grouping/reconciliation, optional trusted HPN SDK installation wiring, rack-placement execution changes, CI runner script updates, and matching CI test/documentation updates. The large omitted test-list JSON is still CI test-input data tied to this same workflow behavior, not a separate catalog module."
     }
   },
   "reviewers": {
