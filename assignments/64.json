@@ -2,16 +2,16 @@
   "classification": {
     "base_sha": "50423c27f1dc6a6ef765f20e504c47f561d948f9",
     "head_sha": "a9b9d282ebf542cf83ce515545f22265912a1715",
-    "input_fingerprint": "3d46c094d0c889f4e204392bc3c3817060cf57675aa83fe46a734d02ce1f0c10",
+    "input_fingerprint": "7457f82e03d9a3a380b4742f070b41881c3ddbc22465157e306fdba4616708ef",
     "pr_number": 64,
     "proposal": {
       "modules": [
         "communicator",
         "enqueue",
         "copy-engine",
-        "other"
+        "device-api"
       ],
-      "reason": "Primary change adds new host one-sided RMA APIs (pcclPutSignal/pcclSignal/pcclWaitSignal) plus a new RMA subsystem (src/rma/*), which is outside explicit catalog scopes, so it is classified as other. enqueue is independently substantive because planner/task/launch flow now handles RMA task types, per-context queues, batching, and cleanup. copy-engine is independently substantive because RMA execution is implemented via CE/DMA stream ops, signal/ack memory windows, and wait/write synchronization. communicator is independently substantive due to numRmaCtx config parsing/defaulting, host-RMA capability negotiation across ranks, and communicator property/lifecycle integration."
+      "reason": "Main change adds host one-sided window/signal APIs (`pcclPutSignal`, `pcclSignal`, `pcclWaitSignal`) plus window/LSA validation behavior, which fits device-api. Additional copy-engine review is needed because the feature executes via new CE RMA init/put/wait paths with signal/ack synchronization. Additional enqueue review is needed for new RMA task/planner queues, batching, and launch routing. Additional communicator review is needed for capability/config/lifecycle integration (`numRmaCtx`, platform gating, init/finalize wiring)."
     }
   },
   "reviewers": {
