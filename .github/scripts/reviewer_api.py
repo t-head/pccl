@@ -37,7 +37,7 @@ class GitHub:
                      "X-GitHub-Api-Version": "2022-11-28"}, method=method)
         try:
             with urlopen(request, timeout=30) as response:
-                return json.load(response)
+                return None if response.status == 204 else json.load(response)
         except HTTPError as error:
             raise GitHubError(method, path, error.code) from None
 

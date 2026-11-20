@@ -58,18 +58,18 @@ def module_approval(api, pr, roster, skill, record, approvals):
     files = routing.fetch_pr_diff(api, pr)
     if classification.get("input_fingerprint") != routing.classification_fingerprint(pr, files, roster, skill):
         return False, "Module classification is stale. Rerun reviewer routing", {}
-    modules = routing.validate_classification(classification["proposal"], roster)["modules"]
+    requirements = routing.review_requirements(record, roster, pr["head"]["sha"])
     author = pr["user"]["id"]
     missing = {"Reviewer": {}, "Maintainer": {}}
-    for module in modules:
+    for module, roles in requirements.items():
         candidates = [candidate for candidate in roster["modules"][module]["reviewers"] if candidate != author]
-        if candidates and not approvals.intersection(candidates):
+        if "Reviewer" in roles and candidates and not approvals.intersection(candidates):
             reviewer = record["reviewers"].get(module)
             if reviewer not in candidates:
                 return False, f"Waiting for Reviewer assignment for {module}; rerun reviewer routing", {}
             missing["Reviewer"].setdefault(reviewer, []).append(module)
         owner = routing.module_maintainer(roster, module, author)
-        if owner is not None and owner not in approvals:
+        if "Maintainer" in roles and owner is not None and owner not in approvals:
             missing["Maintainer"].setdefault(owner, []).append(module)
     pending, details = {}, []
     for role, users in missing.items():
@@ -82,7 +82,7 @@ def module_approval(api, pr, roster, skill, record, approvals):
         reason = "Awaiting " + "; ".join(details)
         if "Reviewer" in pending:
             reason += (". Any non-author Reviewer in the same module's roster can approve the current commit "
-                       "instead of the named default; Maintainer approval is still required")
+                       "instead of the named default; other required approvals remain unchanged")
         reason += (". The Lead Maintainer can approve both roles for all modules on another author's PR "
                    "at the current commit")
         return False, reason, pending
@@ -130,11 +130,23 @@ def refresh(api, number):
         raise
 
 
+def main():
+    api = reviewer_api.GitHub(os.environ["GITHUB_REPOSITORY"], os.environ["GITHUB_TOKEN"])
+    event = json.loads(Path(os.environ["GITHUB_EVENT_PATH"]).read_text())
+    if os.environ["GITHUB_EVENT_NAME"] == "workflow_dispatch":
+        if os.environ["GITHUB_REF"] != f"refs/heads/{routing.WORKFLOW_BRANCH}":
+            raise ValueError("Approval refresh must run from the trusted default branch")
+        number = int(event["inputs"]["pr_number"])
+        if number <= 0:
+            raise ValueError("Invalid PR number")
+    else:
+        number = event_pr_number(event["workflow_run"], api.repository)
+    refresh(api, number)
+
+
 if __name__ == "__main__":
     try:
-        api = reviewer_api.GitHub(os.environ["GITHUB_REPOSITORY"], os.environ["GITHUB_TOKEN"])
-        run = json.loads(Path(os.environ["GITHUB_EVENT_PATH"]).read_text())["workflow_run"]
-        refresh(api, event_pr_number(run, api.repository))
+        main()
     except Exception as error:
         print(str(error), file=sys.stderr)
         sys.exit(1)

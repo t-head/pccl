@@ -89,11 +89,32 @@ The prompt requests one primary module for up to 500 added/deleted lines, or at 
 above 500; scripts do not enforce this limit. Other affected modules appear in the PR
 comment for optional manual invitations, without required module approvals.
 
-PCCL keeps eligible assignments and invites each person once across modules.
+Members with repository write access can add or remove required roles in a new PR comment:
+
+```text
+/review-module add memory
+/review-module add memory reviewer
+/review-module rm memory maintainer
+```
+
+Use `add|rm <module> [reviewer|maintainer]`; omitting the role means both.
+Explicit `both` is invalid. Commands invite the specified roles and require their approvals,
+subject to the usual author exemptions and Lead approval. Manual additions survive PR updates.
+Only the module Maintainer or Lead in the roster can use `rm` to override automatic requirements;
+these exclusions survive reclassification of the same HEAD but expire on a new commit.
+Other writers can remove only manual additions. `add` restores the selected roles.
+Edits and deletion of a command comment do not undo it; post a new command instead.
+Failed commands receive a `confused` reaction, not a reply; see the Actions summary and logs
+for the reason. A successful retry clears the bot's failure reaction.
+
+PCCL keeps eligible assignments, deduplicates invitations, and withdraws obsolete pending
+automated requests. It preserves manual requests and does not reinvite manually cancelled
+or already-reviewed accounts; automatically withdrawn requests can be sent again if needed.
 
 | File | Purpose |
 | --- | --- |
 | [reviewer-routing.yml](workflows/reviewer-routing.yml) | Coordinate module classification and review requests. |
+| [review-module.yml](workflows/review-module.yml) | Apply authorized module commands and refresh approvals after success. |
 | [Classification Skill](skills/pccl-review-assignment/SKILL.md) | Define how to identify the affected modules. |
 | [modules.json](skills/pccl-review-assignment/modules.json) | Define module scopes and the Reviewer and Maintainer roster. |
 | [review_automation.py](scripts/review_automation.py) | Classify changes, assign Reviewers and notify reviewers and Maintainers. |
@@ -109,7 +130,8 @@ invite another from the same module. One approval counts for all roles and modul
 - Maintainer authors are exempt for their own modules; Reviewer approval is waived only if no non-author candidate exists.
 - The Lead Maintainer can approve both roles for all modules on another author's PR. Other CI and merge checks still apply.
 
-The gate refreshes after invitation runs and when reviews change.
+The gate also requires manually added roles and refreshes after invitation runs,
+module commands and review changes.
 
 | File | Purpose |
 | --- | --- |
