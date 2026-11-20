@@ -2,7 +2,7 @@
   "classification": {
     "base_sha": "173ba6ac40c60b68410acc28c18902c7f24241ca",
     "head_sha": "fa27f1e06b529184938cc8bdd40758192f1ef6ad",
-    "input_fingerprint": "db2e620942e8d0134175406657ba1c82f129d4ede2f1b05ef119761edcdff9ff",
+    "input_fingerprint": "1a78d1f0d43ddd8a526f2ffce3ef42a6aa066fc1c930db6ab6101d204fb88938",
     "pr_number": 219,
     "proposal": {
       "modules": [
@@ -10,7 +10,7 @@
         "communicator",
         "enqueue"
       ],
-      "reason": "Main change is communicator-level configuration controls (validation/default/env override, rank agreement, and comm state for nChannelsPerNetPeer/graphUsageMode/maxP2pPeers). Enqueue is additionally required because strong-stream graph-mixing semantics and P2P task channel budgeting logic changed in runtime planning. Device-topology is additionally required because P2P per-peer channel derivation and max-peer-aware channel computation were changed in src/graph/paths.cc."
+      "reason": "Main change is communicator-level configuration control: new config fields (nChannelsPerNetPeer, graphUsageMode, maxP2pPeers, nvlinkCentricSched), validation/defaults/env overrides, and rank-wide propagation in init/lifecycle paths. Add device-topology because src/graph/paths.cc substantively changes P2P channel computation and peer-budget tuning for network peers. Add enqueue because enqueue/strongstream logic now changes graph-capture mixing behavior and P2P task channel scheduling decisions at runtime."
     }
   },
   "reviewers": {
