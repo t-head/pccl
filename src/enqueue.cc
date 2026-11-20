@@ -1607,6 +1607,55 @@ static size_t collTrafficPerByte(ncclFunc_t func, int nRanks, int protocol) {
   return protocol == NCCL_PROTO_LL ? 4 * traffic : traffic;
 }
 
+struct CollChannelLayout {
+  size_t cellsLo, cellsHi;
+  size_t countLo, countMid, countHi;
+  int channelOffset, nChannels;
+};
+
+static CollChannelLayout ncclComputeCollChannelLayout(
+    size_t count, size_t eltSize, size_t cellSize, size_t trafficPerByte, size_t trafficPerChannel,
+    size_t currentTraffic, int channelId, int channelLimit) {
+  CollChannelLayout layout = {};
+  const size_t elementsPerCell = cellSize / eltSize;
+  const size_t cells = DIVUP(count * eltSize, cellSize);
+  if (cells == 0) return layout;
+
+  const size_t trafficPerCell = cellSize * trafficPerByte;
+  size_t cellsPerChannel = std::min(cells, DIVUP(trafficPerChannel, trafficPerCell));
+  layout.cellsLo = channelId + 1 == channelLimit ? cells :
+      std::min(cells, DIVUP(trafficPerChannel - currentTraffic, trafficPerCell));
+  int nMid = (cells - layout.cellsLo) / cellsPerChannel;
+  layout.cellsHi = (cells - layout.cellsLo) % cellsPerChannel;
+  const int used = (layout.cellsLo != 0) + nMid + (layout.cellsHi != 0);
+  if (channelId + used > channelLimit) {
+    nMid = channelLimit - channelId - 2;
+    cellsPerChannel = (cells - layout.cellsLo) / (nMid + 1);
+    layout.cellsHi = cellsPerChannel + (cells - layout.cellsLo) % (nMid + 1);
+  }
+  if (layout.cellsHi == 0 && nMid != 0) {
+    layout.cellsHi = cellsPerChannel;
+    --nMid;
+  }
+  if (layout.cellsLo == 0) {
+    layout.channelOffset = 1;
+    if (nMid == 0) {
+      layout.cellsLo = layout.cellsHi;
+      layout.cellsHi = 0;
+    } else {
+      layout.cellsLo = cellsPerChannel;
+      --nMid;
+    }
+  }
+
+  layout.countLo = layout.cellsLo * elementsPerCell;
+  layout.countMid = nMid != 0 ? cellsPerChannel * elementsPerCell : 0;
+  layout.countHi = layout.cellsHi * elementsPerCell;
+  (layout.countHi != 0 ? layout.countHi : layout.countLo) -= cells * elementsPerCell - count;
+  layout.nChannels = (layout.countLo != 0) + nMid + (layout.cellsHi != 0);
+  return layout;
+}
+
 static ncclResult_t scheduleCollTasksToPlan(ncclComm_t comm, struct ncclKernelPlan* plan, struct ncclKernelPlanBudget* budget) {
   struct ncclKernelPlanner* planner = &comm->planner;
   constexpr size_t minTrafficPerChannel = 16 << 10;
@@ -1636,7 +1685,6 @@ static ncclResult_t scheduleCollTasksToPlan(ncclComm_t comm, struct ncclKernelPl
     struct ncclDevWorkColl* devWork = (struct ncclDevWorkColl*)(workNode+1);
     if (!plan->usingExtKernel) {
       const int channelLimit = head->algorithm == NCCL_ALGO_FC ? comm->fcnChannels : comm->nChannels;
-      size_t cellsLo = 0, cellsHi = 0, elementsPerCell = 0, trafficPerElement = 0;
       if (channelLimit <= 0) return ncclInternalError;
       if (channelId >= channelLimit) {
         channelId = 0;
@@ -1663,44 +1711,23 @@ static ncclResult_t scheduleCollTasksToPlan(ncclComm_t comm, struct ncclKernelPl
           cellSize = std::max(cellSize, ROUNDUP(minPartBytes, size_t(16)));
         }
       }
-      elementsPerCell = cellSize / eltSize;
-      trafficPerElement = eltSize * trafficPerByte;
-      const size_t trafficPerCell = cellSize * trafficPerByte;
-      const size_t cells = DIVUP(head->count * eltSize, cellSize);
-      size_t cellsPerChannel = std::min(cells, DIVUP(trafficPerChannel, trafficPerCell));
-      if (cells == 0) return ncclInternalError;
-      cellsLo = channelId + 1 == channelLimit ? cells :
-          std::min(cells, DIVUP(trafficPerChannel - currentTraffic, trafficPerCell));
-      int nMid = (cells - cellsLo) / cellsPerChannel;
-      cellsHi = (cells - cellsLo) % cellsPerChannel;
-      int used = (cellsLo != 0) + nMid + (cellsHi != 0);
-      if (channelId + used > channelLimit) {
-        nMid = channelLimit - channelId - 2;
-        cellsPerChannel = (cells - cellsLo) / (nMid + 1);
-        cellsHi = cellsPerChannel + (cells - cellsLo) % (nMid + 1);
-      }
-      if (cellsHi == 0 && nMid != 0) { cellsHi = cellsPerChannel; --nMid; }
-      if (cellsLo == 0) {
-        ++channelId;
-        if (nMid == 0) { cellsLo = cellsHi; cellsHi = 0; }
-        else { cellsLo = cellsPerChannel; --nMid; }
-      }
-      size_t countLo = cellsLo * elementsPerCell;
-      size_t countMid = nMid != 0 ? cellsPerChannel * elementsPerCell : 0;
-      size_t countHi = cellsHi * elementsPerCell;
-      (countHi != 0 ? countHi : countLo) -= cells * elementsPerCell - head->count;
-      const int nChannels = (countLo != 0) + nMid + (cellsHi != 0);
-      devWork->channelLo = channelId;
-      devWork->channelHi = channelId + nChannels - 1;
-      devWork->cbd.countLo = countLo;
-      devWork->cbd.countMid = countMid;
-      devWork->cbd.countHi = countHi;
-      // Ensure room for worst case of one new batch per channel
+      const CollChannelLayout layout = ncclComputeCollChannelLayout(
+          head->count, eltSize, cellSize, trafficPerByte, trafficPerChannel, currentTraffic, channelId, channelLimit);
+      const int nChannels = layout.nChannels;
+      if (nChannels == 0) return ncclInternalError;
+
+      // Ensure room for worst case of one new batch per channel.
       if (!testBudget(budget, plan->nWorkBatches + nChannels, plan->workBytes + workNode->size)) {
         return ncclSuccess;
       }
 
+      channelId += layout.channelOffset;
       head->nChannels = nChannels;
+      devWork->channelLo = channelId;
+      devWork->channelHi = channelId + nChannels - 1;
+      devWork->cbd.countLo = layout.countLo;
+      devWork->cbd.countMid = layout.countMid;
+      devWork->cbd.countHi = layout.countHi;
       NCCLCHECK(ncclUserBuffAlignmentCheck(head->sendbuff, head->recvbuff));
 
       struct ncclProxyOp proxyOp = {}, proxyRegions[3] = {};
@@ -1726,11 +1753,12 @@ static ncclResult_t scheduleCollTasksToPlan(ncclComm_t comm, struct ncclKernelPl
       devWork->cbd.chunkGrainsLo = chunks[0];
       devWork->cbd.chunkGrainsMid = chunks[1];
       devWork->cbd.chunkGrainsHi = chunks[2];
-      if (cellsHi != 0) {
+      const size_t trafficPerCell = (cellSize / eltSize) * eltSize * trafficPerByte;
+      if (layout.cellsHi != 0) {
         channelId += nChannels - 1;
-        currentTraffic = cellsHi * elementsPerCell * trafficPerElement;
+        currentTraffic = layout.cellsHi * trafficPerCell;
       } else {
-        currentTraffic += cellsLo * elementsPerCell * trafficPerElement;
+        currentTraffic += layout.cellsLo * trafficPerCell;
       }
       if (currentTraffic >= trafficPerChannel && channelId + 1 != channelLimit) {
         ++channelId;
