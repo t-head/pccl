@@ -1,14 +1,14 @@
 {
   "classification": {
     "base_sha": "50423c27f1dc6a6ef765f20e504c47f561d948f9",
-    "head_sha": "8bd988a108f8b69e9ce696bab62255f5c1071099",
-    "input_fingerprint": "b5f711e8faf6c0f23f6c640bca404ddfa7d8fb3f100d7be183d5882b48191d9c",
+    "head_sha": "556165ab328944fdf1fabfecbfd5364733c7786e",
+    "input_fingerprint": "66ca34df0cc2d027725ce57d239ccaf2be8aa94ae59c634a2daf12c2eca7613b",
     "pr_number": 195,
     "proposal": {
       "modules": [
         "workflow"
       ],
-      "reason": "Main functional changes are in review/merge automation: .github/scripts/review_automation.py and maintainer_approval.py add module-command handling, role-based approval rules, invitation withdrawal/reinvite behavior, and gate refresh logic; .github/scripts/commit_message_squash.py plus commit-message.yml/maintainer-approval.yml/review-module.yml rewire squash preview publication to the review gate. These are workflow-policy and reviewer-routing changes, with docs/skill/catalog edits supporting that same workflow scope rather than independent runtime modules."
+      "reason": "Main functional change is review/merge automation policy and routing logic: .github/scripts/review_automation.py and maintainer_approval.py add role-based module requirements, command-driven module overrides, invitation withdrawal/reinvite rules, and current-HEAD approval gating; related workflow wiring changes in .github/workflows/review-module.yml, maintainer-approval.yml, and commit-message.yml support that same review workflow behavior."
     }
   },
   "reviewers": {
