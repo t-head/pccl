@@ -1293,10 +1293,15 @@ ncclResult_t ncclTopoGetNetDev(ncclComm_t comm, int rank, struct ncclTopoGraph* 
     if (dev) *dev = netDev;
     if (id) *id = netId;
     if (proxyRank) { // recv is null
-      // Runtime channels may repeat a smaller graph after cross-rank alignment.
-      int proxyChannel = channel;
-      if (graph->proxyDevs[proxyChannel] != -1) {
-        NCCLCHECK(ncclTopoDevToRank(comm->topo, comm->topo->systemId, graph->proxyDevs[proxyChannel], proxyRank));
+      // The cached proxy belongs to the graph's outbound GPU and NIC.
+      int cachedSendIndex = 0;
+      if (graph->pattern == NCCL_TOPO_PATTERN_RING) cachedSendIndex = ngpus-1;
+      else if (graph->pattern == NCCL_TOPO_PATTERN_SPLIT_TREE ||
+          graph->pattern == NCCL_TOPO_PATTERN_BALANCED_TREE) cachedSendIndex = 1;
+      int cachedSendRank = graph->intra[channel*ngpus+cachedSendIndex];
+      int64_t cachedNetId = graph->inter[channel*2+1];
+      if (rank == cachedSendRank && netId == cachedNetId && graph->proxyDevs[channel] != -1) {
+        NCCLCHECK(ncclTopoDevToRank(comm->topo, comm->topo->systemId, graph->proxyDevs[channel], proxyRank));
       } else {
         NCCLCHECK(ncclTopoGetIntermediateRank(comm->topo, rank, netId, proxyRank));
       }
