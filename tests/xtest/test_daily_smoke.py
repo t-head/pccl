@@ -166,6 +166,12 @@ class DailySmokeTests(unittest.TestCase):
                          {1: 4565, 2: 1924, 4: 1691, 8: 710})
         self.assertEqual([(record['nodes'], record['case_count']) for record in plan['exclusions']],
                          [(16, 9)])
+        friday = group_cases.build_plan(FULL_INPUT, 500, allowed_nodes=(1, 2, 4, 8, 16))
+        self.assertEqual(sum(len(group['cases']) for group in friday['groups']), 8899)
+        self.assertEqual(len(friday['groups']), 26)
+        self.assertEqual(friday['exclusions'], [])
+        self.assertEqual(next(group for group in friday['groups'] if group['nodes'] == 16)['rack_policy'],
+                         'spread')
         cross_rack = {group['nodes']: (group['rack_policy'], group['rack_count'])
                       for group in plan['groups'] if group['cross_rack']}
         self.assertEqual(cross_rack, {2: ('spread', 2), 4: ('spread', 2), 8: ('spread', 2)})
@@ -207,7 +213,8 @@ class DailySmokeTests(unittest.TestCase):
         self.assertNotIn('daily-minimal-csv', text)
         self.assertIn('default: smoke', text)
         self.assertIn('default: 500', text)
-        self.assertIn("DAILY_ALLOWED_NODES: '1,2,4,8'", text)
+        self.assertIn("ALLOWED_NODES: ${{ inputs.allowed_nodes || (github.event.schedule == '0 14 * * 5' "
+                      "&& '1,2,4,8,16' || '1,2,4,8') }}", text)
         self.assertIn('VALIDATION_NODE_SELECTOR: board-type=ZW-M890P,nic-type=cx8', text)
         self.assertIn('execution-coverage.json', text)
         self.assertIn('Unexpected or out-of-policy result groups', text)
@@ -304,7 +311,11 @@ class DailySmokeTests(unittest.TestCase):
     def test_schedule_runs_full_daily_at_2200_beijing_time(self):
         text = FULL_WORKFLOW.read_text()
         self.assertIn("schedule:\n    # GitHub cron is UTC: 14:00 UTC is 22:00 Asia/Shanghai (UTC+8).\n"
-                        "    - cron: '0 14 * * *'", text)
+                        "    - cron: '0 14 * * 1-4'\n    - cron: '0 14 * * 5'", text)
+        self.assertNotIn("- cron: '0 14 * * *'", text)
+        self.assertIn("github.event.schedule == '0 14 * * 5'", text)
+        self.assertIn("'1,2,4,8,16'", text)
+        self.assertIn('allowed_nodes:', text)
         self.assertIn(
             "DATASET: ${{ inputs.dataset || (github.event_name == 'schedule' && 'full' || 'smoke') }}",
             text)

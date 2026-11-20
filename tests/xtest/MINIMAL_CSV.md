@@ -117,10 +117,12 @@ The `full` dataset generates 8,899 standard Cases from 34 Suites, with
 unsupported or out-of-scope source selections recorded in
 `test_lists/source-coverage.json`. The notsm daily profile is intentionally
 empty. Generated CSV is a temporary prepare artifact, not a maintained input.
-The current resource policy executes 1/2/4/8-node groups: 8,890 Cases in 25
-groups. The 9 sixteen-node Cases remain in the export but are listed as
-`EXCLUDED_BY_POLICY` in `execution-coverage.json`; they are not reported as
-passed or skipped tests.
+The Monday-Thursday 22:00 Asia/Shanghai schedule executes 1/2/4/8-node groups:
+8,890 Cases in 25 groups. Friday at the same time allows 1/2/4/8/16-node
+groups and selects all 8,899 Cases in 26 groups. Manual dispatch keeps the
+weekday default unless `allowed_nodes` is explicitly overridden. Any excluded
+Cases remain in the export and are listed as `EXCLUDED_BY_POLICY` in
+`execution-coverage.json`, never as passed or skipped tests.
 
 `group_cases.py` derives deterministic execution groups by profile, node count,
 cards per node, shared environment and cross-rack allocation, then splits large

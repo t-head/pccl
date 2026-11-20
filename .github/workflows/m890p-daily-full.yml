@@ -6,7 +6,8 @@ on:
     paths: [.github/workflows/m890p-daily-full.yml]
   schedule:
     # GitHub cron is UTC: 14:00 UTC is 22:00 Asia/Shanghai (UTC+8).
-    - cron: '0 14 * * *'
+    - cron: '0 14 * * 1-4'
+    - cron: '0 14 * * 5'
   workflow_dispatch:
     inputs:
       dataset:
@@ -24,6 +25,11 @@ on:
         description: Optional full-selection node filter; smoke only supports nodes=1
         required: false
         type: string
+      allowed_nodes:
+        description: Optional comma-separated resource policy; empty uses weekday 1/2/4/8 or Friday 1/2/4/8/16
+        required: false
+        type: string
+        default: ''
       suite:
         description: Optional exact Suite debug filter; empty selects every Suite
         required: false
@@ -41,7 +47,6 @@ env:
   VALIDATION_NODE_SELECTOR: board-type=ZW-M890P,nic-type=cx8
   VALIDATION_CARDS: '8'
   PCCL_TESTS_REVISION: 394556512e87259e9ffa25225632c46b0a0bbcd5
-  DAILY_ALLOWED_NODES: '1,2,4,8'
 
 jobs:
   prepare:
@@ -76,7 +81,7 @@ jobs:
           MAX_CASES: ${{ inputs.max_cases_per_group || 500 }}
           NODES: ${{ inputs.nodes || '' }}
           SUITE: ${{ inputs.suite || '' }}
-          ALLOWED_NODES: ${{ env.DAILY_ALLOWED_NODES }}
+          ALLOWED_NODES: ${{ inputs.allowed_nodes || (github.event.schedule == '0 14 * * 5' && '1,2,4,8,16' || '1,2,4,8') }}
         run: |
           python3 -S -B -W error::ResourceWarning -m unittest discover \
             -s tests/xtest -p 'test_run_cases.py' -v
@@ -816,6 +821,8 @@ jobs:
     name: Daily grouped result summary and NAS cleanup
     needs: [prepare, build-standard, stage-cache, execute]
     if: always()
+    env:
+      ALLOWED_NODES: ${{ inputs.allowed_nodes || (github.event.schedule == '0 14 * * 5' && '1,2,4,8,16' || '1,2,4,8') }}
     runs-on: k8s-runner-group-cpu-thead
     container:
       image: ghcr.io/actions/actions-runner:latest
@@ -884,7 +891,8 @@ jobs:
                         'cache/case-groups/${{ needs.prepare.outputs.groups_sha256 }}')
           groups = json.loads((group_root / 'groups.json').read_text())
           coverage = json.loads((group_root / 'execution-coverage.json').read_text())
-          if coverage['allowed_nodes'] != [1, 2, 4, 8]:
+          expected_allowed_nodes = {int(value) for value in os.environ['ALLOWED_NODES'].split(',')}
+          if coverage['allowed_nodes'] != sorted(expected_allowed_nodes):
               raise ValueError('Daily execution coverage uses an unsupported resource policy')
           if any(group['nodes'] not in coverage['allowed_nodes'] for group in groups):
               raise ValueError('An execution group exceeds the daily resource policy')

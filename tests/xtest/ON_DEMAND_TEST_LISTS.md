@@ -70,7 +70,11 @@ The workflow supports two `workflow_dispatch` choices:
   automatically selected rack without binding a physical rack name.
 
 The 22:00 Asia/Shanghai schedule selects `full`, which uses the same JSON
-generation path as manual dispatch. No legacy daily CSV dataset remains.
+generation path as manual dispatch. Monday-Thursday allows 1/2/4/8 nodes and
+selects 8,890 Cases in 25 groups with 9 exclusions. Friday allows 1/2/4/8/16
+nodes and selects all 8,899 Cases in 26 groups. Manual dispatch keeps the
+weekday default unless `allowed_nodes` is explicitly overridden. No legacy
+daily CSV dataset remains.
 
 Each generated bundle contains `generation.json` with definition and Suite
 hashes, the selected profile, and the exact Case-key hash. The workflow copies
