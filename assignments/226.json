@@ -1,17 +1,19 @@
 {
   "classification": {
-    "base_sha": "50423c27f1dc6a6ef765f20e504c47f561d948f9",
-    "head_sha": "fbda941b6e23a8360aaa755c09f61b4857fb8188",
-    "input_fingerprint": "e42c7ddd794ef39472186616d462bd97ea0b644a167485f49b432364238feb12",
+    "base_sha": "173ba6ac40c60b68410acc28c18902c7f24241ca",
+    "head_sha": "f796a6690646d0542282c43a5b82442fcefe3053",
+    "input_fingerprint": "f5b3db7cf320e86be451ca192e018ecfe7655b625ebb7f2a9d16e0a950296780",
     "pr_number": 226,
     "proposal": {
       "modules": [
+        "dispatch",
         "kernel-plugin"
       ],
-      "reason": "Main substantive change is in the ext-kernel plugin: adds the new OneShotPush extension AllReduce kernel (BF16, rank-scoped instantiations), wires strategy selection/dispatch, and extends plugin workspace/config lifecycle (new push buffer/phase regions, topology-gated default limits, launch config, and abort/phase handling). These are plugin-provided execution and integration changes, not independent core built-in kernel/tuning/workflow changes."
+      "reason": "Primary change is in the extension-kernel subsystem: it adds a new OneShotPush BF16 AllReduce strategy (kernel implementation, strategy/function indexing, workspace regions, topology-gated defaults, and plugin selection/launch wiring). Dispatch review is also needed because the PR adds CU-mask-aware push block limiting and new block/thread launch policy that directly affects hardware resource budgeting."
     }
   },
   "reviewers": {
+    "dispatch": 340404662,
     "kernel-plugin": 335730053
   }
 }
