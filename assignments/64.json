@@ -1,16 +1,16 @@
 {
   "classification": {
     "base_sha": "8d1fff80b4f1c7c625f22ce835db16961fa9281f",
-    "head_sha": "20c5b8139a3b112dc6c8672ec52be09980e74138",
-    "input_fingerprint": "aed67112e749ceb2d1c204bc5942b779bdb685d272de9d6f506285a61f3f1373",
+    "head_sha": "308b9e2a5a3d81f87557d6e31fd61e70b6b20a1b",
+    "input_fingerprint": "ca665b489245e8c6fae537e7f26500a368a22dfe44160113fe198dd79556ad84",
     "pr_number": 64,
     "proposal": {
       "modules": [
-        "communicator",
         "enqueue",
-        "copy-engine"
+        "copy-engine",
+        "other"
       ],
-      "reason": "Primary change is new host one-sided RMA Put/Signal/Wait implemented on CE/DMA (new rma_ce/rma paths, signal/ack sequencing, chunked >1GB puts, graph/eager handling), so copy-engine is main. Enqueue is also required because the PR adds a distinct RMA task type, per-context queues, plan scheduling, launch routing, and cleanup in the runtime planner/group path. Communicator is additionally substantive due to new host-RMA capability/config/lifecycle wiring (numRmaCtx config validation/defaults, platform/all-rank support gating, init/finalize state, and comm property exposure)."
+      "reason": "Main change is a new CE/DMA-backed host one-sided RMA path (Put/Signal/WaitSignal) with new CE context/state, signal/ack memory, batching, and launch/finalization logic. enqueue is additionally required because the PR introduces a new RMA task type, per-context planner queues, plan construction/batching, and launch routing for RMA plans. other is needed because a new public host RMA API/config surface (pcclPutSignal/pcclSignal/pcclWaitSignal, wait descriptors, numRmaCtx exposure/gating) is added outside a dedicated catalog module."
     }
   },
   "reviewers": {
