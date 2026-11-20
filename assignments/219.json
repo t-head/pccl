@@ -2,7 +2,7 @@
   "classification": {
     "base_sha": "50423c27f1dc6a6ef765f20e504c47f561d948f9",
     "head_sha": "0a6b2cb96709abceeaf81470d1f477ce6292917a",
-    "input_fingerprint": "c2e1c069d8d7696d5d030131cf8e4bfffba7e633cb131708066400db4c9c2fd1",
+    "input_fingerprint": "58f2e0132ea2bb04717dd8f4690d445b30e373837538648c5454c085c8431156",
     "pr_number": 219,
     "proposal": {
       "modules": [
@@ -10,7 +10,7 @@
         "communicator",
         "enqueue"
       ],
-      "reason": "Primary change is communicator configuration control: new config fields are validated/defaulted/overridden from env and synchronized across ranks in init/comm state. Add enqueue because graphUsageMode now changes strong-stream capture/mixing behavior and related enqueue/channel/transport stream-acquire/release semantics. Add device-topology because P2P channel budgeting is recomputed from NIC path bandwidth and maxP2pPeers constraints in graph path/channel computation."
+      "reason": "Main functional change is communicator configuration control: new config fields are validated, defaulted, overridden from env, stored on comm, and synchronized across ranks (graphUsageMode, nChannelsPerNetPeer, maxP2pPeers, plus accepted-but-not-yet-active nvlinkCentricSched/numRmaCtx). Enqueue also needs review because strongstream/graph-capture behavior is changed to respect graphUsageMode, affecting acquire/release and capture mixing semantics. Device-topology needs review because remote-net P2P channel estimation and maxP2pPeers-based channel-per-peer computation were changed in topology path/channel logic."
     }
   },
   "reviewers": {
