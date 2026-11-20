@@ -1,8 +1,8 @@
 {
   "classification": {
-    "base_sha": "50423c27f1dc6a6ef765f20e504c47f561d948f9",
-    "head_sha": "a3f06518f50078873851fc85ddd538f22c1b1d61",
-    "input_fingerprint": "b523dc9de72739e7557193c0315d559d23214fcdaf5f8ea80fd5f902bc5fca4d",
+    "base_sha": "173ba6ac40c60b68410acc28c18902c7f24241ca",
+    "head_sha": "a8cad3e8e4fabaee8e8486c1a5a21f97740c24ff",
+    "input_fingerprint": "d61a8733f53939ead42433b19e26fa321af0453ca1d656f3d7ec59079a857e05",
     "pr_number": 219,
     "proposal": {
       "modules": [
@@ -10,7 +10,7 @@
         "communicator",
         "enqueue"
       ],
-      "reason": "Main change is communicator-level config surface: new config fields are validated/defaulted/env-overridden, stored, and synchronized across ranks during init. Add device-topology because src/graph/paths.cc substantively changes P2P channel computation using nChannelsPerNetPeer/maxP2pPeers (including caps and tuning logic). Add enqueue because strongstream/graph-mixing behavior and P2P plan channel-limiting logic are changed in runtime planning/execution paths, not just call-site churn."
+      "reason": "Primary change is communicator configuration lifecycle: new config fields are validated/defaulted, overridden from env, stored on comm, and synchronized across ranks in init/comm structures. Add enqueue because graphUsageMode changes strong-stream capture/mixing behavior and P2P plan channel-cap logic in enqueue/strongstream runtime planning. Add device-topology because per-peer P2P channel derivation and maxP2pPeers-based channel budgeting are implemented in topology path/channel computation, which is a distinct substantive behavior change."
     }
   },
   "reviewers": {
