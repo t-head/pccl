@@ -1,16 +1,15 @@
 {
   "classification": {
-    "base_sha": "a7769ba35a724d84cea481c9b318c30482175471",
-    "head_sha": "67610b6cc8e996189e6245c7dd71b7f96cb8336d",
-    "input_fingerprint": "8d3020f105c3c9cc7578b3cab2e3928e2ce9d62a0b2ed023add43fa82c8b3b96",
+    "base_sha": "50423c27f1dc6a6ef765f20e504c47f561d948f9",
+    "head_sha": "597d25361580938fbbf18f145d2707f84c169e1a",
+    "input_fingerprint": "ab127a88167f4e6a9254d84ae346c5968a7f62a1193cc8413bfbde43578a4419",
     "pr_number": 178,
     "proposal": {
       "modules": [
-        "memory",
         "network",
         "gin"
       ],
-      "reason": "Primary change is in the IB network backend: connection metadata/handshake redesign (Connect/Accept ready sync), IB/RoCE routing and QoS handling (FLID, TC/SL/FIFO TC), ECE negotiation, and related net_ib transport behavior updates. Add gin because GIN-specific connect/accept/listen flows were changed to use the new IB handshake/cancel paths and cleanup semantics. Add memory because net_ib now introduces a per-device, reference-counted MR registration cache with new registration/deregistration ownership and lifetime behavior."
+      "reason": "Primary change is in the IB network backend (net_ib): connection handshake/state machine redesign, QP RTR/RTS metadata exchange, ECE negotiation, FLID/GID routing selection, TC/SL/FIFO_TC QoS behavior, and per-device MR registration cache/cancel cleanup. `gin` is also needed because GIN-specific IB paths (GIN connect/accept/close and troce adapter wiring) were substantively updated to match the new net_ib connection and cancellation semantics."
     }
   },
   "reviewers": {
