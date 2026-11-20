@@ -1,14 +1,14 @@
 {
   "classification": {
     "base_sha": "50423c27f1dc6a6ef765f20e504c47f561d948f9",
-    "head_sha": "012839640f242075ec76cd812cbbbb4a3afed960",
-    "input_fingerprint": "83f33d95b8830436ab51267546c4d21930a4cfc10d43f74055e5f9e863b8f287",
+    "head_sha": "28ac7648bac4b264461b783479e56246bd40a04a",
+    "input_fingerprint": "83fbbe5c7679f1c57f58f7c714df2c100c39688e625ed64c2440d3c9d9d0671a",
     "pr_number": 220,
     "proposal": {
       "modules": [
         "ci"
       ],
-      "reason": "Main substantive change is to open-source test workflow execution: dual-platform (M890P and OAM-810E) case generation/grouping, hardware matrix/rack placement, optional HPN SDK installation, expanded native-unit coverage, and reconciliation/report metadata updates. Other edits (workflow scripts, xtest generators, test lists including the patch-omitted postsil_unit_test_shm.json, and docs/tests) all support CI behavior rather than changing PCCL runtime modules or contribution/review policy."
+      "reason": "Main substantive change is CI test workflow behavior: dual-platform (M890P+OAM-810E) case generation/grouping/execution/reconciliation, optional trusted HPN SDK install path in workflows, rack policy/rack_count scheduling inputs, and CI reporting/xtest dataset updates (including new native unit family and PR bundle generation). Other edits are supporting CI tests/docs/data, not separate module-policy or runtime code changes."
     }
   },
   "reviewers": {
