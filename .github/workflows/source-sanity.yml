@@ -673,7 +673,7 @@ jobs:
           launch_mode: master
           nnodes: 2
           nproc_per_node: ${{ env.VALIDATION_CARDS }}
-          rack_nodes: rack-01=2
+          rack_policy: same
           node_selector: ${{ env.VALIDATION_NODE_SELECTOR }}
           namespace: ppu-sched
           timeout_minutes: 300

@@ -287,7 +287,7 @@ class WorkflowContractTests(unittest.TestCase):
             self.assertIn('--mpi-interface "$MPI_INTERFACE"', section)
         self.assertIn("timeout -k 5s 30s cluster-ssh", cluster)
         self.assertIn('timeout -k 10s 60s mpirun --allow-run-as-root', cluster)
-        self.assertIn('rack_nodes: rack-01=2', cluster)
+        self.assertIn('rack_policy: same', cluster)
         self.assertNotIn('icn-rack=', self.text)
 
     def test_legacy_executor_and_experimental_triggers_are_absent(self):

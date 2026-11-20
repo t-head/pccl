@@ -171,8 +171,9 @@ jobs:
               keys = [[case['plan'], case['suite'], case['name']] for case in selected['cases']]
               assert keys == group['case_keys']
               assert all(case['suite_spec']['nodes'] == group['nodes'] for case in selected['cases'])
-              assert {group_cases._rack_nodes(case) for case in selected['cases']} == {group['rack_nodes']}
-              assert group['cross_rack'] is bool(group['rack_nodes'])
+              assert {group_cases._rack_policy(case) for case in selected['cases']} == \
+                {(group['rack_policy'], group['rack_count'])}
+              assert group['cross_rack'] is (group['rack_policy'] == 'spread')
               actual.extend(tuple(key) for key in keys)
           selected_keys = set(actual)
           excluded_keys = {tuple(key) for record in coverage['exclusions'] for key in record['case_keys']}
@@ -193,7 +194,7 @@ jobs:
           assert subprocess.check_output(['git', 'rev-parse', 'HEAD'], text=True).strip() == os.environ['GITHUB_SHA']
           matrix = {'include': [
               {key: group[key] for key in ('id', 'profile', 'nodes', 'cards_per_node', 'env',
-                                           'cross_rack', 'rack_nodes', 'case_count')}
+                                           'cross_rack', 'rack_policy', 'rack_count', 'case_count')}
               for group in manifest
           ]}
           print(f'Selected {len(actual)} {dataset} Cases in {len(manifest)} automatic groups')
@@ -621,7 +622,7 @@ jobs:
           launch_mode: master
           nnodes: ${{ matrix.nodes }}
           nproc_per_node: ${{ matrix.cards_per_node }}
-          rack_nodes: rack-01=${{ matrix.nodes }}
+          rack_policy: same
           node_selector: ${{ env.VALIDATION_NODE_SELECTOR }}
           namespace: ppu-sched
           timeout_minutes: 720
@@ -719,7 +720,8 @@ jobs:
           launch_mode: master
           nnodes: ${{ matrix.nodes }}
           nproc_per_node: ${{ matrix.cards_per_node }}
-          rack_nodes: ${{ matrix.rack_nodes }}
+          rack_policy: spread
+          rack_count: ${{ matrix.rack_count }}
           node_selector: ${{ env.VALIDATION_NODE_SELECTOR }}
           namespace: ppu-sched
           timeout_minutes: 720

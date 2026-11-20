@@ -125,10 +125,10 @@ passed or skipped tests.
 `group_cases.py` derives deterministic execution groups by profile, node count,
 cards per node, shared environment and cross-rack allocation, then splits large
 groups by `--max-cases`. The two-rack performance Suites are isolated from
-ordinary Suites and carry explicit `rack_nodes` allocations in `groups.json`.
-Every other multi-node execution explicitly requests `rack-01=<node-count>` so
-all of its workers stay in rack-01. Single-node executions do not pass
-`rack_nodes`.
+ordinary Suites and use `rack_policy=spread` with `rack_count=2` in
+`groups.json`. Every other multi-node execution uses `rack_policy=same`, which
+keeps all workers in one automatically selected rack without naming a rack.
+Single-node executions leave `rack_policy` empty.
 There is no hand-maintained shard list. Optional `--nodes` and `--suite`
 arguments are debug filters, not shard definitions.
 
