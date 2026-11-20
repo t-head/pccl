@@ -1,14 +1,15 @@
 {
   "classification": {
-    "base_sha": "173ba6ac40c60b68410acc28c18902c7f24241ca",
-    "head_sha": "f796a6690646d0542282c43a5b82442fcefe3053",
-    "input_fingerprint": "258b624d7b1424b9628f986579200dc729cebba1ae8b15f94c39bb71b63f67e0",
+    "base_sha": "8d1fff80b4f1c7c625f22ce835db16961fa9281f",
+    "head_sha": "86e23f2d14fec1ed9325b988d475d8c9ac0ab976",
+    "input_fingerprint": "713e6fb7dd10022e9620671359279518ec3f9f5f8a746671be5303b779112a99",
     "pr_number": 226,
     "proposal": {
       "modules": [
+        "dispatch",
         "kernel-plugin"
       ],
-      "reason": "Main functional change is adding and integrating a new extension-kernel AllReduce strategy (OneShotPush): new plugin-provided kernel implementation, strategy/index dispatch, workspace regions/phase state, topology-gated default selection, and plugin ABI/lifecycle wiring (including cross-rank push block-limit synchronization in shared init). Changes in shared files are feature-owned ext-kernel integration, not independent bootstrap/dispatch/communicator policy changes."
+      "reason": "Primary change is in the extension-kernel path: adds a new OneShotPush AllReduce kernel/strategy, extends ext-kernel function indexing and dispatch tables, introduces new plugin workspace regions/state (PUSH_BUFFER/PUSH_PHASE), and adds plugin ABI wiring for cross-rank push block-limit negotiation. Also needs dispatch review because launch policy now depends on CU availability/dispatch masks (per-rank CU mask query, block-limit capping, and synchronized block-count behavior across ranks), which is a substantive CU/CE hardware launch-policy change rather than incidental caller edits."
     }
   },
   "reviewers": {
