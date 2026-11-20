@@ -1,14 +1,14 @@
 {
   "classification": {
-    "base_sha": "173ba6ac40c60b68410acc28c18902c7f24241ca",
-    "head_sha": "085dcd1fec4e4a96495cf1aa351f72c9f49ed8ba",
-    "input_fingerprint": "c783d36f274e9dfa516cca21ae8e12907ac20162c7c62fbeb24f5cfd70aa861e",
+    "base_sha": "8d1fff80b4f1c7c625f22ce835db16961fa9281f",
+    "head_sha": "98120e0e5cc6b128ac724b763bf0bd2f79a66725",
+    "input_fingerprint": "2283617f08464406beae7a4fab615b0b15b6b6e5229f08bd8fdfd81709abd4a7",
     "pr_number": 220,
     "proposal": {
       "modules": [
         "ci"
       ],
-      "reason": "Main change is CI orchestration: dual-platform (M890P + OAM-810E) case generation/selection/grouping, workflow matrix and rack policy updates, optional HPN SDK install wiring, expanded native unit coverage, and CI reconciliation/reporting/test updates. Added/modified test-list artifacts (including patch_omitted postsil_unit_test_shm.json) are CI dataset inputs supporting that same execution pipeline, not product runtime modules."
+      "reason": "Main change is CI test/workflow orchestration: dual-platform (M890P + OAM-810E EIC) case generation/selection, workflow matrix and rack-policy execution changes, optional HPN SDK installation wiring, and CI reporting/reconciliation updates in `.github/workflows` and `tests/xtest` harness code. These are substantive test-runner and workflow execution changes, not production runtime modules."
     }
   },
   "reviewers": {
