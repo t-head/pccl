@@ -1,0 +1,17 @@
+{
+  "classification": {
+    "base_sha": "50423c27f1dc6a6ef765f20e504c47f561d948f9",
+    "head_sha": "a6ff653c555cd6f64cf6509205485aade008878e",
+    "input_fingerprint": "0dec599e8e4be0ae57d0c0270992faaadc1f897d173d6642f0aa0cd1e213b6bb",
+    "pr_number": 226,
+    "proposal": {
+      "modules": [
+        "kernel-plugin"
+      ],
+      "reason": "The substantive change is a new extension-kernel AllReduce strategy (OneShotPush) implemented and integrated end-to-end in the ext-kernel plugin: device kernel code, strategy enum/indexing, launch/workspace memory regions, topology-gated default selection, and plugin strategy dispatch. This is extension-kernel lifecycle/eligibility/execution work, not a separate built-in tuning or native-kernel module change."
+    }
+  },
+  "reviewers": {
+    "kernel-plugin": 335730053
+  }
+}
