@@ -2,13 +2,13 @@
   "classification": {
     "base_sha": "173ba6ac40c60b68410acc28c18902c7f24241ca",
     "head_sha": "15a72e7b7a9472188fb58cc779185e421cfd665b",
-    "input_fingerprint": "6338e2badebbae4cca0e924ca3473116583bd8c783b451b1d40b0150d42e66c6",
+    "input_fingerprint": "9b15ecfe7087037b2e9b4c00436976e3a9724d24bd017e51026d69a0365b7b5c",
     "pr_number": 191,
     "proposal": {
       "modules": [
         "device-topology"
       ],
-      "reason": "Main functional change is in topology parsing/classification: src/graph/topo.cc adds PCI class 0x00ff00 as NIC and tightens NIC->net extraction to only use net entries marked keep=\"1\". The test topo.xml update is fixture coverage for this topology behavior, not an independent module change."
+      "reason": "Main functional change is topology-device handling in src/graph/topo.cc: add PCI class 0x00ff00 to NIC classification and restrict NIC net selection to keep=\"1\" entries to avoid stale imported NET aliasing during topology enumeration/affinity lookup. The test topo.xml update is a supporting fixture change, not a separate module change."
     }
   },
   "reviewers": {
