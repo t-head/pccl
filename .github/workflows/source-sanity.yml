@@ -111,22 +111,13 @@ jobs:
       (github.event_name == 'pull_request' ||
        github.event_name == 'workflow_dispatch' ||
        github.event_name == 'push')
-    runs-on: k8s-runner-group-cpu-thead
-    container:
-      image: ghcr.io/actions/actions-runner:latest
+    runs-on: ubuntu-24.04
     timeout-minutes: 20
     steps:
       - uses: actions/checkout@v4
         with:
           path: pccl
           persist-credentials: false
-      - name: Summarize full-run scheduler states and stop
-        run: |
-          for task in /wl_nas/devops/ppu-dashboard/tasks/ppu-t-head-44732590636-1-execute-g*.json; do
-            status=$(grep -o '"status": "[^"]*"' "$task" | head -1 | cut -d'"' -f4)
-            printf '%s %s\n' "$status" "$(basename "$task")"
-          done | sort | awk '{count[$1]++; pending[$1]=pending[$1] " " $2} END {for (state in count) print state, count[state], pending[state]}'
-          exit 1
       - uses: actions/checkout@v4
         with:
           repository: t-head/pccl-tests
