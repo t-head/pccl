@@ -1,6 +1,7 @@
 # Temporary branch only: reuse the registered source-sanity dispatch entrypoint.
 # PR #220's branch and its normal workflow remain unchanged.
-name: 810E PR220 all-reduce 100-run stress
+name: 810E PR220 conditional sanity 100 rounds
+run-name: 810E sanity 100 rounds after all-reduce 44719006246
 
 on:
   workflow_dispatch:
@@ -18,22 +19,56 @@ on:
 
 permissions:
   contents: read
+  actions: read
 
 concurrency:
-  group: all-reduce-pr220-stress
+  group: sanity-pr220-after-all-reduce-44719006246
   cancel-in-progress: false
 
 env:
+  PREDECESSOR_RUN: '44719006246'
+  PREDECESSOR_HEAD: 305107c197b94ffc8cdb2566021cb2e6d669e2cf
   PCCL_REVISION: 085dcd1fec4e4a96495cf1aa351f72c9f49ed8ba
   PCCL_TESTS_REVISION: 394556512e87259e9ffa25225632c46b0a0bbcd5
 
 jobs:
-  stress:
+  gate:
     if: github.repository == 't-head/pccl'
     runs-on: k8s-runner-group-cpu-thead
     container:
       image: ghcr.io/actions/actions-runner:latest
     timeout-minutes: 780
+    outputs:
+      should_run: ${{ steps.verify.outputs.should_run }}
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          path: stress-tools
+          persist-credentials: false
+      - name: Wait for the exact predecessor and verify all 100 pass records
+        id: verify
+        env:
+          GITHUB_TOKEN: ${{ github.token }}
+        run: |
+          python3 stress-tools/tests/stress/all_reduce_810e_pr220/wait_for_pass.py \
+            --run-id "$PREDECESSOR_RUN" --expected-head "$PREDECESSOR_HEAD" \
+            --summary /wl_nas/devops/pccl-pr220-all-reduce-stress-44719006246-1/results/summary.json \
+            --pccl-revision "$PCCL_REVISION" --tests-revision "$PCCL_TESTS_REVISION" \
+            --output gate.json --interval 60 --timeout 45000
+      - name: Upload the condition decision
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: sanity-predecessor-decision
+          path: gate.json
+          if-no-files-found: warn
+  sanity:
+    needs: gate
+    if: needs.gate.outputs.should_run == 'true' && github.repository == 't-head/pccl'
+    runs-on: k8s-runner-group-cpu-thead
+    container:
+      image: ghcr.io/actions/actions-runner:latest
+    timeout-minutes: 1500
     steps:
       - uses: actions/checkout@v4
         with:
@@ -64,15 +99,22 @@ jobs:
               name: os.environ[name] for name in ('HPN_SDK_URL', 'MPI_INTERFACE')
           }))
           PY
-      - name: Build once and run 100 independent two-rank launches
-        uses: t-head/ci-infra/cluster-run@main
+      - uses: actions/setup-python@v5
+        with:
+          python-version: '3.12'
+      - name: Stage the pinned Python dependency for offline worker installation
+        run: |
+          python -m pip download --disable-pip-version-check --only-binary=:all: --no-deps \
+            --dest deps -r pccl/tests/xtest/requirements.txt
+      - name: Build standard and notsm once each and run the entire single-node sanity 100 rounds
+        uses: t-head/ci-infra/cluster-run@032feaa36f25a7dc1b4a06e6d9c79af008131f72
         with:
           image: download.t-head.cn/docker_release/ppu:sdk2.2.0-hggcrt3-ubuntu24.04-py312-20261005
           nnodes: 0
           nproc_per_node: 2
           node_selector: board-type=OAM-810E,nic-type=eic
           namespace: ppu-sched
-          timeout_minutes: 720
+          timeout_minutes: 1440
           cleanup_policy: always
           dmesg_policy: always
           container_options: |
@@ -95,25 +137,18 @@ jobs:
                 print('export ' + name + '=' + shlex.quote(values[name]))
             PY
             )"
-            export PCCL_SOURCE=/workspace/source/pccl
-            export PCCL_TESTS_SOURCE=/workspace/source/pccl-tests
-            export RUNS=100 RUN_TIMEOUT=300
-            export WORK_ROOT=/mnt/wl_nas/devops/pccl-pr220-all-reduce-stress-${{ github.run_id }}-${{ github.run_attempt }}
+            export WORK_ROOT=/mnt/wl_nas/devops/pccl-pr220-sanity100-${{ github.run_id }}-${{ github.run_attempt }}
             ulimit -l unlimited
             ulimit -s 65536
-            # Match PR #220's build dependency, without invoking its full-suite build.
             export DEBIAN_FRONTEND=noninteractive
-            timeout -k 30s 300s apt-get update
-            timeout -k 30s 600s apt-get install -y --no-install-recommends libboost-program-options-dev
-            bash stress-tools/tests/stress/all_reduce_810e_pr220/run.sh
-      - name: Upload build and per-run evidence even after failures
+            bash stress-tools/tests/stress/all_reduce_810e_pr220/sanity100.sh
+      - name: Upload build and per-round evidence even after failures
         if: always()
         uses: actions/upload-artifact@v4
         with:
-          name: pccl-pr220-all-reduce-stress-${{ github.run_id }}-${{ github.run_attempt }}
+          name: pccl-pr220-sanity100-${{ github.run_id }}-${{ github.run_attempt }}
           path: |
-            /wl_nas/devops/pccl-pr220-all-reduce-stress-${{ github.run_id }}-${{ github.run_attempt }}/*.log
-            /wl_nas/devops/pccl-pr220-all-reduce-stress-${{ github.run_id }}-${{ github.run_attempt }}/*.json
-            /wl_nas/devops/pccl-pr220-all-reduce-stress-${{ github.run_id }}-${{ github.run_attempt }}/*.txt
-            /wl_nas/devops/pccl-pr220-all-reduce-stress-${{ github.run_id }}-${{ github.run_attempt }}/results
+            /wl_nas/devops/pccl-pr220-sanity100-${{ github.run_id }}-${{ github.run_attempt }}/*.log
+            /wl_nas/devops/pccl-pr220-sanity100-${{ github.run_id }}-${{ github.run_attempt }}/*.json
+            /wl_nas/devops/pccl-pr220-sanity100-${{ github.run_id }}-${{ github.run_attempt }}/results
           if-no-files-found: warn
