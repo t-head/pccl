@@ -10,7 +10,7 @@
         "communicator",
         "enqueue"
       ],
-      "reason": "Main functional change is communicator configuration control: new config fields are validated, defaulted, overridden from env, stored on comm, and synchronized across ranks (graphUsageMode, nChannelsPerNetPeer, maxP2pPeers, plus accepted-but-not-yet-active nvlinkCentricSched/numRmaCtx). Enqueue also needs review because strongstream/graph-capture behavior is changed to respect graphUsageMode, affecting acquire/release and capture mixing semantics. Device-topology needs review because remote-net P2P channel estimation and maxP2pPeers-based channel-per-peer computation were changed in topology path/channel logic."
+      "reason": "Primary change is communicator config lifecycle: new communicator settings are validated, defaulted, env-overridden, stored, and synchronized across ranks. Additional device-topology review is needed because P2P channel counts are now computed from remote network-path bandwidth and constrained by maxP2pPeers in topology/channel computation. Additional enqueue review is needed because graph-usage mode now changes strong-stream capture/mixing behavior across enqueue/channel/transport call paths, and a prior P2P channel-overload scheduling cap was removed in runtime planning."
     }
   },
   "reviewers": {
