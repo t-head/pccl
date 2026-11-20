@@ -1,14 +1,14 @@
 {
   "classification": {
     "base_sha": "173ba6ac40c60b68410acc28c18902c7f24241ca",
-    "head_sha": "9a5d83f1b805b188a90af2f9e29d0a29be9da063",
-    "input_fingerprint": "bdda4a190a42043ebf9f17c115fd37e1c055ac55656d4810da3956ca749744ab",
+    "head_sha": "6896b6b67ee06957740d34d850b78d0fa9f9fad7",
+    "input_fingerprint": "a69ac0a71de39f4ff5a66a4460de82c3b15056dec747912facc7bbf8fff4dc6b",
     "pr_number": 229,
     "proposal": {
       "modules": [
         "ci"
       ],
-      "reason": "Main substantive change is CI test-orchestration policy: workflows and xtest grouping logic move from explicit rack_nodes bindings to automatic rack_policy/rack_count handling (same vs spread), with matrix/manifest propagation and prepare-time validation to preserve daily/cross-rack execution behavior."
+      "reason": "Main change is CI test-workflow behavior: daily/source-sanity hardware execution now uses automatic rack policies (`same`/`spread` with `rack_count`), schedule/resource-policy expansion for Friday 16-node runs, and matching prepare/coverage/group-contract validation updates in xtest workflow tooling and tests."
     }
   },
   "reviewers": {
