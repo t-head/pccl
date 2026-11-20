@@ -1,14 +1,14 @@
 {
   "classification": {
     "base_sha": "50423c27f1dc6a6ef765f20e504c47f561d948f9",
-    "head_sha": "46830607fcea297aa3170c312d337499d2749a2e",
-    "input_fingerprint": "5c16d67bd5a460672ea7cfdf2bed331d673d3d3ce2cedebec7e861aeeb71b2dc",
+    "head_sha": "a1f4d0023239bf4bdffddcf990e846d40bc7e4cb",
+    "input_fingerprint": "0d7bcd72c2fdab26959152aade4cd54bb97614a90404b1798552c4ed0f0aee42",
     "pr_number": 220,
     "proposal": {
       "modules": [
         "ci"
       ],
-      "reason": "Adds optional `hpn_sdk_url` handling to source-sanity and daily test workflows, wires a shared worker-side SDK installer into build/test hardware steps, and updates CI reporting metadata and workflow contract tests for image/SDK selection behavior."
+      "reason": "Main change is in open-source test workflow execution: adds optional `hpn_sdk_url` dispatch/install path with fatal validation, extends sanity/daily workflow matrices to dual-platform case generation/execution, and updates xtest case-generation/grouping/reporting contracts plus CI docs/tests to match. Other edits (workflow YAML, workflow scripts, xtest inputs including patch-omitted case list) support this CI behavior rather than changing runtime PCCL modules or review-policy automation."
     }
   },
   "reviewers": {
