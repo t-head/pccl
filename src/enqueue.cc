@@ -887,32 +887,28 @@ static ncclResult_t calcCollChunking(
     while (nBytes / (nChannels*chunkSize) < nstepsLL128*16/ppn && chunkSize > 32768) chunkSize /= 2;
   }
 
-  // Compute nSteps for proxies
-  int chunkEffectiveSize = chunkSize;
-  {
-    // Compute the payload once for both the device loop and proxy progress.
-    int typeSize = ncclTypeSize(task->datatype);
-    chunkEffectiveSize = useTaskChunkSteps ? (stepSize / typeSize) * typeSize * chunkSteps :
-        (chunkSize / typeSize) * typeSize;
-    if (task->protocol == NCCL_PROTO_LL) {
-      chunkEffectiveSize = (chunkEffectiveSize / sizeof(union ncclLLFifoLine)) * sizeof(uint64_t);
-    } else if (task->protocol == NCCL_PROTO_LL128) {
-      constexpr int wireSlice = WARP_SIZE * NCCL_LL128_SHMEM_ELEMS_PER_THREAD * sizeof(uint64_t);
-      constexpr int dataSlice = wireSlice / NCCL_LL128_LINEELEMS * NCCL_LL128_DATAELEMS;
-      chunkEffectiveSize = (chunkEffectiveSize / wireSlice) * dataSlice;
-    }
-    if (chunkEffectiveSize == 0) {
-      WARN("Collective %s %s FIFO chunk is too small (%d bytes)", ncclFuncToString(task->func), ncclProtoStr[task->protocol], chunkSize);
-      return ncclInvalidArgument;
-    }
-    const size_t grainSize = ncclProtoGrainSize(task->protocol);
-    chunkEffectiveSize = chunkEffectiveSize / grainSize * grainSize;
-    if (chunkEffectiveSize == 0 || size_t(chunkEffectiveSize) / grainSize >= (1u << 21)) {
-      WARN("Collective chunk size %d cannot be represented in protocol grains %zu", chunkEffectiveSize, grainSize);
-      return ncclInvalidArgument;
-    }
-    *outChunkSize = chunkEffectiveSize;
+  // Compute the payload once for both the device loop and proxy progress.
+  int typeSize = ncclTypeSize(task->datatype);
+  int chunkEffectiveSize = useTaskChunkSteps ? (stepSize / typeSize) * typeSize * chunkSteps :
+      (chunkSize / typeSize) * typeSize;
+  if (task->protocol == NCCL_PROTO_LL) {
+    chunkEffectiveSize = (chunkEffectiveSize / sizeof(union ncclLLFifoLine)) * sizeof(uint64_t);
+  } else if (task->protocol == NCCL_PROTO_LL128) {
+    constexpr int wireSlice = WARP_SIZE * NCCL_LL128_SHMEM_ELEMS_PER_THREAD * sizeof(uint64_t);
+    constexpr int dataSlice = wireSlice / NCCL_LL128_LINEELEMS * NCCL_LL128_DATAELEMS;
+    chunkEffectiveSize = (chunkEffectiveSize / wireSlice) * dataSlice;
   }
+  if (chunkEffectiveSize == 0) {
+    WARN("Collective %s %s FIFO chunk is too small (%d bytes)", ncclFuncToString(task->func), ncclProtoStr[task->protocol], chunkSize);
+    return ncclInvalidArgument;
+  }
+  const size_t grainSize = ncclProtoGrainSize(task->protocol);
+  chunkEffectiveSize = chunkEffectiveSize / grainSize * grainSize;
+  if (chunkEffectiveSize == 0 || size_t(chunkEffectiveSize) / grainSize >= (1u << 21)) {
+    WARN("Collective chunk size %d cannot be represented in protocol grains %zu", chunkEffectiveSize, grainSize);
+    return ncclInvalidArgument;
+  }
+  *outChunkSize = chunkEffectiveSize;
   if (comm->rank == 0) VERBOSE(NCCL_COLL, "Coll %d, size %ld -> nChannels: %d nThreads: %d, chunkSize %d (algo %d proto %d)\n",
       task->func, nBytes, nChannels, task->nThreads, chunkSize, task->algorithm, task->protocol);
   int nLoops = (int)(DIVUP(nBytes, (((size_t)(nChannels))*nchunksPerLoop*chunkEffectiveSize)));
@@ -1733,9 +1729,6 @@ static ncclResult_t scheduleCollTasksToPlan(ncclComm_t comm, struct ncclKernelPl
       if (cellsHi != 0) {
         channelId += nChannels - 1;
         currentTraffic = cellsHi * elementsPerCell * trafficPerElement;
-      } else if (devWork->cbd.countMid != 0) {
-        channelId += nChannels;
-        currentTraffic = 0;
       } else {
         currentTraffic += cellsLo * elementsPerCell * trafficPerElement;
       }

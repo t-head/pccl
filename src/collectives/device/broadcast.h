@@ -24,8 +24,9 @@ namespace {
     struct ncclDevChannel* channel = &(getShmemPtr(comm)->channel);
     struct ncclRing* ring = &channel->ring;
 
-    ssize_t size, partOffset, partCount, chunkSize;
-    ncclCollCbdPart(work, getShmemPtr(comm)->channelId, Proto::Id, sizeof(T), &size, &partOffset, &partCount, &chunkSize);
+    ssize_t partOffset, partCount, chunkSize;
+    ncclCollCbdPart(work, getShmemPtr(comm)->channelId, Proto::Id, sizeof(T),
+        (ssize_t*)nullptr, &partOffset, &partCount, &chunkSize);
     const int rank = ring->devUserRanks[0];
     const int nextRank = ring->devUserRanks[1];
     const int root = work->root;
