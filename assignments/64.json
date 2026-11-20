@@ -1,17 +1,17 @@
 {
   "classification": {
-    "base_sha": "dd507710fa250caa8ff4d98d5382b49a286c8802",
-    "head_sha": "8a1dd2765c76ee988da1866c3a511afbe3e97d75",
-    "input_fingerprint": "b861d301373621d72f16644c73cf8eca63a0fcd466432e330816e6c68bb782a8",
+    "base_sha": "50423c27f1dc6a6ef765f20e504c47f561d948f9",
+    "head_sha": "a9b9d282ebf542cf83ce515545f22265912a1715",
+    "input_fingerprint": "3d46c094d0c889f4e204392bc3c3817060cf57675aa83fe46a734d02ce1f0c10",
     "pr_number": 64,
     "proposal": {
       "modules": [
+        "communicator",
         "enqueue",
         "copy-engine",
-        "device-api",
-        "gin"
+        "other"
       ],
-      "reason": "Main change is host one-sided RMA operation flow (PutSignal/Signal/WaitSignal) integrated into task planning and launch sequencing, including new RMA task queues and plan lifecycle handling (enqueue). It adds a distinct in-node CE/DMA execution and signal/wait implementation (copy-engine), plus a separate cross-node GIN-proxy/plugin transport path with context/progress/registration logic (gin). It also introduces new public API surface and communicator/window capability semantics (including numRmaCtx, hostRmaSupport, and symmetric-window validation tied to window/LSA behavior), requiring device API ownership review (device-api)."
+      "reason": "Primary change adds new host one-sided RMA APIs (pcclPutSignal/pcclSignal/pcclWaitSignal) plus a new RMA subsystem (src/rma/*), which is outside explicit catalog scopes, so it is classified as other. enqueue is independently substantive because planner/task/launch flow now handles RMA task types, per-context queues, batching, and cleanup. copy-engine is independently substantive because RMA execution is implemented via CE/DMA stream ops, signal/ack memory windows, and wait/write synchronization. communicator is independently substantive due to numRmaCtx config parsing/defaulting, host-RMA capability negotiation across ranks, and communicator property/lifecycle integration."
     }
   },
   "reviewers": {
