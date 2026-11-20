@@ -26,7 +26,7 @@ on:
         required: false
         type: string
       allowed_nodes:
-        description: Optional comma-separated resource policy; empty uses weekday 1/2/4/8 or Friday 1/2/4/8/16
+        description: Comma-separated node counts. Manual runs default to 1,2,4,8; enter 1,2,4,8,16 to include 16-node cases.
         required: false
         type: string
         default: ''
@@ -143,8 +143,6 @@ jobs:
           input_directory = Path('generated-case-input')
           nodes = int(os.environ['NODES']) if os.environ['NODES'] else None
           suite = os.environ['SUITE'] or None
-          if nodes is not None and nodes not in (1, 2, 4, 8, 16):
-              raise ValueError('Unsupported node count')
           allowed_nodes = {int(value) for value in os.environ['ALLOWED_NODES'].split(',')}
           plan = group_cases.build_plan(
               input_directory, int(os.environ['MAX_CASES']), nodes=nodes, suite=suite,

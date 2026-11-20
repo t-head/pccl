@@ -151,6 +151,10 @@ class GroupCasesTests(unittest.TestCase):
                             for record in coverage["exclusions"]))
         with self.assertRaisesRegex(ValueError, "disabled by daily resource policy"):
             group_cases.build_plan(self.input, 500, nodes=8, allowed_nodes=(1, 2, 4))
+        with self.assertRaisesRegex(ValueError, r"allowed_nodes.*61"):
+            group_cases.build_plan(self.input, 500, allowed_nodes=(1, 2, 4, 8, 61))
+        with self.assertRaisesRegex(ValueError, "Node filter must be one of"):
+            group_cases.build_plan(self.input, 500, nodes=61)
 
 
 if __name__ == "__main__":

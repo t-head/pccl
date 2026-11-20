@@ -15,6 +15,7 @@ import run_cases
 
 
 POLICY_EXCLUSION = "disabled by daily resource policy"
+SUPPORTED_NODE_COUNTS = frozenset((1, 2, 4, 8, 16))
 CROSS_RACK_SUITES = {
     ("pccl_shm_op_perf_2_rack_icn8_plan", "op_perf_shm_2_rack_icn8_suite"): 2,
     ("pccl_shm_op_perf_2_rack_icn16_plan", "op_perf_shm_2_rack_icn16_suite"): 4,
@@ -60,10 +61,17 @@ def _write_csv(path, fields, rows):
 def build_plan(directory, max_cases, nodes=None, suite=None, allowed_nodes=None):
     if type(max_cases) is not int or max_cases <= 0:
         raise ValueError("max_cases must be a positive integer")
+    if nodes is not None and (type(nodes) is not int or nodes not in SUPPORTED_NODE_COUNTS):
+        raise ValueError("Node filter must be one of 1, 2, 4, 8, 16")
     if allowed_nodes is not None:
         allowed_nodes = frozenset(allowed_nodes)
         if (not allowed_nodes or any(type(value) is not int or value <= 0 for value in allowed_nodes)):
             raise ValueError("allowed_nodes must contain positive integers")
+        unsupported = allowed_nodes - SUPPORTED_NODE_COUNTS
+        if unsupported:
+            raise ValueError("allowed_nodes contains unsupported node counts: "
+                             + ", ".join(str(value) for value in sorted(unsupported))
+                             + "; supported counts are 1, 2, 4, 8, 16")
         if nodes is not None and nodes not in allowed_nodes:
             raise ValueError(f"Requested node count {nodes} is {POLICY_EXCLUSION}")
     grouped = {}

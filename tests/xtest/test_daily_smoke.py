@@ -191,6 +191,8 @@ class DailySmokeTests(unittest.TestCase):
         self.assertEqual(len(eight_nodes['groups']), 3)
         with self.assertRaisesRegex(ValueError, 'disabled by daily resource policy'):
             group_cases.build_plan(FULL_INPUT, 500, nodes=16, allowed_nodes=(1, 2, 4, 8))
+        with self.assertRaisesRegex(ValueError, r'allowed_nodes.*61'):
+            group_cases.build_plan(FULL_INPUT, 500, allowed_nodes=(1, 2, 4, 8, 61))
         oversized = group_cases.build_plan(FULL_INPUT, 25, allowed_nodes=(1, 2, 4, 8))
         self.assertGreater(len(oversized['groups']), 256)
 
@@ -316,6 +318,7 @@ class DailySmokeTests(unittest.TestCase):
         self.assertIn("github.event.schedule == '0 14 * * 5'", text)
         self.assertIn("'1,2,4,8,16'", text)
         self.assertIn('allowed_nodes:', text)
+        self.assertIn('Manual runs default to 1,2,4,8; enter 1,2,4,8,16 to include 16-node cases.', text)
         self.assertIn(
             "DATASET: ${{ inputs.dataset || (github.event_name == 'schedule' && 'full' || 'smoke') }}",
             text)
