@@ -696,7 +696,7 @@ static ncclResult_t defaultGetAlgoInfo(ncclComm_t comm, ncclTaskColl* info) {
     if (!algoSupportsRedOp(info, a)) continue;
     for (int p=0; p<NCCL_NUM_PROTOCOLS; p++) {
       float time;
-      NCCLCHECK(ncclTopoGetAlgoTime(comm, info->func, a, p, info->nBytes, info->nChannels, &time));
+      NCCLCHECK(ncclTopoGetAlgoTime(comm, info->func, a, p, info->nBytes, info->nMaxChannels, &time));
       if (time >= 0 && time < minTime) {
         info->algorithm = a;
         info->protocol = p;
@@ -713,7 +713,7 @@ static ncclResult_t defaultGetAlgoInfo(ncclComm_t comm, ncclTaskColl* info) {
   if (comm->rank == 0) TRACE(NCCL_TUNING, "%ld Bytes -> Algo %d proto %d time %f", info->nBytes, info->algorithm, info->protocol, minTime);
   TRACE(NCCL_COLL, "%ld Bytes -> Algo %d proto %d time %f", info->nBytes, info->algorithm, info->protocol, minTime);
 
-  int nc = (info->nChannels > 0) ? info->nChannels :
+  int nc = (info->nMaxChannels > 0) ? info->nMaxChannels :
            (info->algorithm == NCCL_ALGO_FC) ? comm->fcnChannels : comm->nChannels;
   static int useStaticLaunchGrid = pcclParamUseStaticLaunchGrid();
 
@@ -740,7 +740,7 @@ static ncclResult_t defaultGetAlgoInfo(ncclComm_t comm, ncclTaskColl* info) {
   }
 #endif
   if (info->algorithm == NCCL_ALGO_PAT) nt = NCCL_MAX_NTHREADS;
-  info->nChannels = nc;
+  info->nMaxChannels = nc;
   info->nThreads = nt;
   return ncclSuccess;
 }
@@ -786,7 +786,7 @@ static ncclResult_t getAlgoInfo(ncclComm_t comm, ncclTaskColl* info, ncclSimInfo
   if (nChannels <= 0) {
     NCCLCHECK(defaultGetAlgoInfo(comm, info));
   } else {
-    info->nChannels = nChannels;
+    info->nMaxChannels = nChannels;
   }
   // record dispatch strategy tuning info
   comm->collType = info->func;
@@ -800,7 +800,7 @@ static ncclResult_t getAlgoInfo(ncclComm_t comm, ncclTaskColl* info, ncclSimInfo
     // self-consistent with how algo/proto were selected.
     float time = -1.f;
     if (ncclTopoGetAlgoTime(comm, info->func, info->algorithm, info->protocol,
-                            info->nBytes, info->nChannels, &time) == ncclSuccess
+                            info->nBytes, info->nMaxChannels, &time) == ncclSuccess
         && time >= 0.f) {
       simInfo->estimatedTime = time;
     } else {
@@ -1621,7 +1621,7 @@ static ncclResult_t scheduleCollTasksToPlan(ncclComm_t comm, struct ncclKernelPl
     workBytes += node->size;
     trafficBytes += std::max(minTrafficPerChannel, task->count * ncclTypeSize(task->datatype) *
         collTrafficPerByte(task->func, comm->nRanks, task->protocol));
-    nChannels = std::min(comm->nChannels, nChannels + task->nChannels);
+    nChannels = std::min(comm->nChannels, nChannels + task->nMaxChannels);
     task = task->next;
     node = node->next;
   }
@@ -1659,7 +1659,7 @@ static ncclResult_t scheduleCollTasksToPlan(ncclComm_t comm, struct ncclKernelPl
         const size_t bytes = head->count * eltSize;
         // Keep this tuning within one payload chunk, even if the task uses only one channel.
         if (bytes <= stepPayloadBytes && minPartBytes <= stepPayloadBytes &&
-            bytes <= minPartBytes * head->nChannels) {
+            bytes <= minPartBytes * head->nMaxChannels) {
           cellSize = std::max(cellSize, ROUNDUP(minPartBytes, size_t(16)));
         }
       }
@@ -1690,7 +1690,6 @@ static ncclResult_t scheduleCollTasksToPlan(ncclComm_t comm, struct ncclKernelPl
       size_t countHi = cellsHi * elementsPerCell;
       (countHi != 0 ? countHi : countLo) -= cells * elementsPerCell - head->count;
       const int nChannels = (countLo != 0) + nMid + (cellsHi != 0);
-      head->nChannels = nChannels;
       devWork->channelLo = channelId;
       devWork->channelHi = channelId + nChannels - 1;
       devWork->cbd.countLo = countLo;
@@ -1701,6 +1700,7 @@ static ncclResult_t scheduleCollTasksToPlan(ncclComm_t comm, struct ncclKernelPl
         return ncclSuccess;
       }
 
+      head->nChannels = nChannels;
       NCCLCHECK(ncclUserBuffAlignmentCheck(head->sendbuff, head->recvbuff));
 
       struct ncclProxyOp proxyOp = {}, proxyRegions[3] = {};
