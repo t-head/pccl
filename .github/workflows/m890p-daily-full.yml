@@ -66,6 +66,35 @@ env:
   REQUESTED_EXECUTION_TIMEOUT_MINUTES: ${{ github.event_name == 'workflow_dispatch' && format('{0}', inputs.execution_timeout_minutes) || (github.event.schedule == '0 14 * * 5' && 2160 || 720) }}
 
 jobs:
+  debug-dmesg:
+    name: Read original 810E node dmesg
+    runs-on: k8s-runner-group-cpu-thead
+    container:
+      image: ghcr.io/actions/actions-runner:latest
+    timeout-minutes: 20
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          persist-credentials: false
+      - uses: t-head/ci-infra/cluster-run@main
+        with:
+          image: ${{ env.VALIDATION_IMAGE }}
+          nnodes: 0
+          nproc_per_node: 1
+          node_selector: board-type=OAM-810E,nic-type=eic,kubernetes.io/hostname=na131g-ppu810e-test002.eng.t-head.cn
+          namespace: ppu-sched
+          timeout_minutes: 10
+          cleanup_policy: always
+          container_options: |
+            privileged: true
+            host_network: true
+            dns_policy: ClusterFirstWithHostNet
+          command: |
+            dmesg -T > /tmp/dmesg.log
+            echo '===== original failure window ====='
+            grep -E 'Nov 20 15:0[0-5]:' /tmp/dmesg.log | tail -300 || true
+            echo '===== EIC and error diagnostics ====='
+            grep -iE 'fic2|eic|qp|pccl|hggc|cuda|error|failed|warning' /tmp/dmesg.log | tail -300 || true
   prepare:
     name: Build automatic daily execution groups
     runs-on: ubuntu-24.04
@@ -79,6 +108,8 @@ jobs:
       execution_timeout_minutes: ${{ steps.selection.outputs.execution_timeout_minutes }}
       execution_job_timeout_minutes: ${{ steps.selection.outputs.execution_job_timeout_minutes }}
     steps:
+      - name: Stop the default pipeline during dmesg diagnostics
+        run: exit 1
       - uses: actions/checkout@v4
         with:
           path: pccl
