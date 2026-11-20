@@ -1,14 +1,14 @@
 {
   "classification": {
     "base_sha": "50423c27f1dc6a6ef765f20e504c47f561d948f9",
-    "head_sha": "b8deb501d106fa90978cc85a7088262282f552e4",
-    "input_fingerprint": "8a17f77bba0d69aff02ccf8e09a6227a4cb4347a33f49d9d06f00770a8159c70",
+    "head_sha": "79a8d064b7b0552b96722546ece7436276eef213",
+    "input_fingerprint": "e41ae788556dfa51b99b09aec08d21f4ef9474d806d9f0e4b19cbb35c65e0b12",
     "pr_number": 220,
     "proposal": {
       "modules": [
         "ci"
       ],
-      "reason": "Primary change is CI test workflow orchestration: dual-platform (M890P and OAM-810E) case generation/grouping, execution matrix/rack-placement policy, optional HPN SDK installation in hardware jobs, and related reconciliation/reporting plus CI tests/docs. These are normal test workflow and validation-path changes, not build-system ownership or review-policy automation."
+      "reason": "The substantive change is to open-source test workflow execution and validation orchestration: dual-platform (M890P + OAM-810E EIC) case generation/grouping, runner allocation/rack policy handling, optional HPN SDK install in hardware jobs, updated run/reconcile/report plumbing, and expanded xtest definitions (including the patch-omitted postsil_unit_test_shm.json) plus CI-focused tests/docs. No reviewer-policy/workflow governance or PCCL runtime module behavior is changed."
     }
   },
   "reviewers": {
