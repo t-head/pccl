@@ -2,13 +2,13 @@
   "classification": {
     "base_sha": "996baac6d4ec098e0cad3942a6dc21846022ff2a",
     "head_sha": "c1318ce67d4ea963803875e39f26954ba4ffaadc",
-    "input_fingerprint": "0f078c3a06c1d5bffd41532219c6b8f95487a4d91f150476517380d5c3433d6f",
+    "input_fingerprint": "c16ecfe986422b1f8f7beec10b5b978318d48f081a34f618f7c245da0404b7f9",
     "pr_number": 191,
     "proposal": {
       "modules": [
         "device-topology"
       ],
-      "reason": "Updates PCI-to-device classification in topology discovery (`src/graph/topo.cc`) by recognizing `0x00ff00` as NIC, affecting how NIC nodes are identified during topology parsing."
+      "reason": "Adds explicit PCI class mapping `0x00ff00 -> NIC` in `src/graph/topo.cc`, which is topology device/NIC classification behavior used during topology discovery."
     }
   },
   "reviewers": {
