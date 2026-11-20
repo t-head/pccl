@@ -1,14 +1,15 @@
 {
   "classification": {
     "base_sha": "173ba6ac40c60b68410acc28c18902c7f24241ca",
-    "head_sha": "ad846e4d5c3f416ad73207b74c91be4f70f25977",
-    "input_fingerprint": "b0df014981526763eee463930101a5ebb4faca094848e33797ba665a84d74907",
+    "head_sha": "3e5626603c791b8fcc2c6e6aba645d6dc6091ce1",
+    "input_fingerprint": "9c45d015f6814987675c9449d2a23c01cf72558401dd222d82837476061ff661",
     "pr_number": 130,
     "proposal": {
       "modules": [
+        "network",
         "gin"
       ],
-      "reason": "Implements GIN-specific LAG-aware QP affinity and connection behavior in GDAKI and GIN PROXY to spread P2P traffic across bonded NIC members, with capability-gated mlx5/DOCA checks and fallback semantics; the mlx5 symbol/wrapper and DOCA attribute edits are supporting plumbing for this GIN backend change rather than an independent module shift."
+      "reason": "Main functional change is in GIN backends (GDAKI and PROXY) to set/rotate LAG TX port affinity per peer/context, including capability-gated fallback behavior and PROXY queue-depth compatibility handling. Additional network review is needed because shared MLX5 DV symbol/wrapper paths were extended (query/modify QP LAG port and LAG-port discovery with error-policy handling), which is transport-level networking infrastructure beyond a single GIN call site."
     }
   },
   "reviewers": {
