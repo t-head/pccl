@@ -1,16 +1,17 @@
 {
   "classification": {
     "base_sha": "8d1fff80b4f1c7c625f22ce835db16961fa9281f",
-    "head_sha": "a2b51b1c9639e27f0da6d5fa504ddcba671e7b61",
-    "input_fingerprint": "3d362edb68de8e86faeeca56011ec8d7292cff6397634724625353b15d214822",
+    "head_sha": "20c5b8139a3b112dc6c8672ec52be09980e74138",
+    "input_fingerprint": "aed67112e749ceb2d1c204bc5942b779bdb685d272de9d6f506285a61f3f1373",
     "pr_number": 64,
     "proposal": {
       "modules": [
         "communicator",
         "enqueue",
-        "copy-engine"
+        "copy-engine",
+        "device-api"
       ],
-      "reason": "Main change is new host one-sided RMA Put/Signal/WaitSignal implemented through CE execution paths (new rma_ce/rma launch logic, signal/ack handling, chunked transfers, and CE-side waits), so copy-engine is primary. Enqueue is additionally needed because these APIs add a new task type and planner/plan lifecycle integration (task append, batching, launch preparation, cleanup). Communicator is also substantive due to new capability/config gating and lifecycle wiring (numRmaCtx parsing/defaults/env override, hostRmaSupport computation/reporting, RMA CE init/finalize state and group integration)."
+      "reason": "Main change is CE/DMA-backed host one-sided RMA (PutSignal/Signal/WaitSignal), including new RMA CE launch/wait signaling protocol, task chunking, and CE resource lifecycle. enqueue is also needed because these APIs introduce a new planner task/plan path and launch/cleanup flow. communicator is needed for capability gating, config (`numRmaCtx`), init/finalize wiring, and communicator-level support flags. device-api is needed because the PR adds new public PCCL API surface and window/signal contract checks exposed through API/comm properties."
     }
   },
   "reviewers": {
