@@ -1,14 +1,14 @@
 {
   "classification": {
     "base_sha": "50423c27f1dc6a6ef765f20e504c47f561d948f9",
-    "head_sha": "5d302c868ea48325b660e22ecea733dc6cdfc948",
-    "input_fingerprint": "2793bf3b325838f67d380872ac9c6288769364045375a1d70a76ba19df13cdea",
+    "head_sha": "09cf3e94c220cc84e195b7dfbcd27855a162b673",
+    "input_fingerprint": "89fe7d1bd37bf3c84c1aac03b00dcc4e64e7abe4ce35ae7a2dabe673bac2df3f",
     "pr_number": 220,
     "proposal": {
       "modules": [
         "ci"
       ],
-      "reason": "The substantive change is to open-source test workflow execution: dual-platform (M890P + OAM-810E) case generation/selection/grouping, runner allocation/rack policy, optional HPN SDK install in build/test jobs, expanded native unit coverage, and reconciliation/report metadata updates. The large added/updated xtest definitions (including patch_omitted postsil_unit_test_shm.json) support CI dataset generation and validation rather than product runtime modules."
+      "reason": "The substantive change is a CI/test-workflow overhaul: dual-platform (M890P + OAM-810E) case generation/execution, shared artifact/reconciliation updates, optional HPN SDK installation plumbing, rack placement policy wiring, and corresponding xtest workflow/report/test updates. Edited build/docs files are in service of this CI behavior rather than independent build-system or review-policy changes."
     }
   },
   "reviewers": {
