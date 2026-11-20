@@ -8,7 +8,7 @@
       "modules": [
         "gin"
       ],
-      "reason": "Main change is in GIN-specific RDMA backends: GDAKI and GIN IB PROXY now apply capability-gated LAG TX-port affinity and context/peer-based QP member rotation, with fallback to default member selection when unsupported; the mlx5/doca wrapper additions are supporting plumbing for this same GIN behavior."
+      "reason": "Implements GIN-specific LAG-aware QP affinity and connection behavior in GDAKI and GIN PROXY to spread P2P traffic across bonded NIC members, with capability-gated mlx5/DOCA checks and fallback semantics; the mlx5 symbol/wrapper and DOCA attribute edits are supporting plumbing for this GIN backend change rather than an independent module shift."
     }
   },
   "reviewers": {
