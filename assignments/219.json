@@ -1,8 +1,8 @@
 {
   "classification": {
-    "base_sha": "173ba6ac40c60b68410acc28c18902c7f24241ca",
-    "head_sha": "fa27f1e06b529184938cc8bdd40758192f1ef6ad",
-    "input_fingerprint": "1a78d1f0d43ddd8a526f2ffce3ef42a6aa066fc1c930db6ab6101d204fb88938",
+    "base_sha": "8d1fff80b4f1c7c625f22ce835db16961fa9281f",
+    "head_sha": "587a35cdb582b1cbd0c2f348e51aea937cd77478",
+    "input_fingerprint": "c936199ce8bd9ea2874d8eb96b0578524c8464d6ac19af91664d122da2f05a5e",
     "pr_number": 219,
     "proposal": {
       "modules": [
@@ -10,7 +10,7 @@
         "communicator",
         "enqueue"
       ],
-      "reason": "Main change is communicator-level configuration control: new config fields (nChannelsPerNetPeer, graphUsageMode, maxP2pPeers, nvlinkCentricSched), validation/defaults/env overrides, and rank-wide propagation in init/lifecycle paths. Add device-topology because src/graph/paths.cc substantively changes P2P channel computation and peer-budget tuning for network peers. Add enqueue because enqueue/strongstream logic now changes graph-capture mixing behavior and P2P task channel scheduling decisions at runtime."
+      "reason": "Primary change is communicator configuration control: new config/env fields are validated, defaulted, stored, and synchronized during communicator initialization. Enqueue review is also required because graphUsageMode materially changes strong-stream graph/uncaptured synchronization and P2P plan channel throttling. Device-topology review is required for substantive P2P channel-per-peer logic changes in graph path/channel computation, including explicit net-peer channel demand and maxP2pPeers-based tuning."
     }
   },
   "reviewers": {
