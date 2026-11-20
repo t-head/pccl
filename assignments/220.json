@@ -2,13 +2,13 @@
   "classification": {
     "base_sha": "50423c27f1dc6a6ef765f20e504c47f561d948f9",
     "head_sha": "f82ba15a99282369fee1f3df335bf40e577be2f3",
-    "input_fingerprint": "6a31118a839bbae4098086e59447f0ea4d3cd250ea7ddad028c9ba0c21acdd68",
+    "input_fingerprint": "641d548ca3cdbaf98b3e6983a7894d285c80e08ec39d0052bab8a4ad9edb5edc",
     "pr_number": 220,
     "proposal": {
       "modules": [
         "ci"
       ],
-      "reason": "Main change is CI workflow/test-orchestration logic: optional HPN SDK installer input and enforcement in sanity/daily workflows, dual-platform (M890P + OAM-810E) case generation/grouping and runner allocation metadata, CI build-step/test-list updates, and performance report metadata plumbing. Docs/tests and the omitted large JSON are all tied to this test workflow behavior rather than core runtime modules."
+      "reason": "Primary change is CI test orchestration: GitHub Actions workflows and xtest tooling now add optional HPN SDK installation, dual-platform (M890P + OAM-810E) case generation/grouping/execution, and platform-aware reconciliation/performance reporting. Supporting edits (workflow build helper updates and added test-list data, including patch_omitted content) serve this CI behavior rather than core PCCL runtime modules."
     }
   },
   "reviewers": {
