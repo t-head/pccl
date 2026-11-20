@@ -2,13 +2,13 @@
   "classification": {
     "base_sha": "50423c27f1dc6a6ef765f20e504c47f561d948f9",
     "head_sha": "28ac7648bac4b264461b783479e56246bd40a04a",
-    "input_fingerprint": "83fbbe5c7679f1c57f58f7c714df2c100c39688e625ed64c2440d3c9d9d0671a",
+    "input_fingerprint": "31e699f02cbc73b9c2b8a18b6e9a8eabcaafe9886ddaf492f85fbb0c2cd87924",
     "pr_number": 220,
     "proposal": {
       "modules": [
         "ci"
       ],
-      "reason": "Main substantive change is CI test workflow behavior: dual-platform (M890P+OAM-810E) case generation/grouping/execution/reconciliation, optional trusted HPN SDK install path in workflows, rack policy/rack_count scheduling inputs, and CI reporting/xtest dataset updates (including new native unit family and PR bundle generation). Other edits are supporting CI tests/docs/data, not separate module-policy or runtime code changes."
+      "reason": "Main change is CI test orchestration: dual-platform (M890P + OAM-810E) workflow execution, case generation/grouping/reconciliation, optional HPN SDK install in workflow jobs, and expanded xtest coverage/reporting inputs (including the patch-omitted postsil_unit_test_shm test-list data). These are substantive test-workflow/runtime validation changes, not review-policy or production runtime modules."
     }
   },
   "reviewers": {
