@@ -1,15 +1,16 @@
 {
   "classification": {
-    "base_sha": "50423c27f1dc6a6ef765f20e504c47f561d948f9",
-    "head_sha": "0c597e700330cf0c6d47673cfb0c787df651c75c",
-    "input_fingerprint": "2d23289f0bf74ee88574cbb54d3c157c825d61327b6e25e7673eb1e9be12504f",
+    "base_sha": "8d1fff80b4f1c7c625f22ce835db16961fa9281f",
+    "head_sha": "a2b51b1c9639e27f0da6d5fa504ddcba671e7b61",
+    "input_fingerprint": "3d362edb68de8e86faeeca56011ec8d7292cff6397634724625353b15d214822",
     "pr_number": 64,
     "proposal": {
       "modules": [
+        "communicator",
         "enqueue",
         "copy-engine"
       ],
-      "reason": "Main functional change is new host one-sided RMA Put/Signal/Wait execution over the CE/DMA path, including CE-side signal/ack memory, wait/write memops, and RMA launch/init/finalize flow. Enqueue also needs review because it adds substantive host-side RMA task creation/validation, >1GB chunking, per-context planner queues, and new plan scheduling/launch integration for eager and graph-capture paths."
+      "reason": "Main change is new host one-sided RMA Put/Signal/WaitSignal implemented through CE execution paths (new rma_ce/rma launch logic, signal/ack handling, chunked transfers, and CE-side waits), so copy-engine is primary. Enqueue is additionally needed because these APIs add a new task type and planner/plan lifecycle integration (task append, batching, launch preparation, cleanup). Communicator is also substantive due to new capability/config gating and lifecycle wiring (numRmaCtx parsing/defaults/env override, hostRmaSupport computation/reporting, RMA CE init/finalize state and group integration)."
     }
   },
   "reviewers": {
