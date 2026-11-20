@@ -1,14 +1,14 @@
 {
   "classification": {
-    "base_sha": "506c3b02235e24dc2a3f127fbb9ed64eef756485",
-    "head_sha": "7427ffac6269cb96faad20561e016d00d041e668",
-    "input_fingerprint": "44dea84214ea4e106ffc812c751c9be64c54aad034b7cfd3bf18add49d395d2d",
+    "base_sha": "173ba6ac40c60b68410acc28c18902c7f24241ca",
+    "head_sha": "ad846e4d5c3f416ad73207b74c91be4f70f25977",
+    "input_fingerprint": "b0df014981526763eee463930101a5ebb4faca094848e33797ba665a84d74907",
     "pr_number": 130,
     "proposal": {
       "modules": [
         "gin"
       ],
-      "reason": "Main functional change is in GIN-specific networking: GDAKI and PROXY now apply capability-gated LAG TX-port affinity and per-context/peer QP member rotation with fallback/read-back behavior, plus PROXY accepts positive queueDepth requests without resizing. The mlx5 wrapper/symbol and DOCA verbs updates are supporting plumbing for this GIN behavior, not an independent generic-network policy change."
+      "reason": "Main change is in GIN-specific RDMA backends: GDAKI and GIN IB PROXY now apply capability-gated LAG TX-port affinity and context/peer-based QP member rotation, with fallback to default member selection when unsupported; the mlx5/doca wrapper additions are supporting plumbing for this same GIN behavior."
     }
   },
   "reviewers": {
