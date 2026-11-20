@@ -17,6 +17,19 @@ import run_cases
 
 FAMILIES = ("sanity_m890p_register", "op_perf_shm", "postsil_daily_shm",
             "register_test_shm", "sym_test_shm", "pccl_fun_rdma_shm")
+PR_CARDS_PER_NODE = 2
+
+
+def _pr_platform():
+    profile = platform_cases.load_platform("oam810e_eic")
+    profile["cards_per_node"] = PR_CARDS_PER_NODE
+    profile["families"]["op_perf_810e_eic"]["numeric"] = {
+        "ranks": {"16": 4}, "np": {"16": 4}, "npernode": {"8": 2},
+    }
+    profile["families"]["pccl_fun_rdma_shm"]["numeric"] = {
+        "ranks": {"2": 4}, "nprocs": {"1": 2},
+    }
+    return profile
 
 
 def build_pr_bundle(source_revision, runner_revision):
@@ -28,12 +41,12 @@ def build_pr_bundle(source_revision, runner_revision):
         definitions / "op_perf_shm.json", definitions / "suites.json",
         source_revision, runner_revision, "full")]
     converted = platform_cases.apply_platforms(
-        raw, platform_cases.load_platform("oam810e_eic"), variants)
+        raw, _pr_platform(), variants)
     combined = generate_cases.combine_bundles(converted)
     notsm = generate_cases.generate_bundle(
         definitions / "sanity_m890p_register.json", definitions / "suites.json",
         source_revision, runner_revision, "smoke")
-    notsm = platform_cases.apply_platform(notsm, platform_cases.load_platform("oam810e_eic"))
+    notsm = platform_cases.apply_platform(notsm, _pr_platform())
     generation = {**combined["generation"], "profile": "pr",
                   "notsm_case_count": len(notsm["rows"])}
     return {"metadata": combined["metadata"], "generation": generation,
