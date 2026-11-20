@@ -1,8 +1,8 @@
 {
   "classification": {
     "base_sha": "50423c27f1dc6a6ef765f20e504c47f561d948f9",
-    "head_sha": "1d09957c92f4e3ebef1119d57f48bc5438d09284",
-    "input_fingerprint": "11de9daad65117e6053cc40d1da2da72f9985f7ab9507f4652ee0dd4f5dd3ff3",
+    "head_sha": "62974ad2028c6043eb0ec68f01d9499ceb463438",
+    "input_fingerprint": "8a0af26a81de7734276db4a9e86295580d96fba815b4e4ca9def153ab609cfc0",
     "pr_number": 219,
     "proposal": {
       "modules": [
@@ -10,7 +10,7 @@
         "communicator",
         "enqueue"
       ],
-      "reason": "Primary change is communicator configuration control plumbing in initialization (validation, defaults, env overrides, inheritance, and cross-rank max-peer agreement) for nChannelsPerNetPeer/graphUsageMode/maxP2pPeers; enqueue is additionally required for substantive strong-stream graph-mixing behavior and P2P scheduling-limit logic updates; device-topology is additionally required for substantive topology/path-based per-peer channel computation and maxP2pPeers-driven channel tuning."
+      "reason": "Primary change is communicator configuration lifecycle: new config fields are validated/defaulted, env-overridable, stored on comm state, and synchronized across ranks. device-topology is additionally needed because P2P per-peer channel computation now applies explicit nChannelsPerNetPeer/maxP2pPeers policy and peer-budget tuning in topology path/channel logic. enqueue is additionally needed because graphUsageMode substantively changes strong-stream graph/uncaptured acquire-release behavior and P2P scheduling caps during plan construction."
     }
   },
   "reviewers": {
