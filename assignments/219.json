@@ -1,8 +1,8 @@
 {
   "classification": {
     "base_sha": "50423c27f1dc6a6ef765f20e504c47f561d948f9",
-    "head_sha": "0a6b2cb96709abceeaf81470d1f477ce6292917a",
-    "input_fingerprint": "58f2e0132ea2bb04717dd8f4690d445b30e373837538648c5454c085c8431156",
+    "head_sha": "1d09957c92f4e3ebef1119d57f48bc5438d09284",
+    "input_fingerprint": "11de9daad65117e6053cc40d1da2da72f9985f7ab9507f4652ee0dd4f5dd3ff3",
     "pr_number": 219,
     "proposal": {
       "modules": [
@@ -10,7 +10,7 @@
         "communicator",
         "enqueue"
       ],
-      "reason": "Primary change is communicator config lifecycle: new communicator settings are validated, defaulted, env-overridden, stored, and synchronized across ranks. Additional device-topology review is needed because P2P channel counts are now computed from remote network-path bandwidth and constrained by maxP2pPeers in topology/channel computation. Additional enqueue review is needed because graph-usage mode now changes strong-stream capture/mixing behavior across enqueue/channel/transport call paths, and a prior P2P channel-overload scheduling cap was removed in runtime planning."
+      "reason": "Primary change is communicator configuration control plumbing in initialization (validation, defaults, env overrides, inheritance, and cross-rank max-peer agreement) for nChannelsPerNetPeer/graphUsageMode/maxP2pPeers; enqueue is additionally required for substantive strong-stream graph-mixing behavior and P2P scheduling-limit logic updates; device-topology is additionally required for substantive topology/path-based per-peer channel computation and maxP2pPeers-driven channel tuning."
     }
   },
   "reviewers": {
