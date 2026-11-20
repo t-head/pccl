@@ -111,13 +111,26 @@ jobs:
       (github.event_name == 'pull_request' ||
        github.event_name == 'workflow_dispatch' ||
        github.event_name == 'push')
-    runs-on: ubuntu-24.04
+    runs-on: k8s-runner-group-cpu-thead
+    container:
+      image: ghcr.io/actions/actions-runner:latest
     timeout-minutes: 20
     steps:
       - uses: actions/checkout@v4
         with:
           path: pccl
           persist-credentials: false
+      - name: Inspect full-run task states and stop
+        run: |
+          root=/wl_nas/devops/pccl-artifact-cache-44732590636/results/full/g007
+          ls -l "$root/summary.json" "$root/results.csv" || true
+          cat "$root/summary.json" || true
+          for task in /wl_nas/devops/ppu-dashboard/tasks/ppu-t-head-44732590636-1-execute-g007-*.json \
+                      /wl_nas/devops/ppu-dashboard/tasks/ppu-t-head-44732590636-1-execute-g030-*.json; do
+            printf '\n===== %s =====\n' "$task"
+            grep -E '"(status|phase|reason|message|node|pod|queue|started|finished|created|updated)' "$task" | tail -50 || true
+          done
+          exit 1
       - uses: actions/checkout@v4
         with:
           repository: t-head/pccl-tests
