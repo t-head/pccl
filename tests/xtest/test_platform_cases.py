@@ -54,7 +54,7 @@ class PlatformCasesTests(unittest.TestCase):
 
     def test_pr_bundle_has_standard_notsm_and_two_node_coverage(self):
         bundle = generate_pr_cases.build_pr_bundle(SHA, SHA)
-        self.assertEqual(len(bundle["standard"]), 19)
+        self.assertEqual(len(bundle["standard"]), 21)
         self.assertEqual(len(bundle["notsm"]), 9)
         self.assertEqual({row["nodes"] for row in bundle["suites"]}, {1, 2})
         self.assertTrue(all(row["cards_per_node"] == 2 for row in bundle["suites"]))
@@ -78,6 +78,10 @@ class PlatformCasesTests(unittest.TestCase):
         self.assertEqual(len(standard_register), 9)
         self.assertEqual({row["name"] for row in standard_register},
                          {row["name"] for row in bundle["notsm"]})
+        native = [row for row in bundle["standard"]
+                  if "collPcclUnitTest" in row["cmd"] or "hggcGraphUnitTest" in row["cmd"]]
+        self.assertEqual(len(native), 2)
+        self.assertTrue(all("unit_test.py" not in row["cmd"] for row in native))
 
     def test_groups_retain_platform_selector_and_results_identity(self):
         raw = [self.bundle("op_perf_shm", "smoke")]

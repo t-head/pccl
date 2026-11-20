@@ -165,16 +165,16 @@ dispatch exposes `execution_timeout_minutes` with a default of 720; the execute
 Job adds 30 minutes for setup and cleanup. These workflow limits do not change
 the Suite or Case timeouts in the generated input.
 
-The 810E `full` conversion adds 6,435 selected Cases. The combined export has
-16,628 Cases and selects 16,619 Cases in 43 groups after the same 16-node
+The 810E `full` conversion adds 7,735 selected Cases. The combined export has
+17,928 Cases and selects 17,919 Cases in 46 groups after the same 16-node
 M890P exclusions. This is generation coverage only, not a claim that the full
 hardware dataset has been executed.
 
 `generate_pr_cases.py` writes the reviewed 810E PR input under
-`minimal-csv-oam810e-eic`: 19 standard Cases (17 single-node and two two-node)
+`minimal-csv-oam810e-eic`: 21 standard Cases (19 single-node and two two-node)
 and nine notsm Cases. Single-node coverage includes five two-rank op_perf
-collectives and the complete nine-Case sanity_register family in both standard
-and notsm. PR CI builds standard and notsm once, then runs both platforms with
+collectives, the complete nine-Case sanity_register family in both standard
+and notsm, and two native unit smoke Cases. PR CI builds standard and notsm once, then runs both platforms with
 independent inputs, result directories and reconciliation. Every 810E PR Suite
 requests two cards per node. Both two-node Cases use four ranks, two per node:
 EIC uses `-np 4 -npernode 2`, and RDMA uses `--ranks 4 --nprocs 2`. This PR-only

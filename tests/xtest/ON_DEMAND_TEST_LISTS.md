@@ -28,6 +28,15 @@ that publication step.
   Source `--devices` lists are preserved through `HGGC_VISIBLE_DEVICES`;
   `--auto-detect` is removed because public native binaries do not accept it.
   Three `use_ext_kernel` configurations are explicitly excluded as unsupported.
+- `test_lists/postsil_unit_test_810e.json`: the dedicated 810E native unit
+  export with 1,252 `collPcclUnitTest` and 45 supported `hggcGraphUnitTest`
+  Cases. `test_lists/all_gather_unit_test_810e.json` adds three all_gather
+  configurations. `test_lists/postsil_unit_test_810e_smoke.json` selects one
+  collective and one graph Case for two-card PR validation.
+- `test_lists/source-export-810e.json`: dedicated 810E source revision,
+  per-family and combined row digests, and 346 explicit exclusions: 308
+  `p2pBandwidthLatencyTest`, 35 `alltoallvTest`, and three `use_ext_kernel`
+  configurations whose public binaries or options are unavailable.
 - `test_lists/pccl_fun_rdma_shm.json`: 4,090 multi-node combinations, including
   LL128, 4nics, host, socket and ibsplit variants.
 - `test_lists/register_test_shm.json` and
@@ -83,10 +92,10 @@ The workflow supports two `workflow_dispatch` choices:
 
 These counts describe the preserved M890P baseline. Daily preparation also
 applies `platforms/oam810e_eic.json` to the supported shared families and adds
-6,435 full-selection Cases. Combined dual-platform generation produces 15,334
-Cases, selects 15,325 in 40 groups, and retains each group's platform and
-`node_selector`. Dual-platform smoke has five Cases: two M890P Cases and three
-810E Cases covering single-node op_perf, two-node RDMA and two-node EIC.
+7,735 full-selection Cases. Combined dual-platform generation produces 17,928
+Cases, selects 17,919 in 46 groups, and retains each group's platform and
+`node_selector`. Dual-platform smoke has nine Cases in three groups, including
+one 810E collective and one graph native unit Case.
 
 The 22:00 Asia/Shanghai schedule selects `full`, which uses the same JSON
 generation path as manual dispatch. Monday-Thursday allows 1/2/4/8 nodes and

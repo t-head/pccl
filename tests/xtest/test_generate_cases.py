@@ -87,6 +87,31 @@ class PublicGeneratorTests(unittest.TestCase):
         self.assertEqual(sum("build/collPcclUnitTest" in row["cmd"] for row in smoke), 1)
         self.assertEqual(sum("build/hggcGraphUnitTest" in row["cmd"] for row in smoke), 1)
 
+    def test_810e_native_unit_matches_dedicated_source_export(self):
+        manifest = json.loads((DEFINITIONS / "source-export-810e.json").read_text())
+        bundles = {family: self.bundle(family) for family in
+                   ("postsil_unit_test_810e", "all_gather_unit_test_810e")}
+        for family, bundle in bundles.items():
+            expected = next(record for record in manifest["families"] if record["family"] == family)
+            self.assertEqual(bundle["generation"]["definition_sha256"], expected["definition_sha256"])
+            self.assertEqual(canonical_sha256(bundle["rows"]), expected["source_rows_sha256"])
+        combined = generate_cases.combine_bundles(list(bundles.values()))
+        self.assertEqual(len(combined["rows"]), 1300)
+        self.assertEqual(canonical_sha256(combined["rows"]), manifest["case_rows_sha256"])
+        self.assertEqual(canonical_sha256(combined["suites"]), manifest["suites_sha256"])
+        self.assertEqual(sum(record["case_count"] for record in manifest["exclusions"]), 346)
+        for row in combined["rows"]:
+            self.assertNotIn("unit_test.py", row["cmd"])
+            self.assertNotIn("--auto-detect", row["cmd"])
+            self.assertNotIn("--auto_detect=", row["cmd"])
+            self.assertNotIn("$PPU_HOME", row["cmd"])
+            self.assertTrue(any(binary in row["cmd"] for binary in
+                                ("collPcclUnitTest", "hggcGraphUnitTest")))
+        smoke = self.bundle("postsil_unit_test_810e_smoke", profile="smoke")
+        self.assertEqual(len(smoke["rows"]), 2)
+        self.assertEqual(sum("build/collPcclUnitTest" in row["cmd"] for row in smoke["rows"]), 1)
+        self.assertEqual(sum("build/hggcGraphUnitTest" in row["cmd"] for row in smoke["rows"]), 1)
+
     def test_multi_node_rdma_matches_all_4090_committed_rows(self):
         self.assert_matches_source_export("pccl_fun_rdma_shm", 4090)
 

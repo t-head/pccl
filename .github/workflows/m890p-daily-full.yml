@@ -147,9 +147,12 @@ jobs:
           GENERATED_810E_DEFINITIONS=(
             --definition tests/xtest/test_lists/op_perf_shm.json
             --definition tests/xtest/test_lists/pccl_fun_rdma_shm.json
+            --definition tests/xtest/test_lists/postsil_unit_test_810e_smoke.json
           )
           if [[ "$DATASET" == full ]]; then
             GENERATED_810E_DEFINITIONS+=(
+              --definition tests/xtest/test_lists/postsil_unit_test_810e.json
+              --definition tests/xtest/test_lists/all_gather_unit_test_810e.json
               --definition tests/xtest/test_lists/postsil_daily_shm.json
               --definition tests/xtest/test_lists/register_test_shm.json
               --definition tests/xtest/test_lists/sanity_m890p_register.json

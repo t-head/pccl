@@ -209,6 +209,10 @@ class DailySmokeTests(unittest.TestCase):
         self.assertIn('PPU_ARCHS=ppu_10,ppu_15 MPI=1', text)
         self.assertIn('${source_home}/pccl-tests/build/', copy_command)
         self.assertGreater(text.index('Build PCCL native unit tests'), text.index('Build pccl-tests'))
+        workflow = FULL_WORKFLOW.read_text()
+        for family in ('postsil_unit_test_810e', 'all_gather_unit_test_810e',
+                       'postsil_unit_test_810e_smoke'):
+            self.assertIn(f'--definition tests/xtest/test_lists/{family}.json', workflow)
 
     def test_full_workflow_is_grouped_daily_execution_not_a_pr_gate(self):
         text = FULL_WORKFLOW.read_text()

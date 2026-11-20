@@ -175,7 +175,7 @@ jobs:
               print(f'{name} selection: {count} Cases')
           selections_810e = reconcile_results.load_selections(
               Path('tests/xtest/minimal-csv-oam810e-eic'), 2)
-          expected_810e = {'standard': 17, 'cluster': 2, 'notsm': 9}
+          expected_810e = {'standard': 19, 'cluster': 2, 'notsm': 9}
           for name, count in expected_810e.items():
               assert len(selections_810e[name]['cases']) == count
               print(f'810E {name} selection: {count} Cases')

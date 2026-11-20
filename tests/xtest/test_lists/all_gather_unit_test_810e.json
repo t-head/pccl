@@ -1,0 +1,59 @@
+{
+  "axes": {},
+  "bindings": {
+    "1": {
+      "plan": "pccl_810e_all_gather_unit_test_single_node1_plan",
+      "suite": "all_gather_unit_test_810e_single_node_suite"
+    }
+  },
+  "defaults": {
+    "case_name": "native_case",
+    "check": "exit_code"
+  },
+  "explicit_cases": [
+    {
+      "check": "exit_code",
+      "cmd": "mpirun --allow-run-as-root -np 2 -x LD_LIBRARY_PATH=$LD_LIBRARY_PATH -x NCCL_DEBUG=INFO -x NCCL_DEBUG_SUBSYS=^ALLOC build/hggcGraphUnitTest -t 1 -g 1 -f {test_root}/pccl/tests/unit_test/feature_test_configs/allgather_unit_test.json",
+      "name": "test_op_allgather_unit_test_ranks_2_nnodes1",
+      "nodes": 1
+    },
+    {
+      "check": "exit_code",
+      "cmd": "mpirun --allow-run-as-root -np 4 -x LD_LIBRARY_PATH=$LD_LIBRARY_PATH -x NCCL_DEBUG=INFO -x NCCL_DEBUG_SUBSYS=^ALLOC build/hggcGraphUnitTest -t 1 -g 1 -f {test_root}/pccl/tests/unit_test/feature_test_configs/allgather_unit_test.json",
+      "name": "test_op_allgather_unit_test_ranks_4_nnodes1",
+      "nodes": 1
+    },
+    {
+      "check": "exit_code",
+      "cmd": "mpirun --allow-run-as-root -np 8 -x LD_LIBRARY_PATH=$LD_LIBRARY_PATH -x NCCL_DEBUG=INFO -x NCCL_DEBUG_SUBSYS=^ALLOC build/hggcGraphUnitTest -t 1 -g 1 -f {test_root}/pccl/tests/unit_test/feature_test_configs/allgather_unit_test.json",
+      "name": "test_op_allgather_unit_test_ranks_8_nnodes1",
+      "nodes": 1
+    }
+  ],
+  "family": "all_gather_unit_test_810e",
+  "groups": [],
+  "layouts": {
+    "native": [
+      {
+        "name": "native",
+        "values": {}
+      }
+    ]
+  },
+  "profiles": {
+    "full": {
+      "include_explicit": true
+    }
+  },
+  "provenance": {
+    "source_case_count": 3,
+    "source_revision": "21acb78cd9086e42d9cd1f78a8dc0205ee4823af",
+    "source_rows_sha256": "e258882a5ad0d8001dba092e28ab7edf1b5ef81f77410c214a83ec1368edadcf",
+    "source_selection": "csv/all_gather_unit_test/pccl_810E_all_gather_unit_test_plan.csv",
+    "source_suites": [
+      "pccl_810e_all_gather_unit_test_single_node1_plan/all_gather_unit_test_810e_single_node_suite"
+    ],
+    "validation": "dedicated-810e-source-command-adaptation"
+  },
+  "schema_version": 2
+}

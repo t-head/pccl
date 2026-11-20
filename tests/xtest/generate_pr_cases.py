@@ -16,7 +16,8 @@ import run_cases
 
 
 FAMILIES = ("sanity_m890p_register", "op_perf_shm", "postsil_daily_shm",
-            "register_test_shm", "sym_test_shm", "pccl_fun_rdma_shm")
+            "register_test_shm", "sym_test_shm", "pccl_fun_rdma_shm",
+            "postsil_unit_test_810e_smoke")
 PR_CARDS_PER_NODE = 2
 
 
