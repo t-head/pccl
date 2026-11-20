@@ -2,7 +2,7 @@
   "classification": {
     "base_sha": "173ba6ac40c60b68410acc28c18902c7f24241ca",
     "head_sha": "bb63a973cbd36c97f8c854bd009075adc8f84ae5",
-    "input_fingerprint": "8e14beb7f2892e0977cd90ca7036bb747f5a1ef4ab081acc0ca525e686a39ec1",
+    "input_fingerprint": "90974d87372961fa5dc88115e3d466054686c761997aabeb52eefe35d185b3f6",
     "pr_number": 219,
     "proposal": {
       "modules": [
@@ -10,7 +10,7 @@
         "communicator",
         "enqueue"
       ],
-      "reason": "Primary change is communicator configuration lifecycle: new config fields are validated, defaulted, env-overridden, stored, and synchronized across ranks (init/comm structures). Add device-topology because src/graph/paths.cc materially changes P2P channel-per-peer computation and max-peer-based channel tuning for remote/network peers. Add enqueue because runtime planning/graph behavior changes are substantive: strong-stream graph-mixing semantics and P2P scheduling channel limits are updated in enqueue/strongstream paths."
+      "reason": "Main change is communicator-level configuration control: init/parse/env override, validation, defaults, and cross-rank propagation for nChannelsPerNetPeer, graphUsageMode, and maxP2pPeers. Enqueue also needs review because graph-capture/strong-stream behavior and P2P plan channel selection logic changed in runtime scheduling paths. Device-topology needs review because P2P channel computation in graph/paths now uses explicit per-network-peer channels and max-peer-based tuning, which changes path/channel allocation behavior."
     }
   },
   "reviewers": {
