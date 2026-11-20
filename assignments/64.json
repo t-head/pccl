@@ -1,17 +1,15 @@
 {
   "classification": {
     "base_sha": "50423c27f1dc6a6ef765f20e504c47f561d948f9",
-    "head_sha": "a9b9d282ebf542cf83ce515545f22265912a1715",
-    "input_fingerprint": "7457f82e03d9a3a380b4742f070b41881c3ddbc22465157e306fdba4616708ef",
+    "head_sha": "0c597e700330cf0c6d47673cfb0c787df651c75c",
+    "input_fingerprint": "2d23289f0bf74ee88574cbb54d3c157c825d61327b6e25e7673eb1e9be12504f",
     "pr_number": 64,
     "proposal": {
       "modules": [
-        "communicator",
         "enqueue",
-        "copy-engine",
-        "device-api"
+        "copy-engine"
       ],
-      "reason": "Main change adds host one-sided window/signal APIs (`pcclPutSignal`, `pcclSignal`, `pcclWaitSignal`) plus window/LSA validation behavior, which fits device-api. Additional copy-engine review is needed because the feature executes via new CE RMA init/put/wait paths with signal/ack synchronization. Additional enqueue review is needed for new RMA task/planner queues, batching, and launch routing. Additional communicator review is needed for capability/config/lifecycle integration (`numRmaCtx`, platform gating, init/finalize wiring)."
+      "reason": "Main functional change is new host one-sided RMA Put/Signal/Wait execution over the CE/DMA path, including CE-side signal/ack memory, wait/write memops, and RMA launch/init/finalize flow. Enqueue also needs review because it adds substantive host-side RMA task creation/validation, >1GB chunking, per-context planner queues, and new plan scheduling/launch integration for eager and graph-capture paths."
     }
   },
   "reviewers": {
