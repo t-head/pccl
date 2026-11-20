@@ -25,31 +25,16 @@ CROSS_RACK_SUITES = {
 }
 
 
-def _validate_rack_policy(rack_policy, rack_count, nodes):
-    """Validate automatic rack placement without binding physical rack names."""
-    if rack_policy not in ("", "same", "spread"):
-        raise ValueError("rack_policy must be empty, same or spread")
-    if rack_policy != "spread":
-        if rack_count not in (None, ""):
-            raise ValueError("rack_count is valid only with rack_policy=spread")
-        return rack_policy, ""
-    if nodes < 2 or not isinstance(rack_count, int) or isinstance(rack_count, bool) or not 2 <= rack_count <= nodes:
-        raise ValueError("rack_count must be an integer between 2 and the Suite node count")
-    return rack_policy, rack_count
-
-
 def _rack_policy(case):
     key = (case["plan"], case["suite"])
-    allocation = CROSS_RACK_SUITES.get(key)
-    if allocation is None:
+    expected_nodes = CROSS_RACK_SUITES.get(key)
+    if expected_nodes is None:
         if "2_rack" in case["plan"] or "2_rack" in case["suite"]:
-            raise ValueError(f"Cross-rack Suite has no reviewed rack policy: {key}")
-        nodes = case["suite_spec"]["nodes"]
-        return _validate_rack_policy("same" if nodes > 1 else "", "", nodes)
-    expected_nodes = allocation
+            raise ValueError(f"Cross-rack Suite has no reviewed rack allocation: {key}")
+        return ("same", 1) if platform_cases.case_platform(case) == platform_cases.DEFAULT_PLATFORM else ("", 0)
     if case["suite_spec"]["nodes"] != expected_nodes:
         raise ValueError(f"Cross-rack Suite has an unexpected node count: {key}")
-    return _validate_rack_policy("spread", 2, expected_nodes)
+    return "spread", 2
 
 
 def _write_csv(path, fields, rows):
@@ -94,7 +79,8 @@ def build_plan(directory, max_cases, nodes=None, suite=None, allowed_nodes=None)
             if allowed_nodes is not None and spec["nodes"] not in allowed_nodes:
                 excluded.setdefault(spec["nodes"], []).append(case)
                 continue
-            key = (platform, profile, spec["nodes"], spec["cards_per_node"], spec["env"], rack_policy, rack_count)
+            key = (platform, profile, spec["nodes"], spec["cards_per_node"], spec["env"],
+                   rack_policy, rack_count)
             grouped.setdefault(key, []).append(case)
     if metadata is None:
         raise ValueError("No Cases match the requested selection")
@@ -162,10 +148,10 @@ def write_groups(groups, output, input_directory, coverage=None):
         for group in groups:
             allocations = {_rack_policy(case) for case in group["cases"]}
             if len(allocations) != 1:
-                raise ValueError("An execution group mixes different rack policies")
+                raise ValueError("An execution group mixes different rack allocations")
             rack_policy, rack_count = allocations.pop()
             if (group.get("rack_policy", "") != rack_policy
-                    or group.get("rack_count", "") != rack_count
+                    or group.get("rack_count", 0) != rack_count
                     or group.get("cross_rack", rack_policy == "spread") is not (rack_policy == "spread")):
                 raise ValueError("Execution group rack metadata does not match its Cases")
             directory = temporary / group["id"]

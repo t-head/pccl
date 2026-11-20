@@ -314,13 +314,13 @@ class DailySmokeTests(unittest.TestCase):
             'name: Run the automatic cross-rack group on master', 1)[0]
         cross = text.split('name: Run the automatic cross-rack group on master', 1)[1].split(
             '\n  summary:', 1)[0]
-        action = 'uses: t-head/ci-infra/cluster-run@main'
+        action = 'uses: t-head/ci-infra/cluster-run@feat/automatic-rack-placement'
         self.assertIn(action, ordinary)
         self.assertIn(action, cross)
         self.assertIn("if: env.NODES != '1' && env.CROSS_RACK != 'true'", ordinary)
         self.assertIn("if: env.NODES != '1' && env.CROSS_RACK == 'true'", cross)
         self.assertIn('rack_policy: ${{ matrix.rack_policy }}', ordinary)
-        self.assertIn('rack_policy: spread', cross)
+        self.assertIn('rack_policy: ${{ matrix.rack_policy }}', cross)
         self.assertIn('rack_count: ${{ matrix.rack_count }}', cross)
         self.assertIn('node_selector: ${{ matrix.node_selector }}', cross)
         for section in (ordinary, cross):

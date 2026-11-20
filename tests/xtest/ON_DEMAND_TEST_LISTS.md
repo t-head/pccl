@@ -77,9 +77,9 @@ The workflow supports two `workflow_dispatch` choices:
 - `full`: all 10,193 daily Cases in 35 Suites. The current
   1/2/4/8-node resource policy selects 10,184 Cases in 28 groups and records
   only the 9 sixteen-node Cases as excluded. Two-rack Suites are isolated from
-  ordinary same-resource Suites and use `rack_policy=spread` with `rack_count=2`.
-  Ordinary multi-node groups use `rack_policy=same`, keeping every worker in one
-  automatically selected rack without binding a physical rack name.
+  ordinary same-resource Suites and use `rack_policy: spread` with
+  `rack_count: 2`. Ordinary M890P multi-node groups use `rack_policy: same`
+  for automatic same-rack placement. OAM-810E has no rack constraint.
 
 These counts describe the preserved M890P baseline. Daily preparation also
 applies `platforms/oam810e_eic.json` to the supported shared families and adds

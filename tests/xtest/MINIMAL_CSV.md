@@ -174,10 +174,10 @@ both platforms with independent inputs, result directories and reconciliation.
 `group_cases.py` derives deterministic execution groups by platform, profile,
 node count, cards per node, shared environment and cross-rack allocation, then splits large
 groups by `--max-cases`. The two-rack performance Suites are isolated from
-ordinary Suites and use `rack_policy=spread` with `rack_count=2` in
-`groups.json`. Every other multi-node execution uses `rack_policy=same`, which
-keeps all workers in one automatically selected rack without naming a rack.
-Single-node executions leave `rack_policy` empty.
+ordinary Suites use `rack_policy: spread` and `rack_count: 2` in `groups.json`.
+Every other M890P multi-node execution uses `rack_policy: same`, selecting one
+rack automatically without naming it. OAM-810E leaves rack placement
+unconstrained. Single-node executions do not set a rack policy.
 There is no hand-maintained shard list. Optional `--nodes` and `--suite`
 arguments are debug filters, not shard definitions.
 Manual dispatch also accepts `cards_per_node` as an allocation-only debug
