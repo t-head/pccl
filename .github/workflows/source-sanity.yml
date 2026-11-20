@@ -174,7 +174,7 @@ jobs:
               assert len(selected['cases']) == count
               print(f'{name} selection: {count} Cases')
           selections_810e = reconcile_results.load_selections(
-              Path('tests/xtest/minimal-csv-oam810e-eic'), 16)
+              Path('tests/xtest/minimal-csv-oam810e-eic'), 2)
           expected_810e = {'standard': 5, 'cluster': 2, 'notsm': 1}
           for name, count in expected_810e.items():
               assert len(selections_810e[name]['cases']) == count
@@ -485,8 +485,8 @@ jobs:
         include:
           - {profile: standard, platform: m890p, cards_per_node: 8, node_selector: 'board-type=ZW-M890P,nic-type=cx8'}
           - {profile: notsm, platform: m890p, cards_per_node: 8, node_selector: 'board-type=ZW-M890P,nic-type=cx8'}
-          - {profile: standard, platform: oam810e_eic, cards_per_node: 16, node_selector: 'board-type=OAM-810E,nic-type=eic'}
-          - {profile: notsm, platform: oam810e_eic, cards_per_node: 16, node_selector: 'board-type=OAM-810E,nic-type=eic'}
+          - {profile: standard, platform: oam810e_eic, cards_per_node: 2, node_selector: 'board-type=OAM-810E,nic-type=eic'}
+          - {profile: notsm, platform: oam810e_eic, cards_per_node: 2, node_selector: 'board-type=OAM-810E,nic-type=eic'}
     env:
       EXPECTED_SHA: ${{ matrix.profile == 'standard' && needs.build-standard.outputs.artifact_sha256 || needs.build-notsm.outputs.artifact_sha256 }}
       INPUT_DIR: ${{ matrix.platform == 'oam810e_eic' && 'tests/xtest/minimal-csv-oam810e-eic' || 'tests/xtest/minimal-csv' }}
@@ -648,7 +648,7 @@ jobs:
       matrix:
         include:
           - {platform: m890p, cards_per_node: 8, node_selector: 'board-type=ZW-M890P,nic-type=cx8'}
-          - {platform: oam810e_eic, cards_per_node: 16, node_selector: 'board-type=OAM-810E,nic-type=eic'}
+          - {platform: oam810e_eic, cards_per_node: 2, node_selector: 'board-type=OAM-810E,nic-type=eic'}
     env:
       EXPECTED_SHA: ${{ needs.build-standard.outputs.artifact_sha256 }}
       INPUT_DIR: ${{ matrix.platform == 'oam810e_eic' && 'tests/xtest/minimal-csv-oam810e-eic' || 'tests/xtest/minimal-csv' }}
@@ -863,7 +863,7 @@ jobs:
             --pccl-revision '${{ github.sha }}' \
             --standard-sha256 '${{ needs.build-standard.outputs.artifact_sha256 }}' \
             --notsm-sha256 '${{ needs.build-notsm.outputs.artifact_sha256 }}' \
-            --cards-per-node '16'
+            --cards-per-node '2'
       - id: results-upload
         uses: actions/upload-artifact@v4
         if: always() && steps.reconcile.outcome == 'success'

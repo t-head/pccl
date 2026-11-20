@@ -57,9 +57,18 @@ class PlatformCasesTests(unittest.TestCase):
         self.assertEqual(len(bundle["standard"]), 7)
         self.assertEqual(len(bundle["notsm"]), 1)
         self.assertEqual({row["nodes"] for row in bundle["suites"]}, {1, 2})
+        self.assertTrue(all(row["cards_per_node"] == 2 for row in bundle["suites"]))
         self.assertTrue(any("op_perf_eic" in row["suite"] for row in bundle["standard"]))
         self.assertTrue(all(row["plan"].startswith(("pccl_810e", "sanity_810e"))
                             for row in bundle["standard"] + bundle["notsm"]))
+        eic = next(row for row in bundle["standard"] if "op_perf_eic" in row["suite"])
+        self.assertIn("ranks_4_nnodes2", eic["name"])
+        self.assertIn("-np 4 -npernode 2", eic["cmd"])
+        rdma = next(row for row in bundle["standard"] if "pccl_fun_rdma" in row["suite"])
+        self.assertIn("ranks_4", rdma["name"])
+        self.assertIn("process_2", rdma["name"])
+        self.assertIn("--ranks 4", rdma["cmd"])
+        self.assertIn("--nprocs 2", rdma["cmd"])
 
     def test_groups_retain_platform_selector_and_results_identity(self):
         raw = [self.bundle("op_perf_shm", "smoke")]

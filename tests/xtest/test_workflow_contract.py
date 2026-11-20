@@ -59,6 +59,12 @@ class WorkflowContractTests(unittest.TestCase):
                 values[name]['result'] = 'skipped'
         return values
 
+    def test_810e_pr_allocation_uses_two_cards_per_node(self):
+        self.assertIn("Path('tests/xtest/minimal-csv-oam810e-eic'), 2)", self.text)
+        self.assertEqual(self.text.count('platform: oam810e_eic, cards_per_node: 2'), 3)
+        self.assertNotIn('platform: oam810e_eic, cards_per_node: 16', self.text)
+        self.assertIn("--cards-per-node '2'", self.text)
+
     def results_eligible(self, needs, event='pull_request', repository='t-head/pccl',
                          head_repository='t-head/pccl', job='results'):
         condition = re.search(r'^    if: >-\n((?:      .+\n)+)', self.job(job), re.M).group(1)

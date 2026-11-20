@@ -170,6 +170,9 @@ hardware dataset has been executed.
 `minimal-csv-oam810e-eic`: seven standard Cases (five single-node and two
 two-node) and one notsm Case. PR CI builds standard and notsm once, then runs
 both platforms with independent inputs, result directories and reconciliation.
+Every 810E PR Suite requests two cards per node. Both two-node Cases use four
+ranks, two per node: EIC uses `-np 4 -npernode 2`, and RDMA uses `--ranks 4
+--nprocs 2`. This PR-only layout does not change the 16-card daily profile.
 
 `group_cases.py` derives deterministic execution groups by platform, profile,
 node count, cards per node, shared environment and cross-rack allocation, then splits large
