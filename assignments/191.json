@@ -1,14 +1,14 @@
 {
   "classification": {
-    "base_sha": "50423c27f1dc6a6ef765f20e504c47f561d948f9",
-    "head_sha": "439b93c7b2a35795bef29c46bcc9ca134fffbbcf",
-    "input_fingerprint": "2a9e7bde6e754a47b934bfa3c0a6f98f74fbe1d85c95f2f3e74c7864f1fcaa61",
+    "base_sha": "173ba6ac40c60b68410acc28c18902c7f24241ca",
+    "head_sha": "15a72e7b7a9472188fb58cc779185e421cfd665b",
+    "input_fingerprint": "6338e2badebbae4cca0e924ca3473116583bd8c783b451b1d40b0150d42e66c6",
     "pr_number": 191,
     "proposal": {
       "modules": [
         "device-topology"
       ],
-      "reason": "Main functional change is in topology parsing: adds explicit PCI class mapping `0x00ff00 -> NIC` in `src/graph/topo.cc` so erdma endpoints are recognized as NICs instead of hitting class fallback. The XML change is a graph-search test fixture update supporting this behavior, not an independent module-level runtime change."
+      "reason": "Main functional change is in topology parsing/classification: src/graph/topo.cc adds PCI class 0x00ff00 as NIC and tightens NIC->net extraction to only use net entries marked keep=\"1\". The test topo.xml update is fixture coverage for this topology behavior, not an independent module change."
     }
   },
   "reviewers": {
