@@ -1,14 +1,14 @@
 {
   "classification": {
     "base_sha": "173ba6ac40c60b68410acc28c18902c7f24241ca",
-    "head_sha": "2dee26fd9d13a79e74bafe715bdaa9a30f03d83d",
-    "input_fingerprint": "cffdb188c5af4404d0f2300971fd7267e2e8a0089e02f35befc8c4187409cac9",
+    "head_sha": "1d713fd2824c68f0b844f56a78653c699693bc98",
+    "input_fingerprint": "ec7ccff4d9d4963b94e483a576b780f0655b065873f40982f2fe8c9b9551e3e7",
     "pr_number": 220,
     "proposal": {
       "modules": [
         "ci"
       ],
-      "reason": "Main change is CI test orchestration: dual-platform workflow execution (M890P + OAM-810E), case generation/grouping/reconciliation/reporting updates, optional HPN SDK install handling, and expanded xtest coverage/artifacts. The patch_omitted test list file is part of this same CI case-definition/data pipeline, with no clear evidence of production runtime module changes."
+      "reason": "Main change is CI test/workflow infrastructure: dual-platform (M890P + OAM-810E) case generation/grouping/execution, optional HPN SDK install wiring, rack-allocation policy, reporting/reconciliation updates, and matching xtest/workflow contract updates. The large omitted patch (`postsil_unit_test_shm.json`) is a test-family input added to the same CI selection pipeline, not a separate runtime module change."
     }
   },
   "reviewers": {
