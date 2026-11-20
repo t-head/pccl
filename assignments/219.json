@@ -2,15 +2,14 @@
   "classification": {
     "base_sha": "173ba6ac40c60b68410acc28c18902c7f24241ca",
     "head_sha": "bb63a973cbd36c97f8c854bd009075adc8f84ae5",
-    "input_fingerprint": "79d1bf746b80d605b79a739e4b5897f2771ff2c99f39525e0acbb0a92df7b0c7",
+    "input_fingerprint": "ec23fa653d88f3926ef77469d643895b9a6bf1d762cbb13b801237e90b1c0739",
     "pr_number": 219,
     "proposal": {
       "modules": [
         "device-topology",
-        "communicator",
         "enqueue"
       ],
-      "reason": "Primary change is communicator configuration control: new config fields are validated, defaulted, overridden from env, stored on comm, and synchronized across ranks in init/comm structures. Enqueue needs review for substantive runtime behavior changes in strong-stream graph capture/mixing semantics and P2P scheduling limits. Device-topology needs review for substantive channel-count/peer-budget computation changes in topology path logic (including remote-peer channel defaults and maxP2pPeers-driven tuning)."
+      "reason": "Main change is host-side runtime enqueue behavior: graphUsageMode is validated/configured and then used in strong-stream acquire/release and capture handling, changing graph/uncaptured mixing semantics during work upload and stream coordination. Additional device-topology review is needed because P2P channel count selection now depends on nChannelsPerNetPeer/maxP2pPeers and updates topology-derived per-peer channel computation and tuning logic."
     }
   },
   "reviewers": {
