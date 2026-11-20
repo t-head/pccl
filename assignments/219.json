@@ -1,8 +1,8 @@
 {
   "classification": {
     "base_sha": "173ba6ac40c60b68410acc28c18902c7f24241ca",
-    "head_sha": "bb63a973cbd36c97f8c854bd009075adc8f84ae5",
-    "input_fingerprint": "90974d87372961fa5dc88115e3d466054686c761997aabeb52eefe35d185b3f6",
+    "head_sha": "fa27f1e06b529184938cc8bdd40758192f1ef6ad",
+    "input_fingerprint": "db2e620942e8d0134175406657ba1c82f129d4ede2f1b05ef119761edcdff9ff",
     "pr_number": 219,
     "proposal": {
       "modules": [
@@ -10,7 +10,7 @@
         "communicator",
         "enqueue"
       ],
-      "reason": "Main change is communicator-level configuration control: init/parse/env override, validation, defaults, and cross-rank propagation for nChannelsPerNetPeer, graphUsageMode, and maxP2pPeers. Enqueue also needs review because graph-capture/strong-stream behavior and P2P plan channel selection logic changed in runtime scheduling paths. Device-topology needs review because P2P channel computation in graph/paths now uses explicit per-network-peer channels and max-peer-based tuning, which changes path/channel allocation behavior."
+      "reason": "Main change is communicator-level configuration controls (validation/default/env override, rank agreement, and comm state for nChannelsPerNetPeer/graphUsageMode/maxP2pPeers). Enqueue is additionally required because strong-stream graph-mixing semantics and P2P task channel budgeting logic changed in runtime planning. Device-topology is additionally required because P2P per-peer channel derivation and max-peer-aware channel computation were changed in src/graph/paths.cc."
     }
   },
   "reviewers": {
