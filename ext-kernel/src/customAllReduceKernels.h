@@ -176,6 +176,28 @@ struct oneShotLLDevParams {
   }
 };
 
+struct oneShotPushDevParams {
+  int32_t eltsTotal;
+  uint32_t strideVecs;
+  uint8_t myRank;
+  uint32_t* abortFlag;
+  uint32_t* pushPhases;  // One local phase slot per block.
+  void** peerBuffers;
+  const void* sendbuff;
+  void* recvbuff;
+
+  oneShotPushDevParams(const struct extKernelDevParams& params, uint32_t peerStrideVecs) {
+    eltsTotal = params.eltsTotal;
+    strideVecs = peerStrideVecs;
+    myRank = params.myRank;
+    abortFlag = params.abortFlag;
+    pushPhases = (uint32_t*)params.pushPhase;
+    peerBuffers = (void**)params.peerPtrTables[DEV_REGION_PUSH_BUFFER];
+    sendbuff = params.sendbuff;
+    recvbuff = params.recvbuff;
+  }
+};
+
 // Forward declarations of the AllReduce kernel templates. The definitions and
 // explicit instantiations live in customAllReduceKernels.cu; these declarations
 // let the unified customKernels[] array (customKernels.cu) reference them.
@@ -183,6 +205,8 @@ template <typename T, int NRANKS, int INPUT_ALIGN, int OUTPUT_ALIGN>
 __global__ void pcclKernel_oneShotAllReduceKernel(struct oneShotDevParams params);
 template <typename T, int NRANKS, int INPUT_ALIGN, int OUTPUT_ALIGN>
 __global__ void pcclKernel_oneShotLLAllReduceKernel(struct oneShotLLDevParams params);
+template <typename T, int NRANKS>
+__global__ void pcclKernel_oneShotPushAllReduceKernel(struct oneShotPushDevParams params);
 template <typename T, int NRANKS, int DOUBLE_BUFFER, int INPUT_ALIGN, int OUTPUT_ALIGN>
 __global__ void pcclKernel_twoShotAllReduceKernel(struct twoShotDevParams params);
 template <typename T, int NRANKS, int INPUT_ALIGN, int OUTPUT_ALIGN>
@@ -270,7 +294,7 @@ pcclResult_t customAllReduceImpl(struct extKernelDevParams& devParams, struct ex
 // Generate all twoShotReg kernels
 #define TWO_SHOT_REG_FUNCS() \
   TWO_SHOT_REG_FUNCS_DTYPE(half) \
-  TWO_SHOT_REG_FUNCS_DTYPE(__ppu_bfloat16)  \
+  TWO_SHOT_REG_FUNCS_DTYPE(__ppu_bfloat16) \
   TWO_SHOT_REG_FUNCS_DTYPE(float)
 
 #define ONESHOT_LL_FUNCS_NAME(input_align, output_align, nRanks, dtype) \
@@ -298,14 +322,27 @@ pcclResult_t customAllReduceImpl(struct extKernelDevParams& devParams, struct ex
   ONESHOT_LL_FUNCS_DTYPE(__ppu_bfloat16) \
   ONESHOT_LL_FUNCS_DTYPE(float)
 
+#define ONESHOT_PUSH_FUNCS_RANK(nRanks, dtype) \
+  (void*)pcclKernel_oneShotPushAllReduceKernel<dtype, nRanks>,
+
+#define ONESHOT_PUSH_FUNCS_DTYPE(dtype) \
+  ONESHOT_PUSH_FUNCS_RANK(2, dtype) \
+  ONESHOT_PUSH_FUNCS_RANK(4, dtype) \
+  ONESHOT_PUSH_FUNCS_RANK(8, dtype)
+
+#define ONESHOT_PUSH_FUNCS() \
+  ONESHOT_PUSH_FUNCS_DTYPE(half) \
+  ONESHOT_PUSH_FUNCS_DTYPE(__ppu_bfloat16) \
+  ONESHOT_PUSH_FUNCS_DTYPE(float)
 
 ////////////////////////////////////////////////////////////////////////////////////////////////////
-// AR-only index helper (dtypeToIndex is AR-specific)
+// Keep this index order in sync with the AllReduce dispatch tables.
 ////////////////////////////////////////////////////////////////////////////////////////////////////
 static inline int dtypeToIndex(pcclDataType_t dtype) {
   if (dtype == pcclHalf) return 0;
   else if (dtype == pcclBfloat16) return 1;
-  else return 2;
+  else if (dtype == pcclFloat) return 2;
+  else return -1;
 }
 
 ////////////////////////////////////////////////////////////////////////////////////////////////////
@@ -314,13 +351,17 @@ static inline int dtypeToIndex(pcclDataType_t dtype) {
 ////////////////////////////////////////////////////////////////////////////////////////////////////
 #define CUSTOM_AR_DTYPES_NUM 3
 #define CUSTOM_AR_DB_NUM 2
+#define ONESHOT_PUSH_DTYPES_NUM 3
+#define ONESHOT_PUSH_RANKS_NUM 3
 
 // Kernel variant counts used across collectives
 #define ONESHOT_FUNCS_NUM (CUSTOM_AR_DTYPES_NUM * CUSTOM_NRANKS_NUM * CUSTOM_ALIGN_NUM)
 #define ONESHOT_LL_FUNCS_NUM (CUSTOM_AR_DTYPES_NUM * CUSTOM_NRANKS_NUM * CUSTOM_ALIGN_NUM)
 #define TWOSHOT_FUNCS_NUM (CUSTOM_AR_DTYPES_NUM * CUSTOM_NRANKS_NUM * CUSTOM_ALIGN_NUM * CUSTOM_AR_DB_NUM)
 #define TWOSHOT_REG_FUNCS_NUM (CUSTOM_AR_DTYPES_NUM * CUSTOM_NRANKS_NUM * CUSTOM_ALIGN_NUM)
-#define AR_EXT_FUNCS_NUM (ONESHOT_FUNCS_NUM + TWOSHOT_FUNCS_NUM + TWOSHOT_REG_FUNCS_NUM + ONESHOT_LL_FUNCS_NUM)
+#define ONESHOT_PUSH_FUNCS_NUM (ONESHOT_PUSH_DTYPES_NUM * ONESHOT_PUSH_RANKS_NUM)
+#define ONESHOT_PUSH_FUNC_INDEX (ONESHOT_FUNCS_NUM + TWOSHOT_FUNCS_NUM + TWOSHOT_REG_FUNCS_NUM + ONESHOT_LL_FUNCS_NUM)
+#define AR_EXT_FUNCS_NUM (ONESHOT_PUSH_FUNC_INDEX + ONESHOT_PUSH_FUNCS_NUM)
 
 // Index calculation functions
 static int getOneShotKernelIndex(pcclDataType_t dataType, int nRanks, int inputAlign, int outputAlign) {
@@ -365,7 +406,19 @@ static inline int getOneShotLLKernelIndex(pcclDataType_t dataType, int nRanks, i
   return getOneShotKernelIndex(dataType, nRanks, inputAlign, outputAlign);
 }
 
+static inline int getOneShotPushRankIndex(int nRanks) {
+  const int rankIndex = ranksToIndex(nRanks);
+  return rankIndex >= 0 && rankIndex < ONESHOT_PUSH_RANKS_NUM ? rankIndex : -1;
+}
+
 static int extKernelGetFuncIndex(extKernelStrategyType strategy, pcclDataType_t dataType, int nRanks, int inputAlign, int outputAlign, int doubleBuffer) {
+  const int dtypeIndex = dtypeToIndex(dataType);
+  if (dtypeIndex < 0) return -1;
+  if (strategy == ONESHOT_PUSH) {
+    const int rankIndex = getOneShotPushRankIndex(nRanks);
+    if (rankIndex < 0) return -1;
+    return ONESHOT_PUSH_FUNC_INDEX + dtypeIndex * ONESHOT_PUSH_RANKS_NUM + rankIndex;
+  }
   if (strategy == ONESHOT || strategy == ONESHOT_REG) {
     return getOneShotKernelIndex(dataType, nRanks, inputAlign, outputAlign);
   }

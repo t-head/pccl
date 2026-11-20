@@ -205,27 +205,29 @@ extKernelTuner shmTuners[] = {
 };
 
 
+// A zero OneShotPush bound disables that strategy for the topology.
+// Fill in the remaining bounds as OneShotPush support is added and tuned.
 const extTopoConfig topoConfigs[] = {
-//{ topoId                        , boundLow , boundHigh , oneShotLLBoundHigh , twoShotSwitchPoint , maxBlockNum , agBoundHigh , rsBoundHigh}
-{TWO_RANKS_810_TOPO               , 0        , 32_MB     , 16_KB              , 190_KB             , 32          , 32_MB       , 32_MB}       ,
-{TWO_RANKS_810E_TOPO              , 0        , 32_MB     , 16_KB              , 190_KB             , 32          , 32_MB       , 32_MB}       ,
-{TWO_RANKS_M890P_TOPO             , 0        , 32_MB     , 16_KB              , 190_KB             , 32          , 32_MB       , 8_MB}        ,
-{TWO_RANKS_M890P_SHM_TOPO         , 0        , 8_MB      , 16_KB              , 190_KB             , 32          , 16_MB       , 4_MB}        ,
-{FOUR_RANKS_810_FC_TOPO           , 0        , 32_MB     , 8_KB               , 248_KB             , 32          , 4_MB        , 4_MB }       ,
-{FOUR_RANKS_810_SQUARE_TOPO       , 0        , 4_MB      , 8_KB               , 152_KB             , 32          , 4_MB        , 4_MB }       ,
-{FOUR_RANKS_810E_FC_TOPO          , 0        , 16_MB     , 8_KB               , 312_KB             , 32          , 4_MB        , 4_MB }       ,
-{FOUR_RANKS_810E_SQUARE1_TOPO     , 0        , 4_MB      , 8_KB               , 184_KB             , 32          , 4_MB        , 4_MB }       ,
-{FOUR_RANKS_810E_SQUARE2_TOPO     , 0        , 8_MB      , 8_KB               , 212_KB             , 32          , 4_MB        , 4_MB }       ,
-{FOUR_RANKS_M890P_FC_TOPO         , 0        , 32_MB     , 16_KB              , 312_KB             , 32          , 32_MB       , 32_MB}       ,
-{FOUR_RANKS_M890P_SHM_TOPO        , 0        , 8_MB      , 16_KB              , 312_KB             , 32          , 16_MB       , 8_MB}        ,
-{EIGHT_RANKS_810_TOPO             , 0        , 2_MB      , 8_KB               , 64_KB              , 32          , 2_MB        , 2_MB }       ,
-{EIGHT_RANKS_810E_CROSS_REAR_TOPO , 0        , 2_MB      , 8_KB               , 64_KB              , 32          , 2_MB        , 2_MB }       ,
-{EIGHT_RANKS_810E_ONE_REAR_TOPO   , 0        , 2_MB      , 8_KB               , 64_KB              , 32          , 2_MB        , 2_MB }       ,
-{EIGHT_RANKS_M890P_TOPO           , 0        , 8_MB      , 16_KB              , 64_KB              , 32          , 4_MB        , 4_MB }       ,
-{EIGHT_RANKS_M890P_SHM_TOPO       , 0        , 16_MB     , 16_KB              , 312_KB             , 32          , 16_MB       , 16_MB}       ,
-{SIXTEEN_RANKS_810E               , 0        , 2_MB      , 8_KB               , 96_KB              , 16          , 2_MB        , 2_MB }       ,
-{SIXTEEN_RANKS_M890P_SHM_TOPO     , 0        , 32_MB     , 32_KB              , 128_KB             , 32          , 32_MB       , 16_MB}        ,
-{THIRTY_TWO_RANKS_M890P_SHM_TOPO  , 0        , 32_MB     , 4_KB               , 4_KB               , 32          , 32_MB       , 16_MB}        ,
+//{ topoId                        , boundLow , boundHigh , oneShotLLBoundHigh , oneShotPushBoundHigh , twoShotSwitchPoint , maxBlockNum , agBoundHigh , rsBoundHigh}
+{TWO_RANKS_810_TOPO               , 0        , 32_MB     , 16_KB              , 0                    , 190_KB             , 32          , 32_MB       , 32_MB}       ,
+{TWO_RANKS_810E_TOPO              , 0        , 32_MB     , 16_KB              , 0                    , 190_KB             , 32          , 32_MB       , 32_MB}       ,
+{TWO_RANKS_M890P_TOPO             , 0        , 32_MB     , 16_KB              , 0                    , 190_KB             , 32          , 32_MB       , 8_MB}        ,
+{TWO_RANKS_M890P_SHM_TOPO         , 0        , 8_MB      , 16_KB              , 512_KB               , 512_KB             , 32          , 16_MB       , 4_MB}        ,
+{FOUR_RANKS_810_FC_TOPO           , 0        , 32_MB     , 8_KB               , 0                    , 248_KB             , 32          , 4_MB        , 4_MB }       ,
+{FOUR_RANKS_810_SQUARE_TOPO       , 0        , 4_MB      , 8_KB               , 0                    , 152_KB             , 32          , 4_MB        , 4_MB }       ,
+{FOUR_RANKS_810E_FC_TOPO          , 0        , 16_MB     , 8_KB               , 0                    , 312_KB             , 32          , 4_MB        , 4_MB }       ,
+{FOUR_RANKS_810E_SQUARE1_TOPO     , 0        , 4_MB      , 8_KB               , 0                    , 184_KB             , 32          , 4_MB        , 4_MB }       ,
+{FOUR_RANKS_810E_SQUARE2_TOPO     , 0        , 8_MB      , 8_KB               , 0                    , 212_KB             , 32          , 4_MB        , 4_MB }       ,
+{FOUR_RANKS_M890P_FC_TOPO         , 0        , 32_MB     , 16_KB              , 0                    , 312_KB             , 32          , 32_MB       , 32_MB}       ,
+{FOUR_RANKS_M890P_SHM_TOPO        , 0        , 8_MB      , 16_KB              , 256_KB               , 312_KB             , 32          , 16_MB       , 8_MB}        ,
+{EIGHT_RANKS_810_TOPO             , 0        , 2_MB      , 8_KB               , 0                    , 64_KB              , 32          , 2_MB        , 2_MB }       ,
+{EIGHT_RANKS_810E_CROSS_REAR_TOPO , 0        , 2_MB      , 8_KB               , 0                    , 64_KB              , 32          , 2_MB        , 2_MB }       ,
+{EIGHT_RANKS_810E_ONE_REAR_TOPO   , 0        , 2_MB      , 8_KB               , 0                    , 64_KB              , 32          , 2_MB        , 2_MB }       ,
+{EIGHT_RANKS_M890P_TOPO           , 0        , 8_MB      , 16_KB              , 0                    , 64_KB              , 32          , 4_MB        , 4_MB }       ,
+{EIGHT_RANKS_M890P_SHM_TOPO       , 0        , 16_MB     , 16_KB              , 64_KB                , 312_KB             , 32          , 16_MB       , 16_MB}       ,
+{SIXTEEN_RANKS_810E               , 0        , 2_MB      , 8_KB               , 0                    , 96_KB              , 16          , 2_MB        , 2_MB }       ,
+{SIXTEEN_RANKS_M890P_SHM_TOPO     , 0        , 32_MB     , 32_KB              , 0                    , 128_KB             , 32          , 32_MB       , 16_MB}        ,
+{THIRTY_TWO_RANKS_M890P_SHM_TOPO  , 0        , 32_MB     , 4_KB               , 0                    , 4_KB               , 32          , 32_MB       , 16_MB}        ,
 };
 
 void swapRowsAndCols(int* matrix, const int N, int i, int j){

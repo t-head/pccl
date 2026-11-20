@@ -471,6 +471,149 @@ __global__ void pcclKernel_oneShotLLAllReduceKernel(struct oneShotLLDevParams pa
   }
 }
 
+static __device__ __forceinline__ void pushStoreVec(uint4* ptr, const uint4& v) {
+  asm volatile("ppu.st.relaxed.sys.global.v4.b32 [%0], {%1,%2,%3,%4};"
+               :: "l"(ptr), "r"(v.x), "r"(v.y), "r"(v.z), "r"(v.w) : "memory");
+}
+
+static __device__ __forceinline__ uint4 pushLoadVec(const uint4* ptr) {
+  uint4 v;
+  asm volatile("ppu.ld.relaxed.sys.global.v4.b32 {%0,%1,%2,%3}, [%4];"
+               : "=r"(v.x), "=r"(v.y), "=r"(v.z), "=r"(v.w) : "l"(ptr) : "memory");
+  return v;
+}
+
+// Peer stores can become visible word by word. Each nonzero word is ready.
+static __device__ __forceinline__ bool pushVecReady(const uint4& v) {
+  return v.x != 0 && v.y != 0 && v.z != 0 && v.w != 0;
+}
+
+template <typename T, int NRANKS>
+__global__ void pcclKernel_oneShotPushAllReduceKernel(struct oneShotPushDevParams params) {
+  constexpr int eltsPerVec = sizeof(uint4) / sizeof(T);
+  // Each marker is a quiet NaN in FP32 and a pair of quiet NaNs in FP16 and BF16.
+  constexpr uint32_t zeroWord = 0x7fc07fc0u;
+  constexpr uint32_t nanWord = 0x7fff7fffu;
+  union PackedWords {
+    uint4 vector;
+    uint32_t words[4];
+  };
+  __shared__ int warpAbortVotes[EXT_KERNEL_PUSH_THREADS / WARP_SIZE];
+  const int tid = threadIdx.x;
+
+  const uint32_t phase = params.pushPhases[blockIdx.x] & 1;
+  const int globalThread = blockIdx.x * blockDim.x + tid;
+  const int gridStride = blockDim.x * gridDim.x;
+  const int nVecs = params.eltsTotal / eltsPerVec;
+  const size_t strideVecs = params.strideVecs;
+  const size_t phaseOffset = phase * NRANKS * strideVecs;
+  uint4* destinations[NRANKS];
+  uint4* sources[NRANKS];
+  #pragma unroll
+  for (int r = 0; r < NRANKS; ++r) {
+    destinations[r] = (uint4*)params.peerBuffers[r] + phaseOffset + params.myRank * strideVecs;
+    sources[r] = (uint4*)params.peerBuffers[params.myRank] + phaseOffset + r * strideVecs;
+  }
+
+  const T* input = static_cast<const T*>(params.sendbuff);
+  T* output = static_cast<T*>(params.recvbuff);
+  // The initial Push kernel chooses vector or scalar access for each buffer at runtime
+  // based on 16-byte alignment. Benchmark host-selected alignment variants as a follow-up.
+  const bool inputAligned = reinterpret_cast<uintptr_t>(input) % sizeof(uint4) == 0;
+  const bool outputAligned = reinterpret_cast<uintptr_t>(output) % sizeof(uint4) == 0;
+
+  // A single thread owns each vector and reads it before writing the result, including in-place calls.
+  for (int vec = globalThread; vec < nVecs; vec += gridStride) {
+    PackedWords payload;
+    if (inputAligned) {
+      payload.vector = __ppu_global_load_b32x4(input + vec * eltsPerVec);
+    } else {
+      T elts[eltsPerVec];
+      #pragma unroll
+      for (int e = 0; e < eltsPerVec; ++e) {
+        elts[e] = input[vec * eltsPerVec + e];
+      }
+      __builtin_memcpy(&payload.vector, elts, sizeof(uint4));
+    }
+    // Reserve the all-zero word for polling. Escape a payload equal to zeroWord
+    // as another NaN so it still propagates through Sum. Preserve signed zeros.
+    #pragma unroll
+    for (int w = 0; w < 4; ++w) {
+      const uint32_t word = payload.words[w];
+      payload.words[w] = word == 0 ? zeroWord : (word == zeroWord ? nanWord : word);
+    }
+    #pragma unroll
+    for (int r = 0; r < NRANKS; ++r) pushStoreVec(destinations[r] + vec, payload.vector);
+  }
+
+  bool aborted = false;
+  const uint4 zeroVec = make_uint4(0u, 0u, 0u, 0u);
+  for (int vec = globalThread; vec < nVecs; vec += gridStride) {
+    PackedWords received[NRANKS];
+    uint32_t spins = 0;
+    while (true) {
+      #pragma unroll
+      for (int r = 0; r < NRANKS; ++r) received[r].vector = pushLoadVec(sources[r] + vec);
+      bool ready = true;
+      #pragma unroll
+      for (int r = 0; r < NRANKS; ++r) ready &= pushVecReady(received[r].vector);
+      if (ready) break;
+      if (++spins == pcclExtSpinsBeforeAbortCheck) {
+        spins = 0;
+        if (extAborted(params.abortFlag)) {
+          aborted = true;
+          break;
+        }
+      }
+    }
+    if (aborted) break;
+
+    // Accumulate in FP32 starting at rank 0 to retain -0 for all-negative-zero input.
+    float acc[eltsPerVec];
+    #pragma unroll
+    for (int r = 0; r < NRANKS; ++r) {
+      #pragma unroll
+      for (int w = 0; w < 4; ++w) {
+        if (received[r].words[w] == zeroWord) received[r].words[w] = 0;
+      }
+      T elts[eltsPerVec];
+      __builtin_memcpy(elts, &received[r].vector, sizeof(uint4));
+      #pragma unroll
+      for (int e = 0; e < eltsPerVec; ++e) {
+        const float value = static_cast<float>(elts[e]);
+        acc[e] = r == 0 ? value : acc[e] + value;
+      }
+    }
+    T result[eltsPerVec];
+    #pragma unroll
+    for (int e = 0; e < eltsPerVec; ++e) result[e] = static_cast<T>(acc[e]);
+    if (outputAligned) {
+      uint4 vector;
+      __builtin_memcpy(&vector, result, sizeof(vector));
+      __ppu_global_store_b32x4(output + vec * eltsPerVec, vector);
+    } else {
+      #pragma unroll
+      for (int e = 0; e < eltsPerVec; ++e) {
+        output[vec * eltsPerVec + e] = result[e];
+      }
+    }
+    // Kernel completion orders local clears before this rank's next push. Peers must observe
+    // that next push before they can reuse this phase on the same ordered communicator.
+    #pragma unroll
+    for (int r = 0; r < NRANKS; ++r) __ppu_global_store_b32x4((void*)(sources[r] + vec), zeroVec);
+  }
+  // Each full warp writes its own vote before the block synchronizes to advance the phase.
+  const bool warpAborted = __any_sync(0xffffffffu, aborted);
+  if (tid % WARP_SIZE == 0) warpAbortVotes[tid / WARP_SIZE] = warpAborted;
+  __syncthreads();
+  if (tid < WARP_SIZE) {
+    const bool blockAborted = __any_sync(0xffffffffu, tid < blockDim.x / WARP_SIZE && warpAbortVotes[tid]);
+    // Advance slots for unlaunched blocks so different grid sizes use the same next phase.
+    const int phaseIndex = blockIdx.x + tid * gridDim.x;
+    if (phaseIndex < EXT_KERNEL_PUSH_BLOCKS && !blockAborted) params.pushPhases[phaseIndex] = phase ^ 1u;
+  }
+}
+
 // Explicit template instantiations using nested macros like functions.cu
 #define ONE_SHOT_FUNCS_IMPL_NAME(input_align, output_align, nRanks, dtype) \
   template __global__ void pcclKernel_oneShotAllReduceKernel<dtype, nRanks, input_align, output_align>(struct oneShotDevParams params);
@@ -494,7 +637,7 @@ __global__ void pcclKernel_oneShotLLAllReduceKernel(struct oneShotLLDevParams pa
 // Generate all oneShot kernels
 #define ONE_SHOT_FUNCS_IMPL() \
   ONE_SHOT_FUNCS_IMPL_DTYPE(half) \
-  ONE_SHOT_FUNCS_IMPL_DTYPE(__ppu_bfloat16)  \
+  ONE_SHOT_FUNCS_IMPL_DTYPE(__ppu_bfloat16) \
   ONE_SHOT_FUNCS_IMPL_DTYPE(float)
 
 
@@ -524,7 +667,7 @@ __global__ void pcclKernel_oneShotLLAllReduceKernel(struct oneShotLLDevParams pa
 // Generate all oneShot kernels
 #define TWO_SHOT_FUNCS_IMPL() \
   TWO_SHOT_FUNCS_IMPL_DTYPE(half) \
-  TWO_SHOT_FUNCS_IMPL_DTYPE(__ppu_bfloat16)  \
+  TWO_SHOT_FUNCS_IMPL_DTYPE(__ppu_bfloat16) \
   TWO_SHOT_FUNCS_IMPL_DTYPE(float)
 
 #define TWO_SHOT_REG_FUNCS_IMPL_NAME(input_align, output_align, nRanks, dtype) \
@@ -549,7 +692,7 @@ __global__ void pcclKernel_oneShotLLAllReduceKernel(struct oneShotLLDevParams pa
 // Generate all twoShotReg kernels
 #define TWO_SHOT_REG_FUNCS_IMPL() \
   TWO_SHOT_REG_FUNCS_IMPL_DTYPE(half) \
-  TWO_SHOT_REG_FUNCS_IMPL_DTYPE(__ppu_bfloat16)  \
+  TWO_SHOT_REG_FUNCS_IMPL_DTYPE(__ppu_bfloat16) \
   TWO_SHOT_REG_FUNCS_IMPL_DTYPE(float)
 
 #define ONESHOT_LL_FUNCS_IMPL_NAME(input_align, output_align, nRanks, dtype) \
@@ -577,10 +720,24 @@ __global__ void pcclKernel_oneShotLLAllReduceKernel(struct oneShotLLDevParams pa
   ONESHOT_LL_FUNCS_IMPL_DTYPE(__ppu_bfloat16) \
   ONESHOT_LL_FUNCS_IMPL_DTYPE(float)
 
+#define ONESHOT_PUSH_FUNCS_IMPL_RANK(nRanks, dtype) \
+  template __global__ void pcclKernel_oneShotPushAllReduceKernel<dtype, nRanks>(struct oneShotPushDevParams params);
+
+#define ONESHOT_PUSH_FUNCS_IMPL_DTYPE(dtype) \
+  ONESHOT_PUSH_FUNCS_IMPL_RANK(2, dtype) \
+  ONESHOT_PUSH_FUNCS_IMPL_RANK(4, dtype) \
+  ONESHOT_PUSH_FUNCS_IMPL_RANK(8, dtype)
+
+#define ONESHOT_PUSH_FUNCS_IMPL() \
+  ONESHOT_PUSH_FUNCS_IMPL_DTYPE(half) \
+  ONESHOT_PUSH_FUNCS_IMPL_DTYPE(__ppu_bfloat16) \
+  ONESHOT_PUSH_FUNCS_IMPL_DTYPE(float)
+
 TWO_SHOT_REG_FUNCS_IMPL()
 TWO_SHOT_FUNCS_IMPL()
 ONE_SHOT_FUNCS_IMPL()
 ONESHOT_LL_FUNCS_IMPL()
+ONESHOT_PUSH_FUNCS_IMPL()
 
 ////////////////////////////////////////////////////////////////////////////////////////////////////
 static char* getExtFuncName(char* funcName, int maxLength, extKernelStrategyType strategy, pcclDataType_t dtype, int nRanks) {
@@ -591,6 +748,8 @@ static char* getExtFuncName(char* funcName, int maxLength, extKernelStrategyType
     offset += snprintf(funcName, maxLength-offset, "pcclKernel_twoShotAllReduceKernel");
   } else if (strategy == ONESHOT_LL) {
     offset += snprintf(funcName, maxLength-offset, "pcclKernel_oneShotLLAllReduceKernel");
+  } else if (strategy == ONESHOT_PUSH) {
+    offset += snprintf(funcName, maxLength-offset, "pcclKernel_oneShotPushAllReduceKernel");
   }
   offset += snprintf(funcName+offset, maxLength-offset, "_%d", nRanks);
   if (dtype == pcclFloat32) {
@@ -640,6 +799,12 @@ ncclResult_t dispatchAllReduceKernels(extKernelHostParams& hostParams, extKernel
       }
       case TWOSHOT_REG: {
         struct twoShotRegDevParams arg(devParams);
+        void* args[] = {&arg};
+        LAUNCH_KERNEL(func, gridDim, blockDim, args, 0, stream, 0, hostParams.funcStrategy[hostParams.funcIndex].launchConfig);
+        break;
+      }
+      case ONESHOT_PUSH: {
+        struct oneShotPushDevParams arg(devParams, hostParams.pushStrideVecs);
         void* args[] = {&arg};
         LAUNCH_KERNEL(func, gridDim, blockDim, args, 0, stream, 0, hostParams.funcStrategy[hostParams.funcIndex].launchConfig);
         break;

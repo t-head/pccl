@@ -39,6 +39,7 @@ typedef struct {
   int boundLow;         // lower size bound (bytes)
   int boundHigh;        // upper size bound for AllReduce (bytes)
   int oneShotLLBoundHigh; // upper size limit for ONESHOT_LL strategy (bytes)
+  int oneShotPushBoundHigh; // default upper size limit for ONESHOT_PUSH (bytes)
   int twoShotSwitchPoint; // -1 means use boundHigh
   int maxBlockNum;
   int agBoundHigh;      // max total bytes for AllGather ext-kernel
