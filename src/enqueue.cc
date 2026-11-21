@@ -1399,54 +1399,31 @@ PCCL_PARAM(P2pSwitchSerialThreshold, "P2P_SWITCH_SERIAL_THRESHOLD", 65536);
 PCCL_PARAM(P2pSwitchSerialFactor, "P2P_SWITCH_SERIAL_FACTOR", -2);
 PCCL_PARAM(P2pSwitchMaxWorkPerBatch, "P2P_SWITCH_MAX_WORK_PER_BATCH", -2);
 
-struct P2pSwitchAutoConfig {
-  int nRanks;
-  size_t minPeerBytes;
-  size_t maxPeerBytes;
-  int serialFactor;       // -1 keeps the old factor of 8
-  int maxWorkPerBatch;    // -1 keeps the old limit of 1
-};
-
-static constexpr P2pSwitchAutoConfig p2pSwitchAutoConfigs[] = {
-  // nRanks, minPeerBytes, maxPeerBytes, serialFactor, maxWorkPerBatch
-  {16,  64_MB, 128_MB,  2, 2},
-  {32,  64_MB, 128_MB,  2, 2},
-  {32, 256_MB, 256_MB, -1, 2},
-  {64,  64_MB,  64_MB,  1, 2},
-  {64, 128_MB, 256_MB,  2, 2},
-};
-
-static const P2pSwitchAutoConfig* getP2pSwitchAutoConfig(
-    ncclComm_t comm, size_t peerBytes) {
-  for (const P2pSwitchAutoConfig& config : p2pSwitchAutoConfigs) {
-    if (comm->nRanks == config.nRanks &&
-        peerBytes >= config.minPeerBytes && peerBytes <= config.maxPeerBytes) {
-      return &config;
-    }
-  }
-  return nullptr;
-}
-
-static size_t getP2pSwitchSerialFactor(ncclComm_t comm, size_t peerBytes) {
-  const int64_t configuredFactor = pcclParamP2pSwitchSerialFactor();
-  if (configuredFactor == -2) {
-    const P2pSwitchAutoConfig* config = getP2pSwitchAutoConfig(comm, peerBytes);
-    return config == nullptr || config->serialFactor == -1 ?
-        8 : static_cast<size_t>(config->serialFactor);
-  }
-  return static_cast<size_t>(std::max<int64_t>(1, configuredFactor));
-}
-
 static int getP2pSwitchMaxWorkPerBatch(ncclComm_t comm, ssize_t maxPeerBytes) {
   const int64_t configuredMaxWorks = pcclParamP2pSwitchMaxWorkPerBatch();
-  if (configuredMaxWorks == -2) {
-    const P2pSwitchAutoConfig* config = maxPeerBytes < 0 ? nullptr :
-        getP2pSwitchAutoConfig(comm, static_cast<size_t>(maxPeerBytes));
-    return config == nullptr || config->maxWorkPerBatch == -1 ?
-        1 : config->maxWorkPerBatch;
+  if (configuredMaxWorks != -2) {
+    return static_cast<int>(std::max<int64_t>(1, std::min<int64_t>(
+        NCCL_MAX_DEV_WORK_P2P_PER_BATCH, configuredMaxWorks)));
   }
-  return static_cast<int>(std::max<int64_t>(1, std::min<int64_t>(
-      NCCL_MAX_DEV_WORK_P2P_PER_BATCH, configuredMaxWorks)));
+  struct BatchConfig {
+    int nRanks;
+    ssize_t minPeerBytes, maxPeerBytes;
+    int maxWorks;
+  };
+  static constexpr BatchConfig configs[] = {
+    {16,  64_MB, 128_MB, 2},
+    {32,  64_MB, 128_MB, 2},
+    {32, 256_MB, 256_MB, 2},
+    {64,  64_MB,  64_MB, 2},
+    {64, 128_MB, 256_MB, 2},
+  };
+  for (const BatchConfig& config : configs) {
+    if (comm->nRanks == config.nRanks &&
+        config.minPeerBytes <= maxPeerBytes && maxPeerBytes <= config.maxPeerBytes) {
+      return config.maxWorks;
+    }
+  }
+  return 1;
 }
 
 static size_t getP2pChunkSize(ncclComm_t comm, size_t totalSize, int minChannels, int maxChannels, size_t minSize, size_t maxSize, int *nChannelsPtr) {
@@ -1457,23 +1434,31 @@ static size_t getP2pChunkSize(ncclComm_t comm, size_t totalSize, int minChannels
     size = DIVUP(totalSize, nChannels);
   }
   ALIGN_SIZE(size, minSize);
-  if (pcclEnableGlobalIcnP2pThroughSwitchOpt(comm)) {
-    // switch topo: try to use all channels per peer for large size greater than threshold (per channel)
-    size_t serialFactor = comm->nRanks > 8 ? getP2pSwitchSerialFactor(comm, totalSize) : 1;
-    size_t thresholdSize = pcclParamP2pSwitchSerialThreshold() * comm->nRanks * serialFactor;
-    size_t tileSize = DIVUP(totalSize, *nChannelsPtr);
-    if (tileSize >= thresholdSize && nChannels < (*nChannelsPtr)) {
-      ALIGN_SIZE(tileSize, thresholdSize);
-      ALIGN_SIZE(tileSize, minSize);
-      int nChannelsTile = DIVUP(totalSize, tileSize);
-      if (nChannelsTile == (*nChannelsPtr)) {
-        nChannels = nChannelsTile;
-        size = tileSize;
-      }
-    }
-  }
+  const int channelsPerPeer = *nChannelsPtr;
   *nChannelsPtr = nChannels;
-  return size;
+  if (!pcclEnableGlobalIcnP2pThroughSwitchOpt(comm) || nChannels == channelsPerPeer ||
+      totalSize == 0 || totalSize == SIZE_MAX) return size;
+
+  const size_t threshold = pcclParamP2pSwitchSerialThreshold();
+  const int64_t factor = pcclParamP2pSwitchSerialFactor();
+  const bool autoTiling = comm->nRanks > 8 && factor == -2 && threshold == 65536;
+  if (autoTiling && totalSize < 4_MB * size_t(channelsPerPeer)) return size;
+
+  const size_t perChannel = DIVUP(totalSize, channelsPerPeer);
+  const size_t balancedTile = ROUNDUP(perChannel, size_t(512));
+  size_t tileSize = balancedTile;
+  if (!autoTiling || totalSize < 8_MB * size_t(channelsPerPeer)) {
+    // Below the large-message floor, require a full set of serial-aligned tiles.
+    size_t interval = threshold * comm->nRanks;
+    if (!autoTiling && comm->nRanks > 8) interval *= factor == -2 ? 8 : std::max<int64_t>(1, factor);
+    if (interval == 0 || perChannel < interval) return size;
+    tileSize = ROUNDUP(perChannel, interval);
+    ALIGN_SIZE(tileSize, minSize);
+  }
+  if (DIVUP(totalSize, tileSize) != size_t(channelsPerPeer)) return size;
+  *nChannelsPtr = channelsPerPeer;
+  // Once all channels fit, bulk alignment keeps automatic tiles balanced across them.
+  return autoTiling ? balancedTile : tileSize;
 }
 
 static ncclResult_t scheduleP2pTasksToPlan(ncclComm_t comm, int* p2pEpoch, int* p2pRound,

@@ -87,6 +87,52 @@ Type `./build/sendRecvPcclUnitTest --help` to query all help information.
 - starting device ID
   - `start_dev_id=<INT>` (default 0)
 
+### AlltoAll and P2P Mixed-Group Test
+
+Build with `--use_mpi`, then run one MPI process per device. The default `--mode all`
+checks native AlltoAll, equal-size grouped Send/Recv, variable-size AlltoAllv expressed
+as Send/Recv, and sparse P2P with an idle rank. It verifies every output byte and
+untouched padding. Each mode covers pure groups and extra matching P2P before/after
+on only ranks 0 and 1; the extra transfer reverses direction each iteration.
+
+`--messages` controls per-peer queue depth (default 2). P2P modes vary peer order by
+rank while preserving each peer's message order. Variable sizes include zero, one,
+half of `--peer_bytes`, and `--peer_bytes - 1`, `--peer_bytes`, `--peer_bytes + 1`.
+Sparse mode also omits directions, separately from enqueued zero-byte operations.
+
+With default serial settings and more than eight ranks, test both automatic
+tiling boundaries. With 16 P2P channels per peer these are 64 and 128 MiB per
+peer (4 and 8 MiB per channel). Between the boundaries, full-channel tiling
+requires that a split aligned to the rank-dependent serial interval and
+transport step still uses every channel. At the upper boundary only 512-byte
+bulk alignment is required. For example, on a 40-device switch fabric:
+
+```shell
+timeout 600 mpirun -np 40 --hostfile hosts.cfg --bind-to none -x LD_LIBRARY_PATH \
+  ./build/pcclAlltoAllGroupTest --peer_bytes 134217728 --messages 2 --iterations 2
+```
+
+Use `--mode native|sendrecv|alltoallv|sparse` for one mode. Add `--mixed_api` to use
+native AlltoAll on even ranks in `sendrecv` mode, checking matching communication
+across different API choices. Add `--graph` to warm up connections, capture each
+group, and verify two replays. For example:
+
+```shell
+timeout 600 mpirun -np 40 --hostfile hosts.cfg --bind-to none -x LD_LIBRARY_PATH \
+  ./build/pcclAlltoAllGroupTest --mode alltoallv --peer_bytes 134217729 --graph
+```
+
+Each process allocates two buffers of `messages * ranks * (peer_bytes + 1)` bytes,
+plus a host buffer of roughly `peer_bytes` bytes. Adjust the hostfile and sizes to
+available devices and memory. Use `--peer_bytes 0` for zero-byte traffic, values
+around the transport-step/tiling boundary for partition checks, and a larger
+`--messages` with small payloads for repeated schedule sweeps. Explicit library
+parameters can be exported through `mpirun -x` for separate override checks.
+
+With a nondefault `PCCL_P2P_SWITCH_SERIAL_THRESHOLD`, ranks above eight use a
+serial factor of 8 unless `PCCL_P2P_SWITCH_SERIAL_FACTOR` is set explicitly.
+The native AlltoAll work-per-batch table no longer supplies a serial factor.
+
 ### PCCL Group Simulation Test
 
 Estimate the time a group of collectives would take by `pcclGroupSimulateEnd()`
