@@ -7,10 +7,10 @@
     "proposal": {
       "modules": [
         "enqueue",
-        "copy-engine",
-        "device-api"
+        "symmetric",
+        "copy-engine"
       ],
-      "reason": "Main change adds host one-sided RMA (PutSignal/Signal/WaitSignal) as new runtime operations wired through enqueue planning/group launch and task scheduling. Copy-engine review is needed for the new CE execution backend (RMA CE init/finalize, batched mem ops, graph/eager signal-ack synchronization, chunked put). Device-api review is needed for substantive symmetric window/LSA runtime semantics and capability gating updates (window offset consistency checks, hostRmaSupport exposure, and related communicator/window validation behavior)."
+      "reason": "Main change is a new host one-sided RMA Put/Signal/WaitSignal execution path implemented through CE streams, batched mem-ops, signal/ack synchronization, and CE-side task launch/finalization (copy-engine). It also adds a new RMA task type and planner/launch integration, including graph-capture-aware scheduling and plan cleanup (enqueue). Additional substantive changes adjust symmetric-window/LSA offset semantics and eligibility checks used by RMA and related CE paths, including window validation constraints and flat-address handling updates (symmetric)."
     }
   },
   "reviewers": {
@@ -22,6 +22,7 @@
     "gin": 341353320,
     "network": 341355176,
     "other": 335730053,
-    "profiler": 341349555
+    "profiler": 341349555,
+    "symmetric": 341349555
   }
 }
