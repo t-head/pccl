@@ -1,14 +1,14 @@
 {
   "classification": {
     "base_sha": "abb6688b4b5419664e7bf13c2d9107bd7acafd89",
-    "head_sha": "e7f3fe686543363656039b93ca5db7f7efa3b6a6",
-    "input_fingerprint": "9d9f87726cf2e58309b84694fc194c59cae89268c3fe8d1798bfef4e646f13d2",
+    "head_sha": "a779fcd95a0d8371b3efc88842a49f3c0031b04a",
+    "input_fingerprint": "5c7dcf7d1697aef4d6b1b5877f5f9afa857800d6068901380d51f956f4c2cd95",
     "pr_number": 220,
     "proposal": {
       "modules": [
         "ci"
       ],
-      "reason": "The substantive change is to CI validation infrastructure: dual-platform (M890P/810E) workflow execution, case generation/grouping/selection logic, scheduler/resource allocation, HPN SDK install handling, run-time device mapping, reconciliation/reporting artifacts, and associated CI test data/docs (including patch_omitted case-list JSONs). Other edits (like workflow build script adjustments) support this same CI behavior rather than introducing an independent build/workflow-policy module change."
+      "reason": "Main functional change is a CI system overhaul: dual-platform (M890P + OAM-810E) workflow execution, shared/converted case generation and grouping, HPN SDK install controls, per-allocation device mapping, and result/report artifact handling. Other edits (docs, large generated test-list files with omitted patches, and test updates) support this CI behavior rather than introducing independent module-specific runtime changes."
     }
   },
   "reviewers": {
