@@ -30,6 +30,11 @@ on:
         required: false
         type: string
         default: ''
+      execution_timeout_minutes:
+        description: Per-group queue and execution timeout in minutes for manual runs; the execute Job allows 30 additional minutes
+        required: true
+        type: number
+        default: 720
       suite:
         description: Optional exact Suite debug filter; empty selects every Suite
         required: false
@@ -47,6 +52,7 @@ env:
   VALIDATION_NODE_SELECTOR: board-type=ZW-M890P,nic-type=cx8
   VALIDATION_CARDS: '8'
   PCCL_TESTS_REVISION: 394556512e87259e9ffa25225632c46b0a0bbcd5
+  REQUESTED_EXECUTION_TIMEOUT_MINUTES: ${{ inputs.execution_timeout_minutes || (github.event.schedule == '0 14 * * 5' && 2160 || 720) }}
 
 jobs:
   prepare:
@@ -59,6 +65,8 @@ jobs:
       group_count: ${{ steps.selection.outputs.group_count }}
       groups: ${{ steps.selection.outputs.groups }}
       groups_sha256: ${{ steps.selection.outputs.groups_sha256 }}
+      execution_timeout_minutes: ${{ steps.selection.outputs.execution_timeout_minutes }}
+      execution_job_timeout_minutes: ${{ steps.selection.outputs.execution_job_timeout_minutes }}
     steps:
       - uses: actions/checkout@v4
         with:
@@ -82,6 +90,7 @@ jobs:
           NODES: ${{ inputs.nodes || '' }}
           SUITE: ${{ inputs.suite || '' }}
           ALLOWED_NODES: ${{ inputs.allowed_nodes || (github.event.schedule == '0 14 * * 5' && '1,2,4,8,16' || '1,2,4,8') }}
+          EXECUTION_TIMEOUT_MINUTES: ${{ env.REQUESTED_EXECUTION_TIMEOUT_MINUTES }}
         run: |
           python3 -S -B -W error::ResourceWarning -m unittest discover \
             -s tests/xtest -p 'test_run_cases.py' -v
@@ -140,6 +149,9 @@ jobs:
           dataset = os.environ['DATASET']
           if dataset not in ('smoke', 'full'):
               raise ValueError('Unsupported daily dataset')
+          execution_timeout_minutes = int(os.environ['EXECUTION_TIMEOUT_MINUTES'])
+          if execution_timeout_minutes <= 0:
+              raise ValueError('Execution timeout must be a positive integer')
           input_directory = Path('generated-case-input')
           nodes = int(os.environ['NODES']) if os.environ['NODES'] else None
           suite = os.environ['SUITE'] or None
@@ -211,6 +223,8 @@ jobs:
               output.write(f'excluded_case_count={coverage["excluded_cases"]}\n')
               output.write(f'group_count={len(manifest)}\n')
               output.write(f'groups_sha256={groups_sha256}\n')
+              output.write(f'execution_timeout_minutes={execution_timeout_minutes}\n')
+              output.write(f'execution_job_timeout_minutes={execution_timeout_minutes + 30}\n')
               output.write('groups<<GROUPS\n')
               output.write(json.dumps(matrix, separators=(',', ':')) + '\nGROUPS\n')
           PY
@@ -433,10 +447,11 @@ jobs:
       PROFILE: ${{ matrix.profile }}
       NODES: ${{ matrix.nodes }}
       CROSS_RACK: ${{ matrix.cross_rack }}
+      EXECUTION_TIMEOUT_MINUTES: ${{ needs.prepare.outputs.execution_timeout_minutes }}
     runs-on: k8s-runner-group-cpu-thead
     container:
       image: ghcr.io/actions/actions-runner:latest
-    timeout-minutes: 750
+    timeout-minutes: ${{ fromJSON(needs.prepare.outputs.execution_job_timeout_minutes) }}
     steps:
       - uses: actions/checkout@v4
         with:
@@ -525,7 +540,7 @@ jobs:
           nproc_per_node: ${{ matrix.cards_per_node }}
           node_selector: ${{ env.VALIDATION_NODE_SELECTOR }}
           namespace: ppu-sched
-          timeout_minutes: 720
+          timeout_minutes: ${{ env.EXECUTION_TIMEOUT_MINUTES }}
           cleanup_policy: always
           container_options: |
             privileged: true
@@ -628,7 +643,7 @@ jobs:
           rack_policy: same
           node_selector: ${{ env.VALIDATION_NODE_SELECTOR }}
           namespace: ppu-sched
-          timeout_minutes: 720
+          timeout_minutes: ${{ env.EXECUTION_TIMEOUT_MINUTES }}
           cleanup_policy: always
           container_options: |
             privileged: true
@@ -727,7 +742,7 @@ jobs:
           rack_count: ${{ matrix.rack_count }}
           node_selector: ${{ env.VALIDATION_NODE_SELECTOR }}
           namespace: ppu-sched
-          timeout_minutes: 720
+          timeout_minutes: ${{ env.EXECUTION_TIMEOUT_MINUTES }}
           cleanup_policy: always
           container_options: |
             privileged: true

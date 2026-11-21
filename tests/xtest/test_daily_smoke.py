@@ -267,7 +267,20 @@ class DailySmokeTests(unittest.TestCase):
         self.assertLess(text.index('SHARED_ROOT=/mnt/wl_nas'),
                         text.index('CASE_INPUT="$SHARED_ROOT/case-input"'))
         self.assertIn('GitHub Actions matrix limit of 256', text)
-        self.assertIn('timeout-minutes: 750', text)
+        self.assertIn(
+            'timeout-minutes: ${{ fromJSON(needs.prepare.outputs.execution_job_timeout_minutes) }}',
+            text)
+        self.assertIn(
+            'execution_timeout_minutes: ${{ steps.selection.outputs.execution_timeout_minutes }}',
+            text)
+        self.assertIn(
+            'execution_job_timeout_minutes: ${{ steps.selection.outputs.execution_job_timeout_minutes }}',
+            text)
+        self.assertIn('execution_timeout_minutes={execution_timeout_minutes}', text)
+        self.assertIn('execution_job_timeout_minutes={execution_timeout_minutes + 30}', text)
+        self.assertEqual(text.count('timeout_minutes: ${{ env.EXECUTION_TIMEOUT_MINUTES }}'), 3)
+        self.assertNotIn('timeout_minutes: 720', text)
+        self.assertIn('Execution timeout must be a positive integer', text)
         self.assertIn('retention-days: 90', text)
         self.assertIn('if results_root.is_dir() else set()', text)
         single = text.split('name: Run the automatic group on one node', 1)[1].split(
@@ -324,6 +337,13 @@ class DailySmokeTests(unittest.TestCase):
             text)
         self.assertIn('default: smoke', text)
         self.assertIn('default: 500', text)
+        self.assertIn('execution_timeout_minutes:', text)
+        self.assertIn('Per-group queue and execution timeout in minutes for manual runs', text)
+        self.assertIn(
+            "REQUESTED_EXECUTION_TIMEOUT_MINUTES: ${{ inputs.execution_timeout_minutes || "
+            "(github.event.schedule == '0 14 * * 5' && 2160 || 720) }}", text)
+        self.assertIn(
+            'EXECUTION_TIMEOUT_MINUTES: ${{ needs.prepare.outputs.execution_timeout_minutes }}', text)
 
     def test_all_daily_downloads_use_the_bounded_retry_action(self):
         action = RETRY_ACTION.read_text()

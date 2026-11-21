@@ -124,6 +124,12 @@ weekday default unless `allowed_nodes` is explicitly overridden. Any excluded
 Cases remain in the export and are listed as `EXCLUDED_BY_POLICY` in
 `execution-coverage.json`, never as passed or skipped tests.
 
+The Monday-Thursday schedule allows each execution group 720 minutes for
+queueing and execution. Friday cron allows 2,160 minutes (36 hours). Manual
+dispatch exposes `execution_timeout_minutes` with a default of 720; the execute
+Job adds 30 minutes for setup and cleanup. These workflow limits do not change
+the Suite or Case timeouts in the generated input.
+
 `group_cases.py` derives deterministic execution groups by profile, node count,
 cards per node, shared environment and cross-rack allocation, then splits large
 groups by `--max-cases`. The two-rack performance Suites are isolated from
