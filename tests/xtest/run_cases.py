@@ -30,6 +30,81 @@ FORMAT_VERSION = 1
 SAFE_NAME = re.compile(r"[A-Za-z0-9_.-]+\Z")
 ENV_NAME = re.compile(r"[A-Za-z_][A-Za-z0-9_]*\Z")
 HEX40 = re.compile(r"[0-9a-f]{40}\Z")
+
+
+def _with_ib_environment(command):
+    """Forward the common IB settings to local and remote MPI ranks."""
+    exports = " ".join("-x " + name + "=1" for name in
+                       ("NCCL_IB_ADAPTIVE_ROUTING", "NCCL_IB_OOO_RQ")
+                       if name + "=1" not in command)
+    if not exports:
+        return command
+    if re.search(r"(?:^|\s)mpirun(?=\s)", command):
+        return re.sub(r"(^|\s)mpirun(?=\s)",
+                      lambda match: match.group(1) + "mpirun " + exports, command, count=1)
+    match = re.search(r"(--mpi-options?(?:=|\s+)(['\"]))", command)
+    if match:
+        return command[:match.end()] + exports + " " + command[match.end():]
+    return command
+
+
+def _allocated_devices(environment):
+    """Return the finite physical PPU list injected by the device plugin."""
+    value = environment.get("NVIDIA_VISIBLE_DEVICES", "").strip()
+    if not value or value.lower() in ("all", "void", "none"):
+        raise ValueError("PPU execution requires a finite NVIDIA_VISIBLE_DEVICES allocation")
+    devices = []
+    for item in value.split(","):
+        if not re.fullmatch(r"[0-9]+", item.strip()):
+            raise ValueError("NVIDIA_VISIBLE_DEVICES must contain comma-separated PPU indices")
+        device = int(item)
+        if device in devices:
+            raise ValueError("NVIDIA_VISIBLE_DEVICES contains duplicate PPU indices")
+        devices.append(device)
+    return devices
+
+
+def _map_case_devices(command, allocated):
+    """Map Case-local indices to the Pod's physical allocation and return the effective list."""
+    explicit = []
+
+    def remap(value):
+        selected = [int(item) for item in value.split(",")]
+        if len(set(selected)) != len(selected):
+            raise ValueError("Case device selection contains duplicate local indices")
+        if len(selected) > len(allocated):
+            raise ValueError(f"Case requires {len(selected)} PPUs but only {len(allocated)} were allocated")
+        if all(index < len(allocated) for index in selected):
+            return ",".join(str(allocated[index]) for index in selected)
+        return ",".join(str(allocated[position]) for position in range(len(selected)))
+
+    def replace(match):
+        mapped = remap(match.group(2))
+        explicit.append(mapped)
+        return match.group(1) + mapped
+
+    command = re.sub(r"(HGGC_VISIBLE_DEVICES=)([0-9]+(?:,[0-9]+)*)", replace, command)
+    command = re.sub(r"(--devices(?:=|\s+))([0-9]+(?:,[0-9]+)*)", replace, command)
+    if len(set(explicit)) > 1:
+        raise ValueError("Case contains conflicting HGGC_VISIBLE_DEVICES and --devices selections")
+    allocated_value = ",".join(str(device) for device in allocated)
+    return command, explicit[0] if explicit else allocated_value, allocated_value
+
+
+def _with_device_environment(command, devices):
+    """Forward the mapped PPU selection to local and remote MPI ranks."""
+    if re.search(r"-x HGGC_VISIBLE_DEVICES=", command):
+        return command
+    export = "-x HGGC_VISIBLE_DEVICES=" + devices
+    if re.search(r"(?:^|\s)mpirun(?=\s)", command):
+        return re.sub(r"(^|\s)mpirun(?=\s)",
+                      lambda match: match.group(1) + "mpirun " + export, command, count=1)
+    match = re.search(r"(--mpi-options?(?:=|\s+)(['\"]))", command)
+    if match:
+        return command[:match.end()] + export + " " + command[match.end():]
+    return command
+
+
 VARIABLE = re.compile(r"\$(?:\{([A-Za-z_][A-Za-z0-9_]*)\}|([A-Za-z_][A-Za-z0-9_]*))")
 PLACEHOLDER = re.compile(r"(?<!\$)\{([A-Za-z_][A-Za-z0-9_]*)\}")
 SAFE_BINDING = re.compile(r"[A-Za-z0-9_./:+%@^,=-]+\Z")
@@ -370,6 +445,8 @@ def run_case(case, runtime, interrupted):
                     "python_env": str(runtime["output"] / "python-env")}
         environment = _expand_environment(
             _environment_file(runtime["input"] / "envs" / suite["env"]), runtime["base_environment"], bindings)
+        environment["NCCL_IB_ADAPTIVE_ROUTING"] = "1"
+        environment["NCCL_IB_OOO_RQ"] = "1"
         # Keep the build ahead of inherited installations while retaining the
         # exported SDK path order after it.
         if suite["nodes"] > 1:
@@ -393,6 +470,13 @@ def run_case(case, runtime, interrupted):
             bindings["mpi_interface"] = interface
         command_bindings = {key: _command_binding(value) for key, value in bindings.items()}
         command = _substitute(case["cmd"], command_bindings)
+        if runtime["map_nvidia_devices"]:
+            allocated = _allocated_devices(environment)
+            command, effective, allocated_value = _map_case_devices(command, allocated)
+            environment["HGGC_VISIBLE_DEVICES"] = allocated_value
+            command = "HGGC_VISIBLE_DEVICES=" + allocated_value + " " + command
+            command = _with_device_environment(command, effective)
+        command = _with_ib_environment(command)
         _stage_work(work, runtime["runner_root"], runtime["binary_dir"], runtime["hostfile"])
         (directory / "command.txt").write_text(command + "\n", encoding="utf-8")
         popen_command = ["/bin/sh", "-c", command]
@@ -503,6 +587,29 @@ def _recover_multinode(case, runtime, row):
     return report["safe"]
 
 
+def _capture_dmesg(case, runtime):
+    """Best-effort kernel diagnostics beside a failed Case's raw log."""
+    suite = case["suite_spec"]
+    directory = runtime["output"] / case["plan"] / case["suite"] / case["name"]
+    if suite["nodes"] == 1:
+        captures = [("dmesg.log", ["dmesg"])]
+    else:
+        hosts = [line.split()[0] for line in Path(runtime["hostfile"]).read_text().splitlines()
+                 if line.split() and not line.split()[0].startswith("#")]
+        captures = [(f"dmesg-worker-{index}.log", ["cluster-ssh", host, "dmesg"])
+                    for index, host in enumerate(hosts)]
+    for filename, command in captures:
+        try:
+            result = subprocess.run(command, stdin=subprocess.DEVNULL, stdout=subprocess.PIPE,
+                                    stderr=subprocess.STDOUT, timeout=15, check=False)
+            content = result.stdout
+            if result.returncode:
+                content += f"\n[dmesg command exited {result.returncode}]\n".encode()
+        except (OSError, subprocess.TimeoutExpired) as error:
+            content = f"Unable to capture dmesg: {error}\n".encode()
+        (directory / filename).write_bytes(content)
+
+
 def _write_summary(output, rows):
     by_key = {(row["plan"], row["suite"], row["name"]): row for row in rows}
     if len(by_key) != len(rows):
@@ -518,7 +625,7 @@ def _write_summary(output, rows):
 
 
 def run_all(inputs, test_root, binary_dir, output, hostfile=None, base_environment=None, mpi_interface=None,
-            *, build_identity):
+            *, build_identity, map_nvidia_devices=False):
     test_root = Path(test_root).resolve()
     binary_dir = Path(binary_dir).resolve() if binary_dir else _runner_root(test_root) / "build"
     output = Path(output).resolve()
@@ -545,6 +652,7 @@ def run_all(inputs, test_root, binary_dir, output, hostfile=None, base_environme
                "output": output, "hostfile": hostfile, "input": inputs["directory"],
                "python_bin": _stage_interpreter(output), "mpi_interface": mpi_interface,
                "base_environment": dict(os.environ if base_environment is None else base_environment),
+               "map_nvidia_devices": map_nvidia_devices,
                "recovery_id": uuid.uuid4().hex}
     interrupted = [None]
 
@@ -564,9 +672,12 @@ def run_all(inputs, test_root, binary_dir, output, hostfile=None, base_environme
             rows.append(row)
             print(f'[{len(rows)}/{len(inputs["cases"])}] '
                   f'{case["plan"]}/{case["suite"]}/{case["name"]}: {row["status"]}', flush=True)
-            if row["status"] != "PASSED" and case["suite_spec"]["nodes"] > 1:
-                recovered = _recover_multinode(case, runtime, row)
-                if not recovered or row["status"] == "CANCELLED":
+            if row["status"] != "PASSED":
+                recovered = True
+                if case["suite_spec"]["nodes"] > 1:
+                    recovered = _recover_multinode(case, runtime, row)
+                _capture_dmesg(case, runtime)
+                if case["suite_spec"]["nodes"] > 1 and (not recovered or row["status"] == "CANCELLED"):
                     reason = "Stopped after multi-node recovery failure; remote process cleanup is not confirmed"
                     rows.extend(_not_run(remaining, reason) for _, remaining in ordered[len(rows):])
                     break
@@ -606,6 +717,8 @@ def main():
     parser.add_argument("--build-record", type=Path, help="Verified output_PROFILE.build.json from the restored archive")
     parser.add_argument("--pccl-revision", help="PCCL revision verified in the build record")
     parser.add_argument("--expected-sha256", help="Archive SHA-256 verified in the build record")
+    parser.add_argument("--map-nvidia-devices", action="store_true",
+                        help="Map Case device selections to the Pod's NVIDIA_VISIBLE_DEVICES allocation")
     parser.add_argument("--validate-only", action="store_true")
     args = parser.parse_args()
     try:
@@ -623,7 +736,8 @@ def main():
         build_identity = _verified_build_identity(
             inputs, args.build_record, args.pccl_revision, args.expected_sha256)
         rows = run_all(inputs, args.test_root, args.binary_dir, args.output, args.hostfile,
-                       mpi_interface=args.mpi_interface, build_identity=build_identity)
+                       mpi_interface=args.mpi_interface, build_identity=build_identity,
+                       map_nvidia_devices=args.map_nvidia_devices)
         return 0 if all(row["status"] == "PASSED" for row in rows) else 1
     except (OSError, ValueError, json.JSONDecodeError) as error:
         parser.error(str(error))

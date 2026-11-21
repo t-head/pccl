@@ -1,0 +1,59 @@
+{
+  "axes": {},
+  "bindings": {
+    "1": {
+      "plan": "pccl_810e_postsil_unit_test_single_node1_plan",
+      "suite": "postsil_unit_test_810e_single_node_suite"
+    }
+  },
+  "defaults": {
+    "case_name": "native_case",
+    "check": "exit_code"
+  },
+  "explicit_cases": [
+    {
+      "check": "exit_code",
+      "cmd": "NCCL_ALGO=Ring NCCL_PROTO=Simple build/collPcclUnitTest --coll_type=AllReduce --dtype=float --num_elems=8388608 --num_gpus=2 --num_iterations=2",
+      "name": "test_master_1_0_daily_collPcclUnitTest_algo_Ring_auto_detect_1_data_size_32MB_proto_Simple_run_type_ppu_umd_coll_type_AllReduce_dtype_float_num_elems_8388608_num_gpus_2_num_iterations_2",
+      "nodes": 1
+    },
+    {
+      "check": "exit_code",
+      "cmd": "HGGC_VISIBLE_DEVICES=0,3 build/hggcGraphUnitTest --num_threads=2 --test_config_file {test_root}/pccl/tests/unit_test/hggc_graph_test_configs/mixing_group_test.json",
+      "name": "test_master_1_0_daily_cudaGraphUnitTest_auto_detect_1_devices_0_3_num_threads_2_test_config_file___cuda_graph_test_configs_mixing_group_test_json",
+      "nodes": 1
+    }
+  ],
+  "family": "postsil_unit_test_810e_smoke",
+  "groups": [],
+  "layouts": {
+    "native": [
+      {
+        "name": "native",
+        "values": {}
+      }
+    ]
+  },
+  "profiles": {
+    "full": {
+      "include_explicit": true
+    },
+    "pr": {
+      "include_explicit": true
+    },
+    "smoke": {
+      "include_explicit": true
+    }
+  },
+  "provenance": {
+    "source_case_count": 2,
+    "source_revision": "21acb78cd9086e42d9cd1f78a8dc0205ee4823af",
+    "source_rows_sha256": "c3e024f2f5fa58461341cafda25bd66e42610513091f3be0432fb587eaaf83d5",
+    "source_selection": "two-card PR smoke",
+    "source_suites": [
+      "pccl_810e_postsil_unit_test_single_node1_plan/postsil_unit_test_810e_single_node_suite"
+    ],
+    "validation": "dedicated-810e-source-command-adaptation"
+  },
+  "schema_version": 2
+}

@@ -4,9 +4,12 @@ This path generates Case inputs in the public `pccl` repository at
 workflow prepare time. It uses only the Python standard library and the existing
 public CSV consumer; xtest and mmengine are neither installed nor imported.
 
-The fourteen Runner-backed daily definitions are published by the full source
-JSON exporter at source revision `80738685d8b2e2066223119594805e5255f4a8c8`.
-`test_lists/source-export.json` records their exact 8,899-Case, 34-Suite
+The original fourteen Runner-backed daily definitions were published by the
+full source JSON exporter at source revision
+`80738685d8b2e2066223119594805e5255f4a8c8`. The native unit family was captured
+at `cefc8624ec1a2b58bc54e76eedeefae90046d84f` and is identified separately in
+`source-export.json.additional_source_revisions`.
+`test_lists/source-export.json` records their exact 10,193-Case, 35-Suite
 real-Runner comparison and SHA-256 digests. CSV is not an input or output of
 that publication step.
 
@@ -17,6 +20,23 @@ that publication step.
 - `test_lists/postsil_daily_shm.json`: operation, algorithm, protocol, dtype,
   size, iteration and layout axes, producing 3,938 combinations plus two
   explicit special Cases.
+- `test_lists/postsil_unit_test_shm.json`: 1,252 direct `collPcclUnitTest`
+  combinations and 42 `hggcGraphUnitTest` configurations from the native unit
+  Suite, plus two smoke Cases. The graph names are explicitly normalized from
+  the source `cudaGraphUnitTest`/`cuda_graph_test_configs` spelling to the
+  public binary and directory names.
+  Source `--devices` lists are preserved through `HGGC_VISIBLE_DEVICES`;
+  `--auto-detect` is removed because public native binaries do not accept it.
+  Three `use_ext_kernel` configurations are explicitly excluded as unsupported.
+- `test_lists/postsil_unit_test_810e.json`: the dedicated 810E native unit
+  export with 1,252 `collPcclUnitTest` and 45 supported `hggcGraphUnitTest`
+  Cases. `test_lists/all_gather_unit_test_810e.json` adds three all_gather
+  configurations. `test_lists/postsil_unit_test_810e_smoke.json` selects one
+  collective and one graph Case for two-card PR validation.
+- `test_lists/source-export-810e.json`: dedicated 810E source revision,
+  per-family and combined row digests, and 346 explicit exclusions: 308
+  `p2pBandwidthLatencyTest`, 35 `alltoallvTest`, and three `use_ext_kernel`
+  configurations whose public binaries or options are unavailable.
 - `test_lists/pccl_fun_rdma_shm.json`: 4,090 multi-node combinations, including
   LL128, 4nics, host, socket and ibsplit variants.
 - `test_lists/register_test_shm.json` and
@@ -55,24 +75,51 @@ definitions also support their own more specific profiles and `--nodes` filter.
 The output must not already exist.
 
 The two-family example is a subset. The workflow's `full` selection
-passes all fourteen definitions to the same command.
+passes all fifteen definitions to the same command.
 
 ## Workflow datasets
 
 The workflow supports two `workflow_dispatch` choices:
 
-- `smoke`: two Cases in one execution group.
-- `full`: all 8,899 daily Cases in 34 Suites. The current
-  1/2/4/8-node resource policy selects 8,890 Cases in 25 groups and records
+- `smoke`: four Cases in one execution group, including one collective and one
+  graph native unit Case.
+- `full`: all 10,193 daily Cases in 35 Suites. The current
+  1/2/4/8-node resource policy selects 10,184 Cases in 28 groups and records
   only the 9 sixteen-node Cases as excluded. Two-rack Suites are isolated from
-  ordinary same-resource Suites and use `rack_policy=spread` with `rack_count=2`.
-  Ordinary multi-node groups use `rack_policy=same`, keeping every worker in one
-  automatically selected rack without binding a physical rack name.
+  ordinary same-resource Suites and use `rack_policy: spread` with
+  `rack_count: 2`. Ordinary M890P multi-node groups use `rack_policy: same`
+  for automatic same-rack placement. OAM-810E has no rack constraint.
+
+These counts describe the preserved M890P baseline. Daily preparation also
+applies `platforms/oam810e_eic.json` to the supported shared families and adds
+7,735 full-selection Cases. Combined dual-platform generation produces 17,928
+Cases, selects 17,919 in 55 groups, and retains each group's platform and
+`node_selector`. Dual-platform smoke has nine Cases in three groups, including
+one 810E collective and one graph native unit Case.
+
+The 810E allocation is derived from actual ranks per node rather than always
+requesting 16 cards. MPI rank counts are divided by the number of nodes; native
+`num_gpus` and graph `num_threads * num_gpus` values determine their allocation.
+Explicit graph device selections also reserve the span through the highest
+local index, so graph `devices 0,3` requests four cards and
+retains its topology instead of being compressed to two cards.
+Every 810E allocation is then rounded up to the next power of two, so only 1,
+2, 4, 8 or 16 cards are requested per node.
+Grouping separates different rank counts before applying the 500-Case shard
+limit. M890P keeps its existing 28 groups and allocation behavior.
+At execution on both M890P and 810E, Case-local device indices are mapped to the
+physical PPU list in
+`NVIDIA_VISIBLE_DEVICES`, including explicit `HGGC_VISIBLE_DEVICES` and
+`--devices` selections. The effective list is forwarded through MPI so parallel
+Pods cannot silently fall back to the same host device 0/1. Out-of-range
+selections fail before the benchmark starts. Valid local positions retain their
+topology; sparse selections such as `0,3` are mapped in command order to two
+allocated PPUs when only two cards were requested.
 
 The 22:00 Asia/Shanghai schedule selects `full`, which uses the same JSON
 generation path as manual dispatch. Monday-Thursday allows 1/2/4/8 nodes and
-selects 8,890 Cases in 25 groups with 9 exclusions. Friday allows 1/2/4/8/16
-nodes and selects all 8,899 Cases in 26 groups. Manual dispatch keeps the
+selects 10,184 Cases in 28 groups with 9 exclusions. Friday allows 1/2/4/8/16
+nodes and selects all 10,193 Cases in 29 groups. Manual dispatch keeps the
 weekday default unless `allowed_nodes` is explicitly overridden. No legacy
 daily CSV dataset remains.
 
@@ -81,6 +128,19 @@ Monday-Thursday schedule and 2,160 minutes (36 hours) for the Friday schedule.
 Manual dispatch uses `execution_timeout_minutes`, which defaults to 720 and can
 be set explicitly. The execute Job allows 30 additional minutes for setup and
 cleanup. Suite and Case timeouts are unchanged.
+
+Both dispatch choices accept an `hpn_sdk_url` override and install HPN SDK
+2.1.3 by default. The trusted URL is downloaded and installed once per worker
+before building or testing, including scheduled runs. Installation failure is
+fatal and never falls back to the image package. One run uses one URL.
+Signed URL query parameters and fragments are redacted from logs and reports.
+The image and HPN selection are common to M890P and 810E; they are not platform
+profile fields. The standard build artifact is shared by both platforms.
+
+Every executed Case inherits `NCCL_IB_ADAPTIVE_ROUTING=1` and
+`NCCL_IB_OOO_RQ=1`, including Cases with `NCCL_IB_DISABLE=1`. The executor
+forwards both settings through mpirun / `run_test.py` MPI options without
+duplicating settings already present in a shared family command.
 
 Each generated bundle contains `generation.json` with definition and Suite
 hashes, the selected profile, and the exact Case-key hash. The workflow copies
@@ -122,18 +182,26 @@ required report cannot pass silently.
 
 ## Validation boundary
 
-Tests compare every generated row with the source-export digests: all 8,899
-Cases and all 34 Suite definitions match,
+The performance workbook's `Metadata` sheet records the selected image and
+effective HPN SDK URL.
+
+Tests compare every generated row with the source-export digests: all 10,193
+Cases and all 35 Suite definitions match,
 including commands, checks, Suite resources, shared environments and explicit
 special Cases. Two legacy `device_api` Plan/Suite identities are explicitly
 normalized to the current source names; their 52 commands and resources remain
 unchanged. The existing grouping and public input consumer accept the generated
-bundle and reproduce the same 8,890 selected Cases, 25 groups and 9 resource
+bundle and reproduce the same 10,184 selected Cases, 28 groups and 9 resource
 exclusions.
 
 All current daily full Suites are covered, and no generated Python Case files
 are produced. Hardware validation is limited to explicitly filtered datasets;
 no unfiltered full hardware run has been started.
+
+The 308 `p2pBandwidthLatencyTest` combinations remain outside the reviewed
+PCCL daily scope. Three `use_ext_kernel` graph configurations are also skipped
+because the public graph binary does not implement that option. Both exclusions
+are recorded rather than generated.
 
 Workflow run `43585016370` consumed source-exported families during prepare,
 passed both single-node hardware Cases, retained source provenance in the

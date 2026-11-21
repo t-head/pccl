@@ -45,6 +45,7 @@ before selecting jobs. The supported layout is standard/one-node,
 standard/two-node and notsm/one-node, with `VALIDATION_CARDS` cards per node.
 Any exported Case outside that layout fails explicitly; it is never silently
 dropped by a node filter.
+
 `--hostfile` is required only when the selected profile contains multi-node
 Cases. `test_root` may either contain `run_test.py` directly or contain a
 `pccl-tests` checkout. Each Case gets a separate working directory with
@@ -63,7 +64,40 @@ Execution requires the build record that was validated with the restored
 archive. The executor checks its PCCL and runner revisions, build profile and
 archive SHA-256, then retains the identity as `build.json` beside the results.
 
+For every PPU platform in PR and daily workflows, `--map-nvidia-devices` maps
+Case-local `HGGC_VISIBLE_DEVICES`
+and `--devices` indices to the finite physical allocation injected in
+`NVIDIA_VISIBLE_DEVICES`. The executor exports the full allocation, forwards the
+effective selection through MPI, and rejects out-of-range indices before launch.
+Valid local positions retain their topology. Sparse selections that exceed the
+allocated list are mapped in command order, so `0,3` consumes two allocated
+PPUs rather than failing when only two cards were requested.
+This is required while RDMA workers remain privileged and can otherwise see all
+host PPUs. M890P currently requests whole nodes, while 810E can place several
+Pods on one node; both use the same mapping contract. Non-privileged workers
+were checked separately: PPU isolation works,
+but EIC RDMA device access currently fails.
+
+## HPN SDK selection
+
+`VALIDATION_IMAGE` selects the worker image. `HPN_SDK_URL` selects HPN SDK
+2.1.3 by default. The trusted HTTPS installer is downloaded and installed once
+on every allocated worker before building or testing, including pull-request,
+scheduled and manual runs. A manual `hpn_sdk_url` dispatch input overrides the
+default package. One run uses one URL; use separate runs to compare packages.
+The same image and effective HPN SDK selection apply to both hardware platforms.
+Download or installation failure stops the job and never falls back to the
+image-builtin package. The daily performance workbook records both the image
+and the effective URL in its `Metadata` sheet. URL query
+parameters and fragments are omitted from worker logs and workbook metadata so
+signed download credentials are not published.
+
 ## Result semantics
+
+Every Case inherits `NCCL_IB_ADAPTIVE_ROUTING=1` and `NCCL_IB_OOO_RQ=1`.
+The executor also forwards them through mpirun or `run_test.py` MPI options so
+remote ranks receive them. Injection is idempotent, applies to both platforms,
+and intentionally remains present when `NCCL_IB_DISABLE=1`.
 
 - `exit_code`: command success.
 - `validation_summary`: command success plus a successful validation summary.
@@ -77,8 +111,12 @@ archive SHA-256, then retains the identity as `build.json` beside the results.
   remaining Cases are marked `NOT_RUN`.
 
 `raw.log` is the unmodified diagnostic stream used for checks. Results and raw
-logs must remain in the private results area; this executor intentionally
-has no generic public-log redactor. Infrastructure remains responsible for
+logs remain in the private results area and are uploaded with the run's result
+artifact. Failed, timed out and cancelled Cases also save best-effort `dmesg`
+diagnostics beside the raw log: `dmesg.log` for one node and
+`dmesg-worker-N.log` for multiple nodes. Dmesg capture failures do not replace
+the Case result. This executor intentionally has no generic public-log
+redactor. Infrastructure remains responsible for
 node allocation and MPI/RDMA setup; the executor owns per-execution-group
 cgroup recovery on every worker.
 
@@ -110,16 +148,27 @@ result reconciliation, a final `always()` cleanup removes only this run's
 logs remain intact. Cache reuse is content-verified; file existence alone is
 never sufficient.
 
-## M890P daily execution
+## Dual-platform daily execution
 
-The `smoke` dataset generates two Cases from the op_perf and postsil families.
-The `full` dataset generates 8,899 standard Cases from 34 Suites, with
+The shared test-family JSON is combined with `platforms/m890p.json` or
+`platforms/oam810e_eic.json`. Image selection, HPN SDK selection and the
+standard build are shared. A platform profile owns only the node selector,
+card/rank layout, supported node counts and family-specific layout changes.
+The 810E profile requests `board-type=OAM-810E,nic-type=eic`; M890P keeps
+`board-type=ZW-M890P,nic-type=cx8`. Plan/Suite identities, execution groups,
+logs, reconciliation and performance coverage remain platform-specific.
+
+The M890P `smoke` selection generates four Cases from op_perf, postsil daily
+and native unit families. The dual-platform smoke dataset generates seven
+Cases in three groups: those four M890P Cases plus 810E single-node op_perf,
+two-node RDMA and two-node EIC. The M890P `full` dataset generates 10,196
+standard Cases from 35 Suites, with
 unsupported or out-of-scope source selections recorded in
 `test_lists/source-coverage.json`. The notsm daily profile is intentionally
 empty. Generated CSV is a temporary prepare artifact, not a maintained input.
 The Monday-Thursday 22:00 Asia/Shanghai schedule executes 1/2/4/8-node groups:
-8,890 Cases in 25 groups. Friday at the same time allows 1/2/4/8/16-node
-groups and selects all 8,899 Cases in 26 groups. Manual dispatch keeps the
+10,184 Cases in 28 groups. Friday at the same time allows 1/2/4/8/16-node
+groups and selects all 10,193 Cases in 29 groups. Manual dispatch keeps the
 weekday default unless `allowed_nodes` is explicitly overridden. Any excluded
 Cases remain in the export and are listed as `EXCLUDED_BY_POLICY` in
 `execution-coverage.json`, never as passed or skipped tests.
@@ -130,15 +179,43 @@ dispatch exposes `execution_timeout_minutes` with a default of 720; the execute
 Job adds 30 minutes for setup and cleanup. These workflow limits do not change
 the Suite or Case timeouts in the generated input.
 
-`group_cases.py` derives deterministic execution groups by profile, node count,
-cards per node, shared environment and cross-rack allocation, then splits large
+The 810E `full` conversion adds 7,735 selected Cases. The combined export has
+17,928 Cases and selects 17,919 Cases in 55 groups after the same 16-node
+M890P exclusions. This is generation coverage only, not a claim that the full
+hardware dataset has been executed.
+
+`generate_pr_cases.py` writes the reviewed 810E PR input under
+`minimal-csv-oam810e-eic`: 21 standard Cases (19 single-node and two two-node)
+and nine notsm Cases. Single-node coverage includes five two-rank op_perf
+collectives, the complete nine-Case sanity_register family in both standard
+and notsm, and two native unit smoke Cases. PR CI builds standard and notsm once, then runs both platforms with
+independent inputs, result directories and reconciliation. Every 810E PR Suite
+requests two cards per node, except the graph native Suite, which requests four
+to preserve its `devices 0,3` topology. Single-node PR jobs allocate the
+four-card maximum. Both two-node Cases use four ranks, two per node:
+EIC uses `-np 4 -npernode 2`, and RDMA uses `--ranks 4 --nprocs 2`. This PR-only
+layout does not change the 16-card daily profile.
+
+`group_cases.py` derives deterministic execution groups by platform, profile,
+node count, actual ranks per node, shared environment and cross-rack allocation, then splits large
 groups by `--max-cases`. The two-rack performance Suites are isolated from
-ordinary Suites and use `rack_policy=spread` with `rack_count=2` in
-`groups.json`. Every other multi-node execution uses `rack_policy=same`, which
-keeps all workers in one automatically selected rack without naming a rack.
-Single-node executions leave `rack_policy` empty.
+ordinary Suites use `rack_policy: spread` and `rack_count: 2` in `groups.json`.
+Every other M890P multi-node execution uses `rack_policy: same`, selecting one
+rack automatically without naming it. OAM-810E leaves rack placement
+unconstrained. Single-node executions do not set a rack policy.
+For 810E, the scheduler allocation is derived from each Case command instead of
+always requesting the full 16-card node. MPI ranks are divided by node count,
+while native `num_gpus` and graph `num_threads * num_gpus` are preserved. Cases
+with different per-node rank counts never share an allocation group.
+Allocations are rounded up to the next power of two, limiting 810E requests to
+1, 2, 4, 8 or 16 cards per node.
 There is no hand-maintained shard list. Optional `--nodes` and `--suite`
 arguments are debug filters, not shard definitions.
+Manual dispatch also accepts `cards_per_node` as an allocation-only debug
+override. It does not rewrite Case ranks or layouts; use it only with a
+compatible selection. For example, `nodes=2`, `cards_per_node=1`, and
+`suite=pccl_fun_rdma_810e_multi_nodes2_suite` runs the two-process 810E RDMA
+smoke on one card per node without changing the full 16-card profile.
 
 ```bash
 python3 -S -B tests/xtest/generate_cases.py \

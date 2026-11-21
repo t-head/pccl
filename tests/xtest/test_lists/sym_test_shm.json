@@ -93,6 +93,8 @@
   ],
   "profiles": {
     "full": {},
+    "pr": {"filters": {"operation": ["all_gather_perf"], "protocol": ["LDST"],
+                       "dtype": ["bf16"], "size": ["1020B"], "layout": ["devices_0_1"]}},
     "smoke": {"filters": {"operation": ["all_gather_perf"], "protocol": ["LDST"],
                           "dtype": ["bf16"], "size": ["1020B"], "layout": ["devices_0_1"]}}
   },

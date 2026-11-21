@@ -1,0 +1,43 @@
+{
+  "case_count": 1300,
+  "case_rows_sha256": "b62cf53a767fdb7cf0239b17e2247bb5d5f35210cbbd0e9c88e28866555af3ad",
+  "exclusions": [
+    {
+      "case_count": 35,
+      "reason": "Public build lacks alltoallvTest"
+    },
+    {
+      "case_count": 308,
+      "reason": "Public build lacks p2pBandwidthLatencyTest"
+    },
+    {
+      "case_count": 3,
+      "reason": "Public hggcGraphUnitTest lacks --use_ext_kernel"
+    }
+  ],
+  "families": [
+    {
+      "case_count": 1297,
+      "definition_sha256": "304bae9e19add6dc68e97c8ca469daab569da640f17dbc5d9fba6016c556a430",
+      "family": "postsil_unit_test_810e",
+      "source_rows_sha256": "2a93c7aedc8d0fea18f78c9185b8232776d89a9fa3b9b71abefd05fdd2fd0c96"
+    },
+    {
+      "case_count": 3,
+      "definition_sha256": "8bc0e4c1e82c8a40513993b4d55de10ab9399510dbe084687823321dc46d45af",
+      "family": "all_gather_unit_test_810e",
+      "source_rows_sha256": "e258882a5ad0d8001dba092e28ab7edf1b5ef81f77410c214a83ec1368edadcf"
+    },
+    {
+      "case_count": 2,
+      "definition_sha256": "5983613b9dd2acdbab66d0530a53d94a26bace6ebac32eccaa0633f5ddac5c53",
+      "family": "postsil_unit_test_810e_smoke",
+      "source_rows_sha256": "c3e024f2f5fa58461341cafda25bd66e42610513091f3be0432fb587eaaf83d5"
+    }
+  ],
+  "schema_version": 1,
+  "selection": "dedicated-810e-native-unit",
+  "source_revision": "21acb78cd9086e42d9cd1f78a8dc0205ee4823af",
+  "suite_count": 2,
+  "suites_sha256": "4956cb2b98d26dbbb105080db502392cb3e4242b084714d140034f6e98ab5778"
+}
