@@ -1,14 +1,14 @@
 {
   "classification": {
     "base_sha": "56406054982babf888a940019869f712309e968a",
-    "head_sha": "ca8d3301b64348549f67c4a8dded14fd659e1acf",
-    "input_fingerprint": "c68147fe837807ea6c47556410c67701b620fccade67253307297470331a6617",
+    "head_sha": "fca8cd2d848096aced3290c4ec06648344cf5523",
+    "input_fingerprint": "a5d76b6105b0f24c530e3cbc96d006d6357e3bbd7e0385418c875673200974db",
     "pr_number": 220,
     "proposal": {
       "modules": [
         "ci"
       ],
-      "reason": "The substantive change is a broad redesign of test/validation automation: dual-platform (M890P + OAM-810E) workflow matrices, case generation/grouping/profile logic, runner-side device mapping and failure diagnostics, HPN SDK installation controls, and reconciliation/reporting updates. The large added test-list artifacts and docs support this CI behavior shift rather than changing PCCL runtime modules."
+      "reason": "Main functional change is CI workflow and test-orchestration behavior: dual-platform (M890P/810E) case generation/grouping/execution, scheduler allocation and device-mapping in xtest runner paths, HPN SDK install controls, and reconciliation/report artifact handling. The large added test-list JSON files are CI dataset inputs (including patch_omitted files), not separate PCCL runtime module changes."
     }
   },
   "reviewers": {
