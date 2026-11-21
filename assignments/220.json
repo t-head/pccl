@@ -8,7 +8,7 @@
       "modules": [
         "ci"
       ],
-      "reason": "The substantive change is CI execution logic: dual-platform (M890P/OAM-810E) workflow inputs and matrices, generated case bundles/profiles, grouping/allocation policy, runner device mapping, HPN SDK installer controls, and reconciliation/reporting updates (including large added case-definition JSON files with omitted patches) plus corresponding CI docs/tests. No separate catalog module shows an independent runtime/feature-policy change."
+      "reason": "Main change is a broad overhaul of open-source test workflows and xtest tooling: dual-platform (M890P+OAM-810E) case generation/grouping/execution, CI resource allocation and rack policy handling, default/override HPN SDK installation in workflow runs, expanded CI artifacts/reporting, and corresponding CI test-list/test-harness updates (including large patch-omitted test-list JSONs under tests/xtest)."
     }
   },
   "reviewers": {
