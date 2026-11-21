@@ -1,14 +1,14 @@
 {
   "classification": {
     "base_sha": "8d1fff80b4f1c7c625f22ce835db16961fa9281f",
-    "head_sha": "59d2f46ff03edcf8a389e4f5bc7c339c20f4b6ce",
-    "input_fingerprint": "a8b47433a3cd22e24a47fb37415db2a10c78be29f8b4650cc7f4ab5fc69530ae",
+    "head_sha": "d1decd913c69fedb087ef8c0d7c9656eb2803d8a",
+    "input_fingerprint": "de591370525f6fe4ce0170ab34167eb3e24e4ea2cdda5ef8d92c85d23de6c7ee",
     "pr_number": 220,
     "proposal": {
       "modules": [
         "ci"
       ],
-      "reason": "The substantive change is in CI test orchestration: dual-platform workflow selection/matrices (M890P and OAM-810E), shared case generation/grouping/allocation logic, HPN SDK install controls, execution/reconciliation/reporting updates, and matching xtest data/tests. The build-script edits are support changes for CI artifact/test execution rather than a standalone build-system policy change."
+      "reason": "The substantive change is CI test-orchestration: dual-platform (M890P + OAM-810E) workflow execution, case generation/grouping/reconciliation/reporting, HPN SDK install handling, and expanded native-unit test coverage in workflow scripts and xtest assets. Build-script edits and large JSON test-list additions support this CI behavior rather than changing PCCL runtime modules."
     }
   },
   "reviewers": {
