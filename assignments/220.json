@@ -8,7 +8,7 @@
       "modules": [
         "ci"
       ],
-      "reason": "The substantive change is to CI test workflow execution: dual-platform (M890P+810E) case generation/grouping, runner allocation/device mapping, HPN SDK installation in workflow jobs, expanded native-unit test bundles (including patch_omitted case lists), and reconciliation/reporting updates. These are test orchestration and CI environment/runtime changes, not review-policy workflow automation or PCCL runtime module logic."
+      "reason": "Main change is CI/test-workflow orchestration: dual-platform (M890P+810E) case generation/grouping/execution, scheduler allocation/device mapping, HPN SDK install wiring, daily/source-sanity workflow updates, reconciliation/reporting/artifact behavior, and extensive xtest workflow-contract coverage. Build/script and docs edits are in support of this CI execution path rather than separate build-system or runtime module behavior."
     }
   },
   "reviewers": {
