@@ -2069,8 +2069,8 @@ static ncclResult_t ncclCommInitRankFunc(struct ncclAsyncJob* job_) {
   INFO(NCCL_ALLOC, "comm %p totally used %ldB %ldB(sharedRes) device memory splitShare %d nranks %d rank %d", comm, comm->devMemUsed, comm->sharedRes->devMemUsed, comm->config.splitShare, comm->nRanks, comm->rank);
   INFO(NCCL_ALLOC, "comm %p totally used %ldB %ldB(sharedRes) pinned memory splitShare %d nranks %d rank %d", comm, comm->pinnedMemUsed, comm->sharedRes->pinnedMemUsed, comm->config.splitShare, comm->nRanks, comm->rank);
 
-  // update communicator state
-  comm->initState = ncclSuccess;
+  // Publish initialized channel counters before the RAS monitor can read them.
+  __atomic_store_n(&comm->initState, ncclSuccess, __ATOMIC_RELEASE);
 
 exit:
   if (job->newcomm) {
@@ -2084,7 +2084,7 @@ fail:
   if (comm->okiSupport) NCCLCHECK(pcclOkiDestroyResources(comm));
 #endif
 
-  comm->initState = res;
+  __atomic_store_n(&comm->initState, res, __ATOMIC_RELEASE);
   goto exit;
 }
 
