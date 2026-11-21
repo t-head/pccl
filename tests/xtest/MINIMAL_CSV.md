@@ -66,15 +66,15 @@ archive SHA-256, then retains the identity as `build.json` beside the results.
 
 ## HPN SDK selection
 
-`VALIDATION_IMAGE` selects the worker image. `HPN_SDK_URL` is a single optional
-workflow-level input: empty retains the image-builtin HPN SDK, while a nonempty
-trusted HTTPS URL is downloaded and installed once on every allocated worker
-before building or testing. A manual `hpn_sdk_url` dispatch input overrides the
-workflow fallback. One run uses one URL; use separate runs to compare packages.
+`VALIDATION_IMAGE` selects the worker image. `HPN_SDK_URL` selects HPN SDK
+2.1.3 by default. The trusted HTTPS installer is downloaded and installed once
+on every allocated worker before building or testing, including pull-request,
+scheduled and manual runs. A manual `hpn_sdk_url` dispatch input overrides the
+default package. One run uses one URL; use separate runs to compare packages.
 The same image and effective HPN SDK selection apply to both hardware platforms.
 Download or installation failure stops the job and never falls back to the
 image-builtin package. The daily performance workbook records both the image
-and the effective URL (or `image-builtin`) in its `Metadata` sheet. URL query
+and the effective URL in its `Metadata` sheet. URL query
 parameters and fragments are omitted from worker logs and workbook metadata so
 signed download credentials are not published.
 

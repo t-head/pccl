@@ -270,11 +270,14 @@ class WorkflowContractTests(unittest.TestCase):
             with self.subTest(module=module):
                 self.assertIn(f"-p '{module}'", prepare)
 
-    def test_hpn_sdk_url_is_optional_and_connected_to_every_hardware_step(self):
+    def test_hpn_sdk_defaults_to_installation_and_reaches_every_hardware_step(self):
         daily = (ROOT / '.github/workflows/m890p-daily-full.yml').read_text(encoding='utf-8')
+        url = ('https://zone-ci.oss-cn-hangzhou.aliyuncs.com/hpn-sdk/2.1.3/'
+               'hpnsdk2.1.3-ubuntu2404-202611121836-x86_64.bin')
         for workflow in (self.text, daily):
             self.assertIn('hpn_sdk_url:', workflow)
-            self.assertIn("HPN_SDK_URL: ${{ inputs.hpn_sdk_url || '' }}", workflow)
+            self.assertIn(f'default: {url}', workflow)
+            self.assertIn("HPN_SDK_URL: ${{ inputs.hpn_sdk_url || '" + url + "' }}", workflow)
             self.assertEqual(workflow.count('scripts/install_hpn_sdk.sh'), 4)
         self.assertIn('--image "$VALIDATION_IMAGE"', daily)
         self.assertIn('--hpn-sdk-url "$HPN_SDK_URL"', daily)
