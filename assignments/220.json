@@ -1,14 +1,14 @@
 {
   "classification": {
     "base_sha": "abb6688b4b5419664e7bf13c2d9107bd7acafd89",
-    "head_sha": "b0f52902251ff6e322febdf0db5ae83c540432ed",
-    "input_fingerprint": "78bccd53de868deff1c984034ec78c202f016be7ec1f48097925debdf8569942",
+    "head_sha": "60165cc85da935d99599a660fc0f3cbe740d7f24",
+    "input_fingerprint": "e87811335daf54c6dce1578d3325208d8de31fb4f975647a446bf4a4109c375f",
     "pr_number": 220,
     "proposal": {
       "modules": [
         "ci"
       ],
-      "reason": "Main change is CI/test-workflow orchestration: dual-platform (M890P+810E) case generation/grouping/execution, scheduler allocation/device mapping, HPN SDK install wiring, daily/source-sanity workflow updates, reconciliation/reporting/artifact behavior, and extensive xtest workflow-contract coverage. Build/script and docs edits are in support of this CI execution path rather than separate build-system or runtime module behavior."
+      "reason": "The substantive change is CI execution logic: dual-platform (M890P/OAM-810E) workflow inputs and matrices, generated case bundles/profiles, grouping/allocation policy, runner device mapping, HPN SDK installer controls, and reconciliation/reporting updates (including large added case-definition JSON files with omitted patches) plus corresponding CI docs/tests. No separate catalog module shows an independent runtime/feature-policy change."
     }
   },
   "reviewers": {
