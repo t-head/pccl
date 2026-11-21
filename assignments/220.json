@@ -1,14 +1,14 @@
 {
   "classification": {
     "base_sha": "abb6688b4b5419664e7bf13c2d9107bd7acafd89",
-    "head_sha": "a779fcd95a0d8371b3efc88842a49f3c0031b04a",
-    "input_fingerprint": "5c7dcf7d1697aef4d6b1b5877f5f9afa857800d6068901380d51f956f4c2cd95",
+    "head_sha": "b0f52902251ff6e322febdf0db5ae83c540432ed",
+    "input_fingerprint": "78bccd53de868deff1c984034ec78c202f016be7ec1f48097925debdf8569942",
     "pr_number": 220,
     "proposal": {
       "modules": [
         "ci"
       ],
-      "reason": "Main functional change is a CI system overhaul: dual-platform (M890P + OAM-810E) workflow execution, shared/converted case generation and grouping, HPN SDK install controls, per-allocation device mapping, and result/report artifact handling. Other edits (docs, large generated test-list files with omitted patches, and test updates) support this CI behavior rather than introducing independent module-specific runtime changes."
+      "reason": "The substantive change is to CI test workflow execution: dual-platform (M890P+810E) case generation/grouping, runner allocation/device mapping, HPN SDK installation in workflow jobs, expanded native-unit test bundles (including patch_omitted case lists), and reconciliation/reporting updates. These are test orchestration and CI environment/runtime changes, not review-policy workflow automation or PCCL runtime module logic."
     }
   },
   "reviewers": {
