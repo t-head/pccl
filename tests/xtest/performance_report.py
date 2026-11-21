@@ -18,12 +18,26 @@ import json
 from pathlib import Path
 import re
 import shlex
+from urllib.parse import urlsplit, urlunsplit
 from zoneinfo import ZoneInfo
 
 import run_cases
+import platform_cases
 
 
 SCHEMA_VERSION = 1
+
+
+def public_hpn_sdk_url(url):
+    if not url:
+        return "image-builtin"
+    try:
+        parsed = urlsplit(url)
+    except ValueError:
+        return "invalid-url"
+    return urlunsplit((parsed.scheme, parsed.netloc.rsplit("@", 1)[-1], parsed.path, "", ""))
+
+
 OP_PERF_SUITES = {
     "op_perf_shm_single_node_suite",
     "op_perf_shm_multi_nodes2_suite",
@@ -36,10 +50,15 @@ OP_PERF_SUITES = {
     "op_perf_rdma_shm_multi_nodes2_suite",
     "op_perf_rdma_shm_multi_nodes4_suite",
     "op_perf_rdma_shm_multi_nodes8_suite",
+    "op_perf_810e_single_node_suite",
+    "op_perf_810e_multi_nodes2_suite",
+    "op_perf_eic_810e_multi_nodes2_suite",
+    "op_perf_rdma_810e_multi_nodes2_suite",
 }
 LOCAL_REGISTER_SUITES = {
     "local_register_perf_shm_single_node_suite",
     "local_register_perf_shm_multi_nodes2_suite",
+    "local_register_perf_810e_single_node_suite",
 }
 PLACEMENTS = ("out-of-place", "in-place")
 
@@ -326,10 +345,34 @@ def _recover_result(results_root, group_id, key):
 
 
 def collect_report(selection_path, groups_path, coverage_path, results_root, metadata,
-                   reconciliation_root):
+                   reconciliation_root, platform=None):
+    report_platform = platform
     manifest = _load_selection(selection_path)
     groups = json.loads(Path(groups_path).read_text(encoding="utf-8"))
     coverage = json.loads(Path(coverage_path).read_text(encoding="utf-8"))
+    if platform is not None:
+        if platform not in platform_cases.load_platforms():
+            raise ValueError(f"Unsupported report platform: {platform}")
+        manifest = {**manifest, "cases": [case for case in manifest["cases"]
+                                         if platform_cases.case_platform(case) == platform]}
+        report_groups = [group for group in groups if group.get("platform", "m890p") == platform]
+        exclusions = []
+        for record in coverage.get("exclusions", []):
+            keys = record.get("case_keys", [])
+            record_platform = record.get("platform") or (
+                platform_cases.case_platform(keys[0]) if keys else "m890p")
+            if record_platform == platform:
+                exclusions.append(record)
+        selected_count = sum(len(group["case_keys"]) for group in report_groups)
+        excluded_count = sum(record["case_count"] for record in exclusions)
+        coverage = {**coverage, "total_cases": selected_count + excluded_count,
+                    "selected_cases": selected_count, "excluded_cases": excluded_count,
+                    "exclusions": exclusions}
+    group_platforms = {group["id"]: group.get("platform", "m890p") for group in groups}
+    metadata = dict(metadata)
+    metadata["platforms"] = platform or ",".join(sorted(set(group_platforms.values())))
+    if platform is not None:
+        metadata["platform"] = platform
     results_root = Path(results_root)
     selected = {}
     for group in groups:
@@ -383,6 +426,15 @@ def collect_report(selection_path, groups_path, coverage_path, results_root, met
                 actual[key] = (group_id, record)
                 result_counts[record["status"]] += 1
 
+    if report_platform is not None:
+        # Inspect every group before narrowing totals and presentation. A Case
+        # copied into another platform's results must remain conflicting evidence.
+        report_group_ids = {group["id"] for group in report_groups}
+        selected = {key: group_id for key, group_id in selected.items()
+                    if group_id in report_group_ids}
+        planned_actual = {key: value for key, value in planned_actual.items() if key in selected}
+        result_counts = Counter(row["status"] for _, row in planned_actual.values())
+
     ordered_cases = sorted(selection.values(),
                            key=lambda case: (selected.get(_key(case), "zzz"), _key(case)))
     coverage_rows = []
@@ -394,6 +446,10 @@ def collect_report(selection_path, groups_path, coverage_path, results_root, met
         actual_result = actual.get(key)
         actual_group = actual_result[0] if actual_result is not None else None
         group_id = actual_group if actual_result is not None else planned_group
+        platform = report_platform or group_platforms.get(group_id)
+        if platform is None:
+            platform = platform_cases.case_platform(case)
+        topology = _topology(case) if platform == "m890p" else f"{platform}:{_topology(case)}"
         group_mismatch = actual_result is not None and actual_group != planned_group
         execution_status = actual_result[1]["status"] if actual_result else (
             "EXCLUDED" if group_id is None else "NO_RESULT")
@@ -402,7 +458,8 @@ def collect_report(selection_path, groups_path, coverage_path, results_root, met
         operation, dtype = _operation_dtype(case["cmd"])
         base = {
             "case_id": case_id, "group": group_id or "", "category": case["category"],
-            "nodes": case["nodes"], "ranks": _ranks(case), "topology": _topology(case),
+            "nodes": case["nodes"], "ranks": _ranks(case), "platform": platform,
+            "topology": topology,
             "path_config": _path_config(case), "operation": operation, "dtype": dtype,
             "execution_status": execution_status, "data_status": "NO_RESULT",
             "valid_out_of_place": 0, "missing_out_of_place": 0, "reason": reason,
@@ -445,7 +502,7 @@ def collect_report(selection_path, groups_path, coverage_path, results_root, met
                     for row in parsed["rows"]:
                         case_metrics.append({
                             "case_id": case_id, "group": group_id or "",
-                            "category": case["category"], "topology": _topology(case),
+                            "category": case["category"], "platform": platform, "topology": topology,
                             "path_config": _path_config(case), "operation": operation,
                             "dtype": row.get("type") or dtype,
                             "execution_status": execution_status, **row,
@@ -531,7 +588,7 @@ def write_workbook(report, output):
     output.parent.mkdir(parents=True, exist_ok=True)
     temporary = output.with_name(f".{output.name}.tmp.xlsx")
     workbook = xlsxwriter.Workbook(temporary)
-    workbook.set_properties({"title": "PCCL M890P daily performance report",
+    workbook.set_properties({"title": "PCCL daily performance report",
                              "author": "PCCL CI", "comments": "Generated from retained raw logs"})
     title = workbook.add_format({"font_name": "Microsoft YaHei", "font_size": 18, "bold": True,
                                  "font_color": "#17365D"})
@@ -561,7 +618,8 @@ def write_workbook(report, output):
         ws.set_column("A:A", 26)
         ws.set_column("B:H", 16)
         ws.set_column("I:J", 18)
-        ws.merge_range("A1:J1", "PCCL M890P daily 性能报告", title)
+        platform_label = {"m890p": "M890P", "oam810e_eic": "810E"}.get(metadata.get("platform"), "")
+        ws.merge_range("A1:J1", f"PCCL {platform_label + ' ' if platform_label else ''}daily 性能报告", title)
         ws.merge_range("A2:J2",
                        f"运行 {metadata.get('run_id', '')}；执行状态与性能数据完整性分开统计；未提供性能基线。",
                        subtitle)
@@ -621,7 +679,7 @@ def write_workbook(report, output):
             ws.set_landscape()
             ws.fit_to_pages(1, 0)
             ws.set_margins(0.25, 0.25, 0.4, 0.4)
-            ws.merge_range(0, 0, 0, len(metric_columns) - 1, f"PCCL M890P {topology}性能", title)
+            ws.merge_range(0, 0, 0, len(metric_columns) - 1, f"PCCL {topology}性能", title)
             ws.merge_range(1, 0, 1, len(metric_columns) - 1,
                            "当前值为原始日志中的 event_time；未提供同配置基线。", subtitle)
             _row(workbook, ws, 3, metric_columns, header)
@@ -666,14 +724,15 @@ def write_workbook(report, output):
         ws.set_column(2, 7, 22)
         ws.set_column(8, 17, 16)
 
-        coverage_columns = ["CaseID", "类别", "组", "节点数", "测试Ranks", "路径配置", "操作", "精度",
+        coverage_columns = ["CaseID", "平台", "类别", "组", "节点数", "测试Ranks", "路径配置", "操作", "精度",
                             "执行状态", "数据状态", "有效OO点数", "缺行数", "原因", "源Case名称",
                             "Plan", "Suite", "CSV检查类型", "命令模板", "原始日志SHA256", "构建SHA256"]
         ws = workbook.add_worksheet(_sheet_name("用例与覆盖", used_names))
         _row(workbook, ws, 0, coverage_columns, header)
         for index, case in enumerate(report["coverage"], 1):
             _row(workbook, ws, index,
-                 [case["case_id"], case["category"], case["group"], case["nodes"], case["ranks"],
+                 [case["case_id"], case["platform"], case["category"], case["group"],
+                  case["nodes"], case["ranks"],
                   case["path_config"], case["operation"], case["dtype"], case["execution_status"],
                   case["data_status"], case["valid_out_of_place"], case["missing_out_of_place"],
                   case["reason"], case["name"], case["plan"], case["suite"], case["check"], case["cmd"],
@@ -739,6 +798,10 @@ def main():
     report.add_argument("--dataset", required=True)
     report.add_argument("--source-revision", required=True)
     report.add_argument("--runner-revision", required=True)
+    report.add_argument("--image", default="")
+    report.add_argument("--hpn-sdk-url", default="")
+    report.add_argument("--platform", choices=sorted(platform_cases.load_platforms()),
+                        help="Only include this platform's performance, execution and coverage data")
     args = parser.parse_args()
     if args.command == "selection":
         manifest = write_selection(args.input, args.profile, args.output)
@@ -747,10 +810,11 @@ def main():
     metadata = {
         "run_id": args.run_id, "run_url": args.run_url, "dataset": args.dataset,
         "source_revision": args.source_revision, "runner_revision": args.runner_revision,
+        "image": args.image, "hpn_sdk_url": public_hpn_sdk_url(args.hpn_sdk_url),
         "generated_at": datetime.now(ZoneInfo("Asia/Shanghai")).isoformat(timespec="seconds"),
     }
     report_value = collect_report(args.selection, args.groups, args.coverage, args.results_root,
-                                  metadata, args.reconciliation_root)
+                                  metadata, args.reconciliation_root, platform=args.platform)
     write_workbook(report_value, args.output)
     print(json.dumps(report_value["summary"], ensure_ascii=False, sort_keys=True))
     return 0

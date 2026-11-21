@@ -19,12 +19,12 @@ ALL_FAMILIES = (
     "op_perf_shm", "postsil_daily_shm", "pccl_fun_rdma_shm", "register_test_shm",
     "sanity_m890p_register", "sym_test_shm", "f8_test_shm", "device_api_shm",
     "local_register_perf_shm", "symetric_perf_shm", "copyengine_perf_shm",
-    "op_perf_shm_2_rack", "op_perf_rdma_shm", "commabort_test_shm",
+    "op_perf_shm_2_rack", "op_perf_rdma_shm", "commabort_test_shm", "postsil_unit_test_shm",
 )
 FULL_INPUT = None
 SMOKE_INPUT = None
 SOURCE_COVERAGE = DEFINITIONS / 'source-coverage.json'
-FULL_WORKFLOW = ROOT / '.github/workflows/m890p-daily-full.yml'
+FULL_WORKFLOW = ROOT / '.github/workflows/pccl-daily-full.yml'
 BUILD_SCRIPT = ROOT / '.github/workflows/scripts/build.sh'
 RETRY_ACTION = ROOT / '.github/actions/download-artifact-retry/action.yml'
 
@@ -46,7 +46,7 @@ class DailySmokeTests(unittest.TestCase):
         FULL_INPUT = root / 'full'
         SMOKE_INPUT = root / 'smoke'
         generate_input(FULL_INPUT, 'full', ALL_FAMILIES)
-        generate_input(SMOKE_INPUT, 'smoke', ('op_perf_shm', 'postsil_daily_shm'))
+        generate_input(SMOKE_INPUT, 'smoke', ('op_perf_shm', 'postsil_daily_shm', 'postsil_unit_test_shm'))
 
     @classmethod
     def tearDownClass(cls):
@@ -54,8 +54,8 @@ class DailySmokeTests(unittest.TestCase):
 
     def test_full_daily_commands_cover_expected_suites_and_resources(self):
         selected = run_cases.load_inputs(FULL_INPUT, 'standard', nodes=1)
-        self.assertEqual(len(selected['cases']), 4565)
-        self.assertEqual(len({(row['plan'], row['suite']) for row in selected['cases']}), 11)
+        self.assertEqual(len(selected['cases']), 5859)
+        self.assertEqual(len({(row['plan'], row['suite']) for row in selected['cases']}), 12)
         cluster = run_cases.load_inputs(FULL_INPUT, 'standard', nodes=2)
         self.assertEqual(len(cluster['cases']), 1924)
         self.assertEqual(len({(row['plan'], row['suite']) for row in cluster['cases']}), 10)
@@ -102,7 +102,7 @@ class DailySmokeTests(unittest.TestCase):
         sanity = next(row for row in selected['cases'] if row['suite'] == 'sanity_m890p_register_suite')
         self.assertIn('--register 1', sanity['cmd'])
         self.assertEqual(sum(row['check'] == 'performance' for row in selected['cases']), 45)
-        self.assertEqual(sum(row['check'] == 'exit_code' for row in selected['cases']), 4520)
+        self.assertEqual(sum(row['check'] == 'exit_code' for row in selected['cases']), 5814)
         self.assertTrue(all(row['suite_spec']['nodes'] == 1 for row in selected['cases']))
         self.assertEqual({row['suite_spec']['timeout'] for row in selected['cases']}, {300, 3600, 7200})
 
@@ -131,21 +131,21 @@ class DailySmokeTests(unittest.TestCase):
 
     def test_full_export_is_runner_scoped_and_available_as_an_explicit_dataset(self):
         coverage = json.loads(SOURCE_COVERAGE.read_text())
-        self.assertEqual(coverage['selected_cases'], 8899)
-        self.assertEqual(coverage['skipped_cases'], 3391)
-        self.assertEqual(len(coverage['selected_suites']), 34)
+        self.assertEqual(coverage['selected_cases'], 10193)
+        self.assertEqual(coverage['skipped_cases'], 2097)
+        self.assertEqual(len(coverage['selected_suites']), 35)
         self.assertEqual(len(coverage['skipped_suites']), 10)
         skipped = {record['suite']: record['reasons'] for record in coverage['skipped_suites']}
         self.assertIn('outside PCCL scope', skipped['sailucx_test_shm_single_node_suite'][0])
         self.assertIn('outside PCCL scope', skipped['sailbandwidth_perf_shm_multi_nodes2_suite'][0])
         self.assertIn('PCCL composite_test binary', skipped['composite_test_shm_single_node_suite'][0])
-        expected = {1: 4565, 2: 1924, 4: 1691, 8: 710, 16: 9}
+        expected = {1: 5859, 2: 1924, 4: 1691, 8: 710, 16: 9}
         for nodes, count in expected.items():
             selected = run_cases.load_inputs(FULL_INPUT, 'standard', nodes=nodes)
             self.assertEqual(len(selected['cases']), count)
         with (FULL_INPUT / 'standard.csv').open(newline='') as stream:
             rows = list(csv.DictReader(stream))
-        self.assertEqual(len(rows), 8899)
+        self.assertEqual(len(rows), 10193)
         self.assertEqual(sum('pcclCommAbortTest' in row['cmd'] for row in rows), 16)
         self.assertFalse((ROOT / 'tests/xtest/daily-full-csv').exists())
         self.assertFalse((ROOT / 'tests/xtest/daily-minimal-csv').exists())
@@ -158,17 +158,17 @@ class DailySmokeTests(unittest.TestCase):
 
     def test_daily_resource_policy_excludes_only_16_nodes_exactly(self):
         plan = group_cases.build_plan(FULL_INPUT, 500, allowed_nodes=(1, 2, 4, 8))
-        self.assertEqual(sum(len(group['cases']) for group in plan['groups']), 8890)
-        self.assertEqual(len(plan['groups']), 25)
+        self.assertEqual(sum(len(group['cases']) for group in plan['groups']), 10184)
+        self.assertEqual(len(plan['groups']), 28)
         self.assertEqual({nodes: sum(len(group['cases']) for group in plan['groups']
                                      if group['nodes'] == nodes)
                           for nodes in (1, 2, 4, 8)},
-                         {1: 4565, 2: 1924, 4: 1691, 8: 710})
+                         {1: 5859, 2: 1924, 4: 1691, 8: 710})
         self.assertEqual([(record['nodes'], record['case_count']) for record in plan['exclusions']],
                          [(16, 9)])
         friday = group_cases.build_plan(FULL_INPUT, 500, allowed_nodes=(1, 2, 4, 8, 16))
-        self.assertEqual(sum(len(group['cases']) for group in friday['groups']), 8899)
-        self.assertEqual(len(friday['groups']), 26)
+        self.assertEqual(sum(len(group['cases']) for group in friday['groups']), 10193)
+        self.assertEqual(len(friday['groups']), 29)
         self.assertEqual(friday['exclusions'], [])
         self.assertEqual(next(group for group in friday['groups'] if group['nodes'] == 16)['rack_policy'],
                          'spread')
@@ -182,9 +182,9 @@ class DailySmokeTests(unittest.TestCase):
         selected = {(case['plan'], case['suite'], case['name'])
                     for group in plan['groups'] for case in group['cases']}
         excluded = {tuple(key) for key in sum((record['case_keys'] for record in plan['exclusions']), [])}
-        self.assertEqual(coverage['total_cases'], 8899)
+        self.assertEqual(coverage['total_cases'], 10193)
         self.assertEqual(coverage['excluded_cases'], 9)
-        self.assertEqual(len(selected | excluded), 8899)
+        self.assertEqual(len(selected | excluded), 10193)
         self.assertTrue(selected.isdisjoint(excluded))
         eight_nodes = group_cases.build_plan(FULL_INPUT, 500, nodes=8, allowed_nodes=(1, 2, 4, 8))
         self.assertEqual(sum(len(group['cases']) for group in eight_nodes['groups']), 710)
@@ -196,19 +196,46 @@ class DailySmokeTests(unittest.TestCase):
         oversized = group_cases.build_plan(FULL_INPUT, 25, allowed_nodes=(1, 2, 4, 8))
         self.assertGreater(len(oversized['groups']), 256)
 
-    def test_commabort_binary_is_built_into_the_existing_artifact(self):
+    def test_native_unit_binaries_are_built_into_the_existing_artifact(self):
         text = BUILD_SCRIPT.read_text()
-        self.assertIn('${COMM_ABORT_BUILD}/pcclCommAbortTest', text)
+        make_command = text.split('make -C ${source_home}/pccl/tests/unit_test/src', 1)[1].split(
+            'cp ${NATIVE_UNIT_BUILD}', 1)[0]
+        copy_command = 'cp ${NATIVE_UNIT_BUILD}' + text.split(
+            'cp ${NATIVE_UNIT_BUILD}', 1)[1].split('\n\necho', 1)[0]
+        for binary in ('collPcclUnitTest', 'hggcGraphUnitTest', 'pcclCommAbortTest'):
+            with self.subTest(binary=binary):
+                self.assertIn(f'${{NATIVE_UNIT_BUILD}}/{binary}', make_command)
+                self.assertIn(f'${{NATIVE_UNIT_BUILD}}/{binary}', copy_command)
         self.assertIn('PPU_ARCHS=ppu_10,ppu_15 MPI=1', text)
-        self.assertIn('cp ${COMM_ABORT_BUILD}/pcclCommAbortTest ${source_home}/pccl-tests/build/', text)
-        self.assertGreater(text.index('Build PCCL CommAbort test'), text.index('Build pccl-tests'))
+        self.assertIn('${source_home}/pccl-tests/build/', copy_command)
+        self.assertGreater(text.index('Build PCCL native unit tests'), text.index('Build pccl-tests'))
+        workflow = FULL_WORKFLOW.read_text()
+        for family in ('postsil_unit_test_810e', 'all_gather_unit_test_810e',
+                       'postsil_unit_test_810e_smoke'):
+            self.assertIn(f'--definition tests/xtest/test_lists/{family}.json', workflow)
+
+    def test_full_workflow_dispatch_inputs_are_nested(self):
+        dispatch = FULL_WORKFLOW.read_text().split("  workflow_dispatch:\n", 1)[1]
+        lines = dispatch.split("\npermissions:", 1)[0].splitlines()
+        self.assertEqual(lines[0], "    inputs:")
+        self.assertEqual([line.strip() for line in lines[1:]
+                          if line.startswith("      ") and not line.startswith("        ")],
+                         ["dataset:", "max_cases_per_group:", "nodes:", "allowed_nodes:",
+                          "execution_timeout_minutes:", "platform:", "suite:",
+                          "cards_per_node:", "hpn_sdk_url:"])
+        self.assertTrue(all(not line.strip() or line.startswith("      ")
+                            for line in lines[1:]))
 
     def test_full_workflow_is_grouped_daily_execution_not_a_pr_gate(self):
         text = FULL_WORKFLOW.read_text()
         self.assertIn('workflow_dispatch:', text)
-        self.assertIn('paths: [.github/workflows/m890p-daily-full.yml]', text)
+        self.assertIn('paths: [.github/workflows/pccl-daily-full.yml]', text)
         self.assertIn('options: [smoke, full]', text)
-        self.assertIn('smoke only supports nodes=1', text)
+        self.assertIn('description: Optional node-count debug filter', text)
+        self.assertIn('options: [all, m890p, oam810e_eic]', text)
+        self.assertIn("PLATFORM: ${{ inputs.platform || 'all' }}", text)
+        self.assertIn("list(bundles.values()) if platform == 'all' else [bundles[platform]]", text)
+        self.assertIn('description: Optional debug allocation override; Case rank/layout definitions are unchanged', text)
         self.assertNotIn('generated-smoke', text)
         self.assertNotIn('generated-full', text)
         self.assertNotIn('daily-full-csv', text)
@@ -231,7 +258,12 @@ class DailySmokeTests(unittest.TestCase):
         self.assertNotIn('max-parallel:', text)
         self.assertIn('fail-fast: false', text)
         self.assertIn('nnodes: ${{ matrix.nodes }}', text)
-        self.assertIn('nproc_per_node: ${{ matrix.cards_per_node }}', text)
+        self.assertEqual(text.count('nproc_per_node: ${{ matrix.effective_cards_per_node }}'), 3)
+        self.assertNotIn('inputs.cards_per_node || matrix.cards_per_node', text)
+        self.assertIn("CARDS_PER_NODE: ${{ format('{0}', inputs.cards_per_node) }}", text)
+        self.assertIn('allowed_nodes=allowed_nodes, cards_per_node=cards_per_node', text)
+        self.assertIn("'effective_cards_per_node': group['effective_cards_per_node']", text)
+        self.assertIn("(output / 'groups.json').write_text", text)
         self.assertEqual(text.count('--input "$CASE_INPUT/$GROUP_ID"'), 3)
         self.assertEqual(text.count('case_group_cache.py stage'), 3)
         self.assertIn('case_group_cache.py publish', text)
@@ -256,6 +288,9 @@ class DailySmokeTests(unittest.TestCase):
         self.assertNotIn('chmod -R a+rwX "$BUILD_CACHE"', text)
         self.assertIn('--preserve-cache', text)
         self.assertIn('id: results-upload', text)
+        self.assertIn('/results/**/raw.log', text)
+        self.assertIn('/results/**/dmesg*.log', text)
+        self.assertIn('if-no-files-found: warn', text)
         self.assertIn('id: performance-upload', text)
         self.assertIn('steps.results-upload.outcome', text)
         self.assertIn('steps.performance-upload.outcome', text)
@@ -311,10 +346,10 @@ class DailySmokeTests(unittest.TestCase):
         self.assertIn(action, cross)
         self.assertIn("if: env.NODES != '1' && env.CROSS_RACK != 'true'", ordinary)
         self.assertIn("if: env.NODES != '1' && env.CROSS_RACK == 'true'", cross)
-        self.assertIn('rack_policy: same', ordinary)
-        self.assertIn('rack_policy: spread', cross)
+        self.assertIn('rack_policy: ${{ matrix.rack_policy }}', ordinary)
+        self.assertIn('rack_policy: ${{ matrix.rack_policy }}', cross)
         self.assertIn('rack_count: ${{ matrix.rack_count }}', cross)
-        self.assertIn('node_selector: ${{ env.VALIDATION_NODE_SELECTOR }}', cross)
+        self.assertIn('node_selector: ${{ matrix.node_selector }}', cross)
         for section in (ordinary, cross):
             self.assertNotIn("cluster-ssh \"$host\" 'hostname'", section)
             self.assertNotIn('mpirun --allow-run-as-root', section)

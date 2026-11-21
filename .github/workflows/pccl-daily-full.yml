@@ -1,9 +1,9 @@
-name: M890P daily grouped execution
+name: PCCL dual-platform daily grouped execution
 
 on:
   push:
     branches: [ci/m890p-daily-csv]
-    paths: [.github/workflows/m890p-daily-full.yml]
+    paths: [.github/workflows/pccl-daily-full.yml]
   schedule:
     # GitHub cron is UTC: 14:00 UTC is 22:00 Asia/Shanghai (UTC+8).
     - cron: '0 14 * * 1-4'
@@ -11,7 +11,7 @@ on:
   workflow_dispatch:
     inputs:
       dataset:
-        description: JSON-generated selection; smoke has two single-node Cases, full has all families
+        description: Smoke has four M890P and five 810E Cases, including two-node coverage; full has all families
         required: true
         default: smoke
         type: choice
@@ -22,7 +22,7 @@ on:
         default: 500
         type: number
       nodes:
-        description: Optional full-selection node filter; smoke only supports nodes=1
+        description: Optional node-count debug filter
         required: false
         type: string
       allowed_nodes:
@@ -35,10 +35,25 @@ on:
         required: true
         type: number
         default: 720
+      platform:
+        description: Platform debug filter
+        required: true
+        default: all
+        type: choice
+        options: [all, m890p, oam810e_eic]
       suite:
         description: Optional exact Suite debug filter; empty selects every Suite
         required: false
         type: string
+      cards_per_node:
+        description: Optional debug allocation override; Case rank/layout definitions are unchanged
+        required: false
+        type: string
+      hpn_sdk_url:
+        description: Public trusted HTTPS HPN SDK installer URL; no credentials, query parameters or fragments
+        required: false
+        type: string
+        default: https://zone-ci.oss-cn-hangzhou.aliyuncs.com/hpn-sdk/2.1.3/hpnsdk2.1.3-ubuntu2404-202611121836-x86_64.bin
 
 permissions:
   contents: read
@@ -48,7 +63,9 @@ concurrency:
   cancel-in-progress: false
 
 env:
+  HPN_SDK_URL: https://zone-ci.oss-cn-hangzhou.aliyuncs.com/hpn-sdk/2.1.3/hpnsdk2.1.3-ubuntu2404-202611121836-x86_64.bin
   VALIDATION_IMAGE: download.t-head.cn/docker_release/ppu:sdk2.2.0-hggcrt3-ubuntu24.04-py312-20261005
+  # Install HPN SDK 2.1.3 by default; manual dispatch can select another trusted URL.
   VALIDATION_NODE_SELECTOR: board-type=ZW-M890P,nic-type=cx8
   VALIDATION_CARDS: '8'
   PCCL_TESTS_REVISION: 394556512e87259e9ffa25225632c46b0a0bbcd5
@@ -60,6 +77,7 @@ jobs:
     runs-on: ubuntu-24.04
     timeout-minutes: 20
     outputs:
+      hpn_sdk_url: ${{ steps.sdk-selection.outputs.hpn_sdk_url }}
       case_count: ${{ steps.selection.outputs.case_count }}
       excluded_case_count: ${{ steps.selection.outputs.excluded_case_count }}
       group_count: ${{ steps.selection.outputs.group_count }}
@@ -68,6 +86,24 @@ jobs:
       execution_timeout_minutes: ${{ steps.selection.outputs.execution_timeout_minutes }}
       execution_job_timeout_minutes: ${{ steps.selection.outputs.execution_job_timeout_minutes }}
     steps:
+      - id: sdk-selection
+        name: Select the public HPN SDK URL
+        uses: actions/github-script@v7
+        with:
+          script: |
+            const selected = context.payload.inputs?.hpn_sdk_url || process.env.HPN_SDK_URL;
+            try {
+              const parsed = new URL(selected);
+              if (parsed.protocol !== 'https:' ||
+                  parsed.hostname !== 'zone-ci.oss-cn-hangzhou.aliyuncs.com' ||
+                  !['', '443'].includes(parsed.port) || parsed.username || parsed.password ||
+                  !parsed.pathname.endsWith('.bin') || /[\s?#@]/.test(selected)) {
+                throw new Error('unsupported SDK URL');
+              }
+              core.setOutput('hpn_sdk_url', selected);
+            } catch {
+              core.setFailed('HPN SDK URL must be a public, credential-free HTTPS .bin URL on the trusted OSS host, without query parameters or fragments.');
+            }
       - uses: actions/checkout@v4
         with:
           path: pccl
@@ -85,10 +121,13 @@ jobs:
         name: Test contracts and validate the exact selection
         working-directory: pccl
         env:
+          HPN_SDK_URL: ${{ steps.sdk-selection.outputs.hpn_sdk_url }}
           DATASET: ${{ inputs.dataset || (github.event_name == 'schedule' && 'full' || 'smoke') }}
           MAX_CASES: ${{ inputs.max_cases_per_group || 500 }}
           NODES: ${{ inputs.nodes || '' }}
+          PLATFORM: ${{ inputs.platform || 'all' }}
           SUITE: ${{ inputs.suite || '' }}
+          CARDS_PER_NODE: ${{ format('{0}', inputs.cards_per_node) }}
           ALLOWED_NODES: ${{ inputs.allowed_nodes || (github.event.schedule == '0 14 * * 5' && '1,2,4,8,16' || '1,2,4,8') }}
           EXECUTION_TIMEOUT_MINUTES: ${{ env.REQUESTED_EXECUTION_TIMEOUT_MINUTES }}
         run: |
@@ -99,12 +138,16 @@ jobs:
           python3 -S -B -m unittest discover -s tests/xtest -p 'test_artifact_cache.py' -v
           python3 -S -B -m unittest discover -s tests/xtest -p 'test_download_artifact_retry.py' -v
           python3 -S -B -m unittest discover -s tests/xtest -p 'test_remote_recovery.py' -v
+          python3 -S -B -m unittest discover -s tests/xtest -p 'test_hpn_sdk.py' -v
           python3 -S -B -m unittest discover -s tests/xtest -p 'test_daily_smoke.py' -v
           python3 -S -B -m unittest discover -s tests/xtest -p 'test_daily_reconcile.py' -v
           python3 -S -B -m unittest discover -s tests/xtest -p 'test_generate_cases.py' -v
+          python3 -S -B -m unittest discover -s tests/xtest -p 'test_platform_cases.py' -v
+          python3 -S -B -m unittest discover -s tests/xtest -p 'test_export_810e_unit_cases.py' -v
           GENERATED_DEFINITIONS=(
             --definition tests/xtest/test_lists/op_perf_shm.json
             --definition tests/xtest/test_lists/postsil_daily_shm.json
+            --definition tests/xtest/test_lists/postsil_unit_test_shm.json
           )
           if [[ "$DATASET" == full ]]; then
             GENERATED_DEFINITIONS+=(
@@ -130,6 +173,36 @@ jobs:
             --source-revision '${{ github.sha }}' \
             --runner-revision '${{ env.PCCL_TESTS_REVISION }}' \
             --output generated-case-input
+          GENERATED_810E_DEFINITIONS=(
+            --definition tests/xtest/test_lists/op_perf_shm.json
+            --definition tests/xtest/test_lists/pccl_fun_rdma_shm.json
+            --definition tests/xtest/test_lists/postsil_unit_test_810e_smoke.json
+          )
+          if [[ "$DATASET" == full ]]; then
+            GENERATED_810E_DEFINITIONS+=(
+              --definition tests/xtest/test_lists/postsil_unit_test_810e.json
+              --definition tests/xtest/test_lists/all_gather_unit_test_810e.json
+              --definition tests/xtest/test_lists/postsil_daily_shm.json
+              --definition tests/xtest/test_lists/register_test_shm.json
+              --definition tests/xtest/test_lists/sanity_m890p_register.json
+              --definition tests/xtest/test_lists/sym_test_shm.json
+              --definition tests/xtest/test_lists/device_api_shm.json
+              --definition tests/xtest/test_lists/local_register_perf_shm.json
+              --definition tests/xtest/test_lists/symetric_perf_shm.json
+              --definition tests/xtest/test_lists/copyengine_perf_shm.json
+              --definition tests/xtest/test_lists/op_perf_rdma_shm.json
+              --definition tests/xtest/test_lists/commabort_test_shm.json
+            )
+          fi
+          python3 -S -B tests/xtest/generate_cases.py \
+            "${GENERATED_810E_DEFINITIONS[@]}" \
+            --suites tests/xtest/test_lists/suites.json \
+            --env-root tests/xtest/test_lists/envs \
+            --profile "$DATASET" \
+            --platform oam810e_eic \
+            --source-revision '${{ github.sha }}' \
+            --runner-revision '${{ env.PCCL_TESTS_REVISION }}' \
+            --output generated-case-input-oam810e-eic
           python3 -S -B - <<'PY'
           import hashlib
           import json
@@ -141,6 +214,7 @@ jobs:
 
           sys.path.insert(0, 'tests/xtest')
           import case_group_cache
+          import generate_cases
           import group_cases
           import performance_report
           import run_cases
@@ -152,13 +226,23 @@ jobs:
           execution_timeout_minutes = int(os.environ['EXECUTION_TIMEOUT_MINUTES'])
           if execution_timeout_minutes <= 0:
               raise ValueError('Execution timeout must be a positive integer')
-          input_directory = Path('generated-case-input')
+          m890p = generate_cases.load_bundle('generated-case-input')
+          eic = generate_cases.load_bundle('generated-case-input-oam810e-eic')
+          platform = os.environ['PLATFORM']
+          bundles = {'m890p': m890p, 'oam810e_eic': eic}
+          if platform not in ('all', *bundles):
+              raise ValueError('Unsupported daily platform')
+          combined = generate_cases.combine_bundles(
+              list(bundles.values()) if platform == 'all' else [bundles[platform]])
+          input_directory = Path('combined-case-input')
+          generate_cases.write_bundle(combined, input_directory, 'tests/xtest/test_lists/envs')
           nodes = int(os.environ['NODES']) if os.environ['NODES'] else None
           suite = os.environ['SUITE'] or None
+          cards_per_node = int(os.environ['CARDS_PER_NODE']) if os.environ['CARDS_PER_NODE'] else None
           allowed_nodes = {int(value) for value in os.environ['ALLOWED_NODES'].split(',')}
           plan = group_cases.build_plan(
               input_directory, int(os.environ['MAX_CASES']), nodes=nodes, suite=suite,
-              allowed_nodes=allowed_nodes)
+              allowed_nodes=allowed_nodes, cards_per_node=cards_per_node)
           group_cases.write_plan(plan, Path('case-groups'), input_directory)
           performance_report.write_selection(
               input_directory, 'standard', Path('case-groups/performance-cases.json'),
@@ -186,8 +270,7 @@ jobs:
               keys = [[case['plan'], case['suite'], case['name']] for case in selected['cases']]
               assert keys == group['case_keys']
               assert all(case['suite_spec']['nodes'] == group['nodes'] for case in selected['cases'])
-              assert {group_cases._rack_policy(case) for case in selected['cases']} == \
-                {(group['rack_policy'], group['rack_count'])}
+              assert {group_cases._rack_policy(case) for case in selected['cases']} == {(group['rack_policy'], group['rack_count'])}
               assert group['cross_rack'] is (group['rack_policy'] == 'spread')
               actual.extend(tuple(key) for key in keys)
           selected_keys = set(actual)
@@ -208,8 +291,9 @@ jobs:
           assert groups[0]['metadata']['runner_revision'] == revision
           assert subprocess.check_output(['git', 'rev-parse', 'HEAD'], text=True).strip() == os.environ['GITHUB_SHA']
           matrix = {'include': [
-              {key: group[key] for key in ('id', 'profile', 'nodes', 'cards_per_node', 'env',
-                                           'cross_rack', 'rack_policy', 'rack_count', 'case_count')}
+              {key: group[key] for key in ('id', 'profile', 'nodes', 'cards_per_node', 'effective_cards_per_node', 'env',
+                                           'cross_rack', 'rack_policy', 'rack_count', 'case_count',
+                                           'platform', 'node_selector')}
               for group in manifest
           ]}
           print(f'Selected {len(actual)} {dataset} Cases in {len(manifest)} automatic groups')
@@ -217,7 +301,8 @@ jobs:
                 f'{[(record["nodes"], record["case_count"]) for record in coverage["exclusions"]]}')
           for group in manifest:
               print(f'{group["id"]}: {group["case_count"]} Cases, {group["nodes"]} nodes, '
-                    f'{group["cards_per_node"]} cards/node, {group["env"]}')
+                    f'{group["cards_per_node"]} derived cards/node, '
+                    f'{group["effective_cards_per_node"]} requested cards/node, {group["env"]}')
           with open(os.environ['GITHUB_OUTPUT'], 'a') as output:
               output.write(f'case_count={len(actual)}\n')
               output.write(f'excluded_case_count={coverage["excluded_cases"]}\n')
@@ -264,6 +349,9 @@ jobs:
     if: needs.prepare.result == 'success'
     outputs:
       artifact_sha256: ${{ steps.identity.outputs.artifact_sha256 }}
+    env:
+      # The pinned scheduler automatically forwards job env through USER_ENV_JSON.
+      HPN_SDK_URL: ${{ needs.prepare.outputs.hpn_sdk_url }}
     runs-on: k8s-runner-group-cpu-thead
     container:
       image: ghcr.io/actions/actions-runner:latest
@@ -292,6 +380,8 @@ jobs:
           command: |
             set -euo pipefail
             cd /workspace/source
+            : "${HPN_SDK_URL:?Selected HPN SDK URL was not forwarded to this worker}"
+            bash pccl/.github/workflows/scripts/install_hpn_sdk.sh
             export source_home=/workspace/source
             export build_output=/workspace/source/output_standard
             STAGING=/mnt/wl_nas/devops/pccl-artifact-cache-${{ github.run_id }}/staging/standard
@@ -349,6 +439,7 @@ jobs:
     name: Stage standard from artifact or valid NAS cache
     needs: [prepare, build-standard]
     env:
+      HPN_SDK_URL: ${{ needs.prepare.outputs.hpn_sdk_url }}
       EXPECTED_SHA: ${{ needs.build-standard.outputs.artifact_sha256 }}
       EXPECTED_GROUPS_SHA: ${{ needs.prepare.outputs.groups_sha256 }}
     runs-on: k8s-runner-group-cpu-thead
@@ -435,12 +526,13 @@ jobs:
             --directory "$CACHE_DIR" --expected-sha256 '${{ env.EXPECTED_GROUPS_SHA }}'
 
   execute:
-    name: Run ${{ matrix.id }} on ${{ matrix.nodes }} node(s), ${{ matrix.case_count }} Cases
+    name: Run ${{ matrix.id }} on ${{ matrix.platform }}, ${{ matrix.nodes }} node(s), ${{ matrix.case_count }} Cases
     needs: [prepare, build-standard, stage-cache]
     strategy:
       fail-fast: false
       matrix: ${{ fromJSON(needs.prepare.outputs.groups) }}
     env:
+      HPN_SDK_URL: ${{ needs.prepare.outputs.hpn_sdk_url }}
       EXPECTED_SHA: ${{ needs.build-standard.outputs.artifact_sha256 }}
       EXPECTED_GROUPS_SHA: ${{ needs.prepare.outputs.groups_sha256 }}
       GROUP_ID: ${{ matrix.id }}
@@ -537,8 +629,8 @@ jobs:
         with:
           image: ${{ env.VALIDATION_IMAGE }}
           nnodes: 0
-          nproc_per_node: ${{ matrix.cards_per_node }}
-          node_selector: ${{ env.VALIDATION_NODE_SELECTOR }}
+          nproc_per_node: ${{ matrix.effective_cards_per_node }}
+          node_selector: ${{ matrix.node_selector }}
           namespace: ppu-sched
           timeout_minutes: ${{ env.EXECUTION_TIMEOUT_MINUTES }}
           cleanup_policy: always
@@ -550,6 +642,8 @@ jobs:
           command: |
             set -euo pipefail
             source /usr/local/PPU_SDK/envsetup.sh
+            : "${HPN_SDK_URL:?Selected HPN SDK URL was not forwarded to this worker}"
+            bash /workspace/source/pccl/.github/workflows/scripts/install_hpn_sdk.sh
             MPI_INTERFACE=$(awk '$2 == "00000000" {print $1; exit}' /proc/net/route)
             test -n "$MPI_INTERFACE"
             export HWLOC_COMPONENTS=-gl
@@ -625,6 +719,7 @@ jobs:
               "$build_output/pccl/tests/xtest/run_cases.py" \
               --input "$CASE_INPUT/$GROUP_ID" \
               --profile "$PROFILE" \
+              --map-nvidia-devices \
               --test-root "$build_output" \
               --binary-dir "$build_output/pccl-tests/build" \
               --mpi-interface "$MPI_INTERFACE" \
@@ -639,9 +734,9 @@ jobs:
           image: ${{ env.VALIDATION_IMAGE }}
           launch_mode: master
           nnodes: ${{ matrix.nodes }}
-          nproc_per_node: ${{ matrix.cards_per_node }}
-          rack_policy: same
-          node_selector: ${{ env.VALIDATION_NODE_SELECTOR }}
+          nproc_per_node: ${{ matrix.effective_cards_per_node }}
+          rack_policy: ${{ matrix.rack_policy }}
+          node_selector: ${{ matrix.node_selector }}
           namespace: ppu-sched
           timeout_minutes: ${{ env.EXECUTION_TIMEOUT_MINUTES }}
           cleanup_policy: always
@@ -653,6 +748,8 @@ jobs:
           setup_command: |
             set -euo pipefail
             source /usr/local/PPU_SDK/envsetup.sh
+            : "${HPN_SDK_URL:?Selected HPN SDK URL was not forwarded to this worker}"
+            bash /workspace/source/pccl/.github/workflows/scripts/install_hpn_sdk.sh
             MPI_INTERFACE=$(awk '$2 == "00000000" {print $1; exit}' /proc/net/route)
             test -n "$MPI_INTERFACE"
             export HWLOC_COMPONENTS=-gl
@@ -722,6 +819,7 @@ jobs:
               "$build_output/pccl/tests/xtest/run_cases.py" \
               --input "$CASE_INPUT/$GROUP_ID" \
               --profile "$PROFILE" \
+              --map-nvidia-devices \
               --test-root "$build_output" \
               --binary-dir "$build_output/pccl-tests/build" \
               --hostfile "$CLUSTER_HOSTS_FILE" \
@@ -737,10 +835,10 @@ jobs:
           image: ${{ env.VALIDATION_IMAGE }}
           launch_mode: master
           nnodes: ${{ matrix.nodes }}
-          nproc_per_node: ${{ matrix.cards_per_node }}
-          rack_policy: spread
+          nproc_per_node: ${{ matrix.effective_cards_per_node }}
+          rack_policy: ${{ matrix.rack_policy }}
           rack_count: ${{ matrix.rack_count }}
-          node_selector: ${{ env.VALIDATION_NODE_SELECTOR }}
+          node_selector: ${{ matrix.node_selector }}
           namespace: ppu-sched
           timeout_minutes: ${{ env.EXECUTION_TIMEOUT_MINUTES }}
           cleanup_policy: always
@@ -752,6 +850,8 @@ jobs:
           setup_command: |
             set -euo pipefail
             source /usr/local/PPU_SDK/envsetup.sh
+            : "${HPN_SDK_URL:?Selected HPN SDK URL was not forwarded to this worker}"
+            bash /workspace/source/pccl/.github/workflows/scripts/install_hpn_sdk.sh
             MPI_INTERFACE=$(awk '$2 == "00000000" {print $1; exit}' /proc/net/route)
             test -n "$MPI_INTERFACE"
             export HWLOC_COMPONENTS=-gl
@@ -821,6 +921,7 @@ jobs:
               "$build_output/pccl/tests/xtest/run_cases.py" \
               --input "$CASE_INPUT/$GROUP_ID" \
               --profile "$PROFILE" \
+              --map-nvidia-devices \
               --test-root "$build_output" \
               --binary-dir "$build_output/pccl-tests/build" \
               --hostfile "$CLUSTER_HOSTS_FILE" \
@@ -835,6 +936,7 @@ jobs:
     needs: [prepare, build-standard, stage-cache, execute]
     if: always()
     env:
+      HPN_SDK_URL: ${{ needs.prepare.outputs.hpn_sdk_url }}
       ALLOWED_NODES: ${{ inputs.allowed_nodes || (github.event.schedule == '0 14 * * 5' && '1,2,4,8,16' || '1,2,4,8') }}
     runs-on: k8s-runner-group-cpu-thead
     container:
@@ -903,6 +1005,7 @@ jobs:
           group_root = (Path('/wl_nas/devops/pccl-artifact-cache-${{ github.run_id }}') /
                         'cache/case-groups/${{ needs.prepare.outputs.groups_sha256 }}')
           groups = json.loads((group_root / 'groups.json').read_text())
+          (output / 'groups.json').write_text(json.dumps(groups, indent=2, sort_keys=True) + '\n')
           coverage = json.loads((group_root / 'execution-coverage.json').read_text())
           expected_allowed_nodes = {int(value) for value in os.environ['ALLOWED_NODES'].split(',')}
           if coverage['allowed_nodes'] != sorted(expected_allowed_nodes):
@@ -944,6 +1047,8 @@ jobs:
                   failed.append(group['id'])
               reports.append({
                   'id': group['id'], 'profile': group['profile'], 'nodes': group['nodes'],
+                  'cards_per_node': group['cards_per_node'],
+                  'effective_cards_per_node': group['effective_cards_per_node'],
                   'return_code': completed.returncode, 'reconciliation': report,
               })
               for status, count in (report or {}).get('counts', {}).items():
@@ -969,33 +1074,55 @@ jobs:
         if: always()
         with:
           name: m890p-daily-full-results
-          path: public-results/
-          if-no-files-found: error
+          path: |
+            public-results/
+            /wl_nas/devops/pccl-artifact-cache-${{ github.run_id }}/results/**/raw.log
+            /wl_nas/devops/pccl-artifact-cache-${{ github.run_id }}/results/**/dmesg*.log
+          if-no-files-found: warn
           overwrite: true
           retention-days: 90
       - id: performance-report
-        name: Generate the complete performance Excel report
+        name: Generate a performance Excel report for each selected platform
         if: always()
+        env:
+          REPORT_PLATFORM: ${{ inputs.platform || 'all' }}
         run: |
-          PYTHONPATH=deps/xlsxwriter-3.2.5-py3-none-any.whl \
-            python3 -S -B pccl/tests/xtest/performance_report.py report \
-            --selection /wl_nas/devops/pccl-artifact-cache-${{ github.run_id }}/cache/case-groups/${{ needs.prepare.outputs.groups_sha256 }}/performance-cases.json \
-            --groups /wl_nas/devops/pccl-artifact-cache-${{ github.run_id }}/cache/case-groups/${{ needs.prepare.outputs.groups_sha256 }}/groups.json \
-            --coverage /wl_nas/devops/pccl-artifact-cache-${{ github.run_id }}/cache/case-groups/${{ needs.prepare.outputs.groups_sha256 }}/execution-coverage.json \
-            --results-root /wl_nas/devops/pccl-artifact-cache-${{ github.run_id }}/results/full \
-            --reconciliation-root public-results \
-            --output public-results/PCCL_M890P_daily_perf_${{ github.run_id }}.xlsx \
-            --run-id '${{ github.run_id }}' \
-            --run-url '${{ github.server_url }}/${{ github.repository }}/actions/runs/${{ github.run_id }}' \
-            --dataset '${{ inputs.dataset || (github.event_name == 'schedule' && 'full' || 'smoke') }}' \
-            --source-revision '${{ github.sha }}' \
-            --runner-revision '${{ env.PCCL_TESTS_REVISION }}'
+          if [ "$REPORT_PLATFORM" = all ]; then
+            set -- m890p oam810e_eic
+          else
+            set -- "$REPORT_PLATFORM"
+          fi
+          status=0
+          for platform in "$@"; do
+            case "$platform" in
+              m890p) report_name=M890P ;;
+              oam810e_eic) report_name=810E ;;
+              *) echo "Unsupported report platform: $platform" >&2; exit 1 ;;
+            esac
+            PYTHONPATH=deps/xlsxwriter-3.2.5-py3-none-any.whl \
+              python3 -S -B pccl/tests/xtest/performance_report.py report \
+              --selection /wl_nas/devops/pccl-artifact-cache-${{ github.run_id }}/cache/case-groups/${{ needs.prepare.outputs.groups_sha256 }}/performance-cases.json \
+              --groups /wl_nas/devops/pccl-artifact-cache-${{ github.run_id }}/cache/case-groups/${{ needs.prepare.outputs.groups_sha256 }}/groups.json \
+              --coverage /wl_nas/devops/pccl-artifact-cache-${{ github.run_id }}/cache/case-groups/${{ needs.prepare.outputs.groups_sha256 }}/execution-coverage.json \
+              --results-root /wl_nas/devops/pccl-artifact-cache-${{ github.run_id }}/results/full \
+              --reconciliation-root public-results \
+              --platform "$platform" \
+              --output "public-results/PCCL_${report_name}_daily_perf_${{ github.run_id }}.xlsx" \
+              --run-id '${{ github.run_id }}' \
+              --run-url '${{ github.server_url }}/${{ github.repository }}/actions/runs/${{ github.run_id }}' \
+              --dataset '${{ inputs.dataset || (github.event_name == 'schedule' && 'full' || 'smoke') }}' \
+              --source-revision '${{ github.sha }}' \
+              --runner-revision '${{ env.PCCL_TESTS_REVISION }}' \
+              --image "$VALIDATION_IMAGE" \
+              --hpn-sdk-url "$HPN_SDK_URL" || status=1
+          done
+          exit "$status"
       - id: performance-upload
         uses: actions/upload-artifact@v4
         if: always()
         with:
-          name: m890p-daily-performance-report
-          path: public-results/PCCL_M890P_daily_perf_*.xlsx
+          name: pccl-daily-performance-report
+          path: public-results/PCCL_*_daily_perf_*.xlsx
           if-no-files-found: error
           overwrite: true
           retention-days: 90

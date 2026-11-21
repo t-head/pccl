@@ -12,7 +12,7 @@ PPU tests. `PCCL Tests Gate` reports the results of the required jobs.
 | File | Purpose |
 | --- | --- |
 | [source-sanity.yml](workflows/source-sanity.yml) | The sole PPU test pipeline and publisher of `PCCL Tests Gate`: PR prechecks and AI/human approval precede self-hosted builds, artifact-backed build distribution, one single-node job per profile, and one two-node job reusing the standard build. |
-| [m890p-daily-full.yml](workflows/m890p-daily-full.yml) | Experimental M890P daily smoke/full execution with automatic same-environment groups, artifact-backed build and Case-group distribution, and exact per-group reconciliation. Full execution selects 1/2/4/8-node groups and is not a PR gate. |
+| [pccl-daily-full.yml](workflows/pccl-daily-full.yml) | Experimental dual-platform M890P/810E daily smoke/full execution with automatic same-environment groups, artifact-backed build and Case-group distribution, and exact per-group reconciliation. Full execution selects 1/2/4/8-node groups and is not a PR gate. |
 | [workflows/scripts/](workflows/scripts/) | Build PCCL and the pinned public benchmark runner. |
 
 The daily workflow generates its inputs from JSON test families. Its only dataset names are

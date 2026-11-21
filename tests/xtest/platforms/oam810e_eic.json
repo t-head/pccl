@@ -1,0 +1,75 @@
+{
+  "schema_version": 1,
+  "name": "oam810e_eic",
+  "node_selector": "board-type=OAM-810E,nic-type=eic",
+  "cards_per_node": 16,
+  "allowed_nodes": [1, 2],
+  "plan_prefixes": ["pccl_810e", "sanity_810e"],
+  "rename": [
+    ["pccl_shm", "pccl_810e"],
+    ["sanity_m890p", "sanity_810e"],
+    ["_shm", "_810e"],
+    ["m890p", "810e"]
+  ],
+  "families": {
+    "postsil_unit_test_810e": {"nodes": [1]},
+    "postsil_unit_test_810e_smoke": {"nodes": [1]},
+    "all_gather_unit_test_810e": {"nodes": [1]},
+    "op_perf_shm": {
+      "nodes": [1],
+      "numeric": {
+        "ranks": {"8": 16, "16": 32, "32": 64, "64": 128},
+        "np": {"8": 16, "16": 32, "32": 64, "64": 128},
+        "npernode": {"8": 16}
+      }
+    },
+    "op_perf_810e_eic": {
+      "base_family": "op_perf_shm",
+      "nodes": [2],
+      "rename": [["op_perf", "op_perf_eic"]],
+      "numeric": {
+        "ranks": {"8": 16, "16": 32, "32": 64, "64": 128},
+        "np": {"8": 16, "16": 32, "32": 64, "64": 128},
+        "npernode": {"8": 16}
+      }
+    },
+    "op_perf_rdma_shm": {
+      "nodes": [2],
+      "numeric": {
+        "ranks": {"16": 32, "32": 64, "64": 128},
+        "np": {"16": 32, "32": 64, "64": 128},
+        "npernode": {"8": 16}
+      }
+    },
+    "postsil_daily_shm": {
+      "nodes": [1],
+      "numeric": {"ranks": {"8": 16}, "np": {"8": 16},
+                  "npernode": {"8": 16}}
+    },
+    "pccl_fun_rdma_shm": {"nodes": [2]},
+    "register_test_shm": {"nodes": [1, 2]},
+    "sanity_m890p_register": {"nodes": [1]},
+    "sym_test_shm": {
+      "nodes": [1],
+      "numeric": {"ranks": {"8": 16}, "nproc": {"8": 16}}
+    },
+    "device_api_shm": {
+      "nodes": [1, 2],
+      "numeric": {
+        "ranks": {"16": 32},
+        "npernode": {"8": 16},
+        "np": {"16": 32}
+      }
+    },
+    "local_register_perf_shm": {"nodes": [1]},
+    "symetric_perf_shm": {"nodes": [1]},
+    "copyengine_perf_shm": {"nodes": [1]},
+    "commabort_test_shm": {
+      "nodes": [1, 2],
+      "numeric": {
+        "np": {"2": 4, "4": 8},
+        "npernode": {"2": 4}
+      }
+    }
+  }
+}

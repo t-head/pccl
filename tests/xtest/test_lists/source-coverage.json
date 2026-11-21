@@ -1,5 +1,5 @@
 {
-  "selected_cases": 8899,
+  "selected_cases": 10193,
   "selected_suites": [
     {
       "cards_per_node": 8,
@@ -340,9 +340,19 @@
         "pccl_perf.MpiRegisterSingleRunner"
       ],
       "suite": "sanity_m890p_register_suite"
+    },
+    {
+      "cards_per_node": 8,
+      "cases": 1294,
+      "nodes": 1,
+      "plan": "pccl_shm_postsil_unit_test_single_node1_plan",
+      "runner_types": [
+        "pccl_perf.OpPerfSingleRunner"
+      ],
+      "suite": "postsil_unit_test_shm_single_node_suite"
     }
   ],
-  "skipped_cases": 3391,
+  "skipped_cases": 2097,
   "skipped_suites": [
     {
       "cards_per_node": 8,
@@ -382,19 +392,6 @@
         "pccl_perf.OpPerfSingleRunner"
       ],
       "suite": "postsil_no_tsm_shm_single_node_suite"
-    },
-    {
-      "cards_per_node": 8,
-      "cases": 1640,
-      "nodes": 1,
-      "plan": "pccl_shm_postsil_unit_test_single_node1_plan",
-      "reasons": [
-        "The public build does not provide unit_test.py and its native test binaries"
-      ],
-      "runner_types": [
-        "pccl_perf.OpPerfSingleRunner"
-      ],
-      "suite": "postsil_unit_test_shm_single_node_suite"
     },
     {
       "cards_per_node": 8,
@@ -473,6 +470,21 @@
         "pccl_perf.SailbandwidthPerfSingleRunner"
       ],
       "suite": "sailbandwidth_perf_shm_single_node_suite"
+    },
+    {
+      "cards_per_node": 8,
+      "cases": 346,
+      "nodes": 1,
+      "plan": "pccl_shm_postsil_unit_test_single_node1_plan",
+      "reasons": [
+        "308 p2pBandwidthLatencyTest combinations are outside the reviewed PCCL daily scope",
+        "35 alltoallvTest combinations are unavailable in the public build",
+        "3 use_ext_kernel configurations are unsupported by public hggcGraphUnitTest"
+      ],
+      "runner_types": [
+        "pccl_perf.OpPerfSingleRunner"
+      ],
+      "suite": "postsil_unit_test_shm_single_node_suite"
     }
   ]
 }
