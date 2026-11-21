@@ -1,8 +1,8 @@
 {
   "classification": {
     "base_sha": "56406054982babf888a940019869f712309e968a",
-    "head_sha": "daaf7010452cf25482423e6e74fd919fbb2c987b",
-    "input_fingerprint": "5137c0b681ce598018408b28f3bf720475a5478053d98049cdc934ea41d3af80",
+    "head_sha": "b0e38d3b4299775e5b86969630e383dae68885fa",
+    "input_fingerprint": "4bbb2b0a5627a0ab4cdba5e7a86701d89e9821add9e47a3784b345cc7d396486",
     "pr_number": 219,
     "proposal": {
       "modules": [
@@ -10,7 +10,7 @@
         "communicator",
         "enqueue"
       ],
-      "reason": "Primary change is communicator-level configuration controls: new config fields are parsed/validated/defaulted, overridden from env, stored on the communicator, and synchronized across ranks (including accepting nvlinkCentricSched without enabling scheduling behavior). Add enqueue because graphUsageMode now changes strong-stream acquire/release and capture handling plus P2P plan batching behavior/erroring in scheduling-to-plan. Add device-topology because P2P channel-per-peer computation and maxP2pPeers-driven channel tuning/capping are implemented in topology path/channel calculation logic."
+      "reason": "Main change is communicator configuration control: new config fields are validated, defaulted, env-overridden, stored, and synchronized across ranks. Enqueue also needs review because graphUsageMode changes strong-stream acquire/release and P2P plan batching/error behavior in host-side scheduling. Device-topology needs review because P2P per-peer/network channel computation now depends on nChannelsPerNetPeer/maxP2pPeers and argument-budget caps."
     }
   },
   "reviewers": {
