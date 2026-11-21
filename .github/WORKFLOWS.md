@@ -66,13 +66,12 @@ results permissions are not narrowed by this repair.
 
 ## Commit message previews
 
-Multi-commit PRs targeting `main` receive a proposed squash commit body, including
-issue references and signing trailers but no title. Publishing a fresh preview
-places it at the end of the conversation and removes older previews. Paste the
-body into the description field in GitHub's **Squash and merge** dialog and review
-the GitHub-filled title separately.
+Multi-commit PRs targeting `main`, including forks, receive a squash body preview
+when `PCCL Review Gate` passes for the current HEAD. Paste it into the **Squash and merge**
+description and check the title separately.
 
-For fork PRs, a Maintainer runs `PCCL Commit Message Preview` from `main` with `pr_number`.
+Previews update or disappear as the PR and approvals change; they do not mean CI or
+other merge checks have passed.
 
 | File | Purpose |
 | --- | --- |
@@ -84,13 +83,38 @@ For fork PRs, a Maintainer runs `PCCL Commit Message Preview` from `main` with `
 
 ## Reviewer assignment
 
-When a PR is ready for review or receives new changes, PCCL identifies the affected modules,
-assigns Reviewers by rotation within each module and invites the corresponding Maintainers.
-It keeps existing assignments and invites each person once across modules.
+When a PR is ready for review or updated, PCCL selects primary modules by ownership of
+the main changes, rotates Reviewers (skipping the author), and invites their Maintainers.
+The prompt requests one primary module for up to 500 added/deleted lines, or at most two
+above 500; scripts do not enforce this limit. Other affected modules appear in the PR
+comment for optional manual invitations, without required module approvals.
+
+Members with repository write access can add or remove required roles in a new PR comment:
+
+```text
+/review-module add memory
+/review-module add memory reviewer
+/review-module rm memory maintainer
+```
+
+Use `add|rm <module> [reviewer|maintainer]`; omitting the role means both.
+Explicit `both` is invalid. Commands invite the specified roles and require their approvals,
+subject to the usual author exemptions and Lead approval. Manual additions survive PR updates.
+Only the module Maintainer or Lead in the roster can use `rm` to override automatic requirements;
+these exclusions survive reclassification of the same HEAD but expire on a new commit.
+Other writers can remove only manual additions. `add` restores the selected roles.
+Edits and deletion of a command comment do not undo it; post a new command instead.
+Failed commands receive a `confused` reaction, not a reply; see the Actions summary and logs
+for the reason. A successful retry clears the bot's failure reaction.
+
+PCCL keeps eligible assignments, deduplicates invitations, and withdraws obsolete pending
+automated requests. It preserves manual requests and does not reinvite manually cancelled
+or already-reviewed accounts; automatically withdrawn requests can be sent again if needed.
 
 | File | Purpose |
 | --- | --- |
 | [reviewer-routing.yml](workflows/reviewer-routing.yml) | Coordinate module classification and review requests. |
+| [review-module.yml](workflows/review-module.yml) | Apply authorized module commands and refresh approvals after success. |
 | [Classification Skill](skills/pccl-review-assignment/SKILL.md) | Define how to identify the affected modules. |
 | [modules.json](skills/pccl-review-assignment/modules.json) | Define module scopes and the Reviewer and Maintainer roster. |
 | [review_automation.py](scripts/review_automation.py) | Classify changes, assign Reviewers and notify reviewers and Maintainers. |
@@ -99,15 +123,18 @@ It keeps existing assignments and invites each person once across modules.
 
 ## Module approval
 
-`PCCL Review Gate` checks that the Maintainers of the affected modules have approved the
-current commit. Authors are exempt from this check for modules they maintain. The Lead
-Maintainer can approve all modules on another author's PR.
+`PCCL Review Gate` requires valid approval of the current HEAD from each primary module's
+Maintainer and any non-author Reviewer in its roster. If the default Reviewer is unavailable,
+invite another from the same module. One approval counts for all roles and modules it covers.
 
-The gate checks existing approvals after the invitation run finishes, even if an invitation
-failed. It also refreshes whenever a review is submitted, edited or dismissed.
+- Maintainer authors are exempt for their own modules; Reviewer approval is waived only if no non-author candidate exists.
+- The Lead Maintainer can approve both roles for all modules on another author's PR. Other CI and merge checks still apply.
+
+The gate also requires manually added roles and refreshes after invitation runs,
+module commands and review changes.
 
 | File | Purpose |
 | --- | --- |
 | [maintainer-approval.yml](workflows/maintainer-approval.yml) | Run the module approval check and publish `PCCL Review Gate`. |
 | [review-event.yml](workflows/review-event.yml) | Trigger an approval refresh when a review changes. |
-| [maintainer_approval.py](scripts/maintainer_approval.py) | Evaluate module Maintainer approvals for the current commit. |
+| [maintainer_approval.py](scripts/maintainer_approval.py) | Evaluate same-module Reviewer and Maintainer approvals for the current commit. |

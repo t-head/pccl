@@ -87,7 +87,7 @@
     },
     "enqueue": {
       "name": "Runtime kernel planning and enqueue",
-      "description": "Shared host-side task queues, work batches, launch sequencing, streams, groups and graph capture/replay. Rank scheduling belongs to scheduling, CU/CE placement to dispatch, and symmetric-specific planning to symmetric.",
+      "description": "Host collective/P2P/RMA operation entry points and shared task queues, work batches, launch sequencing, streams, groups and graph capture/replay. Window contracts belong to device-api, rank scheduling to scheduling, CU/CE placement to dispatch, and symmetric-specific planning to symmetric.",
       "key_files": ["src/enqueue.cc", "src/group.cc", "src/misc/strongstream.cc"],
       "maintainer": {"login": "ctt284373", "id": 340404662},
       "reviewers": [
@@ -131,7 +131,7 @@
     },
     "scheduling": {
       "name": "AlltoAll and P2P scheduling",
-      "description": "Host-side AlltoAll/P2P rank pairing, send/receive rounds, ordering and rank-level batching. Device-side SendRecv execution belongs to kernels, CE/DMA transfer partitioning to copy-engine, and symmetric task planning to symmetric.",
+      "description": "Host-side AlltoAll/P2P rank pairing, send/receive rounds, ordering, rank-level batching, P2P channel budgets (defaults, limits and rounding), per-peer channel parallelism and logical channel mapping. Topology-informed P2P channel policies belong here; physical device/link discovery and path computation belong to device-topology. Device-side SendRecv execution belongs to kernels, CE/DMA transfer partitioning to copy-engine, and symmetric task planning to symmetric.",
       "key_files": ["src/init.cc", "src/enqueue.cc"],
       "maintainer": {"login": "honganlxh", "id": 335730053},
       "reviewers": [
@@ -162,7 +162,7 @@
     },
     "profiler": {
       "name": "Profiler and plugin",
-      "description": "Profiling event definitions, timing/trace instrumentation, profiler-plugin ABI/callbacks and inspector integration. Hang monitoring and failure diagnostics belong to ras.",
+      "description": "Profiling event types/descriptors, profiler-plugin ABI/callbacks, timing/trace behavior and inspector integration. Calls to existing instrumentation without changing its contract follow the calling feature. Hang monitoring and failure diagnostics belong to ras.",
       "key_files": ["src/include/profiler.h", "src/plugin/profiler.cc", "src/misc/asys_profiler.cc"],
       "maintainer": {"login": "levilee-lwl", "id": 340491409},
       "reviewers": [
@@ -183,7 +183,7 @@
     },
     "copy-engine": {
       "name": "Copy-engine operations",
-      "description": "Collective/P2P execution through CE/DMA: batch submission, transfer partitioning, queues, streams and completion synchronization, including OKI and P2P DMA. Symmetric collective kernel/CE path selection and its thresholds belong to symmetric.",
+      "description": "Collective/P2P/RMA execution through CE/DMA: batch submission, transfer partitioning, queues, streams and completion synchronization, including OKI and P2P DMA. Symmetric collective kernel/CE path selection and its thresholds belong to symmetric.",
       "key_files": ["src/ce_coll.cc", "src/ce_coll_oki.cc", "src/p2p_dma.cc"],
       "maintainer": {"login": "ck-milo", "id": 341349555},
       "reviewers": [
@@ -203,7 +203,7 @@
     },
     "device-api": {
       "name": "Device API and LSA",
-      "description": "Public device communicator, window and LSA APIs, their host/device implementation, pointer access, barriers and local bulk operations. GIN networking APIs belong to gin and CU/CE dispatch configuration to dispatch.",
+      "description": "Public device communicator, window and LSA APIs, their host/device implementation, pointer access, barriers and local bulk operations, including window contracts used by host RMA. Host operation entry points and enqueueing belong to enqueue, GIN networking APIs to gin, and CU/CE dispatch configuration to dispatch.",
       "key_files": ["src/dev_runtime.cc", "src/include/pccl_device/comm.h", "src/include/pccl_device/lsa_bulk.h"],
       "maintainer": {"login": "wensuyang", "id": 333277982},
       "reviewers": [
@@ -213,7 +213,7 @@
     },
     "gin": {
       "name": "GIN",
-      "description": "Device-initiated networking APIs, GIN connections/progress, registration, plugins and GIN-specific RDMA backends. Shared host-driven network transport belongs to network; generic device communicator/window/LSA semantics belong to device-api.",
+      "description": "Device-initiated networking APIs, GIN connections/progress, registration, plugins and GIN-specific RDMA backends, including host RMA proxies over GIN. Shared host-driven network transport belongs to network; generic device communicator/window/LSA semantics belong to device-api.",
       "key_files": ["src/gin/gin_host.cc", "src/plugin/gin.cc", "src/include/pccl_device/gin.h"],
       "maintainer": {"login": "snowdrift-zw", "id": 341341178},
       "reviewers": [
@@ -239,8 +239,7 @@
       "maintainer": {"login": "xuyinxin-xyx", "id": 333302477},
       "reviewers": [
         {"login": "xuyinxin-xyx", "id": 333302477}
-      ],
-      "author_review_exemption": 333302477
+      ]
     },
     "other": {
       "name": "Other changes",

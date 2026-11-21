@@ -1,0 +1,44 @@
+name: Update PCCL review modules
+run-name: "PCCL review modules for PR #${{ github.event.issue.number }}"
+
+on:
+  issue_comment:
+    types: [created]
+
+permissions: {}
+
+concurrency:
+  group: reviewers-${{ github.event.issue.number }}
+  queue: max
+  cancel-in-progress: false
+
+jobs:
+  command:
+    name: Update manual review modules
+    if: >-
+      github.repository == 't-head/pccl' &&
+      github.event.issue.pull_request &&
+      github.event.comment.user.type == 'User' &&
+      startsWith(github.event.comment.body, '/review-module')
+    runs-on: ubuntu-24.04
+    timeout-minutes: 5
+    concurrency:
+      group: reviewer-invitations
+      queue: max
+      cancel-in-progress: false
+    permissions:
+      contents: write
+      pull-requests: write
+      statuses: write
+      actions: write # Dispatch the approval refresh only after a successful command.
+    steps:
+      - uses: actions/checkout@d23441a48e516b6c34aea4fa41551a30e30af803 # v6
+        with:
+          ref: ${{ github.sha }}
+          persist-credentials: false
+      - name: Apply an authorized module command
+        env:
+          GITHUB_TOKEN: ${{ github.token }}
+          PR_NUMBER: ${{ github.event.issue.number }}
+          PYTHONUTF8: '1'
+        run: python3 .github/scripts/review_automation.py command

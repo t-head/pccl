@@ -8,7 +8,7 @@ STATE_BRANCH = "workflow/review"
 STATE_README = """# PCCL review assignments
 
 - rotation.json: last Reviewer ID per module.
-- assignments/<PR>.json: assigned reviewer IDs and the current module classification.
+- assignments/<PR>.json: reviewer IDs, classification and manual role commands with their latest comment IDs.
 
 Reviewer choices and rotation are committed together before new invitations. Retries reuse those choices.
 Only trusted reviewer-routing automation and authorized maintainers may write this branch. Maintain the roster
@@ -34,7 +34,7 @@ def read_state_file(api, revision, path, optional=False):
 
 def read_assignments(api, number):
     """Read both records at one revision; a missing branch starts the rotation."""
-    empty = {"reviewers": {}, "classification": None}
+    empty = {"reviewers": {}, "classification": None, "manual_modules": {}}
     try:
         revision = api.request("GET", f"/git/ref/heads/{STATE_BRANCH}")["object"]["sha"]
     except reviewer_api.GitHubError as error:
@@ -45,8 +45,23 @@ def read_assignments(api, number):
     record = read_state_file(api, revision, f"assignments/{number}.json", optional=True)
     if record is None:
         record = empty
-    elif not isinstance(record.get("reviewers"), dict) or not isinstance(record.get("classification"), dict):
+    elif (not isinstance(record.get("reviewers"), dict) or
+          (record.get("classification") is not None and not isinstance(record["classification"], dict))):
         raise ValueError("Invalid PR review state; repair workflow/review before retrying")
+    manual = record.get("manual_modules", {})
+    if not isinstance(manual, dict):
+        raise ValueError("Invalid manual module state")
+    for module, roles in manual.items():
+        if not re.fullmatch(r"[a-z][a-z0-9-]*", module) or not isinstance(roles, dict):
+            raise ValueError("Invalid manual module")
+        for role, command in roles.items():
+            if (role not in {"Reviewer", "Maintainer"} or not isinstance(command, dict) or
+                    set(command) not in ({"comment_id", "required"}, {"comment_id", "required", "excluded_head"}) or
+                    not reviewer_api.valid_user_id(command["comment_id"]) or type(command["required"]) is not bool):
+                raise ValueError("Invalid manual module command")
+            if "excluded_head" in command and (command["required"] or
+                    not isinstance(command["excluded_head"], str) or not command["excluded_head"]):
+                raise ValueError("Invalid manual module exclusion")
     for assignments in (latest, record["reviewers"]):
         if not isinstance(assignments, dict) or any(
                 not re.fullmatch(r"[a-z][a-z0-9-]*", module) or not reviewer_api.valid_user_id(reviewer)
@@ -59,7 +74,7 @@ def save_review_state(api, number, previous, record, latest, revision):
     if record == previous:
         return revision
     new_choices = {module: reviewer for module, reviewer in record["reviewers"].items()
-                   if module not in previous["reviewers"]}
+                   if previous["reviewers"].get(module) != reviewer}
     files = {f"assignments/{number}.json": record}
     if new_choices or not revision:
         files["rotation.json"] = {**latest, **new_choices}
