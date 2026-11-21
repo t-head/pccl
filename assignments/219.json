@@ -1,8 +1,8 @@
 {
   "classification": {
     "base_sha": "56406054982babf888a940019869f712309e968a",
-    "head_sha": "58d51e9dc99459f4aa13645088cbbc92e75c4c3b",
-    "input_fingerprint": "9985293ea729721967408904da03acae051f539098d7f06fc86db50aef054f3e",
+    "head_sha": "3922d66598f9583cbd2dfd14f1b142bfd42057c7",
+    "input_fingerprint": "cb2b750f49855592887cedc456292843815d0a36b672e9d3e7c0eaf2f00754d7",
     "pr_number": 219,
     "proposal": {
       "modules": [
@@ -10,7 +10,7 @@
         "communicator",
         "enqueue"
       ],
-      "reason": "Primary change is communicator configuration control: new config fields are validated/defaulted, overridden from env, stored on comm state, and synchronized across ranks (init.cc, comm.h). device-topology is independently substantive because P2P channel-per-peer computation now uses nChannelsPerNetPeer/maxP2pPeers policy in topology-based channel sizing (graph/paths.cc). enqueue is independently substantive because graphUsageMode now changes stream/graph-capture handling and P2P planning behavior during runtime enqueue/strongstream operations, beyond mechanical call-site updates."
+      "reason": "Primary change is communicator configuration control: new config attributes, validation/defaults, env overrides, and cross-rank propagation for nChannelsPerNetPeer/graphUsageMode/maxP2pPeers. Add enqueue for substantive strong-stream graph-capture/mixing behavior and P2P plan batching logic updates, and add device-topology for substantive topology/path-based P2P channel-per-peer computation and argument-budget capping in topo path logic."
     }
   },
   "reviewers": {
