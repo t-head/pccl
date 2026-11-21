@@ -10,7 +10,7 @@
         "communicator",
         "enqueue"
       ],
-      "reason": "Primary change is communicator configuration control: new fields are validated, defaulted, env-overridden, stored, and synchronized across ranks during communicator init. enqueue needs review because graphUsageMode materially changes strong-stream acquire/release and graph-capture mixing behavior (including warning paths). device-topology needs review because P2P channel-per-peer/path computation is substantively changed by nChannelsPerNetPeer and maxP2pPeers-driven channel tuning."
+      "reason": "Primary change is communicator configuration control: new config fields are validated/defaulted, overridden from env, stored on comm state, and synchronized across ranks (init.cc, comm.h). device-topology is independently substantive because P2P channel-per-peer computation now uses nChannelsPerNetPeer/maxP2pPeers policy in topology-based channel sizing (graph/paths.cc). enqueue is independently substantive because graphUsageMode now changes stream/graph-capture handling and P2P planning behavior during runtime enqueue/strongstream operations, beyond mechanical call-site updates."
     }
   },
   "reviewers": {
