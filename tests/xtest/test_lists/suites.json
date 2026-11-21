@@ -240,6 +240,11 @@
       "plan": "pccl_810e_device_api_gin_multi_node2_plan",
       "suite": "device_api_gin_810e_multi_nodes2_suite",
       "nodes": 2, "cards_per_node": 16, "timeout": 300, "env": "op_perf.env"
+    },
+    {
+      "plan": "pccl_shm_debug_no_info_local_register_perf_single_node1_plan",
+      "suite": "debug_m890p_failed_no_info_suite",
+      "nodes": 1, "cards_per_node": 8, "timeout": 300, "env": "debug_device_api_single_no_info.env"
     }
   ]
 }

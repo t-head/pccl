@@ -129,6 +129,7 @@ jobs:
           )
           if [[ "$DATASET" == full ]]; then
             GENERATED_DEFINITIONS+=(
+              --definition tests/xtest/test_lists/debug_m890p_failed_05.json
               --definition tests/xtest/test_lists/pccl_fun_rdma_shm.json
               --definition tests/xtest/test_lists/register_test_shm.json
               --definition tests/xtest/test_lists/sanity_m890p_register.json
