@@ -1,14 +1,14 @@
 {
   "classification": {
     "base_sha": "8d1fff80b4f1c7c625f22ce835db16961fa9281f",
-    "head_sha": "d1decd913c69fedb087ef8c0d7c9656eb2803d8a",
-    "input_fingerprint": "de591370525f6fe4ce0170ab34167eb3e24e4ea2cdda5ef8d92c85d23de6c7ee",
+    "head_sha": "c74549a6b7762717fc769dcf1b45c51d1e815561",
+    "input_fingerprint": "2bf2f17a17532eb116c5f330509b8fe2b419b3ab06315494cab8b552bf778d58",
     "pr_number": 220,
     "proposal": {
       "modules": [
         "ci"
       ],
-      "reason": "The substantive change is CI test-orchestration: dual-platform (M890P + OAM-810E) workflow execution, case generation/grouping/reconciliation/reporting, HPN SDK install handling, and expanded native-unit test coverage in workflow scripts and xtest assets. Build-script edits and large JSON test-list additions support this CI behavior rather than changing PCCL runtime modules."
+      "reason": "The PR is centered on CI execution behavior: dual-platform validation workflows, case generation/grouping logic, runner allocation/rack policy, SDK install handling, reconciliation/reporting, artifact/log capture, and matching xtest workflow-contract updates. These are substantive test workflow/orchestration changes, not reviewer-policy/workflow governance changes."
     }
   },
   "reviewers": {
