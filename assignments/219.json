@@ -1,8 +1,8 @@
 {
   "classification": {
     "base_sha": "56406054982babf888a940019869f712309e968a",
-    "head_sha": "3922d66598f9583cbd2dfd14f1b142bfd42057c7",
-    "input_fingerprint": "cb2b750f49855592887cedc456292843815d0a36b672e9d3e7c0eaf2f00754d7",
+    "head_sha": "86c06288f516093e4d38a402f6c6b3317e95b3e2",
+    "input_fingerprint": "1a83b5792f923a0d58715f7462ffd0a1789debfeed68edaaa541450fe238ea26",
     "pr_number": 219,
     "proposal": {
       "modules": [
@@ -10,7 +10,7 @@
         "communicator",
         "enqueue"
       ],
-      "reason": "Primary change is communicator configuration control: new config attributes, validation/defaults, env overrides, and cross-rank propagation for nChannelsPerNetPeer/graphUsageMode/maxP2pPeers. Add enqueue for substantive strong-stream graph-capture/mixing behavior and P2P plan batching logic updates, and add device-topology for substantive topology/path-based P2P channel-per-peer computation and argument-budget capping in topo path logic."
+      "reason": "Primary change is communicator-level configuration control: new config fields, validation/defaults, env overrides, and cross-rank propagation for nChannelsPerNetPeer/graphUsageMode/maxP2pPeers (plus nvlinkCentricSched storage). Add enqueue because runtime submission behavior changes in strong-stream graph/non-graph handling and P2P plan/channel batching logic. Add device-topology because src/graph/paths.cc now changes topology/path-based per-peer P2P channel derivation and applies max-peer/args-budget channel capping rules."
     }
   },
   "reviewers": {
