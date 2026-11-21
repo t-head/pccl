@@ -456,6 +456,7 @@ struct pcclComm {
   // Channels (per peer) for p2p
   int p2pnChannels;
   int p2pnChannelsPerPeer;
+  int p2pMaxPeers;
   int p2pSchedGroupSize;
   int p2pChannels[MAXCHANNELS];
   // Channel shuffle
@@ -585,6 +586,7 @@ struct pcclComm {
   ncclUserRedOp *userRedOps;
 
   pcclConfig_t config;
+  bool graphUsageModeWarned;
   // Next comm in this thread's active ncclGroup[Start|End](). Holds "0x1" when
   // this comm is not yet in a group.
   struct pcclComm* groupNext[ncclGroupTaskTypeNum];
