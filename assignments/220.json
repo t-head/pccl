@@ -1,14 +1,14 @@
 {
   "classification": {
     "base_sha": "56406054982babf888a940019869f712309e968a",
-    "head_sha": "861a7ce55629b7bcb1c031ec6534e2d0a7358a1d",
-    "input_fingerprint": "644810405a558ed8bbb3ea069271efd98c1662697de9cfcc367ee17b2d79e608",
+    "head_sha": "ca8d3301b64348549f67c4a8dded14fd659e1acf",
+    "input_fingerprint": "30c0c9d7e7816c834cd2269aa4b3583bfd5285dde98042b5c38ce8a10577d721",
     "pr_number": 220,
     "proposal": {
       "modules": [
         "ci"
       ],
-      "reason": "Main substantive change is in open-source test workflows and harness logic: dual-platform (M890P/810E) case generation/grouping/execution, HPN SDK install handling, device-allocation mapping in test runner, and CI reconciliation/reporting artifacts. Other edits are supporting tests/docs for that same CI behavior, not separate module policy or runtime feature ownership."
+      "reason": "The substantive change is a broad redesign of open-source test execution: dual-platform (M890P+810E) workflow orchestration, trusted HPN SDK install handling, platform-aware case generation/grouping, runner device-mapping and diagnostics capture, and expanded xtest definitions/manifests (including patch_omitted case-list data) plus matching CI docs/tests. These are CI workflow/runtime validation changes rather than contribution-policy workflow or PCCL runtime-module behavior changes."
     }
   },
   "reviewers": {
