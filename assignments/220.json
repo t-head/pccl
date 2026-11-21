@@ -1,14 +1,14 @@
 {
   "classification": {
     "base_sha": "8d1fff80b4f1c7c625f22ce835db16961fa9281f",
-    "head_sha": "b4d952b04156682afc2971bc297eb2cb7fde71e7",
-    "input_fingerprint": "1d3af338ae00caecdcbf3355d00e80f7045cfe7706f8bf8649d00443e6e6b844",
+    "head_sha": "b61f6bda5bb31d50590aa5e11251aff27f4928dc",
+    "input_fingerprint": "86e14335aa0d1c25b685916725c3764d8d9464c02f3654c086f4481d031ac95b",
     "pr_number": 220,
     "proposal": {
       "modules": [
         "ci"
       ],
-      "reason": "Main change is CI pipeline behavior: dual-platform (M890P + OAM-810E) test generation/execution, HPN SDK install/validation, platform-aware grouping/allocation, added native unit test families (including large patch_omitted case definitions), and expanded reconciliation/report/log artifact handling in workflow and xtest runner scripts."
+      "reason": "Main change is CI workflow/test-orchestration: dual-platform (M890P+810E) PR/daily execution, trusted HPN SDK installation flow, platform-aware case generation/grouping/reconciliation/reporting, and expanded xtest coverage. Added large test-list files (including patch_omitted entries) are tied to CI case inputs and validation data, with no evidence of production PCCL runtime/module behavior changes outside CI."
     }
   },
   "reviewers": {
