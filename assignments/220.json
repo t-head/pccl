@@ -1,14 +1,14 @@
 {
   "classification": {
     "base_sha": "8d1fff80b4f1c7c625f22ce835db16961fa9281f",
-    "head_sha": "c74549a6b7762717fc769dcf1b45c51d1e815561",
-    "input_fingerprint": "2bf2f17a17532eb116c5f330509b8fe2b419b3ab06315494cab8b552bf778d58",
+    "head_sha": "77a39eea43bb29300d494db8dfb36c54300ea892",
+    "input_fingerprint": "a0a1e645c9e3024eff5a5509a84f07cb5e016588f9c12dd1f7bdf3f0f2c0b578",
     "pr_number": 220,
     "proposal": {
       "modules": [
         "ci"
       ],
-      "reason": "The PR is centered on CI execution behavior: dual-platform validation workflows, case generation/grouping logic, runner allocation/rack policy, SDK install handling, reconciliation/reporting, artifact/log capture, and matching xtest workflow-contract updates. These are substantive test workflow/orchestration changes, not reviewer-policy/workflow governance changes."
+      "reason": "Primary change is CI workflow behavior: dual-platform (M890P + OAM-810E) case generation/selection/grouping, scheduler allocation/rack policy handling, HPN SDK install wiring and validation, run/reconcile/report artifact flow (including raw+dmesg logs), and corresponding xtest workflow-contract coverage. No independent review-policy/approval automation change is introduced."
     }
   },
   "reviewers": {
