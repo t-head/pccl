@@ -45,7 +45,8 @@ class CsvRunnerTests(unittest.TestCase):
             'print("arguments=" + repr(sys.argv[1:]))\n'
             'print("executable=" + sys.executable)\n'
             'print("version=" + ".".join(str(part) for part in sys.version_info[:2]))\n'
-            'print("marker=" + os.environ.get("TEST_MARKER", ""))\n', encoding='utf-8')
+            'print("marker=" + os.environ.get("TEST_MARKER", ""))\n'
+            'print("devices=" + os.environ.get("HGGC_VISIBLE_DEVICES", ""))\n', encoding='utf-8')
         (self.runner / 'run_test_config.py').write_text('# test fixture\n', encoding='utf-8')
         (self.input / 'export.json').write_text(json.dumps({
             'format_version': 1, 'source_revision': SOURCE, 'runner_revision': RUNNER,
@@ -76,17 +77,55 @@ class CsvRunnerTests(unittest.TestCase):
         self.write_csv(f'{profile}.csv', run_cases.CASE_FIELDS, rows)
         return run_cases.load_inputs(self.input, profile)
 
-    def execute(self, inputs, hostfile=None, mpi_interface=None, build_identity=None):
+    def execute(self, inputs, hostfile=None, mpi_interface=None, build_identity=None,
+                map_nvidia_devices=False, nvidia_devices=None):
         self.output_number += 1
         if build_identity is None:
             build_identity = {'schema_version': 1, 'pccl_revision': 'c' * 40,
                               'pccl_tests_revision': inputs['metadata']['runner_revision'],
                               'build_profile': inputs['profile'], 'artifact_sha256': 'd' * 64}
         with mock.patch.object(run_cases, '_capture_dmesg') as self.capture_dmesg:
+            environment = {'PATH': '/usr/bin:/bin', 'LD_LIBRARY_PATH': '', 'PPU_HOME': '/sdk'}
+            if nvidia_devices is not None:
+                environment['NVIDIA_VISIBLE_DEVICES'] = nvidia_devices
             return run_cases.run_all(
                 inputs, self.test_root, self.binary, self.root / f'output-{self.output_number}', hostfile,
-                {'PATH': '/usr/bin:/bin', 'LD_LIBRARY_PATH': '', 'PPU_HOME': '/sdk'},
-                mpi_interface=mpi_interface, build_identity=build_identity)
+                environment, mpi_interface=mpi_interface, build_identity=build_identity,
+                map_nvidia_devices=map_nvidia_devices)
+
+    def test_810e_device_allocation_is_mapped_and_forwarded(self):
+        inputs = self.inputs([
+            {'cmd': '/usr/bin/printenv HGGC_VISIBLE_DEVICES', 'name': 'default'},
+            {'cmd': 'HGGC_VISIBLE_DEVICES=0,3 /usr/bin/printenv HGGC_VISIBLE_DEVICES', 'name': 'inline'},
+            {'cmd': 'python run_test.py --devices 0,3', 'name': 'runner'},
+        ])
+        rows = self.execute(inputs, map_nvidia_devices=True, nvidia_devices='9,11,14,17')
+        self.assertEqual([row['status'] for row in rows], ['PASSED'] * 3)
+        self.assertEqual((self.root / 'output-1/plan/suite/default/raw.log').read_text().strip(), '9,11,14,17')
+        self.assertEqual((self.root / 'output-1/plan/suite/inline/raw.log').read_text().strip(), '9,17')
+        runner_log = (self.root / 'output-1/plan/suite/runner/raw.log').read_text()
+        self.assertIn("'--devices', '9,17'", runner_log)
+        self.assertIn('devices=9,11,14,17', runner_log)
+        mpi = run_cases._with_device_environment('mpirun -np 2 true', '9,17')
+        self.assertIn('mpirun -x HGGC_VISIBLE_DEVICES=9,17 -np 2', mpi)
+        quoted = run_cases._with_device_environment("python run_test.py --mpi-options='-np 2'", '9,17')
+        self.assertIn("--mpi-options='-x HGGC_VISIBLE_DEVICES=9,17 -np 2'", quoted)
+
+    def test_810e_device_allocation_rejects_invalid_or_out_of_range_selection(self):
+        with self.assertRaisesRegex(ValueError, 'finite'):
+            run_cases._allocated_devices({'NVIDIA_VISIBLE_DEVICES': 'all'})
+        with self.assertRaisesRegex(ValueError, 'duplicate'):
+            run_cases._allocated_devices({'NVIDIA_VISIBLE_DEVICES': '9,9'})
+        rows = self.execute(self.inputs([{'cmd': 'HGGC_VISIBLE_DEVICES=0,4 true'}]),
+                            map_nvidia_devices=True, nvidia_devices='9,11')
+        self.assertEqual(rows[0]['status'], 'FAILED')
+        self.assertIn('outside the allocated PPU list', rows[0]['error'])
+
+    def test_device_mapping_is_opt_in(self):
+        rows = self.execute(self.inputs([{'cmd': 'HGGC_VISIBLE_DEVICES=0,3 /usr/bin/printenv HGGC_VISIBLE_DEVICES'}]),
+                            nvidia_devices='9,11,14,17')
+        self.assertEqual(rows[0]['status'], 'PASSED')
+        self.assertEqual((self.root / 'output-1/plan/suite/case_0/raw.log').read_text().strip(), '0,3')
 
     def test_dmesg_is_captured_only_for_failed_cases(self):
         rows = self.execute(self.inputs([{'cmd': 'exit 1'}, {'cmd': 'true'}]))

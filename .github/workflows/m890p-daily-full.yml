@@ -688,6 +688,7 @@ jobs:
               "$build_output/pccl/tests/xtest/run_cases.py" \
               --input "$CASE_INPUT/$GROUP_ID" \
               --profile "$PROFILE" \
+              ${{ matrix.platform == 'oam810e_eic' && '--map-nvidia-devices' || '' }} \
               --test-root "$build_output" \
               --binary-dir "$build_output/pccl-tests/build" \
               --mpi-interface "$MPI_INTERFACE" \
@@ -786,6 +787,7 @@ jobs:
               "$build_output/pccl/tests/xtest/run_cases.py" \
               --input "$CASE_INPUT/$GROUP_ID" \
               --profile "$PROFILE" \
+              ${{ matrix.platform == 'oam810e_eic' && '--map-nvidia-devices' || '' }} \
               --test-root "$build_output" \
               --binary-dir "$build_output/pccl-tests/build" \
               --hostfile "$CLUSTER_HOSTS_FILE" \
@@ -886,6 +888,7 @@ jobs:
               "$build_output/pccl/tests/xtest/run_cases.py" \
               --input "$CASE_INPUT/$GROUP_ID" \
               --profile "$PROFILE" \
+              ${{ matrix.platform == 'oam810e_eic' && '--map-nvidia-devices' || '' }} \
               --test-root "$build_output" \
               --binary-dir "$build_output/pccl-tests/build" \
               --hostfile "$CLUSTER_HOSTS_FILE" \

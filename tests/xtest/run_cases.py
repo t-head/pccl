@@ -46,6 +46,64 @@ def _with_ib_environment(command):
     if match:
         return command[:match.end()] + exports + " " + command[match.end():]
     return command
+
+
+def _allocated_devices(environment):
+    """Return the finite physical PPU list injected by the device plugin."""
+    value = environment.get("NVIDIA_VISIBLE_DEVICES", "").strip()
+    if not value or value.lower() in ("all", "void", "none"):
+        raise ValueError("810E execution requires a finite NVIDIA_VISIBLE_DEVICES allocation")
+    devices = []
+    for item in value.split(","):
+        if not re.fullmatch(r"[0-9]+", item.strip()):
+            raise ValueError("NVIDIA_VISIBLE_DEVICES must contain comma-separated PPU indices")
+        device = int(item)
+        if device in devices:
+            raise ValueError("NVIDIA_VISIBLE_DEVICES contains duplicate PPU indices")
+        devices.append(device)
+    return devices
+
+
+def _map_case_devices(command, allocated):
+    """Map Case-local indices to the Pod's physical allocation and return the effective list."""
+    explicit = []
+
+    def remap(value):
+        mapped = []
+        for item in value.split(","):
+            index = int(item)
+            if index >= len(allocated):
+                raise ValueError(f"Case device index {index} is outside the allocated PPU list")
+            mapped.append(allocated[index])
+        return ",".join(str(device) for device in mapped)
+
+    def replace(match):
+        mapped = remap(match.group(2))
+        explicit.append(mapped)
+        return match.group(1) + mapped
+
+    command = re.sub(r"(HGGC_VISIBLE_DEVICES=)([0-9]+(?:,[0-9]+)*)", replace, command)
+    command = re.sub(r"(--devices(?:=|\s+))([0-9]+(?:,[0-9]+)*)", replace, command)
+    if len(set(explicit)) > 1:
+        raise ValueError("Case contains conflicting HGGC_VISIBLE_DEVICES and --devices selections")
+    allocated_value = ",".join(str(device) for device in allocated)
+    return command, explicit[0] if explicit else allocated_value, allocated_value
+
+
+def _with_device_environment(command, devices):
+    """Forward the mapped PPU selection to local and remote MPI ranks."""
+    if re.search(r"-x HGGC_VISIBLE_DEVICES=", command):
+        return command
+    export = "-x HGGC_VISIBLE_DEVICES=" + devices
+    if re.search(r"(?:^|\s)mpirun(?=\s)", command):
+        return re.sub(r"(^|\s)mpirun(?=\s)",
+                      lambda match: match.group(1) + "mpirun " + export, command, count=1)
+    match = re.search(r"(--mpi-options?(?:=|\s+)(['\"]))", command)
+    if match:
+        return command[:match.end()] + export + " " + command[match.end():]
+    return command
+
+
 VARIABLE = re.compile(r"\$(?:\{([A-Za-z_][A-Za-z0-9_]*)\}|([A-Za-z_][A-Za-z0-9_]*))")
 PLACEHOLDER = re.compile(r"(?<!\$)\{([A-Za-z_][A-Za-z0-9_]*)\}")
 SAFE_BINDING = re.compile(r"[A-Za-z0-9_./:+%@^,=-]+\Z")
@@ -410,7 +468,14 @@ def run_case(case, runtime, interrupted):
                 raise ValueError("This Case requires --mpi-interface with a valid interface name")
             bindings["mpi_interface"] = interface
         command_bindings = {key: _command_binding(value) for key, value in bindings.items()}
-        command = _substitute(_with_ib_environment(case["cmd"]), command_bindings)
+        command = _substitute(case["cmd"], command_bindings)
+        if runtime["map_nvidia_devices"]:
+            allocated = _allocated_devices(environment)
+            command, effective, allocated_value = _map_case_devices(command, allocated)
+            environment["HGGC_VISIBLE_DEVICES"] = allocated_value
+            command = "HGGC_VISIBLE_DEVICES=" + allocated_value + " " + command
+            command = _with_device_environment(command, effective)
+        command = _with_ib_environment(command)
         _stage_work(work, runtime["runner_root"], runtime["binary_dir"], runtime["hostfile"])
         (directory / "command.txt").write_text(command + "\n", encoding="utf-8")
         popen_command = ["/bin/sh", "-c", command]
@@ -559,7 +624,7 @@ def _write_summary(output, rows):
 
 
 def run_all(inputs, test_root, binary_dir, output, hostfile=None, base_environment=None, mpi_interface=None,
-            *, build_identity):
+            *, build_identity, map_nvidia_devices=False):
     test_root = Path(test_root).resolve()
     binary_dir = Path(binary_dir).resolve() if binary_dir else _runner_root(test_root) / "build"
     output = Path(output).resolve()
@@ -586,6 +651,7 @@ def run_all(inputs, test_root, binary_dir, output, hostfile=None, base_environme
                "output": output, "hostfile": hostfile, "input": inputs["directory"],
                "python_bin": _stage_interpreter(output), "mpi_interface": mpi_interface,
                "base_environment": dict(os.environ if base_environment is None else base_environment),
+               "map_nvidia_devices": map_nvidia_devices,
                "recovery_id": uuid.uuid4().hex}
     interrupted = [None]
 
@@ -650,6 +716,8 @@ def main():
     parser.add_argument("--build-record", type=Path, help="Verified output_PROFILE.build.json from the restored archive")
     parser.add_argument("--pccl-revision", help="PCCL revision verified in the build record")
     parser.add_argument("--expected-sha256", help="Archive SHA-256 verified in the build record")
+    parser.add_argument("--map-nvidia-devices", action="store_true",
+                        help="Map Case device selections to the Pod's NVIDIA_VISIBLE_DEVICES allocation")
     parser.add_argument("--validate-only", action="store_true")
     args = parser.parse_args()
     try:
@@ -667,7 +735,8 @@ def main():
         build_identity = _verified_build_identity(
             inputs, args.build_record, args.pccl_revision, args.expected_sha256)
         rows = run_all(inputs, args.test_root, args.binary_dir, args.output, args.hostfile,
-                       mpi_interface=args.mpi_interface, build_identity=build_identity)
+                       mpi_interface=args.mpi_interface, build_identity=build_identity,
+                       map_nvidia_devices=args.map_nvidia_devices)
         return 0 if all(row["status"] == "PASSED" for row in rows) else 1
     except (OSError, ValueError, json.JSONDecodeError) as error:
         parser.error(str(error))

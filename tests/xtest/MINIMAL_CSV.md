@@ -64,6 +64,14 @@ Execution requires the build record that was validated with the restored
 archive. The executor checks its PCCL and runner revisions, build profile and
 archive SHA-256, then retains the identity as `build.json` beside the results.
 
+For 810E workers, `--map-nvidia-devices` maps Case-local `HGGC_VISIBLE_DEVICES`
+and `--devices` indices to the finite physical allocation injected in
+`NVIDIA_VISIBLE_DEVICES`. The executor exports the full allocation, forwards the
+effective selection through MPI, and rejects out-of-range indices before launch.
+This is required while RDMA workers remain privileged and can otherwise see all
+host PPUs. Non-privileged workers were checked separately: PPU isolation works,
+but EIC RDMA device access currently fails.
+
 ## HPN SDK selection
 
 `VALIDATION_IMAGE` selects the worker image. `HPN_SDK_URL` selects HPN SDK

@@ -102,6 +102,11 @@ requesting 16 cards. MPI rank counts are divided by the number of nodes; native
 `num_gpus` and graph `num_threads * num_gpus` values determine their allocation.
 Grouping separates different rank counts before applying the 500-Case shard
 limit. M890P keeps its existing 28 groups and allocation behavior.
+At execution, Case-local device indices are mapped to the physical PPU list in
+`NVIDIA_VISIBLE_DEVICES`, including explicit `HGGC_VISIBLE_DEVICES` and
+`--devices` selections. The effective list is forwarded through MPI so parallel
+Pods cannot silently fall back to the same host device 0/1. Out-of-range
+selections fail before the benchmark starts.
 
 The 22:00 Asia/Shanghai schedule selects `full`, which uses the same JSON
 generation path as manual dispatch. Monday-Thursday allows 1/2/4/8 nodes and

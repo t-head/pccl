@@ -65,6 +65,12 @@ class WorkflowContractTests(unittest.TestCase):
         self.assertNotIn('platform: oam810e_eic, cards_per_node: 16', self.text)
         self.assertIn("--cards-per-node '2'", self.text)
 
+    def test_810e_device_mapping_is_connected_to_daily_and_sanity_executors(self):
+        daily = (ROOT / '.github/workflows/m890p-daily-full.yml').read_text(encoding='utf-8')
+        mapping = "${{ matrix.platform == 'oam810e_eic' && '--map-nvidia-devices' || '' }}"
+        self.assertEqual(self.text.count(mapping), 2)
+        self.assertEqual(daily.count(mapping), 3)
+
     def results_eligible(self, needs, event='pull_request', repository='t-head/pccl',
                          head_repository='t-head/pccl', job='results'):
         condition = re.search(r'^    if: >-\n((?:      .+\n)+)', self.job(job), re.M).group(1)
