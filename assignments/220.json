@@ -2,13 +2,13 @@
   "classification": {
     "base_sha": "56406054982babf888a940019869f712309e968a",
     "head_sha": "667fa00844e868dfe3f0459b15ba4fb19ba7c1c0",
-    "input_fingerprint": "8a6f92a1375bc7a951bf84d11bf6783f7d5e209f644f2c1a2cb2304bba318f64",
+    "input_fingerprint": "2456976e4b638fb80c6f492fea7125d454fbfb27065afdc52b2bc401e9e58a34",
     "pr_number": 220,
     "proposal": {
       "modules": [
         "ci"
       ],
-      "reason": "Primary change is a substantive overhaul of open-source validation workflows and test orchestration: dual-platform (M890P/810E) job matrices, case generation/grouping/platform profiles, runtime execution behavior (device mapping, IB env propagation, dmesg capture), HPN SDK install handling, reconciliation/reporting metadata, and large CI test-family dataset additions (including patch_omitted JSON case lists). These are CI system behavior changes, not contributor/reviewer policy or production PCCL module logic."
+      "reason": "The substantive change is a CI workflow/test-orchestration overhaul: dual-platform (M890P+OAM-810E) case generation and grouping, scheduler allocation/rack policy updates, HPN SDK install and validation plumbing, device-mapping/runtime log capture, and expanded xtest manifests/tests (including large patch-omitted test-list additions) to support PR/daily validation behavior."
     }
   },
   "reviewers": {
