@@ -5,9 +5,11 @@ import csv
 import importlib.util
 import json
 from pathlib import Path
+import sys
 import tempfile
 import unittest
 from unittest import mock
+from urllib.parse import urlunsplit
 import zipfile
 
 import daily_reconcile
@@ -178,11 +180,34 @@ class PerformanceReportTests(unittest.TestCase):
         self.assertEqual(second["reason"], "executor failed")
         self.assertEqual(third["execution_status"], "EXCLUDED")
         self.assertEqual(third["data_status"], "NO_RESULT")
-
         self.assertEqual(report["summary"]["performance_cases"], 3)
         self.assertEqual(report["summary"]["metric_rows"], 64)
         self.assertEqual(report["summary"]["valid_out_of_place_detail"], 32)
         self.assertEqual(report["summary"]["execution"]["missing_selected_results"], 0)
+
+    def test_mixed_platform_report_and_exclusions_keep_platform_identity(self):
+        groups = json.loads(self.groups.read_text())
+        groups[0]["platform"] = "oam810e_eic"
+        groups.append({"id": "g002", "platform": "m890p", "case_keys": []})
+        self.groups.write_text(json.dumps(groups))
+        self.case3["plan"] = "pccl_810e_op_perf_single_node1_plan"
+        self.selection.write_text(json.dumps({
+            "schema_version": 1, "profile": "standard", "cases": self.cases}))
+        report = self.collect()
+        self.assertEqual(report["metadata"]["platforms"], "m890p,oam810e_eic")
+        rows = {row["name"]: row for row in report["coverage"]}
+        self.assertEqual(rows[self.case1["name"]]["platform"], "oam810e_eic")
+        self.assertEqual(rows[self.case1["name"]]["topology"], "oam810e_eic:单机2卡")
+        self.assertEqual(rows[self.case3["name"]]["platform"], "oam810e_eic")
+        self.assertEqual(rows[self.case3["name"]]["topology"], "oam810e_eic:单机8卡")
+
+    def test_810e_local_register_category_and_url_userinfo_redaction(self):
+        case = make_case("local", "local_register_perf_810e_single_node_suite", "performance")
+        self.assertEqual(case["category"], "local-register 性能")
+        # Build synthetic userinfo separately to avoid a secret-scan false positive.
+        url = urlunsplit(("https", "user:password@example.com", "/sdk.bin",
+                          "signature=secret", "fragment"))
+        self.assertEqual(performance_report.public_hpn_sdk_url(url), "https://example.com/sdk.bin")
 
     def test_expected_sweep_is_derived_from_the_case_command(self):
         sizes = performance_report.expected_sizes(self.case1["cmd"])
@@ -684,13 +709,15 @@ class PerformanceReportTests(unittest.TestCase):
 
     def test_workflow_publishes_a_complete_report_with_a_pinned_writer(self):
         workflow = (Path(__file__).resolve().parents[2] /
-                    ".github/workflows/m890p-daily-full.yml").read_text()
+                    ".github/workflows/pccl-daily-full.yml").read_text()
         self.assertIn("performance-cases.json", workflow)
         self.assertNotIn("GENERATE_NODES", workflow)
         self.assertIn("import xlsxwriter; assert xlsxwriter.__version__", workflow)
         self.assertIn("discover -s pccl/tests/xtest -p 'test_performance_report.py'", workflow)
         self.assertIn("performance_report.write_selection", workflow)
         self.assertIn("performance_report.py report", workflow)
+        self.assertIn('--image "$VALIDATION_IMAGE"', workflow)
+        self.assertIn('--hpn-sdk-url "$HPN_SDK_URL"', workflow)
         self.assertIn("--results-root /wl_nas/devops/pccl-artifact-cache-", workflow)
         self.assertIn("--reconciliation-root public-results", workflow)
         self.assertIn("name: m890p-daily-performance-report", workflow)
@@ -702,6 +729,30 @@ class PerformanceReportTests(unittest.TestCase):
         self.assertIn("name: m890p-daily-full-python-deps", workflow)
         source = (Path(__file__).resolve().parent / "performance_report.py").read_text()
         self.assertIn("run_cases.parse_performance(", source)
+
+    def test_report_cli_retains_image_and_hpn_sdk_url(self):
+        base = ['performance_report.py', 'report', '--selection', 'selection', '--groups', 'groups',
+                '--coverage', 'coverage', '--results-root', 'results', '--reconciliation-root',
+                'reconciliation', '--output', 'report.xlsx', '--run-id', '123', '--dataset', 'smoke',
+                '--source-revision', 'a' * 40, '--runner-revision', 'b' * 40,
+                '--image', 'registry.example/ppu:test']
+        for url in ('', 'https://zone-ci.oss-cn-hangzhou.aliyuncs.com/hpn-sdk/sdk.bin'):
+            with self.subTest(url=url):
+                arguments = base + (['--hpn-sdk-url', url] if url else [])
+                with mock.patch.object(sys, 'argv', arguments):
+                    with mock.patch.object(performance_report, 'collect_report',
+                                           return_value={'summary': {}}) as collect:
+                        with mock.patch.object(performance_report, 'write_workbook'):
+                            performance_report.main()
+                metadata = collect.call_args.args[4]
+                self.assertEqual(metadata['image'], 'registry.example/ppu:test')
+                self.assertEqual(metadata['hpn_sdk_url'], url or 'image-builtin')
+
+    def test_report_cli_redacts_hpn_sdk_url_credentials(self):
+        url = 'https://zone-ci.oss-cn-hangzhou.aliyuncs.com/hpn-sdk/sdk.bin?Signature=secret'
+        self.assertEqual(performance_report.public_hpn_sdk_url(url), url.split('?', 1)[0])
+        self.assertEqual(performance_report.public_hpn_sdk_url(''), 'image-builtin')
+        self.assertEqual(performance_report.public_hpn_sdk_url('https://[invalid'), 'invalid-url')
 
     @unittest.skipUnless(importlib.util.find_spec("xlsxwriter"), "XlsxWriter is not installed")
     def test_workbook_is_a_valid_xlsx_artifact(self):
