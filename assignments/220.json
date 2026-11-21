@@ -1,14 +1,14 @@
 {
   "classification": {
     "base_sha": "8d1fff80b4f1c7c625f22ce835db16961fa9281f",
-    "head_sha": "98f7ec3885e573d8d04ef310aaefd319542f71d0",
-    "input_fingerprint": "44b352dae12a8cfdcfe25e08a341c1c5afd10e94ce06b33a2f7986a4acaa1e20",
+    "head_sha": "59d2f46ff03edcf8a389e4f5bc7c339c20f4b6ce",
+    "input_fingerprint": "a8b47433a3cd22e24a47fb37415db2a10c78be29f8b4650cc7f4ab5fc69530ae",
     "pr_number": 220,
     "proposal": {
       "modules": [
         "ci"
       ],
-      "reason": "The main substantive change is to open-source test workflow behavior: dual-platform (M890P + OAM-810E) CI validation, case generation/grouping, scheduler/rack allocation policy, optional HPN SDK installation, result reconciliation/reporting, and CI executor updates (env propagation, dmesg capture, artifacts). File additions with omitted patches are still clearly CI test-list data and generation assets under tests/xtest/test_lists, so no separate module is required."
+      "reason": "The substantive change is in CI test orchestration: dual-platform workflow selection/matrices (M890P and OAM-810E), shared case generation/grouping/allocation logic, HPN SDK install controls, execution/reconciliation/reporting updates, and matching xtest data/tests. The build-script edits are support changes for CI artifact/test execution rather than a standalone build-system policy change."
     }
   },
   "reviewers": {
