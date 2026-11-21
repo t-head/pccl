@@ -111,22 +111,13 @@ jobs:
       (github.event_name == 'pull_request' ||
        github.event_name == 'workflow_dispatch' ||
        github.event_name == 'push')
-    runs-on: k8s-runner-group-cpu-thead
-    container:
-      image: ghcr.io/actions/actions-runner:latest
+    runs-on: ubuntu-24.04
     timeout-minutes: 20
     steps:
       - uses: actions/checkout@v4
         with:
           path: pccl
           persist-credentials: false
-      - name: Inspect current 810E RDMA task and stop
-        run: |
-          for task in /wl_nas/devops/ppu-dashboard/tasks/ppu-t-head-44859901427-1-execute-g001-*.json; do
-            printf '===== %s =====\n' "$task"
-            grep -E '"(status|phase|reason|message|queue|started|finished|created|updated|node|pod)' "$task" | tail -80 || true
-          done
-          exit 1
       - uses: actions/checkout@v4
         with:
           repository: t-head/pccl-tests
