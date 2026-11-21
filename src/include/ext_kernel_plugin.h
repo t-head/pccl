@@ -64,4 +64,6 @@ typedef pcclExtKernel_v1_t pcclExtKernel_t;
 ncclResult_t pcclExtKernelPluginLoad(ncclComm_t comm);
 
 ncclResult_t pcclExtKernelPluginUnload(ncclComm_t comm);
+typedef void (*pcclExtKernelSetPushBlockLimit_t)(void*, int);
+pcclExtKernelSetPushBlockLimit_t pcclExtKernelPluginGetPushBlockLimitSetter();
 #endif

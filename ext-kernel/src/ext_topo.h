@@ -46,6 +46,7 @@ typedef struct {
 } extTopoConfig;
 
 extern const extTopoConfig topoConfigs[];
+size_t getOneShotPushDefaultMaxBytes(extTopo topo);
 
 ncclResult_t parseTopo(PPU_TYPE ppuType, pcclICNRemoteDeviceType_t icnRmtType, int localRanks, const int* topoArray, extTopo* topo);
 

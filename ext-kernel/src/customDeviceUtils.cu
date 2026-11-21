@@ -25,6 +25,14 @@ ncclResult_t kernelLaunchConfig(extKernelDevParams& devParams, extKernelHostPara
   int maxThreadNum = hostParams.maxThreadNum;
   extKernelStrategyType strategy = hostParams.strategy;
   switch (strategy) {
+    case ONESHOT_PUSH: {
+      const int nVecs = devParams.eltsTotal / eltsPerThread;
+      nBlocks = std::min(hostParams.pushMaxBlocks, std::max(1, divUp(nVecs, EXT_KERNEL_PUSH_TARGET_THREADS)));
+      const int warpsPerBlock = divUp(divUp(nVecs, nBlocks), WARP_SIZE);
+      nThreads = std::min(EXT_KERNEL_PUSH_THREADS, std::max(1, warpsPerBlock) * WARP_SIZE);
+      devParams.eltsPerBlock = devParams.eltsTotal;
+      break;
+    }
     case ONESHOT:
     case ONESHOT_REG: {
 
@@ -86,7 +94,7 @@ ncclResult_t kernelLaunchConfig(extKernelDevParams& devParams, extKernelHostPara
 
   *blocksPerGrid = nBlocks;
   *threadsPerBlock = nThreads;
-  if (strategy != ONESHOT_LL) {
+  if (strategy != ONESHOT_LL && strategy != ONESHOT_PUSH) {
     devParams.buffEltsPerBlock = hostParams.bufSize / hostParams.dtypeSize / maxBlockNum;
     if (devParams.buffEltsPerBlock % eltsPerThread != 0) {
       ERROR("buffEltsPerBlock %d must be aligned to %d (eltsPerThread)", devParams.buffEltsPerBlock, (int)eltsPerThread);

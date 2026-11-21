@@ -228,6 +228,17 @@ const extTopoConfig topoConfigs[] = {
 {THIRTY_TWO_RANKS_M890P_SHM_TOPO  , 0        , 32_MB     , 4_KB               , 4_KB               , 32          , 32_MB       , 16_MB}        ,
 };
 
+// The initial Push defaults are separate while tuning is limited to M890P SHM.
+// Revisit adding these limits to topoConfigs as more topologies are tuned.
+size_t getOneShotPushDefaultMaxBytes(extTopo topo) {
+  switch (topo) {
+    case TWO_RANKS_M890P_SHM_TOPO: return 512_KB;
+    case FOUR_RANKS_M890P_SHM_TOPO: return 256_KB;
+    case EIGHT_RANKS_M890P_SHM_TOPO: return 64_KB;
+    default: return 0;
+  }
+}
+
 void swapRowsAndCols(int* matrix, const int N, int i, int j){
   if (i == j) return ;
   // Swap columns i and j

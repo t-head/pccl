@@ -163,6 +163,11 @@ fail:
   goto exit;
 }
 
+pcclExtKernelSetPushBlockLimit_t pcclExtKernelPluginGetPushBlockLimitSetter() {
+  return reinterpret_cast<pcclExtKernelSetPushBlockLimit_t>(
+      dlsym(extKernelPluginLib, "pcclExtKernelSetPushBlockLimit"));
+}
+
 ncclResult_t pcclExtKernelPluginUnload(ncclComm_t comm) {
   pthread_mutex_lock(&extKernelPluginLock);
   comm->extKernel = NULL;
