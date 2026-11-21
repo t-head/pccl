@@ -2,13 +2,13 @@
   "classification": {
     "base_sha": "8d1fff80b4f1c7c625f22ce835db16961fa9281f",
     "head_sha": "98f7ec3885e573d8d04ef310aaefd319542f71d0",
-    "input_fingerprint": "6f1532cdc46992559246377fb0a43db893c0eda2caf39bd4f1663a1540b2d762",
+    "input_fingerprint": "44b352dae12a8cfdcfe25e08a341c1c5afd10e94ce06b33a2f7986a4acaa1e20",
     "pr_number": 220,
     "proposal": {
       "modules": [
         "ci"
       ],
-      "reason": "Main substantive change is CI workflow/test-orchestration: dual-platform (M890P+OAM-810E) case generation/grouping, optional HPN SDK installation flow, platform-aware scheduling/rack policy, expanded native-unit coverage, and reconciliation/reporting artifact handling; workflow/docs/test updates support this same CI behavior rather than changing PCCL runtime modules."
+      "reason": "The main substantive change is to open-source test workflow behavior: dual-platform (M890P + OAM-810E) CI validation, case generation/grouping, scheduler/rack allocation policy, optional HPN SDK installation, result reconciliation/reporting, and CI executor updates (env propagation, dmesg capture, artifacts). File additions with omitted patches are still clearly CI test-list data and generation assets under tests/xtest/test_lists, so no separate module is required."
     }
   },
   "reviewers": {
