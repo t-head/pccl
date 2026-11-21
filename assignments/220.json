@@ -1,14 +1,14 @@
 {
   "classification": {
     "base_sha": "8d1fff80b4f1c7c625f22ce835db16961fa9281f",
-    "head_sha": "ab05ebed9f11591dedc84c15fa67c89aeaa09e47",
-    "input_fingerprint": "5912cc667edfd14dc78966cfdfafd78bc4190fc638d101b1c21c801b1dee1dd6",
+    "head_sha": "b9735eb2315fd84997b4d542b2e0bef49d47150c",
+    "input_fingerprint": "5248ec5f4833707b04476ffed5de3651ce7a55d0e4e33684fda8a1e88e9dfcf3",
     "pr_number": 220,
     "proposal": {
       "modules": [
         "ci"
       ],
-      "reason": "The substantive change is a broad overhaul of open-source CI validation: dual-platform (M890P and OAM-810E) case generation/grouping, workflow matrices and node/rack allocation behavior, optional HPN SDK installation plumbing, expanded native-unit case families, and reporting/reconciliation/log artifact handling. Added scripts and large omitted test-list JSONs are all part of CI test input generation/execution coverage rather than PCCL runtime modules or review-policy workflow logic."
+      "reason": "The substantive change is to CI test orchestration: dual-platform (M890P + OAM-810E) workflow execution, platform-aware case generation/grouping/reconciliation/reporting, optional HPN SDK install handling, and expanded native unit test coverage in xtest/workflow scripts. Large patch-omitted JSON additions are test-list data feeding this same CI path, not runtime PCCL modules."
     }
   },
   "reviewers": {
