@@ -12,6 +12,7 @@
 #include "transport.h"
 #include "symmetric.h"
 #include "ce_coll.h"
+#include "rma/rma.h"
 #include <assert.h>
 #include "hgtx.h"
 #include "dev_runtime.h"
@@ -241,6 +242,12 @@ ncclResult_t ncclCommGroupRegisterSymmetric(struct ncclAsyncJob* job_) {
     ncclFree(task);
   }
 
+  while (!ncclIntruQueueEmpty(&comm->rmaCeInitTaskQueue)) {
+    struct ncclRmaCeInitTask* task = ncclIntruQueueDequeue(&comm->rmaCeInitTaskQueue);
+    NCCLCHECKGOTO(ncclRmaCeInit(task->comm), ret, fail);
+    ncclFree(task);
+  }
+
   while (!ncclIntruQueueEmpty(&comm->suspendTaskQueue)) {
     struct ncclMemManagerTask* task = ncclIntruQueueDequeue(&comm->suspendTaskQueue);
     ncclComm_t taskComm = task->comm;
@@ -303,6 +310,8 @@ static ncclResult_t doLaunches(ncclComm_t head) {
             NCCLCHECKGOTO(ncclLaunchCeColl(comm, plan), ret, end);
           } else if (plan->isCeP2p) {
             NCCLCHECKGOTO(pcclP2pDmaLaunch(comm, plan), ret, end);
+          } else if (plan->isRma) {
+            NCCLCHECKGOTO(ncclLaunchRma(comm, plan), ret, end);
           } else {
             NCCLCHECKGOTO(ncclLaunchKernel(comm, plan), ret, end);
           }
@@ -362,15 +371,28 @@ static void groupCleanup(ncclComm_t* groupCommHeadPtr, struct ncclIntruQueue<str
               struct ncclProxyOp* pxop = ncclIntruQueueDequeue(&plan->proxyOpQueue);
               ncclMemoryPoolFree(&comm->memPool_ncclProxyOp, pxop);
             }
+            while (!ncclIntruQueueEmpty(&plan->rmaTaskQueueCe)) {
+              ncclMemoryPoolFree(&comm->memPool_ncclTaskRma, ncclIntruQueueDequeue(&plan->rmaTaskQueueCe));
+            }
             ncclMemoryPoolFree(&comm->memPool_ncclKernelPlan, plan);
           }
         }
 
         { // Reset comm->planner to empty.
           ncclKernelPlanner::Peer* tmp = comm->planner.peers;
+          ncclIntruQueue<struct ncclTaskRma, &ncclTaskRma::next>* tmpRmaQueues = comm->planner.rmaTaskQueues;
           memset(&comm->planner, 0, sizeof(comm->planner));
           comm->planner.peers = tmp;
           if (comm->planner.peers != NULL) memset(comm->planner.peers, 0, comm->nRanks * sizeof(comm->planner.peers[0]));
+          comm->planner.rmaTaskQueues = tmpRmaQueues;
+          if (tmpRmaQueues != NULL) {
+            for (int c = 0; c < comm->config.numRmaCtx; c++) {
+              while (!ncclIntruQueueEmpty(&tmpRmaQueues[c])) {
+                ncclMemoryPoolFree(&comm->memPool_ncclTaskRma, ncclIntruQueueDequeue(&tmpRmaQueues[c]));
+              }
+              ncclIntruQueueConstruct(&tmpRmaQueues[c]);
+            }
+          }
         }
       }
 

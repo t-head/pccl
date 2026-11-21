@@ -87,6 +87,27 @@ Type `./build/sendRecvPcclUnitTest --help` to query all help information.
 - starting device ID
   - `start_dev_id=<INT>` (default 0)
 
+#### Symmetric Subwindow Regression
+
+`--window-offsets` uses two ranks with matching backing allocations but different
+user-window sizes and aligned offsets. Disjoint seed windows keep the allocation
+cache alive while subwindows are registered twice. The test checks peer and self
+transfers, zero and odd byte counts, 65-op batches, window-end accesses, and guard
+bytes across repeated rounds. It uses grouped initialization with ZERO CTA policy.
+
+```shell
+timeout 60s env PCCL_P2P_DMA_ENABLE=1 PCCL_P2P_DMA_MIN_BYTES=0 \
+  PCCL_DEBUG=INFO PCCL_DEBUG_SUBSYS=TUNING ./build/sendRecvPcclUnitTest --window-offsets
+```
+
+Confirm `SendRecv [Symmetric DMA OKI]` appears in the log on supported hardware;
+a passing fallback run alone does not verify DMA. Repeat with
+`PCCL_P2P_DMA_ENABLE=0` to check the kernel fallback. DMA requires matching
+allocation mapping offsets, checked by the existing allocation metadata exchange;
+user-window offsets need not match. All ranks must use the same PCCL build; the
+internal mailbox offset now includes the window's rank-slot offset.
+This regression does not exercise Host RMA or graph capture/replay.
+
 ### PCCL Group Simulation Test
 
 Estimate the time a group of collectives would take by `pcclGroupSimulateEnd()`

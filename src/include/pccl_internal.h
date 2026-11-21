@@ -22,6 +22,7 @@ typedef pcclResult_t ncclResult_t;
 typedef pcclWindow_t ncclWindow_t;
 typedef pcclConfig_t ncclConfig_t;
 typedef pcclUniqueId ncclUniqueId;
+typedef pcclWaitSignalDesc_t ncclWaitSignalDesc_t;
 #define NCCL_CONFIG_INITIALIZER PCCL_CONFIG_INITIALIZER
 #define NCCL_VERSION(X,Y,Z) (((X) <= 2 && (Y) <= 8) ? (X) * 1000 + (Y) * 100 + (Z) : (X) * 10000 + (Y) * 100 + (Z))
 #define NCCL_UNIQUE_ID_BYTES 128
@@ -111,7 +112,7 @@ typedef pcclSimInfo_t ncclSimInfo_t;
 
 #define NCCL_WIN_DEFAULT PCCL_WIN_DEFAULT
 #define NCCL_WIN_COLL_SYMMETRIC PCCL_WIN_COLL_SYMMETRIC
-#define NCCL_WIN_REQUIRED_ALIGNMENT 4096
+#define NCCL_WIN_REQUIRED_ALIGNMENT PCCL_WIN_REQUIRED_ALIGNMENT
 
 // Note: pcclDevCommRequirements_t and PCCL_COMM_PROPERTIES_INITIALIZER come from
 // pccl_device/core.h. The previous *_pub_t / *_ptr_t aliases against unbuilt
