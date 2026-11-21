@@ -1,14 +1,14 @@
 {
   "classification": {
-    "base_sha": "56406054982babf888a940019869f712309e968a",
-    "head_sha": "85793f5f2af9951110f6a7cb1e7d0af802323223",
-    "input_fingerprint": "5e672583bf50b35f18718a69710a4b46787d6d90741e8bbc393df25b36bd0f02",
+    "base_sha": "abb6688b4b5419664e7bf13c2d9107bd7acafd89",
+    "head_sha": "e7f3fe686543363656039b93ca5db7f7efa3b6a6",
+    "input_fingerprint": "9d9f87726cf2e58309b84694fc194c59cae89268c3fe8d1798bfef4e646f13d2",
     "pr_number": 220,
     "proposal": {
       "modules": [
         "ci"
       ],
-      "reason": "Main substantive change is CI/test workflow orchestration: dual-platform (M890P + OAM-810E) case generation/grouping/execution, platform-aware allocation/device mapping, HPN SDK install flow, result/report artifact handling, and corresponding xtest/workflow contract updates. Large patch_omitted test-list additions are consistent with expanded CI datasets rather than a separate production module change."
+      "reason": "The substantive change is to CI validation infrastructure: dual-platform (M890P/810E) workflow execution, case generation/grouping/selection logic, scheduler/resource allocation, HPN SDK install handling, run-time device mapping, reconciliation/reporting artifacts, and associated CI test data/docs (including patch_omitted case-list JSONs). Other edits (like workflow build script adjustments) support this same CI behavior rather than introducing an independent build/workflow-policy module change."
     }
   },
   "reviewers": {
