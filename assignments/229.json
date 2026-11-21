@@ -1,14 +1,14 @@
 {
   "classification": {
     "base_sha": "8d1fff80b4f1c7c625f22ce835db16961fa9281f",
-    "head_sha": "e36584fb9683e005e4f2a6459b3d9456b9b10a45",
-    "input_fingerprint": "c1025c97b36b98823d82a2b78bdb03a8bc28a76554f734b9f0a049d4930c09f0",
+    "head_sha": "64e007d6608faddd1b3cb619b19aca32032a64d1",
+    "input_fingerprint": "29158275bc7acf89e135f2cacdae86efb6a04c077df56632424399f577ae3b6e",
     "pr_number": 229,
     "proposal": {
       "modules": [
         "ci"
       ],
-      "reason": "The substantive change is in open-source test workflow orchestration: daily/source-sanity execution moves from fixed rack_nodes to automatic rack_policy/rack_count, adds schedule-dependent allowed_nodes and per-group execution timeouts, and threads/validates these settings through prepare output, matrix generation, and reconciliation. The Python tests and markdown updates are supporting CI contract/documentation updates for the same behavior."
+      "reason": "Main change is to open-source test workflow orchestration: daily/source-sanity workflow scheduling, automatic rack placement policy (`same`/`spread` with `rack_count`), dynamic allowed-node selection, and per-group execution timeout propagation/validation in the xtest grouping pipeline. Other edits are supporting tests/docs for this CI behavior, not separate module-owned functionality."
     }
   },
   "reviewers": {
