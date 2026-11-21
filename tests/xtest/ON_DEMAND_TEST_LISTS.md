@@ -65,12 +65,22 @@ The workflow supports two `workflow_dispatch` choices:
 - `full`: all 8,899 daily Cases in 34 Suites. The current
   1/2/4/8-node resource policy selects 8,890 Cases in 25 groups and records
   only the 9 sixteen-node Cases as excluded. Two-rack Suites are isolated from
-  ordinary same-resource Suites and carry explicit `rack_nodes` allocations.
-  Ordinary multi-node groups explicitly request `rack-01=<node-count>`, keeping
-  every worker in rack-01.
+  ordinary same-resource Suites and use `rack_policy=spread` with `rack_count=2`.
+  Ordinary multi-node groups use `rack_policy=same`, keeping every worker in one
+  automatically selected rack without binding a physical rack name.
 
 The 22:00 Asia/Shanghai schedule selects `full`, which uses the same JSON
-generation path as manual dispatch. No legacy daily CSV dataset remains.
+generation path as manual dispatch. Monday-Thursday allows 1/2/4/8 nodes and
+selects 8,890 Cases in 25 groups with 9 exclusions. Friday allows 1/2/4/8/16
+nodes and selects all 8,899 Cases in 26 groups. Manual dispatch keeps the
+weekday default unless `allowed_nodes` is explicitly overridden. No legacy
+daily CSV dataset remains.
+
+The per-group `cluster-run` queue-and-execution timeout is 720 minutes for the
+Monday-Thursday schedule and 2,160 minutes (36 hours) for the Friday schedule.
+Manual dispatch uses `execution_timeout_minutes`, which defaults to 720 and can
+be set explicitly. The execute Job allows 30 additional minutes for setup and
+cleanup. Suite and Case timeouts are unchanged.
 
 Each generated bundle contains `generation.json` with definition and Suite
 hashes, the selected profile, and the exact Case-key hash. The workflow copies

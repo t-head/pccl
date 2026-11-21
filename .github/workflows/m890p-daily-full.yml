@@ -6,7 +6,8 @@ on:
     paths: [.github/workflows/m890p-daily-full.yml]
   schedule:
     # GitHub cron is UTC: 14:00 UTC is 22:00 Asia/Shanghai (UTC+8).
-    - cron: '0 14 * * *'
+    - cron: '0 14 * * 1-4'
+    - cron: '0 14 * * 5'
   workflow_dispatch:
     inputs:
       dataset:
@@ -24,6 +25,16 @@ on:
         description: Optional full-selection node filter; smoke only supports nodes=1
         required: false
         type: string
+      allowed_nodes:
+        description: Comma-separated node counts. Manual runs default to 1,2,4,8; enter 1,2,4,8,16 to include 16-node cases.
+        required: false
+        type: string
+        default: ''
+      execution_timeout_minutes:
+        description: Per-group queue and execution timeout in minutes for manual runs; the execute Job allows 30 additional minutes
+        required: true
+        type: number
+        default: 720
       suite:
         description: Optional exact Suite debug filter; empty selects every Suite
         required: false
@@ -41,7 +52,7 @@ env:
   VALIDATION_NODE_SELECTOR: board-type=ZW-M890P,nic-type=cx8
   VALIDATION_CARDS: '8'
   PCCL_TESTS_REVISION: 394556512e87259e9ffa25225632c46b0a0bbcd5
-  DAILY_ALLOWED_NODES: '1,2,4,8'
+  REQUESTED_EXECUTION_TIMEOUT_MINUTES: ${{ github.event_name == 'workflow_dispatch' && format('{0}', inputs.execution_timeout_minutes) || (github.event.schedule == '0 14 * * 5' && 2160 || 720) }}
 
 jobs:
   prepare:
@@ -54,6 +65,8 @@ jobs:
       group_count: ${{ steps.selection.outputs.group_count }}
       groups: ${{ steps.selection.outputs.groups }}
       groups_sha256: ${{ steps.selection.outputs.groups_sha256 }}
+      execution_timeout_minutes: ${{ steps.selection.outputs.execution_timeout_minutes }}
+      execution_job_timeout_minutes: ${{ steps.selection.outputs.execution_job_timeout_minutes }}
     steps:
       - uses: actions/checkout@v4
         with:
@@ -76,7 +89,8 @@ jobs:
           MAX_CASES: ${{ inputs.max_cases_per_group || 500 }}
           NODES: ${{ inputs.nodes || '' }}
           SUITE: ${{ inputs.suite || '' }}
-          ALLOWED_NODES: ${{ env.DAILY_ALLOWED_NODES }}
+          ALLOWED_NODES: ${{ inputs.allowed_nodes || (github.event.schedule == '0 14 * * 5' && '1,2,4,8,16' || '1,2,4,8') }}
+          EXECUTION_TIMEOUT_MINUTES: ${{ env.REQUESTED_EXECUTION_TIMEOUT_MINUTES }}
         run: |
           python3 -S -B -W error::ResourceWarning -m unittest discover \
             -s tests/xtest -p 'test_run_cases.py' -v
@@ -135,11 +149,12 @@ jobs:
           dataset = os.environ['DATASET']
           if dataset not in ('smoke', 'full'):
               raise ValueError('Unsupported daily dataset')
+          execution_timeout_minutes = int(os.environ['EXECUTION_TIMEOUT_MINUTES'])
+          if execution_timeout_minutes <= 0:
+              raise ValueError('Execution timeout must be a positive integer')
           input_directory = Path('generated-case-input')
           nodes = int(os.environ['NODES']) if os.environ['NODES'] else None
           suite = os.environ['SUITE'] or None
-          if nodes is not None and nodes not in (1, 2, 4, 8, 16):
-              raise ValueError('Unsupported node count')
           allowed_nodes = {int(value) for value in os.environ['ALLOWED_NODES'].split(',')}
           plan = group_cases.build_plan(
               input_directory, int(os.environ['MAX_CASES']), nodes=nodes, suite=suite,
@@ -171,8 +186,9 @@ jobs:
               keys = [[case['plan'], case['suite'], case['name']] for case in selected['cases']]
               assert keys == group['case_keys']
               assert all(case['suite_spec']['nodes'] == group['nodes'] for case in selected['cases'])
-              assert {group_cases._rack_nodes(case) for case in selected['cases']} == {group['rack_nodes']}
-              assert group['cross_rack'] is bool(group['rack_nodes'])
+              assert {group_cases._rack_policy(case) for case in selected['cases']} == \
+                {(group['rack_policy'], group['rack_count'])}
+              assert group['cross_rack'] is (group['rack_policy'] == 'spread')
               actual.extend(tuple(key) for key in keys)
           selected_keys = set(actual)
           excluded_keys = {tuple(key) for record in coverage['exclusions'] for key in record['case_keys']}
@@ -193,7 +209,7 @@ jobs:
           assert subprocess.check_output(['git', 'rev-parse', 'HEAD'], text=True).strip() == os.environ['GITHUB_SHA']
           matrix = {'include': [
               {key: group[key] for key in ('id', 'profile', 'nodes', 'cards_per_node', 'env',
-                                           'cross_rack', 'rack_nodes', 'case_count')}
+                                           'cross_rack', 'rack_policy', 'rack_count', 'case_count')}
               for group in manifest
           ]}
           print(f'Selected {len(actual)} {dataset} Cases in {len(manifest)} automatic groups')
@@ -207,6 +223,8 @@ jobs:
               output.write(f'excluded_case_count={coverage["excluded_cases"]}\n')
               output.write(f'group_count={len(manifest)}\n')
               output.write(f'groups_sha256={groups_sha256}\n')
+              output.write(f'execution_timeout_minutes={execution_timeout_minutes}\n')
+              output.write(f'execution_job_timeout_minutes={execution_timeout_minutes + 30}\n')
               output.write('groups<<GROUPS\n')
               output.write(json.dumps(matrix, separators=(',', ':')) + '\nGROUPS\n')
           PY
@@ -429,10 +447,11 @@ jobs:
       PROFILE: ${{ matrix.profile }}
       NODES: ${{ matrix.nodes }}
       CROSS_RACK: ${{ matrix.cross_rack }}
+      EXECUTION_TIMEOUT_MINUTES: ${{ needs.prepare.outputs.execution_timeout_minutes }}
     runs-on: k8s-runner-group-cpu-thead
     container:
       image: ghcr.io/actions/actions-runner:latest
-    timeout-minutes: 750
+    timeout-minutes: ${{ fromJSON(needs.prepare.outputs.execution_job_timeout_minutes) }}
     steps:
       - uses: actions/checkout@v4
         with:
@@ -521,7 +540,7 @@ jobs:
           nproc_per_node: ${{ matrix.cards_per_node }}
           node_selector: ${{ env.VALIDATION_NODE_SELECTOR }}
           namespace: ppu-sched
-          timeout_minutes: 720
+          timeout_minutes: ${{ env.EXECUTION_TIMEOUT_MINUTES }}
           cleanup_policy: always
           container_options: |
             privileged: true
@@ -621,10 +640,10 @@ jobs:
           launch_mode: master
           nnodes: ${{ matrix.nodes }}
           nproc_per_node: ${{ matrix.cards_per_node }}
-          rack_nodes: rack-01=${{ matrix.nodes }}
+          rack_policy: same
           node_selector: ${{ env.VALIDATION_NODE_SELECTOR }}
           namespace: ppu-sched
-          timeout_minutes: 720
+          timeout_minutes: ${{ env.EXECUTION_TIMEOUT_MINUTES }}
           cleanup_policy: always
           container_options: |
             privileged: true
@@ -719,10 +738,11 @@ jobs:
           launch_mode: master
           nnodes: ${{ matrix.nodes }}
           nproc_per_node: ${{ matrix.cards_per_node }}
-          rack_nodes: ${{ matrix.rack_nodes }}
+          rack_policy: spread
+          rack_count: ${{ matrix.rack_count }}
           node_selector: ${{ env.VALIDATION_NODE_SELECTOR }}
           namespace: ppu-sched
-          timeout_minutes: 720
+          timeout_minutes: ${{ env.EXECUTION_TIMEOUT_MINUTES }}
           cleanup_policy: always
           container_options: |
             privileged: true
@@ -814,6 +834,8 @@ jobs:
     name: Daily grouped result summary and NAS cleanup
     needs: [prepare, build-standard, stage-cache, execute]
     if: always()
+    env:
+      ALLOWED_NODES: ${{ inputs.allowed_nodes || (github.event.schedule == '0 14 * * 5' && '1,2,4,8,16' || '1,2,4,8') }}
     runs-on: k8s-runner-group-cpu-thead
     container:
       image: ghcr.io/actions/actions-runner:latest
@@ -882,7 +904,8 @@ jobs:
                         'cache/case-groups/${{ needs.prepare.outputs.groups_sha256 }}')
           groups = json.loads((group_root / 'groups.json').read_text())
           coverage = json.loads((group_root / 'execution-coverage.json').read_text())
-          if coverage['allowed_nodes'] != [1, 2, 4, 8]:
+          expected_allowed_nodes = {int(value) for value in os.environ['ALLOWED_NODES'].split(',')}
+          if coverage['allowed_nodes'] != sorted(expected_allowed_nodes):
               raise ValueError('Daily execution coverage uses an unsupported resource policy')
           if any(group['nodes'] not in coverage['allowed_nodes'] for group in groups):
               raise ValueError('An execution group exceeds the daily resource policy')

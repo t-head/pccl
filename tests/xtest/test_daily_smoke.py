@@ -166,11 +166,15 @@ class DailySmokeTests(unittest.TestCase):
                          {1: 4565, 2: 1924, 4: 1691, 8: 710})
         self.assertEqual([(record['nodes'], record['case_count']) for record in plan['exclusions']],
                          [(16, 9)])
-        cross_rack = {group['nodes']: group['rack_nodes'] for group in plan['groups']
-                      if group['cross_rack']}
-        self.assertEqual(cross_rack, {2: 'rack-01=1,rack-02=1',
-                                      4: 'rack-01=2,rack-02=2',
-                                      8: 'rack-01=4,rack-02=4'})
+        friday = group_cases.build_plan(FULL_INPUT, 500, allowed_nodes=(1, 2, 4, 8, 16))
+        self.assertEqual(sum(len(group['cases']) for group in friday['groups']), 8899)
+        self.assertEqual(len(friday['groups']), 26)
+        self.assertEqual(friday['exclusions'], [])
+        self.assertEqual(next(group for group in friday['groups'] if group['nodes'] == 16)['rack_policy'],
+                         'spread')
+        cross_rack = {group['nodes']: (group['rack_policy'], group['rack_count'])
+                      for group in plan['groups'] if group['cross_rack']}
+        self.assertEqual(cross_rack, {2: ('spread', 2), 4: ('spread', 2), 8: ('spread', 2)})
         with tempfile.TemporaryDirectory() as temporary:
             output = Path(temporary) / 'groups'
             group_cases.write_plan(plan, output, FULL_INPUT)
@@ -187,6 +191,8 @@ class DailySmokeTests(unittest.TestCase):
         self.assertEqual(len(eight_nodes['groups']), 3)
         with self.assertRaisesRegex(ValueError, 'disabled by daily resource policy'):
             group_cases.build_plan(FULL_INPUT, 500, nodes=16, allowed_nodes=(1, 2, 4, 8))
+        with self.assertRaisesRegex(ValueError, r'allowed_nodes.*61'):
+            group_cases.build_plan(FULL_INPUT, 500, allowed_nodes=(1, 2, 4, 8, 61))
         oversized = group_cases.build_plan(FULL_INPUT, 25, allowed_nodes=(1, 2, 4, 8))
         self.assertGreater(len(oversized['groups']), 256)
 
@@ -209,7 +215,8 @@ class DailySmokeTests(unittest.TestCase):
         self.assertNotIn('daily-minimal-csv', text)
         self.assertIn('default: smoke', text)
         self.assertIn('default: 500', text)
-        self.assertIn("DAILY_ALLOWED_NODES: '1,2,4,8'", text)
+        self.assertIn("ALLOWED_NODES: ${{ inputs.allowed_nodes || (github.event.schedule == '0 14 * * 5' "
+                      "&& '1,2,4,8,16' || '1,2,4,8') }}", text)
         self.assertIn('VALIDATION_NODE_SELECTOR: board-type=ZW-M890P,nic-type=cx8', text)
         self.assertIn('execution-coverage.json', text)
         self.assertIn('Unexpected or out-of-policy result groups', text)
@@ -219,8 +226,8 @@ class DailySmokeTests(unittest.TestCase):
         self.assertIn('groups_sha256: ${{ steps.selection.outputs.groups_sha256 }}', text)
         self.assertIn('test_case_group_cache.py', text)
         self.assertIn('matrix: ${{ fromJSON(needs.prepare.outputs.groups) }}', text)
-        self.assertIn("'cross_rack', 'rack_nodes', 'case_count'", text)
-        self.assertIn("assert {group_cases._rack_nodes(case) for case in selected['cases']}", text)
+        self.assertIn("'cross_rack', 'rack_policy', 'rack_count', 'case_count'", text)
+        self.assertIn("assert {group_cases._rack_policy(case) for case in selected['cases']}", text)
         self.assertNotIn('max-parallel:', text)
         self.assertIn('fail-fast: false', text)
         self.assertIn('nnodes: ${{ matrix.nodes }}', text)
@@ -260,7 +267,20 @@ class DailySmokeTests(unittest.TestCase):
         self.assertLess(text.index('SHARED_ROOT=/mnt/wl_nas'),
                         text.index('CASE_INPUT="$SHARED_ROOT/case-input"'))
         self.assertIn('GitHub Actions matrix limit of 256', text)
-        self.assertIn('timeout-minutes: 750', text)
+        self.assertIn(
+            'timeout-minutes: ${{ fromJSON(needs.prepare.outputs.execution_job_timeout_minutes) }}',
+            text)
+        self.assertIn(
+            'execution_timeout_minutes: ${{ steps.selection.outputs.execution_timeout_minutes }}',
+            text)
+        self.assertIn(
+            'execution_job_timeout_minutes: ${{ steps.selection.outputs.execution_job_timeout_minutes }}',
+            text)
+        self.assertIn('execution_timeout_minutes={execution_timeout_minutes}', text)
+        self.assertIn('execution_job_timeout_minutes={execution_timeout_minutes + 30}', text)
+        self.assertEqual(text.count('timeout_minutes: ${{ env.EXECUTION_TIMEOUT_MINUTES }}'), 3)
+        self.assertNotIn('timeout_minutes: 720', text)
+        self.assertIn('Execution timeout must be a positive integer', text)
         self.assertIn('retention-days: 90', text)
         self.assertIn('if results_root.is_dir() else set()', text)
         single = text.split('name: Run the automatic group on one node', 1)[1].split(
@@ -291,8 +311,9 @@ class DailySmokeTests(unittest.TestCase):
         self.assertIn(action, cross)
         self.assertIn("if: env.NODES != '1' && env.CROSS_RACK != 'true'", ordinary)
         self.assertIn("if: env.NODES != '1' && env.CROSS_RACK == 'true'", cross)
-        self.assertIn('rack_nodes: rack-01=${{ matrix.nodes }}', ordinary)
-        self.assertIn('rack_nodes: ${{ matrix.rack_nodes }}', cross)
+        self.assertIn('rack_policy: same', ordinary)
+        self.assertIn('rack_policy: spread', cross)
+        self.assertIn('rack_count: ${{ matrix.rack_count }}', cross)
         self.assertIn('node_selector: ${{ env.VALIDATION_NODE_SELECTOR }}', cross)
         for section in (ordinary, cross):
             self.assertNotIn("cluster-ssh \"$host\" 'hostname'", section)
@@ -305,12 +326,25 @@ class DailySmokeTests(unittest.TestCase):
     def test_schedule_runs_full_daily_at_2200_beijing_time(self):
         text = FULL_WORKFLOW.read_text()
         self.assertIn("schedule:\n    # GitHub cron is UTC: 14:00 UTC is 22:00 Asia/Shanghai (UTC+8).\n"
-                        "    - cron: '0 14 * * *'", text)
+                        "    - cron: '0 14 * * 1-4'\n    - cron: '0 14 * * 5'", text)
+        self.assertNotIn("- cron: '0 14 * * *'", text)
+        self.assertIn("github.event.schedule == '0 14 * * 5'", text)
+        self.assertIn("'1,2,4,8,16'", text)
+        self.assertIn('allowed_nodes:', text)
+        self.assertIn('Manual runs default to 1,2,4,8; enter 1,2,4,8,16 to include 16-node cases.', text)
         self.assertIn(
             "DATASET: ${{ inputs.dataset || (github.event_name == 'schedule' && 'full' || 'smoke') }}",
             text)
         self.assertIn('default: smoke', text)
         self.assertIn('default: 500', text)
+        self.assertIn('execution_timeout_minutes:', text)
+        self.assertIn('Per-group queue and execution timeout in minutes for manual runs', text)
+        self.assertIn(
+            "REQUESTED_EXECUTION_TIMEOUT_MINUTES: ${{ github.event_name == 'workflow_dispatch' "
+            "&& format('{0}', inputs.execution_timeout_minutes) || "
+            "(github.event.schedule == '0 14 * * 5' && 2160 || 720) }}", text)
+        self.assertIn(
+            'EXECUTION_TIMEOUT_MINUTES: ${{ needs.prepare.outputs.execution_timeout_minutes }}', text)
 
     def test_all_daily_downloads_use_the_bounded_retry_action(self):
         action = RETRY_ACTION.read_text()

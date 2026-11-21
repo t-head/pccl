@@ -83,25 +83,25 @@ class GroupCasesTests(unittest.TestCase):
         self.assertEqual(len(groups), 2)
         cross = next(group for group in groups if group["cross_rack"])
         ordinary = next(group for group in groups if not group["cross_rack"])
-        self.assertEqual(cross["rack_nodes"], "rack-01=1,rack-02=1")
-        self.assertEqual(ordinary["rack_nodes"], "")
+        self.assertEqual((cross["rack_policy"], cross["rack_count"]), ("spread", 2))
+        self.assertEqual((ordinary["rack_policy"], ordinary["rack_count"]), ("same", ""))
         self.assertEqual([case["name"] for case in cross["cases"]], ["cross"])
         self.assertEqual([case["name"] for case in ordinary["cases"]], ["ordinary"])
         output = self.root / "groups"
         group_cases.write_groups(groups, output, self.input)
         manifest = json.loads((output / "groups.json").read_text())
-        self.assertEqual({entry["rack_nodes"] for entry in manifest},
-                         {"", "rack-01=1,rack-02=1"})
+        self.assertEqual({(entry["rack_policy"], entry["rack_count"]) for entry in manifest},
+                         {("same", ""), ("spread", 2)})
 
     def test_unknown_or_tampered_rack_allocations_are_rejected(self):
         self.add("op_perf_shm_2_rack_unknown_suite", "unknown", nodes=2)
         self.write()
-        with self.assertRaisesRegex(ValueError, "no reviewed rack allocation"):
+        with self.assertRaisesRegex(ValueError, "no reviewed rack policy"):
             group_cases.build_groups(self.input, max_cases=500)
-        for value in ("rack-02=1,rack-01=1", "rack-01=1,rack-02=2",
-                      "rack-01=0,rack-02=2", "rack-01=1", "rack-01=1,rack-02=1,"):
-            with self.subTest(value=value), self.assertRaisesRegex(ValueError, "rack_nodes"):
-                group_cases._validate_rack_nodes(value, 2)
+        for policy, count in (("invalid", ""), ("same", 2), ("spread", None),
+                              ("spread", 1), ("spread", 3), ("spread", "2"), ("", 2)):
+            with self.subTest(policy=policy, count=count), self.assertRaisesRegex(ValueError, "rack_"):
+                group_cases._validate_rack_policy(policy, count, 2)
 
         self.suites = []
         self.cases = []
@@ -109,7 +109,8 @@ class GroupCasesTests(unittest.TestCase):
         self.write()
         group = group_cases.build_groups(self.input, max_cases=500)[0]
         group["cross_rack"] = True
-        group["rack_nodes"] = "rack-01=1,rack-02=1"
+        group["rack_policy"] = "spread"
+        group["rack_count"] = 2
         with self.assertRaisesRegex(ValueError, "rack metadata"):
             group_cases.write_groups([group], self.root / "tampered", self.input)
 
@@ -150,6 +151,10 @@ class GroupCasesTests(unittest.TestCase):
                             for record in coverage["exclusions"]))
         with self.assertRaisesRegex(ValueError, "disabled by daily resource policy"):
             group_cases.build_plan(self.input, 500, nodes=8, allowed_nodes=(1, 2, 4))
+        with self.assertRaisesRegex(ValueError, r"allowed_nodes.*61"):
+            group_cases.build_plan(self.input, 500, allowed_nodes=(1, 2, 4, 8, 61))
+        with self.assertRaisesRegex(ValueError, "Node filter must be one of"):
+            group_cases.build_plan(self.input, 500, nodes=61)
 
 
 if __name__ == "__main__":

@@ -117,18 +117,26 @@ The `full` dataset generates 8,899 standard Cases from 34 Suites, with
 unsupported or out-of-scope source selections recorded in
 `test_lists/source-coverage.json`. The notsm daily profile is intentionally
 empty. Generated CSV is a temporary prepare artifact, not a maintained input.
-The current resource policy executes 1/2/4/8-node groups: 8,890 Cases in 25
-groups. The 9 sixteen-node Cases remain in the export but are listed as
-`EXCLUDED_BY_POLICY` in `execution-coverage.json`; they are not reported as
-passed or skipped tests.
+The Monday-Thursday 22:00 Asia/Shanghai schedule executes 1/2/4/8-node groups:
+8,890 Cases in 25 groups. Friday at the same time allows 1/2/4/8/16-node
+groups and selects all 8,899 Cases in 26 groups. Manual dispatch keeps the
+weekday default unless `allowed_nodes` is explicitly overridden. Any excluded
+Cases remain in the export and are listed as `EXCLUDED_BY_POLICY` in
+`execution-coverage.json`, never as passed or skipped tests.
+
+The Monday-Thursday schedule allows each execution group 720 minutes for
+queueing and execution. Friday cron allows 2,160 minutes (36 hours). Manual
+dispatch exposes `execution_timeout_minutes` with a default of 720; the execute
+Job adds 30 minutes for setup and cleanup. These workflow limits do not change
+the Suite or Case timeouts in the generated input.
 
 `group_cases.py` derives deterministic execution groups by profile, node count,
 cards per node, shared environment and cross-rack allocation, then splits large
 groups by `--max-cases`. The two-rack performance Suites are isolated from
-ordinary Suites and carry explicit `rack_nodes` allocations in `groups.json`.
-Every other multi-node execution explicitly requests `rack-01=<node-count>` so
-all of its workers stay in rack-01. Single-node executions do not pass
-`rack_nodes`.
+ordinary Suites and use `rack_policy=spread` with `rack_count=2` in
+`groups.json`. Every other multi-node execution uses `rack_policy=same`, which
+keeps all workers in one automatically selected rack without naming a rack.
+Single-node executions leave `rack_policy` empty.
 There is no hand-maintained shard list. Optional `--nodes` and `--suite`
 arguments are debug filters, not shard definitions.
 
