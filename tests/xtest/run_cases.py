@@ -52,7 +52,7 @@ def _allocated_devices(environment):
     """Return the finite physical PPU list injected by the device plugin."""
     value = environment.get("NVIDIA_VISIBLE_DEVICES", "").strip()
     if not value or value.lower() in ("all", "void", "none"):
-        raise ValueError("810E execution requires a finite NVIDIA_VISIBLE_DEVICES allocation")
+        raise ValueError("PPU execution requires a finite NVIDIA_VISIBLE_DEVICES allocation")
     devices = []
     for item in value.split(","):
         if not re.fullmatch(r"[0-9]+", item.strip()):
@@ -69,13 +69,14 @@ def _map_case_devices(command, allocated):
     explicit = []
 
     def remap(value):
-        mapped = []
-        for item in value.split(","):
-            index = int(item)
-            if index >= len(allocated):
-                raise ValueError(f"Case device index {index} is outside the allocated PPU list")
-            mapped.append(allocated[index])
-        return ",".join(str(device) for device in mapped)
+        selected = [int(item) for item in value.split(",")]
+        if len(set(selected)) != len(selected):
+            raise ValueError("Case device selection contains duplicate local indices")
+        if len(selected) > len(allocated):
+            raise ValueError(f"Case requires {len(selected)} PPUs but only {len(allocated)} were allocated")
+        if all(index < len(allocated) for index in selected):
+            return ",".join(str(allocated[index]) for index in selected)
+        return ",".join(str(allocated[position]) for position in range(len(selected)))
 
     def replace(match):
         mapped = remap(match.group(2))

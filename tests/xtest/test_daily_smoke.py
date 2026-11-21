@@ -167,8 +167,8 @@ class DailySmokeTests(unittest.TestCase):
         self.assertEqual([(record['nodes'], record['case_count']) for record in plan['exclusions']],
                          [(16, 9)])
         friday = group_cases.build_plan(FULL_INPUT, 500, allowed_nodes=(1, 2, 4, 8, 16))
-        self.assertEqual(sum(len(group['cases']) for group in friday['groups']), 8899)
-        self.assertEqual(len(friday['groups']), 26)
+        self.assertEqual(sum(len(group['cases']) for group in friday['groups']), 10193)
+        self.assertEqual(len(friday['groups']), 29)
         self.assertEqual(friday['exclusions'], [])
         self.assertEqual(next(group for group in friday['groups'] if group['nodes'] == 16)['rack_policy'],
                          'spread')

@@ -44,6 +44,21 @@ def build_pr_bundle(source_revision, runner_revision):
     converted = platform_cases.apply_platforms(
         raw, _pr_platform(), variants)
     combined = generate_cases.combine_bundles(converted)
+    graph_suite = "postsil_unit_test_810e_graph_single_node_suite"
+    unit_suite = next(row for row in combined["suites"]
+                      if row["suite"] == "postsil_unit_test_810e_single_node_suite")
+    graph_cases = []
+    for row in combined["rows"]:
+        if "GraphUnitTest" in row["cmd"]:
+            row["suite"] = graph_suite
+            graph_cases.append(row)
+    if graph_cases:
+        combined["suites"].append({**unit_suite, "suite": graph_suite, "cards_per_node": 4})
+        combined["suites"].sort(key=lambda row: (row["plan"], row["suite"]))
+        case_keys = "".join(f"{row['plan']}/{row['suite']}/{row['name']}\n"
+                            for row in sorted(combined["rows"],
+                                              key=lambda row: (row["plan"], row["suite"], row["name"])))
+        combined["generation"]["case_keys_sha256"] = generate_cases.sha256(case_keys.encode()).hexdigest()
     notsm = generate_cases.generate_bundle(
         definitions / "sanity_m890p_register.json", definitions / "suites.json",
         source_revision, runner_revision, "pr")

@@ -93,25 +93,33 @@ The workflow supports two `workflow_dispatch` choices:
 These counts describe the preserved M890P baseline. Daily preparation also
 applies `platforms/oam810e_eic.json` to the supported shared families and adds
 7,735 full-selection Cases. Combined dual-platform generation produces 17,928
-Cases, selects 17,919 in 52 groups, and retains each group's platform and
+Cases, selects 17,919 in 55 groups, and retains each group's platform and
 `node_selector`. Dual-platform smoke has nine Cases in three groups, including
 one 810E collective and one graph native unit Case.
 
 The 810E allocation is derived from actual ranks per node rather than always
 requesting 16 cards. MPI rank counts are divided by the number of nodes; native
 `num_gpus` and graph `num_threads * num_gpus` values determine their allocation.
+Explicit graph device selections also reserve the span through the highest
+local index, so graph `devices 0,3` requests four cards and
+retains its topology instead of being compressed to two cards.
+Every 810E allocation is then rounded up to the next power of two, so only 1,
+2, 4, 8 or 16 cards are requested per node.
 Grouping separates different rank counts before applying the 500-Case shard
 limit. M890P keeps its existing 28 groups and allocation behavior.
-At execution, Case-local device indices are mapped to the physical PPU list in
+At execution on both M890P and 810E, Case-local device indices are mapped to the
+physical PPU list in
 `NVIDIA_VISIBLE_DEVICES`, including explicit `HGGC_VISIBLE_DEVICES` and
 `--devices` selections. The effective list is forwarded through MPI so parallel
 Pods cannot silently fall back to the same host device 0/1. Out-of-range
-selections fail before the benchmark starts.
+selections fail before the benchmark starts. Valid local positions retain their
+topology; sparse selections such as `0,3` are mapped in command order to two
+allocated PPUs when only two cards were requested.
 
 The 22:00 Asia/Shanghai schedule selects `full`, which uses the same JSON
 generation path as manual dispatch. Monday-Thursday allows 1/2/4/8 nodes and
-selects 8,890 Cases in 25 groups with 9 exclusions. Friday allows 1/2/4/8/16
-nodes and selects all 8,899 Cases in 26 groups. Manual dispatch keeps the
+selects 10,184 Cases in 28 groups with 9 exclusions. Friday allows 1/2/4/8/16
+nodes and selects all 10,193 Cases in 29 groups. Manual dispatch keeps the
 weekday default unless `allowed_nodes` is explicitly overridden. No legacy
 daily CSV dataset remains.
 

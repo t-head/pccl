@@ -174,7 +174,7 @@ jobs:
               assert len(selected['cases']) == count
               print(f'{name} selection: {count} Cases')
           selections_810e = reconcile_results.load_selections(
-              Path('tests/xtest/minimal-csv-oam810e-eic'), 2)
+              Path('tests/xtest/minimal-csv-oam810e-eic'), 4)
           expected_810e = {'standard': 19, 'cluster': 2, 'notsm': 9}
           for name, count in expected_810e.items():
               assert len(selections_810e[name]['cases']) == count
@@ -485,8 +485,8 @@ jobs:
         include:
           - {profile: standard, platform: m890p, cards_per_node: 8, node_selector: 'board-type=ZW-M890P,nic-type=cx8'}
           - {profile: notsm, platform: m890p, cards_per_node: 8, node_selector: 'board-type=ZW-M890P,nic-type=cx8'}
-          - {profile: standard, platform: oam810e_eic, cards_per_node: 2, node_selector: 'board-type=OAM-810E,nic-type=eic'}
-          - {profile: notsm, platform: oam810e_eic, cards_per_node: 2, node_selector: 'board-type=OAM-810E,nic-type=eic'}
+          - {profile: standard, platform: oam810e_eic, cards_per_node: 4, node_selector: 'board-type=OAM-810E,nic-type=eic'}
+          - {profile: notsm, platform: oam810e_eic, cards_per_node: 4, node_selector: 'board-type=OAM-810E,nic-type=eic'}
     env:
       EXPECTED_SHA: ${{ matrix.profile == 'standard' && needs.build-standard.outputs.artifact_sha256 || needs.build-notsm.outputs.artifact_sha256 }}
       INPUT_DIR: ${{ matrix.platform == 'oam810e_eic' && 'tests/xtest/minimal-csv-oam810e-eic' || 'tests/xtest/minimal-csv' }}
@@ -627,7 +627,7 @@ jobs:
               "$build_output/pccl/tests/xtest/run_cases.py" \
               --input "$build_output/pccl/${{ env.INPUT_DIR }}" \
               --profile '${{ matrix.profile }}' --nodes 1 \
-              ${{ matrix.platform == 'oam810e_eic' && '--map-nvidia-devices' || '' }} \
+              --map-nvidia-devices \
               --test-root "$build_output" \
               --binary-dir "$build_output/pccl-tests/build" \
               --mpi-interface "$MPI_INTERFACE" \
@@ -814,7 +814,7 @@ jobs:
               "$build_output/pccl/tests/xtest/run_cases.py" \
               --input "$build_output/pccl/${{ env.INPUT_DIR }}" \
               --profile standard --nodes 2 \
-              ${{ matrix.platform == 'oam810e_eic' && '--map-nvidia-devices' || '' }} \
+              --map-nvidia-devices \
               --test-root "$build_output" \
               --binary-dir "$build_output/pccl-tests/build" \
               --hostfile "$CLUSTER_HOSTS_FILE" \

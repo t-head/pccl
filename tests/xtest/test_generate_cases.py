@@ -122,7 +122,7 @@ class PublicGeneratorTests(unittest.TestCase):
         allocations = {}
         for group in plan["groups"]:
             allocations[group["cards_per_node"]] = allocations.get(group["cards_per_node"], 0) + len(group["cases"])
-        self.assertEqual(allocations, {1: 6, 2: 655, 4: 508, 8: 131})
+        self.assertEqual(allocations, {1: 6, 2: 645, 4: 500, 8: 149})
         group_cases.write_plan(plan, self.root / "native-rank-group-output", output)
 
     def test_multi_node_rdma_matches_all_4090_committed_rows(self):

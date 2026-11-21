@@ -111,15 +111,20 @@ class CsvRunnerTests(unittest.TestCase):
         quoted = run_cases._with_device_environment("python run_test.py --mpi-options='-np 2'", '9,17')
         self.assertIn("--mpi-options='-x HGGC_VISIBLE_DEVICES=9,17 -np 2'", quoted)
 
+        sparse = self.execute(self.inputs([{'cmd': 'HGGC_VISIBLE_DEVICES=0,3 /usr/bin/printenv HGGC_VISIBLE_DEVICES'}]),
+                              map_nvidia_devices=True, nvidia_devices='8,13')
+        self.assertEqual(sparse[0]['status'], 'PASSED')
+        self.assertEqual((self.root / 'output-2/plan/suite/case_0/raw.log').read_text().strip(), '8,13')
+
     def test_810e_device_allocation_rejects_invalid_or_out_of_range_selection(self):
         with self.assertRaisesRegex(ValueError, 'finite'):
             run_cases._allocated_devices({'NVIDIA_VISIBLE_DEVICES': 'all'})
         with self.assertRaisesRegex(ValueError, 'duplicate'):
             run_cases._allocated_devices({'NVIDIA_VISIBLE_DEVICES': '9,9'})
-        rows = self.execute(self.inputs([{'cmd': 'HGGC_VISIBLE_DEVICES=0,4 true'}]),
+        rows = self.execute(self.inputs([{'cmd': 'HGGC_VISIBLE_DEVICES=0,1,4 true'}]),
                             map_nvidia_devices=True, nvidia_devices='9,11')
         self.assertEqual(rows[0]['status'], 'FAILED')
-        self.assertIn('outside the allocated PPU list', rows[0]['error'])
+        self.assertIn('requires 3 PPUs but only 2 were allocated', rows[0]['error'])
 
     def test_device_mapping_is_opt_in(self):
         rows = self.execute(self.inputs([{'cmd': 'HGGC_VISIBLE_DEVICES=0,3 /usr/bin/printenv HGGC_VISIBLE_DEVICES'}]),

@@ -60,16 +60,18 @@ class WorkflowContractTests(unittest.TestCase):
         return values
 
     def test_810e_pr_allocation_uses_two_cards_per_node(self):
-        self.assertIn("Path('tests/xtest/minimal-csv-oam810e-eic'), 2)", self.text)
-        self.assertEqual(self.text.count('platform: oam810e_eic, cards_per_node: 2'), 3)
+        self.assertIn("Path('tests/xtest/minimal-csv-oam810e-eic'), 4)", self.text)
+        self.assertEqual(self.text.count('platform: oam810e_eic, cards_per_node: 4'), 2)
+        self.assertEqual(self.text.count('platform: oam810e_eic, cards_per_node: 2'), 1)
         self.assertNotIn('platform: oam810e_eic, cards_per_node: 16', self.text)
         self.assertIn("--cards-per-node '2'", self.text)
 
-    def test_810e_device_mapping_is_connected_to_daily_and_sanity_executors(self):
+    def test_all_platforms_map_allocated_devices_in_daily_and_sanity(self):
         daily = (ROOT / '.github/workflows/m890p-daily-full.yml').read_text(encoding='utf-8')
-        mapping = "${{ matrix.platform == 'oam810e_eic' && '--map-nvidia-devices' || '' }}"
-        self.assertEqual(self.text.count(mapping), 2)
-        self.assertEqual(daily.count(mapping), 3)
+        self.assertEqual(self.text.count('--map-nvidia-devices'), 2)
+        self.assertEqual(daily.count('--map-nvidia-devices'), 3)
+        for workflow in (self.text, daily):
+            self.assertNotIn("matrix.platform == 'oam810e_eic' && '--map-nvidia-devices'", workflow)
 
     def results_eligible(self, needs, event='pull_request', repository='t-head/pccl',
                          head_repository='t-head/pccl', job='results'):

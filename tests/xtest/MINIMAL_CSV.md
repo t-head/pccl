@@ -64,12 +64,18 @@ Execution requires the build record that was validated with the restored
 archive. The executor checks its PCCL and runner revisions, build profile and
 archive SHA-256, then retains the identity as `build.json` beside the results.
 
-For 810E workers, `--map-nvidia-devices` maps Case-local `HGGC_VISIBLE_DEVICES`
+For every PPU platform in PR and daily workflows, `--map-nvidia-devices` maps
+Case-local `HGGC_VISIBLE_DEVICES`
 and `--devices` indices to the finite physical allocation injected in
 `NVIDIA_VISIBLE_DEVICES`. The executor exports the full allocation, forwards the
 effective selection through MPI, and rejects out-of-range indices before launch.
+Valid local positions retain their topology. Sparse selections that exceed the
+allocated list are mapped in command order, so `0,3` consumes two allocated
+PPUs rather than failing when only two cards were requested.
 This is required while RDMA workers remain privileged and can otherwise see all
-host PPUs. Non-privileged workers were checked separately: PPU isolation works,
+host PPUs. M890P currently requests whole nodes, while 810E can place several
+Pods on one node; both use the same mapping contract. Non-privileged workers
+were checked separately: PPU isolation works,
 but EIC RDMA device access currently fails.
 
 ## HPN SDK selection
@@ -161,8 +167,8 @@ unsupported or out-of-scope source selections recorded in
 `test_lists/source-coverage.json`. The notsm daily profile is intentionally
 empty. Generated CSV is a temporary prepare artifact, not a maintained input.
 The Monday-Thursday 22:00 Asia/Shanghai schedule executes 1/2/4/8-node groups:
-8,890 Cases in 25 groups. Friday at the same time allows 1/2/4/8/16-node
-groups and selects all 8,899 Cases in 26 groups. Manual dispatch keeps the
+10,184 Cases in 28 groups. Friday at the same time allows 1/2/4/8/16-node
+groups and selects all 10,193 Cases in 29 groups. Manual dispatch keeps the
 weekday default unless `allowed_nodes` is explicitly overridden. Any excluded
 Cases remain in the export and are listed as `EXCLUDED_BY_POLICY` in
 `execution-coverage.json`, never as passed or skipped tests.
@@ -174,7 +180,7 @@ Job adds 30 minutes for setup and cleanup. These workflow limits do not change
 the Suite or Case timeouts in the generated input.
 
 The 810E `full` conversion adds 7,735 selected Cases. The combined export has
-17,928 Cases and selects 17,919 Cases in 52 groups after the same 16-node
+17,928 Cases and selects 17,919 Cases in 55 groups after the same 16-node
 M890P exclusions. This is generation coverage only, not a claim that the full
 hardware dataset has been executed.
 
@@ -184,7 +190,9 @@ and nine notsm Cases. Single-node coverage includes five two-rank op_perf
 collectives, the complete nine-Case sanity_register family in both standard
 and notsm, and two native unit smoke Cases. PR CI builds standard and notsm once, then runs both platforms with
 independent inputs, result directories and reconciliation. Every 810E PR Suite
-requests two cards per node. Both two-node Cases use four ranks, two per node:
+requests two cards per node, except the graph native Suite, which requests four
+to preserve its `devices 0,3` topology. Single-node PR jobs allocate the
+four-card maximum. Both two-node Cases use four ranks, two per node:
 EIC uses `-np 4 -npernode 2`, and RDMA uses `--ranks 4 --nprocs 2`. This PR-only
 layout does not change the 16-card daily profile.
 
@@ -199,6 +207,8 @@ For 810E, the scheduler allocation is derived from each Case command instead of
 always requesting the full 16-card node. MPI ranks are divided by node count,
 while native `num_gpus` and graph `num_threads * num_gpus` are preserved. Cases
 with different per-node rank counts never share an allocation group.
+Allocations are rounded up to the next power of two, limiting 810E requests to
+1, 2, 4, 8 or 16 cards per node.
 There is no hand-maintained shard list. Optional `--nodes` and `--suite`
 arguments are debug filters, not shard definitions.
 Manual dispatch also accepts `cards_per_node` as an allocation-only debug

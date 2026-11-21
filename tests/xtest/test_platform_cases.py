@@ -57,7 +57,13 @@ class PlatformCasesTests(unittest.TestCase):
         self.assertEqual(len(bundle["standard"]), 21)
         self.assertEqual(len(bundle["notsm"]), 9)
         self.assertEqual({row["nodes"] for row in bundle["suites"]}, {1, 2})
-        self.assertTrue(all(row["cards_per_node"] == 2 for row in bundle["suites"]))
+        self.assertEqual({row["cards_per_node"] for row in bundle["suites"]}, {2, 4})
+        graph = next(row for row in bundle["suites"]
+                     if row["suite"] == "postsil_unit_test_810e_graph_single_node_suite")
+        self.assertEqual(graph["cards_per_node"], 4)
+        unit = next(row for row in bundle["suites"]
+                    if row["suite"] == "postsil_unit_test_810e_single_node_suite")
+        self.assertEqual(unit["cards_per_node"], 2)
         self.assertTrue(any("op_perf_eic" in row["suite"] for row in bundle["standard"]))
         self.assertTrue(all(row["plan"].startswith(("pccl_810e", "sanity_810e"))
                             for row in bundle["standard"] + bundle["notsm"]))
@@ -82,6 +88,8 @@ class PlatformCasesTests(unittest.TestCase):
                   if "collPcclUnitTest" in row["cmd"] or "hggcGraphUnitTest" in row["cmd"]]
         self.assertEqual(len(native), 2)
         self.assertTrue(all("unit_test.py" not in row["cmd"] for row in native))
+        graph_case = next(row for row in native if "GraphUnitTest" in row["cmd"])
+        self.assertEqual(graph_case["suite"], "postsil_unit_test_810e_graph_single_node_suite")
 
     def test_groups_retain_platform_selector_and_results_identity(self):
         raw = [self.bundle("op_perf_shm", "smoke")]
@@ -120,6 +128,14 @@ class PlatformCasesTests(unittest.TestCase):
             case("run_test.py --ranks 8 --nnodes 2", 2)), 4)
         self.assertEqual(platform_cases.allocation_cards_per_node(
             case("build/hggcGraphUnitTest --num_threads=4 --num_gpus=2", 1)), 8)
+        self.assertEqual(platform_cases.allocation_cards_per_node(
+            case("HGGC_VISIBLE_DEVICES=0,3 build/hggcGraphUnitTest --num_threads=2", 1)), 4)
+        self.assertEqual(platform_cases.allocation_cards_per_node(
+            case("HGGC_VISIBLE_DEVICES=0,1,4,5 build/hggcGraphUnitTest --num_threads=4", 1)), 8)
+        self.assertEqual(platform_cases.allocation_cards_per_node(
+            case("run_test.py --ranks 2 --devices 0,3", 1)), 2)
+        self.assertEqual(platform_cases.allocation_cards_per_node(
+            case("run_test.py --ranks 8 --devices 0,1", 1)), 8)
         self.assertEqual(platform_cases.allocation_cards_per_node(
             case("build/collPcclUnitTest --num_gpus=4", 1)), 4)
         self.assertEqual(platform_cases.allocation_cards_per_node(

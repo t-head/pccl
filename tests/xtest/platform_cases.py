@@ -72,24 +72,44 @@ def allocation_cards_per_node(case, platform=None):
             raise ValueError(f"Invalid 810E allocation ranks: {case['plan']}/{case['suite']}/{case['name']}")
         return value
 
+    def power_of_two(value):
+        if value <= 0:
+            raise ValueError(f"Invalid 810E allocation ranks: {case['plan']}/{case['suite']}/{case['name']}")
+        return 1 << (value - 1).bit_length()
+
+    rank_cards = None
     if (value := option("-np")) is not None:
-        return per_node(value)
-    if (value := option("--ranks")) is not None:
-        return per_node(value)
-    if (threads := option("--num_threads")) is not None:
-        return per_node(threads * (option("--num_gpus") or 1))
-    if (value := option("--num_gpus")) is not None:
-        return per_node(value)
-    if (threads := option("-t")) is not None and (gpus := option("-g")) is not None:
-        return per_node(threads * gpus)
-    if (value := option("--nprocs")) is not None:
-        return positive(value)
-    if (value := option("--nproc")) is not None:
-        return positive(value)
-    match = re.search(r"(?:^|_)ranks_([0-9]+)(?:_|$)", case["name"])
-    if match:
-        return per_node(int(match.group(1)))
-    raise ValueError(f"Cannot derive 810E allocation ranks: {case['plan']}/{case['suite']}/{case['name']}")
+        rank_cards = per_node(value)
+    elif (value := option("--ranks")) is not None:
+        rank_cards = per_node(value)
+    elif (threads := option("--num_threads")) is not None:
+        rank_cards = per_node(threads * (option("--num_gpus") or 1))
+    elif (value := option("--num_gpus")) is not None:
+        rank_cards = per_node(value)
+    elif (threads := option("-t")) is not None and (gpus := option("-g")) is not None:
+        rank_cards = per_node(threads * gpus)
+    elif (value := option("--nprocs")) is not None:
+        rank_cards = positive(value)
+    elif (value := option("--nproc")) is not None:
+        rank_cards = positive(value)
+    else:
+        match = re.search(r"(?:^|_)ranks_([0-9]+)(?:_|$)", case["name"])
+        if match:
+            rank_cards = per_node(int(match.group(1)))
+
+    device_spans = []
+    if "GraphUnitTest" in command:
+        for pattern in (r"HGGC_VISIBLE_DEVICES=([0-9]+(?:,[0-9]+)*)",
+                        r"--devices(?:=|\s+)([0-9]+(?:,[0-9]+)*)"):
+            for match in re.finditer(pattern, command):
+                device_spans.append(max(int(item) for item in match.group(1).split(",")) + 1)
+    if device_spans:
+        allocation = max(rank_cards or 0, per_node(max(device_spans)))
+    elif rank_cards is not None:
+        allocation = rank_cards
+    else:
+        raise ValueError(f"Cannot derive 810E allocation ranks: {case['plan']}/{case['suite']}/{case['name']}")
+    return power_of_two(allocation)
 
 
 def _rename(value, rules):

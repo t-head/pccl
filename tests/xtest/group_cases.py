@@ -30,7 +30,7 @@ def _rack_policy(case):
     expected_nodes = CROSS_RACK_SUITES.get(key)
     if expected_nodes is None:
         if "2_rack" in case["plan"] or "2_rack" in case["suite"]:
-            raise ValueError(f"Cross-rack Suite has no reviewed rack allocation: {key}")
+            raise ValueError(f"Cross-rack Suite has no reviewed rack policy: {key}")
         return ("same", 1) if platform_cases.case_platform(case) == platform_cases.DEFAULT_PLATFORM else ("", 0)
     if case["suite_spec"]["nodes"] != expected_nodes:
         raise ValueError(f"Cross-rack Suite has an unexpected node count: {key}")
