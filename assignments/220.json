@@ -1,14 +1,14 @@
 {
   "classification": {
     "base_sha": "56406054982babf888a940019869f712309e968a",
-    "head_sha": "667fa00844e868dfe3f0459b15ba4fb19ba7c1c0",
-    "input_fingerprint": "2456976e4b638fb80c6f492fea7125d454fbfb27065afdc52b2bc401e9e58a34",
+    "head_sha": "861a7ce55629b7bcb1c031ec6534e2d0a7358a1d",
+    "input_fingerprint": "644810405a558ed8bbb3ea069271efd98c1662697de9cfcc367ee17b2d79e608",
     "pr_number": 220,
     "proposal": {
       "modules": [
         "ci"
       ],
-      "reason": "The substantive change is a CI workflow/test-orchestration overhaul: dual-platform (M890P+OAM-810E) case generation and grouping, scheduler allocation/rack policy updates, HPN SDK install and validation plumbing, device-mapping/runtime log capture, and expanded xtest manifests/tests (including large patch-omitted test-list additions) to support PR/daily validation behavior."
+      "reason": "Main substantive change is in open-source test workflows and harness logic: dual-platform (M890P/810E) case generation/grouping/execution, HPN SDK install handling, device-allocation mapping in test runner, and CI reconciliation/reporting artifacts. Other edits are supporting tests/docs for that same CI behavior, not separate module policy or runtime feature ownership."
     }
   },
   "reviewers": {
