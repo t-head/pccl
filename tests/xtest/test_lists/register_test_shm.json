@@ -130,6 +130,13 @@
   ],
   "profiles": {
     "full": {},
+    "pr": {
+      "nodes": [1],
+      "filters": {
+        "operation": ["all_reduce_perf"], "algorithm": ["Auto"], "protocol": ["Auto"],
+        "dtype": ["float"], "size": ["32MB"], "layout": ["nproc_1_threads_2"]
+      }
+    },
     "smoke": {
       "nodes": [1],
       "filters": {

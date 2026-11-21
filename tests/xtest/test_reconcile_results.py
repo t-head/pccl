@@ -138,6 +138,13 @@ class ReconcileResultsTests(unittest.TestCase):
         with self.assertRaisesRegex(ValueError, 'cards_per_node=16'):
             self.reconcile()
 
+    def test_smaller_card_counts_are_accepted(self):
+        suites = run_cases._read_csv(self.input / 'suites.csv', run_cases.SUITE_FIELDS)
+        for suite in suites:
+            suite['cards_per_node'] = '2'
+        self.write_csv('suites.csv', run_cases.SUITE_FIELDS, suites)
+        self.assertEqual(self.reconcile(), {'standard': 2, 'notsm': 1, 'cluster': 1})
+
     def test_missing_scheduled_group_is_rejected(self):
         cases = run_cases._read_csv(self.input / 'standard.csv', run_cases.CASE_FIELDS)
         self.write_csv('standard.csv', run_cases.CASE_FIELDS,

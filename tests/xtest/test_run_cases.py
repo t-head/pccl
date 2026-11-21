@@ -5,9 +5,11 @@ import csv
 import json
 import os
 from pathlib import Path
+import shlex
 import subprocess
 import sys
 import tempfile
+import threading
 import unittest
 from unittest import mock
 
@@ -45,7 +47,8 @@ class CsvRunnerTests(unittest.TestCase):
             'print("arguments=" + repr(sys.argv[1:]))\n'
             'print("executable=" + sys.executable)\n'
             'print("version=" + ".".join(str(part) for part in sys.version_info[:2]))\n'
-            'print("marker=" + os.environ.get("TEST_MARKER", ""))\n', encoding='utf-8')
+            'print("marker=" + os.environ.get("TEST_MARKER", ""))\n'
+            'print("devices=" + os.environ.get("HGGC_VISIBLE_DEVICES", ""))\n', encoding='utf-8')
         (self.runner / 'run_test_config.py').write_text('# test fixture\n', encoding='utf-8')
         (self.input / 'export.json').write_text(json.dumps({
             'format_version': 1, 'source_revision': SOURCE, 'runner_revision': RUNNER,
@@ -76,16 +79,210 @@ class CsvRunnerTests(unittest.TestCase):
         self.write_csv(f'{profile}.csv', run_cases.CASE_FIELDS, rows)
         return run_cases.load_inputs(self.input, profile)
 
-    def execute(self, inputs, hostfile=None, mpi_interface=None, build_identity=None):
+    def execute(self, inputs, hostfile=None, mpi_interface=None, build_identity=None,
+                map_nvidia_devices=False, nvidia_devices=None):
         self.output_number += 1
         if build_identity is None:
             build_identity = {'schema_version': 1, 'pccl_revision': 'c' * 40,
                               'pccl_tests_revision': inputs['metadata']['runner_revision'],
                               'build_profile': inputs['profile'], 'artifact_sha256': 'd' * 64}
-        return run_cases.run_all(inputs, self.test_root, self.binary,
-                                 self.root / f'output-{self.output_number}', hostfile,
-                                 {'PATH': '/usr/bin:/bin', 'LD_LIBRARY_PATH': '', 'PPU_HOME': '/sdk'},
-                                 mpi_interface=mpi_interface, build_identity=build_identity)
+        with mock.patch.object(run_cases, '_capture_dmesg') as self.capture_dmesg:
+            environment = {'PATH': '/usr/bin:/bin', 'LD_LIBRARY_PATH': '', 'PPU_HOME': '/sdk'}
+            if nvidia_devices is not None:
+                environment['NVIDIA_VISIBLE_DEVICES'] = nvidia_devices
+            return run_cases.run_all(
+                inputs, self.test_root, self.binary, self.root / f'output-{self.output_number}', hostfile,
+                environment, mpi_interface=mpi_interface, build_identity=build_identity,
+                map_nvidia_devices=map_nvidia_devices)
+
+    def test_810e_device_allocation_is_mapped_and_forwarded(self):
+        inputs = self.inputs([
+            {'cmd': '/usr/bin/printenv HGGC_VISIBLE_DEVICES', 'name': 'default'},
+            {'cmd': 'HGGC_VISIBLE_DEVICES=0,3 /usr/bin/printenv HGGC_VISIBLE_DEVICES', 'name': 'inline'},
+            {'cmd': 'python run_test.py --devices 0,3', 'name': 'runner'},
+        ])
+        rows = self.execute(inputs, map_nvidia_devices=True, nvidia_devices='9,11,14,17')
+        self.assertEqual([row['status'] for row in rows], ['PASSED'] * 3)
+        self.assertEqual((self.root / 'output-1/plan/suite/default/raw.log').read_text().strip(), '9,11,14,17')
+        self.assertEqual((self.root / 'output-1/plan/suite/inline/raw.log').read_text().strip(), '9,17')
+        runner_log = (self.root / 'output-1/plan/suite/runner/raw.log').read_text()
+        self.assertIn("'--devices', '9,17'", runner_log)
+        self.assertIn('devices=9,11,14,17', runner_log)
+        mpi = run_cases._with_device_environment('mpirun -np 2 true', '9,17')
+        self.assertIn('mpirun -x HGGC_VISIBLE_DEVICES=9,17 -np 2', mpi)
+        quoted = run_cases._with_device_environment("python run_test.py --mpi-options='-np 2'", '9,17')
+        self.assertIn("--mpi-options='-x HGGC_VISIBLE_DEVICES=9,17 -np 2'", quoted)
+
+        sparse = self.execute(self.inputs([{'cmd': 'HGGC_VISIBLE_DEVICES=0,3 /usr/bin/printenv HGGC_VISIBLE_DEVICES'}]),
+                              map_nvidia_devices=True, nvidia_devices='8,13')
+        self.assertEqual(sparse[0]['status'], 'FAILED')
+        self.assertIn('requires 4 PPUs but only 2 were allocated', sparse[0]['error'])
+
+    def test_810e_device_allocation_rejects_invalid_or_out_of_range_selection(self):
+        with self.assertRaisesRegex(ValueError, 'finite'):
+            run_cases._allocated_devices({'NVIDIA_VISIBLE_DEVICES': 'all'})
+        with self.assertRaisesRegex(ValueError, 'duplicate'):
+            run_cases._allocated_devices({'NVIDIA_VISIBLE_DEVICES': '9,9'})
+        rows = self.execute(self.inputs([{'cmd': 'HGGC_VISIBLE_DEVICES=0,1,4 true'}]),
+                            map_nvidia_devices=True, nvidia_devices='9,11')
+        self.assertEqual(rows[0]['status'], 'FAILED')
+        self.assertIn('requires 5 PPUs but only 2 were allocated', rows[0]['error'])
+
+    def test_quoted_device_selections_are_mapped_without_changing_topology(self):
+        for quote in ("'", '"'):
+            for prefix in ("HGGC_VISIBLE_DEVICES=", "--devices=", "--devices "):
+                command = f"{prefix}{quote}0,3{quote}"
+                for physical, expected in ((True, "9,17"), (False, "0,3")):
+                    with self.subTest(command=command, physical=physical):
+                        mapped, effective, _ = run_cases._map_case_devices(
+                            command, [9, 11, 14, 17], physical=physical)
+                        self.assertEqual(mapped, f"{prefix}{quote}{expected}{quote}")
+                        self.assertEqual(effective, expected)
+                        shlex.split(mapped)
+                with self.assertRaisesRegex(ValueError, "requires 4 PPUs but only 2"):
+                    run_cases._map_case_devices(command, [9, 11])
+        with self.assertRaisesRegex(ValueError, "conflicting"):
+            run_cases._map_case_devices("HGGC_VISIBLE_DEVICES='0,1' run_test.py --devices=\"0,3\"",
+                                       [9, 11, 14, 17])
+        with self.assertRaisesRegex(ValueError, "duplicate"):
+            run_cases._map_case_devices("HGGC_VISIBLE_DEVICES='0,0' true", [9, 11])
+
+    def test_quoted_inline_device_assignment_cannot_override_pod_mapping(self):
+        rows = self.execute(self.inputs([
+            {"cmd": "HGGC_VISIBLE_DEVICES='0,1' /usr/bin/printenv HGGC_VISIBLE_DEVICES"},
+            {"cmd": 'HGGC_VISIBLE_DEVICES="0,1" /usr/bin/printenv HGGC_VISIBLE_DEVICES'},
+            {"cmd": "python run_test.py --devices '0,1'"},
+            {"cmd": 'python run_test.py --devices="0,1"'},
+        ]), map_nvidia_devices=True, nvidia_devices='9,11')
+        self.assertEqual([row['status'] for row in rows], ['PASSED'] * 4)
+        for index in (0, 1):
+            self.assertEqual((self.root / f'output-1/plan/suite/case_{index}/raw.log')
+                             .read_text().strip(), '9,11')
+        for index in (2, 3):
+            self.assertIn('9,11', (self.root / f'output-1/plan/suite/case_{index}/raw.log').read_text())
+
+    def test_device_mapping_is_opt_in(self):
+        rows = self.execute(self.inputs([{'cmd': 'HGGC_VISIBLE_DEVICES=0,3 /usr/bin/printenv HGGC_VISIBLE_DEVICES'}]),
+                            nvidia_devices='9,11,14,17')
+        self.assertEqual(rows[0]['status'], 'PASSED')
+        self.assertEqual((self.root / 'output-1/plan/suite/case_0/raw.log').read_text().strip(), '0,3')
+
+    def test_device_environment_preserves_terminal_mpi_options_path_quotes(self):
+        for quote in ("'", '"'):
+            with self.subTest(quote=quote):
+                command = (f"python run_test.py --mpi-options={quote}--hostfile /hosts "
+                           f"-x PATH=/usr/bin{quote} --cross-node gdr")
+                rewritten = run_cases._with_device_environment(
+                    command, "0,1", logical=True, path="/wrappers:/usr/bin")
+                arguments = shlex.split(rewritten)
+                mpi_options = next(arg.split("=", 1)[1] for arg in arguments
+                                   if arg.startswith("--mpi-options="))
+                self.assertEqual(shlex.split(mpi_options),
+                                 ["-x", "HGGC_VISIBLE_DEVICES=0,1",
+                                  "-x", "PCCL_LOGICAL_VISIBLE_DEVICES=0,1",
+                                  "--hostfile", "/hosts", "-x", "PATH=/wrappers:/usr/bin"])
+                self.assertEqual(arguments[-2:], ["--cross-node", "gdr"])
+
+    def test_device_environment_replaces_direct_mpi_path(self):
+        command = "mpirun -x PATH=/usr/bin -np 2 all_reduce_perf"
+        rewritten = run_cases._with_device_environment(
+            command, "0,1", logical=True, path="/wrappers:/usr/bin")
+        self.assertEqual(shlex.split(rewritten),
+                         ["mpirun", "-x", "HGGC_VISIBLE_DEVICES=0,1",
+                          "-x", "PCCL_LOGICAL_VISIBLE_DEVICES=0,1",
+                          "-x", "PATH=/wrappers:/usr/bin", "-np", "2", "all_reduce_perf"])
+
+    def test_multi_node_device_selection_is_mapped_per_worker(self):
+        hostfile = self.root / 'hosts.cfg'
+        hostfile.write_text('worker-a\nworker-b\n')
+        rows = self.execute(self.inputs([{'cmd': 'mpirun -x PATH={path} --hostfile {hostfile} -np 2 true'}], nodes=2), hostfile,
+                            map_nvidia_devices=True, nvidia_devices='9,11')
+        command = (self.root / 'output-1/plan/suite/case_0/command.txt').read_text()
+        self.assertIn('PCCL_LOGICAL_VISIBLE_DEVICES=0,1', command)
+        self.assertIn('device-map-wrappers', command)
+        self.assertNotIn('-x HGGC_VISIBLE_DEVICES=9,11', command)
+
+        real = self.root / 'real-bin'
+        real.mkdir()
+        benchmark = real / 'all_reduce_perf'
+        benchmark.write_text('#!/bin/sh\nprintf "%s" "$HGGC_VISIBLE_DEVICES"\n')
+        benchmark.chmod(0o755)
+        wrappers = run_cases._stage_device_wrappers(self.test_root)
+        for allocated, expected in (('9,11', '9,11'), ('2,4', '2,4')):
+            environment = dict(os.environ, NVIDIA_VISIBLE_DEVICES=allocated,
+                               PCCL_LOGICAL_VISIBLE_DEVICES='0,1',
+                               PATH=str(wrappers) + os.pathsep + str(real) + os.pathsep + '/usr/bin:/bin')
+            result = subprocess.run(['all_reduce_perf'],
+                                    env=environment, capture_output=True, text=True)
+            self.assertEqual(result.returncode, 0, result.stderr)
+            self.assertEqual(result.stdout, expected)
+        environment = dict(os.environ, NVIDIA_VISIBLE_DEVICES='9',
+                           PCCL_LOGICAL_VISIBLE_DEVICES='0,1',
+                           PATH=str(wrappers) + os.pathsep + str(real) + os.pathsep + '/usr/bin:/bin')
+        result = subprocess.run(['all_reduce_perf'], env=environment,
+                                capture_output=True, text=True)
+        self.assertNotEqual(result.returncode, 0)
+        self.assertIn('exceeds this worker', result.stderr)
+
+    def test_multi_node_mapping_rejects_out_of_range_logical_indices(self):
+        with self.assertRaisesRegex(ValueError, 'requires 4 PPUs but only 2 were allocated'):
+            run_cases._map_case_devices('HGGC_VISIBLE_DEVICES=0,3 true', [9, 11], physical=False)
+
+    def test_dmesg_is_captured_only_for_failed_cases(self):
+        rows = self.execute(self.inputs([{'cmd': 'exit 1'}, {'cmd': 'true'}]))
+        self.assertEqual([row['status'] for row in rows], ['FAILED', 'PASSED'])
+        self.capture_dmesg.assert_called_once()
+        case, runtime = self.capture_dmesg.call_args.args
+        self.assertEqual(case['name'], 'case_0')
+        self.assertEqual(runtime['output'], (self.root / 'output-1').resolve())
+
+    def test_dmesg_capture_writes_local_and_worker_logs(self):
+        case = {'plan': 'plan', 'suite': 'suite', 'name': 'case', 'suite_spec': {'nodes': 1}}
+        runtime = {'output': self.root, 'hostfile': None}
+        directory = self.root / 'plan/suite/case'
+        directory.mkdir(parents=True)
+        completed = mock.Mock(stdout=b'kernel diagnostic\n', returncode=0)
+        with mock.patch.object(run_cases.subprocess, 'run', return_value=completed) as invoke:
+            run_cases._capture_dmesg(case, runtime)
+        self.assertEqual((directory / 'dmesg.log').read_bytes(), b'kernel diagnostic\n')
+        self.assertEqual(invoke.call_args.args[0], ['dmesg'])
+
+        hostfile = self.root / 'hosts.cfg'
+        hostfile.write_text('worker-a slots=2\nworker-b slots=2\n')
+        case['suite_spec']['nodes'] = 2
+        runtime['hostfile'] = hostfile
+        with mock.patch.object(run_cases.subprocess, 'run', return_value=completed) as invoke:
+            run_cases._capture_dmesg(case, runtime)
+        self.assertEqual((directory / 'dmesg-worker-0.log').read_bytes(), b'kernel diagnostic\n')
+        self.assertEqual((directory / 'dmesg-worker-1.log').read_bytes(), b'kernel diagnostic\n')
+        self.assertEqual([call.args[0] for call in invoke.call_args_list],
+                         [['cluster-ssh', 'worker-a', 'dmesg'], ['cluster-ssh', 'worker-b', 'dmesg']])
+
+    def test_dmesg_capture_is_concurrent_and_best_effort(self):
+        case = {'plan': 'plan', 'suite': 'suite', 'name': 'case', 'suite_spec': {'nodes': 2}}
+        hostfile = self.root / 'hosts.cfg'
+        hostfile.write_text('worker-a\nworker-b\n')
+        directory = self.root / 'plan/suite/case'
+        directory.mkdir(parents=True)
+        runtime = {'output': self.root, 'hostfile': hostfile}
+        barrier = threading.Barrier(2)
+
+        def capture(*args, **kwargs):
+            barrier.wait(timeout=2)
+            return mock.Mock(stdout=b'kernel diagnostic\n', returncode=0)
+
+        with mock.patch.object(run_cases.subprocess, 'run', side_effect=capture):
+            run_cases._capture_dmesg(case, runtime)
+        self.assertTrue((directory / 'dmesg-worker-0.log').is_file())
+        self.assertTrue((directory / 'dmesg-worker-1.log').is_file())
+
+        runtime['hostfile'] = self.root / 'missing-hosts'
+        run_cases._capture_dmesg(case, runtime)
+        self.assertIn('Unable to capture dmesg', (directory / 'dmesg.log').read_text())
+        hostfile.write_text('# no workers\n')
+        runtime['hostfile'] = hostfile
+        run_cases._capture_dmesg(case, runtime)
+        self.assertIn('No workers are available', (directory / 'dmesg.log').read_text())
 
     def test_verified_build_identity_is_retained_with_results(self):
         inputs = self.inputs([{'cmd': 'printf "build identity\\n"'}])

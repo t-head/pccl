@@ -7,6 +7,12 @@ on:
   push:
     branches: [main]
   workflow_dispatch:
+    inputs:
+      hpn_sdk_url:
+        description: Public trusted HTTPS HPN SDK installer URL; no credentials, query parameters or fragments
+        required: false
+        type: string
+        default: https://zone-ci.oss-cn-hangzhou.aliyuncs.com/hpn-sdk/2.1.3/hpnsdk2.1.3-ubuntu2404-202611121836-x86_64.bin
 
 permissions:
   contents: read
@@ -18,7 +24,9 @@ concurrency:
   cancel-in-progress: true
 
 env:
+  HPN_SDK_URL: https://zone-ci.oss-cn-hangzhou.aliyuncs.com/hpn-sdk/2.1.3/hpnsdk2.1.3-ubuntu2404-202611121836-x86_64.bin
   VALIDATION_IMAGE: download.t-head.cn/docker_release/ppu:sdk2.2.0-hggcrt3-ubuntu24.04-py312-20261005
+  # Install HPN SDK 2.1.3 by default; manual dispatch can select another trusted URL.
   VALIDATION_NODE_SELECTOR: board-type=ZW-M890P,nic-type=cx8
   VALIDATION_CARDS: '8'
   PCCL_TESTS_REVISION: 394556512e87259e9ffa25225632c46b0a0bbcd5
@@ -103,9 +111,29 @@ jobs:
       (github.event_name == 'pull_request' ||
        github.event_name == 'workflow_dispatch' ||
        github.event_name == 'push')
+    outputs:
+      hpn_sdk_url: ${{ steps.sdk-selection.outputs.hpn_sdk_url }}
     runs-on: ubuntu-24.04
     timeout-minutes: 20
     steps:
+      - id: sdk-selection
+        name: Select the public HPN SDK URL
+        uses: actions/github-script@v7
+        with:
+          script: |
+            const selected = context.payload.inputs?.hpn_sdk_url || process.env.HPN_SDK_URL;
+            try {
+              const parsed = new URL(selected);
+              if (parsed.protocol !== 'https:' ||
+                  parsed.hostname !== 'zone-ci.oss-cn-hangzhou.aliyuncs.com' ||
+                  !['', '443'].includes(parsed.port) || parsed.username || parsed.password ||
+                  !parsed.pathname.endsWith('.bin') || /[\s?#@]/.test(selected)) {
+                throw new Error('unsupported SDK URL');
+              }
+              core.setOutput('hpn_sdk_url', selected);
+            } catch {
+              core.setFailed('HPN SDK URL must be a public, credential-free HTTPS .bin URL on the trusted OSS host, without query parameters or fragments.');
+            }
       - uses: actions/checkout@v4
         with:
           path: pccl
@@ -121,12 +149,15 @@ jobs:
           python-version: '3.12'
       - name: Test executors and validate real selections
         working-directory: pccl
+        env:
+          HPN_SDK_URL: ${{ steps.sdk-selection.outputs.hpn_sdk_url }}
         run: |
           python3 -S -B -W error::ResourceWarning -m unittest discover \
             -s tests/xtest -p 'test_run_cases.py' -v
           python3 -S -B -m unittest discover -s tests/xtest -p 'test_artifact_cache.py' -v
           python3 -S -B -m unittest discover -s tests/xtest -p 'test_download_artifact_retry.py' -v
           python3 -S -B -m unittest discover -s tests/xtest -p 'test_remote_recovery.py' -v
+          python3 -S -B -m unittest discover -s tests/xtest -p 'test_hpn_sdk.py' -v
           python3 -S -B -m unittest discover -s tests/xtest -p 'test_case_group_cache.py' -v
           python3 -S -B -m unittest discover -s tests/xtest -p 'test_daily_reconcile.py' -v
           python3 -S -B -m unittest discover -s tests/xtest -p 'test_performance_report.py' -v
@@ -135,6 +166,8 @@ jobs:
           python3 -S -B -m unittest discover -s tests/xtest -p 'test_daily_smoke.py' -v
           python3 -S -B -m unittest discover -s tests/xtest -p 'test_reconcile_results.py' -v
           python3 -S -B -m unittest discover -s tests/xtest -p 'test_workflow_contract.py' -v
+          python3 -S -B -m unittest discover -s tests/xtest -p 'test_platform_cases.py' -v
+          python3 -S -B -m unittest discover -s tests/xtest -p 'test_export_810e_unit_cases.py' -v
           python3 -S -B - <<'PY'
           import hashlib
           import json
@@ -154,6 +187,8 @@ jobs:
               assert hashlib.sha256((runner / name).read_bytes()).hexdigest() == expected
           metadata = json.loads(Path('tests/xtest/minimal-csv/export.json').read_text())
           assert metadata['runner_revision'] == revision
+          metadata_810e = json.loads(Path('tests/xtest/minimal-csv-oam810e-eic/export.json').read_text())
+          assert metadata_810e['runner_revision'] == revision
           selections = reconcile_results.load_selections(
               Path('tests/xtest/minimal-csv'), int(os.environ['VALIDATION_CARDS']))
           expected = {'standard': 71, 'cluster': 1, 'notsm': 37}
@@ -161,6 +196,12 @@ jobs:
               selected = selections[name]
               assert len(selected['cases']) == count
               print(f'{name} selection: {count} Cases')
+          selections_810e = reconcile_results.load_selections(
+              Path('tests/xtest/minimal-csv-oam810e-eic'), 2)
+          expected_810e = {'standard': 19, 'cluster': 2, 'notsm': 9}
+          for name, count in expected_810e.items():
+              assert len(selections_810e[name]['cases']) == count
+              print(f'810E {name} selection: {count} Cases')
           assert subprocess.check_output(['git', 'rev-parse', 'HEAD'], text=True).strip() == os.environ['GITHUB_SHA']
           PY
       - name: Stage the pinned benchmark dependency
@@ -210,6 +251,9 @@ jobs:
        github.event_name == 'push')
     outputs:
       artifact_sha256: ${{ steps.identity.outputs.artifact_sha256 }}
+    env:
+      # cluster-run automatically forwards job env through USER_ENV_JSON.
+      HPN_SDK_URL: ${{ needs.prepare.outputs.hpn_sdk_url }}
     runs-on: k8s-runner-group-cpu-thead
     container:
       image: ghcr.io/actions/actions-runner:latest
@@ -238,6 +282,8 @@ jobs:
           command: |
             set -euo pipefail
             cd /workspace/source
+            : "${HPN_SDK_URL:?Selected HPN SDK URL was not forwarded to this worker}"
+            bash pccl/.github/workflows/scripts/install_hpn_sdk.sh
             export source_home=/workspace/source
             export build_output=/workspace/source/output_standard
             STAGING=/mnt/wl_nas/devops/pccl-artifact-cache-${{ github.run_id }}/staging/standard
@@ -304,6 +350,8 @@ jobs:
        github.event_name == 'push')
     outputs:
       artifact_sha256: ${{ steps.identity.outputs.artifact_sha256 }}
+    env:
+      HPN_SDK_URL: ${{ needs.prepare.outputs.hpn_sdk_url }}
     runs-on: k8s-runner-group-cpu-thead
     container:
       image: ghcr.io/actions/actions-runner:latest
@@ -332,6 +380,8 @@ jobs:
           command: |
             set -euo pipefail
             cd /workspace/source
+            : "${HPN_SDK_URL:?Selected HPN SDK URL was not forwarded to this worker}"
+            bash pccl/.github/workflows/scripts/install_hpn_sdk.sh
             export source_home=/workspace/source
             export build_output=/workspace/source/output_notsm
             STAGING=/mnt/wl_nas/devops/pccl-artifact-cache-${{ github.run_id }}/staging/notsm
@@ -387,7 +437,7 @@ jobs:
 
   stage-cache:
     name: Stage ${{ matrix.profile }} from artifact or valid NAS cache
-    needs: [build-standard, build-notsm]
+    needs: [prepare, build-standard, build-notsm]
     if: >-
       !cancelled() && needs.build-standard.result == 'success' &&
       needs.build-notsm.result == 'success'
@@ -396,6 +446,7 @@ jobs:
       matrix:
         profile: [standard, notsm]
     env:
+      HPN_SDK_URL: ${{ needs.prepare.outputs.hpn_sdk_url }}
       EXPECTED_SHA: ${{ matrix.profile == 'standard' && needs.build-standard.outputs.artifact_sha256 || needs.build-notsm.outputs.artifact_sha256 }}
     runs-on: k8s-runner-group-cpu-thead
     container:
@@ -451,7 +502,7 @@ jobs:
           test "$STATE" = hit
 
   single-node:
-    name: Single-node CSV (${{ matrix.profile }})
+    name: Single-node CSV (${{ matrix.platform }} / ${{ matrix.profile }})
     needs: [prepare, human-review, build-standard, build-notsm, stage-cache]
     if: >-
       !cancelled() && needs.prepare.result == 'success' &&
@@ -462,9 +513,15 @@ jobs:
     strategy:
       fail-fast: false
       matrix:
-        profile: [standard, notsm]
+        include:
+          - {profile: standard, platform: m890p, cards_per_node: 8, node_selector: 'board-type=ZW-M890P,nic-type=cx8'}
+          - {profile: notsm, platform: m890p, cards_per_node: 8, node_selector: 'board-type=ZW-M890P,nic-type=cx8'}
+          - {profile: standard, platform: oam810e_eic, cards_per_node: 2, node_selector: 'board-type=OAM-810E,nic-type=eic'}
+          - {profile: notsm, platform: oam810e_eic, cards_per_node: 2, node_selector: 'board-type=OAM-810E,nic-type=eic'}
     env:
+      HPN_SDK_URL: ${{ needs.prepare.outputs.hpn_sdk_url }}
       EXPECTED_SHA: ${{ matrix.profile == 'standard' && needs.build-standard.outputs.artifact_sha256 || needs.build-notsm.outputs.artifact_sha256 }}
+      INPUT_DIR: ${{ matrix.platform == 'oam810e_eic' && 'tests/xtest/minimal-csv-oam810e-eic' || 'tests/xtest/minimal-csv' }}
     runs-on: k8s-runner-group-cpu-thead
     container:
       image: ghcr.io/actions/actions-runner:latest
@@ -517,8 +574,8 @@ jobs:
         with:
           image: ${{ env.VALIDATION_IMAGE }}
           nnodes: 0
-          nproc_per_node: ${{ env.VALIDATION_CARDS }}
-          node_selector: ${{ env.VALIDATION_NODE_SELECTOR }}
+          nproc_per_node: ${{ matrix.cards_per_node }}
+          node_selector: ${{ matrix.node_selector }}
           namespace: ppu-sched
           timeout_minutes: 300
           cleanup_policy: always
@@ -530,6 +587,8 @@ jobs:
           command: |
             set -euo pipefail
             source /usr/local/PPU_SDK/envsetup.sh
+            : "${HPN_SDK_URL:?Selected HPN SDK URL was not forwarded to this worker}"
+            bash /workspace/source/pccl/.github/workflows/scripts/install_hpn_sdk.sh
             MPI_INTERFACE=$(awk '$2 == "00000000" {print $1; exit}' /proc/net/route)
             test -n "$MPI_INTERFACE"
             export HWLOC_COMPONENTS=-gl
@@ -572,7 +631,7 @@ jobs:
             cd /workspace/source
             export build_output=/workspace/source/output_${{ matrix.profile }}
             CACHE_DIR=/mnt/wl_nas/devops/pccl-artifact-cache-${{ github.run_id }}/cache/${{ matrix.profile }}/${{ env.EXPECTED_SHA }}
-            RESULT_ROOT=/mnt/wl_nas/devops/pccl-artifact-cache-${{ github.run_id }}/results/${{ matrix.profile }}
+            RESULT_ROOT=/mnt/wl_nas/devops/pccl-artifact-cache-${{ github.run_id }}/results/${{ matrix.platform }}/${{ matrix.profile }}
             rm -rf "$RESULT_ROOT"
             mkdir -p "$(dirname "$RESULT_ROOT")"
             unset PIP_INDEX_URL PIP_EXTRA_INDEX_URL 2>/dev/null || true
@@ -599,8 +658,9 @@ jobs:
             test "$OMPI_MCA_orte_keep_fqdn_hostnames" = 1
             /workspace/minimal-csv-env/bin/python -B \
               "$build_output/pccl/tests/xtest/run_cases.py" \
-              --input "$build_output/pccl/tests/xtest/minimal-csv" \
+              --input "$build_output/pccl/${{ env.INPUT_DIR }}" \
               --profile '${{ matrix.profile }}' --nodes 1 \
+              --map-nvidia-devices \
               --test-root "$build_output" \
               --binary-dir "$build_output/pccl-tests/build" \
               --mpi-interface "$MPI_INTERFACE" \
@@ -610,15 +670,23 @@ jobs:
               --output "$RESULT_ROOT"
 
   two-node:
-    name: Two-node master-only CSV (16 ranks)
+    name: Two-node master-only CSV (${{ matrix.platform }})
     needs: [prepare, human-review, build-standard, stage-cache]
     if: >-
       !cancelled() && needs.prepare.result == 'success' &&
       (needs.human-review.result == 'success' ||
         (github.event_name != 'pull_request' && needs.human-review.result == 'skipped')) &&
       needs.build-standard.result == 'success' && needs.stage-cache.result == 'success'
+    strategy:
+      fail-fast: false
+      matrix:
+        include:
+          - {platform: m890p, cards_per_node: 8, node_selector: 'board-type=ZW-M890P,nic-type=cx8'}
+          - {platform: oam810e_eic, cards_per_node: 2, node_selector: 'board-type=OAM-810E,nic-type=eic'}
     env:
+      HPN_SDK_URL: ${{ needs.prepare.outputs.hpn_sdk_url }}
       EXPECTED_SHA: ${{ needs.build-standard.outputs.artifact_sha256 }}
+      INPUT_DIR: ${{ matrix.platform == 'oam810e_eic' && 'tests/xtest/minimal-csv-oam810e-eic' || 'tests/xtest/minimal-csv' }}
     runs-on: k8s-runner-group-cpu-thead
     container:
       image: ghcr.io/actions/actions-runner:latest
@@ -672,9 +740,9 @@ jobs:
           image: ${{ env.VALIDATION_IMAGE }}
           launch_mode: master
           nnodes: 2
-          nproc_per_node: ${{ env.VALIDATION_CARDS }}
-          rack_policy: same
-          node_selector: ${{ env.VALIDATION_NODE_SELECTOR }}
+          nproc_per_node: ${{ matrix.cards_per_node }}
+          rack_policy: ${{ matrix.platform == 'm890p' && 'same' || '' }}
+          node_selector: ${{ matrix.node_selector }}
           namespace: ppu-sched
           timeout_minutes: 300
           cleanup_policy: always
@@ -686,6 +754,8 @@ jobs:
           setup_command: |
             set -euo pipefail
             source /usr/local/PPU_SDK/envsetup.sh
+            : "${HPN_SDK_URL:?Selected HPN SDK URL was not forwarded to this worker}"
+            bash /workspace/source/pccl/.github/workflows/scripts/install_hpn_sdk.sh
             MPI_INTERFACE=$(awk '$2 == "00000000" {print $1; exit}' /proc/net/route)
             test -n "$MPI_INTERFACE"
             # Keep hostfile names and MPI/NCCL control traffic on the management route.
@@ -735,13 +805,13 @@ jobs:
             umask 022
             cd "$SOURCE_DIR"
             CACHE_DIR=/mnt/wl_nas/devops/pccl-artifact-cache-${{ github.run_id }}/cache/standard/${{ env.EXPECTED_SHA }}
-            SHARED_ROOT=/mnt/wl_nas/devops/pccl-artifact-cache-${{ github.run_id }}/shared-standard/${{ env.EXPECTED_SHA }}
+            SHARED_ROOT=/mnt/wl_nas/devops/pccl-artifact-cache-${{ github.run_id }}/shared-standard/${{ matrix.platform }}/${{ env.EXPECTED_SHA }}
             export build_output="$SHARED_ROOT/output_standard"
-            RESULT_ROOT=/mnt/wl_nas/devops/pccl-artifact-cache-${{ github.run_id }}/results/cluster
+            RESULT_ROOT=/mnt/wl_nas/devops/pccl-artifact-cache-${{ github.run_id }}/results/${{ matrix.platform }}/cluster
             rm -rf "$RESULT_ROOT" "$SHARED_ROOT"
             mkdir -p "$(dirname "$RESULT_ROOT")" "$SHARED_ROOT"
             cleanup_shared_build() {
-              rm -rf "$SHARED_ROOT"
+              rm -rf "$(dirname "$SHARED_ROOT")"
             }
             trap cleanup_shared_build EXIT
             unset PIP_INDEX_URL PIP_EXTRA_INDEX_URL 2>/dev/null || true
@@ -777,8 +847,9 @@ jobs:
               --hostfile "$CLUSTER_HOSTS_FILE" -np 2 -npernode 1 hostname
             /workspace/minimal-csv-cluster-env/bin/python -B \
               "$build_output/pccl/tests/xtest/run_cases.py" \
-              --input "$build_output/pccl/tests/xtest/minimal-csv" \
+              --input "$build_output/pccl/${{ env.INPUT_DIR }}" \
               --profile standard --nodes 2 \
+              --map-nvidia-devices \
               --test-root "$build_output" \
               --binary-dir "$build_output/pccl-tests/build" \
               --hostfile "$CLUSTER_HOSTS_FILE" \
@@ -801,6 +872,8 @@ jobs:
          needs.ai-code-review.result == 'success' && needs.human-review.result == 'success'))
     permissions:
       contents: read
+    env:
+      HPN_SDK_URL: ${{ needs.prepare.outputs.hpn_sdk_url }}
     runs-on: k8s-runner-group-cpu-thead
     container:
       image: ghcr.io/actions/actions-runner:latest
@@ -814,21 +887,34 @@ jobs:
       - id: reconcile
         name: Reconcile all selected hardware results
         run: |
+          status=0
           python3 -S -B pccl/tests/xtest/reconcile_results.py \
             --input pccl/tests/xtest/minimal-csv \
-            --results /wl_nas/devops/pccl-artifact-cache-${{ github.run_id }}/results \
-            --public public-results \
+            --results /wl_nas/devops/pccl-artifact-cache-${{ github.run_id }}/results/m890p \
+            --public public-results/m890p \
             --pccl-revision '${{ github.sha }}' \
             --standard-sha256 '${{ needs.build-standard.outputs.artifact_sha256 }}' \
             --notsm-sha256 '${{ needs.build-notsm.outputs.artifact_sha256 }}' \
-            --cards-per-node '${{ env.VALIDATION_CARDS }}'
+            --cards-per-node '${{ env.VALIDATION_CARDS }}' || status=$?
+          python3 -S -B pccl/tests/xtest/reconcile_results.py \
+            --input pccl/tests/xtest/minimal-csv-oam810e-eic \
+            --results /wl_nas/devops/pccl-artifact-cache-${{ github.run_id }}/results/oam810e_eic \
+            --public public-results/oam810e_eic \
+            --pccl-revision '${{ github.sha }}' \
+            --standard-sha256 '${{ needs.build-standard.outputs.artifact_sha256 }}' \
+            --notsm-sha256 '${{ needs.build-notsm.outputs.artifact_sha256 }}' \
+            --cards-per-node '2' || status=$?
+          exit "$status"
       - id: results-upload
         uses: actions/upload-artifact@v4
-        if: always() && steps.reconcile.outcome == 'success'
+        if: always()
         with:
           name: single-node-source-sanity-results
-          path: public-results/
-          if-no-files-found: error
+          path: |
+            public-results/
+            /wl_nas/devops/pccl-artifact-cache-${{ github.run_id }}/results/**/raw.log
+            /wl_nas/devops/pccl-artifact-cache-${{ github.run_id }}/results/**/dmesg*.log
+          if-no-files-found: warn
           overwrite: true
           retention-days: 90
       - id: cleanup
