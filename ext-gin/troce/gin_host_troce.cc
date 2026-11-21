@@ -685,31 +685,41 @@ ncclResult_t ncclGinTroceCreateContext(void *collComm, int nSignals, int nCounte
 
   NCCLCHECKGOTO(ncclCalloc(&ctx->qps, nqps), status, fail);
   NCCLCHECKGOTO(ncclCalloc(&localExch, nranks), status, fail);
-  NCCLCHECKGOTO(ncclCalloc(&remoteExch, nranks), status, fail);
+  NCCLCHECKGOTO(ncclCalloc(&remoteExch, (size_t)nContexts * nranks), status, fail);
 
   for (int qpIdx = 0; qpIdx < nqps; qpIdx++) {
     NCCLCHECKGOTO(troceCreateQp(ctx, cComm->ib.pd, cComm->ib.context, &ctx->qps[qpIdx]), status,
                   fail);
   }
 
-  // Full mesh: for every context, exchange one QP per peer and connect it.
+  // Preserve context-ordered exchanges and retain every context's peer metadata.
   for (int ctxIdx = 0; ctxIdx < nContexts; ctxIdx++) {
     for (int peer = 0; peer < nranks; peer++) {
       troceFillExchInfo(&localExch[peer], ctx, &portAttr, &gid,
                         ctx->qps[ctxIdx * qpsPerContext + peer].qp);
       localExch[peer].sinkRkey = sinkMr->rkey;
     }
-    NCCLCHECKGOTO(cComm->allToAll(cComm, localExch, remoteExch, sizeof(struct troceExchInfo)),
+    NCCLCHECKGOTO(cComm->allToAll(cComm, localExch, &remoteExch[(size_t)ctxIdx * nranks],
+                                  sizeof(struct troceExchInfo)),
                   status, fail);
-    for (int peer = 0; peer < nranks; peer++) {
-      NCCLCHECKGOTO(troceConnectQp(ctx, &ctx->qps[ctxIdx * qpsPerContext + peer], &remoteExch[peer], trafficClass),
+  }
+
+  // Keep connections for each peer contiguous across contexts.
+  for (int peer = 0; peer < nranks; peer++) {
+    for (int ctxIdx = 0; ctxIdx < nContexts; ctxIdx++) {
+      struct troceExchInfo *peerInfo = &remoteExch[(size_t)ctxIdx * nranks + peer];
+      NCCLCHECKGOTO(troceConnectQp(ctx, &ctx->qps[ctxIdx * qpsPerContext + peer], peerInfo, trafficClass),
                     status, fail);
       struct pcclxGinTroceQp *devQp = &gpuQps->hostBuf[ctxIdx * qpsPerContext + peer];
-      devQp->sink_rkey = htobe32(remoteExch[peer].sinkRkey);
+      devQp->sink_rkey = htobe32(peerInfo->sinkRkey);
       INFO(NCCL_NET, "[%d] GIN/TROCE connected ctx=%d peer=%d qpn=%#x -> remote qpn=%#x tc=%u", rank,
-           ctxIdx, peer, ctx->qps[ctxIdx * qpsPerContext + peer].qp->qp_num, remoteExch[peer].qpn,
+           ctxIdx, peer, ctx->qps[ctxIdx * qpsPerContext + peer].qp->qp_num, peerInfo->qpn,
            ctx->qps[ctxIdx * qpsPerContext + peer].trafficClass);
     }
+  }
+
+  // Connect loopback flush QPs after all data QPs.
+  for (int ctxIdx = 0; ctxIdx < nContexts; ctxIdx++) {
     struct troceQpHost *flushQp = &ctx->qps[ctxIdx * qpsPerContext + nranks];
     struct troceExchInfo loopbackInfo;
     memset(&loopbackInfo, 0, sizeof(loopbackInfo));
