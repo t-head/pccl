@@ -1,14 +1,14 @@
 {
   "classification": {
     "base_sha": "56406054982babf888a940019869f712309e968a",
-    "head_sha": "fca8cd2d848096aced3290c4ec06648344cf5523",
-    "input_fingerprint": "a5d76b6105b0f24c530e3cbc96d006d6357e3bbd7e0385418c875673200974db",
+    "head_sha": "85793f5f2af9951110f6a7cb1e7d0af802323223",
+    "input_fingerprint": "5e672583bf50b35f18718a69710a4b46787d6d90741e8bbc393df25b36bd0f02",
     "pr_number": 220,
     "proposal": {
       "modules": [
         "ci"
       ],
-      "reason": "Main functional change is CI workflow and test-orchestration behavior: dual-platform (M890P/810E) case generation/grouping/execution, scheduler allocation and device-mapping in xtest runner paths, HPN SDK install controls, and reconciliation/report artifact handling. The large added test-list JSON files are CI dataset inputs (including patch_omitted files), not separate PCCL runtime module changes."
+      "reason": "Main substantive change is CI/test workflow orchestration: dual-platform (M890P + OAM-810E) case generation/grouping/execution, platform-aware allocation/device mapping, HPN SDK install flow, result/report artifact handling, and corresponding xtest/workflow contract updates. Large patch_omitted test-list additions are consistent with expanded CI datasets rather than a separate production module change."
     }
   },
   "reviewers": {
