@@ -1,14 +1,14 @@
 {
   "classification": {
     "base_sha": "8d1fff80b4f1c7c625f22ce835db16961fa9281f",
-    "head_sha": "2cb454dd33eee27f9115bf645811e7e1bf6f9991",
-    "input_fingerprint": "5d6889e3d49c0b19d846bf4f47e335ede84eee81d2a19dd56c1f8af96ed1f320",
+    "head_sha": "6f323406842be8f531d11ec7715c6b7a84119d23",
+    "input_fingerprint": "768e4e33d2b3c041aaa21aad332a3fc6f4a9772c2c890258c288dd233fb620db",
     "pr_number": 220,
     "proposal": {
       "modules": [
         "ci"
       ],
-      "reason": "Main change is CI test orchestration: dual-platform (M890P + OAM-810E) case generation/grouping, workflow matrix and rack/allocation behavior, optional HPN SDK install path for build/test workers, expanded native-unit coverage, and CI reconciliation/report artifact handling. Added/updated xtest generators, platform profiles, fixtures, and workflow contracts support this CI execution logic rather than product runtime modules."
+      "reason": "Main substantive change is to open-source test workflow execution: dual-platform (M890P + OAM-810E) case generation/grouping, CI matrices and node/rack allocation policy, optional trusted HPN SDK install plumbing, expanded native-unit/PR-daily selections, and reconciliation/reporting artifact handling (including raw/dmesg logs and metadata). Modified scripts/docs/tests support this CI behavior change rather than contributor-review policy or runtime PCCL modules."
     }
   },
   "reviewers": {
