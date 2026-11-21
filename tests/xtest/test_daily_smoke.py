@@ -340,7 +340,8 @@ class DailySmokeTests(unittest.TestCase):
         self.assertIn('execution_timeout_minutes:', text)
         self.assertIn('Per-group queue and execution timeout in minutes for manual runs', text)
         self.assertIn(
-            "REQUESTED_EXECUTION_TIMEOUT_MINUTES: ${{ inputs.execution_timeout_minutes || "
+            "REQUESTED_EXECUTION_TIMEOUT_MINUTES: ${{ github.event_name == 'workflow_dispatch' "
+            "&& format('{0}', inputs.execution_timeout_minutes) || "
             "(github.event.schedule == '0 14 * * 5' && 2160 || 720) }}", text)
         self.assertIn(
             'EXECUTION_TIMEOUT_MINUTES: ${{ needs.prepare.outputs.execution_timeout_minutes }}', text)
