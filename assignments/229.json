@@ -2,13 +2,13 @@
   "classification": {
     "base_sha": "8d1fff80b4f1c7c625f22ce835db16961fa9281f",
     "head_sha": "e36584fb9683e005e4f2a6459b3d9456b9b10a45",
-    "input_fingerprint": "fc2a226253c3322b9a261912f8b0570fa51e1bbc6c648da628bae84f9c91ddfb",
+    "input_fingerprint": "c1025c97b36b98823d82a2b78bdb03a8bc28a76554f734b9f0a049d4930c09f0",
     "pr_number": 229,
     "proposal": {
       "modules": [
         "ci"
       ],
-      "reason": "Main functional change is CI test-workflow orchestration: replacing explicit rack allocations with automatic rack_policy/rack_count handling, updating daily schedule/resource-policy selection (including Friday 16-node coverage), propagating dynamic execution timeouts through prepare/matrix/execute, and aligning CI grouping logic/tests/docs with that execution policy."
+      "reason": "The substantive change is in open-source test workflow orchestration: daily/source-sanity execution moves from fixed rack_nodes to automatic rack_policy/rack_count, adds schedule-dependent allowed_nodes and per-group execution timeouts, and threads/validates these settings through prepare output, matrix generation, and reconciliation. The Python tests and markdown updates are supporting CI contract/documentation updates for the same behavior."
     }
   },
   "reviewers": {
