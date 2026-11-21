@@ -2,7 +2,7 @@
   "classification": {
     "base_sha": "56406054982babf888a940019869f712309e968a",
     "head_sha": "b0e38d3b4299775e5b86969630e383dae68885fa",
-    "input_fingerprint": "4bbb2b0a5627a0ab4cdba5e7a86701d89e9821add9e47a3784b345cc7d396486",
+    "input_fingerprint": "d919b01c5587eef09ae95b057177801dca34c718031162beffbe3a9cc458c4c9",
     "pr_number": 219,
     "proposal": {
       "modules": [
@@ -10,7 +10,7 @@
         "communicator",
         "enqueue"
       ],
-      "reason": "Main change is communicator configuration control: new config fields are validated, defaulted, env-overridden, stored, and synchronized across ranks. Enqueue also needs review because graphUsageMode changes strong-stream acquire/release and P2P plan batching/error behavior in host-side scheduling. Device-topology needs review because P2P per-peer/network channel computation now depends on nChannelsPerNetPeer/maxP2pPeers and argument-budget caps."
+      "reason": "Primary change is communicator-level config semantics: new nChannelsPerNetPeer/graphUsageMode/maxP2pPeers parsing, validation, env overrides, and cross-rank agreement in init/comm state. device-topology is additionally needed because src/graph/paths.cc changes the actual P2P channel-per-peer/topology-derived channel computation and max-peer channel tuning logic. enqueue is additionally needed because runtime execution behavior changes in strong stream graph-mixing handling and P2P plan batching/scheduling paths (including budget/error behavior) in enqueue/strongstream code."
     }
   },
   "reviewers": {
