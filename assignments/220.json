@@ -8,7 +8,7 @@
       "modules": [
         "ci"
       ],
-      "reason": "Primary change is the open-source test execution pipeline: dual-platform (M890P+OAM-810E) workflow orchestration, case generation/grouping, resource allocation, device mapping, HPN SDK install handling, reconciliation/reporting, and associated xtest data/tests. No independently substantive changes to cataloged runtime PCCL modules are shown."
+      "reason": "Primary change is CI/test workflow behavior: dual-platform (M890P + OAM-810E EIC) case generation/grouping, execution resource allocation, device mapping in the xtest runner, HPN SDK install handling in workflows, and reconciliation/reporting updates. Added/omitted large test-list patches (including 810E native-unit case definitions) are also CI input-data changes, not runtime PCCL module logic."
     }
   },
   "reviewers": {
