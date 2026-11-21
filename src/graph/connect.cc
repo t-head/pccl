@@ -16,12 +16,32 @@
 /******************************************************************/
 PCCL_PARAM(ReverseRingInterleave, "REVERSE_RING_INTERLEAVE", 0);
 
+extern int ppuDiesNum;
+static int pcclTopoRingSubChannels(struct ncclTopoGraph* graph, int localRanks) {
+  int nSubChannels = graph->nSubChannels;
+  int nGraphChannels = graph->nGraphChannels;
+  if (nSubChannels <= 1 || nSubChannels >= nGraphChannels || nGraphChannels % nSubChannels != 0) return 0;
+  int repeat = nGraphChannels / nSubChannels;
+  for (int c=0; c<nGraphChannels; c++) {
+    int c0 = c/repeat*repeat;
+    if (memcmp(graph->intra+c*localRanks, graph->subIntra+c/repeat*localRanks, localRanks*sizeof(int)) != 0 ||
+        memcmp(graph->inter+c*2, graph->inter+c0*2, 2*sizeof(int64_t)) != 0 ||
+        graph->proxyDevs[c] != graph->proxyDevs[c0]) return 0;
+  }
+  return nSubChannels;
+}
+
 ncclResult_t ncclTopoPreset(ncclComm_t comm,
     struct ncclTopoGraph* treeGraph, struct ncclTopoGraph* ringGraph,
     struct ncclTopoGraph* fcGraph, struct ncclTopoRanks* topoRanks) {
   int rank = comm->rank;
   int localRanks = comm->localRanks;
   int nChannels = comm->nChannels;
+  topoRanks->ringReverse = pcclParamReverseRingInterleave() == 1;
+  topoRanks->ringShuffle = comm->channelShuffle ? comm->compCap : 0;
+  topoRanks->ringNGraphChannels = ringGraph->nGraphChannels;
+  topoRanks->ringNSubChannels = topoRanks->ringShuffle == 89 ? pcclTopoRingSubChannels(ringGraph, localRanks) : 0;
+  topoRanks->ringNDies = ppuDiesNum;
 
   for (int c=0; c<nChannels; c++) {
     struct ncclChannel* channel = comm->channels+c;
@@ -37,28 +57,12 @@ ncclResult_t ncclTopoPreset(ncclComm_t comm,
     int* treeIntra = treeGraph->intra+c*localRanks;
     int* fcIntra = fcGraph->intra;
     int fcPeer = 0;
-    static int reverseRingInterleave = pcclParamReverseRingInterleave();
-
-    if (reverseRingInterleave == 1) {
-      if (ringGraph->crossNic == 0) INFO(NCCL_GRAPH, "SameNic graph mode might have no effects while using reverse ring.");
-      if (comm->nNodes%2 == 1) INFO(NCCL_GRAPH, "Reverse ring order interleave might have no perf gains while total node number is odd.");
-    }
-
     for (int i=0; i<localRanks; i++) {
       if (ringIntra[i] == rank) {
-        if (reverseRingInterleave == 1 && comm->node%2 == 1) {
-          // For HPN7.0 reverse ring order
-          // When set reverse even ring, make sure every node has the same localRanks
-          topoRanks->ringRecv[c] = ringIntra[localRanks-1];
-          topoRanks->ringSend[c] = ringIntra[0];
-          channel->ring.prev = (i == localRanks-1) ? -1 : ringIntra[i+1];
-          channel->ring.next = (i == 0) ? -1 : ringIntra[i-1];
-        } else {
-          topoRanks->ringRecv[c] = ringIntra[0];
-          topoRanks->ringSend[c] = ringIntra[localRanks-1];
-          channel->ring.prev = (i == 0) ? -1 : ringIntra[i-1];
-          channel->ring.next = (i == localRanks-1) ? -1 : ringIntra[i+1];
-        }
+        topoRanks->ringRecv[c] = ringIntra[0];
+        topoRanks->ringSend[c] = ringIntra[localRanks-1];
+        channel->ring.prev = (i == 0) ? -1 : ringIntra[i-1];
+        channel->ring.next = (i == localRanks-1) ? -1 : ringIntra[i+1];
       }
       if (treeIntra[i] == rank) {
         int parentIndex = 0;
@@ -114,34 +118,14 @@ static ncclResult_t connectRings(ncclComm_t comm, int* ringRecv, int* ringSend, 
     int* send = ringSend+c*comm->nRanks;
     int* prev = ringPrev+c*comm->nRanks;
     int* next = ringNext+c*comm->nRanks;
-    struct ncclChannel* channel0 = comm->channels+c;
-    struct ncclChannel* channel1 = channel0+nChannels;
     for (int n=0; n<nNodes; n++) {
       int recvRank = recv[firstRanks[n]];
       int prevSendRank = send[firstRanks[(n-1+nNodes)%nNodes]];
       prev[recvRank] = prevSendRank;
-      if (comm->rank == recvRank) {
-        channel0->ring.prev = prevSendRank;
-        channel1->ring.prev = prevSendRank;
-      }
       int sendRank = send[firstRanks[n]];
       int nextRecvRank = recv[firstRanks[(n+1)%nNodes]];
       next[sendRank] = nextRecvRank;
-      if (comm->rank == sendRank) {
-        channel0->ring.next = nextRecvRank;
-        channel1->ring.next = nextRecvRank;
-      }
     }
-#ifdef KERNEL_LOOPBACK
-    if (comm->nRanks == 1) {
-      channel0->ring.prev = -1;
-      channel1->ring.prev = -1;
-      channel0->ring.next = -1;
-      channel1->ring.next = -1;
-    }
-#endif
-    TRACE(NCCL_GRAPH, "Ring %d : %d -> %d -> %d", c, channel0->ring.prev, comm->rank, channel0->ring.next);
-    TRACE(NCCL_GRAPH, "Ring %d : %d -> %d -> %d", c+nChannels, channel1->ring.prev, comm->rank, channel1->ring.next);
   }
   return ncclSuccess;
 }
@@ -257,49 +241,34 @@ int ncclMaxNchannels(ncclComm_t comm) {
   return maxNchannels;
 }
 
-static int copyChannels(ncclComm_t comm, int start, int end, int* ringPrev, int* ringNext) {
-  int nranks = comm->nRanks;
+static int copyChannels(ncclComm_t comm, int start, int end) {
   int c;
   for (c=start; c<end; c++) {
-    memcpy(ringPrev+c*nranks, ringPrev+(c-start)*nranks, nranks*sizeof(int));
-    memcpy(ringNext+c*nranks, ringNext+(c-start)*nranks, nranks*sizeof(int));
     memcpy(comm->channels+c, comm->channels+c-start, sizeof(struct ncclChannel));
+    for (int a=0; a<NCCL_NUM_ALGORITHMS; a++) comm->graphs[a].channelMap[c] = comm->graphs[a].channelMap[c-start];
   }
   return c;
 }
 
-extern int ppuDiesNum;
-ncclResult_t pcclShuffleChannel(ncclComm_t comm, struct ncclTopoGraph* graph, int ngpus) {
-  if (!comm->channelShuffle) return ncclSuccess;
-  // now only shuffle when the graph has replay channels
-  if (graph->nSubChannels < graph->nChannels && graph->nSubChannels > 1) {
-    int finalChannelsPerDie = std::min(std::min(graph->nChannels*2, std::max(ncclMaxNchannels(comm), ncclMinNchannels(comm))), comm->config.maxCTAs) / ppuDiesNum;
-    int repeat = graph->nGraphChannels / graph->nSubChannels;
-    bool isPerfectRepetition = finalChannelsPerDie % graph->nSubChannels == 0 ?  true : false;
-    // check if the graph channels are perfect repetition of sub channels
-    for (int c=1; isPerfectRepetition && c<graph->nGraphChannels; c++) {
-      if (memcmp(graph->intra+c*ngpus, graph->subIntra+c/repeat*ngpus, sizeof(int)*ngpus) != 0) {
-        isPerfectRepetition = false;
-        break;
-      }
-    }
-    if (isPerfectRepetition) {
-      VERBOSE(NCCL_GRAPH, "Start to shuffle channels, num of sub channels: %d, num of graph channels %d, final channels per die %d num of dies %d",
-                          graph->nSubChannels, graph->nGraphChannels, finalChannelsPerDie, ppuDiesNum);
-      // per die channel shuffle, try put the different channels to different CEs when enable one batch per ce
-      for (int c=0; c<finalChannelsPerDie; c++) {
-        memcpy(graph->intra+c*ngpus, graph->subIntra+(c%graph->nSubChannels)*ngpus, ngpus*sizeof(int));
-      }
-      // duplicated for multi-die
-      for (int d=1; d<ppuDiesNum; d++) {
-        memcpy(graph->intra+d*finalChannelsPerDie*ngpus, graph->intra, finalChannelsPerDie*ngpus*sizeof(int));
-      }
+PCCL_PARAM(QuadrupleChannels, "QUADRUPLE_CHANNELS", 0);
+
+static int pcclTopoRingChannel(ncclComm_t comm, struct ncclTopoRanks* topoRanks, int c, int* channelMap) {
+  int channel = channelMap[c];
+  if (topoRanks->ringShuffle == 80) {
+    int nGraphChannels = std::min(comm->nGraphChannels, comm->nChannels);
+    channel = channelMap[c*nGraphChannels/comm->nChannels];
+  } else if (topoRanks->ringShuffle == 89 && topoRanks->ringNSubChannels > 1 &&
+             comm->nChannels % topoRanks->ringNDies == 0) {
+    int channelsPerDie = comm->nChannels / topoRanks->ringNDies;
+    int nSubChannels = topoRanks->ringNSubChannels;
+    if (channelsPerDie % nSubChannels == 0) {
+      int repeat = topoRanks->ringNGraphChannels / nSubChannels;
+      channel = (c%channelsPerDie%nSubChannels)*repeat;
     }
   }
-  return ncclSuccess;
+  return channel;
 }
 
-PCCL_PARAM(QuadrupleChannels, "QUADRUPLE_CHANNELS", 0);
 ncclResult_t ncclTopoPostset(ncclComm_t comm, int* firstRanks, int* treePatterns, struct ncclTopoRanks** allTopoRanks, int* rings) {
   ncclResult_t res = ncclSuccess;
   // Gather data from all ranks
@@ -308,6 +277,11 @@ ncclResult_t ncclTopoPostset(ncclComm_t comm, int* firstRanks, int* treePatterns
   int nChannels = comm->nChannels;
   int envMaxChannels = ncclMaxNchannels(comm);
   int envMinChannels = ncclMinNchannels(comm);
+  int channelMap[MAXCHANNELS];
+  for (int a=0; a<NCCL_NUM_ALGORITHMS; a++) {
+    struct ncclTopoGraph* graph = comm->graphs+a;
+    for (int c=0; c<MAXCHANNELS; c++) graph->channelMap[c] = graph->nChannels ? c%graph->nChannels : 0;
+  }
   NCCLCHECKGOTO(ncclCalloc(&ringRecv, nranks*MAXCHANNELS), res, end);
   NCCLCHECKGOTO(ncclCalloc(&ringSend, nranks*MAXCHANNELS), res, end);
   NCCLCHECKGOTO(ncclCalloc(&ringPrev, nranks*MAXCHANNELS), res, end);
@@ -317,23 +291,14 @@ ncclResult_t ncclTopoPostset(ncclComm_t comm, int* firstRanks, int* treePatterns
   NCCLCHECKGOTO(ncclCalloc(&treeToChild1, nranks*MAXCHANNELS), res, end);
   for (int i=0; i<nranks; i++) {
     for (int c=0; c<nChannels; c++) {
-      ringRecv[c*nranks+i] = allTopoRanks[i]->ringRecv[c];
-      ringSend[c*nranks+i] = allTopoRanks[i]->ringSend[c];
-      ringPrev[c*nranks+i] = allTopoRanks[i]->ringPrev[c];
-      ringNext[c*nranks+i] = allTopoRanks[i]->ringNext[c];
       treeToParent[c*nranks+i] = allTopoRanks[i]->treeToParent[c];
       treeToChild0[c*nranks+i] = allTopoRanks[i]->treeToChild0[c];
       treeToChild1[c*nranks+i] = allTopoRanks[i]->treeToChild1[c];
     }
   }
 
-  // Connect rings and trees. This should also duplicate the channels.
-  NCCLCHECKGOTO(connectRings(comm, ringRecv, ringSend, ringPrev, ringNext, firstRanks), res, end);
+  // Complete both trees before further channel copies.
   NCCLCHECKGOTO(connectTrees(comm, treeToParent, treeToChild0, treeToChild1, firstRanks, treePatterns), res, end);
-
-  // Duplicate ringPrev/ringNext for ncclBuildRing
-  memcpy(ringPrev+nChannels*nranks, ringPrev, nChannels*nranks*sizeof(int));
-  memcpy(ringNext+nChannels*nranks, ringNext, nChannels*nranks*sizeof(int));
 
   // Duplication should be complete now
   nChannels = comm->nChannels = std::min(std::min(MAXCHANNELS,nChannels*2), comm->config.maxCTAs);
@@ -345,7 +310,7 @@ ncclResult_t ncclTopoPostset(ncclComm_t comm, int* firstRanks, int* treePatterns
   if (pcclParamQuadrupleChannels() == 1) {
     if (nChannels < MAXCHANNELS) {
       comm->nChannels = std::min(MAXCHANNELS,nChannels*2);
-      copyChannels(comm, nChannels, comm->nChannels, ringPrev, ringNext);
+      copyChannels(comm, nChannels, comm->nChannels);
       nChannels = comm->nChannels;
     }
     if (comm->fcnChannels < MAXCHANNELS) {
@@ -366,7 +331,7 @@ ncclResult_t ncclTopoPostset(ncclComm_t comm, int* firstRanks, int* treePatterns
     if (comm->fcnChannels > 0) {
       comm->fcnChannels = std::min(std::min(std::min(envMaxChannels, comm->fcnChannels), comm->config.maxCTAs), comm->sharedRes->tpNChannels);
     }
-    nChannels = comm->nChannels = copyChannels(comm, nChannels, std::min(envMinChannels, comm->sharedRes->tpNChannels), ringPrev, ringNext);
+    nChannels = comm->nChannels = copyChannels(comm, nChannels, std::min(envMinChannels, comm->sharedRes->tpNChannels));
     if (comm->fcnChannels > 0) {
       comm->fcnChannels = std::min(std::max(envMinChannels, comm->fcnChannels), comm->sharedRes->tpNChannels);
     }
@@ -375,27 +340,61 @@ ncclResult_t ncclTopoPostset(ncclComm_t comm, int* firstRanks, int* treePatterns
     if (comm->fcnChannels > 0) {
       comm->fcnChannels = std::min(envMaxChannels, comm->fcnChannels);
     }
-    nChannels = comm->nChannels = copyChannels(comm, nChannels, envMinChannels, ringPrev, ringNext);
+    nChannels = comm->nChannels = copyChannels(comm, nChannels, envMinChannels);
     if (comm->fcnChannels > 0) {
       comm->fcnChannels = std::max(envMinChannels, comm->fcnChannels);
     }
   }
 
-  // Create rings array and check all is fine
-  NCCLCHECKGOTO(ncclBuildRings(nChannels, rings, comm->rank, comm->nRanks, ringPrev, ringNext), res, end);
-
-  if (ncclHggcCompCap() == 80 && comm->channelShuffle) {
-    int ratio = comm->nChannels / comm->nGraphChannels;
-    for (int c = comm->nChannels-1; c>0; c--) {
-      int c0 = c / ratio;
-      int c1 = c;
-      memcpy(comm->channels+c1, comm->channels+c0, sizeof(struct ncclChannel));
-      memcpy(rings+c1*nranks, rings+c0*nranks, nranks*sizeof(int));
+  memcpy(channelMap, comm->graphs[NCCL_ALGO_RING].channelMap, sizeof(channelMap));
+  if (comm->compCap == 80 && comm->channelShuffle) {
+    int nGraphChannels = std::min(comm->nGraphChannels, nChannels);
+    for (int c=nChannels-1; c>0; c--) {
+      int c0 = c*nGraphChannels/nChannels;
+      memcpy(comm->channels+c, comm->channels+c0, sizeof(struct ncclChannel));
+      for (int a=0; a<NCCL_NUM_ALGORITHMS; a++) comm->graphs[a].channelMap[c] = comm->graphs[a].channelMap[c0];
     }
-    for (int c = 0; c < comm->nChannels; c++) {
+  }
+  if (allTopoRanks[comm->rank]->ringReverse) {
+    if (comm->graphs[NCCL_ALGO_RING].crossNic == 0) {
+      INFO(NCCL_GRAPH, "SameNic graph mode might have no effects while using reverse ring.");
+    }
+    if (comm->nNodes%2 == 1) {
+      INFO(NCCL_GRAPH, "Reverse ring order interleave might have no perf gains while total node number is odd.");
+    }
+  }
+  for (int r=0; r<nranks; r++) {
+    // Node IDs and channel mappings are known before reversing each local ring segment.
+    bool reverse = allTopoRanks[r]->ringReverse && comm->rankToNode[r]%2 == 1;
+    for (int c=0; c<nChannels; c++) {
+      int c0 = pcclTopoRingChannel(comm, allTopoRanks[r], c, channelMap);
+      ringRecv[c*nranks+r] = allTopoRanks[r]->ringRecv[c0];
+      ringSend[c*nranks+r] = allTopoRanks[r]->ringSend[c0];
+      ringPrev[c*nranks+r] = allTopoRanks[r]->ringPrev[c0];
+      ringNext[c*nranks+r] = allTopoRanks[r]->ringNext[c0];
+      if (reverse) {
+        std::swap(ringRecv[c*nranks+r], ringSend[c*nranks+r]);
+        std::swap(ringPrev[c*nranks+r], ringNext[c*nranks+r]);
+      }
+      if (r == comm->rank) comm->graphs[NCCL_ALGO_RING].channelMap[c] = c0;
+    }
+  }
+  NCCLCHECKGOTO(connectRings(comm, ringRecv, ringSend, ringPrev, ringNext, firstRanks), res, end);
+  for (int c=0; c<nChannels; c++) {
+    comm->channels[c].ring.prev = ringPrev[c*nranks+comm->rank];
+    comm->channels[c].ring.next = ringNext[c*nranks+comm->rank];
+#ifdef KERNEL_LOOPBACK
+    if (comm->nRanks == 1) comm->channels[c].ring.prev = comm->channels[c].ring.next = -1;
+#endif
+    TRACE(NCCL_GRAPH, "Ring %d : %d -> %d -> %d",
+        c, comm->channels[c].ring.prev, comm->rank, comm->channels[c].ring.next);
+  }
+  NCCLCHECKGOTO(ncclBuildRings(nChannels, rings, comm->rank, comm->nRanks, ringPrev, ringNext), res, end);
+  if (comm->channelShuffle) {
+    for (int c=0; c<nChannels; c++) {
       char prefix[40];
-      sprintf(prefix, "Shuffle Channel %02d/%02d :", c, comm->nChannels);
-      dumpLine(rings+c*nranks, comm->nRanks, prefix);
+      sprintf(prefix, "Shuffle Channel %02d/%02d :", c, nChannels);
+      dumpLine(rings+c*nranks, nranks, prefix);
     }
   }
 
