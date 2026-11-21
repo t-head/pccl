@@ -78,6 +78,9 @@ struct ncclCeBatchOpsParams {
 ncclResult_t ncclCeInitBatchOpsParams(struct ncclCeBatchOpsParams* params, int nRanks);
 ncclResult_t ncclCeFreeBatchOpsParams(struct ncclCeBatchOpsParams* params);
 
+// Reserve the first local and ICN ring on the selected die for runtime memcpy.
+ncclResult_t pcclCeHintMemcpyStream(hggcStream_t stream, int dieId);
+
 static inline int ceArDtypeToIndex(pcclDataType_t dtype) {
   if (dtype == pcclHalf) return 0;
   else if (dtype == pcclBfloat16) return 1;

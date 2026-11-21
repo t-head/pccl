@@ -40,7 +40,8 @@ struct okiLaneSlice {
 
 template<int DIES>
 static __device__ __inline__ okiLaneSlice okiLaneSliceOf(size_t size, int laneId) {
-  ssize_t splitSize = size / DIES;
+  // Keep each die's DMA source 4-byte aligned; the last die takes the remainder.
+  ssize_t splitSize = (size / DIES) & ~size_t(3);
   ssize_t remainSize = (ssize_t)size - laneId * splitSize;
   if (laneId != DIES - 1) remainSize = (remainSize > splitSize) ? splitSize : remainSize;
   okiLaneSlice s;

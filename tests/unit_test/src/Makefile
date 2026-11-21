@@ -117,3 +117,15 @@ ${BUILDDIR}/bench_oki:
 	@echo "bench_oki requires an ltOki-enabled SDK (USE_OKI=1)." >&2
 	@false
 endif
+
+.PHONY: ce_oki_mixed
+ce_oki_mixed: ${BUILDDIR}/ce_oki_mixed_test
+
+${BUILDDIR}/ce_oki_mixed_test: ce_oki_mixed_test.cc Makefile makefiles/common.mk $(PCCL_HOME)/lib/libpccl.so
+	@printf "Compiling  %-35s > %s\n" $< $@
+	mkdir -p ${BUILDDIR}
+	$(HGCC) $(filter-out -std=c++11,$(HGFLAGS)) -std=c++14 -DPCCL_OS_LINUX \
+	  -DPCCL_HGGC_VERSION=$(HGGC_VERSION_CODE) -DSWITCH_TO_HGGCRT -I../../../src \
+	  -I../../../src/include -I../../../src/include/drv_eit -I../../../src/include/plugin \
+	  -O2 $< -L$(PCCL_HOME)/lib $(filter-out -lmpi,$(HGLDFLAGS)) \
+	  -ldl -lrt -lpthread -Xlinker --export-dynamic -o $@
