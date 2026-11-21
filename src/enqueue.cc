@@ -361,6 +361,17 @@ ncclResult_t saveDevKernelArgs(ncclComm_t comm, struct ncclKernelPlan* plan) {
   memcpy(&kernelInfoMonitorPtr->kernelArgs, plan->kernelArgs,
          std::min(plan->kernelArgsSize, sizeof(kernelInfoMonitorPtr->kernelArgs)));
   comm->kernelNum++;
+  kernelInfoMonitorPtr->kernelIdx = comm->kernelNum;
+  kernelInfoMonitorPtr->channelMask = plan->channelMask;
+  kernelInfoMonitorPtr->argsBytes = plan->kernelArgsSize;
+  kernelInfoMonitorPtr->kernelFn = plan->kernelFn;
+  kernelInfoMonitorPtr->threadPerBlock = plan->threadPerBlock;
+  kernelInfoMonitorPtr->symFuncIndex = plan->symFuncIndex;
+  kernelInfoMonitorPtr->isSymColl = plan->isSymColl;
+  kernelInfoMonitorPtr->symkArgsPooled = plan->symkArgsPooled;
+  // Symk kernels do not write per-channel completion indices, so they must not advance the enqueue
+  // indices that the state monitor compares with those.
+  if (plan->isSymColl) return ncclSuccess;
   for (int i = 0; i < MAXCHANNELS; i++) {
     if (plan->channelMask & (1L << i)) {
       comm->channelKernelIdx[i] = comm->kernelNum;
@@ -568,6 +579,7 @@ static ncclResult_t hostStreamPlanTask(ncclComm_t comm, struct ncclKernelPlan* p
   NCCLCHECK(ncclProfilerStopGroupEvent(plan));
   if (!plan->persistent) {
     // Notify main thread of our reclaiming. This will reclaim eqInfo concurrently.
+    plan->reclaimQueued = true;
     ncclIntruQueueMpscEnqueue(&comm->callbackQueue, &plan->reclaimer);
   }
   return ncclSuccess;
@@ -1023,6 +1035,8 @@ static ncclResult_t uploadWork(ncclComm_t comm, struct ncclKernelPlan* plan) {
   // isCeP2p plans carry no ncclDevKernelArgs at all (kernelArgs is null);
   // their device-visible work list was already reserved from the work FIFO
   // and filled by pcclP2pDmaBuildPlan.
+  // Symk plans upload no work, but their launch also takes a kernel monitor slot (saveDevKernelArgs).
+  if (plan->isSymColl) comm->planner.uploadKernelSeq++;
   if (plan->isSymColl || plan->isCeColl || plan->isCeP2p) return ncclSuccess;
 
   size_t workBytes = plan->workBytes;
@@ -1196,12 +1210,10 @@ static ncclResult_t reclaimPlan(ncclComm_t comm, struct ncclCommCallback* me) {
   }
   NCCLCHECK(result);
 
-  // Multi-task path pool-allocates 4KB args; fast-path uses memScoped.
-  if (plan->isSymColl && plan->workStorageType == ncclDevWorkStorageTypeArgs
-      && plan->kernelSymkArgs != nullptr
-      && plan->kernelArgsSize == sizeof(pcclSymkDevWorkArgs4K)) {
-    ncclMemoryPoolFree<pcclSymkDevWorkArgs4K>(&comm->memPool_kernelSymkArgs,
-        reinterpret_cast<pcclSymkDevWorkArgs4K*>(plan->kernelSymkArgs));
+  // Multi-task path pool-allocates 1KB args; fast-path uses memScoped.
+  if (plan->isSymColl && plan->symkArgsPooled && plan->kernelSymkArgs != nullptr) {
+    ncclMemoryPoolFree<pcclSymkDevWorkArgs1K>(&comm->memPool_kernelSymkArgs,
+        reinterpret_cast<pcclSymkDevWorkArgs1K*>(plan->kernelSymkArgs));
     plan->kernelSymkArgs = nullptr;
   }
 
@@ -1903,6 +1915,9 @@ ncclResult_t ncclLaunchPrepare(ncclComm_t comm) {
         if (plan->workBytes != 0) {
           ncclIntruQueueEnqueue(&planner->planQueue, plan);
           nPlans += 1;
+        } else if (plan->isSymColl) {
+          // Empty symk tasks are isolated single-work plans. No launch or graph callback owns them.
+          ncclMemoryPoolFree(&comm->memPool_ncclKernelPlan, plan);
         }
       }
     } while ((planner->nTasksColl + planner->nTasksP2p != 0) ||
@@ -1931,6 +1946,24 @@ ncclResult_t ncclLaunchPrepare(ncclComm_t comm) {
   // The two-level fan-in fan-out is because ncclStrongStreamWaitStream() requires
   // at least one of the two streams to be strong-stream.
 
+  if (persistent) {
+    // Establish a reclaimer before capturing any node that can reference a plan.
+    comm->sharedRes->persistentRefs += nPlans;
+    comm->localPersistentRefs += nPlans;
+    for (struct ncclKernelPlan* plan = planHead; plan != nullptr; plan = plan->next)
+      plan->graphReclaimOwned = true;
+    bool ownerCreated = false;
+    result = ncclCudaGraphAddDestructor(planner->capturingGraph, persistentDestructor,
+                                        (void*)planHead, &ownerCreated);
+    if (!ownerCreated) {
+      comm->sharedRes->persistentRefs -= nPlans;
+      comm->localPersistentRefs -= nPlans;
+      for (struct ncclKernelPlan* plan = planHead; plan != nullptr; plan = plan->next)
+        plan->graphReclaimOwned = false;
+    }
+    if (result != ncclSuccess) goto failure;
+  }
+
   NCCLCHECKGOTO(ncclStrongStreamAcquire(planner->capturingGraph, &comm->sharedRes->deviceStream), result, failure);
 
   // Create dependency for device stream on user streams. First from extra user
@@ -1949,18 +1982,18 @@ ncclResult_t ncclLaunchPrepare(ncclComm_t comm) {
       if (plan->hasProxyOps) {
         NCCLCHECKGOTO(ncclStrongStreamAcquire(planner->capturingGraph, &comm->sharedRes->hostStream), result, failure);
         plan->isHostCbEnq = true;
-        NCCLCHECKGOTO(ncclStrongStreamLaunchHost(planner->capturingGraph, &comm->sharedRes->hostStream, hostStreamPlanCallback, plan), result, failure);
+        result = ncclStrongStreamLaunchHost(planner->capturingGraph, &comm->sharedRes->hostStream,
+                                           hostStreamPlanCallback, plan);
+        if (result != ncclSuccess) {
+          // A failed submission leaves cleanup responsible; successful callbacks may run concurrently.
+          plan->isHostCbEnq = false;
+          goto failure;
+        }
         // Make to-be-launched kernels dependent on just-launched host stream tasks.
         NCCLCHECKGOTO(ncclStrongStreamWaitStream(planner->capturingGraph, launchStream, &comm->sharedRes->hostStream), result, failure);
         NCCLCHECKGOTO(ncclStrongStreamRelease(planner->capturingGraph, &comm->sharedRes->hostStream), result, failure);
       }
     }
-  }
-
-  if (persistent) {
-    comm->sharedRes->persistentRefs += nPlans;
-    comm->localPersistentRefs += nPlans;
-    NCCLCHECKGOTO(ncclCudaGraphAddDestructor(planner->capturingGraph, persistentDestructor, (void*)planHead), result, failure);
   }
 
 failure:

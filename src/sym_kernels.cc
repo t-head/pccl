@@ -440,8 +440,8 @@ ncclResult_t ncclSymkPickKernel(
   uint32_t kmask = ncclSymkMask(comm, coll, red, ty, nEltsMax);
 
   *forced = !(kernelMask_user() == (1<<(int)ncclSymkKernelId_Count)-1);
-  // LL bodies don't unpack per-work; multi-task batches require non-LL.
-  if (nWorks > 1) kmask &= ~kernelMask_LL;
+  // Unlike NCCL, LL stays eligible for nWorks > 1: the multi-work entry unpacks each work into the
+  // same LL body, and LL slots stay keyed by the global CTA index.
 
   // LD/ST require registered windows; otherwise fall back to LL.
   if (coll == ncclFuncAllReduce) {
@@ -475,6 +475,16 @@ ncclResult_t ncclSymkPickKernel(
   *kernelId = bestKernel;
   *estTimeUs = kmask==0 || kernelMask_user() == (1<<ncclSymkKernelId_Count)-1 ? bestTime : 0.0f;
   *nBlocks = bestBlocks;
+  // Unlike NCCL, a batch is not sized by its total bytes alone: it gets up to nWorks times the
+  // single-work CTA count of its largest work, within the automatic CTA limit. An explicit SYM_CTAS
+  // stays a per-launch override.
+  if (nWorks > 1 && bestKernel != ncclSymkKernelId_Count && ncclParamSymCTAs() <= 0) {
+    float perWorkTimeUs;
+    int perWorkBlocks;
+    queryModel(comm, bestKernel, nEltsMax*ncclTypeSize(ty), &perWorkTimeUs, &perWorkBlocks, isICNSTopo);
+    *nBlocks = std::min(std::min<int>(DEFAULT_SYM_MAX_CTAS, comm->config.maxCTAs),
+                        std::max(bestBlocks, perWorkBlocks * nWorks));
+  }
   *nWarps = (pcclParamSymWarps() > 0 && pcclParamSymWarps() <= DEFAULT_SYM_WARPS) ? pcclParamSymWarps() : DEFAULT_SYM_WARPS;
   return ncclSuccess;
 }

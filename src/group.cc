@@ -355,12 +355,17 @@ static void groupCleanup(ncclComm_t* groupCommHeadPtr, struct ncclIntruQueue<str
         // reclaimed by a `ncclMemoryStackPop(&comm->memScoped)` during `ncclGroupCommLeave()`.
         while (!ncclIntruQueueEmpty(&comm->planner.planQueue)) {
           struct ncclKernelPlan* plan = ncclIntruQueueDequeue(&comm->planner.planQueue);
-          // Persistent plans will be reclaimed via the callbackQueue when the
-          // graph drops its UserObject reference.
-          if (!plan->persistent) {
+          // A created graph UserObject, queued reclaimer or pending host callback owns its plan.
+          // Capturing alone does not transfer ownership when UserObject creation fails.
+          if (!plan->graphReclaimOwned && !plan->isHostCbEnq && !plan->reclaimQueued) {
             while (!ncclIntruQueueEmpty(&plan->proxyOpQueue)) {
               struct ncclProxyOp* pxop = ncclIntruQueueDequeue(&plan->proxyOpQueue);
               ncclMemoryPoolFree(&comm->memPool_ncclProxyOp, pxop);
+            }
+            // Pooled multi-work symk arguments are not part of memScoped.
+            if (plan->isSymColl && plan->symkArgsPooled && plan->kernelSymkArgs != nullptr) {
+              ncclMemoryPoolFree<pcclSymkDevWorkArgs1K>(&comm->memPool_kernelSymkArgs,
+                  reinterpret_cast<pcclSymkDevWorkArgs1K*>(plan->kernelSymkArgs));
             }
             ncclMemoryPoolFree(&comm->memPool_ncclKernelPlan, plan);
           }

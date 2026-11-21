@@ -248,7 +248,9 @@ struct ncclKernelPlan {
   struct ncclKernelPlan* next;
 
   bool persistent; // aka captured in a graph
+  bool graphReclaimOwned; // A created graph UserObject owns the persistent reclaimer and its refs.
   bool isHostCbEnq;
+  bool reclaimQueued; // reclaimer is on callbackQueue: reclaimPlan, not groupCleanup, frees the plan
   bool isSymColl;
   bool isCeColl;
   bool isCeP2p;
@@ -264,6 +266,7 @@ struct ncclKernelPlan {
     struct ncclCeCollArgs ceCollArgs;
   };
   size_t kernelArgsSize;
+  bool symkArgsPooled; // true: memPool_kernelSymkArgs; false: memScoped.
   uint64_t channelMask; // bitset of which channels are present
   bool hasProxyOps; // does any channel have a non-empty proxyOpQueue
   int threadPerBlock;
@@ -375,6 +378,15 @@ typedef enum ncclGroupTaskType {
 
 struct KernelInfoMonitor {
   ncclDevKernelArgs1K kernelArgs;
+  // Symk arguments are not ncclDevKernelArgs, so the dump decodes an entry from these launch fields.
+  uint64_t kernelIdx; // launch order, begin from 1
+  uint64_t channelMask;
+  size_t argsBytes;
+  void* kernelFn;
+  int threadPerBlock;
+  uint16_t symFuncIndex;
+  bool isSymColl;
+  bool symkArgsPooled; // multi-work (1KB) entry
 };
 
 struct pcclComm {

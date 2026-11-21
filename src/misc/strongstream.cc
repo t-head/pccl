@@ -56,13 +56,21 @@ ncclResult_t ncclCudaGetCapturingGraph(
   return ncclSuccess;
 }
 
-ncclResult_t ncclCudaGraphAddDestructor(struct ncclCudaGraph graph, hggcHostFn_t fn, void* arg) {
+ncclResult_t ncclCudaGraphAddDestructor(struct ncclCudaGraph graph, hggcHostFn_t fn, void* arg,
+                                       bool* ownerCreated) {
+  if (ownerCreated) *ownerCreated = false;
   hggcUserObject_t object;
   HGGCCHECK(hggcUserObjectCreate(
     &object, arg, fn, /*initialRefcount=*/1, hggcUserObjectNoDestructorSync
   ));
-  // Hand over ownership to HGGC Graph
-  HGGCCHECK(hggcGraphRetainUserObject(graph.graph, object, 1, hggcGraphUserObjectMove));
+  if (ownerCreated) *ownerCreated = true;
+  // Move the local reference to the graph. On failure the local reference still owns the destructor.
+  hggcError_t retained = hggcGraphRetainUserObject(graph.graph, object, 1, hggcGraphUserObjectMove);
+  if (retained != hggcSuccess) {
+    hggcError_t released = hggcUserObjectRelease(object, 1);
+    if (released != hggcSuccess) WARN("Graph UserObject release failed: %s", hggcGetErrorString(released));
+    HGGCCHECK(retained);
+  }
   return ncclSuccess;
 }
 
@@ -147,7 +155,15 @@ ncclResult_t ncclStrongStreamAcquire(
     g->next = ss->graphHead;
     ss->graphHead = g;
     g->alive = true;
-    NCCLCHECK(ncclCudaGraphAddDestructor(graph, graphDestructor, (void*)g));
+    bool ownerCreated = false;
+    ncclResult_t result = ncclCudaGraphAddDestructor(graph, graphDestructor, (void*)g, &ownerCreated);
+    if (result != ncclSuccess) {
+      ss->graphHead = g->next;
+      // With a local UserObject, the callback and this thread still share the deletion handshake.
+      if (!ownerCreated || false == __atomic_exchange_n(&g->alive, false, __ATOMIC_ACQ_REL))
+        ncclStrongStreamGraphDelete(g);
+      return result;
+    }
 
     if (ss->serialEventNeedsRecord) {
       // Can only be here if previous release was for uncaptured work that

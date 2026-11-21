@@ -38,7 +38,8 @@ inline bool ncclCudaGraphSame(struct ncclCudaGraph a, struct ncclCudaGraph b) {
 }
 
 ncclResult_t ncclCudaGetCapturingGraph(struct ncclCudaGraph* graph, hggcStream_t stream);
-ncclResult_t ncclCudaGraphAddDestructor(struct ncclCudaGraph graph, hggcHostFn_t fn, void* arg);
+ncclResult_t ncclCudaGraphAddDestructor(struct ncclCudaGraph graph, hggcHostFn_t fn, void* arg,
+                                       bool* ownerCreated = nullptr);
 
 /* ncclStrongStream: An abstraction over CUDA streams that do not lose their
  * identity while being captured. Regular streams have the deficiency that the

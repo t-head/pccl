@@ -83,7 +83,8 @@ make -C ${source_home}/pccl/tests/unit_test/src \
   PCCL_HOME=${source_home}/pccl/build \
   PPU_ARCHS=ppu_10,ppu_15 MPI=1 \
   BUILDDIR=${COMM_ABORT_BUILD} \
-  ${COMM_ABORT_BUILD}/pcclCommAbortTest
+  ${COMM_ABORT_BUILD}/pcclCommAbortTest \
+  ${COMM_ABORT_BUILD}/symkMultiTaskTest
 cp ${COMM_ABORT_BUILD}/pcclCommAbortTest ${source_home}/pccl-tests/build/
 
 echo "######################### $(date +%Y%m%d%H%M%S) Collect final output ##########################"
