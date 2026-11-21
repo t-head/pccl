@@ -35,6 +35,12 @@ on:
         required: true
         type: number
         default: 720
+      platform:
+        description: Platform debug filter
+        required: true
+        default: all
+        type: choice
+        options: [all, m890p, oam810e_eic]
       suite:
         description: Optional exact Suite debug filter; empty selects every Suite
         required: false
@@ -99,6 +105,7 @@ jobs:
           DATASET: ${{ inputs.dataset || (github.event_name == 'schedule' && 'full' || 'smoke') }}
           MAX_CASES: ${{ inputs.max_cases_per_group || 500 }}
           NODES: ${{ inputs.nodes || '' }}
+          PLATFORM: ${{ inputs.platform || 'all' }}
           SUITE: ${{ inputs.suite || '' }}
           ALLOWED_NODES: ${{ inputs.allowed_nodes || (github.event.schedule == '0 14 * * 5' && '1,2,4,8,16' || '1,2,4,8') }}
           EXECUTION_TIMEOUT_MINUTES: ${{ env.REQUESTED_EXECUTION_TIMEOUT_MINUTES }}
@@ -199,7 +206,12 @@ jobs:
               raise ValueError('Execution timeout must be a positive integer')
           m890p = generate_cases.load_bundle('generated-case-input')
           eic = generate_cases.load_bundle('generated-case-input-oam810e-eic')
-          combined = generate_cases.combine_bundles([m890p, eic])
+          platform = os.environ['PLATFORM']
+          bundles = {'m890p': m890p, 'oam810e_eic': eic}
+          if platform not in ('all', *bundles):
+              raise ValueError('Unsupported daily platform')
+          combined = generate_cases.combine_bundles(
+              list(bundles.values()) if platform == 'all' else [bundles[platform]])
           input_directory = Path('combined-case-input')
           generate_cases.write_bundle(combined, input_directory, 'tests/xtest/test_lists/envs')
           nodes = int(os.environ['NODES']) if os.environ['NODES'] else None
