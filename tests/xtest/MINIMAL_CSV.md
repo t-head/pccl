@@ -166,7 +166,7 @@ Job adds 30 minutes for setup and cleanup. These workflow limits do not change
 the Suite or Case timeouts in the generated input.
 
 The 810E `full` conversion adds 7,735 selected Cases. The combined export has
-17,928 Cases and selects 17,919 Cases in 46 groups after the same 16-node
+17,928 Cases and selects 17,919 Cases in 52 groups after the same 16-node
 M890P exclusions. This is generation coverage only, not a claim that the full
 hardware dataset has been executed.
 
@@ -181,12 +181,16 @@ EIC uses `-np 4 -npernode 2`, and RDMA uses `--ranks 4 --nprocs 2`. This PR-only
 layout does not change the 16-card daily profile.
 
 `group_cases.py` derives deterministic execution groups by platform, profile,
-node count, cards per node, shared environment and cross-rack allocation, then splits large
+node count, actual ranks per node, shared environment and cross-rack allocation, then splits large
 groups by `--max-cases`. The two-rack performance Suites are isolated from
 ordinary Suites use `rack_policy: spread` and `rack_count: 2` in `groups.json`.
 Every other M890P multi-node execution uses `rack_policy: same`, selecting one
 rack automatically without naming it. OAM-810E leaves rack placement
 unconstrained. Single-node executions do not set a rack policy.
+For 810E, the scheduler allocation is derived from each Case command instead of
+always requesting the full 16-card node. MPI ranks are divided by node count,
+while native `num_gpus` and graph `num_threads * num_gpus` are preserved. Cases
+with different per-node rank counts never share an allocation group.
 There is no hand-maintained shard list. Optional `--nodes` and `--suite`
 arguments are debug filters, not shard definitions.
 Manual dispatch also accepts `cards_per_node` as an allocation-only debug

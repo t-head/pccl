@@ -49,6 +49,49 @@ def case_platform(case, platforms=None):
     return matches[0]
 
 
+def allocation_cards_per_node(case, platform=None):
+    """Derive the scheduler allocation without changing the Case definition."""
+    spec = case["suite_spec"]
+    platform = platform or case_platform(case)
+    if platform != "oam810e_eic":
+        return spec["cards_per_node"]
+    command = case["cmd"]
+    nodes = spec["nodes"]
+
+    def option(flag):
+        match = re.search(re.escape(flag) + r"(?:=|\s+)([0-9]+)", command)
+        return int(match.group(1)) if match else None
+
+    def per_node(total):
+        if total <= 0 or total % nodes:
+            raise ValueError(f"Ranks do not divide evenly across nodes: {case['plan']}/{case['suite']}/{case['name']}")
+        return total // nodes
+
+    def positive(value):
+        if value <= 0:
+            raise ValueError(f"Invalid 810E allocation ranks: {case['plan']}/{case['suite']}/{case['name']}")
+        return value
+
+    if (value := option("-np")) is not None:
+        return per_node(value)
+    if (value := option("--ranks")) is not None:
+        return per_node(value)
+    if (threads := option("--num_threads")) is not None:
+        return per_node(threads * (option("--num_gpus") or 1))
+    if (value := option("--num_gpus")) is not None:
+        return per_node(value)
+    if (threads := option("-t")) is not None and (gpus := option("-g")) is not None:
+        return per_node(threads * gpus)
+    if (value := option("--nprocs")) is not None:
+        return positive(value)
+    if (value := option("--nproc")) is not None:
+        return positive(value)
+    match = re.search(r"(?:^|_)ranks_([0-9]+)(?:_|$)", case["name"])
+    if match:
+        return per_node(int(match.group(1)))
+    raise ValueError(f"Cannot derive 810E allocation ranks: {case['plan']}/{case['suite']}/{case['name']}")
+
+
 def _rename(value, rules):
     for old, new in rules:
         value = value.replace(old, new)

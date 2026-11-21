@@ -112,6 +112,19 @@ class PublicGeneratorTests(unittest.TestCase):
         self.assertEqual(sum("build/collPcclUnitTest" in row["cmd"] for row in smoke["rows"]), 1)
         self.assertEqual(sum("build/hggcGraphUnitTest" in row["cmd"] for row in smoke["rows"]), 1)
 
+    def test_810e_native_group_allocations_match_commands(self):
+        bundles = [self.bundle("postsil_unit_test_810e"), self.bundle("all_gather_unit_test_810e")]
+        combined = generate_cases.combine_bundles(bundles)
+        output = self.root / "native-rank-groups"
+        generate_cases.write_bundle(combined, output, DEFINITIONS / "envs")
+        plan = group_cases.build_plan(output, 500)
+        self.assertEqual(sum(len(group["cases"]) for group in plan["groups"]), 1300)
+        allocations = {}
+        for group in plan["groups"]:
+            allocations[group["cards_per_node"]] = allocations.get(group["cards_per_node"], 0) + len(group["cases"])
+        self.assertEqual(allocations, {1: 6, 2: 655, 4: 508, 8: 131})
+        group_cases.write_plan(plan, self.root / "native-rank-group-output", output)
+
     def test_multi_node_rdma_matches_all_4090_committed_rows(self):
         self.assert_matches_source_export("pccl_fun_rdma_shm", 4090)
 

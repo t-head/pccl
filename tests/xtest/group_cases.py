@@ -79,7 +79,8 @@ def build_plan(directory, max_cases, nodes=None, suite=None, allowed_nodes=None)
             if allowed_nodes is not None and spec["nodes"] not in allowed_nodes:
                 excluded.setdefault(spec["nodes"], []).append(case)
                 continue
-            key = (platform, profile, spec["nodes"], spec["cards_per_node"], spec["env"],
+            cards = platform_cases.allocation_cards_per_node(case, platform)
+            key = (platform, profile, spec["nodes"], cards, spec["env"],
                    rack_policy, rack_count)
             grouped.setdefault(key, []).append(case)
     if metadata is None:
@@ -146,6 +147,10 @@ def write_groups(groups, output, input_directory, coverage=None):
     try:
         manifest = []
         for group in groups:
+            cards = {platform_cases.allocation_cards_per_node(case, group["platform"])
+                     for case in group["cases"]}
+            if cards != {group["cards_per_node"]}:
+                raise ValueError("Execution group card allocation does not match its Cases")
             allocations = {_rack_policy(case) for case in group["cases"]}
             if len(allocations) != 1:
                 raise ValueError("An execution group mixes different rack allocations")

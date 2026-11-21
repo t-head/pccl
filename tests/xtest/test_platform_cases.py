@@ -109,6 +109,32 @@ class PlatformCasesTests(unittest.TestCase):
         unchanged = "python3 helper.py --mpirun-path mpirun_custom"
         self.assertEqual(run_cases._with_ib_environment(unchanged), unchanged)
 
+    def test_810e_allocation_uses_actual_ranks_per_node(self):
+        def case(cmd, nodes, name="case_ranks_8"):
+            return {"plan": "pccl_810e_plan", "suite": "suite", "name": name, "cmd": cmd,
+                    "suite_spec": {"nodes": nodes, "cards_per_node": 16}}
+
+        self.assertEqual(platform_cases.allocation_cards_per_node(
+            case("mpirun -np 8 hostname", 2)), 4)
+        self.assertEqual(platform_cases.allocation_cards_per_node(
+            case("run_test.py --ranks 8 --nnodes 2", 2)), 4)
+        self.assertEqual(platform_cases.allocation_cards_per_node(
+            case("build/hggcGraphUnitTest --num_threads=4 --num_gpus=2", 1)), 8)
+        self.assertEqual(platform_cases.allocation_cards_per_node(
+            case("build/collPcclUnitTest --num_gpus=4", 1)), 4)
+        self.assertEqual(platform_cases.allocation_cards_per_node(
+            case("all_reduce_perf -t 8 -g 1", 1)), 8)
+        self.assertEqual(platform_cases.allocation_cards_per_node(
+            case("run_test.py --nprocs 4 --nnodes 2", 2)), 4)
+        self.assertEqual(platform_cases.allocation_cards_per_node(
+            case("true", 2)), 4)
+        m890p = case("mpirun -np 2 hostname", 1)
+        m890p["plan"] = "pccl_shm_plan"
+        m890p["suite_spec"]["cards_per_node"] = 8
+        self.assertEqual(platform_cases.allocation_cards_per_node(m890p), 8)
+        with self.assertRaisesRegex(ValueError, "Cannot derive 810E allocation ranks"):
+            platform_cases.allocation_cards_per_node(case("true", 1, name="unnamed"))
+
     def test_platform_conversion_rejects_missing_variants_and_name_substrings(self):
         raw = [self.bundle("op_perf_shm", "smoke")]
         with self.assertRaisesRegex(ValueError, "Missing variant bundle"):
