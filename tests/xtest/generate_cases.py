@@ -13,6 +13,7 @@ import shutil
 import tempfile
 
 import run_cases
+import platform_cases
 
 
 RUNTIME_FIELDS = ("python_env", "mpi_interface", "path", "ld_library_path", "hostfile",
@@ -214,7 +215,7 @@ def generate_rows(definition, profile="full", nodes=None):
 
 
 def generate_bundle(definition_path, suites_path, source_revision, runner_revision,
-                    profile="full", nodes=None):
+                    profile="full", nodes=None, platform=platform_cases.DEFAULT_PLATFORM):
     definition_path = Path(definition_path).resolve()
     suites_path = Path(suites_path).resolve()
     if not run_cases.HEX40.fullmatch(source_revision) or not run_cases.HEX40.fullmatch(runner_revision):
@@ -249,7 +250,7 @@ def generate_bundle(definition_path, suites_path, source_revision, runner_revisi
     }
     if "provenance" in definition:
         generation["provenance"] = definition["provenance"]
-    return {
+    bundle = {
         "metadata": {"format_version": run_cases.FORMAT_VERSION,
                      "source_revision": source_revision, "runner_revision": runner_revision,
                      "xtest_version": "not-used"},
@@ -257,6 +258,11 @@ def generate_bundle(definition_path, suites_path, source_revision, runner_revisi
         "rows": rows, "generation": generation,
         "environments": sorted({row["env"] for row in selected_suites.values()}),
     }
+    hardware = platform_cases.load_platform(platform)
+    if platform == platform_cases.DEFAULT_PLATFORM:
+        bundle["generation"].update(platform=platform, node_selector=hardware["node_selector"])
+        return bundle
+    return platform_cases.apply_platform(bundle, hardware)
 
 
 def combine_bundles(bundles):
@@ -358,6 +364,24 @@ def write_bundle(bundle, output, env_root):
     return output
 
 
+def load_bundle(directory):
+    """Load a generated standard-profile bundle for platform composition."""
+    directory = Path(directory)
+    with (directory / "suites.csv").open(newline="", encoding="utf-8") as stream:
+        suites = list(csv.DictReader(stream))
+    with (directory / "standard.csv").open(newline="", encoding="utf-8") as stream:
+        rows = list(csv.DictReader(stream))
+    for row in suites:
+        for field in ("nodes", "cards_per_node", "timeout"):
+            row[field] = int(row[field])
+    return {
+        "metadata": _json(directory / "export.json"),
+        "generation": _json(directory / "generation.json"),
+        "suites": suites, "rows": rows,
+        "environments": sorted(path.name for path in (directory / "envs").glob("*.env")),
+    }
+
+
 def main():
     parser = argparse.ArgumentParser(description=__doc__)
     parser.add_argument("--definition", type=Path, action="append", required=True)
@@ -365,6 +389,8 @@ def main():
     parser.add_argument("--env-root", type=Path, required=True)
     parser.add_argument("--profile", default="full")
     parser.add_argument("--nodes", type=int)
+    parser.add_argument("--platform", default=platform_cases.DEFAULT_PLATFORM,
+                        choices=sorted(platform_cases.load_platforms()))
     parser.add_argument("--source-revision", required=True)
     parser.add_argument("--runner-revision", required=True)
     parser.add_argument("--output", type=Path, required=True)
@@ -373,6 +399,14 @@ def main():
         bundles = [generate_bundle(definition, args.suites, args.source_revision,
                                    args.runner_revision, args.profile)
                    for definition in args.definition]
+        if args.platform != platform_cases.DEFAULT_PLATFORM:
+            variant_bundles = None
+            if args.profile != "full":
+                variant_bundles = [generate_bundle(
+                    definition, args.suites, args.source_revision, args.runner_revision, "full")
+                    for definition in args.definition]
+            bundles = platform_cases.apply_platforms(
+                bundles, platform_cases.load_platform(args.platform), variant_bundles)
         combined = len(bundles) > 1
         if args.nodes is not None:
             bundles = filter_bundles_by_nodes(bundles, args.nodes)

@@ -46,6 +46,7 @@
   ],
   "profiles": {
     "full": {},
+    "pr": {},
     "smoke": {
       "filters": {"operation": ["all_reduce_perf"], "algorithm": ["Auto"], "layout": ["nproc_1_threads_2"]}
     }

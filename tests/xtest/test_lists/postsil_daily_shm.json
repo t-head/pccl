@@ -122,6 +122,13 @@
   ],
   "profiles": {
     "full": {"include_explicit": true},
+    "pr": {
+      "nodes": [1],
+      "filters": {
+        "operation": ["all_reduce_perf"], "algorithm": ["Ring"], "protocol": ["Simple"],
+        "dtype": ["half"], "size": ["32MB"], "ranks": [2], "layout": ["devices_0_1"]
+      }
+    },
     "smoke": {
       "nodes": [1],
       "filters": {

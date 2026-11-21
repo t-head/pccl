@@ -5,6 +5,7 @@ import csv
 import importlib.util
 import json
 from pathlib import Path
+import sys
 import tempfile
 import unittest
 from unittest import mock
@@ -691,6 +692,8 @@ class PerformanceReportTests(unittest.TestCase):
         self.assertIn("discover -s pccl/tests/xtest -p 'test_performance_report.py'", workflow)
         self.assertIn("performance_report.write_selection", workflow)
         self.assertIn("performance_report.py report", workflow)
+        self.assertIn('--image "$VALIDATION_IMAGE"', workflow)
+        self.assertIn('--hpn-sdk-url "$HPN_SDK_URL"', workflow)
         self.assertIn("--results-root /wl_nas/devops/pccl-artifact-cache-", workflow)
         self.assertIn("--reconciliation-root public-results", workflow)
         self.assertIn("name: m890p-daily-performance-report", workflow)
@@ -702,6 +705,30 @@ class PerformanceReportTests(unittest.TestCase):
         self.assertIn("name: m890p-daily-full-python-deps", workflow)
         source = (Path(__file__).resolve().parent / "performance_report.py").read_text()
         self.assertIn("run_cases.parse_performance(", source)
+
+    def test_report_cli_retains_image_and_hpn_sdk_url(self):
+        base = ['performance_report.py', 'report', '--selection', 'selection', '--groups', 'groups',
+                '--coverage', 'coverage', '--results-root', 'results', '--reconciliation-root',
+                'reconciliation', '--output', 'report.xlsx', '--run-id', '123', '--dataset', 'smoke',
+                '--source-revision', 'a' * 40, '--runner-revision', 'b' * 40,
+                '--image', 'registry.example/ppu:test']
+        for url in ('', 'https://zone-ci.oss-cn-hangzhou.aliyuncs.com/hpn-sdk/sdk.bin'):
+            with self.subTest(url=url):
+                arguments = base + (['--hpn-sdk-url', url] if url else [])
+                with mock.patch.object(sys, 'argv', arguments):
+                    with mock.patch.object(performance_report, 'collect_report',
+                                           return_value={'summary': {}}) as collect:
+                        with mock.patch.object(performance_report, 'write_workbook'):
+                            performance_report.main()
+                metadata = collect.call_args.args[4]
+                self.assertEqual(metadata['image'], 'registry.example/ppu:test')
+                self.assertEqual(metadata['hpn_sdk_url'], url or 'image-builtin')
+
+    def test_report_cli_redacts_hpn_sdk_url_credentials(self):
+        url = 'https://zone-ci.oss-cn-hangzhou.aliyuncs.com/hpn-sdk/sdk.bin?Signature=secret'
+        self.assertEqual(performance_report.public_hpn_sdk_url(url), url.split('?', 1)[0])
+        self.assertEqual(performance_report.public_hpn_sdk_url(''), 'image-builtin')
+        self.assertEqual(performance_report.public_hpn_sdk_url('https://[invalid'), 'invalid-url')
 
     @unittest.skipUnless(importlib.util.find_spec("xlsxwriter"), "XlsxWriter is not installed")
     def test_workbook_is_a_valid_xlsx_artifact(self):

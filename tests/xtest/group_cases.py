@@ -12,6 +12,7 @@ import sys
 import tempfile
 
 import run_cases
+import platform_cases
 
 
 POLICY_EXCLUSION = "disabled by daily resource policy"
@@ -24,31 +25,16 @@ CROSS_RACK_SUITES = {
 }
 
 
-def _validate_rack_policy(rack_policy, rack_count, nodes):
-    """Validate automatic rack placement without binding physical rack names."""
-    if rack_policy not in ("", "same", "spread"):
-        raise ValueError("rack_policy must be empty, same or spread")
-    if rack_policy != "spread":
-        if rack_count not in (None, ""):
-            raise ValueError("rack_count is valid only with rack_policy=spread")
-        return rack_policy, ""
-    if nodes < 2 or not isinstance(rack_count, int) or isinstance(rack_count, bool) or not 2 <= rack_count <= nodes:
-        raise ValueError("rack_count must be an integer between 2 and the Suite node count")
-    return rack_policy, rack_count
-
-
 def _rack_policy(case):
     key = (case["plan"], case["suite"])
-    allocation = CROSS_RACK_SUITES.get(key)
-    if allocation is None:
+    expected_nodes = CROSS_RACK_SUITES.get(key)
+    if expected_nodes is None:
         if "2_rack" in case["plan"] or "2_rack" in case["suite"]:
             raise ValueError(f"Cross-rack Suite has no reviewed rack policy: {key}")
-        nodes = case["suite_spec"]["nodes"]
-        return _validate_rack_policy("same" if nodes > 1 else "", "", nodes)
-    expected_nodes = allocation
+        return ("same", 1) if platform_cases.case_platform(case) == platform_cases.DEFAULT_PLATFORM else ("", 0)
     if case["suite_spec"]["nodes"] != expected_nodes:
         raise ValueError(f"Cross-rack Suite has an unexpected node count: {key}")
-    return _validate_rack_policy("spread", 2, expected_nodes)
+    return "spread", 2
 
 
 def _write_csv(path, fields, rows):
@@ -77,6 +63,7 @@ def build_plan(directory, max_cases, nodes=None, suite=None, allowed_nodes=None)
     grouped = {}
     excluded = {}
     metadata = None
+    platforms = platform_cases.load_platforms()
     for profile in ("standard", "notsm"):
         try:
             selected = run_cases.load_inputs(directory, profile, nodes=nodes, suite=suite)
@@ -87,11 +74,14 @@ def build_plan(directory, max_cases, nodes=None, suite=None, allowed_nodes=None)
         metadata = selected["metadata"]
         for case in selected["cases"]:
             spec = case["suite_spec"]
+            platform = platform_cases.case_platform(case, platforms)
             rack_policy, rack_count = _rack_policy(case)
             if allowed_nodes is not None and spec["nodes"] not in allowed_nodes:
                 excluded.setdefault(spec["nodes"], []).append(case)
                 continue
-            key = (profile, spec["nodes"], spec["cards_per_node"], spec["env"], rack_policy, rack_count)
+            cards = platform_cases.allocation_cards_per_node(case, platform)
+            key = (platform, profile, spec["nodes"], cards, spec["env"],
+                   rack_policy, rack_count)
             grouped.setdefault(key, []).append(case)
     if metadata is None:
         raise ValueError("No Cases match the requested selection")
@@ -99,13 +89,15 @@ def build_plan(directory, max_cases, nodes=None, suite=None, allowed_nodes=None)
         raise ValueError("No Cases match the requested selection and resource policy")
     groups = []
     for key in sorted(grouped):
-        profile, group_nodes, cards, env, rack_policy, rack_count = key
+        platform, profile, group_nodes, cards, env, rack_policy, rack_count = key
         cases = sorted(grouped[key], key=lambda case: (case["plan"], case["suite"], case["name"]))
         for start in range(0, len(cases), max_cases):
             chunk = cases[start:start + max_cases]
             groups.append({
                 "id": f"g{len(groups) + 1:03d}",
                 "profile": profile,
+                "platform": platform,
+                "node_selector": platforms[platform]["node_selector"],
                 "nodes": group_nodes,
                 "cards_per_node": cards,
                 "env": env,
@@ -120,6 +112,7 @@ def build_plan(directory, max_cases, nodes=None, suite=None, allowed_nodes=None)
         cases = sorted(excluded[node_count], key=lambda case: (case["plan"], case["suite"], case["name"]))
         exclusions.append({
             "nodes": node_count, "case_count": len(cases), "reason": POLICY_EXCLUSION,
+            "platform": platform_cases.case_platform(cases[0], platforms),
             "case_keys": [[case["plan"], case["suite"], case["name"]] for case in cases],
         })
     return {"groups": groups, "exclusions": exclusions,
@@ -154,12 +147,16 @@ def write_groups(groups, output, input_directory, coverage=None):
     try:
         manifest = []
         for group in groups:
+            cards = {platform_cases.allocation_cards_per_node(case, group["platform"])
+                     for case in group["cases"]}
+            if cards != {group["cards_per_node"]}:
+                raise ValueError("Execution group card allocation does not match its Cases")
             allocations = {_rack_policy(case) for case in group["cases"]}
             if len(allocations) != 1:
-                raise ValueError("An execution group mixes different rack policies")
+                raise ValueError("An execution group mixes different rack allocations")
             rack_policy, rack_count = allocations.pop()
             if (group.get("rack_policy", "") != rack_policy
-                    or group.get("rack_count", "") != rack_count
+                    or group.get("rack_count", 0) != rack_count
                     or group.get("cross_rack", rack_policy == "spread") is not (rack_policy == "spread")):
                 raise ValueError("Execution group rack metadata does not match its Cases")
             directory = temporary / group["id"]
@@ -179,6 +176,7 @@ def write_groups(groups, output, input_directory, coverage=None):
                             directory / "envs" / group["env"])
             manifest.append({
                 "id": group["id"], "profile": group["profile"], "nodes": group["nodes"],
+                "platform": group["platform"], "node_selector": group["node_selector"],
                 "cards_per_node": group["cards_per_node"], "env": group["env"],
                 "cross_rack": rack_policy == "spread",
                 "rack_policy": rack_policy, "rack_count": rack_count,
