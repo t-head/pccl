@@ -1,0 +1,17 @@
+{
+  "classification": {
+    "base_sha": "56406054982babf888a940019869f712309e968a",
+    "head_sha": "6252f0de6ba9cc04174d21d5d492b8140358c1a0",
+    "input_fingerprint": "b16571a5e6c30d254f0b5981e0d8fe26f332546f839f24fd14a92e43e65b78fc",
+    "pr_number": 231,
+    "proposal": {
+      "modules": [
+        "gin"
+      ],
+      "reason": "Reworks GIN/TROCE QP exchange/connection ordering in the GIN host TROCE backend so per-peer data QPs are connected contiguously across contexts, preserving per-context peer metadata and improving LAG traffic balance."
+    }
+  },
+  "reviewers": {
+    "gin": 341353320
+  }
+}
