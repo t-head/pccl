@@ -84,13 +84,13 @@ visible while a replacement is generated. A red gate removes the old preview.
 ## Reviewer assignment
 
 When a PR is ready for review or updated, PCCL selects modules by ownership of
-the main changes, rotates Reviewers, and invites their Maintainers.
+the main changes, rotates Reviewers (skipping the author), and invites their Maintainers.
 The prompt requests at most two modules in priority order, regardless of changed line
 count, without filling the second slot unnecessarily; scripts do not enforce this limit.
 Other affected modules appear in the PR comment for optional manual invitations,
 without required module approvals.
 
-PCCL keeps existing assignments and invites each person once across modules.
+PCCL keeps eligible assignments and invites each person once across modules.
 
 | File | Purpose |
 | --- | --- |
@@ -103,15 +103,17 @@ PCCL keeps existing assignments and invites each person once across modules.
 
 ## Module approval
 
-`PCCL Review Gate` checks that the Maintainers of the primary modules have approved the
-current commit. Authors are exempt from this check for modules they maintain. The Lead
-Maintainer can approve all modules on another author's PR.
+`PCCL Review Gate` requires valid approval of the current HEAD from each primary module's
+Maintainer and any non-author Reviewer in its roster. If the default Reviewer is unavailable,
+invite another from the same module. One approval counts for all roles and modules it covers.
 
-The gate checks existing approvals after the invitation run finishes, even if an invitation
-failed. It also refreshes whenever a review is submitted, edited or dismissed.
+- A module author is exempt from their own role. The other role still needs approval.
+- The Lead Maintainer can approve both roles for all modules on another author's PR. Other CI and merge checks still apply.
+
+The gate refreshes after invitation runs and when reviews change.
 
 | File | Purpose |
 | --- | --- |
 | [maintainer-approval.yml](workflows/maintainer-approval.yml) | Run the module approval check and publish `PCCL Review Gate`. |
 | [review-event.yml](workflows/review-event.yml) | Trigger an approval refresh when a review changes. |
-| [maintainer_approval.py](scripts/maintainer_approval.py) | Evaluate module Maintainer approvals for the current commit. |
+| [maintainer_approval.py](scripts/maintainer_approval.py) | Evaluate same-module Reviewer and Maintainer approvals for the current commit. |

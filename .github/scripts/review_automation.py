@@ -34,7 +34,7 @@ def load_config():
     for module, entry in source["modules"].items():
         required = {"name", "description", "key_files", "maintainer", "reviewers"}
         if (not re.fullmatch(r"[a-z][a-z0-9-]*", module) or not isinstance(entry, dict) or
-                not required <= set(entry) or set(entry) - required - {"author_review_exemption"}):
+                set(entry) != required):
             raise ValueError("Invalid module configuration")
         if any(not isinstance(entry[key], str) or not entry[key].strip()
                for key in ("name", "description")):
@@ -50,10 +50,6 @@ def load_config():
         reviewers = [account_id(account) for account in candidates]
         if len(set(reviewers)) != len(reviewers):
             raise ValueError(f"Duplicate Reviewer in module {module}")
-        if "author_review_exemption" in entry:
-            exempt_id = entry["author_review_exemption"]
-            if not reviewer_api.valid_user_id(exempt_id) or exempt_id != maintainer:
-                raise ValueError("Author review exemption must be the module Maintainer's numeric ID")
         roster["modules"][module] = {**entry, "maintainer": maintainer, "reviewers": reviewers}
     return roster, (SKILL / "SKILL.md").read_text()
 
@@ -197,17 +193,12 @@ def invite(api, pr, recommendation, roster, skill):
     modules = proposal["modules"]
     previous, latest, revision = reviewer_state.read_assignments(api, number)
     author = pr["user"]["id"]
-    active = [module for module in modules
-              if author != roster["modules"][module].get("author_review_exemption")]
-    record = {"classification": recommendation, "reviewers": previous["reviewers"]}
-    # Save the modules even if the roster has no eligible reviewer. The approval gate needs only the modules.
-    try:
-        record["reviewers"] = select_reviewers(active, roster["modules"], previous["reviewers"], latest, author)
-    finally:
-        reviewer_state.save_review_state(api, number, previous, record, latest, revision)
+    record = {"classification": recommendation,
+              "reviewers": select_reviewers(modules, roster["modules"], previous["reviewers"], latest, author)}
+    reviewer_state.save_review_state(api, number, previous, record, latest, revision)
     roles_by_user = {}
-    for module in active:
-        roles = ((record["reviewers"][module], "Reviewer"),
+    for module in modules:
+        roles = ((record["reviewers"].get(module), "Reviewer"),
                  (module_maintainer(roster, module, author), "Maintainer"))
         for user_id, role in roles:
             if user_id is not None:
@@ -225,9 +216,15 @@ def invite(api, pr, recommendation, roster, skill):
     requested.update(current_approvals(fresh, api.pages(f"/pulls/{number}/reviews")))
     new_users = sorted(roles_by_user.keys() - requested, key=api.login)
     logins = [api.login(user_id) for user_id in new_users]
-    # Explain the author's Maintainer exemption without adding a self-review request.
-    roles_by_user[author] = {module: ["Maintainer"] for module in modules
-                             if roster["modules"][module]["maintainer"] == author}
+    roles_by_user[author] = {}
+    for module in modules:
+        roles = []
+        if module not in record["reviewers"]:
+            roles.append("Reviewer")
+        if roster["modules"][module]["maintainer"] == author:
+            roles.append("Maintainer")
+        if roles:
+            roles_by_user[author][module] = roles
     notice_users = new_users + ([author] if roles_by_user[author] else [])
     # Refresh existing notices even when everyone has already been invited.
     notify_reviewers(api, number, notice_users, roles_by_user, proposal, author)
@@ -238,14 +235,14 @@ def invite(api, pr, recommendation, roster, skill):
 
 
 def select_reviewers(modules, module_roster, current, latest, author):
-    """Keep saved choices; roster changes affect new assignments only."""
+    """Keep saved choices while they remain eligible default invitees."""
     assignments = dict(current)
     for module in modules:
-        if module in current:
-            if current[module] == author:
-                raise ValueError(f"Assigned Reviewer is the PR author for {module}; reassign manually")
-            continue
-        assignments[module] = next_reviewer(module_roster[module]["reviewers"], latest.get(module), author)
+        candidates = module_roster[module]["reviewers"]
+        if author in candidates:
+            assignments.pop(module, None)
+        elif current.get(module) not in candidates:
+            assignments[module] = next_reviewer(candidates, latest.get(module), author)
     return assignments
 
 
@@ -256,7 +253,7 @@ def next_reviewer(candidates, previous, author):
         candidate = candidates[(start + offset) % len(candidates)]
         if candidate != author:
             return candidate
-    raise ValueError("No Reviewer other than the PR author; update modules.json")
+    return None
 
 
 def module_maintainer(roster, module, author):
@@ -304,7 +301,9 @@ def notify_reviewers(api, number, new_users, roles_by_user, proposal, author=Non
             f"- Primary modules: {', '.join(proposal['modules'])}\n"
             f"- Additional modules: {', '.join(proposal['additional_modules']) or 'none'}\n\n"
             "Only primary modules receive automatic invitations and require module approvals. "
-            "Invite reviewers for other modules manually if needed.\n")
+            "Invite reviewers for other modules manually if needed, using the [module roster]"
+            f"(https://github.com/{api.repository}/blob/{WORKFLOW_BRANCH}/"
+            ".github/skills/pccl-review-assignment/modules.json).\n")
     if module_notice is None:
         api.request("POST", f"/issues/{number}/comments", {"body": body})
     elif module_notice["body"].replace("\r\n", "\n") != body:
@@ -322,8 +321,14 @@ def review_notice_body(api, recipients, roles_by_user, author=None):
         description = (", ".join(assignments[:-1]) + " and " + assignments[-1]
                        if len(assignments) > 1 else assignments[0])
         if user_id == author:
-            lines.append(f"@{api.login(user_id)}: {description} (PR author; Maintainer approval waived). "
-                         "Other primary modules follow the normal approval rules.")
+            roles = {role for assigned in roles_by_user[user_id].values() for role in assigned}
+            waivers = []
+            if "Reviewer" in roles:
+                waivers.append("Reviewer approval waived for own modules")
+            if "Maintainer" in roles:
+                waivers.append("Maintainer approval waived for own modules")
+            lines.append(f"@{api.login(user_id)}: {description} (PR author; {'; '.join(waivers)}). "
+                         "Other required approvals remain unchanged.")
         else:
             lines.append(f"@{api.login(user_id)}, please review as {description}.")
     marker = "<!-- pccl-review-notice:" + ",".join(str(user_id) for user_id in recipients) + " -->\n"
