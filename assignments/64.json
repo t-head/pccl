@@ -1,16 +1,16 @@
 {
   "classification": {
     "base_sha": "abb6688b4b5419664e7bf13c2d9107bd7acafd89",
-    "head_sha": "69728ce19e794b88220b64d44a62a2e76da351f4",
-    "input_fingerprint": "6c8c02efcd81b30172aee1b80d20e80fe1b39f076fa8cd5c82072f9b6ac971ab",
+    "head_sha": "86fcdb1bd6e47388cd37c44d666144af48bde89b",
+    "input_fingerprint": "de16fdbab37146caf72538148fbfb8b10e31743d3ff141e9eac82b717a8345d3",
     "pr_number": 64,
     "proposal": {
       "modules": [
         "enqueue",
-        "symmetric",
-        "copy-engine"
+        "copy-engine",
+        "device-api"
       ],
-      "reason": "Main change is a new host one-sided RMA Put/Signal/WaitSignal execution path implemented through CE streams, batched mem-ops, signal/ack synchronization, and CE-side task launch/finalization (copy-engine). It also adds a new RMA task type and planner/launch integration, including graph-capture-aware scheduling and plan cleanup (enqueue). Additional substantive changes adjust symmetric-window/LSA offset semantics and eligibility checks used by RMA and related CE paths, including window validation constraints and flat-address handling updates (symmetric)."
+      "reason": "Main change is new host one-sided RMA (PutSignal/Signal/WaitSignal) executed through CE/DMA, including new RMA CE launch logic, signal/ack synchronization, and large-transfer chunking. Enqueue is also substantively changed to add new RMA task types, planner queues, scheduling, and launch-path dispatch. Device-api review is needed for the symmetric window/LSA runtime changes (offset semantics, window validation/capability checks, and communicator property exposure) that directly affect RMA correctness."
     }
   },
   "reviewers": {
