@@ -224,7 +224,7 @@
     "workflow": {
       "name": "Contribution and review workflows",
       "description": "Contribution and review/merge policy, issue/PR templates, reviewer assignment/approval, commit validation and squash-message automation, including supporting Actions wiring. Normal test execution and pass/fail criteria belong to ci.",
-      "key_files": ["CONTRIBUTING.md", ".github/scripts/review_automation.py", ".github/workflows/reviewer-routing.yml"],
+      "key_files": ["CONTRIBUTING.md", ".github/scripts/review_automation.py", ".github/workflows/review-routing.yml"],
       "maintainer": {"login": "honganlxh", "id": 335730053},
       "reviewers": [
         {"login": "wensuyang", "id": 333277982}

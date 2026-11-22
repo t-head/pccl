@@ -155,7 +155,7 @@ def main():
     if number is None:
         run = json.loads(Path(os.environ['GITHUB_EVENT_PATH']).read_text())['workflow_run']
         number = event_pr_number(run, api.repository,
-                                 {'.github/workflows/maintainer-approval.yml': {'workflow_run', 'workflow_dispatch'}})
+                                 {'.github/workflows/review-gate.yml': {'workflow_run', 'workflow_dispatch'}})
     url = refresh(api, number, automatic=args.cleanup_only or os.environ.get('GITHUB_EVENT_NAME') == 'workflow_run',
                   cleanup_only=args.cleanup_only)
     print('Published squash message: ' + url if url else 'No squash preview published.')

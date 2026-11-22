@@ -1,0 +1,61 @@
+name: Receive PCCL review commands
+run-name: "PCCL review command for PR #${{ github.event.issue.number }}"
+
+on:
+  issue_comment:
+    types: [created]
+
+permissions: {}
+
+jobs:
+  authorize:
+    if: >-
+      github.repository == 't-head/pccl' && github.event.issue.pull_request &&
+      github.event.comment.user.type == 'User' &&
+      startsWith(github.event.comment.body, '/review-module')
+    runs-on: ubuntu-24.04
+    permissions:
+      contents: read
+      pull-requests: write # React to rejected commands.
+    steps:
+      - uses: actions/checkout@d23441a48e516b6c34aea4fa41551a30e30af803 # v6
+        with:
+          persist-credentials: false
+      - name: Check repository write access before queueing
+        env:
+          GITHUB_TOKEN: ${{ github.token }}
+          PR_NUMBER: ${{ github.event.issue.number }}
+        run: python3 .github/scripts/review_automation.py authorize
+
+  update:
+    needs: authorize
+    permissions:
+      contents: write
+      pull-requests: write
+      statuses: write
+      actions: write
+    uses: ./.github/workflows/review-module.yml
+    with:
+      pr_number: ${{ github.event.issue.number }}
+
+  cleanup:
+    needs: update
+    if: failure() && needs.update.result == 'failure'
+    runs-on: ubuntu-24.04
+    concurrency:
+      group: "squash-message-PCCL review for PR #${{ github.event.issue.number }}"
+      queue: max
+    permissions:
+      contents: read
+      pull-requests: write
+      statuses: read
+      issues: read
+    steps:
+      - uses: actions/checkout@d23441a48e516b6c34aea4fa41551a30e30af803 # v6
+        with:
+          persist-credentials: false
+      - name: Remove the previous preview if the gate is red
+        env:
+          GITHUB_TOKEN: ${{ github.token }}
+          PR_NUMBER: ${{ github.event.issue.number }}
+        run: python3 .github/scripts/commit_message_squash.py --cleanup-only

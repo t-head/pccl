@@ -19,6 +19,9 @@ ROOT = Path(__file__).resolve().parents[2]
 SKILL = ROOT / ".github/skills/pccl-review-assignment"
 COPILOT_TIMEOUT_SECONDS = 300
 WORKFLOW_BRANCH = "main"
+GITHUB_ACTIONS_BOT_ID = 41898282
+UPDATE_PENDING = "Updating module requirements and invitations"
+UPDATE_FAILED = "Module update failed; rerun its workflow. See logs"
 PR_FILE_FIELDS = ("filename", "previous_filename", "status", "additions", "deletions", "changes", "patch")
 
 
@@ -169,7 +172,8 @@ def classification_summary(pr, proposal, files):
     reason = re.sub(r"([\\`*_\[\]])", r"\\\1", reason)
     summary = (f"### Module classification · PR #{pr['number']}\n\n"
                f"- Commit: `{pr['head']['sha']}`\n"
-               f"- Primary modules: {', '.join(proposal['modules'])}\n"
+               f"- Primary module: {proposal['modules'][0]}\n"
+               f"- Secondary module: {', '.join(proposal['modules'][1:]) or 'none'}\n"
                f"- Additional modules (manual review): {', '.join(proposal['additional_modules']) or 'none'}\n"
                f"- Reason: {reason}\n")
     omitted = [{"filename": file["filename"], "reason": file["patch_omitted"]}
@@ -182,67 +186,226 @@ def classification_summary(pr, proposal, files):
 
 # Reviewer assignment and invitations
 
+def primary_modules(record, roster):
+    classification = record["classification"]
+    if classification is None:
+        return []
+    try:
+        return validate_classification(classification.get("proposal"), roster)["modules"]
+    except ValueError as error:
+        raise ValueError("Saved module classification is invalid; rerun reviewer routing") from error
+
+
+def review_requirements(record, roster, head, modules):
+    requirements = {module: {"Reviewer", "Maintainer"} if index == 0 else {"Reviewer"}
+                    for index, module in enumerate(modules)}
+    for module, commands in record.get("manual_modules", {}).items():
+        roles = requirements.setdefault(module, set())
+        for role, command in commands.items():
+            if command["required"]:
+                if module not in roster["modules"]:
+                    raise ValueError(f"Unknown manual module: {module}")
+                roles.add(role)
+            elif command.get("excluded_head") == head:
+                roles.discard(role)
+    return {module: roles for module, roles in requirements.items() if roles}
+
+
+def parse_module_command(body, roster):
+    match = re.fullmatch(r"/review-module[ \t]+(add|rm)[ \t]+([a-z][a-z0-9-]*)"
+                         r"(?:[ \t]+(reviewer|maintainer))?", body.strip())
+    if not match:
+        raise ValueError("Usage: /review-module add|rm <module> [reviewer|maintainer]")
+    action, module, role = match.groups()
+    if action == "add" and module not in roster["modules"]:
+        raise ValueError("Unknown module; see the module roster")
+    return action, module, [role.title()] if role else ["Reviewer", "Maintainer"]
+
+
+def authorized_comment(api, number):
+    event = json.loads(Path(os.environ["GITHUB_EVENT_PATH"]).read_text())
+    if (os.environ["GITHUB_EVENT_NAME"] != "issue_comment" or event["action"] != "created" or
+            not event["issue"].get("pull_request") or event["issue"]["number"] != number):
+        raise ValueError("Expected a new PR comment")
+    comment = event["comment"]
+    user = comment["user"]
+    if user["type"] != "User" or not reviewer_api.valid_login(user["login"]):
+        raise ValueError("Only human repository writers may change review modules")
+    permission = api.request("GET", f"/collaborators/{user['login']}/permission")
+    if permission["permission"] not in {"write", "maintain", "admin"} or permission["user"]["id"] != user["id"]:
+        raise ValueError("Repository write access is required to change review modules")
+    return comment
+
+
+def module_command(api, pr, roster):
+    from maintainer_approval import publish_status
+
+    comment = authorized_comment(api, pr["number"])
+    user = comment["user"]
+    current = api.request("GET", f"/issues/comments/{comment['id']}")
+    if (current["body"] != comment["body"] or current["user"]["id"] != user["id"] or
+            current["updated_at"] != comment["updated_at"] or comment["updated_at"] != comment["created_at"] or
+            current["issue_url"] != f"https://api.github.com/repos/{api.repository}/issues/{pr['number']}"):
+        raise ValueError("Comment changed; post a new command instead")
+    action, module, roles = parse_module_command(comment["body"], roster)
+    previous, latest, revision = reviewer_state.read_assignments(api, pr["number"])
+    manual = {key: dict(value) for key, value in previous.get("manual_modules", {}).items()}
+    commands = manual.setdefault(module, {})
+    retired = module not in roster["modules"]
+    if retired:
+        roles = [role for role in roles if role in commands]
+        if not roles:
+            raise ValueError("Unknown module with no saved role to remove")
+    if all(comment["id"] < commands.get(role, {}).get("comment_id", 0) for role in roles):
+        return "A newer command already superseded this request.\n"
+    changed_roles = [role for role in roles if comment["id"] > commands.get(role, {}).get("comment_id", 0)]
+    automatic = [] if retired else primary_modules(previous, roster)
+    for role in changed_roles:
+        # Keep removals too, so rerunning an older add cannot restore a requirement.
+        command = {"comment_id": comment["id"], "required": action == "add"}
+        if not retired and action == "rm":
+            command["excluded_head"] = pr["head"]["sha"]
+        commands[role] = command
+    record = {**previous, "manual_modules": manual}
+    if retired:
+        if not changed_roles and previous["classification"] is not None:
+            return "Saved roles were already removed; reviewer routing has since reclassified this PR.\n"
+        if changed_roles:
+            record["classification"] = None
+    else:
+        requirements = review_requirements(record, roster, pr["head"]["sha"], automatic)
+    if pr_snapshot_key(api.request("GET", f"/pulls/{pr['number']}")) != pr_snapshot_key(pr):
+        raise ValueError("PR changed; rerun the module command")
+    publish_status(api, pr["head"]["sha"], "pending", UPDATE_PENDING)
+    try:
+        if not retired:
+            record["reviewers"] = select_reviewers(
+                [module for module, roles in requirements.items() if "Reviewer" in roles],
+                roster["modules"], previous["reviewers"], latest, pr["user"]["id"], automatic[1:])
+        reviewer_state.save_review_state(api, pr["number"], previous, record, latest, revision)
+        summary = (f"Removed saved roles for retired module {module}; rerun reviewer routing.\n" if retired else
+                   sync_invitations(api, pr, record, roster, requirements))
+        api.request("POST", "/actions/workflows/review-gate.yml/dispatches", {
+            "ref": WORKFLOW_BRANCH, "inputs": {"pr_number": str(pr["number"])}})
+        publish_status(api, pr["head"]["sha"], "pending", "Checking module Reviewer and Maintainer approvals")
+        return summary
+    except Exception:
+        publish_status(api, pr["head"]["sha"], "error", UPDATE_FAILED)
+        raise
+
+
 def invite(api, pr, recommendation, roster, skill):
     """Persist choices before contacting reviewers so retries keep the same rotation."""
+    from maintainer_approval import publish_status
+
     number = pr["number"]
     files = fetch_pr_diff(api, pr)
     if (recommendation.get("base_sha") != pr["base"]["sha"] or
             recommendation.get("input_fingerprint") != classification_fingerprint(pr, files, roster, skill)):
         raise ValueError("PR or configuration changed; rerun classification")
-    proposal = validate_classification(recommendation.get("proposal"), roster)
-    modules = proposal["modules"]
+    modules = validate_classification(recommendation.get("proposal"), roster)["modules"]
     previous, latest, revision = reviewer_state.read_assignments(api, number)
-    author = pr["user"]["id"]
-    record = {"classification": recommendation,
-              "reviewers": select_reviewers(modules, roster["modules"], previous["reviewers"], latest, author)}
-    reviewer_state.save_review_state(api, number, previous, record, latest, revision)
+    record = {**previous, "classification": recommendation}
+    requirements = review_requirements(record, roster, pr["head"]["sha"], modules)
+    publish_status(api, pr["head"]["sha"], "pending", UPDATE_PENDING)
+    try:
+        record["reviewers"] = select_reviewers(
+            [module for module, roles in requirements.items() if "Reviewer" in roles],
+            roster["modules"], previous["reviewers"], latest, pr["user"]["id"], modules[1:])
+        reviewer_state.save_review_state(api, number, previous, record, latest, revision)
+        summary = sync_invitations(api, pr, record, roster, requirements)
+        publish_status(api, pr["head"]["sha"], "pending", "Checking module Reviewer and Maintainer approvals")
+        return summary
+    except Exception:
+        publish_status(api, pr["head"]["sha"], "error", UPDATE_FAILED)
+        raise
+
+
+def sync_invitations(api, pr, record, roster, requirements):
+    number, author = pr["number"], pr["user"]["id"]
     roles_by_user = {}
-    for module in modules:
+    for module, required_roles in requirements.items():
         roles = ((record["reviewers"].get(module), "Reviewer"),
                  (module_maintainer(roster, module, author), "Maintainer"))
         for user_id, role in roles:
-            if user_id is not None:
+            if user_id is not None and role in required_roles:
                 roles_by_user.setdefault(user_id, {}).setdefault(module, []).append(role)
 
-    # A submitted review or manual removal must not cause a repeat invitation.
     history = api.pages(f"/issues/{number}/timeline")
-    requested = {event["requested_reviewer"]["id"] for event in history
-                 if event["event"] == "review_requested" and event.get("requested_reviewer")}
+    requested, automated = review_request_history(history)
+    reviews = api.pages(f"/pulls/{number}/reviews")
+    requested.update(review["user"]["id"] for review in reviews
+                     if review["state"] != "PENDING" and review["user"].get("type") == "User")
     # Unchanged head/base SHAs identify the same diff; do not download it again.
     fresh = api.request("GET", f"/pulls/{number}")
     if pr_snapshot_key(fresh) != pr_snapshot_key(pr):
         raise ValueError("PR changed before invitation; rerun classification")
-    requested.update(user["id"] for user in fresh["requested_reviewers"])
-    requested.update(current_approvals(fresh, api.pages(f"/pulls/{number}/reviews")))
+    pending = {user["id"] for user in fresh["requested_reviewers"]}
+    requested.update(pending)
     new_users = sorted(roles_by_user.keys() - requested, key=api.login)
     logins = [api.login(user_id) for user_id in new_users]
+    removed = sorted((automated & pending) - roles_by_user.keys(), key=api.login)
+    removed_logins = [api.login(user_id) for user_id in removed]
+    if removed:
+        api.request("DELETE", f"/pulls/{number}/requested_reviewers", {"reviewers": removed_logins})
     roles_by_user[author] = {}
-    for module in modules:
+    for module, required_roles in requirements.items():
         roles = []
-        if module not in record["reviewers"]:
+        if "Reviewer" in required_roles and module not in record["reviewers"]:
             roles.append("Reviewer")
-        if roster["modules"][module]["maintainer"] == author:
+        if "Maintainer" in required_roles and roster["modules"][module]["maintainer"] == author:
             roles.append("Maintainer")
         if roles:
             roles_by_user[author][module] = roles
     notice_users = new_users + ([author] if roles_by_user[author] else [])
+    classification = record["classification"]
+    proposal = classification["proposal"] if classification else {"modules": [], "additional_modules": []}
     # Refresh existing notices even when everyone has already been invited.
-    notify_reviewers(api, number, notice_users, roles_by_user, proposal, author)
+    notify_reviewers(api, number, notice_users, roles_by_user, proposal, requirements, author)
     if new_users:
         api.request("POST", f"/pulls/{number}/requested_reviewers", {"reviewers": logins})
     return (f"### Reviewer invitations · PR #{number}\n\n"
-            f"New requests: {', '.join(logins) or 'none'}.\n")
+            f"New requests: {', '.join(logins) or 'none'}.\n"
+            f"Withdrawn requests: {', '.join(removed_logins) or 'none'}.\n")
 
 
-def select_reviewers(modules, module_roster, current, latest, author):
+def review_request_history(history):
+    requested, automated = set(), set()
+    events = [event for event in history
+              if event["event"] in {"review_requested", "review_request_removed"}
+              and (event.get("requested_reviewer") or {}).get("type") == "User"]
+    for event in sorted(events, key=lambda item: (item["created_at"], item["id"])):
+        user_id = event["requested_reviewer"]["id"]
+        actor = event.get("actor") or {}
+        is_automation = actor.get("id") == GITHUB_ACTIONS_BOT_ID and actor.get("type") == "Bot"
+        if event["event"] == "review_requested":
+            requested.add(user_id)
+            if is_automation:
+                automated.add(user_id)
+            else:
+                automated.discard(user_id)
+        else:
+            # Only an automated withdrawal of an automated request allows reinvitation.
+            if is_automation and user_id in automated:
+                requested.discard(user_id)
+            else:
+                requested.add(user_id)
+            automated.discard(user_id)
+    return requested, automated
+
+
+def select_reviewers(modules, module_roster, current, latest, author, secondary_modules):
     """Keep saved choices while they remain eligible default invitees."""
     assignments = dict(current)
     for module in modules:
         candidates = module_roster[module]["reviewers"]
-        if author in candidates:
+        if author in candidates and module not in secondary_modules:
             assignments.pop(module, None)
-        elif current.get(module) not in candidates:
-            assignments[module] = next_reviewer(candidates, latest.get(module), author)
+        elif current.get(module) not in candidates or current.get(module) == author:
+            reviewer = next_reviewer(candidates, latest.get(module), author)
+            if reviewer is None:
+                raise ValueError(f"No Reviewer other than the PR author for {module}; update modules.json")
+            assignments[module] = reviewer
     return assignments
 
 
@@ -262,7 +425,7 @@ def module_maintainer(roster, module, author):
     return None if maintainer == author else maintainer
 
 
-def notify_reviewers(api, number, new_users, roles_by_user, proposal, author=None):
+def notify_reviewers(api, number, new_users, roles_by_user, proposal, requirements, author=None):
     """Keep module notices current and retain account IDs for retry deduplication."""
     notices = []
     notified = set()
@@ -297,11 +460,18 @@ def notify_reviewers(api, number, new_users, roles_by_user, proposal, author=Non
     if recipients:
         api.request("POST", f"/issues/{number}/comments",
                     {"body": review_notice_body(api, recipients, roles_by_user, author)})
+    required_text = "; ".join(f"{module} ({', '.join(role for role in ('Reviewer', 'Maintainer') if role in roles)})"
+                              for module, roles in sorted(requirements.items()))
     body = (module_marker + "\n### Review modules\n\n"
-            f"- Primary modules: {', '.join(proposal['modules'])}\n"
-            f"- Additional modules: {', '.join(proposal['additional_modules']) or 'none'}\n\n"
-            "Only primary modules receive automatic invitations and require module approvals. "
-            "Invite reviewers for other modules manually if needed, using the [module roster]"
+            f"- Primary module: {', '.join(proposal['modules'][:1]) or 'awaiting classification'}\n"
+            f"- Secondary module: {', '.join(proposal['modules'][1:]) or 'none'}\n"
+            f"- Additional modules: {', '.join(proposal['additional_modules']) or 'none'}\n"
+            f"- Required roles: {required_text or 'none'}\n\n"
+            "Members with write access can add or remove requirements, even as PR author, with "
+            "`/review-module add|rm <module> [reviewer|maintainer]` (omit the role for both). "
+            "Removing automatic requirements applies only to the current commit. "
+            "The gate requires at least one module with a required role. "
+            "See the [module roster]"
             f"(https://github.com/{api.repository}/blob/{WORKFLOW_BRANCH}/"
             ".github/skills/pccl-review-assignment/modules.json).\n")
     if module_notice is None:
@@ -352,20 +522,50 @@ def current_approvals(pr, reviews):
 
 # Actions entry points
 
+def command_feedback(message=None):
+    if message is not None:
+        try:
+            with open(os.environ["GITHUB_STEP_SUMMARY"], "a") as output:
+                output.write("### Module command failed\n\n<pre>" + html.escape(message) + "</pre>\n")
+        except Exception:
+            print("Could not write the command summary; see the workflow logs.", file=sys.stderr)
+    try:
+        event = json.loads(Path(os.environ["GITHUB_EVENT_PATH"]).read_text())
+        if (os.environ["GITHUB_EVENT_NAME"] != "issue_comment" or event["action"] != "created" or
+                not event["issue"].get("pull_request")):
+            return
+        api = reviewer_api.GitHub(os.environ["GITHUB_REPOSITORY"], os.environ["GITHUB_TOKEN"])
+        path = f"/issues/comments/{event['comment']['id']}/reactions"
+        if message is not None:
+            api.request("POST", path, {"content": "confused"})
+        else:
+            for reaction in api.pages(path):
+                if (reaction["content"] == "confused" and reaction["user"]["id"] == GITHUB_ACTIONS_BOT_ID and
+                        reaction["user"]["type"] == "Bot"):
+                    api.request("DELETE", f"{path}/{reaction['id']}")
+    except Exception:
+        print("Could not update the command reaction; see the workflow result.", file=sys.stderr)
+
+
 def main():
     mode = sys.argv[1]
-    if mode not in {"classify", "invite"}:
-        raise ValueError("Use classify or invite")
+    if mode not in {"classify", "invite", "authorize", "command"}:
+        raise ValueError("Use classify, invite, authorize or command")
     api = reviewer_api.GitHub(os.environ["GITHUB_REPOSITORY"], os.environ["GITHUB_TOKEN"])
     number = int(os.environ["PR_NUMBER"])
     if number <= 0:
         raise ValueError("Invalid PR number")
+    if mode == "authorize":
+        authorized_comment(api, number)
+        return
     pr = api.request("GET", f"/pulls/{number}")
     if pr["base"]["repo"]["full_name"] != api.repository:
         raise ValueError("Unexpected PR target")
     target = pr["base"]["ref"]
     if ((target != WORKFLOW_BRANCH and not target.startswith("release/"))
             or pr["state"] != "open" or pr["draft"]):
+        if mode == "command":
+            raise ValueError("Command not applied; post a new command on an open, non-draft PR targeting main or release/*")
         print("PR is closed, draft or targets another branch; no action needed.")
         return
     roster, skill = load_config()
@@ -375,11 +575,15 @@ def main():
         with open(os.environ["GITHUB_OUTPUT"], "a") as output:
             output.write("recommendation=" + json.dumps(recommendation) + "\n")
         summary = classification_summary(pr, recommendation["proposal"], files)
+    elif mode == "command":
+        summary = module_command(api, pr, roster)
     else:
         recommendation = json.loads(os.environ["RECOMMENDATION"])
         summary = invite(api, pr, recommendation, roster, skill)
     with open(os.environ["GITHUB_STEP_SUMMARY"], "a") as output:
         output.write(summary)
+    if mode == "command":
+        command_feedback()
 
 
 if __name__ == "__main__":
@@ -390,4 +594,6 @@ if __name__ == "__main__":
         message = ("Review automation timed out; rerun reviewer routing"
                    if isinstance(error, subprocess.TimeoutExpired) else str(error))
         print(message, file=sys.stderr)
+        if sys.argv[1:2] in (["authorize"], ["command"]):
+            command_feedback(message)
         sys.exit(1)
