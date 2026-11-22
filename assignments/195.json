@@ -8,7 +8,7 @@
       "modules": [
         "workflow"
       ],
-      "reason": "Substantive changes are in GitHub review/merge automation: review_automation.py and maintainer_approval.py now enforce module Reviewer+Maintainer requirements with command-driven overrides, new review-command/review-module/review-gate/review-squash-preview workflows rewire routing and gate triggers, and commit_message_squash.py ties squash preview publication/removal to gate state. Other edits (skill text/modules roster/docs/renames) support this same review-policy workflow change rather than independent module behavior."
+      "reason": "Main change is review/merge automation policy: review_automation.py and maintainer_approval.py add module-role requirements, writer /review-module commands, invitation sync, and gate logic; new/renamed workflows (review-routing/review-module/review-command/review-gate/review-squash-preview) rewire routing, approval refresh, and squash preview publication. Other edits are supporting docs/catalog updates for this same workflow system."
     }
   },
   "reviewers": {
