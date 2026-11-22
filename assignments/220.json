@@ -1,14 +1,14 @@
 {
   "classification": {
     "base_sha": "abb6688b4b5419664e7bf13c2d9107bd7acafd89",
-    "head_sha": "39713dee55b241a3399464597cbdffb33ce0765b",
-    "input_fingerprint": "ddf6d2dea5142b47821fdd5718d196cdf423bab919adaf9b99b2ea34653283f6",
+    "head_sha": "456b6a15290450f24d5d0094d40a5b5eec60fe9e",
+    "input_fingerprint": "11d3f1db7535c9d7dbfbebd9ee30a619c31b25eb171cd9aaf37037baff244f25",
     "pr_number": 220,
     "proposal": {
       "modules": [
         "ci"
       ],
-      "reason": "Main functional change is CI orchestration: dual-platform PR/daily workflow execution, case generation/grouping/reconciliation updates, per-worker device mapping in the xtest runner, HPN SDK install controls, and CI artifact/report handling. Other edits (docs, test fixtures, large test-list JSONs including patch_omitted files) support this same CI behavior rather than introducing separate module-owned runtime features."
+      "reason": "Main change is CI execution and validation infrastructure: dual-platform (M890P/810E) workflow orchestration, case generation/grouping, runner environment setup (including HPN SDK install), device allocation mapping, reconciliation/reporting, and corresponding xtest datasets/tests. Workflow/docs edits are supportive to test execution behavior rather than contribution/reviewer policy, and no production PCCL runtime module ownership changes are evidenced."
     }
   },
   "reviewers": {
