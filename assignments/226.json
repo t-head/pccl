@@ -2,13 +2,13 @@
   "classification": {
     "base_sha": "abb6688b4b5419664e7bf13c2d9107bd7acafd89",
     "head_sha": "97ac443dedee2fc161e9bf143e851cfa8cd54d67",
-    "input_fingerprint": "b4acc13a66f79788c5a51a5648b36ad358a298cb1d1e8f71c3511bfd64c195c2",
+    "input_fingerprint": "aae9894fb188c6bfb7e712012c9e32ab6350ff06c165643431740bd6d9156640",
     "pr_number": 226,
     "proposal": {
       "modules": [
         "kernel-plugin"
       ],
-      "reason": "Adds OneShotPush as a new ext-kernel AllReduce plugin strategy, including plugin kernel implementation/registration, function-index dispatch updates, topology-gated default selection thresholds, and new plugin workspace/launch-region handling (push buffer and phase state)."
+      "reason": "Adds a new ext-kernel OneShotPush AllReduce implementation and wires it through plugin strategy selection, function indexing/dispatch, workspace region layout (push buffer/phase), launch configuration, and topology-gated default limits; these are extension-kernel plugin behavior changes rather than core built-in kernels or CI/workflow edits."
     }
   },
   "reviewers": {
