@@ -1,14 +1,14 @@
 {
   "classification": {
     "base_sha": "abb6688b4b5419664e7bf13c2d9107bd7acafd89",
-    "head_sha": "fc0981988871c70194daaeb874b3ab388faa71ad",
-    "input_fingerprint": "4bafe882c2b7a214782d73ae1855644ea502e518f99f781e5b1001a59673d70b",
+    "head_sha": "c9fc44f2b03a0bf6ebdb8c6476d40928519c6945",
+    "input_fingerprint": "c487bc0949a9c97cf946b689a793f52a7db06eccbf877fd6177fc866a2caf837",
     "pr_number": 220,
     "proposal": {
       "modules": [
         "ci"
       ],
-      "reason": "Main substantive change is CI test-workflow behavior: dual-platform (M890P/810E) job orchestration, case generation/grouping/reconciliation, platform-specific resource allocation, device mapping, SDK installation flow, result artifact/reporting updates, and corresponding CI/xtest coverage. Other edits are supporting docs/tests for this CI behavior rather than separate module policy or product-runtime changes."
+      "reason": "Main substantive change is CI test-workflow orchestration: dual-platform (M890P/810E) daily/PR execution, case-generation/grouping logic, runner device-mapping and diagnostics capture, HPN SDK install handling, reconciliation/reporting updates, and corresponding CI docs/tests. No independent contribution/review-policy change is evident."
     }
   },
   "reviewers": {
