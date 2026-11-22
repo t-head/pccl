@@ -2,13 +2,13 @@
   "classification": {
     "base_sha": "abb6688b4b5419664e7bf13c2d9107bd7acafd89",
     "head_sha": "9a5cb462adf8e3737ff4246ac12eb1ee0c42c8f8",
-    "input_fingerprint": "345c1d5475d142d1e82e61d4a8076ba47518824bf99c1cb3fb3044ad628eb58e",
+    "input_fingerprint": "a7a7fbaacc00cbf0e6fcbc429fb2ca787e35007df0212f8714c82bbb50f7d382",
     "pr_number": 220,
     "proposal": {
       "modules": [
         "ci"
       ],
-      "reason": "Main change is a substantial overhaul of open-source test workflows and tooling: dual-platform (M890P/810E) daily/PR execution, trusted HPN SDK selection/install, platform-aware case generation/grouping, device mapping in run executor, reconciliation/reporting/artifact handling, and extensive xtest coverage updates (including large patch-omitted test-list definitions). These are CI execution/orchestration changes rather than production runtime modules."
+      "reason": "Main substantive change is a broad redesign of open-source test workflows and xtest tooling: dual-platform (M890P/810E) case generation/grouping/execution, per-worker device mapping, HPN SDK selection/installation validation, result reconciliation/artifact handling, and associated CI test coverage. Workflow/docs edits here support CI execution behavior rather than reviewer-policy automation."
     }
   },
   "reviewers": {
