@@ -1,14 +1,14 @@
 {
   "classification": {
-    "base_sha": "50423c27f1dc6a6ef765f20e504c47f561d948f9",
-    "head_sha": "45c73b6bfec31f52b635fc157993059d28b1985d",
-    "input_fingerprint": "122f6cdecdf1c78a97c524b16d4d59f1f87c5d42aa04c6a65f291f7d56656ab2",
+    "base_sha": "abb6688b4b5419664e7bf13c2d9107bd7acafd89",
+    "head_sha": "67f28cb0995d5e9d96020c9d9051a70e5a15a6d7",
+    "input_fingerprint": "fa94e77d76d699f73a9043296708d0f5aeada33f659bcf0a6085d64765d648fe",
     "pr_number": 195,
     "proposal": {
       "modules": [
         "workflow"
       ],
-      "reason": "Main functional change is to contribution/review automation: .github/scripts/review_automation.py adds module-command handling, role-aware requirements, invitation lifecycle and summary updates; .github/scripts/maintainer_approval.py enforces Reviewer+Maintainer gate logic; .github/scripts/commit_message_squash.py ties preview publish/removal to review-gate state; and .github/workflows/{review-module,maintainer-approval,commit-message}.yml rewires trusted triggers and dispatch flow. These are workflow policy/process changes, not runtime/CI system behavior changes."
+      "reason": "Substantive changes are in GitHub review/merge automation: review_automation.py and maintainer_approval.py now enforce module Reviewer+Maintainer requirements with command-driven overrides, new review-command/review-module/review-gate/review-squash-preview workflows rewire routing and gate triggers, and commit_message_squash.py ties squash preview publication/removal to gate state. Other edits (skill text/modules roster/docs/renames) support this same review-policy workflow change rather than independent module behavior."
     }
   },
   "reviewers": {
