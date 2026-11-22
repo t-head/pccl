@@ -1,14 +1,14 @@
 {
   "classification": {
     "base_sha": "abb6688b4b5419664e7bf13c2d9107bd7acafd89",
-    "head_sha": "a2239fe0aa8d3ef42347d4bcb91a8808998296e8",
-    "input_fingerprint": "4196871a6d8d31031af9fc8110d278eb887346d14395071c69fd2e0ded489b6d",
+    "head_sha": "aa4b4e1479111db2ff63e449e024ddff58c85d13",
+    "input_fingerprint": "ea3376073c64cf4e46386675bdb3798e7ee52ccf6104306922d738b0ea04fb0d",
     "pr_number": 220,
     "proposal": {
       "modules": [
         "ci"
       ],
-      "reason": "Main change is a substantial overhaul of open-source test workflows: dual-platform (M890P/810E) CI/daily execution, case generation/grouping, runner resource allocation and device mapping, SDK install path, reconciliation/reporting artifacts, and associated xtest workflow-contract coverage. No separate contribution/reviewer-policy automation change is present, so workflow is not independently required."
+      "reason": "The substantive change is a dual-platform CI/test-workflow overhaul: new and renamed GitHub Actions workflows, xtest case generation/grouping/execution/reconciliation/reporting logic, SDK install/masking, platform-specific resource allocation/device mapping, and expanded CI test data (including files with omitted patches) for PR/daily validation. No production PCCL runtime modules are modified."
     }
   },
   "reviewers": {
