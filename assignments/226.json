@@ -1,15 +1,14 @@
 {
   "classification": {
-    "base_sha": "8d1fff80b4f1c7c625f22ce835db16961fa9281f",
-    "head_sha": "5e80dd71d55fdec286c21d0c7d1f914d326b6604",
-    "input_fingerprint": "47c494e61f4a19bf421b9137f709eba06b24c3a86b3ac5684659e69341c36a0a",
+    "base_sha": "abb6688b4b5419664e7bf13c2d9107bd7acafd89",
+    "head_sha": "97ac443dedee2fc161e9bf143e851cfa8cd54d67",
+    "input_fingerprint": "b4acc13a66f79788c5a51a5648b36ad358a298cb1d1e8f71c3511bfd64c195c2",
     "pr_number": 226,
     "proposal": {
       "modules": [
-        "dispatch",
         "kernel-plugin"
       ],
-      "reason": "Main change is a new extension-kernel AllReduce strategy (OneShotPush): new plugin-provided kernel, strategy/index wiring, workspace regions, topology-gated default selection, and plugin ABI/lifecycle integration across ext-kernel and loader paths. Dispatch is also substantive because Push block limits and launch sizing now depend on CU availability and dispatch masks (one-block-per-usable-CU policy), which changes CU/CE hardware launch behavior."
+      "reason": "Adds OneShotPush as a new ext-kernel AllReduce plugin strategy, including plugin kernel implementation/registration, function-index dispatch updates, topology-gated default selection thresholds, and new plugin workspace/launch-region handling (push buffer and phase state)."
     }
   },
   "reviewers": {
