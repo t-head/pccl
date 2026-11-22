@@ -66,17 +66,16 @@ results permissions are not narrowed by this repair.
 
 ## Commit message previews
 
-Multi-commit PRs targeting `main` receive a proposed squash commit body, including
-issue references and signing trailers but no title. Publishing a fresh preview
-places it at the end of the conversation and removes older previews. Paste the
-body into the description field in GitHub's **Squash and merge** dialog and review
-the GitHub-filled title separately.
+Multi-commit PRs targeting `main`, including forks, receive a squash body preview
+when `PCCL Review Gate` passes for the current HEAD. Paste it into the **Squash and merge**
+description and check the title separately.
 
-For fork PRs, a Maintainer runs `PCCL Commit Message Preview` from `main` with `pr_number`.
+Check the commit printed on the preview before using it. An earlier preview stays
+visible while a replacement is generated. A red gate removes the old preview.
 
 | File | Purpose |
 | --- | --- |
-| [commit-message.yml](workflows/commit-message.yml) | Run `PCCL Commit Message Preview` independently of CI. |
+| [review-squash-preview.yml](workflows/review-squash-preview.yml) | Run `PCCL Commit Message Preview` independently of CI. |
 | [commit_message_squash.py](scripts/commit_message_squash.py) | Generate and publish the message and remove older previews. |
 | [Squash message Skill](../.agents/skills/pccl-squash-message/SKILL.md) | Define how to summarize changes and preserve references and signing trailers. |
 | [install_copilot.sh](scripts/install_copilot.sh) | Install Copilot CLI for message generation and module classification. |

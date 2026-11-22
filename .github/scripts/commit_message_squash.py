@@ -1,8 +1,6 @@
 """Generate and publish a squash commit body for a multi-commit PR."""
 
 import argparse
-import hashlib
-import html
 import json
 import os
 from pathlib import Path
@@ -11,13 +9,10 @@ import subprocess
 import tempfile
 
 from copilot_cli import final_response
+from maintainer_approval import CHECK, event_pr_number
 
 COMMENT_MARKER = '<!-- pccl-squash-message -->'
 SKILL = Path(__file__).resolve().parents[2] / '.agents/skills/pccl-squash-message/SKILL.md'
-
-
-def digest(value):
-    return hashlib.sha256(json.dumps(value, sort_keys=True, ensure_ascii=False).encode()).hexdigest()
 
 
 # GitHub access and input snapshot
@@ -45,17 +40,17 @@ class GitHub:
         return json.loads(output) if output.strip() else None
 
 
-def snapshot(api, number):
-    """Bind the message to all PR inputs that can affect its content."""
+def snapshot(api, number, *, automatic=False):
     if type(number) is not int or number <= 0:
         raise ValueError('PR number must be a positive integer')
     pr = api.request(f'/repos/{api.repository}/pulls/{number}')
-    if pr['state'] != 'open' or pr['draft'] or pr['base']['repo']['full_name'] != api.repository:
+    if pr['base']['repo']['full_name'] != api.repository:
+        raise ValueError('Expected a PR in this repository')
+    if pr['state'] != 'open' or pr['draft']:
+        if automatic:
+            return None
         raise ValueError('Expected an open, non-draft PR in this repository')
-    version = [api.repository, number, pr['title'], pr['body'], pr['commits'],
-               pr['changed_files'], pr['head']['sha'], pr['base']['sha'], pr['base']['ref']]
-    return {'repository': api.repository, 'number': number, 'input_digest': digest(version),
-            'head': pr['head']['sha'],
+    return {'repository': api.repository, 'number': number, 'head': pr['head']['sha'],
             'base': pr['base']['sha'], 'target': pr['base']['ref'], 'file_count': pr['changed_files'],
             'commit_count': pr['commits']}
 
@@ -73,6 +68,7 @@ def copilot_response(output):
 
 def ask_copilot(data):
     """Run the skill once, with only read-only GitHub tools available."""
+    subprocess.run(['bash', str(Path(__file__).with_name('install_copilot.sh'))], check=True, timeout=300)
     prompt = SKILL.read_text() + '\n\nExpected PR snapshot:\n' + json.dumps(data)
     with tempfile.TemporaryDirectory(prefix='pccl-squash-') as directory:
         result = subprocess.run([
@@ -93,14 +89,9 @@ def ask_copilot(data):
         return copilot_response(result.stdout)
 
 
-# Prepare a draft; publishing checks that its input version is still current.
-
-def generate(api, number, ask=ask_copilot):
-    data = snapshot(api, number)
-    message = None
-    if data['target'] == 'main' and data['commit_count'] > 1:
-        message = ask(data)
-    return {**data, 'message': message}
+def review_gate_status(api, data):
+    pages = api.request(f"/repos/{api.repository}/commits/{data['head']}/status?per_page=100", paginate=True)
+    return next((status for page in pages for status in page['statuses'] if status['context'] == CHECK), {})
 
 
 # Conversation preview and old-preview cleanup
@@ -112,47 +103,62 @@ def preview_comments(api, number):
             and item.get('body', '').replace('\r\n', '\n').startswith(COMMENT_MARKER + '\n')]
 
 
-def comment_body(draft):
-    return (f"{COMMENT_MARKER}\n<!-- version: {draft['input_digest']} -->\n"
+def comment_body(data, message):
+    longest = max((len(run) for run in re.findall(r'`+', message)), default=0)
+    fence = '`' * max(3, longest + 1)
+    return (f"{COMMENT_MARKER}\n"
             '### Suggested squash commit body\n\n'
-            f"For commit `{draft['head'][:12]}`.\n\n"
-            f"<pre>{html.escape(draft['message'])}</pre>\n\n"
+            f"For commit `{data['head'][:12]}`.\n\n"
             "Paste this body into the description field in GitHub's Squash and merge dialog. "
-            "Review the GitHub-filled title separately.\n")
+            "Review the GitHub-filled title separately.\n\n"
+            f"{fence}text\n{message.rstrip()}\n{fence}\n")
 
 
-def publish(api, draft, expected_pr):
-    comments = preview_comments(api, expected_pr)
-    data = snapshot(api, expected_pr)
-    if any(draft.get(key) != value for key, value in data.items()):
-        raise ValueError('PR inputs changed; generate a fresh draft')
-    published = None
-    if data['target'] == 'main' and data['commit_count'] > 1:
-        # Always publish at the conversation end before removing old previews.
-        published = api.request(f'/repos/{api.repository}/issues/{expected_pr}/comments',
-                                'POST', {'body': comment_body(draft)})
+def refresh(api, number, ask=ask_copilot, *, automatic=False, cleanup_only=False):
+    data = snapshot(api, number, automatic=automatic)
+    if data is None or data['target'] != 'main':
+        return None
+    status = review_gate_status(api, data)
+    if cleanup_only and status.get('target_url') != (
+            f"https://github.com/{api.repository}/actions/runs/{os.environ['GITHUB_RUN_ID']}"):
+        return None
+    gate_state = status.get('state')
+    if gate_state in {'error', 'failure'}:
+        for comment in preview_comments(api, number):
+            api.request(f"/repos/{api.repository}/issues/comments/{comment['id']}", 'DELETE')
+        return None
+    if cleanup_only or data['commit_count'] <= 1 or gate_state != 'success':
+        return None
+    comments = preview_comments(api, number)
+    message = ask(data)
+    body = comment_body(data, message)
+    if len(body.encode('utf-8')) > 65535:
+        raise ValueError('Squash body exceeds the comment size limit')
+    published = api.request(f'/repos/{api.repository}/issues/{number}/comments',
+                            'POST', {'body': body})
+    # Preserve old previews if publishing their replacement fails.
     for comment in comments:
         api.request(f"/repos/{api.repository}/issues/comments/{comment['id']}", 'DELETE')
-    return published['html_url'] if published else None
+    return published['html_url']
 
 
 # Command-line entry point
 
 def main():
     parser = argparse.ArgumentParser(description=__doc__)
-    mode = parser.add_mutually_exclusive_group(required=True)
-    mode.add_argument('--pr', type=int)
-    mode.add_argument('--publish', action='store_true')
-    parser.add_argument('--expected-pr', type=int)
+    parser.add_argument('--pr', type=int, default=os.environ.get('PR_NUMBER') or None)
+    parser.add_argument('--cleanup-only', action='store_true')
     parser.add_argument('--repository', default=os.environ.get('GITHUB_REPOSITORY', 't-head/pccl'))
     args = parser.parse_args()
     api = GitHub(args.repository, os.environ.get('GITHUB_TOKEN', ''))
-    if args.publish:
-        url = publish(api, json.loads(os.environ['SQUASH_DRAFT']), args.expected_pr)
-        print('Published squash message: ' + url if url else
-              'No commit message preview needed; any previous preview was removed.')
-    else:
-        print(json.dumps(generate(api, args.pr), ensure_ascii=True))
+    number = args.pr
+    if number is None:
+        run = json.loads(Path(os.environ['GITHUB_EVENT_PATH']).read_text())['workflow_run']
+        number = event_pr_number(run, api.repository,
+                                 {'.github/workflows/maintainer-approval.yml': {'workflow_run', 'workflow_dispatch'}})
+    url = refresh(api, number, automatic=args.cleanup_only or os.environ.get('GITHUB_EVENT_NAME') == 'workflow_run',
+                  cleanup_only=args.cleanup_only)
+    print('Published squash message: ' + url if url else 'No squash preview published.')
 
 
 if __name__ == '__main__':
