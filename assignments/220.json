@@ -1,14 +1,14 @@
 {
   "classification": {
     "base_sha": "abb6688b4b5419664e7bf13c2d9107bd7acafd89",
-    "head_sha": "aa4b4e1479111db2ff63e449e024ddff58c85d13",
-    "input_fingerprint": "ea3376073c64cf4e46386675bdb3798e7ee52ccf6104306922d738b0ea04fb0d",
+    "head_sha": "11170b8bd2c95488a73f8a6a5bcbef2a2436613d",
+    "input_fingerprint": "43cefc1219c2eff73facb15bde917b4e69fcd6743fd8d8252844d35d3cc5373f",
     "pr_number": 220,
     "proposal": {
       "modules": [
         "ci"
       ],
-      "reason": "The substantive change is a dual-platform CI/test-workflow overhaul: new and renamed GitHub Actions workflows, xtest case generation/grouping/execution/reconciliation/reporting logic, SDK install/masking, platform-specific resource allocation/device mapping, and expanded CI test data (including files with omitted patches) for PR/daily validation. No production PCCL runtime modules are modified."
+      "reason": "Main substantive change is a CI workflow/test-harness overhaul: dual-platform (M890P+810E) case generation and grouping, runner allocation/device mapping, HPN SDK install handling, result reconciliation/report metadata, and expanded CI validation suites. Build-script and docs edits support this CI behavior rather than changing PCCL runtime modules or review-policy automation."
     }
   },
   "reviewers": {
