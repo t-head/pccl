@@ -1,14 +1,14 @@
 {
   "classification": {
     "base_sha": "abb6688b4b5419664e7bf13c2d9107bd7acafd89",
-    "head_sha": "d23a5c3f13c782eab92a748200fb0f305316aa2a",
-    "input_fingerprint": "f876eab6225502a43c86d27b893931992dd6b5b5e6f01101ab61f70af9b85151",
+    "head_sha": "a2239fe0aa8d3ef42347d4bcb91a8808998296e8",
+    "input_fingerprint": "4196871a6d8d31031af9fc8110d278eb887346d14395071c69fd2e0ded489b6d",
     "pr_number": 220,
     "proposal": {
       "modules": [
         "ci"
       ],
-      "reason": "Main change is a substantial overhaul of open-source test workflows and execution tooling: dual-platform (M890P/810E) CI/daily matrices, case generation/grouping, runner allocation/device mapping, SDK installation, reconciliation/reporting, and related CI test assets. Renames/docs/scripts/build-step edits are supporting this same CI behavior rather than separate module policy or core runtime changes."
+      "reason": "Main change is a substantial overhaul of open-source test workflows: dual-platform (M890P/810E) CI/daily execution, case generation/grouping, runner resource allocation and device mapping, SDK install path, reconciliation/reporting artifacts, and associated xtest workflow-contract coverage. No separate contribution/reviewer-policy automation change is present, so workflow is not independently required."
     }
   },
   "reviewers": {
