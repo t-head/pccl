@@ -777,8 +777,9 @@ void ncclTopoFree(struct ncclTopoSystem* system) {
 
 PCCL_PARAM(P2pNChannelsFactorNPaths, "P2P_NCHANNELS_FACTOR_NPATHS", 0);
 
-static ncclResult_t ncclTopoGetNchannels(struct ncclTopoSystem* system, int g /*local gpu index*/, int peerRank, int* nChannels) {
+static ncclResult_t ncclTopoGetNchannels(ncclComm_t comm, int g /*local gpu index*/, int peerRank, int* nChannels) {
   int peer;
+  struct ncclTopoSystem* system = comm->topo;
   struct ncclTopoLinkList* path = NULL;
   if (ncclTopoRankToIndex(system, peerRank, &peer) == ncclSuccess) {
     // Same rank
@@ -800,7 +801,9 @@ static ncclResult_t ncclTopoGetNchannels(struct ncclTopoSystem* system, int g /*
     }
   } else {
     // Remote rank, use network
-    *nChannels = 1;
+    int nNetChannels = comm->config.nChannelsPerNetPeer;
+    if (nNetChannels == PCCL_CONFIG_UNDEF_INT) nNetChannels = 1;
+    *nChannels = nNetChannels;
   }
   return ncclSuccess;
 }
@@ -816,14 +819,25 @@ ncclResult_t ncclTopoComputeP2pChannelsPerPeer(ncclComm_t comm) {
   int minChannels = MAXCHANNELS;
   for (int r = 0; r < comm->nRanks; r++) {
     int nChannels;
-    NCCLCHECK(ncclTopoGetNchannels(comm->topo, g, r, &nChannels));
+    NCCLCHECK(ncclTopoGetNchannels(comm, g, r, &nChannels));
     if (nChannels >= 0) minChannels = std::min(minChannels, nChannels);
   }
   comm->p2pnChannelsPerPeer = minChannels;
+  comm->p2pMaxPeers = comm->config.maxP2pPeers == PCCL_CONFIG_UNDEF_INT ? 0 : comm->config.maxP2pPeers;
+  if (comm->p2pMaxPeers > comm->nRanks) {
+    INFO(NCCL_INIT, "Max P2P peers %d exceeds communicator size %d, capping it", comm->p2pMaxPeers, comm->nRanks);
+    comm->p2pMaxPeers = comm->nRanks;
+  }
   return ncclSuccess;
 }
 
 ncclResult_t ncclTopoComputeP2pChannels(ncclComm_t comm) {
+  const size_t workArgsBytes = std::min<size_t>(ncclParamWorkArgsBytes(), ncclMaxKernelArgsSize());
+  if (workArgsBytes < sizeof(struct ncclDevKernelArgs) + sizeof(struct ncclDevWorkBatch)) {
+    ERROR("Kernel argument budget of %zu bytes cannot hold the %zu-byte header and one %zu-byte batch descriptor",
+          workArgsBytes, sizeof(struct ncclDevKernelArgs), sizeof(struct ncclDevWorkBatch));
+    return ncclInvalidUsage;
+  }
   int maxP2pChannels = ncclParamMaxP2pNChannels();
   if (maxP2pChannels == -2) {
     // TODO: Evaluate a common default P2P channel limit for direct and switched ICN links.
@@ -838,17 +852,35 @@ ncclResult_t ncclTopoComputeP2pChannels(ncclComm_t comm) {
 
   comm->p2pnChannels = nextPow2(comm->p2pnChannels);
   comm->p2pnChannelsPerPeer = nextPow2(comm->p2pnChannelsPerPeer);
-  comm->p2pnChannelsPerPeer = std::max(prePow2(comm->p2pnChannels / comm->nRanks), comm->p2pnChannelsPerPeer);
+  const bool explicitChannels = comm->nNodes > 1 && comm->config.nChannelsPerNetPeer != PCCL_CONFIG_UNDEF_INT;
+  if (!explicitChannels) {
+    comm->p2pnChannelsPerPeer = std::max(prePow2(comm->p2pnChannels / comm->nRanks), comm->p2pnChannelsPerPeer);
+  }
   if (pcclEnableGlobalIcnP2pThroughSwitchOpt(comm)) {
     // default to use max channels(24) for 2/4/8 ranks, 16(power of 2) channels for greater nRanks
     comm->p2pnChannels = (MAXCHANNELS_PPU0015 % comm->nRanks == 0) ? MAXCHANNELS_PPU0015 : prePow2(MAXCHANNELS_PPU0015);
     comm->p2pnChannels = std::min(comm->p2pnChannels, maxP2pChannels);
     comm->p2pnChannels = std::max(comm->p2pnChannels, (int)ncclParamMinP2pNChannels());
-    comm->p2pnChannelsPerPeer = comm->p2pnChannels;
+    if (!explicitChannels) comm->p2pnChannelsPerPeer = comm->p2pnChannels;
   }
   comm->p2pnChannels = std::min(comm->p2pnChannels, pow2Down(ncclDevMaxChannelsForArgsBytes(ncclParamWorkArgsBytes())));
+  if (comm->nNodes > 1 && !explicitChannels && comm->p2pMaxPeers > 0) {
+    INFO(NCCL_INIT, "Tuning P2P operations with maxP2pPeers = %d", comm->p2pMaxPeers);
+    while (comm->p2pnChannelsPerPeer * divUp(comm->p2pMaxPeers, NCCL_MAX_DEV_WORK_P2P_PER_BATCH) > comm->p2pnChannels && comm->p2pnChannelsPerPeer > 1) {
+      comm->p2pnChannelsPerPeer /= 2;
+    }
+  } else if (explicitChannels) {
+    comm->p2pnChannelsPerPeer = std::min(comm->p2pnChannelsPerPeer, comm->p2pnChannels);
+  }
   if (pcclParamP2pNChannelsPerPeer() > 0) {
     comm->p2pnChannelsPerPeer = pcclParamP2pNChannelsPerPeer();
+  }
+  const int maxChannelsForArgs = ncclDevMaxChannelsForArgsBytes(workArgsBytes);
+  if (comm->p2pnChannelsPerPeer > maxChannelsForArgs) {
+    const int cappedChannels = pow2Down(maxChannelsForArgs);
+    INFO(NCCL_INIT, "P2P channels per peer %d exceed the %zu-byte kernel argument budget, capping to %d",
+         comm->p2pnChannelsPerPeer, workArgsBytes, cappedChannels);
+    comm->p2pnChannelsPerPeer = cappedChannels;
   }
 
   // Init channels that weren't used so far

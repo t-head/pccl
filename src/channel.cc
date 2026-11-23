@@ -52,7 +52,7 @@ ncclResult_t initChannel(ncclComm_t comm, int channelId) {
     }
   }
 
-  NCCLCHECK(ncclStrongStreamAcquireUncaptured(&comm->sharedRes->deviceStream));
+  NCCLCHECK(ncclStrongStreamAcquireUncaptured(&comm->sharedRes->deviceStream, comm->config.graphUsageMode));
 
   // Ring index to user rank table.
   NCCLCHECK(ncclHggcCallocAsync(&channel->ring.devUserRanks, comm->nRanks, &(comm->devMemUsed), comm->sharedRes->deviceStream.hggcStream, comm->memManager, ncclMemOffload));
@@ -75,7 +75,7 @@ ncclResult_t initChannel(ncclComm_t comm, int channelId) {
 
   /* guarantee addr has been copied into channel->devPeers */
   NCCLCHECK(ncclStrongStreamSynchronize(&comm->sharedRes->deviceStream));
-  NCCLCHECK(ncclStrongStreamRelease(ncclCudaGraphNone(), &comm->sharedRes->deviceStream));
+  NCCLCHECK(ncclStrongStreamRelease(ncclCudaGraphNone(comm->config.graphUsageMode), &comm->sharedRes->deviceStream));
   return ncclSuccess;
 }
 

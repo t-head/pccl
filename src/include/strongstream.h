@@ -20,12 +20,14 @@
 struct ncclCudaGraph {
   hggcGraph_t graph;
   unsigned long long graphId;
+  int graphUsageMode;
 };
 
-inline struct ncclCudaGraph ncclCudaGraphNone() {
+inline struct ncclCudaGraph ncclCudaGraphNone(int graphUsageMode) {
   struct ncclCudaGraph tmp;
   tmp.graph = nullptr;
   tmp.graphId = ULLONG_MAX;
+  tmp.graphUsageMode = graphUsageMode;
   return tmp;
 }
 
@@ -37,7 +39,7 @@ inline bool ncclCudaGraphSame(struct ncclCudaGraph a, struct ncclCudaGraph b) {
   return a.graphId == b.graphId;
 }
 
-ncclResult_t ncclCudaGetCapturingGraph(struct ncclCudaGraph* graph, hggcStream_t stream);
+ncclResult_t ncclCudaGetCapturingGraph(struct ncclCudaGraph* graph, hggcStream_t stream, int graphUsageMode);
 ncclResult_t ncclCudaGraphAddDestructor(struct ncclCudaGraph graph, hggcHostFn_t fn, void* arg);
 
 /* ncclStrongStream: An abstraction over CUDA streams that do not lose their
@@ -70,8 +72,8 @@ ncclResult_t ncclStrongStreamAcquire(
 // Acquire-fence the strong stream assuming no graph is capturing. This permits
 // the caller to enqueue directly to the `ss->hggcStream` member using native CUDA
 // calls. Strong stream still must be released via:
-//   ncclStrongStreamRelease(ncclCudaGraphNone(), ss);
-ncclResult_t ncclStrongStreamAcquireUncaptured(struct ncclStrongStream* ss);
+//   ncclStrongStreamRelease(ncclCudaGraphNone(graphUsageMode), ss);
+ncclResult_t ncclStrongStreamAcquireUncaptured(struct ncclStrongStream* ss, int graphUsageMode);
 
 // Release-fence of the strong stream.
 ncclResult_t ncclStrongStreamRelease(struct ncclCudaGraph graph, struct ncclStrongStream* ss);
