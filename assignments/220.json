@@ -1,14 +1,14 @@
 {
   "classification": {
-    "base_sha": "abb6688b4b5419664e7bf13c2d9107bd7acafd89",
-    "head_sha": "9a5cb462adf8e3737ff4246ac12eb1ee0c42c8f8",
-    "input_fingerprint": "a7a7fbaacc00cbf0e6fcbc429fb2ca787e35007df0212f8714c82bbb50f7d382",
+    "base_sha": "4a9b207f6c06878cfc9d4344366e9ebc790775e9",
+    "head_sha": "ad45792a06d00db54996e975612bab39c738ef66",
+    "input_fingerprint": "e8e3c09a16a0375e2578f30301f1164b32ee928aa3e9fab3724f7d691325db35",
     "pr_number": 220,
     "proposal": {
       "modules": [
         "ci"
       ],
-      "reason": "Main substantive change is a broad redesign of open-source test workflows and xtest tooling: dual-platform (M890P/810E) case generation/grouping/execution, per-worker device mapping, HPN SDK selection/installation validation, result reconciliation/artifact handling, and associated CI test coverage. Workflow/docs edits here support CI execution behavior rather than reviewer-policy automation."
+      "reason": "The substantive change is a broad rewrite of open-source test workflow behavior: dual-platform (M890P/810E) case generation/grouping, runner allocation/device mapping, SDK install/validation handoff, reconciliation/reporting/artifact handling, and corresponding xtest tooling and fixtures. Workflow-file renames/docs edits and large patch-omitted test-list JSONs are part of this same CI execution/reporting surface rather than separate module policy or product-runtime ownership."
     }
   },
   "reviewers": {
