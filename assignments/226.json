@@ -1,14 +1,14 @@
 {
   "classification": {
-    "base_sha": "abb6688b4b5419664e7bf13c2d9107bd7acafd89",
-    "head_sha": "97ac443dedee2fc161e9bf143e851cfa8cd54d67",
-    "input_fingerprint": "aae9894fb188c6bfb7e712012c9e32ab6350ff06c165643431740bd6d9156640",
+    "base_sha": "4a9b207f6c06878cfc9d4344366e9ebc790775e9",
+    "head_sha": "bd9fa31f4ec1672e62eedb38815efc897db6633a",
+    "input_fingerprint": "43b0880e89bb051a07361f67b60f329ab8e1002ba0eace9ccdb55b83759ae236",
     "pr_number": 226,
     "proposal": {
       "modules": [
         "kernel-plugin"
       ],
-      "reason": "Adds a new ext-kernel OneShotPush AllReduce implementation and wires it through plugin strategy selection, function indexing/dispatch, workspace region layout (push buffer/phase), launch configuration, and topology-gated default limits; these are extension-kernel plugin behavior changes rather than core built-in kernels or CI/workflow edits."
+      "reason": "Adds a new extension-kernel AllReduce strategy (OneShotPush) for M890P SHM, including plugin kernel implementation, strategy/index dispatch wiring, eligibility/default-selection logic, and plugin workspace/phase-buffer lifecycle management for execution."
     }
   },
   "reviewers": {
