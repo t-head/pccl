@@ -1,0 +1,17 @@
+{
+  "classification": {
+    "base_sha": "77af125652fd1ffc532bf519022f709b9df510fd",
+    "head_sha": "39876554063c0ed87727db04cd942a6370a783f1",
+    "input_fingerprint": "0e48f974ceaa96508877c8fcb32a7500241144358f3b01d6bb34d5ae0a042920",
+    "pr_number": 156,
+    "proposal": {
+      "modules": [
+        "kernels"
+      ],
+      "reason": "The only substantive change is inside the device-side general SendRecv kernel (`src/collectives/device/sendrecv.h`), replacing per-thread segment walking with warp-level ballot/popcount work-index computation while preserving existing protocol/chunk/barrier behavior. This is kernel execution-path logic, not host-side scheduling, transport, or API policy."
+    }
+  },
+  "reviewers": {
+    "kernels": 340404662
+  }
+}
