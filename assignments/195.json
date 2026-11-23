@@ -1,14 +1,14 @@
 {
   "classification": {
-    "base_sha": "abb6688b4b5419664e7bf13c2d9107bd7acafd89",
-    "head_sha": "67f28cb0995d5e9d96020c9d9051a70e5a15a6d7",
-    "input_fingerprint": "fa94e77d76d699f73a9043296708d0f5aeada33f659bcf0a6085d64765d648fe",
+    "base_sha": "4a9b207f6c06878cfc9d4344366e9ebc790775e9",
+    "head_sha": "c6d325f48baf6559241239ba51cc71f4b257bd70",
+    "input_fingerprint": "ef25d445e280d0cff09b91356499cd48944ae300fc6b5b39ae626eae9fe5a014",
     "pr_number": 195,
     "proposal": {
       "modules": [
         "workflow"
       ],
-      "reason": "Main change is review/merge automation policy: review_automation.py and maintainer_approval.py add module-role requirements, writer /review-module commands, invitation sync, and gate logic; new/renamed workflows (review-routing/review-module/review-command/review-gate/review-squash-preview) rewire routing, approval refresh, and squash preview publication. Other edits are supporting docs/catalog updates for this same workflow system."
+      "reason": "Main change is review/merge automation policy: .github/scripts/review_automation.py and maintainer_approval.py now enforce module-based Reviewer+Maintainer requirements, /review-module commands, invitation syncing, and gate state handling, while new review-gate/review-module/review-command/review-squash-preview workflows rewire routing and squash-preview behavior under the review workflow system."
     }
   },
   "reviewers": {
