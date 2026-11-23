@@ -345,13 +345,33 @@ def _recover_result(results_root, group_id, key):
 
 
 def collect_report(selection_path, groups_path, coverage_path, results_root, metadata,
-                   reconciliation_root):
+                   reconciliation_root, platform=None):
     manifest = _load_selection(selection_path)
     groups = json.loads(Path(groups_path).read_text(encoding="utf-8"))
+    coverage = json.loads(Path(coverage_path).read_text(encoding="utf-8"))
+    if platform is not None:
+        if platform not in platform_cases.load_platforms():
+            raise ValueError(f"Unsupported report platform: {platform}")
+        manifest = {**manifest, "cases": [case for case in manifest["cases"]
+                                         if platform_cases.case_platform(case) == platform]}
+        groups = [group for group in groups if group.get("platform", "m890p") == platform]
+        exclusions = []
+        for record in coverage.get("exclusions", []):
+            keys = record.get("case_keys", [])
+            record_platform = record.get("platform") or (
+                platform_cases.case_platform(keys[0]) if keys else "m890p")
+            if record_platform == platform:
+                exclusions.append(record)
+        selected_count = sum(len(group["case_keys"]) for group in groups)
+        excluded_count = sum(record["case_count"] for record in exclusions)
+        coverage = {**coverage, "total_cases": selected_count + excluded_count,
+                    "selected_cases": selected_count, "excluded_cases": excluded_count,
+                    "exclusions": exclusions}
     group_platforms = {group["id"]: group.get("platform", "m890p") for group in groups}
     metadata = dict(metadata)
-    metadata["platforms"] = ",".join(sorted(set(group_platforms.values())))
-    coverage = json.loads(Path(coverage_path).read_text(encoding="utf-8"))
+    metadata["platforms"] = platform or ",".join(sorted(set(group_platforms.values())))
+    if platform is not None:
+        metadata["platform"] = platform
     results_root = Path(results_root)
     selected = {}
     for group in groups:
@@ -588,7 +608,8 @@ def write_workbook(report, output):
         ws.set_column("A:A", 26)
         ws.set_column("B:H", 16)
         ws.set_column("I:J", 18)
-        ws.merge_range("A1:J1", "PCCL daily 性能报告", title)
+        platform_label = {"m890p": "M890P", "oam810e_eic": "810E"}.get(metadata.get("platform"), "")
+        ws.merge_range("A1:J1", f"PCCL {platform_label + ' ' if platform_label else ''}daily 性能报告", title)
         ws.merge_range("A2:J2",
                        f"运行 {metadata.get('run_id', '')}；执行状态与性能数据完整性分开统计；未提供性能基线。",
                        subtitle)
@@ -769,6 +790,8 @@ def main():
     report.add_argument("--runner-revision", required=True)
     report.add_argument("--image", default="")
     report.add_argument("--hpn-sdk-url", default="")
+    report.add_argument("--platform", choices=sorted(platform_cases.load_platforms()),
+                        help="Only include this platform's performance, execution and coverage data")
     args = parser.parse_args()
     if args.command == "selection":
         manifest = write_selection(args.input, args.profile, args.output)
@@ -781,7 +804,7 @@ def main():
         "generated_at": datetime.now(ZoneInfo("Asia/Shanghai")).isoformat(timespec="seconds"),
     }
     report_value = collect_report(args.selection, args.groups, args.coverage, args.results_root,
-                                  metadata, args.reconciliation_root)
+                                  metadata, args.reconciliation_root, platform=args.platform)
     write_workbook(report_value, args.output)
     print(json.dumps(report_value["summary"], ensure_ascii=False, sort_keys=True))
     return 0

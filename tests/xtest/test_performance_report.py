@@ -4,7 +4,10 @@
 import csv
 import importlib.util
 import json
+import os
 from pathlib import Path
+import re
+import subprocess
 import sys
 import tempfile
 import unittest
@@ -94,10 +97,128 @@ class PerformanceReportTests(unittest.TestCase):
     def tearDown(self):
         self.temporary.cleanup()
 
-    def collect(self):
+    def collect(self, platform=None):
         return performance_report.collect_report(
             self.selection, self.groups, self.coverage, self.results,
-            {"run_id": "123", "dataset": "full"}, self.reconciliation)
+            {"run_id": "123", "dataset": "full"}, self.reconciliation, platform=platform)
+
+    def add_810e_results(self):
+        case = make_case("test_op_all_reduce_perf_ranks_2_nnodes1_810e",
+                         "op_perf_810e_single_node_suite")
+        case["plan"] = "pccl_810e_plan"
+        excluded = {**case, "name": "test_op_all_reduce_perf_ranks_32_nnodes2_810e", "nodes": 2}
+        correctness = {"plan": case["plan"], "suite": "correctness_810e_suite", "name": "function"}
+        cases = self.cases + [case, excluded]
+        self.selection.write_text(json.dumps({"schema_version": 1, "profile": "standard", "cases": cases}))
+        groups = json.loads(self.groups.read_text())
+        groups[0]["platform"] = "m890p"
+        groups.append({"id": "g002", "platform": "oam810e_eic",
+                       "case_keys": [list(performance_report._key(c)) for c in (case, correctness)]})
+        self.groups.write_text(json.dumps(groups))
+        self.coverage.write_text(json.dumps({
+            "total_cases": 6, "selected_cases": 4, "excluded_cases": 2, "allowed_nodes": [1, 2],
+            "exclusions": [{"platform": platform, "case_count": 1,
+                            "case_keys": [list(performance_report._key(c))]}
+                           for platform, c in (("m890p", self.case3), ("oam810e_eic", excluded))]}))
+        rows = []
+        for c, status in ((case, "PASSED"), (correctness, "FAILED")):
+            directory = self.results / "g002" / Path(*performance_report._key(c))
+            directory.mkdir(parents=True)
+            row = {**c, "check": "exit_code", "status": status, "return_code": 0 if status == "PASSED" else 1,
+                   "duration_seconds": 1, "error": "" if status == "PASSED" else "Command exited with status 1",
+                   "raw_log": "raw.log"}
+            row = {field: row[field] for field in run_cases.RESULT_FIELDS}
+            (directory / "raw.log").write_text(performance_log())
+            (directory / "result.json").write_text(json.dumps(row))
+            rows.append(row)
+        with (self.results / "g002/results.csv").open("w", newline="") as stream:
+            writer = csv.DictWriter(stream, fieldnames=run_cases.RESULT_FIELDS, lineterminator="\n")
+            writer.writeheader()
+            writer.writerows(rows)
+        (self.results / "g002/build.json").write_text(json.dumps({"artifact_sha256": "6" * 64}))
+        (self.reconciliation / "g002").mkdir()
+        (self.reconciliation / "g002/reconciliation.json").write_text(json.dumps({
+            "ok": False, "errors": ["/".join(performance_report._key(correctness)) + ": FAILED: command failed"]}))
+        return case, excluded
+
+    def test_platform_reports_have_independent_metrics_and_execution_totals(self):
+        self.add_810e_results()
+        for platform, expected_counts in (("m890p", {"FAILED": 1, "PASSED": 1}),
+                                          ("oam810e_eic", {"FAILED": 1, "PASSED": 1})):
+            with self.subTest(platform=platform):
+                report = self.collect(platform)
+                self.assertEqual(report["metadata"]["platform"], platform)
+                self.assertEqual(report["metadata"]["platforms"], platform)
+                self.assertTrue(all(row["platform"] == platform for row in report["coverage"] + report["metrics"]))
+                self.assertEqual(report["summary"]["execution"], {
+                    "total_cases": 3, "selected_cases": 2, "excluded_cases": 1,
+                    "result_counts": expected_counts, "selected_result_count": 2, "missing_selected_results": 0})
+                self.assertEqual(report["summary"]["performance_cases"], 3 if platform == "m890p" else 2)
+                self.assertEqual(report["summary"]["metric_rows"], 64)
+                self.assertEqual(report["summary"]["performance_total"]["valid"], 1)
+        combined = self.collect()
+        self.assertEqual(combined["summary"]["execution"]["total_cases"], 6)
+        self.assertEqual(combined["summary"]["metric_rows"], 128)
+
+    def test_platform_reports_preserve_excluded_and_missing_results(self):
+        self.add_810e_results()
+        (self.results / "g002/results.csv").unlink()
+        for path in (self.results / "g002").rglob("result.json"):
+            path.unlink()
+        report = self.collect("oam810e_eic")
+        self.assertEqual(report["summary"]["execution"]["result_counts"], {})
+        self.assertEqual(report["summary"]["execution"]["missing_selected_results"], 2)
+        self.assertEqual({row["execution_status"] for row in report["coverage"]}, {"EXCLUDED", "NO_RESULT"})
+        self.assertEqual(report["summary"]["metric_rows"], 0)
+        self.assertEqual(self.collect("m890p")["summary"]["metric_rows"], 64)
+
+    def test_excluded_platform_without_groups_still_has_coverage(self):
+        self.add_810e_results()
+        groups = json.loads(self.groups.read_text())
+        self.groups.write_text(json.dumps(groups[:1]))
+        report = self.collect("oam810e_eic")
+        self.assertEqual(report["metadata"]["platforms"], "oam810e_eic")
+        self.assertEqual(report["summary"]["execution"]["selected_cases"], 0)
+        self.assertEqual(report["summary"]["execution"]["excluded_cases"], 1)
+        self.assertEqual(report["summary"]["performance_cases"], 2)
+        self.assertEqual(report["summary"]["metric_rows"], 0)
+
+    def test_unknown_report_platform_is_rejected(self):
+        with self.assertRaisesRegex(ValueError, "Unsupported report platform"):
+            self.collect("invalid")
+
+    def test_report_step_runs_every_selected_platform_even_after_failure(self):
+        workflow = (Path(__file__).resolve().parents[2] /
+                    ".github/workflows/pccl-daily-full.yml").read_text()
+        step = workflow.split("      - id: performance-report\n", 1)[1].split(
+            "      - id: performance-upload\n", 1)[0]
+        script = step.split("        run: |\n", 1)[1]
+        script = "\n".join(line[10:] for line in script.splitlines())
+        script = re.sub(r"\$\{\{.*?\}\}", "123", script)
+        bin_directory = self.root / "mock-bin"
+        bin_directory.mkdir()
+        python = bin_directory / "python3"
+        python.write_text('#!/bin/sh\n'
+                          'while [ "$#" -gt 0 ]; do\n'
+                          '  if [ "$1" = --platform ]; then shift; platform=$1; break; fi\n'
+                          '  shift\n'
+                          'done\n'
+                          'printf "%s\\n" "$platform" >> "$CALLS"\n'
+                          '[ "$platform" != "$FAIL_PLATFORM" ]\n')
+        python.chmod(0o755)
+        for selected, fail, expected in (("all", "m890p", ["m890p", "oam810e_eic"]),
+                                        ("all", "", ["m890p", "oam810e_eic"]),
+                                        ("m890p", "", ["m890p"]),
+                                        ("oam810e_eic", "", ["oam810e_eic"])):
+            with self.subTest(selected=selected, fail=fail):
+                calls = self.root / "calls"
+                calls.write_text("")
+                result = subprocess.run(["/bin/sh", "-e", "-c", script],
+                                        env=dict(os.environ, REPORT_PLATFORM=selected, FAIL_PLATFORM=fail,
+                                                 CALLS=str(calls), PATH=str(bin_directory) + os.pathsep + os.environ['PATH']),
+                                        capture_output=True, text=True, timeout=5)
+                self.assertEqual(calls.read_text().splitlines(), expected)
+                self.assertEqual(result.returncode, 1 if fail else 0, result.stderr)
 
     def prepare_actual_reconciliation(self):
         """Run the real reconciler with one ordinary and one healthy performance Case."""
@@ -720,7 +841,12 @@ class PerformanceReportTests(unittest.TestCase):
         self.assertIn('--hpn-sdk-url "$HPN_SDK_URL"', workflow)
         self.assertIn("--results-root /wl_nas/devops/pccl-artifact-cache-", workflow)
         self.assertIn("--reconciliation-root public-results", workflow)
-        self.assertIn("name: m890p-daily-performance-report", workflow)
+        self.assertIn("name: pccl-daily-performance-report", workflow)
+        self.assertIn('--platform "$platform"', workflow)
+        self.assertIn('PCCL_${report_name}_daily_perf_', workflow)
+        self.assertIn('path: public-results/PCCL_*_daily_perf_*.xlsx', workflow)
+        self.assertIn('set -- m890p oam810e_eic', workflow)
+        self.assertIn('--hpn-sdk-url "$HPN_SDK_URL" || status=1', workflow)
         self.assertIn("XlsxWriter==3.2.5", workflow)
         self.assertIn("PYTHONPATH=deps/xlsxwriter-3.2.5-py3-none-any.whl", workflow)
         self.assertNotIn("--target report-python", workflow)
@@ -747,6 +873,7 @@ class PerformanceReportTests(unittest.TestCase):
                 metadata = collect.call_args.args[4]
                 self.assertEqual(metadata['image'], 'registry.example/ppu:test')
                 self.assertEqual(metadata['hpn_sdk_url'], url or 'image-builtin')
+                self.assertIsNone(collect.call_args.kwargs['platform'])
 
     def test_report_cli_redacts_hpn_sdk_url_credentials(self):
         url = 'https://zone-ci.oss-cn-hangzhou.aliyuncs.com/hpn-sdk/sdk.bin?Signature=secret'
@@ -766,6 +893,36 @@ class PerformanceReportTests(unittest.TestCase):
             workbook = archive.read("xl/workbook.xml").decode("utf-8")
             for name in ("报告概览", "单机2卡", "数据明细", "用例与覆盖", "Metadata"):
                 self.assertIn(name, workbook)
+
+    @unittest.skipUnless(importlib.util.find_spec("xlsxwriter"), "XlsxWriter is not installed")
+    def test_platform_cli_generates_two_isolated_valid_workbooks(self):
+        case, excluded = self.add_810e_results()
+        for platform, label in (("m890p", "M890P"), ("oam810e_eic", "810E")):
+            with self.subTest(platform=platform):
+                output = self.root / f"PCCL_{label}_daily_perf_123.xlsx"
+                result = subprocess.run([
+                    sys.executable, "-S", "-B", str(Path(performance_report.__file__)), "report",
+                    "--selection", str(self.selection), "--groups", str(self.groups),
+                    "--coverage", str(self.coverage), "--results-root", str(self.results),
+                    "--reconciliation-root", str(self.reconciliation), "--output", str(output),
+                    "--run-id", "123", "--dataset", "full", "--source-revision", "a" * 40,
+                    "--runner-revision", "b" * 40, "--platform", platform,
+                ], capture_output=True, text=True, timeout=20)
+                self.assertEqual(result.returncode, 0, result.stderr)
+                summary = json.loads(result.stdout)
+                self.assertEqual(summary["execution"]["total_cases"], 3)
+                self.assertEqual(summary["metric_rows"], 64)
+                with zipfile.ZipFile(output) as archive:
+                    self.assertIsNone(archive.testzip())
+                    self.assertIn("xl/workbook.xml", archive.namelist())
+                    strings = archive.read("xl/sharedStrings.xml").decode("utf-8")
+                    self.assertIn(f"PCCL {label} daily", strings)
+                    expected = self.cases if platform == "m890p" else (case, excluded)
+                    other = (case, excluded) if platform == "m890p" else self.cases
+                    for row in expected:
+                        self.assertIn(row["name"], strings)
+                    for row in other:
+                        self.assertNotIn('>' + row["name"] + '<', strings)
 
 
 if __name__ == "__main__":

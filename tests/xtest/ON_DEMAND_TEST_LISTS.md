@@ -174,7 +174,12 @@ successfully executed subset.
 
 After group reconciliation, the summary job uses `run_cases.parse_performance`
 to read the retained `raw.log` files and generate
-`PCCL_M890P_daily_perf_<run-id>.xlsx`. Ordinary `exit_code` Cases contribute
+`PCCL_M890P_daily_perf_<run-id>.xlsx` and
+`PCCL_810E_daily_perf_<run-id>.xlsx` for dual-platform runs. A manual platform
+filter generates only that platform's workbook. Each workbook's overview,
+execution totals, performance points, exclusions, Case coverage and metadata
+are filtered to its platform; failed or unfinished Cases remain visible.
+Ordinary `exit_code` Cases contribute
 performance data without gaining a performance gate. Execution failures,
 missing results, unavailable tables, partial curves and missing log rows remain
 visible as separate execution and data statuses.
@@ -187,7 +192,8 @@ count per layout rather than a Case-plus-size uniqueness assumption.
 
 The workbook contains an overview, per-topology tables, raw detail, Case
 coverage and run metadata. It is uploaded as the independent
-`m890p-daily-performance-report` artifact with 90-day retention. Raw logs
+`pccl-daily-performance-report` artifact with 90-day retention, containing both
+workbooks when both platforms are selected. Raw logs
 remain in the run-owned NAS `results/` tree; the Excel report does not replace
 that diagnostic evidence or the existing summary artifact.
 

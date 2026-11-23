@@ -90,8 +90,8 @@ worker jobs; GitHub dispatch inputs are not secret values. One run uses one URL;
 use separate runs to compare packages.
 The same image and effective HPN SDK selection apply to both hardware platforms.
 Download or installation failure stops the job and never falls back to the
-image-builtin package. The daily performance workbook records both the image
-and the effective URL in its `Metadata` sheet. URL query
+image-builtin package. Each platform's daily performance workbook records both
+the image and the effective URL in its `Metadata` sheet. URL query
 parameters and fragments are omitted from worker logs and workbook metadata so
 signed download credentials are not published.
 
@@ -191,6 +191,14 @@ is unchanged. The combined export has 17,859 Cases and selects 17,850 Cases in 5
 groups after the same 16-node
 M890P exclusions. This is generation coverage only, not a claim that the full
 hardware dataset has been executed.
+
+Dual-platform daily runs generate separate `PCCL_M890P_daily_perf_<run-id>.xlsx`
+and `PCCL_810E_daily_perf_<run-id>.xlsx` workbooks. Manual platform filtering
+generates only the selected platform's workbook. Each report contains its own
+performance data, execution totals and excluded/unfinished Case coverage, using
+the shared `run_cases.parse_performance` parser. Both workbooks are uploaded in
+the `pccl-daily-performance-report` artifact with 90-day retention. CI sanity
+continues to publish its existing JSON/CSV results rather than Excel reports.
 
 `generate_pr_cases.py` writes the reviewed 810E PR input under
 `minimal-csv-oam810e-eic`: 21 standard Cases (19 single-node and two two-node)
