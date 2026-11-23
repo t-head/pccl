@@ -1,14 +1,14 @@
 {
   "classification": {
     "base_sha": "4a9b207f6c06878cfc9d4344366e9ebc790775e9",
-    "head_sha": "f800aea0cf7e62b056048e7b8caa6ed82616571e",
-    "input_fingerprint": "5c3289f201abc1ad121d3a63ec304b30e606717f48ae3a488d66c4cc40d6fbec",
+    "head_sha": "d41608695b2625eecf4cbf729eb5e8cf47c99292",
+    "input_fingerprint": "ddcfb09ea83b2e6d17b35bb8d8837f13e687b8a5a273d15809cdbf17de5f9741",
     "pr_number": 220,
     "proposal": {
       "modules": [
         "ci"
       ],
-      "reason": "Primary change is CI workflow/test-orchestration behavior: dual-platform (M890P/810E) daily+sanity execution, trusted HPN SDK selection/installation propagation, platform-aware case generation/grouping/device mapping, and related reconciliation/reporting plus xtest contract/data updates (including added native-unit family manifests, even where large patches are omitted)."
+      "reason": "Main substantive change is to CI test orchestration and execution tooling: dual-platform (M890P/810E) workflow generation/grouping, worker device mapping, HPN SDK selection/installation in jobs, artifact/report handling, and associated xtest runners/fixtures. Build-script and docs updates are supporting this CI behavior rather than independent build or workflow-policy changes."
     }
   },
   "reviewers": {
