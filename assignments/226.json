@@ -2,13 +2,13 @@
   "classification": {
     "base_sha": "4a9b207f6c06878cfc9d4344366e9ebc790775e9",
     "head_sha": "c34c4ad81d90e8709a1a7e05935a1e3dce45a504",
-    "input_fingerprint": "51bc6e33533a57e4ff4387e706f807c9a39ae10cf211009788b291b02848f323",
+    "input_fingerprint": "038e939edd65acdf7ec5ee5e40340440fca7deb6a7a54219dfe5a45662ea65ba",
     "pr_number": 226,
     "proposal": {
       "modules": [
         "kernel-plugin"
       ],
-      "reason": "Adds a new extension-kernel AllReduce strategy (ONESHOT_PUSH) end-to-end in the ext-kernel plugin: new plugin-provided kernel entrypoints/instantiations, strategy indexing/dispatch, workspace region wiring (PUSH_BUFFER/PUSH_PHASE), topology-gated bounds, and plugin selection/launch config logic for eligible M890P SHM cases."
+      "reason": "The PR\u2019s substantive change is adding and integrating a new extension-kernel AllReduce strategy (OneShotPush): new ext-kernel device kernel entrypoints, strategy indexing/dispatch, topology-gated selection policy, and plugin workspace/phase-buffer lifecycle wiring. These are plugin-provided kernel execution and extension-kernel integration changes, not core built-in kernel or other subsystem policy changes."
     }
   },
   "reviewers": {
