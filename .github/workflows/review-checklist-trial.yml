@@ -1,0 +1,44 @@
+name: PR195 review checklist trial
+run-name: "PR #195 checklist trial (30 minutes)"
+
+on:
+  push:
+    branches: [experiment/pr195-review-checklist]
+    paths:
+      - .github/workflows/review-checklist-trial.yml
+      - .github/scripts/review_checklist_trial.py
+
+permissions: {}
+
+concurrency:
+  group: pr195-review-checklist-trial
+  cancel-in-progress: false
+
+jobs:
+  trial:
+    if: github.repository == 't-head/pccl'
+    runs-on: ubuntu-24.04
+    timeout-minutes: 35
+    permissions:
+      contents: read
+      pull-requests: write
+      statuses: write
+    steps:
+      - uses: actions/checkout@d23441a48e516b6c34aea4fa41551a30e30af803 # v6
+        with:
+          persist-credentials: false
+      - name: Run the isolated checklist and approval calculation
+        id: trial
+        env:
+          GITHUB_TOKEN: ${{ github.token }}
+          TRIAL_HEAD: c0f2ce654580a067a62ea9939ab3c85b6937772b
+          PYTHONUNBUFFERED: '1'
+        run: python3 -B .github/scripts/review_checklist_trial.py
+      - name: Mark the trial inactive
+        if: always() && steps.trial.outputs.result_id != ''
+        env:
+          GITHUB_TOKEN: ${{ github.token }}
+          TRIAL_HEAD: ${{ steps.trial.outputs.head }}
+          TRIAL_RESULT_ID: ${{ steps.trial.outputs.result_id }}
+          PYTHONUNBUFFERED: '1'
+        run: python3 -B .github/scripts/review_checklist_trial.py stop
