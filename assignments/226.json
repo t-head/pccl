@@ -2,13 +2,13 @@
   "classification": {
     "base_sha": "4a9b207f6c06878cfc9d4344366e9ebc790775e9",
     "head_sha": "c34c4ad81d90e8709a1a7e05935a1e3dce45a504",
-    "input_fingerprint": "b8cab99f9c6a656d91c32505034609465dfd1a64cc460c8fcd00e8690131bd23",
+    "input_fingerprint": "51bc6e33533a57e4ff4387e706f807c9a39ae10cf211009788b291b02848f323",
     "pr_number": 226,
     "proposal": {
       "modules": [
         "kernel-plugin"
       ],
-      "reason": "Main change is a new extension-kernel AllReduce strategy (ONESHOT_PUSH) with new plugin kernel implementation, dispatch/index wiring, workspace region/lifecycle updates, and plugin-side eligibility/default-selection thresholds (including topology-specific push bounds). These are substantive ext-kernel ABI/execution and integration changes within kernel-plugin scope."
+      "reason": "Main change is an ext-kernel plugin rollout of a new OneShotPush AllReduce path (BF16/FP16/FP32, 2/4/8-rank M890P SHM): new extension kernel implementation/instantiations, strategy indexing/dispatch, plugin eligibility and default selection logic, and plugin workspace/phase-buffer lifecycle wiring plus topology push bounds."
     }
   },
   "reviewers": {
