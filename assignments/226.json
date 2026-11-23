@@ -1,14 +1,14 @@
 {
   "classification": {
     "base_sha": "4a9b207f6c06878cfc9d4344366e9ebc790775e9",
-    "head_sha": "c34c4ad81d90e8709a1a7e05935a1e3dce45a504",
-    "input_fingerprint": "038e939edd65acdf7ec5ee5e40340440fca7deb6a7a54219dfe5a45662ea65ba",
+    "head_sha": "c3c0a7e1f5098c432a4804022dc190f51a7b9448",
+    "input_fingerprint": "dc2ae6b34d6463e86ab810f995c7d642d427c474a85c14cf5e1b645602589ad1",
     "pr_number": 226,
     "proposal": {
       "modules": [
         "kernel-plugin"
       ],
-      "reason": "The PR\u2019s substantive change is adding and integrating a new extension-kernel AllReduce strategy (OneShotPush): new ext-kernel device kernel entrypoints, strategy indexing/dispatch, topology-gated selection policy, and plugin workspace/phase-buffer lifecycle wiring. These are plugin-provided kernel execution and extension-kernel integration changes, not core built-in kernel or other subsystem policy changes."
+      "reason": "Adds a new extension-kernel AllReduce strategy (ONESHOT_PUSH) end-to-end in the ext-kernel plugin: new plugin kernel/template implementations, dispatch/index wiring, topology-gated default selection limits, and plugin workspace/launch configuration for Push buffers and phase state."
     }
   },
   "reviewers": {
