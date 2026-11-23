@@ -19,6 +19,7 @@ LIBSRCFILES := $(filter-out ce_coll_oki.cc,$(wildcard *.cc)) \
                $(wildcard misc/*.cc) \
                $(filter-out param/pcclparam.cc,$(wildcard param/*.cc)) \
                $(wildcard collectives/*.cc) \
+               $(wildcard rma/*.cc) \
                $(wildcard transport/*.cc) \
                $(wildcard transport/net_ib/*.cc) \
                $(wildcard transport/net_ib/gdaki/*.cc) \

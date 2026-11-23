@@ -52,6 +52,9 @@ const char* ncclFuncToString(ncclFunc_t fn) {
   case ncclFuncScatter: return "Scatter";
   case ncclFuncSendRecv: return "SendRecv";
   case ncclFuncSend: return "Send";
+  case ncclFuncPutSignal: return "PutSignal";
+  case ncclFuncSignal: return "Signal";
+  case ncclFuncWaitSignal: return "WaitSignal";
   default: return "Invalid";
   }
 }

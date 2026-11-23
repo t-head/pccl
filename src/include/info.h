@@ -45,6 +45,15 @@ struct ncclInfo {
   // Algorithm details
   int chunkSteps;
   int sliceSteps;
+  // One-sided ops
+  size_t peerWinOffset;
+  ncclWindow_t peerWin;
+  int sigIdx;
+  int ctx;
+  unsigned int flags;
+  // WaitSignal descriptors
+  int nDesc;
+  ncclWaitSignalDesc_t* signalDescs;
   // Computed later
   struct ncclDevRedOpFull opFull;
   int algorithm;

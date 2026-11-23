@@ -200,12 +200,10 @@ static ncclResult_t p2pDmaReserveWorks(ncclComm_t comm, size_t bytes, struct pcc
 // Window detection: same contract as the symmetric collective path -- one
 // window per direction, covering every queued send/recv buffer.
 //
-// Every buffer must resolve to a registered symmetric window, and all sends of
-// a batch must share one window (likewise all recvs): pcclP2pDmaBuildPlan
-// stores each op as an offset from a single window base and the device args
-// carry one sendFlatBase/recvFlatBase, so a second window in the same batch
-// would be addressed off the first window's base. Mixed windows are legal for
-// the kernel p2p path, so they fall back instead of failing.
+// Retain the one-window-per-direction admission contract. Work offsets are
+// relative to the rank's LSA slot, so the receiver can publish its actual
+// destination without requiring equal user-window offsets across ranks.
+// Mixed windows continue to fall back to the kernel p2p path.
 
 static bool p2pDmaDetectWindows(struct pcclComm* comm, struct ncclDevrWindow** outSendWin,
                                 struct ncclDevrWindow** outRecvWin) {
@@ -232,7 +230,7 @@ static bool p2pDmaDetectWindows(struct pcclComm* comm, struct ncclDevrWindow** o
   ncclSymRegType_t regType;
   if (ncclGetSymRegType(sw, rw, &regType) != ncclSuccess) return false;
   if (regType != ncclSymSendRegRecvReg) return false;
-  if (!sw->globalSameMemOffset || !rw->globalSameMemOffset) return false;
+  if (!pcclDevrWindowHasSameLsaOffset(sw) || !pcclDevrWindowHasSameLsaOffset(rw)) return false;
   if (ncclDevrWindowHasSysmemSegment(sw) || ncclDevrWindowHasSysmemSegment(rw)) return false;
   *outSendWin = sw;
   *outRecvWin = rw;
@@ -302,11 +300,8 @@ ncclResult_t pcclP2pDmaBuildPlan(struct pcclComm* comm, struct ncclKernelPlan* p
   // eligibility gate already guarantees at least one takeable op for this rank.
   if (numSends == 0 && numRecvs == 0) return ncclInternalError;
 
-  struct ncclWindow_vidmem* sendWinHost = nullptr;
-  struct ncclWindow_vidmem* recvWinHost = nullptr;
-  NCCLCHECK(ncclShadowPoolToHost(&comm->devrState.shadows, sendWin->vidmem, &sendWinHost));
-  NCCLCHECK(ncclShadowPoolToHost(&comm->devrState.shadows, recvWin->vidmem, &recvWinHost));
-  uint32_t stride4G = sendWinHost->stride4G;
+  uint32_t stride4G = comm->devrState.bigSize >> 32;
+  uint64_t rankFlatBase = (uint64_t)::add4G(comm->devrState.lsaFlatBase, (int)(rank * stride4G));
 
   struct pcclP2pDmaPlanArgs* planArgs = ncclMemoryStackAlloc<struct pcclP2pDmaPlanArgs>(&comm->memScoped);
   struct pcclP2pDmaWork* worksHost = nullptr;
@@ -339,7 +334,8 @@ ncclResult_t pcclP2pDmaBuildPlan(struct pcclComm* comm, struct ncclKernelPlan* p
         sendWorks[sendIndex].peer = peer;
         sendWorks[sendIndex].k = peerLocalSlot++;
         sendWorks[sendIndex].bytes = (uint64_t)sendTask->bytes;
-        sendWorks[sendIndex].off = (uint64_t)((uint8_t*)sendTask->buff - (uint8_t*)sendWin->userPtr);
+        sendWorks[sendIndex].off = sendWin->bigOffset +
+            (uint64_t)((uint8_t*)sendTask->buff - (uint8_t*)sendWin->userPtr);
         sendWorks[sendIndex].seq = batchSeqForPeer[peer];
         sendIndex++;
         taken++;
@@ -363,7 +359,8 @@ ncclResult_t pcclP2pDmaBuildPlan(struct pcclComm* comm, struct ncclKernelPlan* p
         recvWorks[recvIndex].peer = peer;
         recvWorks[recvIndex].k = peerLocalSlot++;
         recvWorks[recvIndex].bytes = (uint64_t)recvTask->bytes;
-        recvWorks[recvIndex].off = (uint64_t)((uint8_t*)recvTask->buff - (uint8_t*)recvWin->userPtr);
+        recvWorks[recvIndex].off = recvWin->bigOffset +
+            (uint64_t)((uint8_t*)recvTask->buff - (uint8_t*)recvWin->userPtr);
         recvWorks[recvIndex].seq = batchSeqForPeer[peer];
         recvIndex++;
         taken++;
@@ -378,8 +375,8 @@ ncclResult_t pcclP2pDmaBuildPlan(struct pcclComm* comm, struct ncclKernelPlan* p
   planArgs->devArgs.stride4G = stride4G;
   planArgs->devArgs.nRanks = numRanks;
   planArgs->devArgs.rank = rank;
-  planArgs->devArgs.sendFlatBase = (uint64_t)((char*)::add4G((void*)sendWinHost->lsaFlatBase, (int)(rank * stride4G)));
-  planArgs->devArgs.recvFlatBase = (uint64_t)((char*)::add4G((void*)recvWinHost->lsaFlatBase, (int)(rank * stride4G)));
+  planArgs->devArgs.sendFlatBase = rankFlatBase;
+  planArgs->devArgs.recvFlatBase = rankFlatBase;
   planArgs->devArgs.mboxFlatBase = (uint64_t)dmaState->mboxBase;
   planArgs->devArgs.abortFlag = comm->abortFlagDev;
   planArgs->devArgs.nSend = numSends;
