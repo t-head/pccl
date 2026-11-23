@@ -1,16 +1,17 @@
 {
   "classification": {
     "base_sha": "abb6688b4b5419664e7bf13c2d9107bd7acafd89",
-    "head_sha": "86fcdb1bd6e47388cd37c44d666144af48bde89b",
-    "input_fingerprint": "de16fdbab37146caf72538148fbfb8b10e31743d3ff141e9eac82b717a8345d3",
+    "head_sha": "2497517728f13ddbff977f3c31c5e651ea1a499f",
+    "input_fingerprint": "bdd912ab4d216dc8204b2eab138c387407b7e5f2a97bccc7a9c413b79e109d69",
     "pr_number": 64,
     "proposal": {
       "modules": [
+        "communicator",
         "enqueue",
         "copy-engine",
         "device-api"
       ],
-      "reason": "Main change is new host one-sided RMA (PutSignal/Signal/WaitSignal) executed through CE/DMA, including new RMA CE launch logic, signal/ack synchronization, and large-transfer chunking. Enqueue is also substantively changed to add new RMA task types, planner queues, scheduling, and launch-path dispatch. Device-api review is needed for the symmetric window/LSA runtime changes (offset semantics, window validation/capability checks, and communicator property exposure) that directly affect RMA correctness."
+      "reason": "Main change is new host one-sided RMA Put/Signal/Wait execution over CE/DMA (new rma_ce launch/init/finalize paths, signal/ack synchronization, chunked puts), which maps to copy-engine. enqueue is additionally needed because the PR adds a new RMA task type, planner queues, plan scheduling, and launch-path integration. device-api is additionally needed because public one-sided APIs and symmetric-window/LSA validation semantics are introduced and wired through window/runtime structures. communicator is additionally needed for communicator-level capability gating and lifecycle/config integration (hostRmaSupport platform checks, numRmaCtx parsing/defaults, init/finalize hooks)."
     }
   },
   "reviewers": {
