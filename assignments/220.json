@@ -1,14 +1,14 @@
 {
   "classification": {
-    "base_sha": "4a9b207f6c06878cfc9d4344366e9ebc790775e9",
-    "head_sha": "d41608695b2625eecf4cbf729eb5e8cf47c99292",
-    "input_fingerprint": "ddcfb09ea83b2e6d17b35bb8d8837f13e687b8a5a273d15809cdbf17de5f9741",
+    "base_sha": "30ac5589671c608c51266cfd99f3b0b59eddc981",
+    "head_sha": "0351f504ff5d9d89b0cfaf2dbc06ec564eacd9ab",
+    "input_fingerprint": "d458b5e62916e5eca7a0ffa462d42e11090ce97f4a9f6568f4b7e5c3ce06eaca",
     "pr_number": 220,
     "proposal": {
       "modules": [
         "ci"
       ],
-      "reason": "Main substantive change is to CI test orchestration and execution tooling: dual-platform (M890P/810E) workflow generation/grouping, worker device mapping, HPN SDK selection/installation in jobs, artifact/report handling, and associated xtest runners/fixtures. Build-script and docs updates are supporting this CI behavior rather than independent build or workflow-policy changes."
+      "reason": "The substantive change is to open-source test workflow execution: dual-platform (M890P/810E) workflow orchestration, case generation/grouping logic, worker allocation/device mapping, SDK installer selection/validation, and daily/sanity reconciliation/reporting updates. Added large test-list assets (including patch_omitted family JSON) and related tests/docs support this same CI behavior rather than introducing separate runtime-module ownership."
     }
   },
   "reviewers": {
