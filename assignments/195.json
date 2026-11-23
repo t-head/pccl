@@ -1,14 +1,14 @@
 {
   "classification": {
-    "base_sha": "4a9b207f6c06878cfc9d4344366e9ebc790775e9",
-    "head_sha": "c0f2ce654580a067a62ea9939ab3c85b6937772b",
-    "input_fingerprint": "2002758697d8cf61280ec31891cd400901d0b3c968c0428cb0a02c99130aa417",
+    "base_sha": "30ac5589671c608c51266cfd99f3b0b59eddc981",
+    "head_sha": "21ec78ab80861332a33962d4b9ed3bf8eec555d2",
+    "input_fingerprint": "0871d42960a2ce1f66f2ffef1335c7bf94e534a8a406c8a05cb8a50a1c46482b",
     "pr_number": 195,
     "proposal": {
       "modules": [
         "workflow"
       ],
-      "reason": "Main change is to contribution/review automation: review routing now distinguishes primary/secondary/additional modules, supports /review-module add|rm commands, enforces reviewer+maintainer gate logic, and ties gate outcomes to squash-preview publishing/cleanup across .github/scripts/review_automation.py, maintainer_approval.py, commit_message_squash.py, and review-*.yml workflows. Updates to modules.json and SKILL.md are supporting policy/roster/config changes for the same workflow system, not independent runtime module behavior changes."
+      "reason": "Main functional change is review/merge automation policy: .github/scripts/review_automation.py and maintainer_approval.py redefine module-based invitations and approval requirements, while new/renamed workflows (review-routing.yml, review-module.yml, review-gate.yml, review-squash-preview.yml) rewire gate refresh and squash-preview triggering; these are contribution/review workflow behaviors, not CI test-system changes."
     }
   },
   "reviewers": {
