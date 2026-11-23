@@ -1,16 +1,17 @@
 {
   "classification": {
-    "base_sha": "abb6688b4b5419664e7bf13c2d9107bd7acafd89",
-    "head_sha": "4bf26cb939c3be3429db11c1051bedd0364d47d8",
-    "input_fingerprint": "4a138b1a513430593d567f92bce3617684d8969e39122a6578147f4ca4c98525",
+    "base_sha": "4a9b207f6c06878cfc9d4344366e9ebc790775e9",
+    "head_sha": "b50c65811e5862c984271f7e061a3912e0da0939",
+    "input_fingerprint": "f033fd0c1effd2ed7c39b436339f7fd775813dd041db0caadc31a85afe2bbb03",
     "pr_number": 64,
     "proposal": {
       "modules": [
+        "communicator",
         "enqueue",
         "copy-engine",
         "device-api"
       ],
-      "reason": "Main change is host one-sided RMA (Put/Signal/Wait) executed via CE/DMA paths, including CE-side signal/wait ordering and per-context CE state; enqueue is additionally needed because new RMA task types, planner queues, batching, and launch routing are introduced; device-api is additionally needed because public PCCL APIs and symmetric-window/LSA validation semantics are extended for these operations."
+      "reason": "Primary change is CE-backed host one-sided RMA (Put/Signal/WaitSignal), adding new CE launch, signaling/ack synchronization, and RMA execution paths. enqueue is additionally needed because new RMA operations are validated, converted to tasks, batched, scheduled into plans, and launched via group/planner flow. communicator is needed for host-RMA capability detection, numRmaCtx config parsing/defaulting/validation, and communicator init/finalize lifecycle integration. device-api is needed because the feature relies on symmetric window and LSA semantics, with substantive changes to window offset consistency handling and window-registration-triggered RMA CE initialization."
     }
   },
   "reviewers": {
