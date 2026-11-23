@@ -8,7 +8,7 @@
       "modules": [
         "kernel-plugin"
       ],
-      "reason": "Main change is an ext-kernel plugin rollout of a new OneShotPush AllReduce path (BF16/FP16/FP32, 2/4/8-rank M890P SHM): new extension kernel implementation/instantiations, strategy indexing/dispatch, plugin eligibility and default selection logic, and plugin workspace/phase-buffer lifecycle wiring plus topology push bounds."
+      "reason": "Adds a new extension-kernel AllReduce strategy (ONESHOT_PUSH) end-to-end in the ext-kernel plugin: new plugin-provided kernel entrypoints/instantiations, strategy indexing/dispatch, workspace region wiring (PUSH_BUFFER/PUSH_PHASE), topology-gated bounds, and plugin selection/launch config logic for eligible M890P SHM cases."
     }
   },
   "reviewers": {
