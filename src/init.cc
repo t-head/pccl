@@ -2356,7 +2356,7 @@ static ncclResult_t parseCommConfig(ncclComm_t comm, ncclConfig_t *config) {
   PCCL_CONFIG_UNSUPPORTED(internalConfigPtr, nvlinkCentricSched, PCCL_CONFIG_UNDEF_INT);
 
   if (internalConfigPtr->numRmaCtx != PCCL_CONFIG_UNDEF_INT && internalConfigPtr->numRmaCtx <= 0) {
-    WARN("Invalid config numRmaCtx attribute value %d", internalConfigPtr->numRmaCtx);
+    ERROR("Invalid config numRmaCtx attribute value %d", internalConfigPtr->numRmaCtx);
     ret = ncclInvalidArgument;
     goto fail;
   }

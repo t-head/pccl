@@ -2275,33 +2275,33 @@ static ncclResult_t rmaTaskAppend(ncclComm_t comm, struct ncclInfo* info) {
   void const* srcBuff = info->sendbuff;
 
   if (!comm->hostRmaSupport) {
-    WARN("One sided RMA: host RMA is not supported in this communicator.");
+    ERROR("One sided RMA: host RMA is not supported in this communicator.");
     return ncclInvalidArgument;
   }
 
   int driverVersion;
   HGGCCHECK(hggcDriverGetVersion(&driverVersion));
   if (driverVersion < 12050) {
-    WARN("One-sided RMA requires HGGC driver 12.5 or later (found %d.%d).",
+    ERROR("One-sided RMA requires HGGC driver 12.5 or later (found %d.%d).",
       driverVersion / 1000, (driverVersion % 1000) / 10);
     return ncclInvalidUsage;
   }
 
   // Check if context is valid (must be 0 for now)
   if (info->ctx != 0) {
-    WARN("Context %d is invalid (must be 0)", info->ctx);
+    ERROR("Context %d is invalid (must be 0)", info->ctx);
     return ncclInvalidArgument;
   }
 
   // Check if signal index is valid (must be 0 for now)
   if (info->sigIdx != 0) {
-    WARN("Signal index %d is invalid (must be 0)", info->sigIdx);
+    ERROR("Signal index %d is invalid (must be 0)", info->sigIdx);
     return ncclInvalidArgument;
   }
 
   // Check if flags is valid
   if (info->flags != 0) {
-    WARN("Flags %u is invalid (must be 0)", info->flags);
+    ERROR("Flags %u is invalid (must be 0)", info->flags);
     return ncclInvalidArgument;
   }
 
@@ -2313,7 +2313,7 @@ static ncclResult_t rmaTaskAppend(ncclComm_t comm, struct ncclInfo* info) {
   if (info->coll == ncclFuncPutSignal) {
     // Validate peer window with detailed debugging
     if (info->peerWin == NULL) {
-      WARN("ncclPutSignal: peerWin is NULL");
+      ERROR("ncclPutSignal: peerWin is NULL");
       return ncclInvalidArgument;
     }
 
@@ -2323,12 +2323,12 @@ static ncclResult_t rmaTaskAppend(ncclComm_t comm, struct ncclInfo* info) {
 
     // Validate source buffer and window
     if (srcBuff == NULL) {
-      WARN("ncclPutSignal: srcBuff is NULL");
+      ERROR("ncclPutSignal: srcBuff is NULL");
       return ncclInvalidArgument;
     }
     NCCLCHECK(ncclDevrFindWindow(comm, srcBuff, &srcWinHost));
     if (srcWinHost == NULL || !(srcWinHost->winFlags & NCCL_WIN_COLL_SYMMETRIC)) {
-      WARN("ncclPutSignal: srcWinHost is not in a valid symmetric window");
+      ERROR("ncclPutSignal: srcWinHost is not in a valid symmetric window");
       return ncclInvalidArgument;
     }
     srcWinOffset = (char*)srcBuff - (char*)srcWinHost->userPtr;
@@ -2337,44 +2337,44 @@ static ncclResult_t rmaTaskAppend(ncclComm_t comm, struct ncclInfo* info) {
     bool hasSysmemSegment = ncclDevrWindowHasSysmemSegment(srcWinHost) || ncclDevrWindowHasSysmemSegment(peerWinHost);
 
     if (isMultiSegment) {
-      WARN("ncclPutSignal currently does not support VAs backed by multiple physical cuMem segments");
+      ERROR("ncclPutSignal currently does not support VAs backed by multiple physical cuMem segments");
       return ncclInvalidArgument;
     }
     if (hasSysmemSegment) {
-      WARN("ncclPutSignal currently does not support VAs with host-backed cuMem segments");
+      ERROR("ncclPutSignal currently does not support VAs with host-backed cuMem segments");
       return ncclInvalidArgument;
     }
   }
   else if (info->coll == ncclFuncSignal) {
     // Check if count is valid
     if (info->count != 0) {
-      WARN("ncclSignal: count must be 0");
+      ERROR("ncclSignal: count must be 0");
       return ncclInvalidArgument;
     }
   }
   else if (info->coll == ncclFuncWaitSignal) {
     // Check if signalDescs is valid
     if (info->signalDescs == NULL || info->nDesc <= 0) {
-      WARN("ncclWaitSignal: invalid arguments");
+      ERROR("ncclWaitSignal: invalid arguments");
       return ncclInvalidArgument;
     }
     // Validate each descriptor
     for (int i = 0; i < info->nDesc; i++) {
       if (info->signalDescs[i].opCnt <= 0) {
-        WARN("ncclWaitSignal: descriptor %d has invalid opCnt %d", i, info->signalDescs[i].opCnt);
+        ERROR("ncclWaitSignal: descriptor %d has invalid opCnt %d", i, info->signalDescs[i].opCnt);
         return ncclInvalidArgument;
       }
       if (info->signalDescs[i].sigIdx != 0) {
-        WARN("ncclWaitSignal: descriptor %d has invalid sigIdx %d (must be 0)", i, info->signalDescs[i].sigIdx);
+        ERROR("ncclWaitSignal: descriptor %d has invalid sigIdx %d (must be 0)", i, info->signalDescs[i].sigIdx);
         return ncclInvalidArgument;
       }
       if (info->signalDescs[i].ctx != 0) {
-        WARN("ncclWaitSignal: descriptor %d has invalid context %d (must be 0)",
+        ERROR("ncclWaitSignal: descriptor %d has invalid context %d (must be 0)",
              i, info->signalDescs[i].ctx);
         return ncclInvalidArgument;
       }
       if (info->signalDescs[i].peer < 0 || info->signalDescs[i].peer >= comm->nRanks) {
-        WARN("pcclWaitSignal: descriptor %d has invalid peer %d (must be in [0, %d))", i, info->signalDescs[i].peer,
+        ERROR("pcclWaitSignal: descriptor %d has invalid peer %d (must be in [0, %d))", i, info->signalDescs[i].peer,
              comm->nRanks);
         return ncclInvalidArgument;
       }
@@ -2385,7 +2385,7 @@ static ncclResult_t rmaTaskAppend(ncclComm_t comm, struct ncclInfo* info) {
   // runs at the first window registration. Initializing here for a subset of ranks would deadlock,
   // so instead require the user to register a symmetric window first.
   if ((info->coll == ncclFuncSignal || info->coll == ncclFuncWaitSignal) && !ncclRmaInitialized(comm)) {
-    WARN("pcclSignal/pcclWaitSignal called before RMA is initialized. Register a symmetric window first "
+    ERROR("pcclSignal/pcclWaitSignal called before RMA is initialized. Register a symmetric window first "
          "and complete the registration group before issuing RMA operations.");
     return ncclInvalidUsage;
   }
