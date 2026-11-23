@@ -2,13 +2,13 @@
   "classification": {
     "base_sha": "4a9b207f6c06878cfc9d4344366e9ebc790775e9",
     "head_sha": "ad45792a06d00db54996e975612bab39c738ef66",
-    "input_fingerprint": "e8e3c09a16a0375e2578f30301f1164b32ee928aa3e9fab3724f7d691325db35",
+    "input_fingerprint": "9f0ed9f377170508ce379e941af30fba39ce06d21c1c4d1c34ea67fea126f24d",
     "pr_number": 220,
     "proposal": {
       "modules": [
         "ci"
       ],
-      "reason": "The substantive change is a broad rewrite of open-source test workflow behavior: dual-platform (M890P/810E) case generation/grouping, runner allocation/device mapping, SDK install/validation handoff, reconciliation/reporting/artifact handling, and corresponding xtest tooling and fixtures. Workflow-file renames/docs edits and large patch-omitted test-list JSONs are part of this same CI execution/reporting surface rather than separate module policy or product-runtime ownership."
+      "reason": "Main change is open-source test orchestration: dual-platform (M890P/810E) PR/daily workflow execution, case generation/grouping/reconciliation, hardware allocation/rack policy handling, HPN SDK install selection/propagation, and executor runtime/device-mapping diagnostics. Renamed workflow files, new platform profiles, and large added 810E test-family manifests are all CI dataset/execution plumbing rather than review-policy or product-runtime module changes."
     }
   },
   "reviewers": {
