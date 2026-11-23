@@ -60,6 +60,8 @@ class GroupCasesTests(unittest.TestCase):
         with self.assertRaisesRegex(ValueError, "already exists"):
             group_cases.write_groups(groups, output, self.input)
         manifest = json.loads((output / "groups.json").read_text())
+        self.assertTrue(all(entry["effective_cards_per_node"] == entry["cards_per_node"]
+                            for entry in manifest))
         self.assertEqual([entry["case_count"] for entry in manifest], [3, 1])
         for group in groups:
             selected = run_cases.load_inputs(output / group["id"], group["profile"], group["nodes"])
@@ -121,6 +123,35 @@ class GroupCasesTests(unittest.TestCase):
             group_cases.build_groups(self.input, max_cases=500, nodes=1, suite="missing")
         with self.assertRaisesRegex(ValueError, "positive integer"):
             group_cases.build_groups(self.input, max_cases=0)
+
+    def test_card_override_is_recorded_without_rewriting_cases(self):
+        self.add("ordinary", "case", nodes=2, plan="pccl_810e_plan")
+        self.cases[0]["cmd"] = "mpirun -np 4 -npernode 2 all_reduce_perf -t 1 -g 1"
+        self.write()
+        default = group_cases.build_plan(self.input, 500)
+        self.assertEqual(default["groups"][0]["cards_per_node"], 2)
+        for requested in (1, 8):
+            with self.subTest(requested=requested):
+                plan = group_cases.build_plan(self.input, 500, cards_per_node=requested)
+                group = plan["groups"][0]
+                self.assertEqual(group["cards_per_node"], 2)
+                self.assertEqual(group["effective_cards_per_node"], requested)
+                self.assertEqual(group["cases"], default["groups"][0]["cases"])
+                output = self.root / f"override-{requested}"
+                group_cases.write_plan(plan, output, self.input)
+                manifest = json.loads((output / "groups.json").read_text())[0]
+                self.assertEqual(manifest["cards_per_node"], 2)
+                self.assertEqual(manifest["effective_cards_per_node"], requested)
+                self.assertEqual(manifest["case_keys"], [["pccl_810e_plan", "ordinary", "case"]])
+                selected = run_cases.load_inputs(output / group["id"], "standard")
+                self.assertEqual(selected["cases"], group["cases"])
+        for invalid in (0, -1, 3, 32, True, "8", 8.5):
+            with self.subTest(invalid=invalid), self.assertRaisesRegex(ValueError, "Card override"):
+                group_cases.build_plan(self.input, 500, cards_per_node=invalid)
+        group = default["groups"][0]
+        group["effective_cards_per_node"] = 3
+        with self.assertRaisesRegex(ValueError, "Effective card allocation"):
+            group_cases.write_groups([group], self.root / "tampered-cards", self.input)
 
     def test_resource_policy_has_exact_selected_and_excluded_coverage(self):
         self.add("single", "a")

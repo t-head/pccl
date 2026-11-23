@@ -17,6 +17,7 @@ import platform_cases
 
 POLICY_EXCLUSION = "disabled by daily resource policy"
 SUPPORTED_NODE_COUNTS = frozenset((1, 2, 4, 8, 16))
+SUPPORTED_CARD_COUNTS = frozenset((1, 2, 4, 8, 16))
 CROSS_RACK_SUITES = {
     ("pccl_shm_op_perf_2_rack_icn8_plan", "op_perf_shm_2_rack_icn8_suite"): 2,
     ("pccl_shm_op_perf_2_rack_icn16_plan", "op_perf_shm_2_rack_icn16_suite"): 4,
@@ -45,11 +46,14 @@ def _write_csv(path, fields, rows):
         writer.writerows(rows)
 
 
-def build_plan(directory, max_cases, nodes=None, suite=None, allowed_nodes=None):
+def build_plan(directory, max_cases, nodes=None, suite=None, allowed_nodes=None, cards_per_node=None):
     if type(max_cases) is not int or max_cases <= 0:
         raise ValueError("max_cases must be a positive integer")
     if nodes is not None and (type(nodes) is not int or nodes not in SUPPORTED_NODE_COUNTS):
         raise ValueError("Node filter must be one of 1, 2, 4, 8, 16")
+    if cards_per_node is not None and (type(cards_per_node) is not int
+                                     or cards_per_node not in SUPPORTED_CARD_COUNTS):
+        raise ValueError("Card override must be one of 1, 2, 4, 8, 16")
     if allowed_nodes is not None:
         allowed_nodes = frozenset(allowed_nodes)
         if (not allowed_nodes or any(type(value) is not int or value <= 0 for value in allowed_nodes)):
@@ -101,6 +105,7 @@ def build_plan(directory, max_cases, nodes=None, suite=None, allowed_nodes=None)
                 "node_selector": platforms[platform]["node_selector"],
                 "nodes": group_nodes,
                 "cards_per_node": cards,
+                "effective_cards_per_node": cards if cards_per_node is None else cards_per_node,
                 "env": env,
                 "cross_rack": rack_policy == "spread",
                 "rack_policy": rack_policy,
@@ -154,6 +159,9 @@ def write_groups(groups, output, input_directory, coverage=None):
                      for case in group["cases"]}
             if cards != {group["cards_per_node"]}:
                 raise ValueError("Execution group card allocation does not match its Cases")
+            effective_cards = group.get("effective_cards_per_node", group["cards_per_node"])
+            if type(effective_cards) is not int or effective_cards not in SUPPORTED_CARD_COUNTS:
+                raise ValueError("Effective card allocation must be one of 1, 2, 4, 8, 16")
             allocations = {_rack_policy(case, platforms) for case in group["cases"]}
             if len(allocations) != 1:
                 raise ValueError("An execution group mixes different rack allocations")
@@ -181,6 +189,7 @@ def write_groups(groups, output, input_directory, coverage=None):
                 "id": group["id"], "profile": group["profile"], "nodes": group["nodes"],
                 "platform": group["platform"], "node_selector": group["node_selector"],
                 "cards_per_node": group["cards_per_node"], "env": group["env"],
+                "effective_cards_per_node": effective_cards,
                 "cross_rack": rack_policy == "spread",
                 "rack_policy": rack_policy, "rack_count": rack_count,
                 "case_count": len(group["cases"]),
@@ -211,12 +220,13 @@ def main():
     parser.add_argument("--nodes", type=int)
     parser.add_argument("--suite")
     parser.add_argument("--allowed-nodes", help="Comma-separated node counts allowed by resource policy")
+    parser.add_argument("--cards-per-node", type=int, help="Debug scheduler allocation override; Case layouts are unchanged")
     args = parser.parse_args()
     try:
         allowed = (None if args.allowed_nodes is None else
                    {int(value) for value in args.allowed_nodes.split(",")})
         plan = build_plan(args.input, args.max_cases, nodes=args.nodes,
-                          suite=args.suite, allowed_nodes=allowed)
+                          suite=args.suite, allowed_nodes=allowed, cards_per_node=args.cards_per_node)
         write_plan(plan, args.output, args.input)
     except (OSError, ValueError) as error:
         parser.error(str(error))

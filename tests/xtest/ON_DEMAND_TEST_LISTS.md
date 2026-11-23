@@ -122,6 +122,11 @@ Pods cannot silently fall back to the same host device 0/1. Out-of-range
 selections fail before the benchmark starts. Quoted and unquoted numeric
 selections retain their topology: `0,3` requires at least four allocated PPUs,
 and a two-card override is rejected rather than changing the Case layout.
+For daily debug runs, `groups.json` retains the command-derived
+`cards_per_node` and records the scheduler request separately as
+`effective_cards_per_node`. All three launch paths use this recorded request;
+the result artifact retains it in `groups.json` and `daily-summary.json`.
+This is the requested allocation, not a claim that pending Pods received devices.
 
 The 22:00 Asia/Shanghai schedule selects `full`, which uses the same JSON
 generation path as manual dispatch. Monday-Thursday allows 1/2/4/8 nodes and
