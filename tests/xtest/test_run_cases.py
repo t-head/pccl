@@ -208,7 +208,8 @@ class CsvRunnerTests(unittest.TestCase):
         benchmark.write_text('#!/bin/sh\nprintf "%s" "$HGGC_VISIBLE_DEVICES"\n')
         benchmark.chmod(0o755)
         wrappers = run_cases._stage_device_wrappers(self.test_root)
-        for allocated, expected in (('9,11', '9,11'), ('2,4', '2,4')):
+        for allocated, expected in (('9,11', '9,11'), ('2,4', '2,4'),
+                                    (' 009 , 011 ', '9,11'), ('0,12', '0,12')):
             environment = dict(os.environ, NVIDIA_VISIBLE_DEVICES=allocated,
                                PCCL_LOGICAL_VISIBLE_DEVICES='0,1',
                                PATH=str(wrappers) + os.pathsep + str(real) + os.pathsep + '/usr/bin:/bin')
@@ -223,6 +224,33 @@ class CsvRunnerTests(unittest.TestCase):
                                 capture_output=True, text=True)
         self.assertNotEqual(result.returncode, 0)
         self.assertIn('exceeds this worker', result.stderr)
+
+    def test_multi_node_mapping_rejects_invalid_worker_allocations_before_exec(self):
+        real = self.root / 'real-bin'
+        real.mkdir()
+        marker = self.root / 'benchmark-started'
+        benchmark = real / 'all_reduce_perf'
+        benchmark.write_text('#!/bin/sh\n: > "$BENCHMARK_MARKER"\n'
+                             'printf "%s" "$HGGC_VISIBLE_DEVICES"\n')
+        benchmark.chmod(0o755)
+        wrappers = run_cases._stage_device_wrappers(self.test_root)
+        invalid = ('', ' ', 'all', 'ALL', 'void', 'none', '9,9', '9,09', '09,9',
+                   '0,00', '9,,11', ',9', '9,', '-1', '9,-1', '1.0', '1e1',
+                   '9,eleven', '9\n11', '9,10\n11')
+        for allocated in invalid:
+            with self.subTest(allocated=allocated):
+                with self.assertRaises(ValueError):
+                    run_cases._allocated_devices({'NVIDIA_VISIBLE_DEVICES': allocated})
+                environment = dict(os.environ, NVIDIA_VISIBLE_DEVICES=allocated,
+                                   PCCL_LOGICAL_VISIBLE_DEVICES='0',
+                                   BENCHMARK_MARKER=str(marker),
+                                   PATH=str(wrappers) + os.pathsep + str(real) + os.pathsep + '/usr/bin:/bin')
+                result = subprocess.run(['all_reduce_perf'], env=environment,
+                                        capture_output=True, text=True, timeout=5)
+                self.assertNotEqual(result.returncode, 0)
+                self.assertIn('NVIDIA_VISIBLE_DEVICES', result.stderr)
+                self.assertEqual(result.stdout, '')
+                self.assertFalse(marker.exists(), 'Invalid allocation launched the benchmark')
 
     def test_multi_node_mapping_rejects_out_of_range_logical_indices(self):
         with self.assertRaisesRegex(ValueError, 'requires 4 PPUs but only 2 were allocated'):

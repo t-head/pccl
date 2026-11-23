@@ -114,7 +114,10 @@ limit. M890P keeps its existing 28 groups and allocation behavior.
 At execution on both M890P and 810E, Case-local device indices are mapped to the
 physical PPU list in
 `NVIDIA_VISIBLE_DEVICES`, including explicit `HGGC_VISIBLE_DEVICES` and
-`--devices` selections. The effective list is forwarded through MPI so parallel
+`--devices` selections. Each worker validates its own allocation as a finite,
+unique list of numeric indices before mapping; `all`, malformed entries and
+duplicates (including equivalent values such as `9,09`) fail before launch.
+The effective list is forwarded through MPI so parallel
 Pods cannot silently fall back to the same host device 0/1. Out-of-range
 selections fail before the benchmark starts. Quoted and unquoted numeric
 selections retain their topology: `0,3` requires at least four allocated PPUs,
