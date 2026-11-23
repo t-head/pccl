@@ -54,10 +54,12 @@ def module_approval(api, pr, roster, skill, record, approvals):
     modules = routing.primary_modules(record, roster)
     requirements = routing.review_requirements(record, roster, pr["head"]["sha"], modules)
     if not requirements:
-        return False, "At least one review module is required; use /review-module add <module>", {}
+        return False, "At least one module must have a required role", {}
     if roster["lead_maintainer"] in approvals:
         return (True,
                 "Lead Maintainer approved all module Reviewer and Maintainer requirements for the current commit", {})
+    if not any({"Reviewer", "Maintainer"} <= roles for roles in requirements.values()):
+        return False, "At least one module must require both Reviewer and Maintainer unless the Lead approves", {}
     classification = record["classification"]
     if (not classification or classification.get("pr_number") != pr["number"] or
             classification.get("head_sha") != pr["head"]["sha"]):

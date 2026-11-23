@@ -470,7 +470,8 @@ def notify_reviewers(api, number, new_users, roles_by_user, proposal, requiremen
             "Members with write access can add or remove requirements, even as PR author, with "
             "`/review-module add|rm <module> [reviewer|maintainer]` (omit the role for both). "
             "Removing automatic requirements applies only to the current commit. "
-            "The gate requires at least one module with a required role. "
+            "The gate requires a module with both Reviewer and Maintainer requirements unless the Lead approves; "
+            "at least one required role must remain. "
             "See the [module roster]"
             f"(https://github.com/{api.repository}/blob/{WORKFLOW_BRANCH}/"
             ".github/skills/pccl-review-assignment/modules.json).\n")

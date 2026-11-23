@@ -97,8 +97,13 @@ Any non-author Reviewer in the same module can substitute for the default invite
 Authors are exempt from their own roles, except that the secondary module always needs
 a non-author Reviewer when its Reviewer role is required. Manual additions still require
 the specified roles. One vote covers all roles that person holds. The Lead can approve
-all remaining roles on another author's PR. Removing every role leaves the gate pending
-until a module is added.
+all remaining roles on another author's PR.
+
+At least one module must retain both Reviewer and Maintainer requirements unless the
+Lead approves the current HEAD on another author's PR. Removing a role is allowed, but
+without a complete pair the gate waits for Lead approval or restoration of a complete
+pair and its required approvals. An author exemption satisfies a role without counting
+as an approval vote. Removing all requirements keeps the gate pending even with Lead approval.
 
 After a push or a review change, allow the gate to refresh. If a module update was
 interrupted, its **Details** link identifies the run to retry. For a merge to `main`,
