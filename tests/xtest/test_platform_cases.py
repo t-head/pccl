@@ -82,11 +82,16 @@ class PlatformCasesTests(unittest.TestCase):
         bundle = self.bundle("device_api_shm", platform="oam810e_eic")
         self.assertEqual(len(bundle["rows"]), 28)
         self.assertFalse(any("GIN_TYPE=" in row["cmd"] for row in bundle["rows"]))
+        m890p = self.bundle("device_api_shm")
+        self.assertEqual(len(m890p["rows"]), 52)
+        self.assertEqual(sum("GIN_TYPE=" in row["cmd"] for row in m890p["rows"]), 24)
 
     def test_pr_bundle_has_standard_notsm_and_two_node_coverage(self):
         bundle = generate_pr_cases.build_pr_bundle(SHA, SHA)
         self.assertEqual(len(bundle["standard"]), 21)
         self.assertEqual(len(bundle["notsm"]), 9)
+        self.assertFalse(any("GIN_TYPE=" in row["cmd"]
+                             for row in bundle["standard"] + bundle["notsm"]))
         self.assertEqual({row["nodes"] for row in bundle["suites"]}, {1, 2})
         self.assertTrue(all(row["cards_per_node"] == 2 for row in bundle["suites"]))
         graph_case = next(row for row in bundle["standard"] if "GraphUnitTest" in row["cmd"])
@@ -228,7 +233,7 @@ class PlatformCasesTests(unittest.TestCase):
         with tempfile.TemporaryDirectory() as temporary:
             root = Path(temporary)
             for variable, platform, expected in (("GENERATED_DEFINITIONS", "m890p", 10193),
-                                                ("GENERATED_810E_DEFINITIONS", "oam810e_eic", 7684)):
+                                                ("GENERATED_810E_DEFINITIONS", "oam810e_eic", 7666)):
                 blocks = re.findall(r'^ *' + variable + r'\+?=\(\n(.*?)^ *\)',
                                     workflow, flags=re.MULTILINE | re.DOTALL)
                 definitions = [Path(path).name for path in
@@ -249,9 +254,11 @@ class PlatformCasesTests(unittest.TestCase):
                 bundles.append(bundle)
                 families[platform] = definitions
             self.assertNotIn('device_api_gin_810e.json', families['m890p'])
-            self.assertIn('device_api_gin_810e.json', families['oam810e_eic'])
+            self.assertNotIn('device_api_gin_810e.json', families['oam810e_eic'])
+            self.assertNotIn('device_api_gin_810e', platform_cases.load_platform('oam810e_eic')['families'])
+            self.assertFalse(any('GIN_TYPE=' in row['cmd'] for row in bundles[1]['rows']))
             combined = generate_cases.combine_bundles(bundles)
-            self.assertEqual(len(combined['rows']), 17877)
+            self.assertEqual(len(combined['rows']), 17859)
             generate_cases.write_bundle(combined, root / 'input', DEFINITIONS / 'envs')
             plan = group_cases.build_plan(root / 'input', 500, allowed_nodes=(1, 2, 4, 8))
             totals = Counter()
@@ -294,7 +301,7 @@ class PlatformCasesTests(unittest.TestCase):
                             self.assertEqual(arguments[arguments.index('--nproc') + 1], str(ranks))
                             self.assertEqual(cards, ranks)
                             covered[(platform, 'sym-eight-rank-source')] += 1
-            self.assertEqual(totals, {'m890p': 10184, 'oam810e_eic': 7684})
+            self.assertEqual(totals, {'m890p': 10184, 'oam810e_eic': 7666})
             self.assertEqual(len(plan['groups']), 53)
             self.assertEqual(sum(record['case_count'] for record in plan['exclusions']), 9)
             for platform, rdma in (('m890p', 18), ('oam810e_eic', 6)):
@@ -304,7 +311,7 @@ class PlatformCasesTests(unittest.TestCase):
                 self.assertGreater(covered[(platform, 'sym-eight-rank-source')], 0)
             group_cases.write_plan(plan, root / 'groups', root / 'input')
             manifest = json.loads((root / 'groups/groups.json').read_text(encoding='utf-8'))
-            self.assertEqual(sum(row['case_count'] for row in manifest), 17868)
+            self.assertEqual(sum(row['case_count'] for row in manifest), 17850)
             self.assertEqual({row['platform'] for row in manifest}, {'m890p', 'oam810e_eic'})
 
     def test_quoted_device_spans_determine_the_allocation(self):

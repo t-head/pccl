@@ -125,19 +125,10 @@ class PublicGeneratorTests(unittest.TestCase):
         self.assertEqual(allocations, {1: 6, 2: 130, 4: 562, 8: 602})
         group_cases.write_plan(plan, self.root / "native-rank-group-output", output)
 
-    def test_810e_dedicated_gin_cases_form_two_full_node_groups(self):
-        bundle = self.bundle("device_api_gin_810e")
-        self.assertEqual(len(bundle["rows"]), 18)
-        self.assertTrue(all("PCCL_GIN_TYPE=3" in row["cmd"] for row in bundle["rows"]))
-        self.assertFalse(any("PCCL_GIN_TYPE=2" in row["cmd"] for row in bundle["rows"]))
-        self.assertFalse(any("bond1" in row["cmd"] or "./hosts.cfg" in row["cmd"]
-                             for row in bundle["rows"]))
-        output = self.root / "dedicated-gin-groups"
-        generate_cases.write_bundle(bundle, output, DEFINITIONS / "envs")
-        plan = group_cases.build_plan(output, 500, allowed_nodes=(1, 2))
-        self.assertEqual([len(group["cases"]) for group in plan["groups"]], [10, 8])
-        self.assertEqual({group["cards_per_node"] for group in plan["groups"]}, {16})
-        self.assertEqual({group["nodes"] for group in plan["groups"]}, {1, 2})
+    def test_810e_dedicated_gin_definitions_are_deferred(self):
+        self.assertFalse((DEFINITIONS / "device_api_gin_810e.json").exists())
+        suites = json.loads(SUITES.read_text())["suites"]
+        self.assertFalse(any("device_api_gin_810e" in row["suite"] for row in suites))
 
     def test_multi_node_rdma_matches_all_4090_committed_rows(self):
         self.assert_matches_source_export("pccl_fun_rdma_shm", 4090)

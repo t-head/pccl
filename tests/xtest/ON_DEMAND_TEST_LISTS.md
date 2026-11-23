@@ -37,9 +37,6 @@ that publication step.
   per-family and combined row digests, and 346 explicit exclusions: 308
   `p2pBandwidthLatencyTest`, 35 `alltoallvTest`, and three `use_ext_kernel`
   configurations whose public binaries or options are unavailable.
-- `test_lists/device_api_gin_810e.json`: 18 dedicated 810E GIN3 Cases from the
-  device_api plan, replacing the 24 shared-family GIN Cases excluded during
-  810E conversion.
 - `test_lists/pccl_fun_rdma_shm.json`: 4,090 multi-node combinations, including
   LL128, 4nics, host, socket and ibsplit variants.
 - `test_lists/register_test_shm.json` and
@@ -95,11 +92,12 @@ The workflow supports two `workflow_dispatch` choices:
 
 These counts describe the preserved M890P baseline. Daily preparation also
 applies `platforms/oam810e_eic.json` to the supported shared families and adds
-7,684 full-selection Cases after excluding all 36 FP8 Cases and 24 GIN Cases
-inherited from the shared device_api family. The dedicated 810E device_api plan
-contributes 18 GIN3 Cases instead. Combined dual-platform generation produces
-17,877 Cases, selects 17,868 in 53 groups, and retains each group's platform and
-`node_selector`. Dual-platform smoke has nine Cases in three groups, including
+7,666 full-selection Cases after excluding all 36 FP8 Cases and 24 GIN Cases
+inherited from the shared device_api family. The dedicated 18-Case 810E GIN3
+selection is deferred until GIN communicator support is validated on the target
+environment; M890P GIN coverage is unchanged. Combined dual-platform generation
+produces 17,859 Cases, selects 17,850 in 53 groups, and retains each group's
+platform and `node_selector`. Dual-platform smoke has nine Cases in three groups, including
 one 810E collective and one graph native unit Case.
 
 The 810E allocation is derived from actual ranks per node rather than always

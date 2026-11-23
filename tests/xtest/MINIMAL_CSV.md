@@ -183,11 +183,11 @@ dispatch exposes `execution_timeout_minutes` with a default of 720; the execute
 Job adds 30 minutes for setup and cleanup. These workflow limits do not change
 the Suite or Case timeouts in the generated input.
 
-The 810E `full` conversion adds 7,684 selected Cases after excluding all 36
+The 810E `full` conversion adds 7,666 selected Cases after excluding all 36
 FP8 Cases and the 24 GIN Cases inherited from the shared M890P device_api
-family. The dedicated 810E device_api plan contributes 18 GIN3 Cases instead:
-ten single-node and eight two-node Cases, each requesting 16 cards per node.
-The combined export has 17,877 Cases and selects 17,868 Cases in 53
+family. The dedicated 18-Case 810E GIN3 selection is deferred until GIN
+communicator support is validated on the target environment. M890P GIN coverage
+is unchanged. The combined export has 17,859 Cases and selects 17,850 Cases in 53
 groups after the same 16-node
 M890P exclusions. This is generation coverage only, not a claim that the full
 hardware dataset has been executed.

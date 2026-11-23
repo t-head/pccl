@@ -230,16 +230,6 @@
       "plan": "pccl_810e_all_gather_unit_test_single_node1_plan",
       "suite": "all_gather_unit_test_810e_single_node_suite",
       "nodes": 1, "cards_per_node": 16, "timeout": 3600, "env": "op_perf.env"
-    },
-    {
-      "plan": "pccl_810e_device_api_gin_single_node1_plan",
-      "suite": "device_api_gin_810e_single_node_suite",
-      "nodes": 1, "cards_per_node": 16, "timeout": 300, "env": "op_perf.env"
-    },
-    {
-      "plan": "pccl_810e_device_api_gin_multi_node2_plan",
-      "suite": "device_api_gin_810e_multi_nodes2_suite",
-      "nodes": 2, "cards_per_node": 16, "timeout": 300, "env": "op_perf.env"
     }
   ]
 }

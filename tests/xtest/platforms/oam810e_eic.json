@@ -15,7 +15,6 @@
     "postsil_unit_test_810e": {"nodes": [1]},
     "postsil_unit_test_810e_smoke": {"nodes": [1]},
     "all_gather_unit_test_810e": {"nodes": [1]},
-    "device_api_gin_810e": {"nodes": [1, 2]},
     "op_perf_shm": {
       "nodes": [1],
       "numeric": {
