@@ -10,7 +10,7 @@
         "copy-engine",
         "device-api"
       ],
-      "reason": "Main change is CE/DMA-backed host one-sided RMA (PutSignal/Signal/WaitSignal), including new RMA CE launch code, signal/ack synchronization, and large-transfer chunking. Add enqueue for substantive new API validation and conversion into planner/context queues plus RMA plan scheduling/launch wiring. Add device-api because public PCCL API/config surface and communicator/window semantics changed (new exported RMA calls, wait descriptors, hostRma capability reporting, and symmetric window/LSA offset validation behavior)."
+      "reason": "Main change is host one-sided RMA (Put/Signal/Wait) executed via CE/DMA paths, including CE-side signal/wait ordering and per-context CE state; enqueue is additionally needed because new RMA task types, planner queues, batching, and launch routing are introduced; device-api is additionally needed because public PCCL APIs and symmetric-window/LSA validation semantics are extended for these operations."
     }
   },
   "reviewers": {
