@@ -8,10 +8,9 @@
       "modules": [
         "communicator",
         "enqueue",
-        "copy-engine",
-        "device-api"
+        "copy-engine"
       ],
-      "reason": "Primary change is CE-backed host one-sided RMA (Put/Signal/WaitSignal), adding new CE launch, signaling/ack synchronization, and RMA execution paths. enqueue is additionally needed because new RMA operations are validated, converted to tasks, batched, scheduled into plans, and launched via group/planner flow. communicator is needed for host-RMA capability detection, numRmaCtx config parsing/defaulting/validation, and communicator init/finalize lifecycle integration. device-api is needed because the feature relies on symmetric window and LSA semantics, with substantive changes to window offset consistency handling and window-registration-triggered RMA CE initialization."
+      "reason": "Main change is new host one-sided RMA Put/Signal/WaitSignal execution over CE (new rma_ce path, signaling/ack protocol, chunked >1GB puts, CE init/finalize), so copy-engine is primary. Enqueue is additionally required because new RMA task types are validated, queued, batched, planned, launched, and cleaned up in the runtime planner/group launch flow. Communicator is additionally required because capability gating, config (`numRmaCtx`), platform/team checks, window-registration-triggered RMA CE initialization, and communicator properties/lifecycle teardown are changed."
     }
   },
   "reviewers": {
