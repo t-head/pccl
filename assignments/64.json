@@ -1,17 +1,16 @@
 {
   "classification": {
     "base_sha": "abb6688b4b5419664e7bf13c2d9107bd7acafd89",
-    "head_sha": "2497517728f13ddbff977f3c31c5e651ea1a499f",
-    "input_fingerprint": "bdd912ab4d216dc8204b2eab138c387407b7e5f2a97bccc7a9c413b79e109d69",
+    "head_sha": "4bf26cb939c3be3429db11c1051bedd0364d47d8",
+    "input_fingerprint": "4a138b1a513430593d567f92bce3617684d8969e39122a6578147f4ca4c98525",
     "pr_number": 64,
     "proposal": {
       "modules": [
-        "communicator",
         "enqueue",
         "copy-engine",
         "device-api"
       ],
-      "reason": "Main change is new host one-sided RMA Put/Signal/Wait execution over CE/DMA (new rma_ce launch/init/finalize paths, signal/ack synchronization, chunked puts), which maps to copy-engine. enqueue is additionally needed because the PR adds a new RMA task type, planner queues, plan scheduling, and launch-path integration. device-api is additionally needed because public one-sided APIs and symmetric-window/LSA validation semantics are introduced and wired through window/runtime structures. communicator is additionally needed for communicator-level capability gating and lifecycle/config integration (hostRmaSupport platform checks, numRmaCtx parsing/defaults, init/finalize hooks)."
+      "reason": "Main change is CE/DMA-backed host one-sided RMA (PutSignal/Signal/WaitSignal), including new RMA CE launch code, signal/ack synchronization, and large-transfer chunking. Add enqueue for substantive new API validation and conversion into planner/context queues plus RMA plan scheduling/launch wiring. Add device-api because public PCCL API/config surface and communicator/window semantics changed (new exported RMA calls, wait descriptors, hostRma capability reporting, and symmetric window/LSA offset validation behavior)."
     }
   },
   "reviewers": {
