@@ -1,14 +1,14 @@
 {
   "classification": {
     "base_sha": "4a9b207f6c06878cfc9d4344366e9ebc790775e9",
-    "head_sha": "42b91b1d97812925638e1d9218fe9331af409ff9",
-    "input_fingerprint": "f6d0f025638f8cd867780be521ccf2424f1bde23b486d195cb6ea52b6ed89e21",
+    "head_sha": "f800aea0cf7e62b056048e7b8caa6ed82616571e",
+    "input_fingerprint": "5c3289f201abc1ad121d3a63ec304b30e606717f48ae3a488d66c4cc40d6fbec",
     "pr_number": 220,
     "proposal": {
       "modules": [
         "ci"
       ],
-      "reason": "Main substantive change is a broad CI/testing pipeline overhaul: dual-platform workflow execution (M890P+810E), trusted HPN SDK URL selection/installation plumbing, expanded case generation/grouping/reconciliation logic, device-allocation mapping in the test executor, and associated CI test/report updates. Documentation and large added case-list JSON files (including patch_omitted files) support this same CI behavior rather than introducing separate production-module policy/protocol ownership changes."
+      "reason": "Primary change is CI workflow/test-orchestration behavior: dual-platform (M890P/810E) daily+sanity execution, trusted HPN SDK selection/installation propagation, platform-aware case generation/grouping/device mapping, and related reconciliation/reporting plus xtest contract/data updates (including added native-unit family manifests, even where large patches are omitted)."
     }
   },
   "reviewers": {
