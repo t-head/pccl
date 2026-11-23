@@ -1,5 +1,5 @@
 name: PR195 review checklist trial
-run-name: "PR #195 checklist trial (30 minutes)"
+run-name: "PR #195 checklist trial (4 hours)"
 
 on:
   push:
@@ -18,7 +18,7 @@ jobs:
   trial:
     if: github.repository == 't-head/pccl'
     runs-on: ubuntu-24.04
-    timeout-minutes: 35
+    timeout-minutes: 245
     permissions:
       contents: read
       pull-requests: write
@@ -35,7 +35,7 @@ jobs:
           PYTHONUNBUFFERED: '1'
         run: python3 -B .github/scripts/review_checklist_trial.py
       - name: Mark the trial inactive
-        if: always() && steps.trial.outputs.result_id != ''
+        if: always() && steps.trial.outputs.head != ''
         env:
           GITHUB_TOKEN: ${{ github.token }}
           TRIAL_HEAD: ${{ steps.trial.outputs.head }}

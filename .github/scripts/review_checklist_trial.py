@@ -15,8 +15,8 @@ REPOSITORY = "t-head/pccl"
 NUMBER = 195
 BRANCH = "experiment/pr195-review-checklist"
 CHECK = "PCCL Review Checklist Trial"
-DURATION = 1800
-INTERVAL = 15
+DURATION = 4 * 60 * 60
+INTERVAL = 30
 MARKER = "<!-- pccl-review-checklist-trial:"
 ROW = re.compile(r"^- \[([ xX])\] (.+) <!-- trial-role:([a-z][a-z0-9-]*):(Reviewer|Maintainer) -->$", re.M)
 COMMENT_QUERY = """query($id: ID!) {
@@ -35,6 +35,7 @@ class TrialAPI(reviewer_api.GitHub):
         super().__init__(REPOSITORY, token)
         self.sha = sha
         self.result_id = None
+        self.retired = set()
         self.created = 0
 
     def request(self, method, path, data=None, *, repository=True):
@@ -47,6 +48,8 @@ class TrialAPI(reviewer_api.GitHub):
                 allowed = method == "POST" and self.created < 2 and data.get("body", "").startswith(MARKER)
                 if allowed:
                     self.created += 1
+            elif repository and method == "DELETE":
+                allowed = path in {f"/issues/comments/{comment_id}" for comment_id in self.retired}
             else:
                 allowed = (repository and method == "PATCH" and self.result_id is not None and
                            path == f"/issues/comments/{self.result_id}" and
@@ -98,7 +101,8 @@ def row(api, module, role, selected, record, roster, author, secondary):
 
 
 def checklist_body(api, pr, record, roster, modules, selected, expires, run_url):
-    lines = [f"{MARKER}{os.environ['GITHUB_RUN_ID']}:checklist -->", "", "## Review requirements · live trial", "",
+    lines = [f"{MARKER}{os.environ['GITHUB_RUN_ID']}:{pr['head']['sha']}:checklist -->", "",
+             "## Review requirements · live trial", "",
              f"PR #{NUMBER} · commit `{pr['head']['sha'][:12]}` · active until **{expires}**", "",
              "> Checking a role requires its approval; it does **not** mean approval was given.", "",
              "Toggle the boxes directly, or use **Edit** if GitHub does not expose clickable boxes.",
@@ -110,10 +114,23 @@ def checklist_body(api, pr, record, roster, modules, selected, expires, run_url)
         lines.append("")
     if len(modules) == 1:
         lines += ["Secondary module: none. The saved classification selected only one module.", ""]
-    lines += ["<details>", "<summary>Other modules — optional manual requirements</summary>", "",
-              "These are catalog choices, not an assertion that this PR changes every module.", ""]
+    additional = record["classification"]["proposal"]["additional_modules"]
+    lines += ["### Other affected modules", ""]
+    if additional:
+        lines += ["Identified in the saved classification, but not selected as primary or secondary.",
+                  "Optional: check a role to require its approval.", ""]
+        for module in additional:
+            lines += [f"**`{module}`**", ""]
+            lines += [row(api, module, role, selected, record, roster, pr["user"]["id"], modules[1:])
+                      for role in ("Reviewer", "Maintainer")]
+            lines.append("")
+    else:
+        lines += ["No other affected modules are listed in the saved classification.", ""]
+    lines += ["<details>", "<summary>Add other modules manually</summary>", "",
+              "Use the remaining module catalog to correct omissions. "
+              "Absence from the classification does not mean a module is unaffected.", ""]
     for module in roster["modules"]:
-        if module in modules:
+        if module in modules or module in additional:
             continue
         lines += [f"**`{module}`**", ""]
         lines += [row(api, module, role, selected, record, roster, pr["user"]["id"], modules[1:])
@@ -122,13 +139,16 @@ def checklist_body(api, pr, record, roster, modules, selected, expires, run_url)
     lines += ["</details>", "", "---", "",
               "Write access or higher is required, including for the PR author. Only edit checkboxes.",
               "The trial uses the branch's approval rules and real reviews on this commit, including author exemptions,",
-              "same-module Reviewer substitutes and Lead approval. Removing every role keeps the trial pending.", "",
+              "same-module Reviewer substitutes and Lead approval.",
+              "Keep both Reviewer and Maintainer checked in at least one module unless the Lead approves this commit.",
+              "Removing every role keeps the trial pending, even with Lead approval.", "",
               "**Isolated trial:** no invitations, review requests, shared assignments or production Gate are changed.",
-              "Account names are shown as code to avoid mentions. The initial scope comes from the saved classification;",
-              "no new AI classification is claimed. Selections exist only for this run; a PR snapshot change stops it.",
-              "Automatic exclusions apply to this HEAD; cross-commit persistence is not exercised by this short trial.", "",
-              "Try unchecking only the primary Reviewer: the remaining Maintainer role is author-exempt on this PR.",
-              "Then uncheck Maintainer too to see the empty-scope block; restore both boxes to return to the initial state.", "",
+              "Account names are shown as code to avoid mentions. Scope comes from each HEAD's saved classification;",
+              "no new AI classification is claimed. A new HEAD gets a new checklist; only the newest checklist is processed.",
+              "Manual additions carry across HEADs during this run; automatic exclusions expire on the next HEAD.",
+              "The trial starts a fresh session and does not save selections after expiry. Other PR snapshot changes stop it.", "",
+              "Try unchecking the primary Reviewer: without another complete module or Lead approval, the trial stays pending.",
+              "Restore both roles in one module and obtain the required approvals, or ask the Lead to approve this commit.", "",
               f"[Trial run and logs]({run_url}) · This check is not a merge requirement.", ""]
     return "\n".join(lines)
 
@@ -138,11 +158,12 @@ def publish(api, state, description, run_url):
         "context": CHECK, "state": state, "description": description[:140], "target_url": run_url})
 
 
-def result_body(state, reason, selected, actor, expires, checklist_url):
+def result_body(state, reason, selected, actor, expires, checklist_url, head):
     roles = "; ".join(f"{module}: {', '.join(role for role in ('Reviewer', 'Maintainer') if (module, role) in selected)}"
                       for module in sorted({module for module, _ in selected})) or "none"
-    return (f"{MARKER}{os.environ['GITHUB_RUN_ID']}:result -->\n\n"
+    return (f"{MARKER}{os.environ['GITHUB_RUN_ID']}:{head}:result -->\n\n"
             f"## {CHECK} · {state.upper()}\n\n"
+            f"Commit: `{head[:12]}`\n\n"
             f"Applied requirements: `{roles}`\n\n"
             f"Last accepted edit: `{actor}`\n\n"
             f"```text\n{reason}\n```\n\n"
@@ -151,14 +172,63 @@ def result_body(state, reason, selected, actor, expires, checklist_url):
             f"[Edit the trial checklist]({checklist_url})\n")
 
 
+def trial_comment(comment):
+    return (comment["user"]["id"] == routing.GITHUB_ACTIONS_BOT_ID and comment["user"]["type"] == "Bot" and
+            comment["issue_url"] == f"https://api.github.com/repos/{REPOSITORY}/issues/{NUMBER}" and
+            re.match(re.escape(MARKER) + r"[0-9]+:(?:[0-9a-f]{40}:)?(?:checklist|result) -->\n", comment["body"] or ""))
+
+
+def retire_comments(api, comments):
+    for old in comments:
+        try:
+            current = api.request("GET", f"/issues/comments/{old['id']}")
+            if not trial_comment(current) or current["body"].splitlines()[0] != old["body"].splitlines()[0]:
+                raise ValueError("Old trial comment ownership or marker changed")
+            api.retired.add(old["id"])
+            api.request("DELETE", f"/issues/comments/{old['id']}")
+        except reviewer_api.GitHubError as error:
+            if error.status != 404:
+                raise
+        finally:
+            api.retired.discard(old["id"])
+
+
+def save_outputs(api):
+    with open(os.environ["GITHUB_OUTPUT"], "a") as output:
+        output.write(f"head={api.sha}\nresult_id={api.result_id or ''}\n")
+
+
+def valid_pr(pr):
+    return (pr["head"]["repo"] is not None and pr["head"]["repo"]["full_name"] == REPOSITORY and
+            pr["head"]["ref"] == "ci/squash-preview-check" and pr["base"]["repo"]["full_name"] == REPOSITORY and
+            pr["base"]["ref"] == "main" and pr["state"] == "open" and not pr["draft"])
+
+
+def prepare_record(api, pr, roster, skill, manual):
+    record = reviewer_state.read_pr_assignments(api, NUMBER)
+    source = record["classification"]
+    if not source or source.get("head_sha") != api.sha or source.get("pr_number") != NUMBER:
+        return None
+    proposal = routing.validate_classification({
+        **source["proposal"], "additional_modules": source["proposal"].get("additional_modules", [])}, roster)
+    files = routing.fetch_pr_diff(api, pr)
+    record["classification"] = {**source, "proposal": proposal,
+                                "input_fingerprint": routing.classification_fingerprint(pr, files, roster, skill)}
+    record["reviewers"] = routing.select_reviewers(
+        list(roster["modules"]), roster["modules"], record["reviewers"], {}, pr["user"]["id"], proposal["modules"][1:])
+    for module, roles in manual.items():
+        record.setdefault("manual_modules", {}).setdefault(module, {}).update(copy.deepcopy(roles))
+    return record
+
+
 def stop(api, run_url):
     publish(api, "pending", "Trial inactive; further checkbox edits are not processed", run_url)
+    if not os.environ.get("TRIAL_RESULT_ID"):
+        return
     result_id = int(os.environ["TRIAL_RESULT_ID"])
     comment = api.request("GET", f"/issues/comments/{result_id}")
-    expected = f"{MARKER}{os.environ['GITHUB_RUN_ID']}:result -->"
-    if (comment["user"]["id"] != routing.GITHUB_ACTIONS_BOT_ID or comment["user"]["type"] != "Bot" or
-            not comment["body"].startswith(expected) or
-            comment["issue_url"] != f"https://api.github.com/repos/{REPOSITORY}/issues/{NUMBER}"):
+    expected = f"{MARKER}{os.environ['GITHUB_RUN_ID']}:{api.sha}:result -->"
+    if not trial_comment(comment) or not comment["body"].startswith(expected):
         raise ValueError("Unexpected trial result comment")
     api.result_id = result_id
     body = comment["body"].replace(f"## {CHECK} ·", f"## {CHECK} · INACTIVE — last result:", 1)
@@ -170,46 +240,64 @@ def run(api, run_url):
     actor = api.request("GET", f"/users/{os.environ['GITHUB_TRIGGERING_ACTOR']}", repository=False)
     authorize(api, {"__typename": actor["type"], "login": actor["login"], "databaseId": actor["id"]})
     pr = api.request("GET", f"/pulls/{NUMBER}")
-    if (pr["head"]["sha"] != api.sha or pr["head"]["repo"]["full_name"] != REPOSITORY or
-            pr["head"]["ref"] != "ci/squash-preview-check" or pr["base"]["repo"]["full_name"] != REPOSITORY or
-            pr["base"]["ref"] != "main" or pr["state"] != "open" or pr["draft"]):
+    if not valid_pr(pr) or pr["head"]["sha"] != api.sha:
         raise ValueError("The trial requires the pinned open PR #195 snapshot")
     roster, skill = routing.load_config()
-    record = reviewer_state.read_pr_assignments(api, NUMBER)
-    source = record["classification"]
-    if not source or source["head_sha"] != api.sha or source["pr_number"] != NUMBER:
-        raise ValueError("Wait for a saved classification of the current PR commit")
-    proposal = routing.validate_classification({
-        **source["proposal"], "additional_modules": source["proposal"].get("additional_modules", [])}, roster)
-    modules = proposal["modules"]
-    files = routing.fetch_pr_diff(api, pr)
-    record["classification"] = {**source, "proposal": proposal,
-                                "input_fingerprint": routing.classification_fingerprint(pr, files, roster, skill)}
-    record["reviewers"] = routing.select_reviewers(
-        list(roster["modules"]), roster["modules"], record["reviewers"], {}, pr["user"]["id"], modules[1:])
-    requirements = routing.review_requirements(record, roster, api.sha, modules)
-    selected = {(module, role) for module, roles in requirements.items() for role in roles}
+    old_comments = [comment for comment in api.pages(f"/issues/{NUMBER}/comments") if trial_comment(comment)]
     expires = (datetime.now(timezone.utc) + timedelta(seconds=DURATION)).strftime("%Y-%m-%d %H:%M:%S UTC")
-    template = checklist_body(api, pr, record, roster, modules, selected, expires, run_url)
-    checklist = api.request("POST", f"/issues/{NUMBER}/comments", {"body": template})
-    initial = result_body("pending", "Starting approval calculation", selected, "initial scope", expires,
-                          checklist["html_url"])
-    result = api.request("POST", f"/issues/{NUMBER}/comments", {"body": initial})
-    api.result_id = result["id"]
-    with open(os.environ["GITHUB_OUTPUT"], "a") as output:
-        output.write(f"result_id={api.result_id}\nhead={api.sha}\n")
-    with open(os.environ["GITHUB_STEP_SUMMARY"], "a") as summary:
-        summary.write(f"[Trial checklist]({checklist['html_url']})\n\n[Live result]({result['html_url']})\n\n"
-                      f"Expires at {expires}. No production Gate or invitations are changed.\n")
-    print(json.dumps({"checklist": checklist["html_url"], "result": result["html_url"], "expires": expires}), flush=True)
-    version, last_body, last_status = (None, template), initial, None
-    last_actor, edit_error, sequence = "initial scope", None, 0
     deadline = time.monotonic() + DURATION
+    record, manual, sequence = None, {}, 0
+    save_outputs(api)
+    publish(api, "pending", "Waiting for saved classification of the current trial commit", run_url)
     while time.monotonic() < deadline:
         fresh = api.request("GET", f"/pulls/{NUMBER}")
-        if routing.pr_snapshot_key(fresh) != routing.pr_snapshot_key(pr):
-            print("PR snapshot changed; stopping without applying this checklist to another snapshot.", flush=True)
+        if not valid_pr(fresh):
+            print("PR is no longer eligible for this trial; stopping.", flush=True)
             break
+        if routing.pr_snapshot_key(fresh)[1:] != routing.pr_snapshot_key(pr)[1:]:
+            print("PR metadata changed; stopping without reusing its saved classification.", flush=True)
+            break
+        if fresh["head"]["sha"] != api.sha:
+            publish(api, "pending", "Trial superseded by a new PR commit", run_url)
+            if api.result_id is not None:
+                body = last_body.replace(f"## {CHECK} ·", f"## {CHECK} · INACTIVE — last result:", 1)
+                body += "\n**Superseded by a new commit.** This checklist is no longer processed.\n"
+                api.request("PATCH", f"/issues/comments/{api.result_id}", {"body": body})
+            api.sha, api.result_id = fresh["head"]["sha"], None
+            save_outputs(api)
+            manual = {module: {role: command for role, command in roles.items() if command["required"]}
+                      for module, roles in manual.items()}
+            pr, record = fresh, None
+            publish(api, "pending", "Waiting for saved classification of the current trial commit", run_url)
+        if record is None:
+            prepared = prepare_record(api, pr, roster, skill, manual)
+            if prepared is None:
+                time.sleep(min(INTERVAL, max(0, deadline - time.monotonic())))
+                continue
+            modules = prepared["classification"]["proposal"]["modules"]
+            requirements = routing.review_requirements(prepared, roster, api.sha, modules)
+            selected = {(module, role) for module, roles in requirements.items() for role in roles}
+            template = checklist_body(api, pr, prepared, roster, modules, selected, expires, run_url)
+            fresh = api.request("GET", f"/pulls/{NUMBER}")
+            if not valid_pr(fresh) or routing.pr_snapshot_key(fresh) != routing.pr_snapshot_key(pr):
+                continue
+            record = prepared
+            api.created = 0
+            checklist = api.request("POST", f"/issues/{NUMBER}/comments", {"body": template})
+            initial = result_body("pending", "Starting approval calculation", selected, "initial scope", expires,
+                                  checklist["html_url"], api.sha)
+            result = api.request("POST", f"/issues/{NUMBER}/comments", {"body": initial})
+            api.result_id = result["id"]
+            save_outputs(api)
+            retire_comments(api, old_comments)
+            old_comments = [checklist, result]
+            with open(os.environ["GITHUB_STEP_SUMMARY"], "a") as summary:
+                summary.write(f"[Trial checklist]({checklist['html_url']})\n\n[Live result]({result['html_url']})\n\n"
+                              f"Expires at {expires}. No production Gate or invitations are changed.\n")
+            print(json.dumps({"checklist": checklist["html_url"], "result": result["html_url"], "expires": expires}),
+                  flush=True)
+            version, last_body, last_status = (None, template), initial, None
+            last_actor, edit_error = "initial scope", None
         response = api.request("POST", "/graphql", {
             "query": COMMENT_QUERY, "variables": {"id": checklist["node_id"]}}, repository=False)
         if response.get("errors") or not (node := response.get("data", {}).get("node")):
@@ -225,6 +313,8 @@ def run(api, run_url):
                 after = parse_selection(node["body"], template)
                 sequence += 1
                 record = apply_selection(record, selected, after, api.sha, sequence)
+                manual = apply_selection({"manual_modules": manual}, selected, after,
+                                         api.sha, sequence)["manual_modules"]
                 selected, last_actor, edit_error = after, "@" + node["editor"]["login"], None
             except ValueError as error:
                 edit_error = str(error)
@@ -233,7 +323,7 @@ def run(api, run_url):
         if edit_error:
             ready, reason = False, f"Edit not applied: {edit_error}\n\nLast accepted requirements: {reason}"
         state = "success" if ready else "pending"
-        body = result_body(state, reason, selected, last_actor, expires, checklist["html_url"])
+        body = result_body(state, reason, selected, last_actor, expires, checklist["html_url"], api.sha)
         if body != last_body:
             api.request("PATCH", f"/issues/comments/{api.result_id}", {"body": body})
             last_body = body
