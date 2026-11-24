@@ -135,11 +135,11 @@ nodes and selects all 10,193 Cases in 29 groups. Manual dispatch keeps the
 weekday default unless `allowed_nodes` is explicitly overridden. No legacy
 daily CSV dataset remains.
 
-The per-group `cluster-run` queue-and-execution timeout is 720 minutes for the
-Monday-Thursday schedule and 2,160 minutes (36 hours) for the Friday schedule.
-Manual dispatch uses `execution_timeout_minutes`, which defaults to 720 and can
-be set explicitly. The execute Job allows 30 additional minutes for setup and
-cleanup. Suite and Case timeouts are unchanged.
+The per-group `cluster-run` queue-and-execution timeout is 1,440 minutes
+(24 hours) for the Monday-Thursday schedule and 2,880 minutes (48 hours) for the
+Friday schedule. Manual dispatch uses `execution_timeout_minutes`, which defaults
+to 1,440 and can be set explicitly. The execute Job allows 30 additional minutes
+for setup and cleanup. Suite and Case timeouts are unchanged.
 
 Both dispatch choices install HPN SDK 2.1.3 by default. Manual runs can use
 `hpn_sdk_url` to select another trusted HTTPS package; dispatch inputs are not

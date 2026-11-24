@@ -34,7 +34,7 @@ on:
         description: Per-group queue and execution timeout in minutes for manual runs; the execute Job allows 30 additional minutes
         required: true
         type: number
-        default: 720
+        default: 1440
       platform:
         description: Platform debug filter
         required: true
@@ -69,7 +69,7 @@ env:
   VALIDATION_NODE_SELECTOR: board-type=ZW-M890P,nic-type=cx8
   VALIDATION_CARDS: '8'
   PCCL_TESTS_REVISION: 394556512e87259e9ffa25225632c46b0a0bbcd5
-  REQUESTED_EXECUTION_TIMEOUT_MINUTES: ${{ github.event_name == 'workflow_dispatch' && format('{0}', inputs.execution_timeout_minutes) || (github.event.schedule == '0 14 * * 5' && 2160 || 720) }}
+  REQUESTED_EXECUTION_TIMEOUT_MINUTES: ${{ github.event_name == 'workflow_dispatch' && format('{0}', inputs.execution_timeout_minutes) || (github.event.schedule == '0 14 * * 5' && 2880 || 1440) }}
 
 jobs:
   prepare:
