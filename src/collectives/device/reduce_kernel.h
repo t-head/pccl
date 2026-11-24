@@ -6,6 +6,10 @@
  * See LICENSE.txt for more license information
  *************************************************************************/
 
+#ifdef PCCL_SYM_REDUCE_KERNEL_H_
+#error "collectives/device/reduce_kernel.h and symmetric/sym_reduce_kernel.h define the same names with incompatible functor contracts; include at most one per translation unit"
+#endif
+
 #ifndef NCCL_REDUCE_KERNEL_H_
 #define NCCL_REDUCE_KERNEL_H_
 
