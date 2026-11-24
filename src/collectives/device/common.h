@@ -304,20 +304,6 @@ __device__ __forceinline__ bool profilerEnabled(ncclShmemData* pShmem, int workI
 }
 
 __device__ __forceinline__ void profiler(ncclShmemData* pShmem, int action) {
-  // Early exit if profiling is globally disabled to avoid expensive loops
-  if (__builtin_expect(!pShmem->comm.profilerGlobalEnabled, 1)) {
-    if (threadIdx.x == 0) {
-      if (action == STOP) {
-        pShmem->channel.workCounter += pShmem->nWorks;
-      } else if (action == FINI) {
-        pShmem->channel.workCounter += pShmem->nWorks;
-        ((ncclKernelCommAndChannels*)pShmem->args.comm)->channels[pShmem->channelId].workCounter = pShmem->channel.workCounter;
-      }
-    }
-    return;
-  }
-
-  // Original profiling logic when profiler is enabled
   if (threadIdx.x == 0) {
     int idx = 0;
     uint64_t wc = pShmem->channel.workCounter + 1;
