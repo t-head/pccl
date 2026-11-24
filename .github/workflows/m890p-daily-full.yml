@@ -1,10 +1,10 @@
-name: RDMA independent GPU memory registration diagnosis
+name: Read-only host RDMA module inventory
 on:
   workflow_dispatch:
 permissions:
   contents: read
 concurrency:
-  group: rdma-independent-registration-${{ github.ref }}
+  group: rdma-host-module-audit-${{ github.ref }}
   cancel-in-progress: false
 jobs:
   diagnose:
@@ -17,7 +17,7 @@ jobs:
         with:
           path: pccl
           persist-credentials: false
-      - name: Inspect two workers using one allocated PPU each
+      - name: Inspect host modules without loading drivers
         uses: t-head/ci-infra/cluster-run@5d01766a74ca02a90bf257f24e741dbdab42d004
         with:
           image: download.t-head.cn/docker_release/ppu:sdk2.2.0-hggcrt3-ubuntu24.04-py312-20261005
@@ -32,9 +32,11 @@ jobs:
           cleanup_policy: always
           container_options: |
             privileged: true
+            cpus: 2
+            memory: 4Gi
             host_network: true
             dns_policy: ClusterFirstWithHostNet
-          host_volumes: /dev/infiniband:/dev/infiniband
+          host_volumes: /:/host-inspect,/dev/infiniband:/dev/infiniband
           setup_command: |
             set -euo pipefail
             source /usr/local/PPU_SDK/envsetup.sh
@@ -43,22 +45,26 @@ jobs:
             export HWLOC_COMPONENTS=-gl
             ulimit -l unlimited
             ulimit -s 65536
-            root=/mnt/wl_nas/devops/pccl-rdma-registration-${{ github.run_id }}
-            if ! command -v ibv_devinfo >/dev/null || ! command -v rdma >/dev/null; then
+            root=/mnt/wl_nas/devops/pccl-rdma-host-modules-${{ github.run_id }}
+            # The pinned Action only supports writable hostPath inputs. Make
+            # this bind read-only in the Pod mount namespace before any audit.
+            mount -o remount,bind,ro /host-inspect
+            if ! command -v modinfo >/dev/null; then
               apt-get update
-              apt-get install -y --no-install-recommends rdma-core ibverbs-utils iproute2
+              apt-get install -y --no-install-recommends kmod
             fi
-            bash "$SOURCE_DIR/pccl/tests/xtest/experiments/rdma_worker_diagnostics.sh" "$root"
-            # No PCCL archive, build, driver installation or communication test.
-            timeout --signal=TERM --kill-after=5s 90s python3 \
-              "$SOURCE_DIR/pccl/tests/xtest/experiments/rdma_gpu_registration_probe.py" \
-              --output "$root/diagnostics/gpu-worker-${NODE_RANK}.json" \
-              > "$root/diagnostics/gpu-worker-${NODE_RANK}.log" 2>&1
+            # kmod is installed in this ephemeral container, not on the host.
+            mkdir -p "$root/diagnostics"
+            timeout --signal=TERM --kill-after=5s 180s python3 \
+              "$SOURCE_DIR/pccl/tests/xtest/experiments/rdma_host_module_audit.py" \
+              --host-root /host-inspect \
+              --output "$root/diagnostics/host-worker-${NODE_RANK}.json" \
+              > "$root/diagnostics/host-worker-${NODE_RANK}.log" 2>&1
           command: |
             set -euo pipefail
             source /usr/local/PPU_SDK/envsetup.sh
             umask 022
-            export DIAGNOSTIC_ROOT=/mnt/wl_nas/devops/pccl-rdma-registration-${{ github.run_id }}
+            export DIAGNOSTIC_ROOT=/mnt/wl_nas/devops/pccl-rdma-host-modules-${{ github.run_id }}
             python3 - <<'PY'
             import json
             import os
@@ -66,23 +72,23 @@ jobs:
             root=Path(os.environ['DIAGNOSTIC_ROOT'])
             reports=[]
             for rank in (0, 1):
-                path=root/'diagnostics'/f'gpu-worker-{rank}.json'
+                path=root/'diagnostics'/f'host-worker-{rank}.json'
                 reports.append(json.loads(path.read_text()))
             (root/'summary.json').write_text(json.dumps({
-                'diagnosis_completed': True, 'hardware_pass_claim': False,
+                'inspection_completed': True, 'read_only': True,
                 'reports': reports}, indent=2)+'\n')
             for report in reports:
-                print(report['hostname'], 'error=', report.get('error'),
-                      'independent_of_pccl=', report.get('independent_of_pccl'),
-                      'registrations=', len(report['registrations']))
+                print(report['hostname'], 'loaded=', sorted(report['loaded_modules']),
+                      'module_files=', len(report['module_files']),
+                      'errors=', report['errors'])
             PY
       - name: Preserve diagnostic evidence
         if: always()
         uses: actions/upload-artifact@v4
         with:
-          name: rdma-independent-registration
+          name: rdma-host-module-inventory
           path: |
-            /wl_nas/devops/pccl-rdma-registration-${{ github.run_id }}/summary.json
-            /wl_nas/devops/pccl-rdma-registration-${{ github.run_id }}/diagnostics/
+            /wl_nas/devops/pccl-rdma-host-modules-${{ github.run_id }}/summary.json
+            /wl_nas/devops/pccl-rdma-host-modules-${{ github.run_id }}/diagnostics/
           retention-days: 90
           if-no-files-found: warn
