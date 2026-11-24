@@ -313,11 +313,17 @@ __device__ __forceinline__ constexpr int ncclSendRecvLocalUnroll() {
 #define NCCL_REG_ELEM_FACTOR 2
 
 struct ncclShmemGroup {
+  void* userInput;
+  void* userOutput;
   void* srcs[NCCL_MAX_FC_ARITY];
   void* dsts[NCCL_MAX_FC_ARITY];
   int realSizes[NCCL_MAX_FC_ARITY];
   int totalSendSize[NCCL_MAX_SLICE_PER_CHUNK];
+  uint64_t redOpArgs;
 };
+
+static_assert(NCCL_MAX_DEV_ARITY + 1 <= NCCL_MAX_FC_ARITY,
+              "ncclShmemGroup srcs/dsts too short for the tree/ring paths");
 
 struct alignas(16) ncclKernelComm {
   int rank;

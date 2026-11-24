@@ -236,10 +236,17 @@ class RunWorkColl {
 };
 
 template <ncclFunc_t FUNCTION, int ALGO, int PROTO, class REDOP, typename T, int UNROLL>
-class RunWorkP2p {
-  public:
-  __device__ void run(struct ncclDevWorkP2p* work) {}
-};
+class RunWorkBatch;
+
+// Specialized for P2p in sendrecv.h
+#define PCCL_DECLARE_P2P_RUNWORKBATCH(PROTO) \
+  template <class REDOP, typename T, int UNROLL> \
+  class RunWorkBatch<ncclFuncSendRecv, NCCL_ALGO_RING, PROTO, REDOP, T, UNROLL>;
+PCCL_DECLARE_P2P_RUNWORKBATCH(NCCL_PROTO_SIMPLE)
+PCCL_DECLARE_P2P_RUNWORKBATCH(NCCL_PROTO_SIMPLE_BULK)
+PCCL_DECLARE_P2P_RUNWORKBATCH(NCCL_PROTO_SIGNAL)
+PCCL_DECLARE_P2P_RUNWORKBATCH(NCCL_PROTO_SIGNAL_BULK)
+PCCL_DECLARE_P2P_RUNWORKBATCH(NCCL_PROTO_SIMPLE_BULK_AR)
 
 template <ncclFunc_t FUNCTION, int ALGO, int PROTO, class REDOP, typename T, int UNROLL>
 class RunWorkBatch {
@@ -251,35 +258,30 @@ class RunWorkBatch {
     ncclShmemData* pShmem = &pcclShmem;
   #endif
 
-    if (pShmem->funcId > NUM_P2P_FUNC) {
-      int tid = threadIdx.x;
-      int tn = blockDim.x;
+    int tid = threadIdx.x;
+    int tn = blockDim.x;
 
-      if (RedOpArg<REDOP>::ArgUsed) {
-        int nWorks = pShmem->nWorks;
-        for (int w=tid; w < nWorks; w += tn) {
-          struct ncclDevWorkColl* work = (ncclDevWorkColl*)(pShmem->workStorage + w*pShmem->workSize);
-          if (work->redOpArgIsPtr) {
-            work->redOpArg = RedOpArg<REDOP>::loadArg(reinterpret_cast<void*>(work->redOpArg));
-          }
-        }
-        __syncthreads();
-      }
-
-      for (int w=0; w < pShmem->nWorks; w++) {
+    if (RedOpArg<REDOP>::ArgUsed) {
+      int nWorks = pShmem->nWorks;
+      for (int w=tid; w < nWorks; w += tn) {
         struct ncclDevWorkColl* work = (struct ncclDevWorkColl*)(pShmem->workStorage + w*pShmem->workSize);
-        if (w != 0) {
-          struct ncclDevWorkColl* workPrev = (struct ncclDevWorkColl*)(pShmem->workStorage + (w-1)*pShmem->workSize);
-          if (work->nThreads != workPrev->nThreads) __syncthreads();
-        }
-        int subtn = work->nThreads;
-        if (tid < subtn) {
-          RunWorkColl<FUNCTION, ALGO, PROTO, REDOP, T, UNROLL>().run(work);
+        if (work->redOpArgIsPtr) {
+          work->redOpArg = RedOpArg<REDOP>::loadArg(reinterpret_cast<void*>(work->redOpArg));
         }
       }
-    } else {
-      ncclDevWorkP2p* work = (ncclDevWorkP2p*)pShmem->workStorage;
-      RunWorkP2p<FUNCTION, ALGO, PROTO, REDOP, T, UNROLL>().run(work);
+      __syncthreads();
+    }
+
+    for (int w=0; w < pShmem->nWorks; w++) {
+      struct ncclDevWorkColl* work = (struct ncclDevWorkColl*)(pShmem->workStorage + w*pShmem->workSize);
+      if (w != 0) {
+        struct ncclDevWorkColl* workPrev = (struct ncclDevWorkColl*)(pShmem->workStorage + (w-1)*pShmem->workSize);
+        if (work->nThreads != workPrev->nThreads) __syncthreads();
+      }
+      int subtn = work->nThreads;
+      if (tid < subtn) {
+        RunWorkColl<FUNCTION, ALGO, PROTO, REDOP, T, UNROLL>().run(work);
+      }
     }
   }
 };

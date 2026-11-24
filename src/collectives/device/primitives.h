@@ -15,23 +15,6 @@
 
 #define SPINS_BEFORE_CHECK_ABORT 250000
 
-// Unroll unconditionally the first send/recv since nsend/nrecv should be at
-// least 1 if SEND/RECV is set.
-#define FOR_SEND(func, ...) do { \
-  if (SEND) { \
-    /* Send to far first, then close */ \
-    for (int i=1; i<NSEND && i<fan.nsend(); i++) func(i, ##__VA_ARGS__); \
-    func(0, ##__VA_ARGS__); \
-  } \
-} while (0)
-
-#define FOR_RECV(func, ...) do { \
-  if (RECV) { \
-    /* Recv from close first, then far */ \
-    func(0, ##__VA_ARGS__); \
-    for (int i=1; i<NRECV && i<fan.nrecv(); i++) func(i, ##__VA_ARGS__); \
-  } \
-} while (0)
 
 #define ROLE_SRC       0x01
 #define ROLE_DST       0x02
@@ -228,32 +211,42 @@ __device__ __forceinline__ int ncclPrimsThreadsFromWorkers(int nworkers) {
 }
 
 // Used by LL & LL128 to implement direct members in the naive way.
-template<typename T, typename RealPrimitives>
+template<typename RealPrimitives>
 struct PrimitivesWithoutDirect {
-  __device__ void directSend(const T* inpIx, ssize_t directOffset, int eltN) {
+  __device__ void directSend(intptr_t inpIx, intptr_t outIx, int eltN) {
     static_cast<RealPrimitives*>(this)->send(inpIx, eltN);
   }
-
-  // __device__ void directSendFromOutput(T* outIx, T* remoteOutIx, int eltN) {
-  //   static_cast<RealPrimitives*>(this)->sendFromOutput(outIx, eltN);
-  // }
-
-  __device__ void directRecv(T* outIx, ssize_t directOffset, int eltN) {
+  __device__ void directSendFromOutput(intptr_t outIx, int eltN) {
+    static_cast<RealPrimitives*>(this)->sendFromOutput(outIx, eltN);
+  }
+  __device__ void directRecv(intptr_t outIx, int eltN) {
     static_cast<RealPrimitives*>(this)->recv(outIx, eltN, /*postOp=*/false);
   }
-  __device__ void directCopySend(const T* inpIx, T* outIx, ssize_t directOffset, int eltN, bool postOp=false) {
+  __device__ void directCopySend(intptr_t inpIx, intptr_t outIx, int eltN, bool postOp=false) {
     static_cast<RealPrimitives*>(this)->copySend(inpIx, outIx, eltN, postOp);
   }
-  __device__ void directRecvCopySend(T* outIx, ssize_t directOffset, int eltN) {
+  __device__ void directRecvCopyDirectSend(intptr_t inpIx, intptr_t outIx, int eltN, bool postOp=false) {
     static_cast<RealPrimitives*>(this)->recvCopySend(outIx, eltN, /*postOp=*/false);
   }
-  __device__ void directRecvReduceCopySend(const T* inpIx, T* outIx, ssize_t directOffset, int eltN, bool postOp=false, int reqChunkSize=0) {
+  __device__ void directRecvDirectSend(intptr_t inpIx, intptr_t outIx, int eltN, bool postOp=false) {
+    return;
+  }
+  __device__ void recvReduceCopyDirectSend(intptr_t inpIx, intptr_t outIx, int eltN, bool postOp=false, int reqChunkSize=0) {
     // Direct is only for the send part
     static_cast<RealPrimitives*>(this)->recvReduceCopySend(inpIx, outIx, eltN, postOp);
   }
+  __device__ __forceinline__ void directRecvReduceDirectSend(intptr_t inpIx, intptr_t outIx, ssize_t eltN, bool postOp=false, int reqChunkSize=0) {
+    static_cast<RealPrimitives*>(this)->recvReduceSend(inpIx, eltN);
+  }
+  __device__ __forceinline__ void directRecvReduceCopyDirectSend(intptr_t inpIx, intptr_t outIx, ssize_t eltN, bool postOp=false, int reqChunkSize=0) {
+    static_cast<RealPrimitives*>(this)->recvReduceCopySend(inpIx, outIx, eltN, postOp);
+  }
 
-  __device__ void directGather(T* inpIx, int totalN, int eltN, int size, int chunkOffset) {
-    static_cast<RealPrimitives*>(this)->gather(inpIx, totalN, eltN, size);
+  __device__ void directRecvReduceCopy(intptr_t inpIx, intptr_t outIx, int eltN, bool postOp=false) {
+    static_cast<RealPrimitives*>(this)->recvReduceCopy(inpIx, outIx, eltN, postOp);
+  }
+  __device__ void directGather(intptr_t outIx, int totalN, int eltN, int size) {
+    static_cast<RealPrimitives*>(this)->gather(outIx, totalN, eltN, size);
   }
 };
 
@@ -278,5 +271,35 @@ inline __device__ int checkAbort(struct ncclKernelComm* comm, uint32_t& spins, u
 #include "prims_simple_bulk_ar.h"
 #include "prims_signal.h"
 #include "prims_signal_bulk.h"
+
+static_assert(std::is_base_of<
+                  PrimitivesSimpleBase<float, FanAsymmetric<1, 1>, FuncSum<float>, 2, 1, 4, 0,
+                                       ProtoSimple<2, 1, 4>,
+                                       Primitives<float, FuncSum<float>, FanAsymmetric<1, 1>, 0,
+                                                  ProtoSimple<2, 1, 4>, 0>,
+                                       0>,
+                  Primitives<float, FuncSum<float>, FanAsymmetric<1, 1>, 0, ProtoSimple<2, 1, 4>, 0>>::value,
+              "PrimitivesSimpleBase must take <SlicePerChunk, StepPerSlice, Unroll> like the Protos");
+
+// workersFromThreads() inverts the ctor's carve: it takes the TOTAL thread count and
+// removes the post warp above NCCL's threshold. Reading it as a worker count comes
+// out WARP_SIZE low, so the cases that define the carve are pinned here.
+using PrimsCarveCheck =
+    Primitives<float, FuncSum<float>, FanAsymmetric<1, 1>, 1, ProtoSimple<2, 1, 4>, 0>;
+using PrimsNoSendCarveCheck =
+    Primitives<float, FuncSum<float>, FanAsymmetric<1, 0>, 1, ProtoSimple<2, 1, 4>, 0>;
+#ifdef NO_EXTRA_WARP
+static_assert(PrimsCarveCheck::workersFromThreads(128) == 128,
+              "NO_EXTRA_WARP builds have no post warp to carve");
+#else
+static_assert(PrimsCarveCheck::workersFromThreads(128) == 96,
+              "SIMPLE primitives that can send must carve one post warp out of the total");
+static_assert(PrimsCarveCheck::workersFromThreads(3*WARP_SIZE) == 2*WARP_SIZE,
+              "the carve must start exactly at NCCL_SIMPLE_EXTRA_GROUP_IF_NTHREADS_GE");
+static_assert(PrimsCarveCheck::workersFromThreads(2*WARP_SIZE) == 2*WARP_SIZE,
+              "no post warp below the threshold - the block cannot spare it");
+static_assert(PrimsNoSendCarveCheck::workersFromThreads(128) == 128,
+              "a recv-only Fan must not carve a post warp");
+#endif
 
 #endif
