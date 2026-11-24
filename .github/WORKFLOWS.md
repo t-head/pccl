@@ -130,13 +130,20 @@ GitHub's other required checks. CI and hardware tests remain independent of revi
 
 ### Preparing the squash message
 
-Multi-commit PRs targeting `main` receive a proposed squash commit body, including
-issue references and signing trailers but no title. Publishing a fresh preview
-places it at the end of the conversation and removes older previews. Paste the
-body into the description field in GitHub's **Squash and merge** dialog and review
-the GitHub-filled title separately.
-
-For fork PRs, a Maintainer runs `PCCL Commit Message Preview` from `main` with `pr_number`.
+For a multi-commit PR targeting `main`, a successful review gate lets the preview
+job generate a **Suggested squash commit body**. Match the commit printed in the
+comment to the HEAD you plan to merge. Check its summary, issue references and
+sign-offs, then paste the body into **Squash and merge** and review the title.
+PR updates trigger cleanup without waiting for the review gate or generating a new body.
+Cleanup reads the latest PR state and removes previews for older commits, or all previews
+when the PR is closed, draft, single-commit or no longer targets `main`. Editing only the title
+or description preserves the current-commit preview while the PR remains eligible.
+Cleanup and generation share a per-PR queue; allow the workflow to finish and still check
+the printed commit before copying.
+Only a current-commit preview stays visible while the gate is pending or generation is retried.
+A failed or cancelled gate run cannot generate a preview from an earlier green status,
+and a red gate removes the remaining preview. Successful publication replaces any
+current-commit preview only after the new comment is posted.
 
 ### Maintaining the workflow
 
@@ -145,7 +152,9 @@ the [invitation workflow](workflows/review-module.yml). Its completion refreshes
 [gate](workflows/review-gate.yml), including bot requests that do not trigger another
 Actions run. Native [invitation events](workflows/review-command.yml) and
 [review events](workflows/review-event.yml) also refresh the gate without rerunning
-classification or sending invitations.
+classification or sending invitations. Gate completion triggers the
+[squash preview](workflows/review-squash-preview.yml). PR pushes, edits, draft conversions
+and closures also trigger that workflow directly for cleanup only, without generating a body.
 
 GitHub's invitation timeline is the durable record of required people and explicit
 cancellations, not the pending-request list. The state branch stores only classification
