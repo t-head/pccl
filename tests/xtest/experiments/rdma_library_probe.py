@@ -15,29 +15,34 @@ def loaded_libraries():
                    if any(name in line for name in names) and '/' in line})
 
 
+def load_verbs():
+    try:
+        lib = ctypes.CDLL('libibverbs.so', use_errno=True)
+    except OSError:
+        lib = ctypes.CDLL('libibverbs.so.1', use_errno=True)
+    signatures = {
+        'ibv_fork_init': ([], ctypes.c_int),
+        'ibv_get_device_list': ([ctypes.POINTER(ctypes.c_int)], ctypes.POINTER(ctypes.c_void_p)),
+        'ibv_free_device_list': ([ctypes.POINTER(ctypes.c_void_p)], None),
+        'ibv_get_device_name': ([ctypes.c_void_p], ctypes.c_char_p),
+        'ibv_open_device': ([ctypes.c_void_p], ctypes.c_void_p),
+        'ibv_close_device': ([ctypes.c_void_p], ctypes.c_int),
+        'ibv_alloc_pd': ([ctypes.c_void_p], ctypes.c_void_p),
+        'ibv_dealloc_pd': ([ctypes.c_void_p], ctypes.c_int),
+        'ibv_reg_mr': ([ctypes.c_void_p, ctypes.c_void_p, ctypes.c_size_t, ctypes.c_int], ctypes.c_void_p),
+        'ibv_dereg_mr': ([ctypes.c_void_p], ctypes.c_int),
+    }
+    for name, (args, result) in signatures.items():
+        getattr(lib, name).argtypes, getattr(lib, name).restype = args, result
+    return lib
+
+
 def probe():
     report = {'hostname': os.uname().nodename,
               'ld_library_path': os.environ.get('LD_LIBRARY_PATH', ''),
               'path': os.environ.get('PATH', ''), 'devices': [], 'host_registration': None}
     try:
-        try:
-            lib = ctypes.CDLL('libibverbs.so', use_errno=True)
-        except OSError:
-            lib = ctypes.CDLL('libibverbs.so.1', use_errno=True)
-        signatures = {
-            'ibv_fork_init': ([], ctypes.c_int),
-            'ibv_get_device_list': ([ctypes.POINTER(ctypes.c_int)], ctypes.POINTER(ctypes.c_void_p)),
-            'ibv_free_device_list': ([ctypes.POINTER(ctypes.c_void_p)], None),
-            'ibv_get_device_name': ([ctypes.c_void_p], ctypes.c_char_p),
-            'ibv_open_device': ([ctypes.c_void_p], ctypes.c_void_p),
-            'ibv_close_device': ([ctypes.c_void_p], ctypes.c_int),
-            'ibv_alloc_pd': ([ctypes.c_void_p], ctypes.c_void_p),
-            'ibv_dealloc_pd': ([ctypes.c_void_p], ctypes.c_int),
-            'ibv_reg_mr': ([ctypes.c_void_p, ctypes.c_void_p, ctypes.c_size_t, ctypes.c_int], ctypes.c_void_p),
-            'ibv_dereg_mr': ([ctypes.c_void_p], ctypes.c_int),
-        }
-        for name, (args, result) in signatures.items():
-            getattr(lib, name).argtypes, getattr(lib, name).restype = args, result
+        lib = load_verbs()
         report['fork_init'] = lib.ibv_fork_init()
         count = ctypes.c_int()
         devices = lib.ibv_get_device_list(ctypes.byref(count))

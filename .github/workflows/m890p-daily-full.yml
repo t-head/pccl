@@ -1,184 +1,34 @@
-name: RDMA verified-archive same-allocation comparison
+name: RDMA independent GPU memory registration diagnosis
 on:
   workflow_dispatch:
 permissions:
   contents: read
 concurrency:
-  group: rdma-archive-comparison-${{ github.ref }}
+  group: rdma-independent-registration-${{ github.ref }}
   cancel-in-progress: false
 jobs:
-  compare:
+  diagnose:
     runs-on: k8s-runner-group-cpu-thead
     container:
       image: ghcr.io/actions/actions-runner:latest
-    timeout-minutes: 90
+    timeout-minutes: 20
     steps:
       - uses: actions/checkout@v4
         with:
           path: pccl
           persist-credentials: false
-      - id: good1-download
-        continue-on-error: true
-        uses: actions/download-artifact@v4
-        with:
-          name: m890p-daily-full-build-standard
-          run-id: 44994893533
-          github-token: ${{ github.token }}
-          path: download-good
-      - id: good1-validate
-        continue-on-error: true
-        shell: bash
-        run: |
-          python3 -S -B pccl/tests/xtest/artifact_cache.py validate \
-            --directory download-good --profile standard \
-            --pccl-revision abb6688b4b5419664e7bf13c2d9107bd7acafd89 \
-            --pccl-tests-revision 394556512e87259e9ffa25225632c46b0a0bbcd5 \
-            --expected-sha256 20b03ec2461a4d827037da4ba6bf2311c31f7c87852b1c5491255870bd93a548
-      - id: good2-download
-        if: steps.good1-validate.outcome != 'success'
-        continue-on-error: true
-        uses: actions/download-artifact@v4
-        with:
-          name: m890p-daily-full-build-standard
-          run-id: 44994893533
-          github-token: ${{ github.token }}
-          path: download-good
-      - id: good2-validate
-        if: steps.good1-validate.outcome != 'success'
-        continue-on-error: true
-        shell: bash
-        run: |
-          python3 -S -B pccl/tests/xtest/artifact_cache.py validate \
-            --directory download-good --profile standard \
-            --pccl-revision abb6688b4b5419664e7bf13c2d9107bd7acafd89 \
-            --pccl-tests-revision 394556512e87259e9ffa25225632c46b0a0bbcd5 \
-            --expected-sha256 20b03ec2461a4d827037da4ba6bf2311c31f7c87852b1c5491255870bd93a548
-      - id: good3-download
-        if: steps.good1-validate.outcome != 'success' && steps.good2-validate.outcome != 'success'
-        continue-on-error: true
-        uses: actions/download-artifact@v4
-        with:
-          name: m890p-daily-full-build-standard
-          run-id: 44994893533
-          github-token: ${{ github.token }}
-          path: download-good
-      - id: good3-validate
-        if: steps.good1-validate.outcome != 'success' && steps.good2-validate.outcome != 'success'
-        continue-on-error: true
-        shell: bash
-        run: |
-          python3 -S -B pccl/tests/xtest/artifact_cache.py validate \
-            --directory download-good --profile standard \
-            --pccl-revision abb6688b4b5419664e7bf13c2d9107bd7acafd89 \
-            --pccl-tests-revision 394556512e87259e9ffa25225632c46b0a0bbcd5 \
-            --expected-sha256 20b03ec2461a4d827037da4ba6bf2311c31f7c87852b1c5491255870bd93a548
-      - name: Require a verified good archive
-        if: always()
-        shell: bash
-        run: |
-          test '${{ steps.good1-validate.outcome }}' = success || \
-          test '${{ steps.good2-validate.outcome }}' = success || \
-          test '${{ steps.good3-validate.outcome }}' = success
-      - name: Publish the good archive in this experiment only
-        shell: bash
-        run: |
-          python3 -S -B pccl/tests/xtest/artifact_cache.py publish \
-            --download download-good --cache /wl_nas/devops/pccl-rdma-ab-${{ github.run_id }}/cache/standard/20b03ec2461a4d827037da4ba6bf2311c31f7c87852b1c5491255870bd93a548 \
-            --profile standard --pccl-revision abb6688b4b5419664e7bf13c2d9107bd7acafd89 \
-            --pccl-tests-revision 394556512e87259e9ffa25225632c46b0a0bbcd5 \
-            --expected-sha256 20b03ec2461a4d827037da4ba6bf2311c31f7c87852b1c5491255870bd93a548
-          # Historical caches are neither mutated nor removed.
-          python3 - <<'PY'
-          import shutil
-          shutil.rmtree('download-good')
-          PY
-      - id: failed1-download
-        continue-on-error: true
-        uses: actions/download-artifact@v4
-        with:
-          name: m890p-daily-full-build-standard
-          run-id: 45191076117
-          github-token: ${{ github.token }}
-          path: download-failed
-      - id: failed1-validate
-        continue-on-error: true
-        shell: bash
-        run: |
-          python3 -S -B pccl/tests/xtest/artifact_cache.py validate \
-            --directory download-failed --profile standard \
-            --pccl-revision 30ac5589671c608c51266cfd99f3b0b59eddc981 \
-            --pccl-tests-revision 394556512e87259e9ffa25225632c46b0a0bbcd5 \
-            --expected-sha256 f083b7721f306ce59362060165f332bd5dc758e1e79a83a2433578a9a398fffa
-      - id: failed2-download
-        if: steps.failed1-validate.outcome != 'success'
-        continue-on-error: true
-        uses: actions/download-artifact@v4
-        with:
-          name: m890p-daily-full-build-standard
-          run-id: 45191076117
-          github-token: ${{ github.token }}
-          path: download-failed
-      - id: failed2-validate
-        if: steps.failed1-validate.outcome != 'success'
-        continue-on-error: true
-        shell: bash
-        run: |
-          python3 -S -B pccl/tests/xtest/artifact_cache.py validate \
-            --directory download-failed --profile standard \
-            --pccl-revision 30ac5589671c608c51266cfd99f3b0b59eddc981 \
-            --pccl-tests-revision 394556512e87259e9ffa25225632c46b0a0bbcd5 \
-            --expected-sha256 f083b7721f306ce59362060165f332bd5dc758e1e79a83a2433578a9a398fffa
-      - id: failed3-download
-        if: steps.failed1-validate.outcome != 'success' && steps.failed2-validate.outcome != 'success'
-        continue-on-error: true
-        uses: actions/download-artifact@v4
-        with:
-          name: m890p-daily-full-build-standard
-          run-id: 45191076117
-          github-token: ${{ github.token }}
-          path: download-failed
-      - id: failed3-validate
-        if: steps.failed1-validate.outcome != 'success' && steps.failed2-validate.outcome != 'success'
-        continue-on-error: true
-        shell: bash
-        run: |
-          python3 -S -B pccl/tests/xtest/artifact_cache.py validate \
-            --directory download-failed --profile standard \
-            --pccl-revision 30ac5589671c608c51266cfd99f3b0b59eddc981 \
-            --pccl-tests-revision 394556512e87259e9ffa25225632c46b0a0bbcd5 \
-            --expected-sha256 f083b7721f306ce59362060165f332bd5dc758e1e79a83a2433578a9a398fffa
-      - name: Require a verified failed archive
-        if: always()
-        shell: bash
-        run: |
-          test '${{ steps.failed1-validate.outcome }}' = success || \
-          test '${{ steps.failed2-validate.outcome }}' = success || \
-          test '${{ steps.failed3-validate.outcome }}' = success
-      - name: Publish the failed archive in this experiment only
-        shell: bash
-        run: |
-          python3 -S -B pccl/tests/xtest/artifact_cache.py publish \
-            --download download-failed --cache /wl_nas/devops/pccl-rdma-ab-${{ github.run_id }}/cache/standard/f083b7721f306ce59362060165f332bd5dc758e1e79a83a2433578a9a398fffa \
-            --profile standard --pccl-revision 30ac5589671c608c51266cfd99f3b0b59eddc981 \
-            --pccl-tests-revision 394556512e87259e9ffa25225632c46b0a0bbcd5 \
-            --expected-sha256 f083b7721f306ce59362060165f332bd5dc758e1e79a83a2433578a9a398fffa
-          # Historical caches are neither mutated nor removed.
-          python3 - <<'PY'
-          import shutil
-          shutil.rmtree('download-failed')
-          PY
-      - name: Compare both archives on the same two workers
+      - name: Inspect two workers using one allocated PPU each
         uses: t-head/ci-infra/cluster-run@5d01766a74ca02a90bf257f24e741dbdab42d004
         with:
           image: download.t-head.cn/docker_release/ppu:sdk2.2.0-hggcrt3-ubuntu24.04-py312-20261005
           launch_mode: master
           nnodes: 2
-          nproc_per_node: 8
+          nproc_per_node: 1
           node_selector: board-type=ZW-M890P,nic-type=cx8
           rack_policy: spread
           rack_count: 2
           namespace: ppu-sched
-          timeout_minutes: 60
+          timeout_minutes: 10
           cleanup_policy: always
           container_options: |
             privileged: true
@@ -189,65 +39,50 @@ jobs:
             set -euo pipefail
             source /usr/local/PPU_SDK/envsetup.sh
             umask 022
-            interface=$(awk '$2 == "00000000" {print $1; exit}' /proc/net/route)
-            test -n "$interface"
+            export UMD_PLATFORM_TYPE=1
             export HWLOC_COMPONENTS=-gl
-            export OMPI_MCA_plm_rsh_agent=cluster-ssh
-            export OMPI_MCA_orte_base_help_aggregate=0
-            export OMPI_MCA_orte_keep_fqdn_hostnames=1
-            export OMPI_MCA_oob_tcp_if_include="$interface"
-            export OMPI_MCA_btl_tcp_if_include="$interface"
-            export NCCL_SOCKET_IFNAME="$interface"
             ulimit -l unlimited
             ulimit -s 65536
+            root=/mnt/wl_nas/devops/pccl-rdma-registration-${{ github.run_id }}
             if ! command -v ibv_devinfo >/dev/null || ! command -v rdma >/dev/null; then
               apt-get update
               apt-get install -y --no-install-recommends rdma-core ibverbs-utils iproute2
             fi
-            bash "$SOURCE_DIR/pccl/tests/xtest/experiments/rdma_worker_diagnostics.sh" \
-              /mnt/wl_nas/devops/pccl-rdma-ab-${{ github.run_id }}
+            bash "$SOURCE_DIR/pccl/tests/xtest/experiments/rdma_worker_diagnostics.sh" "$root"
+            # No PCCL archive, build, driver installation or communication test.
+            timeout --signal=TERM --kill-after=5s 90s python3 \
+              "$SOURCE_DIR/pccl/tests/xtest/experiments/rdma_gpu_registration_probe.py" \
+              --output "$root/diagnostics/gpu-worker-${NODE_RANK}.json" \
+              > "$root/diagnostics/gpu-worker-${NODE_RANK}.log" 2>&1
           command: |
             set -euo pipefail
-            cd "$SOURCE_DIR"
             source /usr/local/PPU_SDK/envsetup.sh
             umask 022
-            root=/mnt/wl_nas/devops/pccl-rdma-ab-${{ github.run_id }}
-            # Share only this experiment's evidence, including on an early error.
-            share_experiment() {
-              for name in diagnostics inputs results; do
-                if [ -d "$root/$name" ]; then chmod -R a+rX "$root/$name"; fi
-              done
-              # The CPU runner must be able to remove worker-owned build copies.
-              if [ -d "$root/shared" ]; then chmod -R a+rwX "$root/shared"; fi
-            }
-            trap share_experiment EXIT
-            interface=$(awk '$2 == "00000000" {print $1; exit}' /proc/net/route)
-            python3 -m venv /workspace/rdma-ab-env
-            /workspace/rdma-ab-env/bin/python -m pip install --disable-pip-version-check 'filelock==4.2.10'
-            /workspace/rdma-ab-env/bin/python pccl/tests/xtest/experiments/rdma_archive_ab.py \
-              --root "$root" --cache "$root/cache" --hostfile "$CLUSTER_HOSTS_FILE" --interface "$interface"
-      - name: Publish experiment evidence
-        uses: actions/upload-artifact@v4
+            export DIAGNOSTIC_ROOT=/mnt/wl_nas/devops/pccl-rdma-registration-${{ github.run_id }}
+            python3 - <<'PY'
+            import json
+            import os
+            from pathlib import Path
+            root=Path(os.environ['DIAGNOSTIC_ROOT'])
+            reports=[]
+            for rank in (0, 1):
+                path=root/'diagnostics'/f'gpu-worker-{rank}.json'
+                reports.append(json.loads(path.read_text()))
+            (root/'summary.json').write_text(json.dumps({
+                'diagnosis_completed': True, 'hardware_pass_claim': False,
+                'reports': reports}, indent=2)+'\n')
+            for report in reports:
+                print(report['hostname'], 'error=', report.get('error'),
+                      'independent_of_pccl=', report.get('independent_of_pccl'),
+                      'registrations=', len(report['registrations']))
+            PY
+      - name: Preserve diagnostic evidence
         if: always()
+        uses: actions/upload-artifact@v4
         with:
-          name: rdma-archive-comparison
+          name: rdma-independent-registration
           path: |
-            /wl_nas/devops/pccl-rdma-ab-${{ github.run_id }}/comparison.json
-            /wl_nas/devops/pccl-rdma-ab-${{ github.run_id }}/results/
-            /wl_nas/devops/pccl-rdma-ab-${{ github.run_id }}/inputs/
-            /wl_nas/devops/pccl-rdma-ab-${{ github.run_id }}/diagnostics/
+            /wl_nas/devops/pccl-rdma-registration-${{ github.run_id }}/summary.json
+            /wl_nas/devops/pccl-rdma-registration-${{ github.run_id }}/diagnostics/
           retention-days: 90
           if-no-files-found: warn
-      - name: Remove only experiment build copies
-        if: always()
-        shell: bash
-        run: |
-          python3 - <<'PY'
-          import shutil
-          from pathlib import Path
-          root=Path('/wl_nas/devops/pccl-rdma-ab-${{ github.run_id }}')
-          for name in ('cache','shared'):
-              path=root/name
-              if path.exists():
-                  shutil.rmtree(path)
-          PY
