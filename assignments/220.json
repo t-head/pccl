@@ -1,14 +1,14 @@
 {
   "classification": {
     "base_sha": "30ac5589671c608c51266cfd99f3b0b59eddc981",
-    "head_sha": "0351f504ff5d9d89b0cfaf2dbc06ec564eacd9ab",
-    "input_fingerprint": "d458b5e62916e5eca7a0ffa462d42e11090ce97f4a9f6568f4b7e5c3ce06eaca",
+    "head_sha": "42e1f79bebb9714356185195aa2b0d32b57d666c",
+    "input_fingerprint": "f9cdd15fe1d3a0250ae6994f2ad068a46cdd279045cdf8931775609c6b32ce3b",
     "pr_number": 220,
     "proposal": {
       "modules": [
         "ci"
       ],
-      "reason": "The substantive change is to open-source test workflow execution: dual-platform (M890P/810E) workflow orchestration, case generation/grouping logic, worker allocation/device mapping, SDK installer selection/validation, and daily/sanity reconciliation/reporting updates. Added large test-list assets (including patch_omitted family JSON) and related tests/docs support this same CI behavior rather than introducing separate runtime-module ownership."
+      "reason": "Primary change is the open-source CI system: dual-platform (M890P/810E) workflow orchestration, case generation/grouping, worker allocation/device mapping, HPN SDK selection/install path, reconciliation/reporting, and extensive xtest/workflow contract updates. Edits in workflow docs and helper scripts support CI execution behavior rather than contribution/reviewer policy or PCCL runtime modules."
     }
   },
   "reviewers": {
