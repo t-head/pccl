@@ -25,6 +25,16 @@ def register(lib, pd, address, size, access, iova=None):
     return result
 
 
+def configure_allocated_device(environment):
+    visible = environment.get('NVIDIA_VISIBLE_DEVICES', '').strip()
+    if not visible or not visible.isascii() or not visible.isdigit():
+        raise RuntimeError('The probe requires exactly one numeric allocated PPU index')
+    # NVIDIA_VISIBLE_DEVICES describes the allocation; this SDK filters and
+    # remaps devices through HGGC_VISIBLE_DEVICES, before runtime initialization.
+    environment['HGGC_VISIBLE_DEVICES'] = str(int(visible))
+    return environment['HGGC_VISIBLE_DEVICES']
+
+
 def probe():
     report = {'hostname': os.uname().nodename, 'node_rank': os.environ.get('NODE_RANK'),
               'visible_devices': os.environ.get('NVIDIA_VISIBLE_DEVICES'),
@@ -33,6 +43,7 @@ def probe():
     allocated = False
     pointer = ctypes.c_void_p()
     try:
+        report['hggc_visible_devices'] = configure_allocated_device(os.environ)
         lib = load_verbs()
         report['fork_init'] = lib.ibv_fork_init()
         gpu = ctypes.CDLL('libhggc_wrapper.so', use_errno=True)
@@ -47,6 +58,13 @@ def probe():
         report['gpu_device_count'] = count.value
         if code or count.value != 1:
             raise RuntimeError(f'Expected one allocated GPU: code={code}, count={count.value}')
+        for name in ('hggcRuntimeGetVersion', 'hggcDriverGetVersion'):
+            if hasattr(gpu, name):
+                function = getattr(gpu, name)
+                function.argtypes, function.restype = [ctypes.POINTER(ctypes.c_int)], ctypes.c_int
+                version = ctypes.c_int()
+                version_code = function(ctypes.byref(version))
+                report[name] = {'code': version_code, 'version': version.value}
         code = gpu.hggcSetDevice(0)
         if code:
             raise RuntimeError(f'hggcSetDevice failed: {code}')

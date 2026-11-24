@@ -47,10 +47,19 @@ class RegistrationProbeTests(unittest.TestCase):
                                hggcSetDevice=Mock(return_value=0), hggcMalloc=Mock(side_effect=malloc),
                                hggcFree=Mock(return_value=0))
 
+    def test_allocated_device_is_mapped_to_the_sdk_visibility_variable(self):
+        environment = {'NVIDIA_VISIBLE_DEVICES': '3'}
+        self.assertEqual(gpu_probe.configure_allocated_device(environment), '3')
+        self.assertEqual(environment['HGGC_VISIBLE_DEVICES'], '3')
+        for value in ('', 'all', '0,1', '-1', '١'):
+            with self.subTest(value=value), self.assertRaises(RuntimeError):
+                gpu_probe.configure_allocated_device({'NVIDIA_VISIBLE_DEVICES': value})
+
     def test_unexpected_gpu_visibility_skips_allocation(self):
         sdk = self.sdk(8)
         lib = SimpleNamespace(ibv_fork_init=Mock(return_value=0))
-        with patch.object(gpu_probe, 'load_verbs', return_value=lib), \
+        with patch.dict(gpu_probe.os.environ, {'NVIDIA_VISIBLE_DEVICES': '3'}), \
+                patch.object(gpu_probe, 'load_verbs', return_value=lib), \
                 patch.object(gpu_probe.ctypes, 'CDLL', return_value=sdk), \
                 patch.object(gpu_probe, 'loaded_libraries', return_value=[]):
             report = gpu_probe.probe()
@@ -68,7 +77,8 @@ class RegistrationProbeTests(unittest.TestCase):
                               ibv_free_device_list=Mock(), ibv_get_device_name=Mock(return_value=b'mlx5_bond_0'),
                               ibv_open_device=Mock(return_value=2), ibv_close_device=Mock(return_value=0),
                               ibv_alloc_pd=Mock(return_value=3), ibv_dealloc_pd=Mock(return_value=0))
-        with patch.object(gpu_probe, 'load_verbs', return_value=lib), \
+        with patch.dict(gpu_probe.os.environ, {'NVIDIA_VISIBLE_DEVICES': '3'}), \
+                patch.object(gpu_probe, 'load_verbs', return_value=lib), \
                 patch.object(gpu_probe.ctypes, 'CDLL', return_value=sdk), \
                 patch.object(gpu_probe, 'register', side_effect=RuntimeError('Registration failed')), \
                 patch.object(gpu_probe, 'loaded_libraries', return_value=[]):
@@ -80,7 +90,8 @@ class RegistrationProbeTests(unittest.TestCase):
         lib.ibv_free_device_list.assert_called_once()
 
     def test_loaded_pccl_invalidates_independence(self):
-        with patch.object(gpu_probe, 'load_verbs', side_effect=OSError('Missing RDMA')), \
+        with patch.dict(gpu_probe.os.environ, {'NVIDIA_VISIBLE_DEVICES': '3'}), \
+                patch.object(gpu_probe, 'load_verbs', side_effect=OSError('Missing RDMA')), \
                 patch.object(gpu_probe, 'loaded_libraries', return_value=['/lib/libpccl.so']):
             report = gpu_probe.probe()
         self.assertFalse(report['independent_of_pccl'])
