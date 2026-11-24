@@ -37,6 +37,46 @@ def generate_input(output, profile, families):
     generate_cases.write_bundle(bundle, output, DEFINITIONS / 'envs')
 
 
+def manual_execution_timeout_default(text):
+    # Limit the search to this input's indented body. Sibling inputs must not
+    # supply a default when the requested timeout input is missing or invalid.
+    block = re.search(
+        r"^      execution_timeout_minutes:[ \t]*\n"
+        r"(?P<body>(?:^ {8}[^\n]*(?:\n|$)|^[ \t]*\n)*)", text, re.M)
+    if block is None:
+        raise ValueError("Missing execution_timeout_minutes workflow input")
+    default = re.search(r"^        default:[ \t]*(\d+)[ \t]*$", block['body'], re.M)
+    if default is None:
+        raise ValueError("Missing numeric default under execution_timeout_minutes")
+    return int(default[1])
+
+
+class WorkflowTimeoutInputTests(unittest.TestCase):
+    TIMEOUT = "      execution_timeout_minutes:\n        type: number\n        default: 1440\n"
+    PLATFORM = "      platform:\n        default: all\n"
+    SUITE = "      suite:\n        default: 1440\n"
+
+    def test_input_order_and_unrelated_insertions_do_not_matter(self):
+        for inputs in ((self.TIMEOUT, self.PLATFORM, self.SUITE),
+                       (self.PLATFORM, self.SUITE, self.TIMEOUT),
+                       (self.TIMEOUT, self.SUITE, self.PLATFORM)):
+            with self.subTest(inputs=inputs):
+                self.assertEqual(manual_execution_timeout_default(''.join(inputs)), 1440)
+
+    def test_wrong_timeout_default_is_not_masked_by_another_input(self):
+        text = self.TIMEOUT.replace('default: 1440', 'default: 720') + self.SUITE
+        self.assertEqual(manual_execution_timeout_default(text), 720)
+
+    def test_missing_default_cannot_be_taken_from_a_sibling(self):
+        text = self.TIMEOUT.replace('        default: 1440\n', '') + self.SUITE
+        with self.assertRaisesRegex(ValueError, 'Missing numeric default under execution_timeout_minutes'):
+            manual_execution_timeout_default(text)
+
+    def test_missing_timeout_input_has_a_clear_failure(self):
+        with self.assertRaisesRegex(ValueError, 'Missing execution_timeout_minutes workflow input'):
+            manual_execution_timeout_default(self.SUITE + self.PLATFORM)
+
+
 class DailySmokeTests(unittest.TestCase):
     @classmethod
     def setUpClass(cls):
@@ -374,10 +414,11 @@ class DailySmokeTests(unittest.TestCase):
         self.assertIn('default: 500', text)
         self.assertIn('execution_timeout_minutes:', text)
         self.assertIn('Per-group queue and execution timeout in minutes for manual runs', text)
+        self.assertEqual(manual_execution_timeout_default(text), 1440)
         self.assertIn(
             "REQUESTED_EXECUTION_TIMEOUT_MINUTES: ${{ github.event_name == 'workflow_dispatch' "
             "&& format('{0}', inputs.execution_timeout_minutes) || "
-            "(github.event.schedule == '0 14 * * 5' && 2160 || 720) }}", text)
+            "(github.event.schedule == '0 14 * * 5' && 2880 || 1440) }}", text)
         self.assertIn(
             'EXECUTION_TIMEOUT_MINUTES: ${{ needs.prepare.outputs.execution_timeout_minutes }}', text)
 

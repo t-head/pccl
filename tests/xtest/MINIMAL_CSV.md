@@ -177,11 +177,11 @@ weekday default unless `allowed_nodes` is explicitly overridden. Any excluded
 Cases remain in the export and are listed as `EXCLUDED_BY_POLICY` in
 `execution-coverage.json`, never as passed or skipped tests.
 
-The Monday-Thursday schedule allows each execution group 720 minutes for
-queueing and execution. Friday cron allows 2,160 minutes (36 hours). Manual
-dispatch exposes `execution_timeout_minutes` with a default of 720; the execute
-Job adds 30 minutes for setup and cleanup. These workflow limits do not change
-the Suite or Case timeouts in the generated input.
+The Monday-Thursday schedule allows each execution group 1,440 minutes
+(24 hours) for queueing and execution. Friday cron allows 2,880 minutes
+(48 hours). Manual dispatch exposes `execution_timeout_minutes` with a default
+of 1,440; the execute Job adds 30 minutes for setup and cleanup. These workflow
+limits do not change the Suite or Case timeouts in the generated input.
 
 The 810E `full` conversion adds 7,666 selected Cases after excluding all 36
 FP8 Cases and the 24 GIN Cases inherited from the shared M890P device_api
