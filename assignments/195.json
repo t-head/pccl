@@ -1,14 +1,14 @@
 {
   "classification": {
-    "base_sha": "30ac5589671c608c51266cfd99f3b0b59eddc981",
-    "head_sha": "21ec78ab80861332a33962d4b9ed3bf8eec555d2",
-    "input_fingerprint": "0871d42960a2ce1f66f2ffef1335c7bf94e534a8a406c8a05cb8a50a1c46482b",
+    "base_sha": "74c2d3f5e9bf90578520feda20a3938c3d938917",
+    "head_sha": "feb775390869e1e4449f565989f9f32f57df5a39",
+    "input_fingerprint": "79f15b984298658d4e3a89fbb1cd39d8137c69001aab7133ced8c061da6a167d",
     "pr_number": 195,
     "proposal": {
       "modules": [
         "workflow"
       ],
-      "reason": "Main functional change is review/merge automation policy: .github/scripts/review_automation.py and maintainer_approval.py redefine module-based invitations and approval requirements, while new/renamed workflows (review-routing.yml, review-module.yml, review-gate.yml, review-squash-preview.yml) rewire gate refresh and squash-preview triggering; these are contribution/review workflow behaviors, not CI test-system changes."
+      "reason": "Main functional change is review/merge workflow policy and automation: reviewer routing, required approval gate semantics, invitation lifecycle, and squash-preview publication were reworked in .github/scripts/review_automation.py, .github/scripts/maintainer_approval.py, .github/scripts/commit_message_squash.py plus new/renamed review-* workflows. Other edits (docs, skill text, roster wording) support this same workflow behavior rather than introducing an independent module scope."
     }
   },
   "reviewers": {
