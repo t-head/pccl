@@ -188,6 +188,7 @@ jobs:
           setup_command: |
             set -euo pipefail
             source /usr/local/PPU_SDK/envsetup.sh
+            umask 022
             interface=$(awk '$2 == "00000000" {print $1; exit}' /proc/net/route)
             test -n "$interface"
             export HWLOC_COMPONENTS=-gl
@@ -209,7 +210,17 @@ jobs:
             set -euo pipefail
             cd "$SOURCE_DIR"
             source /usr/local/PPU_SDK/envsetup.sh
+            umask 022
             root=/mnt/wl_nas/devops/pccl-rdma-ab-${{ github.run_id }}
+            # Share only this experiment's evidence, including on an early error.
+            share_experiment() {
+              for name in diagnostics inputs results; do
+                if [ -d "$root/$name" ]; then chmod -R a+rX "$root/$name"; fi
+              done
+              # The CPU runner must be able to remove worker-owned build copies.
+              if [ -d "$root/shared" ]; then chmod -R a+rwX "$root/shared"; fi
+            }
+            trap share_experiment EXIT
             interface=$(awk '$2 == "00000000" {print $1; exit}' /proc/net/route)
             python3 -m venv /workspace/rdma-ab-env
             /workspace/rdma-ab-env/bin/python -m pip install --disable-pip-version-check 'filelock==4.2.10'
@@ -236,5 +247,7 @@ jobs:
           from pathlib import Path
           root=Path('/wl_nas/devops/pccl-rdma-ab-${{ github.run_id }}')
           for name in ('cache','shared'):
-              shutil.rmtree(root/name, ignore_errors=True)
+              path=root/name
+              if path.exists():
+                  shutil.rmtree(path)
           PY

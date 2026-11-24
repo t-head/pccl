@@ -1,6 +1,7 @@
 #!/bin/bash
 # Read-only runtime evidence on each worker; no SDK or driver changes.
 set -euo pipefail
+umask 022
 root=${1:?Experiment result directory is required}
 mkdir -p "$root/diagnostics"
 log="$root/diagnostics/worker-${NODE_RANK:-0}.log"

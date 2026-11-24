@@ -48,6 +48,25 @@ def cases():
     ]
 
 
+def extract_verified_build(archive, extraction, revision):
+    # Archive identities were validated before this call. Ignore recorded owners
+    # and use the current worker's umask rather than restoring private NAS modes.
+    extraction.mkdir(parents=True)
+    subprocess.run(['tar', '--no-same-owner', '--no-same-permissions',
+                    '-xzf', str(archive), '-C', str(extraction)], check=True)
+    build = extraction / 'output_standard'
+    for directory, expected in ((build / 'pccl', revision),
+                                (build / 'pccl-tests', artifact_cache.PCCL_TESTS_REVISION)):
+        # Trust only this verified, experiment-owned extraction for this command;
+        # do not disable ownership checks globally or add a wildcard exception.
+        actual = subprocess.check_output(
+            ['git', '-c', f'safe.directory={directory}', '-C', str(directory),
+             'rev-parse', 'HEAD'], text=True).strip()
+        if actual != expected:
+            raise ValueError(f'Extracted source mismatch: {actual} != {expected}')
+    return build
+
+
 def run(args):
     root = args.root.resolve()
     root.mkdir(parents=True, exist_ok=True)
@@ -59,14 +78,7 @@ def run(args):
         archive = artifact_cache.validate(cache, 'standard', revision,
                                           artifact_cache.PCCL_TESTS_REVISION, digest)
         extraction = root / 'shared' / label
-        extraction.mkdir(parents=True)
-        subprocess.run(['tar', '-xzf', str(archive), '-C', str(extraction)], check=True)
-        build = extraction / 'output_standard'
-        for directory, expected in ((build / 'pccl', revision),
-                                    (build / 'pccl-tests', artifact_cache.PCCL_TESTS_REVISION)):
-            actual = subprocess.check_output(['git', '-C', str(directory), 'rev-parse', 'HEAD'], text=True).strip()
-            if actual != expected:
-                raise ValueError(f'Extracted source mismatch: {actual} != {expected}')
+        build = extract_verified_build(archive, extraction, revision)
         inputs = root / 'inputs' / label
         (inputs / 'envs').mkdir(parents=True)
         (inputs / 'envs' / 'comparison.env').write_text('UMD_PLATFORM_TYPE=1\n')
