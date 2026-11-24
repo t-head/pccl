@@ -689,4 +689,4 @@ struct Apply_Store<16, false, CachePolicy, Rtmd> {
   }
 };
 
-#endif // REDUCE_KERNEL_H_
+#endif // PCCL_SYM_REDUCE_KERNEL_H_

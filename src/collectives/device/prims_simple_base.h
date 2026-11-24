@@ -405,6 +405,7 @@ class PrimitivesSimpleBase {
     return nthreads - (MaxSend > 0 && nthreads >= NCCL_SIMPLE_EXTRA_GROUP_IF_NTHREADS_GE ? WARP_SIZE : 0);
 #endif
   }
+
   __device__ __forceinline__
   PrimitivesSimpleBase(
       const int tid, const int nthreads, int* recvPeers, int* sendPeers, T* directBuff,
@@ -456,6 +457,9 @@ class PrimitivesSimpleBase {
       if (role & (ROLE_WAIT_RECV|ROLE_POST_RECV)) peer = recvPeers[index];
       if (role & (ROLE_WAIT_SEND|ROLE_POST_SEND)) peer = sendPeers[index];
 
+      // Gated here rather than inside loadRecvConn/loadSendConn: the peer index
+      // is only meaningful for the threads that hold the matching role, so an
+      // unconditioned call would index channel.peers[] with a stale peer.
       if (role & (ROLE_WAIT_RECV|ROLE_POST_RECV))
         loadRecvConn(getShmemPtr(comm)->channel.peers[peer], directBuff, connIndexRecv, collWork, p2pWork);
       if (role & (ROLE_WAIT_SEND|ROLE_POST_SEND))

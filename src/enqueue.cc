@@ -1258,21 +1258,17 @@ static ncclResult_t addP2pToPlan(
   }
 
   // Arrays indexed by dir where recv=0, send=1:
-  int protocol[2];
-  int stepSize[2];
-  int chunkSize[2];
-  int chunkDataSize[2];
+  int protocol[2], stepSize[2], chunkSize[2], chunkDataSize[2];
   bool ipcRegistered[2] = {false, false};
   ssize_t llThreshold = ncclParamP2pLLThreshold() >= 0 ? ncclParamP2pLLThreshold() :
-                                                         (comm->compCap < 89 ? PCCL_DEFAULT_LL_THRESHOLD : PCCL_DEFAULT_LL_THRESHOLD_PPU0015);
-  for (int dir = 0; dir < 2; dir++) { // 0=recv, 1=send
+      (comm->compCap < 89 ? PCCL_DEFAULT_LL_THRESHOLD : PCCL_DEFAULT_LL_THRESHOLD_PPU0015);
+  for (int dir = 0; dir < 2; dir++) {
     // Only SIMPLE/SIMPLE_BULK kernels host the runtime LL switch.
     protoLL[dir] &= (baseProtocol == NCCL_PROTO_SIMPLE || baseProtocol == NCCL_PROTO_SIMPLE_BULK || baseProtocol == NCCL_PROTO_SIMPLE_BULK_AR);
     // Runtime LL switch gated by NCCL_P2P_LL_THRESHOLD on the total p2p payload across channels.
     protoLL[dir] &= totBytes[dir] <= llThreshold;
     protocol[dir] = protoLL[dir] ? NCCL_PROTO_LL : baseProtocol;
-
-    stepSize[dir]  = comm->buffSizes[protocol[dir]] / NCCL_STEPS / SENDRECV_SLICEFACTOR;
+    stepSize[dir] = comm->buffSizes[protocol[dir]] / NCCL_STEPS / SENDRECV_SLICEFACTOR;
     chunkSize[dir] = stepSize[dir];
     if (network[dir]) {
       // Tune chunk size for the network
@@ -1281,23 +1277,19 @@ static ncclResult_t addP2pToPlan(
     }
     chunkDataSize[dir] = chunkSize[dir];
     if (protocol[dir] == NCCL_PROTO_LL) chunkDataSize[dir] /= 2;
-
     if (bytes[dir] > 0 && addrs[dir] && PROTO_IS_SIMPLE_CLASS(protocol[dir]) && !selfSend) {
       int peerRank = dir ? sendRank : recvRank;
       int regFlag = 0;
       struct ncclChannelPeer** channelPeers = comm->channels[channelId].peers;
-      struct ncclConnector* conn = dir ? &channelPeers[peerRank]->send[connIndex]
-        : &channelPeers[peerRank]->recv[connIndex];
+      struct ncclConnector* conn = dir ? &channelPeers[peerRank]->send[connIndex] : &channelPeers[peerRank]->recv[connIndex];
       void* regAddr = NULL;
       if (conn->conn.direct & NCCL_DIRECT_GPU) {
         // We require users registering buffers on both sides
         // as we do not use direct_read for now, send side only need set regUsed flag.
         NCCLCHECK(ncclRegisterP2pIpcBuffer(comm, addrs[dir], bytes[dir], peerRank, &regFlag, &regAddr, &plan->cleanupQueue));
-        if (regFlag) {
-          if (dir == 0) recvAddr = regAddr;
-        }
+        if (regFlag && dir == 0) recvAddr = regAddr;
       }
-      ipcRegistered[dir] = regFlag ? true : false;
+      ipcRegistered[dir] = regFlag != 0;
     }
   }
 
@@ -1312,19 +1304,18 @@ static ncclResult_t addP2pToPlan(
   ncclIntruQueueEnqueue(&plan->workQueue, workNode);
   uint32_t workOffset = plan->workBytes;
   plan->workBytes += sizeof(struct ncclDevWorkP2p);
-
   struct ncclDevWorkP2p* work = (struct ncclDevWorkP2p*)(workNode+1);
   work->comm = comm->devComm;
   work->sendbuff = sendAddr;
-  work->sendChunkSize = chunkSize[1];
   work->sendCount = sendBytes;
+  work->sendChunkSize = chunkSize[1];
   work->sendRegUsed = ipcRegistered[1];
   work->sendProtoLL = protoLL[1];
   work->sendRank = sendRank;
   work->recvbuff = recvAddr;
-  work->recvChunkSize = chunkSize[0];
   work->recvCount = recvBytes;
   work->recvRank = recvRank;
+  work->recvChunkSize = chunkSize[0];
   work->recvRegUsed = ipcRegistered[0];
   work->recvProtoLL = protoLL[0];
   work->profilerEnabled = ncclProfilerPluginLoaded() && ((p2pTasks[0] ? p2pTasks[0] : p2pTasks[1])->eActivationMask & ncclProfileKernelCh);
@@ -1334,7 +1325,6 @@ static ncclResult_t addP2pToPlan(
   addWorkBatchToPlan(comm, plan, channelId, ncclDevWorkTypeP2p, funcIndex, workOffset, p2pRound, maxP2pWorkPerBatch, p2pEpoch);
   plan->channelWorks[channelId]++;
   plan->threadPerBlock = std::max<unsigned>(plan->threadPerBlock, NCCL_MAX_NTHREADS);
-
   // Record the first kernel to launch
   // Just for HGGC kernel to know this is a P2P operation
   // The HGGC kernel does not use the inlined first work element as fastpath argument
@@ -1394,7 +1384,6 @@ static ncclResult_t addP2pToPlan(
       NCCLCHECK(addProfilerProxyOpIfNeeded(comm, &proxyOps[dir]));
     }
   }
-
   return ncclSuccess;
 }
 
@@ -1485,19 +1474,14 @@ static ncclResult_t scheduleP2pTasksToPlan(ncclComm_t comm, int* p2pEpoch, int* 
   struct ncclKernelPlanner* planner = &comm->planner;
   int nRanks = comm->nRanks;
   struct ncclKernelPlanner::Peer* peers = planner->peers;
-
   int protocol;
   NCCLCHECK(ncclComputeP2pProto(comm, &protocol));
   int funcIndex = ncclComputeP2pFuncIndex(protocol);
-
-  // Compute how much to split operations
-  // Natural step size matching buffer steps.
   ssize_t stepSize = comm->buffSizes[protocol] / NCCL_STEPS;
-  // Try to use all channels
   int nChannelsMax = comm->p2pnChannelsPerPeer;
   int nChannelsMin = nChannelsMax;
   // Try to use all channels, but one channel per operation.
-  while (nChannelsMin*comm->nRanks > comm->p2pnChannels && nChannelsMin > 1) nChannelsMin /= 2;
+  while (nChannelsMin*nRanks > comm->p2pnChannels && nChannelsMin > 1) nChannelsMin /= 2;
   if (comm->nNodes == 1 || (comm->config.nChannelsPerNetPeer == PCCL_CONFIG_UNDEF_INT && comm->p2pMaxPeers == 0)) {
     while (nChannelsMax*comm->nRanks > comm->p2pnChannels*4 && nChannelsMax > 1) nChannelsMax /= 2;
   }
@@ -2118,7 +2102,6 @@ static ncclResult_t p2pTaskAppend(
     }
   }
   ncclProfilerStopP2pApiEvent();
-  // Mark channels that need pre-connect
   return ncclSuccess;
 }
 

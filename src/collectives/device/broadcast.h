@@ -66,7 +66,6 @@ namespace {
 
     for (ssize_t gridOffset = 0; gridOffset < size; gridOffset += loopSize) {
       int realChunkSize;
-
       if (Proto::Id == NCCL_PROTO_LL) {
         if (size-gridOffset < loopSize) {
           chunkSize = work->lastChunkSize;

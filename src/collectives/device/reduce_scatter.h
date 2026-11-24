@@ -39,7 +39,7 @@ namespace {
     ssize_t chunkSize;
     ssize_t minChunkSize;
     if (Proto::Id == NCCL_PROTO_LL) {
-      stepSize= comm->buffSizes[NCCL_PROTO_LL] / (sizeof(union ncclLLFifoLine)*NCCL_STEPS);
+      stepSize = comm->buffSizes[NCCL_PROTO_LL] / (sizeof(union ncclLLFifoLine)*NCCL_STEPS);
       chunkSize = stepSize * sizeof(uint64_t) / sizeof(T);
     } else if (Proto::Id == NCCL_PROTO_LL128) {
       stepSize = comm->buffSizes[NCCL_PROTO_LL128] / (sizeof(uint64_t)*NCCL_STEPS);

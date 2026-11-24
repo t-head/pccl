@@ -26,7 +26,7 @@ class Primitives<T, RedOp, Fan, Direct, ProtoLL128, P2p, isNetOffload>:
   const int nthreads; // thread count in primitives group
   const int wid; // lane index in warp
   const int stepSize;
-  const int warp;
+  const int warp; // warp index in primitives group
   const bool flagThread;
   Fan fan;
   T* userBufs[2];
@@ -48,7 +48,6 @@ class Primitives<T, RedOp, Fan, Direct, ProtoLL128, P2p, isNetOffload>:
   uint64_t* sendBuff[MaxSend];
 
   struct ncclKernelComm* comm;
-
   volatile uint64_t* shmem;
   int recvPeer[MaxRecv];
   int sendPeer[MaxSend];
@@ -321,7 +320,6 @@ class Primitives<T, RedOp, Fan, Direct, ProtoLL128, P2p, isNetOffload>:
 
     if (SEND) waitSend(divUp(nelem, DataEltPerSlice)*WireWordPerSlice*sizeof(uint64_t));
     barrier();
-
     nelem -= DataEltPerSlice*warp;
     srcPtr += DataEltPerSlice*warp;
     dstPtr += DataEltPerSlice*warp;
@@ -513,6 +511,7 @@ class Primitives<T, RedOp, Fan, Direct, ProtoLL128, P2p, isNetOffload>:
     // happen given the two "while" loops just above.
     // coverity[var_deref_model:FALSE]
     loadRecvSync();
+    // coverity[var_deref_model:FALSE]
     loadSendSync();
   }
 
@@ -583,6 +582,7 @@ class Primitives<T, RedOp, Fan, Direct, ProtoLL128, P2p, isNetOffload>:
       volatileStoreU64(reinterpret_cast<volatile uint64_t*>(&recvConn->step), recvConnHead);
     if (tid < fan.nsend())
       volatileStoreU64(reinterpret_cast<volatile uint64_t*>(&sendConn->step), sendConnHead);
+    // Ensure all steps written back
     barrier();
   }
 };

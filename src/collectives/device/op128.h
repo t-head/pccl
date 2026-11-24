@@ -522,4 +522,5 @@ inline __device__ void loadMisaligned128(T *ptr, uint64_t &v0, uint64_t &v1) {
   v0 = v1 = 0UL;
 #endif
 }
-#endif
+
+#endif // OP128_H_

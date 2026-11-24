@@ -215,9 +215,12 @@ class Primitives<T, RedOp, Fan, Direct, ProtoLL, P2p, isNetOffload>:
         u4[1] = misalign + eltN*sizeof(T) > 4 ? load(p+1) : 0;
         // u4[2] would be simpler, but that throws warnings on some compilers
         u4[sizeof(T) <= 2 ? 2 : 0] = misalign + eltN*sizeof(T) > 8 ? load(p+2) : 0;
-      } else {
+      }
+      else {
         #pragma unroll
         for(int i=0; i < EltPerLine; i++) {
+          // Yes, for some template arguments this code will be unreachable.  That's fine.
+          // coverity[dead_error_line]
           if(i==0 || i < eltN)
             elt[i] = load(src + i);
         }
@@ -255,6 +258,8 @@ class Primitives<T, RedOp, Fan, Direct, ProtoLL, P2p, isNetOffload>:
     u8 = val;
     #pragma unroll
     for(int i=0; i < EltPerLine; i++) {
+      // Yes, for some template arguments this code will be unreachable.  That's fine.
+      // coverity[dead_error_line]
       if (i==0 || i < eltN)
         //store(dst+i, elt[i]);
         dst[i] = elt[i];
@@ -279,11 +284,7 @@ class Primitives<T, RedOp, Fan, Direct, ProtoLL, P2p, isNetOffload>:
     int offset = tid;
     int eltPerTrip = nthreads*EltPerLine;
 
-    // Do multiples of 64 bits
-    // TODO: need to find other way to do variable unrolling while PPU path
-    while(nelem>0) {
-    // for (; offset<npack; offset+=nthreads) {
-      // Recv : local, then intra-node, then inter-node
+    while (nelem > 0) {
       int eltInLine = EltPerLine < nelem ? EltPerLine : nelem;
 
       DataLoader dl;
@@ -472,6 +473,7 @@ class Primitives<T, RedOp, Fan, Direct, ProtoLL, P2p, isNetOffload>:
     // happen given the two "while" loops just above.
     // coverity[var_deref_model:FALSE]
     loadRecvSync();
+    // coverity[var_deref_model:FALSE]
     loadSendSync();
   }
 
@@ -534,6 +536,7 @@ class Primitives<T, RedOp, Fan, Direct, ProtoLL, P2p, isNetOffload>:
       volatileStoreU64(reinterpret_cast<volatile uint64_t*>(&recvConn->step), recvConnHead);
     if (tid < fan.nsend())
       volatileStoreU64(reinterpret_cast<volatile uint64_t*>(&sendConn->step), sendConnHead);
+    // Ensure all steps written back
     barrier();
   }
 };

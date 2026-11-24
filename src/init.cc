@@ -1020,6 +1020,7 @@ ncclResult_t ncclCommSetIntraProc(ncclComm_t comm) {
 #define DEFAULT_SIGNAL_BULK_BUFFSIZE_ARM (1 << 20) /* 1MiB */
 #define DEFAULT_SIMPLE_BULK_AR_BUFFSIZE (1 << 22) /* 4MiB */
 #define DEFAULT_SIMPLE_BULK_AR_BUFFSIZE_ARM (1 << 20) /* 1MiB */
+
 NCCL_PARAM(BuffSize, "BUFFSIZE", -2);
 NCCL_PARAM(LlBuffSize, "LL_BUFFSIZE", -2);
 NCCL_PARAM(Ll128BuffSize, "LL128_BUFFSIZE", -2);
@@ -1042,6 +1043,8 @@ static ncclResult_t computeBuffSizes(ncclComm_t comm) {
   for (int p=0; p<NCCL_NUM_PROTOCOLS; p++) {
     comm->buffSizes[p] = comm->hostDevComm.comm.buffSizes[p] = envs[p] != -2 ? envs[p] : defaults[p];
   }
+
+
   return ncclSuccess;
 }
 
