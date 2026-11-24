@@ -75,368 +75,6 @@ struct FuncMinMax {
   }
 };
 
-template<typename T>
-struct FuncNull {
-  __device__ FuncNull(uint64_t opArg=0) {}
-  __device__ T operator()(const T x, const T y) const {
-    return 0;
-  }
-};
-
-template<typename T>
-struct FuncMax {
-  __device__ FuncMax(uint64_t opArg=0) {}
-  __device__ T operator()(const T x, const T y) const {
-    return (x < y) ? y : x;
-  }
-};
-
-template<typename T>
-struct FuncMin {
-  __device__ FuncMin(uint64_t opArg=0) {}
-  __device__ T operator()(const T x, const T y) const {
-    return (x < y) ? x : y;
-  }
-};
-
-template<>
-struct FuncMax<int8_t> {
-  __device__ FuncMax(uint64_t opArg=0) {}
-  union converter { uint32_t storage; char4 a; };
-  __device__ uint32_t operator()(const uint32_t x, const uint32_t y) const {
-#if 0
-    int32_t rv, z=0;
-    asm("vmax4.s32.s32.s32 %0, %1, %2, %3;" : "=r"(rv) : "r"(x), "r"(y), "r"(z));
-    return rv;
-#else
-    converter cx, cy, cr;
-    cx.storage = x;
-    cy.storage = y;
-    cr.a.x = max(cx.a.x, cy.a.x);
-    cr.a.y = max(cx.a.y, cy.a.y);
-    cr.a.z = max(cx.a.z, cy.a.z);
-    cr.a.w = max(cx.a.w, cy.a.w);
-    return cr.storage;
-#endif
-  }
-  __device__ int8_t operator()(const int8_t x, const int8_t y) const {
-    return (x>y) ? x : y;
-  }
-};
-
-template<>
-struct FuncMax<uint8_t> {
-  __device__ FuncMax(uint64_t opArg=0) {}
-  union converter { uint32_t storage; uchar4 a; };
-  __device__ uint32_t operator()(const uint32_t x, const uint32_t y) const {
-#if 0
-    int32_t rv, z=0;
-    asm("vmax4.u32.u32.u32 %0, %1, %2, %3;" : "=r"(rv) : "r"(x), "r"(y), "r"(z));
-    return rv;
-#else
-    converter cx, cy, cr;
-    cx.storage = x;
-    cy.storage = y;
-    cr.a.x = max(cx.a.x, cy.a.x);
-    cr.a.y = max(cx.a.y, cy.a.y);
-    cr.a.z = max(cx.a.z, cy.a.z);
-    cr.a.w = max(cx.a.w, cy.a.w);
-    return cr.storage;
-#endif
-  }
-  __device__ uint8_t operator()(const uint8_t x, const uint8_t y) const {
-    return (x>y) ? x : y;
-  }
-};
-
-template<>
-struct FuncMin<int8_t> {
-  __device__ FuncMin(uint64_t opArg=0) {}
-  union converter { uint32_t storage; char4 a; };
-  __device__ uint32_t operator()(const uint32_t x, const uint32_t y) const {
-#if 0
-    int32_t rv, z=0;
-    asm("vmin4.s32.s32.s32 %0, %1, %2, %3;" : "=r"(rv) : "r"(x), "r"(y), "r"(z));
-    return rv;
-#else
-    converter cx, cy, cr;
-    cx.storage = x;
-    cy.storage = y;
-    cr.a.x = min(cx.a.x, cy.a.x);
-    cr.a.y = min(cx.a.y, cy.a.y);
-    cr.a.z = min(cx.a.z, cy.a.z);
-    cr.a.w = min(cx.a.w, cy.a.w);
-    return cr.storage;
-#endif
-  }
-  __device__ int8_t operator()(const int8_t x, const int8_t y) const {
-    return (x<y) ? x : y;
-  }
-};
-
-template<>
-struct FuncMin<uint8_t> {
-  __device__ FuncMin(uint64_t opArg=0) {}
-  union converter { uint32_t storage; uchar4 a; };
-  __device__ uint32_t operator()(const uint32_t x, const uint32_t y) const {
-#if 0
-    int32_t rv, z=0;
-    asm("vmin4.u32.u32.u32 %0, %1, %2, %3;" : "=r"(rv) : "r"(x), "r"(y), "r"(z));
-    return rv;
-#else
-    converter cx, cy, cr;
-    cx.storage = x;
-    cy.storage = y;
-    cr.a.x = min(cx.a.x, cy.a.x);
-    cr.a.y = min(cx.a.y, cy.a.y);
-    cr.a.z = min(cx.a.z, cy.a.z);
-    cr.a.w = min(cx.a.w, cy.a.w);
-    return cr.storage;
-#endif
-  }
-  __device__ uint8_t operator()(const uint8_t x, const uint8_t y) const {
-    return (x<y) ? x : y;
-  }
-};
-
-template<>
-struct FuncMax<half> {
-  __device__ FuncMax(uint64_t opArg=0) {}
-  __device__ half2 operator()(const half2 x, const half2 y) const {
-    float2 fx, fy, fr;
-    fx = __half22float2(x);
-    fy = __half22float2(y);
-    fr.x = fmaxf(fx.x, fy.x);
-    fr.y = fmaxf(fx.y, fy.y);
-    return __float22half2_rn(fr);
-  }
-  __device__ half operator()(const half x, const half y) const {
-    float fx, fy, fm;
-    fx = __half2float(x);
-    fy = __half2float(y);
-    fm = fmaxf(fx, fy);
-    return __float2half(fm);
-  }
-};
-
-template<>
-struct FuncMax<__ppu_bfloat16> {
-  __device__ FuncMax(uint64_t opArg=0) {}
-  __device__ __ppu_bfloat162 operator()(const __ppu_bfloat162 x, const __ppu_bfloat162 y) const {
-#if 1
-    return __hmax2(x, y);
-#else
-    float fxl, fxh, fyl, fyh;
-    fxl = __low2float(x);
-    fxh = __high2float(x);
-    fyl = __low2float(y);
-    fyh = __high2float(y);
-#if defined(PCCL_HAS_SDK_HEADER_REFACTOR)
-    return __hg_floats2bfloat162_rn(fmaxf(fxl, fyl), fmaxf(fxh, fyh));
-#else
-    return __floats2bfloat162_rn(fmaxf(fxl, fyl), fmaxf(fxh, fyh));
-#endif
-#endif
-  }
-  __device__ __ppu_bfloat16 operator()(const __ppu_bfloat16 x, const __ppu_bfloat16 y) const {
-#if 1
-    return __hmax(x, y);
-#else
-    float fx, fy;
-#if defined(PCCL_HAS_SDK_HEADER_REFACTOR)
-    fx = __hg_bfloat162float(x);
-    fy = __hg_bfloat162float(y);
-    return __hg_float2bfloat16(fmaxf(fx, fy));
-#else
-    fx = __bfloat162float(x);
-    fy = __bfloat162float(y);
-    return __float2bfloat16(fmaxf(fx, fy));
-#endif
-#endif
-  }
-};
-
-template<>
-struct FuncMax<__hg_fp8_e4m3> {
-  __device__ FuncMax(uint64_t opArg=0) {}
-  __device__ __hg_fp8_e4m3 operator()(const __hg_fp8_e4m3 x, const __hg_fp8_e4m3 y) const {
-#if (defined __HGGC_ARCH__) && (__HGGC_ARCH__ >= 150)
-    const __half xCvtHalf = __half(x);
-    const __half yCvtHalf = __half(y);
-    return __hg_fp8_e4m3(__hmax(xCvtHalf, yCvtHalf));
-#else
-    return __hg_fp8_e4m3(0);
-#endif
-  }
-  __device__ __hg_fp8x2_e4m3 operator()(const __hg_fp8x2_e4m3 x, const __hg_fp8x2_e4m3 y) const {
-#if (defined __HGGC_ARCH__) && (__HGGC_ARCH__ >= 150)
-    const __half2 xCvtHalf2 = __half2(x);
-    const __half2 yCvtHalf2 = __half2(y);
-    return __hg_fp8x2_e4m3(__hmax2(xCvtHalf2, yCvtHalf2));
-#else
-    return __hg_fp8x2_e4m3(make_double2(0.0, 0.0));
-#endif
-  }
-};
-
-template<>
-struct FuncMax<__hg_fp8_e5m2> {
-  __device__ FuncMax(uint64_t opArg=0) {}
-  __device__ __hg_fp8_e5m2 operator()(const __hg_fp8_e5m2 x, const __hg_fp8_e5m2 y) const {
-#if (defined __HGGC_ARCH__) && (__HGGC_ARCH__ >= 150)
-    const __half xCvtHalf = __half(x);
-    const __half yCvtHalf = __half(y);
-    return __hg_fp8_e5m2(__hmax(xCvtHalf, yCvtHalf));
-#else
-    return __hg_fp8_e5m2(0);
-#endif
-  }
-  __device__ __hg_fp8x2_e5m2 operator()(const __hg_fp8x2_e5m2 x, const __hg_fp8x2_e5m2 y) const {
-#if (defined __HGGC_ARCH__) && (__HGGC_ARCH__ >= 150)
-    const __half2 xCvtHalf2 = __half2(x);
-    const __half2 yCvtHalf2 = __half2(y);
-    return __hg_fp8x2_e5m2(__hmax2(xCvtHalf2, yCvtHalf2));
-#else
-    return __hg_fp8x2_e5m2(make_double2(0.0, 0.0));
-#endif
-  }
-};
-
-template<>
-struct FuncMin<half> {
-  __device__ FuncMin(uint64_t opArg=0) {}
-  __device__ half2 operator()(const half2 x, const half2 y) const {
-    float2 fx, fy, fr;
-    fx = __half22float2(x);
-    fy = __half22float2(y);
-    fr.x = fminf(fx.x, fy.x);
-    fr.y = fminf(fx.y, fy.y);
-    return __float22half2_rn(fr);
-  }
-  __device__ half operator()(const half x, const half y) const {
-    float fx, fy, fm;
-    fx = __half2float(x);
-    fy = __half2float(y);
-    fm = fminf(fx, fy);
-    return __float2half(fm);
-  }
-};
-
-template<>
-struct FuncMin<__ppu_bfloat16> {
-  __device__ FuncMin(uint64_t opArg=0) {}
-   __device__ __ppu_bfloat162 operator()(const __ppu_bfloat162 x, const __ppu_bfloat162 y) const {
-#if 1
-    return __hmin2(x, y);
-#else
-    float fxl, fxh, fyl, fyh;
-    fxl = __low2float(x);
-    fxh = __high2float(x);
-    fyl = __low2float(y);
-    fyh = __high2float(y);
-#if defined(PCCL_HAS_SDK_HEADER_REFACTOR)
-    return __hg_floats2bfloat162_rn(fminf(fxl, fyl), fminf(fxh, fyh));
-#else
-    return __floats2bfloat162_rn(fminf(fxl, fyl), fminf(fxh, fyh));
-#endif
-#endif
-  }
-  __device__ __ppu_bfloat16 operator()(const __ppu_bfloat16 x, const __ppu_bfloat16 y) const {
-#if 1
-    return __hmin(x, y);
-#else
-    float fx, fy;
-#if defined(PCCL_HAS_SDK_HEADER_REFACTOR)
-    fx = __hg_bfloat162float(x);
-    fy = __hg_bfloat162float(y);
-    return __hg_float2bfloat16(fminf(fx, fy));
-#else
-    fx = __bfloat162float(x);
-    fy = __bfloat162float(y);
-    return __float2bfloat16(fminf(fx, fy));
-#endif
-#endif
-  }
-};
-
-template<>
-struct FuncMin<__hg_fp8_e4m3> {
-  __device__ FuncMin(uint64_t opArg=0) {}
-  __device__ __hg_fp8_e4m3 operator()(const __hg_fp8_e4m3 x, const __hg_fp8_e4m3 y) const {
-#if (defined __HGGC_ARCH__) && (__HGGC_ARCH__ >= 150)
-    const __half xCvtHalf = __half(x);
-    const __half yCvtHalf = __half(y);
-    return __hg_fp8_e4m3(__hmin(xCvtHalf, yCvtHalf));
-#else
-    return __hg_fp8_e4m3(0);
-#endif
-  }
-  __device__ __hg_fp8x2_e4m3 operator()(const __hg_fp8x2_e4m3 x, const __hg_fp8x2_e4m3 y) const {
-#if (defined __HGGC_ARCH__) && (__HGGC_ARCH__ >= 150)
-    const __half2 xCvtHalf2 = __half2(x);
-    const __half2 yCvtHalf2 = __half2(y);
-    return __hg_fp8x2_e4m3(__hmin2(xCvtHalf2, yCvtHalf2));
-#else
-    return __hg_fp8x2_e4m3(make_double2(0.0, 0.0));
-#endif
-  }
-};
-
-template<>
-struct FuncMin<__hg_fp8_e5m2> {
-  __device__ FuncMin(uint64_t opArg=0) {}
-  __device__ __hg_fp8_e5m2 operator()(const __hg_fp8_e5m2 x, const __hg_fp8_e5m2 y) const {
-#if (defined __HGGC_ARCH__) && (__HGGC_ARCH__ >= 150)
-    const __half xCvtHalf = __half(x);
-    const __half yCvtHalf = __half(y);
-    return __hg_fp8_e5m2(__hmin(xCvtHalf, yCvtHalf));
-#else
-    return __hg_fp8_e5m2(0);
-#endif
-  }
-  __device__ __hg_fp8x2_e5m2 operator()(const __hg_fp8x2_e5m2 x, const __hg_fp8x2_e5m2 y) const {
-#if (defined __HGGC_ARCH__) && (__HGGC_ARCH__ >= 150)
-    const __half2 xCvtHalf2 = __half2(x);
-    const __half2 yCvtHalf2 = __half2(y);
-    return __hg_fp8x2_e5m2(__hmin2(xCvtHalf2, yCvtHalf2));
-#else
-    return __hg_fp8x2_e5m2(make_double2(0.0, 0.0));
-#endif
-  }
-};
-
-template<>
-struct FuncMax<float> {
-  __device__ FuncMax(uint64_t opArg=0) {}
-  __device__ float operator()(float x, float y) const {
-    return fmaxf(x, y);
-  }
-};
-
-template<>
-struct FuncMin<float> {
-  __device__ FuncMin(uint64_t opArg=0) {}
-  __device__ float operator()(float x, float y) const {
-    return fminf(x, y);
-  }
-};
-
-template<>
-struct FuncMax<double> {
-  __device__ FuncMax(uint64_t opArg=0) {}
-  __device__ double operator()(double x, double y) const {
-    return fmax(x, y);
-  }
-};
-
-template<>
-struct FuncMin<double> {
-  __device__ FuncMin(uint64_t opArg=0) {}
-  __device__ double operator()(double x, double y) const {
-    return fmin(x, y);
-  }
-};
-
 ////////////////////////////////////////////////////////////////////////////////
 // Trait class for handling the reduction argument.
 
@@ -448,28 +86,6 @@ struct RedOpArg { // default case: no argument
 
 template<typename T>
 struct RedOpArg<FuncMinMax<T>> {
-  static constexpr bool ArgUsed = true;
-  __device__ __forceinline__ static uint64_t loadArg(void *ptr) {
-    union { uint64_t u64; T val; };
-    u64 = 0;
-    val = *(T*)ptr;
-    return u64;
-  }
-};
-
-template<typename T>
-struct RedOpArg<FuncMin<T>> {
-  static constexpr bool ArgUsed = true;
-  __device__ __forceinline__ static uint64_t loadArg(void *ptr) {
-    union { uint64_t u64; T val; };
-    u64 = 0;
-    val = *(T*)ptr;
-    return u64;
-  }
-};
-
-template<typename T>
-struct RedOpArg<FuncMax<T>> {
   static constexpr bool ArgUsed = true;
   __device__ __forceinline__ static uint64_t loadArg(void *ptr) {
     union { uint64_t u64; T val; };
@@ -1202,9 +818,6 @@ template<typename Fn>
 struct FuncEltType { using type = typename Fn::EltType; };
 template<typename T> struct FuncEltType<FuncSum<T>> { using type = T; };
 template<typename T> struct FuncEltType<FuncProd<T>> { using type = T; };
-template<typename T> struct FuncEltType<FuncNull<T>> { using type = T; };
-template<typename T> struct FuncEltType<FuncMin<T>> { using type = T; };
-template<typename T> struct FuncEltType<FuncMax<T>> { using type = T; };
 template<typename T> struct FuncEltType<FuncPreMulSum<T>> { using type = T; };
 
 template<typename A, typename B, int EltPerPackA>
@@ -1415,27 +1028,6 @@ template<typename T>
 struct Apply_Reduce<FuncProd<T>, /*EltPerPack=*/1> {
   __device__ __forceinline__ static BytePack<sizeof(T)> reduce(FuncProd<T> fn, BytePack<sizeof(T)> a, BytePack<sizeof(T)> b) {
     return toPack<T>(fromPack<T>(a) * fromPack<T>(b));
-  }
-};
-template<typename T>
-struct Apply_Reduce<FuncMin<T>, /*EltPerPack=*/1> {
-  __device__ __forceinline__ static BytePack<sizeof(T)> reduce(
-      FuncMin<T> fn, BytePack<sizeof(T)> a, BytePack<sizeof(T)> b) {
-    return toPack<T>(fn(fromPack<T>(a), fromPack<T>(b)));
-  }
-};
-template<typename T>
-struct Apply_Reduce<FuncMax<T>, /*EltPerPack=*/1> {
-  __device__ __forceinline__ static BytePack<sizeof(T)> reduce(
-      FuncMax<T> fn, BytePack<sizeof(T)> a, BytePack<sizeof(T)> b) {
-    return toPack<T>(fn(fromPack<T>(a), fromPack<T>(b)));
-  }
-};
-template<typename T>
-struct Apply_Reduce<FuncNull<T>, /*EltPerPack=*/1> {
-  __device__ __forceinline__ static BytePack<sizeof(T)> reduce(
-      FuncNull<T> fn, BytePack<sizeof(T)> a, BytePack<sizeof(T)> b) {
-    return toPack<T>(fn(fromPack<T>(a), fromPack<T>(b)));
   }
 };
 template<typename T>
@@ -1821,13 +1413,35 @@ struct RedOpArg<FuncSumPostDiv<T>> {
 
 template<typename T>
 struct FuncSumPostDiv<T, /*IsFloating=*/false>: FuncSum<T> {
+  static_assert(T(0) < T(-1), "FuncSumPostDiv is only for implementing ncclAvg on uint types.");
+  using UintType = typename std::conditional<sizeof(T) == 8, uint64_t, uint32_t>::type;
   static constexpr bool IsPreOpIdentity = true;
   static constexpr bool IsPostOpIdentity = false;
-  int n;
-  __device__ FuncSumPostDiv(uint64_t opArg): n(opArg) {}
-  // inherits FuncSum::operator()
+  uint32_t divisor:31, isSigned:1;
+  UintType recip;
+  __device__ __forceinline__ FuncSumPostDiv(uint64_t opArg) {
+    isSigned = opArg & 1;
+    divisor = opArg >> 1;
+    recip = UintType(-1) / divisor;
+  }
   __device__ T preOp(T x) const { return x; }
-  __device__ T postOp(T x) const { return T(x/n); }
+  __device__ __forceinline__ T divide(T x) const {
+    // x is negative iff we are in signed mode and the top bit is set.
+    bool xneg = isSigned && (x & ~(T(-1)>>1));
+    // Compute abs(x):
+    // T(-x), not -T(x): the latter negates after the implicit promotion to int,
+    // so for T=uint8_t and x=0xff (i.e. -1) it yields 0xffffff01 instead of the
+    // 0x1 we want.
+    UintType xabs = xneg ? T(-x) : x;
+    // Compute quotient by multiplying by reciprocal.
+    UintType q = sizeof(T) == 8 ? __umul64hi(xabs, recip) : __umulhi(xabs, recip);
+    // Quotient may be off by one so do a fixup.
+    if (xabs - q * divisor >= divisor) q += 1;
+    // If original x was negative then we have to negate it back since we were
+    // working with its abs val.
+    return xneg ? -T(q) : T(q);
+  }
+  __device__ T postOp(T x) const { return divide(x); }
 };
 
 template<typename T>
@@ -1852,7 +1466,7 @@ struct FuncTraits<FuncSumPostDiv<T>> {
 
 template<typename T>
 struct RedOpIdentityArg<FuncSumPostDiv<T, /*IsFloating=*/false>> {
-  static __device__ uint64_t value() { return 1; }
+  static __device__ uint64_t value() { return 1u<<1; }
 };
 
 template<typename T, bool IsFloating>
@@ -1871,7 +1485,7 @@ template<typename T>
 struct Apply_PostOp<FuncSumPostDiv<T, /*IsFloating=*/false>, /*EltPerPack=*/1> {
   static constexpr bool IsIdentity = false;
   __device__ __forceinline__ static BytePack<sizeof(T)> postOp(FuncSumPostDiv<T, false> fn, BytePack<sizeof(T)> a) {
-    return toPack<T>(fn.postOp(fromPack<T>(a)));
+    return toPack<T>(fn.divide(fromPack<T>(a)));
   }
 };
 

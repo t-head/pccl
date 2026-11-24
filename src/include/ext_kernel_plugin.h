@@ -26,15 +26,26 @@ struct pcclExtKernelInitInfo {
   uint32_t* abortFlagDev;
 };
 
+typedef enum {
+  pcclExtDevSum = 0,
+  pcclExtDevProd = 1,
+  pcclExtDevMinMax = 2,
+  pcclExtDevPreMulSum = 3,
+  pcclExtDevSumPostDiv = 4,
+  pcclExtNumDevRedOps = 5
+} pcclExtDevRedOp_v2_t;
+
 /*========================================================================
  * pcclExtTaskColl — lightweight task descriptor passed to ext-kernel plugin.
  * The pccl core converts from its internal ncclTaskColl to this struct
  * before calling plugin functions.
  *========================================================================*/
-struct pcclExtTaskColl {
+struct pcclExtTaskColl_v2 {
   ncclFunc_t func;
-  ncclDevRedOp_t op;
+  pcclExtDevRedOp_v2_t op;
   ncclDataType_t datatype;
+  uint64_t scalarArg;
+  bool scalarArgIsPtr;
   size_t count;
   void const* sendbuff;
   void* recvbuff;
@@ -50,16 +61,16 @@ typedef struct {
 
   pcclResult_t (*kernelPluginInit)(const struct pcclExtKernelInitInfo* info, void** params, ssize_t* workspaceSize, ncclDebugLogger_t logfn);
   pcclResult_t (*kernelPluginConfigWorkspace)(void** ptrs, int nGpus, void* params);
-  pcclResult_t (*kernelPluginAvailCheck)(const struct pcclExtTaskColl* task, const void* params, bool* usingExtKernel);
-  pcclResult_t (*kernelPluginBuildParams)(const struct pcclExtTaskColl* task, void* params);
+  pcclResult_t (*kernelPluginAvailCheck)(const struct pcclExtTaskColl_v2* task, const void* params, bool* usingExtKernel);
+  pcclResult_t (*kernelPluginBuildParams)(const struct pcclExtTaskColl_v2* task, void* params);
   pcclResult_t (*kernelPluginExecute)(void* params, hggcStream_t stream);
   pcclResult_t (*kernelPluginDump)(void* params, const char* filename);
   pcclResult_t (*kernelPluginDestroy)(void* params);
-} pcclExtKernel_v1_t;
+} pcclExtKernel_v2_t;
 
-typedef pcclExtKernel_v1_t pcclExtKernel_t;
+typedef pcclExtKernel_v2_t pcclExtKernel_t;
 
-#define PCCL_EXT_KERNEL_PLUGIN_SYMBOL "pcclExtKernelPlugin_v1"
+#define PCCL_EXT_KERNEL_PLUGIN_SYMBOL "pcclExtKernelPlugin_v2"
 
 ncclResult_t pcclExtKernelPluginLoad(ncclComm_t comm);
 

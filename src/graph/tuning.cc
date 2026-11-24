@@ -134,6 +134,12 @@ exit:
   return ret;
 }
 
+static_assert(NCCL_NUM_ALGORITHMS == 5,
+  "tuning tables have exactly 5 algorithm rows (TREE/RING/COLLNET/FC/PAT); "
+  "add the new rows and update this guard when the algorithm set changes");
+static_assert(NCCL_NUM_PROTOCOLS == 7,
+  "tuning tables have exactly 7 protocol columns; "
+  "add the new columns and update this guard when the protocol set changes");
 
 // Latencies in us, Bandwidths in GB/s
 // Tree { LL, LL128, Simple, Signal, SimpleBulk, simpleBulkAR } , Ring { LL, LL128, Simple, Signal, SimpleBulk, simpleBulkAR }

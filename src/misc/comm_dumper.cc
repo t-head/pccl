@@ -148,7 +148,7 @@ ncclResult_t dumpChannelWorkBatchToFile(FILE* file, ncclComm_t comm, ncclDevKern
   while (true) {
     struct ncclDevWorkBatch batch = ((struct ncclDevWorkBatch*)(kernelArgs+1))[batchIx];
     char kernelName[1024];
-    getKerFuncStr(batch.funcId, kernelName, NULL, NULL);
+    getKerFuncStr(batch.funcId, kernelName);
     fprintf(file, "workType:%u, funcId:%u(%s), nextJump:%u, nextExtends:%u ", batch.workType, batch.funcId, kernelName, batch.nextJump, batch.nextExtends);
     fprintf(file, "offsetBase:%x, offsetBitset:%lx ", batch.offsetBase, batch.offsetBitset);
     fprintf(file, "\n");

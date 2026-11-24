@@ -21,81 +21,6 @@
 #include "comm_dumper.h"
 #include "rma/rma.h"
 
-// Only generate inline kernels for LL
-#define NCCL_FUNC5(func, algo, devredop, dtype) \
-  (void*)NCCL_KERN_NAME(func, algo, LL, devredop, dtype), \
-  (void*)NCCL_KERN_NAME(func, algo, LL, devredop, dtype), \
-  (void*)NCCL_KERN_NAME(func, algo, LL, devredop, dtype), \
-  (void*)NCCL_KERN_NAME(func, algo, LL, devredop, dtype), \
-  (void*)NCCL_KERN_NAME(func, algo, LL, devredop, dtype), \
-  (void*)NCCL_KERN_NAME(func, algo, LL, devredop, dtype), \
-  (void*)NCCL_KERN_NAME(func, algo, LL, devredop, dtype)
-
-#define NCCL_FUNC4(func, devredop, type) \
-  (void*)NCCL_FUNC5(func, TREE,    devredop, type), \
-  (void*)NCCL_FUNC5(func, RING,    devredop, type), \
-  nullptr, nullptr, nullptr, nullptr, nullptr, nullptr, nullptr, /* Reserved CollNet slot */ \
-  (void*)NCCL_FUNC5(func, FC,      devredop, type), \
-  (void*)NCCL_FUNC5(func, PAT,     devredop, type)
-
-// Must be consistent with ncclDataType_t
-#define NCCL_FUNCS3A(func, devredop) \
-  (void*)NCCL_FUNC4(func, devredop, int8_t), \
-  (void*)NCCL_FUNC4(func, devredop, uint8_t), \
-  (void*)NCCL_FUNC4(func, devredop, int32_t), \
-  (void*)NCCL_FUNC4(func, devredop, uint32_t), \
-  (void*)NCCL_FUNC4(func, devredop, int64_t), \
-  (void*)NCCL_FUNC4(func, devredop, uint64_t), \
-  (void*)NCCL_FUNC4(func, devredop, half), \
-  (void*)NCCL_FUNC4(func, devredop, float), \
-  (void*)NCCL_FUNC4(func, devredop, double), \
-  (void*)NCCL_FUNC4(func, devredop, __ppu_bfloat16), \
-  (void*)NCCL_FUNC4(func, devredop, __hg_fp8_e4m3), \
-  (void*)NCCL_FUNC4(func, devredop, __hg_fp8_e5m2)
-#define NCCL_FUNCS3B(func, devredop) \
-  (void*)NCCL_FUNC4(func, devredop, int8_t), \
-  (void*)NCCL_FUNC4(func, devredop, int8_t), \
-  (void*)NCCL_FUNC4(func, devredop, int8_t), \
-  (void*)NCCL_FUNC4(func, devredop, int8_t), \
-  (void*)NCCL_FUNC4(func, devredop, int8_t), \
-  (void*)NCCL_FUNC4(func, devredop, int8_t), \
-  (void*)NCCL_FUNC4(func, devredop, int8_t), \
-  (void*)NCCL_FUNC4(func, devredop, int8_t), \
-  (void*)NCCL_FUNC4(func, devredop, int8_t), \
-  (void*)NCCL_FUNC4(func, devredop, int8_t), \
-  (void*)NCCL_FUNC4(func, devredop, int8_t), \
-  (void*)NCCL_FUNC4(func, devredop, int8_t)
-
-// Must be consistent with ncclRedOp_t -- but we only generate kernel for sums.
-#define NCCL_FUNCS2A(func) \
-  NCCL_FUNCS3A(func, Sum), /*Sum*/  \
-  NCCL_FUNCS3A(func, Sum), /*Prod*/ \
-  NCCL_FUNCS3A(func, Sum), /*Max*/  \
-  NCCL_FUNCS3A(func, Sum), /*Min*/  \
-  NCCL_FUNCS3A(func, Sum), /*PreMulSum*/ \
-  NCCL_FUNCS3A(func, Sum)  /*SumPostDiv*/
-#define NCCL_FUNCS2B(func) \
-  NCCL_FUNCS3B(func, Sum), \
-  NCCL_FUNCS3B(func, Sum), \
-  NCCL_FUNCS3B(func, Sum), \
-  NCCL_FUNCS3B(func, Sum), \
-  NCCL_FUNCS3B(func, Sum), \
-  NCCL_FUNCS3B(func, Sum)
-
-// Must be consistent with the ncclFuncSet enum
-static void* const ncclKerns[NUM_P2P_FUNC+NCCL_NUM_FUNCTIONS*ncclNumDevRedOps*ncclNumTypes*NCCL_NUM_ALGORITHMS*NCCL_NUM_PROTOCOLS] = {
-  (void*)NCCL_KERN_NAME(SendRecv, RING, SIMPLE, Sum, int8_t),
-  (void*)NCCL_KERN_NAME(SendRecv, RING, SIMPLE_BULK, Sum, int8_t),
-  (void*)NCCL_KERN_NAME(SendRecv, RING, SIGNAL, Sum, int8_t),
-  (void*)NCCL_KERN_NAME(SendRecv, RING, SIGNAL_BULK, Sum, int8_t),
-  (void*)NCCL_KERN_NAME(SendRecv, RING, SIMPLE_BULK_AR, Sum, int8_t),
-  NCCL_FUNCS2B(Broadcast),
-  NCCL_FUNCS2A(Reduce),
-  NCCL_FUNCS2B(AllGather),
-  NCCL_FUNCS2A(ReduceScatter),
-  NCCL_FUNCS2A(AllReduce)
-};
-
 enum { P2P_Segment=1, Coll_Segment=2 };
 
 static ncclResult_t ncclScanKernelMaxStackSize(void* const* kernels, int count, void* lru[2], size_t* maxStackSize) {
@@ -117,19 +42,31 @@ static ncclResult_t ncclScanKernelMaxStackSize(void* const* kernels, int count, 
 
 // Returns maximum kernel stack size of all HGGC kernels
 ncclResult_t ncclInitKernelsForDevice(size_t* maxStackSize) {
-  constexpr int KernelCount = sizeof(ncclKerns)/sizeof(ncclKerns[0]);
+  const int KernelCount = pcclFuncIdCount;
   if (maxStackSize) *maxStackSize = 0;
   // Keep track if we already visited a function pointer.
   void* lru[2] = {nullptr, nullptr};
   NCCLCHECK(ncclScanKernelMaxStackSize(ncclKerns, KernelCount, lru, maxStackSize));
   NCCLCHECK(ncclScanKernelMaxStackSize(ncclSymkKernelList, ncclSymkKernelCount, lru, maxStackSize));
+  NCCLCHECK(ncclScanKernelMaxStackSize(ncclSymkKernelList_fast, ncclSymkKernelCount, lru, maxStackSize));
   return ncclSuccess;
 }
 
-static inline void pcclTaskCollToExtTaskColl(const struct ncclTaskColl* src, struct pcclExtTaskColl* dst) {
+static inline ncclResult_t pcclTaskCollToExtTaskColl(
+    const struct ncclTaskColl* src, struct pcclExtTaskColl_v2* dst) {
+  switch (src->opDev.op) {
+    case ncclDevSum: dst->op = pcclExtDevSum; break;
+    case ncclDevProd: dst->op = pcclExtDevProd; break;
+    case ncclDevMinMax: dst->op = pcclExtDevMinMax; break;
+    case ncclDevPreMulSum: dst->op = pcclExtDevPreMulSum; break;
+    case ncclDevSumPostDiv: dst->op = pcclExtDevSumPostDiv; break;
+    default: return ncclInternalError;
+  }
   dst->func = src->func;
-  dst->op = src->opDev.op;
   dst->datatype = src->datatype;
+  const bool hasScalar = dst->op != pcclExtDevSum && dst->op != pcclExtDevProd;
+  dst->scalarArg = hasScalar ? src->opDev.scalarArg : 0;
+  dst->scalarArgIsPtr = hasScalar && src->opDev.scalarArgIsPtr;
   dst->count = src->count;
   dst->sendbuff = src->sendbuff;
   dst->recvbuff = src->recvbuff;
@@ -138,6 +75,7 @@ static inline void pcclTaskCollToExtTaskColl(const struct ncclTaskColl* src, str
   dst->recvbuffOffset = src->recvbuffOffset;
   dst->sendbuffRmtAddrs = src->sendbuffRmtAddrs;
   dst->recvbuffRmtAddrs = src->recvbuffRmtAddrs;
+  return ncclSuccess;
 }
 
 /*****************************************************************************/
@@ -237,7 +175,7 @@ static ncclResult_t dumpChannelWorkBatch(ncclComm_t comm, struct ncclKernelPlan*
     int offset = 0;
     struct ncclDevWorkBatch batch = ((struct ncclDevWorkBatch*)(plan->kernelArgs+1))[batchIx];
     char func_str[128] = {0};
-    getKerFuncStr(batch.funcId, func_str, NULL, NULL);
+    getKerFuncStr(batch.funcId, func_str);
     offset += sprintf(lineBuff + offset, "%s batchIx %u workType:%u, funcId:%u(%s), nextJump:%u, nextExtends:%u ",
       lineHeader, batchIx, batch.workType, batch.funcId, func_str, batch.nextJump, batch.nextExtends);
     offset += sprintf(lineBuff + offset, "offsetBase:%x, offsetBitset:%lx ", batch.offsetBase, batch.offsetBitset);
@@ -347,8 +285,8 @@ ncclResult_t ncclTasksRegAndEnqueue(ncclComm_t comm) {
 
     // inject register info into ext kernel.
     if (task->isExtKernel) {
-      struct pcclExtTaskColl extTask;
-      pcclTaskCollToExtTaskColl(task, &extTask);
+      struct pcclExtTaskColl_v2 extTask;
+      NCCLCHECK(pcclTaskCollToExtTaskColl(task, &extTask));
       NCCLCHECK(comm->extKernel->kernelPluginBuildParams(&extTask, comm->extKernelPluginWorkspace.extKernelPluginParams));
     }
     task = task->next;
@@ -1642,7 +1580,13 @@ static ncclResult_t scheduleCollTasksToPlan(ncclComm_t comm, struct ncclKernelPl
       NCCLCHECK(ncclUserBuffAlignmentCheck(&info));
 
       struct ncclProxyOp proxyOp = {};
-      info.funcIndex = FUNC_INDEX(info.coll, info.opFull.op, info.datatype, info.algorithm, info.protocol);
+      int funcId = pcclDevFuncId(info.coll, info.opFull.op, info.datatype, info.algorithm, info.protocol);
+      if (funcId < 0) {
+        WARN("No kernel was built for %s/%s/%s", ncclFuncToString(info.coll),
+             ncclAlgoToString(info.algorithm), ncclProtoToString(info.protocol));
+        return ncclInternalError;
+      }
+      info.funcIndex = funcId;
       size_t lastChunkSize;
       NCCLCHECK(calcCollChunking(comm, head, info.nChannels, info.nBytes, &lastChunkSize, &proxyOp));
       devWork->lastChunkSize = lastChunkSize;
@@ -2190,18 +2134,35 @@ static ncclResult_t hostToDevRedOp(
   };
   u64 = 0;
   opFull->scalarArgIsPtr = false;
+  bool datatype_signed = false;
+
+  int nbits = 8*ncclTypeSize(datatype);
+  if (nbits <= 0) return ncclInvalidArgument;
+  uint64_t allBits = uint64_t(-1)>>(64-nbits);
+  uint64_t signBit = allBits^(allBits>>1);
 
   switch (int(op)) {
   case ncclSum:  opFull->op = ncclDevSum;  break;
   case ncclProd: opFull->op = ncclDevProd; break;
-  case ncclMax:  opFull->op = ncclDevMax;  break;
-  case ncclMin:  opFull->op = ncclDevMin;  break;
+  case ncclMin:
+  case ncclMax:
+    opFull->op = ncclDevMinMax;
+    opFull->scalarArg = 0;
+    // The xormask used by FuncMinMax<[u]int> is the XOR of the sign bit
+    // for signed (opposed to unsigned) types and all the bits for max (opposed to min).
+    if (datatype==ncclInt8 || datatype==ncclInt32 || datatype==ncclInt64) {
+      opFull->scalarArg ^= signBit;
+    }
+    opFull->scalarArg ^= (op == ncclMax) ? allBits : 0;
+    break;
   case ncclAvg:
     switch ((int)datatype) {
     case ncclInt8:  case ncclInt32:  case ncclInt64:
+      datatype_signed = true;
+      // no break, we want to fall through...
     case ncclUint8: case ncclUint32: case ncclUint64:
       opFull->op = ncclDevSumPostDiv;
-      u64 = comm->nRanks;
+      u64 = comm->nRanks << 1 | datatype_signed;
       break;
 #if defined(__HGGC_FP8_TYPES_EXIST__)
     case ncclFloat8e4m3:
@@ -2626,8 +2587,8 @@ ncclResult_t ncclPrepareTasks(ncclComm_t comm, bool* algoNeedConnect, bool* need
 
   if (planner->nTasksColl == 1 && planner->nTasksP2p == 0) {
     if (comm->extKernel != NULL && !simInfo) {
-      struct pcclExtTaskColl extTask;
-      pcclTaskCollToExtTaskColl(task, &extTask);
+      struct pcclExtTaskColl_v2 extTask;
+      NCCLCHECK(pcclTaskCollToExtTaskColl(task, &extTask));
       NCCLCHECK(comm->extKernel->kernelPluginAvailCheck(&extTask, comm->extKernelPluginWorkspace.extKernelPluginParams, &task->isExtKernel));
     }
     if (!task->isExtKernel) {

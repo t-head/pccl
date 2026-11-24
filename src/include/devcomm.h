@@ -86,7 +86,7 @@ static_assert(NCCL_LL_CLEAN_MASK % NCCL_STEPS == 0, "Invalid NCCL_LL_CLEAN_MASK 
 #define NCCL_MAX_GROUPS 16
 
 enum ncclDevRedOp_t {
-  ncclDevSum, ncclDevProd, ncclDevMax, ncclDevMin,
+  ncclDevSum, ncclDevProd, ncclDevMinMax,
   ncclDevPreMulSum, ncclDevSumPostDiv,
   ncclNumDevRedOps
 };
@@ -440,7 +440,7 @@ struct ncclShmemData {
     struct ncclShmemGroup groups[NCCL_MAX_GROUPS];
   };
 
-  alignas(16) char workStorage[1024];
+  alignas(16) char workStorage[NCCL_MAX_DEV_WORK_BATCH_BYTES];
 };
 
 struct ncclChannel {

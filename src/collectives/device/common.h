@@ -1,6 +1,6 @@
 /*************************************************************************
  * SPDX-FileCopyrightText: Copyright (c) 2017-2026 NVIDIA CORPORATION & AFFILIATES. All rights reserved.
- * SPDX-FileCopyrightText: Modifications Copyright (c) 2020-2026 T-Head (Shanghai) Semiconductor Co., Ltd. All rights reserved.
+ * SPDX-FileCopyrightText: Modifications Copyright (c) 2020-2026 T-HEAD (SHANGHAI) SEMICONDUCTOR CO., Ltd. All Rights Reserved.
  * SPDX-License-Identifier: BSD-3-Clause
  *
  * See LICENSE.txt for more license information
@@ -441,8 +441,6 @@ __device__ void ncclKernelMain(struct ncclDevKernelArgs const* args)  {
   profiler(pShmem, FINI);
 }
 
-// Only generate kernels for SUM
-#if NCCL_OP == 0
 #if defined(__HGGC_ARCH__) && __HGGC_ARCH__ == 150
 // relax max vreg limit for ppu1.5. (640, 2) -> 96, (640, 1) -> 168, (896, 1) -> 128
 #define NCCL_KERN_LAUNCH_BOUNDS_MAX_NTHREADS 896
@@ -457,9 +455,6 @@ __global__ void __launch_bounds__(NCCL_KERN_LAUNCH_BOUNDS_MAX_NTHREADS, NCCL_KER
 __global__ void NCCL_KERN_NAME(func, algo, proto, devredop, type)(ncclDevKernelArgs1K const args4K) { \
   ncclKernelMain<ncclFunc##func, NCCL_ALGO_##algo, NCCL_PROTO_##proto, Func##devredop<type>, type, ncclCollUnroll(), fIndex>(&args4K.args); \
 }
-#endif
-#else
-#define IMPL_COLL_KERN(func, algo, proto, devredop, type, fInded)
 #endif
 
 // Examples :     AllReduce, RING, LL,    Sum,   uint8
@@ -478,89 +473,6 @@ __device__ void NCCL_FUNC_NAME(func, algo, proto, devredop, type)(void* args) { 
   } \
   __ppu_exit(); \
 }
-#endif
-
-// Only generate inline kernels for LL
-#define IMPL_COLL4(func, algo, devredop, type, ncclType) \
-  IMPL_COLL_FUNC(func, algo, LL,     devredop, type) \
-  IMPL_COLL_FUNC(func, algo, LL128,  devredop, type) \
-  IMPL_COLL_FUNC(func, algo, SIMPLE, devredop, type) \
-  IMPL_COLL_FUNC(func, algo, SIGNAL, devredop, type) \
-  IMPL_COLL_FUNC(func, algo, SIMPLE_BULK, devredop, type) \
-  IMPL_COLL_FUNC(func, algo, SIGNAL_BULK, devredop, type) \
-  IMPL_COLL_FUNC(func, algo, SIMPLE_BULK_AR, devredop, type) \
-  IMPL_COLL_KERN(func, algo, LL,     devredop, type, FUNC_INDEX(ncclFunc##func, nccl##devredop, ncclType, NCCL_ALGO_##algo, NCCL_PROTO_LL)) \
-
-#define IMPL_COLL3(func, devredop, type, ncclType) \
-  IMPL_COLL4(func, TREE,    devredop, type, ncclType) \
-  IMPL_COLL4(func, RING,    devredop, type, ncclType) \
-  IMPL_COLL4(func, FC,      devredop, type, ncclType) \
-  IMPL_COLL4(func, PAT,     devredop, type, ncclType)
-
-#if NCCL_TYPE == 0
-#define IMPL_COLL2(func, devredop) IMPL_COLL3(func, devredop, int8_t,   ncclInt8)
-#elif NCCL_TYPE == 1
-#define IMPL_COLL2(func, devredop) IMPL_COLL3(func, devredop, uint8_t,  ncclUint8)
-#elif NCCL_TYPE == 2
-#define IMPL_COLL2(func, devredop) IMPL_COLL3(func, devredop, int32_t,  ncclInt32)
-#elif NCCL_TYPE == 3
-#define IMPL_COLL2(func, devredop) IMPL_COLL3(func, devredop, uint32_t, ncclUint32)
-#elif NCCL_TYPE == 4
-#define IMPL_COLL2(func, devredop) IMPL_COLL3(func, devredop, int64_t,  ncclInt64)
-#elif NCCL_TYPE == 5
-#define IMPL_COLL2(func, devredop) IMPL_COLL3(func, devredop, uint64_t, ncclUint64)
-#elif NCCL_TYPE == 6
-#define IMPL_COLL2(func, devredop) IMPL_COLL3(func, devredop, half,     ncclFloat16)
-#elif NCCL_TYPE == 7
-#define IMPL_COLL2(func, devredop) IMPL_COLL3(func, devredop, float,    ncclFloat32)
-#elif NCCL_TYPE == 8
-#define IMPL_COLL2(func, devredop) IMPL_COLL3(func, devredop, double,   ncclFloat64)
-#elif NCCL_TYPE == 9
-#define IMPL_COLL2(func, devredop) IMPL_COLL3(func, devredop, __ppu_bfloat16,   ncclBfloat16)
-#elif NCCL_TYPE == 10
-#define IMPL_COLL2(func, devredop) IMPL_COLL3(func, devredop, __hg_fp8_e4m3,   ncclFloat8e4m3)
-#elif NCCL_TYPE == 11
-#define IMPL_COLL2(func, devredop) IMPL_COLL3(func, devredop, __hg_fp8_e5m2,   ncclFloat8e5m2)
-#endif
-
-// Reduction define all functions
-#if NCCL_OP == 0
-#define IMPL_COLL_R(func) IMPL_COLL2(func, Sum);
-#elif NCCL_OP == 1
-#define IMPL_COLL_R(func) IMPL_COLL2(func, Prod);
-#elif NCCL_OP == 2
-#define IMPL_COLL_R(func) IMPL_COLL2(func, Max);
-#elif NCCL_OP == 3
-#define IMPL_COLL_R(func) IMPL_COLL2(func, Min);
-#elif NCCL_OP == 4
-#define IMPL_COLL_R(func) IMPL_COLL2(func, PreMulSum);
-#elif NCCL_OP == 5
-  #if NCCL_TYPE < 6
-    #define IMPL_COLL_R(func) IMPL_COLL2(func, SumPostDiv);
-  #else
-    #define IMPL_COLL_R(func) // skip SumPostDiv for floating point
-  #endif
-#endif
-
-#if NCCL_OP == 0 && NCCL_TYPE == 0
-// Copy primitives only define one function for copy
-#define IMPL_COLL_C(func) IMPL_COLL3(func, Sum, int8_t, ncclInt8);
-
-// Point-to-point primitives only have one function/kernel.
-#define IMPL_COLL_P(func) \
-  IMPL_COLL_FUNC(func, RING, SIMPLE, Sum, int8_t); \
-  IMPL_COLL_KERN(func, RING, SIMPLE, Sum, int8_t, FUNC_INDEX_P2P_SIMPLE); \
-  IMPL_COLL_FUNC(func, RING, SIMPLE_BULK, Sum, int8_t); \
-  IMPL_COLL_KERN(func, RING, SIMPLE_BULK, Sum, int8_t, FUNC_INDEX_P2P_SIMPLE_BULK); \
-  IMPL_COLL_FUNC(func, RING, SIGNAL, Sum, int8_t); \
-  IMPL_COLL_KERN(func, RING, SIGNAL, Sum, int8_t, 0); \
-  IMPL_COLL_FUNC(func, RING, SIGNAL_BULK, Sum, int8_t); \
-  IMPL_COLL_KERN(func, RING, SIGNAL_BULK, Sum, int8_t, 0); \
-  IMPL_COLL_FUNC(func, RING, SIMPLE_BULK_AR, Sum, int8_t); \
-  IMPL_COLL_KERN(func, RING, SIMPLE_BULK_AR, Sum, int8_t, 0);
-#else
-#define IMPL_COLL_C(func)
-#define IMPL_COLL_P(func)
 #endif
 
 #endif

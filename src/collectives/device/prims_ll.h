@@ -490,7 +490,7 @@ class Primitives<T, RedOp, Fan, Direct, ProtoLL, P2p, isNetOffload>:
   __device__ void send(intptr_t inpIx, int eltN) {
     return LLGenericOp<0, 1, Input, -1>(inpIx, -1, eltN, false);
   }
-
+ 
   __device__ void sendFromOutput(intptr_t outIx, int eltN) {
     return LLGenericOp<0, 1, Output, -1>(outIx, -1, eltN, false);
   }

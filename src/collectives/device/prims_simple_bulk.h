@@ -25,7 +25,7 @@ class Primitives<T, RedOp, Fan, Direct, ProtoSimpleBulk<SlicePerChunk, StepPerSl
       T* directBuff, struct ncclKernelComm* comm, uint64_t redOpArg, struct ncclShmemGroup* ptrs,
       int group, uint8_t connIndexRecv = 0, uint8_t connIndexSend = 0, struct ncclDevWorkColl* collWork = nullptr,
       struct ncclDevWorkP2p* p2pWork=nullptr, int stepSize_=0, const uint64_t ncclSteps=NCCL_STEPS, bool noRed=false
-    ):
+    ): 
     PrimitivesSimpleBase<T, Fan, RedOp, SlicePerChunk, StepPerSlice, Unroll, Direct,
     ProtoSimpleBulk<SlicePerChunk, StepPerSlice, Unroll, SENDCONNTYPE, RECVCONNTYPE>,
     Primitives<T, RedOp, Fan, Direct, ProtoSimpleBulk<SlicePerChunk, StepPerSlice, Unroll, SENDCONNTYPE, RECVCONNTYPE>, P2p, isNetOffload>, P2p>

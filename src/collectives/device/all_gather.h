@@ -297,7 +297,7 @@ namespace {
 
     const int tid = threadIdx.x;
     const int nthreads = work->nThreads;
-
+    
     const int nChannels = work->nChannels;
     int bid = (blockIdx.x >= work->startChannelId) ?
       (blockIdx.x - work->startChannelId) :
