@@ -1,19 +1,21 @@
 {
   "classification": {
-    "base_sha": "77af125652fd1ffc532bf519022f709b9df510fd",
-    "head_sha": "878f1d7b100d5569606ce35d677519391cb059a1",
-    "input_fingerprint": "8f489f80ed3845d60798e3a01aba067d00ea42cd3aaba871188db129bb93c3c9",
+    "base_sha": "74c2d3f5e9bf90578520feda20a3938c3d938917",
+    "head_sha": "fc9871ce11b62db1c4da7c58df16dba7191e227b",
+    "input_fingerprint": "6bc79fe0bc1ac4e7df95f5303fae10c3891198ea3dd3dd4eb2bff81bc1248474",
     "pr_number": 163,
     "proposal": {
       "modules": [
+        "build",
         "enqueue",
         "kernels",
         "kernel-plugin"
       ],
-      "reason": "Main change is a rebase of device collective kernel implementations and dispatch generation (new generator, function tables, primitives/reduction semantics, and removal of hand-written per-op .cu instantiations). Also needs enqueue review because host-side funcId mapping/dispatch and redop encoding were reworked to match generated kernel IDs. Include kernel-plugin because ext-kernel device redop enum changed (Max/Min folded to MinMax), affecting extension-kernel ABI expectations and plugin compatibility."
+      "reason": "Main change is a full rebase of device collective kernels and dispatch generation onto NCCL-style primitives/templates, including new generated function/kernel tables and reachability guards (kernels). enqueue is additionally needed because function-id mapping, redop encoding (Min/Max fold to MinMax), and kernel selection failure handling changed in runtime planning/launch paths. kernel-plugin is additionally needed because ext-kernel device redop enum/ABI-facing contracts changed (ncclDevMax/ncclDevMin -> ncclDevMinMax), affecting plugin compatibility. build is additionally needed because the device-kernel build pipeline was replaced by generate.py/rules.mk generation and new dependency/object wiring in the device Makefile."
     }
   },
   "reviewers": {
+    "build": 341349555,
     "enqueue": 341349555,
     "kernel-plugin": 341751581,
     "kernels": 340404662
