@@ -11,6 +11,7 @@
 #include "comm.h"
 #include "topo.h"
 #include "channel.h"
+#include "kernel_enable.h"
 
 #include <unordered_map>
 #include <array>
@@ -133,46 +134,6 @@ exit:
   return ret;
 }
 
-static const int kernelEnabled[NCCL_NUM_FUNCTIONS][NCCL_NUM_ALGORITHMS][NCCL_NUM_PROTOCOLS] = {
-  { /* Broadcast */
-    /* Tree (LL/LL128/Simple/Signal/SimpleBulk/SignalBulk/SimpleBulkAR) */    {0,  0,  0,  0,  0,  0,  0 },
-    /* Ring (LL/LL128/Simple/Signal/SimpleBulk/SignalBulk/SimpleBulkAR) */    {80, 80, 80, 80, 80, 80, 89},
-    /* Reserved CollNet slot */ {0, 0, 0, 0, 0, 0, 0},
-    /* FC (LL/LL128/Simple/Signal/SimpleBulk/SignalBulk/SimpleBulkAR) */      {80, 0,  80, 0,  80, 0,  0 },
-    /* PAT (LL/LL128/Simple/Signal/SimpleBulk/SignalBulk/SimpleBulkAR) */     {0,  0,  0,  0,  0,  0,  0 },
-  },
-  { /* Reduce */
-    /* Tree (LL/LL128/Simple/Signal/SimpleBulk/SignalBulk/SimpleBulkAR) */    {0,  0,  0,  0,  0,  0,  0 },
-    /* Ring (LL/LL128/Simple/Signal/SimpleBulk/SignalBulk/SimpleBulkAR) */    {80, 80, 80, 80, 80, 80, 89},
-    /* Reserved CollNet slot */ {0, 0, 0, 0, 0, 0, 0},
-    /* FC (LL/LL128/Simple/Signal/SimpleBulk/SignalBulk/SimpleBulkAR) */      {80, 0,  80, 0,  80, 0,  0 },
-    /* PAT (LL/LL128/Simple/Signal/SimpleBulk/SignalBulk/SimpleBulkAR) */     {0,  0,  0,  0,  0,  0,  0 },
-  },
-  { /* AllGather */
-    /* Tree (LL/LL128/Simple/Signal/SimpleBulk/SignalBulk/SimpleBulkAR) */    {0,  0,  0,  0,  0,  0,  0 },
-    /* Ring (LL/LL128/Simple/Signal/SimpleBulk/SignalBulk/SimpleBulkAR) */    {80, 80, 80, 80, 80, 80, 89},
-    /* Reserved CollNet slot */ {0, 0, 0, 0, 0, 0, 0},
-    /* FC (LL/LL128/Simple/Signal/SimpleBulk/SignalBulk/SimpleBulkAR) */      {80, 0,  80, 0,  80, 0,  0 },
-    /* PAT (LL/LL128/Simple/Signal/SimpleBulk/SignalBulk/SimpleBulkAR) */     {0,  0,  80, 0,  0,  0,  0 },
-  },
-  { /* ReduceScatter */
-    /* Tree (LL/LL128/Simple/Signal/SimpleBulk/SignalBulk/SimpleBulkAR) */    {0,  0,  0,  0,  0,  0,  0 },
-    /* Ring (LL/LL128/Simple/Signal/SimpleBulk/SignalBulk/SimpleBulkAR) */    {80, 80, 80, 80, 80, 80, 89},
-    /* Reserved CollNet slot */ {0, 0, 0, 0, 0, 0, 0},
-    /* FC (LL/LL128/Simple/Signal/SimpleBulk/SignalBulk/SimpleBulkAR) */      {80, 0,  80, 0,  80, 0,  0 },
-    /* PAT (LL/LL128/Simple/Signal/SimpleBulk/SignalBulk/SimpleBulkAR) */     {0,  0,  80, 0,  0,  0,  0 },
-  },
-  { /* AllReduce */
-    /* Tree (LL/LL128/Simple/Signal/SimpleBulk/SignalBulk/SimpleBulkAR) */    {80, 80, 80, 80, 80, 80, 0 },
-    /* Ring (LL/LL128/Simple/Signal/SimpleBulk/SignalBulk/SimpleBulkAR) */    {80, 80, 80, 80, 80, 80, 89},
-    /* Reserved CollNet slot */ {0, 0, 0, 0, 0, 0, 0},
-    /* FC (LL/LL128/Simple/Signal/SimpleBulk/SignalBulk/SimpleBulkAR) */      {80, 0,  80, 0,  80, 0,  0 },
-    /* PAT (LL/LL128/Simple/Signal/SimpleBulk/SignalBulk/SimpleBulkAR) */     {0,  0,  0,  0,  0,  0,  0 },
-  }
-};
-
-/* LL/LL128/Simple/Signal/SimpleBulk/SignalBulk/SimpleBulkAR */
-static const int p2pKernelEnabled[NCCL_NUM_PROTOCOLS] = {0, 0, 80, 80, 80, 80, 89};
 
 // Latencies in us, Bandwidths in GB/s
 // Tree { LL, LL128, Simple, Signal, SimpleBulk, simpleBulkAR } , Ring { LL, LL128, Simple, Signal, SimpleBulk, simpleBulkAR }
