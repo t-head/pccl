@@ -85,6 +85,42 @@ class ArchiveExtractionTests(unittest.TestCase):
                     ab.extract_verified_build(Path(temporary)/'archive',
                                               Path(temporary)/'shared', ab.ARCHIVES['good'][0])
 
+    def test_preserves_the_archived_suite_environment_byte_for_byte(self):
+        with tempfile.TemporaryDirectory() as temporary:
+            build = Path(temporary) / 'build'
+            source = build / 'pccl/tests/xtest/test_lists/envs/op_perf.env'
+            source.parent.mkdir(parents=True)
+            expected = (MODULE_PATH.parents[1] / 'test_lists/envs/op_perf.env').read_bytes()
+            source.write_bytes(expected)
+            destination = Path(temporary) / 'op_perf.env'
+            digest = ab.stage_daily_environment(build, destination)
+            self.assertEqual(destination.read_bytes(), expected)
+            self.assertEqual(digest, ab.hashlib.sha256(expected).hexdigest())
+            self.assertIn(b'/usr/local/openmpi/lib', destination.read_bytes())
+            self.assertIn(b'$PPU_HOME/PPU_SDK', destination.read_bytes())
+
+    def test_missing_archived_suite_environment_is_an_error(self):
+        with tempfile.TemporaryDirectory() as temporary:
+            with self.assertRaises(FileNotFoundError):
+                ab.stage_daily_environment(Path(temporary), Path(temporary) / 'op_perf.env')
+
+    def test_library_probe_uses_daily_sdk_and_mpi_paths(self):
+        with tempfile.TemporaryDirectory() as temporary:
+            root = Path(temporary)
+            env_file = root / 'op_perf.env'
+            env_file.write_bytes((MODULE_PATH.parents[1] / 'test_lists/envs/op_perf.env').read_bytes())
+            build = root / 'output_standard'
+            environment = {'PPU_HOME': '/usr/local/PPU_SDK',
+                           'PATH': '/inherited/bin', 'LD_LIBRARY_PATH': '/inherited/lib'}
+            with patch.object(ab.subprocess, 'run') as run:
+                ab.record_library_probe(root, 'good-first', environment, env_file, build)
+            effective = run.call_args.kwargs['env']
+            self.assertTrue(effective['LD_LIBRARY_PATH'].startswith(
+                f'{build}/lib:/usr/local/openmpi/lib:{build}/lib:'))
+            self.assertIn('/usr/local/PPU_SDK/PPU_SDK/lib', effective['LD_LIBRARY_PATH'])
+            self.assertEqual(effective['UMD_PLATFORM_TYPE'], '1')
+            self.assertEqual(run.call_args.kwargs['timeout'], 30)
+
     def test_all_three_rounds_use_the_validated_extraction(self):
         with tempfile.TemporaryDirectory() as temporary:
             root = Path(temporary)
@@ -95,6 +131,8 @@ class ArchiveExtractionTests(unittest.TestCase):
             with patch.object(ab.artifact_cache, 'validate', return_value=root/'archive'), \
                     patch.object(ab.artifact_cache, 'read_record', return_value={}), \
                     patch.object(ab, 'extract_verified_build', side_effect=lambda a,p,r:p/'output_standard') as extract, \
+                    patch.object(ab, 'stage_daily_environment', return_value='e'*64), \
+                    patch.object(ab, 'record_library_probe'), \
                     patch.object(ab.run_cases, 'load_inputs', return_value=selected), \
                     patch.object(ab.run_cases, 'run_all', return_value=results):
                 self.assertEqual(ab.run(args), 0)

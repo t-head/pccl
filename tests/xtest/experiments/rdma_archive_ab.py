@@ -2,6 +2,7 @@
 """Bounded, same-allocation comparison of verified historical PCCL archives."""
 import argparse
 import csv
+import hashlib
 import json
 import os
 from pathlib import Path
@@ -67,6 +68,26 @@ def extract_verified_build(archive, extraction, revision):
     return build
 
 
+def stage_daily_environment(build, destination):
+    # Read the Suite environment from the verified archive, not an experiment
+    # approximation. Preserve MPI/SDK path ordering used by the daily workflow.
+    source = build / 'pccl/tests/xtest/test_lists/envs/op_perf.env'
+    contents = source.read_bytes()
+    destination.write_bytes(contents)
+    return hashlib.sha256(contents).hexdigest()
+
+
+def record_library_probe(root, label, environment, env_file, build):
+    expanded = run_cases._expand_environment(
+        run_cases._environment_file(env_file), environment,
+        {'test_root': str(build), 'binary_dir': str(build / 'pccl-tests/build')})
+    expanded['LD_LIBRARY_PATH'] = str(build / 'lib') + ':' + expanded.get('LD_LIBRARY_PATH', '')
+    (root / 'diagnostics').mkdir(exist_ok=True)
+    with (root / 'diagnostics' / f'libraries-{label}.json').open('w') as output:
+        subprocess.run([sys.executable, str(Path(__file__).with_name('rdma_library_probe.py'))],
+                       env=expanded, stdout=output, stderr=subprocess.STDOUT, check=True, timeout=30)
+
+
 def run(args):
     root = args.root.resolve()
     root.mkdir(parents=True, exist_ok=True)
@@ -81,18 +102,21 @@ def run(args):
         build = extract_verified_build(archive, extraction, revision)
         inputs = root / 'inputs' / label
         (inputs / 'envs').mkdir(parents=True)
-        (inputs / 'envs' / 'comparison.env').write_text('UMD_PLATFORM_TYPE=1\n')
+        env_file = inputs / 'envs' / 'op_perf.env'
+        env_digest = stage_daily_environment(build, env_file)
         (inputs / 'export.json').write_text(json.dumps({
             'format_version': 1, 'source_revision': revision,
             'runner_revision': artifact_cache.PCCL_TESTS_REVISION, 'xtest_version': 'not-used'}))
         write_csv(inputs / 'suites.csv', run_cases.SUITE_FIELDS, [{
             'plan': 'rdma_ab', 'suite': label, 'nodes': 2, 'cards_per_node': 8,
-            'timeout': 90, 'env': 'comparison.env'}])
+            'timeout': 90, 'env': 'op_perf.env'}])
         rows = [{'plan': 'rdma_ab', 'suite': label, 'name': name,
                  'check': 'validation_summary', 'cmd': command} for name, command in cases()]
         write_csv(inputs / 'standard.csv', run_cases.CASE_FIELDS, rows)
         environment = dict(os.environ)
+        environment.pop('PCCL_PATH', None)
         environment['LD_LIBRARY_PATH'] = str(build / 'lib') + ':' + environment.get('LD_LIBRARY_PATH', '')
+        record_library_probe(root, label, environment, env_file, build)
         selected = run_cases.load_inputs(inputs, 'standard')
         results = run_cases.run_all(selected, build, build / 'pccl-tests/build', root / 'results' / label,
                                    args.hostfile, environment, mpi_interface=args.interface,
@@ -103,7 +127,7 @@ def run(args):
             if recovery.is_file() and not json.loads(recovery.read_text()).get('safe'):
                 safe = False
         sequence.append({'label': label, 'revision': revision, 'archive_sha256': digest,
-                         'safe': safe, 'results': results})
+                         'environment_sha256': env_digest, 'safe': safe, 'results': results})
         if not safe or any(record['status'] in ('CANCELLED', 'NOT_RUN') for record in results):
             break
     summary = {'sequence': sequence,

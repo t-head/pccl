@@ -11,11 +11,29 @@ log="$root/diagnostics/worker-${NODE_RANK:-0}.log"
   uname -a
   ppu-smi -L || true
   cat /proc/driver/alixpu/version 2>/dev/null || true
-  lsmod | grep -E 'alixpu|mlx5|ib_core|rdma' || true
+  # /proc and /sys remain usable when kmod tools are absent in the image.
+  grep -E 'alixpu|mlx5|ib_core|rdma' /proc/modules || true
+  for path in /sys/module/alixpu_peermem /sys/module/alixpu_peer_mem \
+      /sys/kernel/mm/memory_peers/alixpu_peer_mem; do
+    if [ -d "$path" ]; then
+      printf 'PEER_MEMORY_PATH_PRESENT %s\n' "$path"
+      for value in version srcversion taint; do
+        if [ -f "$path/$value" ]; then printf '%s=' "$value"; cat "$path/$value"; fi
+      done
+    else
+      printf 'PEER_MEMORY_PATH_ABSENT %s\n' "$path"
+    fi
+  done
   for module in alixpu_peermem mlx5_core mlx5_ib; do
     modinfo "$module" 2>/dev/null | grep -E '^(filename|version|srcversion|vermagic):' || true
   done
   dpkg-query -W 'libibverbs*' 'rdma-core' 'ibverbs-providers' 2>/dev/null || true
+  for directory in /usr/local/PPU_SDK/lib /usr/local/PPU_SDK/PPU_SDK/lib \
+      /usr/local/openmpi/lib /usr/lib/x86_64-linux-gnu; do
+    if [ -d "$directory" ]; then
+      find "$directory" -maxdepth 1 -name 'libibverbs*' -exec ls -l {} \; || true
+    fi
+  done
   ip -br address || true
   rdma link show || true
   ibv_devinfo || true
