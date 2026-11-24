@@ -144,6 +144,12 @@ Only a current-commit preview stays visible while the gate is pending or generat
 A failed or cancelled gate run cannot generate a preview from an earlier green status,
 and a red gate removes the remaining preview. Successful publication replaces any
 current-commit preview only after the new comment is posted.
+Source commit messages and the generated body are checked for known AI tool signatures
+before publication. The generated body must also preserve every source `Signed-off-by`
+and `Co-authored-by` trailer in first-occurrence order, removing exact duplicates.
+Missing, changed or added trailers reject publication. A rejection keeps any current-commit
+preview and asks for correction; it does not silently remove or invent human co-authors
+or DCO sign-offs.
 
 ### Maintaining the workflow
 

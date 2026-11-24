@@ -8,6 +8,7 @@ import re
 import subprocess
 import tempfile
 
+from commit_attribution import validate_attribution
 from copilot_cli import final_response
 from maintainer_approval import CHECK, event_pr_number
 
@@ -137,7 +138,20 @@ def refresh(api, number, ask=ask_copilot, *, automatic=False, trigger_succeeded=
         return None
     if not trigger_succeeded or gate_state != 'success':
         return None
+    pages = api.request(f'/repos/{api.repository}/pulls/{number}/commits?per_page=100', paginate=True)
+    commits = [commit for page in pages for commit in page]
+    if len(commits) != data['commit_count'] or commits[-1]['sha'] != data['head']:
+        raise ValueError('Incomplete or changed PR commit list; cannot check attribution')
+    source_trailers = []
+    for commit in commits:
+        try:
+            source_trailers.extend(validate_attribution(commit['commit']['message']))
+        except ValueError as error:
+            raise ValueError(f"Commit {commit['sha'][:12]}: {error}") from None
     message = ask(data)
+    if validate_attribution(message) != list(dict.fromkeys(source_trailers)):
+        raise ValueError('Squash body must preserve source Signed-off-by and Co-authored-by trailers '
+                         'in first-occurrence order, removing exact duplicates without changes or additions')
     body = comment_body(data, message)
     if len(body.encode('utf-8')) > 65535:
         raise ValueError('Squash body exceeds the comment size limit')

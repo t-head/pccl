@@ -139,6 +139,7 @@ Write concise English messages that describe the complete change.
 - Explain the problem, solution, and relevant limitations. For breaking changes, include the impact and migration.
 - Reference a real, relevant issue. Use `Refs #123` for related or partial work; use `Closes` or `Fixes` only when resolving it and intending closure. Cross-repository references (`Refs owner/repo#123`) and full GitHub issue URLs are accepted.
 - Include an author-matching DCO sign-off as described under [Signed Commits](#signed-commits).
+- Do not add AI tools as `Co-authored-by` or `Signed-off-by` identities. Disable automatic tool attribution and remove it from existing messages before submitting; preserve human co-authors and DCO sign-offs. Commit checks and squash previews reject [known AI identities](.github/scripts/commit_attribution.py), not ordinary GitHub noreply addresses.
 
 **Recommended**
 
