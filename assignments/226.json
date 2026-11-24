@@ -1,14 +1,14 @@
 {
   "classification": {
-    "base_sha": "b451c3af88fbc0ea9fbbb85cdb8a66d779ec2831",
-    "head_sha": "bd1e126664eee6891e120d11389a9d833b13419a",
-    "input_fingerprint": "a9c985102d6c93b8f013270eac879be5ecfe2b3c568a01126fa9c2e3c9ee2f1e",
+    "base_sha": "c014efd792a7784724a4538760795122b7e39818",
+    "head_sha": "784128b1c605d76aceffc1f82dfe97a8798d9926",
+    "input_fingerprint": "e2cb947b3dce66b6529967b5053a8f6f14d5581fa7be271b9e1cc12c9a6be6a8",
     "pr_number": 226,
     "proposal": {
       "modules": [
         "kernel-plugin"
       ],
-      "reason": "Adds a new extension-kernel AllReduce strategy (ONESHOT_PUSH) end-to-end in the ext-kernel plugin: new kernel/template wiring, strategy indexing/dispatch, topology limits, launch config, eligibility/selection logic, and plugin workspace regions/phases for push buffers."
+      "reason": "Adds a new OneShotPush extension-kernel AllReduce implementation and wires it through plugin strategy selection, function indexing/dispatch, and ext-kernel workspace/topology limits for supported M890P SHM ranks; remaining edits are incidental comments/formatting and supporting table updates."
     }
   },
   "reviewers": {
