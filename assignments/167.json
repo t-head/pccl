@@ -1,15 +1,16 @@
 {
   "classification": {
-    "base_sha": "dcc16f7527444230dbd33cca1f348760c2df7e97",
-    "head_sha": "4dee0d98edad58f889047d72bc393cd1fb86a0a2",
-    "input_fingerprint": "6b8a1c67fcbcd81ae3be76cb8a587af08ccec74d4d10106dcab93a3515c2c31b",
+    "base_sha": "74c2d3f5e9bf90578520feda20a3938c3d938917",
+    "head_sha": "bc31591eb83d9f06c6e7f793419a10a586a29d0b",
+    "input_fingerprint": "58c91e3cb953416bf1e1585432b2580627af6a59ff16814adfb56c7e6cc76063",
     "pr_number": 167,
     "proposal": {
       "modules": [
+        "enqueue",
         "symmetric",
         "copy-engine"
       ],
-      "reason": "Main change isolates CE memcpy from ltOki DMA by reserving rings/queues and applying stream channel hints across CE stream setup and enqueue paths, which is core copy-engine behavior. It also makes an independent symmetric-memory change by fixing OKI reduction DMA tail sizing/clamping and die-slice alignment in symmetric device kernels."
+      "reason": "Main change is copy-engine behavior: CE memcpy and ltOki DMA rings are explicitly separated, OKI enablement is gated across ranks/system capabilities, CE stream/ring assignment is reworked, and QP queue IDs/resource lifecycle are updated to prevent mixed CE+ltOki hangs. Include symmetric because device-side symmetric CE/OKI kernels change DMA tail sizing and lane slice alignment, affecting AR/RS correctness. Include enqueue because ordinary enqueue now applies memcpy stream ring hints with capture-aware behavior, changing host-side stream/capture sequencing semantics."
     }
   },
   "reviewers": {
