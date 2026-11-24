@@ -243,9 +243,9 @@ namespace {
   __device__ __forceinline__ void runTreeUpDown(struct ncclDevWorkColl* work) {
     const int tid = threadIdx.x;
 #ifndef NO_EXTRA_WARP
-    const int nthreads = work->nThreads-2*WARP_SIZE;
+    const int nworkers = work->nThreads-2*WARP_SIZE;
 #else
-    const int nthreads = work->nThreads;
+    const int nworkers = work->nThreads;
 #endif
     const int nChannels = work->nChannels;
     int bid = (blockIdx.x >= work->startChannelId) ?
@@ -257,7 +257,7 @@ namespace {
     struct ncclTree* tree = &channel->tree;
     const int stepSize = comm->buffSizes[NCCL_PROTO_SIMPLE] / (sizeof(T)*NCCL_STEPS);
     int chunkSize = work->lastChunkSize;
-    const ssize_t minChunkSize = nthreads*8*sizeof(uint64_t) / sizeof(T);
+    const ssize_t minChunkSize = nworkers*8*sizeof(uint64_t) / sizeof(T);
     const ssize_t loopSize = nChannels*chunkSize;
     const ssize_t size = work->count;
 
@@ -265,25 +265,23 @@ namespace {
       chunkSize = DIVUP(size, nChannels*minChunkSize)*minChunkSize;
     }
 
-    // Compute pointers
     const T * __restrict__ thisInput = (const T*)work->sendbuff;
     T * __restrict__ thisOutput = (T*)work->recvbuff;
 
 #ifndef NO_EXTRA_WARP
-    if (tid < nthreads+WARP_SIZE) {
+    if (tid < nworkers+WARP_SIZE) {
 #else
-    if (tid < nthreads) {
+    if (tid < nworkers) {
 #endif
       // Reduce : max number of recv is 3, max number of send is 1 (binary tree + local)
-      Primitives<T, RedOp, FanAsymmetric<NCCL_MAX_DEV_ARITY, 1>, 0, upProto, 0>
-        prims(tid, ncclPrimsThreadsFromWorkers<upProto, FanAsymmetric<NCCL_MAX_DEV_ARITY, 1>::MaxSend>(nthreads), tree->down, &tree->up, NULL, comm, work->redOpArg, getShmemPtr(comm)->groups, 0, 0, 0, work);
-        prims.setDataPtrs(thisInput, thisOutput);
+      Primitives<T, RedOp, FanAsymmetric<NCCL_MAX_DEV_ARITY, 1>, 1, upProto, 0>
+        prims(tid, ncclPrimsThreadsFromWorkers<upProto, 1>(nworkers), tree->down, &tree->up, thisOutput, comm, work->redOpArg, getShmemPtr(comm)->groups, 0, 0, 0, work);
+      prims.setDataPtrs(thisInput, thisOutput);
 
       for (ssize_t gridOffset = 0; gridOffset < size; gridOffset += loopSize) {
         // Up
         ssize_t offset = gridOffset + bid*chunkSize;
         int nelem = min(chunkSize, size-offset);
-
 #ifdef KERNEL_LOOPBACK
         if (tree->up == -1 && tree->down[0] == -1) {
           prims.sendRecvLoopback(offset, offset, nelem);
@@ -291,31 +289,33 @@ namespace {
         }
 #endif
         if (tree->up == -1) {
-          prims.recvReduceCopy(offset, offset, nelem, /*postOp=*/true);
+          prims.directRecvReduceCopy(offset, offset, nelem, /*postOp=*/true);
         } else if (tree->down[0] == -1) {
-          prims.send(offset, nelem);
+          prims.directSend(offset, offset, nelem);
         } else {
-          prims.recvReduceSend(offset, nelem);
+          prims.directRecvReduceDirectSend(offset, offset, nelem);
         }
       }
     }
 
 #ifndef KERNEL_LOOPBACK
 #ifndef NO_EXTRA_WARP
-    if (tid < nthreads+WARP_SIZE) {
+    if (tid < nworkers+WARP_SIZE) {
 #else
-    if (tid < nthreads) {
+    if (tid < nworkers) {
 #endif
       // Broadcast : max number of recv is 1, max number of send is 3 (binary tree + local)
       Primitives<T, RedOp, FanAsymmetric<1, NCCL_MAX_DEV_ARITY>, 1, downProto, 0>
-        prims(tid, ncclPrimsThreadsFromWorkers<downProto, FanAsymmetric<1, NCCL_MAX_DEV_ARITY>::MaxSend>(nthreads), &tree->up, tree->down, thisOutput, comm, work->redOpArg, getShmemPtr(comm)->groups, 0, 0, 0, work, NULL, NCCL_STEPS, true);
-        prims.setDataPtrs(thisInput, thisOutput);
+        prims(tid, ncclPrimsThreadsFromWorkers<downProto, NCCL_MAX_DEV_ARITY>(nworkers), &tree->up, tree->down, thisOutput, comm, work->redOpArg, getShmemPtr(comm)->groups, 0, 0, 0, work, NULL, 0, NCCL_STEPS, true);
+      prims.setDataPtrs(thisInput, thisOutput);
 
       for (ssize_t gridOffset = 0; gridOffset < size; gridOffset += loopSize) {
         // Down
         ssize_t offset = gridOffset + bid*chunkSize;
         int nelem = min(chunkSize, size-offset);
         if (tree->up == -1) {
+          // The root re-broadcasts the result it already reduced into the output
+          // buffer, so it reads FromOutput.
           prims.directSendFromOutput(offset, nelem);
         } else if (tree->down[0] == -1) {
           prims.directRecv(offset, nelem);
@@ -330,15 +330,15 @@ namespace {
   template<typename T, typename RedOp, typename upProto, typename downProto>
   __device__ __forceinline__ void runSplitTree(struct ncclDevWorkColl* work) {
     const int tid = threadIdx.x;
-    int nthreads;
+    int nworkers;
 #ifndef NO_EXTRA_WARP
     if (upProto::Id == NCCL_PROTO_LL || upProto::Id == NCCL_PROTO_LL128) {
-      nthreads = work->nThreads;
+      nworkers = work->nThreads;
     } else {
-      nthreads = work->nThreads-2*WARP_SIZE;
+      nworkers = work->nThreads-2*WARP_SIZE;
     }
 #else
-    nthreads = work->nThreads;
+    nworkers = work->nThreads;
 #endif
     const int nChannels = work->nChannels;
     int bid = (blockIdx.x >= work->startChannelId) ?
@@ -355,15 +355,15 @@ namespace {
     if (upProto::Id == NCCL_PROTO_LL) {
       const int stepSize= comm->buffSizes[NCCL_PROTO_LL] / (sizeof(union ncclLLFifoLine)*NCCL_STEPS);
       chunkSize = stepSize * sizeof(uint64_t) / sizeof(T);
-      minChunkSize = nthreads*sizeof(uint64_t) / sizeof(T);
+      minChunkSize = nworkers*sizeof(uint64_t) / sizeof(T);
     } else if (upProto::Id == NCCL_PROTO_LL128) {
       stepSize = comm->buffSizes[NCCL_PROTO_LL128] / (sizeof(uint64_t)*NCCL_STEPS);
       chunkSize = work->lastChunkSize;
-      minChunkSize = (NCCL_LL128_SHMEM_ELEMS_PER_THREAD*nthreads*NCCL_LL128_DATAELEMS*sizeof(uint64_t))/(NCCL_LL128_LINEELEMS*sizeof(T))/8;
+      minChunkSize = (NCCL_LL128_SHMEM_ELEMS_PER_THREAD*nworkers*NCCL_LL128_DATAELEMS*sizeof(uint64_t))/(NCCL_LL128_LINEELEMS*sizeof(T))/8;
     } else {
       stepSize = comm->buffSizes[NCCL_PROTO_SIMPLE] / (sizeof(T)*NCCL_STEPS);
       chunkSize = work->lastChunkSize;
-      minChunkSize = nthreads*8*sizeof(uint64_t) / sizeof(T);
+      minChunkSize = nworkers*8*sizeof(uint64_t) / sizeof(T);
     }
 
     const ssize_t loopSize = nChannels*chunkSize;
@@ -379,26 +379,26 @@ namespace {
 
     int nthreadsSplit;
     if (upProto::Id == NCCL_PROTO_LL128) {
-      nthreadsSplit = NCCL_LL128_SPLIT(nthreads);
+      nthreadsSplit = NCCL_LL128_SPLIT(nworkers);
     } else {
-      nthreadsSplit = nthreads/2;
+      nthreadsSplit = nworkers/2;
       if (nthreadsSplit == 256) nthreadsSplit += 64;
     }
     if (tree->up == -1) {
 #ifndef NO_EXTRA_WARP
-      if (tid < nthreads+WARP_SIZE || upProto::Id == NCCL_PROTO_LL128) {
+      if (tid < nworkers+WARP_SIZE || upProto::Id == NCCL_PROTO_LL128) {
 #else
-      if (tid < nthreads) {
+      if (tid < nworkers) {
 #endif
         // ReduceAndBroadcast : max number of recv is 3, max number of send is 3
         Primitives<T, RedOp, FanAsymmetric<NCCL_MAX_DEV_ARITY, NCCL_MAX_DEV_ARITY>, 1, downProto, 0>
-          prims(tid, ncclPrimsThreadsFromWorkers<downProto, FanAsymmetric<NCCL_MAX_DEV_ARITY, NCCL_MAX_DEV_ARITY>::MaxSend>(nthreads), tree->down, tree->down, thisOutput, comm, work->redOpArg, getShmemPtr(comm)->groups, 0, 0, 0, work);
-          prims.setDataPtrs(thisInput, thisOutput);
+          prims(tid, ncclPrimsThreadsFromWorkers<downProto, NCCL_MAX_DEV_ARITY>(nworkers), tree->down, tree->down, thisOutput, comm, work->redOpArg, getShmemPtr(comm)->groups, 0, 0, 0, work);
+        prims.setDataPtrs(thisInput, thisOutput);
 
         for (ssize_t gridOffset = 0; gridOffset < size; gridOffset += loopSize) {
           ssize_t offset = gridOffset + bid*chunkSize;
           int nelem = min(chunkSize, size-offset);
-          prims.recvReduceCopyDirectSend(offset, offset, nelem, /*postOp=*/true);
+          prims.directRecvReduceCopyDirectSend(offset, offset, nelem, /*postOp=*/true);
         }
       }
     } else {
@@ -407,31 +407,45 @@ namespace {
 #else
       if (tid < nthreadsSplit) {
 #endif
-        // Reduce : max number of recv is 3, max number of send is 1 (binary tree + local)
+        /* Reduce up. Max number of recv is 3, max number of send is 1 (binary tree + local).
+         * Why Direct=1????
+         * Answer: Because despite not performing any direct operations, the ctor
+         * must assume Direct so that it can exchange direct pointers with remote ctors
+         * that are Direct, otherwise it hangs. A cleaner solution would be to seperate
+         * into DirectRecv and DirectSend capabilities, this ctor would have both=0,
+         * but the ctor above for tree roots would be DirectRecv=0 DirectSend=1.
+         */
+        // Coverity reports that the callee treats &tree->up as an array.  However, due to the use of
+        // FanAsymmetric<n, 1>, only the first element is ever accessed, so it's fine.
+        // coverity[callee_ptr_arith:FALSE]
         Primitives<T, RedOp, FanAsymmetric<NCCL_MAX_DEV_ARITY, 1>, 1, upProto, 0>
-          prims(tid, ncclPrimsThreadsFromWorkers<upProto, FanAsymmetric<NCCL_MAX_DEV_ARITY, 1>::MaxSend>(nthreadsSplit), tree->down, &tree->up, thisOutput, comm, work->redOpArg, getShmemPtr(comm)->groups, 0, 0, 0, work);
-          prims.setDataPtrs(thisInput, thisOutput);
+          prims(tid, ncclPrimsThreadsFromWorkers<upProto, 1>(nthreadsSplit), tree->down, &tree->up, thisOutput, comm, work->redOpArg, getShmemPtr(comm)->groups, 0, 0, 0, work);
+        prims.setDataPtrs(thisInput, thisOutput);
 
         for (ssize_t gridOffset = 0; gridOffset < size; gridOffset += loopSize) {
           // Up
           ssize_t offset = gridOffset + bid*chunkSize;
           int nelem = min(chunkSize, size-offset);
           if (tree->down[0] == -1) {
-            prims.send(offset, nelem);
+            prims.directSend(offset, offset, nelem);
           } else {
-            prims.recvReduceSend(offset, nelem);
+            prims.directRecvReduceDirectSend(offset, offset, nelem);
           }
         }
       } else {
-        // Broadcast : max number of recv is 1, max number of send is 3 (binary tree + local)
+        // Broadcast down. Max number of recv is 1, max number of send is 3 (binary tree + local)
+        // Coverity reports that the callee treats &tree->up as an array.  However, due to the use of
+        // FanAsymmetric<1, n>, only the first element is ever accessed, so it's fine.
+        // coverity[callee_ptr_arith:FALSE]
         Primitives<T, RedOp, FanAsymmetric<1, NCCL_MAX_DEV_ARITY>, 1, downProto, 0>
 #ifndef NO_EXTRA_WARP
-          prims(tid-nthreadsSplit-(downProto::Id == NCCL_PROTO_LL128 ? 0 : WARP_SIZE), ncclPrimsThreadsFromWorkers<downProto, FanAsymmetric<1, NCCL_MAX_DEV_ARITY>::MaxSend>(nthreads-nthreadsSplit), &tree->up, tree->down, thisOutput, comm, work->redOpArg, getShmemPtr(comm)->groups, 2, 0, 0, work);
-          prims.setDataPtrs(thisInput, thisOutput);
+          prims(tid-nthreadsSplit-(downProto::Id == NCCL_PROTO_LL128 ? 0 : WARP_SIZE),
+                ncclPrimsThreadsFromWorkers<downProto, NCCL_MAX_DEV_ARITY>(nworkers-nthreadsSplit),
+                &tree->up, tree->down, thisOutput, comm, work->redOpArg, getShmemPtr(comm)->groups, 2, 0, 0, work);
 #else
-          prims(tid-nthreadsSplit, nthreads-nthreadsSplit, &tree->up, tree->down, thisOutput, comm, work->redOpArg, getShmemPtr(comm)->groups, 2, 0, 0, work);
-          prims.setDataPtrs(thisInput, thisOutput);
+          prims(tid-nthreadsSplit, ncclPrimsThreadsFromWorkers<downProto, NCCL_MAX_DEV_ARITY>(nworkers-nthreadsSplit), &tree->up, tree->down, thisOutput, comm, work->redOpArg, getShmemPtr(comm)->groups, 2, 0, 0, work);
 #endif
+        prims.setDataPtrs(thisInput, thisOutput);
 
         for (ssize_t gridOffset = 0; gridOffset < size; gridOffset += loopSize) {
           // Down
