@@ -64,7 +64,71 @@ files are readable by different worker identities before publication (`0755`
 directories, `0644` files), including the retry path. The writable run root and
 results permissions are not narrowed by this repair.
 
-## Commit message previews
+## From review assignment to merge
+
+When an open PR targeting `main` or `release/*` is ready for review, the bot's
+**Review modules** comment lists the primary module, a secondary module if present,
+other affected modules, and a link to the [full roster](skills/pccl-review-assignment/modules.json).
+It mentions the assigned invitees as `@login, please review as **Reviewer**` or
+`**Maintainer**` for their module, omitting author exemptions and manually cancelled invitations.
+PCCL invites the primary module's Maintainer unless they are the PR author. If the author
+is in that module's Reviewer list, the Reviewer role is exempt and no replacement Reviewer
+is selected, even when other candidates exist. Otherwise, PCCL invites a rotating Reviewer.
+For the secondary module, PCCL invites a rotating non-author Reviewer unless the author is
+its sole Reviewer. If the secondary module has other candidates, author membership does
+not waive the invitation. Automatic invitations work for forks too; external authors do
+not need permission to invite people in the upstream repository.
+
+### If the assignment needs adjusting
+
+Use GitHub's **Reviewers** sidebar to request or remove a person's review. Only directly
+invited people listed as the Lead, a Maintainer or a Reviewer in
+[Module members](skills/pccl-review-assignment/modules.json) become required.
+People outside that list can review, but their invitations and approvals do not affect
+this gate. To make an unlisted reviewer required, add them to the module member list first.
+Removing an invitation cancels that person's requirement. When replacing someone, remove
+the original invitation as well as inviting the replacement; another same-module approval
+does not automatically substitute. GitHub controls who can manage invitations, including
+repository writers and organization members with triage access. Team requests and bots
+are not individual approval requirements; invite the people whose approvals you need.
+
+Submitting a review does not remove the requirement, even when GitHub no longer lists
+a pending request. The invitation history retains it until an explicit removal.
+If GitHub only offers **Re-request review** for someone who has already reviewed,
+request again before removing that request. Confirm the cancellation in Gate **Details**;
+cancelling an invitation does not dismiss an existing **Request changes** review or
+bypass GitHub's own merge rules.
+
+Manual invitations and cancellations carry forward across pushes and routing retries.
+The bot does not restore a manually cancelled invitation; request that person again
+in GitHub to restore the requirement. Obsolete automatic assignments are retired when
+classification changes, without withdrawing manually managed invitations.
+
+### What turns the review gate green?
+
+At least one non-author module member must remain invited, and every required reviewer
+must have a valid **Approve** for the current HEAD.
+Comments are not approvals, and dismissed, changes-requested or old-commit verdicts do
+not satisfy the gate. Gate **Details** identifies the people whose approvals are missing.
+At least one module must have both a Reviewer and its Maintainer in the required set.
+An author's own role in a classified affected module can satisfy that coverage without
+an invitation or approval vote. Primary-module Reviewer membership qualifies even when
+other candidates exist; secondary-module Reviewer membership qualifies only when the
+author is its sole Reviewer. Membership in an unrelated module does not create an author
+exemption for that module. One person's approval covers all roster roles they hold, but
+does not waive another person's invitation.
+
+The Lead's valid current-HEAD approval on another author's PR covers all invitees and
+bypasses the complete-module requirement. Removing every invited module member keeps the gate
+pending even with Lead approval. Removing one person is allowed, but the gate stays
+pending if the remaining people and author exemptions no longer cover a complete module.
+
+After an invitation change, push or review change, allow the gate to refresh. If an
+invitation update was interrupted, its **Details** link identifies the run to retry.
+For a merge to `main`, check both `PCCL Review Gate` and `PCCL Tests Gate`, along with
+GitHub's other required checks. CI and hardware tests remain independent of review approval.
+
+### Preparing the squash message
 
 Multi-commit PRs targeting `main` receive a proposed squash commit body, including
 issue references and signing trailers but no title. Publishing a fresh preview
@@ -74,45 +138,25 @@ the GitHub-filled title separately.
 
 For fork PRs, a Maintainer runs `PCCL Commit Message Preview` from `main` with `pr_number`.
 
-| File | Purpose |
-| --- | --- |
-| [commit-message.yml](workflows/commit-message.yml) | Run `PCCL Commit Message Preview` independently of CI. |
-| [commit_message_squash.py](scripts/commit_message_squash.py) | Generate and publish the message and remove older previews. |
-| [Squash message Skill](../.agents/skills/pccl-squash-message/SKILL.md) | Define how to summarize changes and preserve references and signing trailers. |
-| [install_copilot.sh](scripts/install_copilot.sh) | Install Copilot CLI for message generation and module classification. |
-| [copilot_cli.py](scripts/copilot_cli.py) | Extract the final Copilot response. |
+### Maintaining the workflow
 
-## Reviewer assignment
+[Routing](workflows/review-routing.yml) classifies the patch and passes the result to
+the [invitation workflow](workflows/review-module.yml). Its completion refreshes the
+[gate](workflows/review-gate.yml), including bot requests that do not trigger another
+Actions run. Native [invitation events](workflows/review-command.yml) and
+[review events](workflows/review-event.yml) also refresh the gate without rerunning
+classification or sending invitations.
 
-When a PR is ready for review or updated, PCCL selects modules by ownership of
-the main changes, rotates Reviewers, and invites their Maintainers.
-The prompt requests at most two modules in priority order, regardless of changed line
-count, without filling the second slot unnecessarily; scripts do not enforce this limit.
-Other affected modules appear in the PR comment for optional manual invitations,
-without required module approvals.
+GitHub's invitation timeline is the durable record of required people and explicit
+cancellations, not the pending-request list. The state branch stores only classification
+and default rotation choices. The [classification prompt](skills/pccl-review-assignment/SKILL.md)
+selects at most two modules in priority order, without a line-count threshold. Keep each
+module's Maintainer separate from its Reviewer list.
 
-PCCL keeps existing assignments and invites each person once across modules.
-
-| File | Purpose |
-| --- | --- |
-| [reviewer-routing.yml](workflows/reviewer-routing.yml) | Coordinate module classification and review requests. |
-| [Classification Skill](skills/pccl-review-assignment/SKILL.md) | Define how to identify the affected modules. |
-| [modules.json](skills/pccl-review-assignment/modules.json) | Define module scopes and the Reviewer and Maintainer roster. |
-| [review_automation.py](scripts/review_automation.py) | Classify changes, assign Reviewers and notify reviewers and Maintainers. |
-| [reviewer_state.py](scripts/reviewer_state.py) | Preserve assignments and maintain the per-module rotation. |
-| [reviewer_api.py](scripts/reviewer_api.py) | Access GitHub PRs, reviews and accounts. |
-
-## Module approval
-
-`PCCL Review Gate` checks that the Maintainers of the primary modules have approved the
-current commit. Authors are exempt from this check for modules they maintain. The Lead
-Maintainer can approve all modules on another author's PR.
-
-The gate checks existing approvals after the invitation run finishes, even if an invitation
-failed. It also refreshes whenever a review is submitted, edited or dismissed.
-
-| File | Purpose |
-| --- | --- |
-| [maintainer-approval.yml](workflows/maintainer-approval.yml) | Run the module approval check and publish `PCCL Review Gate`. |
-| [review-event.yml](workflows/review-event.yml) | Trigger an approval refresh when a review changes. |
-| [maintainer_approval.py](scripts/maintainer_approval.py) | Evaluate module Maintainer approvals for the current commit. |
+When deploying this policy to `main`, let in-flight updates finish, then run
+`gh workflow run review-routing.yml --ref main -f pr_number=NUMBER` for each open,
+ready PR targeting `main` or `release/*`. Existing invitation history becomes authoritative.
+After successfully publishing the concise module summary, routing removes its old
+per-person assignment notices.
+Check the invited people and wait for the new gate verdict before merging. The same
+command refreshes an invalid saved classification.

@@ -207,8 +207,7 @@
       "key_files": ["src/dev_runtime.cc", "src/include/pccl_device/comm.h", "src/include/pccl_device/lsa_bulk.h"],
       "maintainer": {"login": "wensuyang", "id": 333277982},
       "reviewers": [
-        {"login": "snowdrift-zw", "id": 341341178},
-        {"login": "wensuyang", "id": 333277982}
+        {"login": "snowdrift-zw", "id": 341341178}
       ]
     },
     "gin": {
@@ -225,10 +224,9 @@
     "workflow": {
       "name": "Contribution and review workflows",
       "description": "Contribution and review/merge policy, issue/PR templates, reviewer assignment/approval, commit validation and squash-message automation, including supporting Actions wiring. Normal test execution and pass/fail criteria belong to ci.",
-      "key_files": ["CONTRIBUTING.md", ".github/scripts/review_automation.py", ".github/workflows/reviewer-routing.yml"],
+      "key_files": ["CONTRIBUTING.md", ".github/scripts/review_automation.py", ".github/workflows/review-routing.yml"],
       "maintainer": {"login": "honganlxh", "id": 335730053},
       "reviewers": [
-        {"login": "honganlxh", "id": 335730053},
         {"login": "wensuyang", "id": 333277982}
       ]
     },
@@ -236,11 +234,10 @@
       "name": "Open-source test workflows",
       "description": "Normal CI build/test selection, matrices, runners/environments, execution, result reporting and test pass/fail aggregation. Contribution/review policy belongs to workflow; compiler/build definitions and packaging belong to build.",
       "key_files": [".github/workflows/pr-test-ppu.yml", ".github/workflows/scripts/pr-ut-runner.py", ".github/workflows/scripts/casecmd.list"],
-      "maintainer": {"login": "xuyinxin-xyx", "id": 333302477},
+      "maintainer": {"login": "guanqi808", "id": 340459893},
       "reviewers": [
         {"login": "xuyinxin-xyx", "id": 333302477}
-      ],
-      "author_review_exemption": 333302477
+      ]
     },
     "other": {
       "name": "Other changes",
@@ -248,7 +245,6 @@
       "key_files": [],
       "maintainer": {"login": "lishusen2026", "id": 340101345},
       "reviewers": [
-        {"login": "lishusen2026", "id": 340101345},
         {"login": "honganlxh", "id": 335730053}
       ]
     }
