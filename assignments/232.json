@@ -1,0 +1,17 @@
+{
+  "classification": {
+    "base_sha": "74c2d3f5e9bf90578520feda20a3938c3d938917",
+    "head_sha": "a27649c318b1cd34e1baf686c5a044df49c5218e",
+    "input_fingerprint": "b4676750bb60d20c5d028f970423743f6d06e9173dc88019123c1537e3b9141f",
+    "pr_number": 232,
+    "proposal": {
+      "modules": [
+        "ci"
+      ],
+      "reason": "Primary change updates open-source test workflow execution budgets/timeouts in `.github/workflows/pccl-daily-full.yml` (manual default 1440, weekday 1440, Friday 2880, with existing job margin behavior). Other edits are aligned documentation and regression-test expectation updates, not independent subsystem changes."
+    }
+  },
+  "reviewers": {
+    "ci": 333302477
+  }
+}
