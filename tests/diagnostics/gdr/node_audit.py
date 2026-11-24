@@ -69,7 +69,7 @@ def pod_manifest(name, namespace, run, node_label, image):
             "nodeSelector": {"kubernetes.io/hostname": node_label},
             "tolerations": [{"key": "alibabacloud.com/ppu", "operator": "Exists", "effect": "NoSchedule"}],
             "containers": [{"name": "audit", "image": image, "imagePullPolicy": "IfNotPresent",
-                "command": ["/usr/bin/python3", "-c", PROBE],
+                "command": ["python3", "-c", PROBE],
                 "env": [{"name": "NODE_NAME", "valueFrom": {"fieldRef": {"fieldPath": "spec.nodeName"}}},
                         {"name": "NVIDIA_VISIBLE_DEVICES", "value": "none"},
                         {"name": "CUDA_VISIBLE_DEVICES", "value": ""},
@@ -142,12 +142,21 @@ def audit(namespace, run, image, output, timeout):
                         result = json.loads(text.strip().splitlines()[-1])
                         assert result["marker"] == "pccl-gdr-node-audit-v1"
                         assert result["node_name"] == mapping[host]["metadata"]["name"]
+                        containers = pod.get("status", {}).get("containerStatuses", [])
+                        result["image_id"] = next((c.get("imageID") for c in containers if c["name"] == "audit"), None)
                         rows[host] = result
                     except (ValueError, KeyError, AssertionError, IndexError) as error:
                         rows[host] = {"peermem": "unknown", "error": f"Invalid probe evidence: {error}"}
                     del pending[name]
                 elif phase == "Failed":
-                    rows[host] = {"peermem": "unknown", "error": pod.get("status", {}).get("message", "CPU probe failed")}
+                    try:
+                        text = kube("logs", "-n", namespace, name, "-c", "audit")
+                    except RuntimeError as error:
+                        text = str(error)
+                    (output / f"{host}.log").write_text(text)
+                    states = pod.get("status", {}).get("containerStatuses", [])
+                    rows[host] = {"peermem": "unknown", "error": pod.get("status", {}).get("message", "CPU probe failed"),
+                                  "container_states": states, "probe_log": text[-2000:]}
                     del pending[name]
             if pending:
                 time.sleep(5)
@@ -170,7 +179,8 @@ def audit(namespace, run, image, output, timeout):
         if node:
             selected.append({"host": host, "node_name": node["metadata"]["name"],
                              "hostname_label": node["metadata"].get("labels", {}).get("kubernetes.io/hostname"),
-                             "peermem": rows.get(host, {}).get("peermem", "unknown")})
+                             "peermem": rows.get(host, {}).get("peermem", "unknown"),
+                             "image_id": rows.get(host, {}).get("image_id")})
     summary = {"source_run": 45191076117, "checked_at": datetime.now(timezone.utc).isoformat(),
         "complete": complete, "machine_count": len(FAILED_HOSTS), "machines": rows,
         "loaded": sum(row["peermem"] == "loaded" for row in rows.values()),

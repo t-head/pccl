@@ -25,6 +25,7 @@ class NodeAuditTests(unittest.TestCase):
         self.assertEqual(security["capabilities"]["drop"], ["ALL"])
         self.assertNotIn("volumes", pod["spec"])
         self.assertNotIn("hostPID", pod["spec"])
+        self.assertEqual(pod["spec"]["containers"][0]["command"][0], "python3")
 
     def test_admission_injected_gpu_is_detected(self):
         pod = pod_manifest("audit-test", "ppu-sched", "123", "node-03", "sdk-image")
