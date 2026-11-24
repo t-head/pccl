@@ -1,14 +1,14 @@
 {
   "classification": {
-    "base_sha": "4a9b207f6c06878cfc9d4344366e9ebc790775e9",
-    "head_sha": "c3c0a7e1f5098c432a4804022dc190f51a7b9448",
-    "input_fingerprint": "dc2ae6b34d6463e86ab810f995c7d642d427c474a85c14cf5e1b645602589ad1",
+    "base_sha": "74c2d3f5e9bf90578520feda20a3938c3d938917",
+    "head_sha": "379f4514a287fda27b59d26ce482c8828847376f",
+    "input_fingerprint": "be2339b71589b8cab3699414dd46c5e115b966b050b1df8a47a9f150a71e351d",
     "pr_number": 226,
     "proposal": {
       "modules": [
         "kernel-plugin"
       ],
-      "reason": "Adds a new extension-kernel AllReduce strategy (ONESHOT_PUSH) end-to-end in the ext-kernel plugin: new plugin kernel/template implementations, dispatch/index wiring, topology-gated default selection limits, and plugin workspace/launch configuration for Push buffers and phase state."
+      "reason": "Adds and wires a new extension-kernel AllReduce strategy (ONESHOT_PUSH) end-to-end in the ext-kernel plugin: new plugin kernel templates and dispatch entries, strategy/index selection, launch configuration, topology bounds, and Push workspace/phase lifecycle handling."
     }
   },
   "reviewers": {
