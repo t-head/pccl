@@ -20,7 +20,7 @@
 #define FOR_SEND(func, ...) do { \
   if (SEND) { \
     /* Send to far first, then close */ \
-    for (int i=1; i<NSEND && i<nsend; i++) func(i, ##__VA_ARGS__); \
+    for (int i=1; i<NSEND && i<fan.nsend(); i++) func(i, ##__VA_ARGS__); \
     func(0, ##__VA_ARGS__); \
   } \
 } while (0)
@@ -29,7 +29,7 @@
   if (RECV) { \
     /* Recv from close first, then far */ \
     func(0, ##__VA_ARGS__); \
-    for (int i=1; i<NRECV && i<nrecv; i++) func(i, ##__VA_ARGS__); \
+    for (int i=1; i<NRECV && i<fan.nrecv(); i++) func(i, ##__VA_ARGS__); \
   } \
 } while (0)
 
@@ -43,59 +43,189 @@
 struct ProtoLL {
   static constexpr int Id = NCCL_PROTO_LL;
   static constexpr int RTMD = RTMD_PA;
+  // Half of an LL line is flags, so only half the step carries data.
+  __device__ static int calcBytePerStep(struct ncclKernelComm* comm) {
+    return comm->buffSizes[NCCL_PROTO_LL] / NCCL_STEPS / 2;
+  }
+  // One 16-byte line has 8 bytes of data.
+  __device__ static int calcBytePerGrain() {
+    return sizeof(uint64_t);
+  }
+  // How many consecutive group values a subchannel occupies.
+  static constexpr int MaxGroupWidth = 1;
 };
 
 struct ProtoLL128 {
   static constexpr int Id = NCCL_PROTO_LL128;
   static constexpr int RTMD = RTMD_PA;
+  __device__ static int calcBytePerStep(struct ncclKernelComm* comm) {
+    return (comm->buffSizes[NCCL_PROTO_LL128] / NCCL_STEPS) * NCCL_LL128_DATAELEMS / NCCL_LL128_LINEELEMS;
+  }
+  __device__ static int calcBytePerGrain() {
+    return NCCL_LL128_SHMEM_ELEMS_PER_THREAD * NCCL_LL128_DATAELEMS * sizeof(uint64_t) / NCCL_LL128_LINEELEMS;
+  }
+  static constexpr int MaxGroupWidth = 1;
 };
 
-template <int UNROLL, int SLICESPERCHUNK, int SLICESTEPS>
+/* Protocol classes: ProtoSimple, ProtoLL, ProtoLL128
+ * We use these as template args to the Primitives class instead of integral
+ * enums (e.g. NCCL_PROTO_LL) because for SIMPLE we need to carry a few extra
+ * numbers. Also these types hold methods which let us compute numbers important
+ * to how that protocol operates with a consistent interface so that our
+ * algorithm code can operate protocol parametrically.
+ */
+template<int SlicePerChunk_1, int StepPerSlice_1, int Unroll_1 = COLL_UNROLL, int MultimemSrcs_1 = 0, int MultimemDsts_1 = 0>
 struct ProtoSimple {
   static constexpr int Id = NCCL_PROTO_SIMPLE;
+  static constexpr int SlicePerChunk = SlicePerChunk_1;
+  static constexpr int StepPerSlice = StepPerSlice_1;
+  static constexpr int Unroll = Unroll_1;
+  static constexpr int MultimemSrcs = MultimemSrcs_1;
+  static constexpr int MultimemDsts = MultimemDsts_1;
+
   static constexpr ncclConn_t sendConnType = CONN_NORMAL;
   static constexpr ncclConn_t recvConnType = CONN_NORMAL;
   static constexpr int RTMD = RTMD_PA;
+
+  static_assert(MultimemSrcs_1 == 0 && MultimemDsts_1 == 0,
+                "PPU has no multicast address space.");
+
+  __device__ static int calcBytePerStep(struct ncclKernelComm* comm) {
+    return comm->buffSizes[NCCL_PROTO_SIMPLE] / NCCL_STEPS;
+  }
+  // Granularity of data bytes transferred per thread.
+  __device__ static int calcBytePerGrain() {
+    return sizeof(uint64_t); // Bogus value? Nobody queries this metric for simple.
+  }
+  // Group width is how many consecutive group values a subchannel occupies.
+  static constexpr int MaxGroupWidth = 2;
 };
 
-template <int UNROLL, int SLICESPERCHUNK, int SLICESTEPS>
+#define PCCL_DEFINE_SIMPLE_FAMILY_PROTO_METRICS()                                  \
+  static constexpr int Unroll = Unroll_1;                                          \
+  static constexpr int SlicePerChunk = SlicePerChunk_1;                            \
+  static constexpr int StepPerSlice = StepPerSlice_1;                              \
+  static constexpr int MultimemSrcs = 0;                                           \
+  static constexpr int MultimemDsts = 0;                                           \
+  __device__ static int calcBytePerStep(struct ncclKernelComm* comm) {              \
+    return comm->buffSizes[Id] / NCCL_STEPS;                                       \
+  }                                                                                \
+  __device__ static int calcBytePerGrain() {                                       \
+    return sizeof(uint64_t);                                                       \
+  }                                                                                \
+  static constexpr int MaxGroupWidth = 2
+
+template<int SlicePerChunk_1, int StepPerSlice_1, int Unroll_1 = COLL_UNROLL>
 struct ProtoSignal {
   static constexpr int Id = NCCL_PROTO_SIGNAL;
   static constexpr ncclConn_t sendConnType = CONN_NORMAL;
   static constexpr ncclConn_t recvConnType = CONN_NORMAL;
   static constexpr int RTMD = RTMD_PA;
+  PCCL_DEFINE_SIMPLE_FAMILY_PROTO_METRICS();
 };
 
-template <int UNROLL, int SLICESPERCHUNK, int SLICESTEPS, ncclConn_t SENDCONNTYPE = CONN_ICN, ncclConn_t RECVCONNTYPE = CONN_ICN>
+template<int SlicePerChunk_1, int StepPerSlice_1, int Unroll_1 = COLL_UNROLL, ncclConn_t SENDCONNTYPE = CONN_ICN, ncclConn_t RECVCONNTYPE = CONN_ICN>
 struct ProtoSimpleBulk {
   static constexpr int Id = NCCL_PROTO_SIMPLE_BULK;
   static constexpr ncclConn_t sendConnType = SENDCONNTYPE;
   static constexpr ncclConn_t recvConnType = RECVCONNTYPE;
   static constexpr int RTMD = RTMD_PA;
+  PCCL_DEFINE_SIMPLE_FAMILY_PROTO_METRICS();
 };
 
-template <int UNROLL, int SLICESPERCHUNK, int SLICESTEPS, ncclConn_t SENDCONNTYPE = CONN_ICN, ncclConn_t RECVCONNTYPE = CONN_ICN>
+template<int SlicePerChunk_1, int StepPerSlice_1, int Unroll_1 = COLL_UNROLL, ncclConn_t SENDCONNTYPE = CONN_ICN, ncclConn_t RECVCONNTYPE = CONN_ICN>
 struct ProtoSignalBulk {
   static constexpr int Id = NCCL_PROTO_SIGNAL_BULK;
   static constexpr ncclConn_t sendConnType = SENDCONNTYPE;
   static constexpr ncclConn_t recvConnType = RECVCONNTYPE;
   static constexpr int RTMD = RTMD_PA;
+  PCCL_DEFINE_SIMPLE_FAMILY_PROTO_METRICS();
 };
 
-template <int UNROLL, int SLICESPERCHUNK, int SLICESTEPS, ncclConn_t SENDCONNTYPE = CONN_ICN, ncclConn_t RECVCONNTYPE = CONN_ICN>
+template<int SlicePerChunk_1, int StepPerSlice_1, int Unroll_1 = COLL_UNROLL, ncclConn_t SENDCONNTYPE = CONN_ICN, ncclConn_t RECVCONNTYPE = CONN_ICN>
 struct ProtoSimpleBulkAR {
   static constexpr int Id = NCCL_PROTO_SIMPLE_BULK_AR;
   static constexpr ncclConn_t sendConnType = SENDCONNTYPE;
   static constexpr ncclConn_t recvConnType = RECVCONNTYPE;
   static constexpr int RTMD = RTMD_AR;
+  PCCL_DEFINE_SIMPLE_FAMILY_PROTO_METRICS();
 };
 
+#define PCCL_ASSERT_SIMPLE_FAMILY_ORDER(Proto)                             \
+  static_assert(Proto<2, 1, 4>::SlicePerChunk == 2,                        \
+                #Proto ": first positional arg must be SlicePerChunk");   \
+  static_assert(Proto<2, 1, 4>::StepPerSlice == 1,                         \
+                #Proto ": second positional arg must be StepPerSlice");   \
+  static_assert(Proto<2, 1, 4>::Unroll == 4,                               \
+                #Proto ": third positional arg must be Unroll")
+
+PCCL_ASSERT_SIMPLE_FAMILY_ORDER(ProtoSimple);
+PCCL_ASSERT_SIMPLE_FAMILY_ORDER(ProtoSignal);
+PCCL_ASSERT_SIMPLE_FAMILY_ORDER(ProtoSimpleBulk);
+PCCL_ASSERT_SIMPLE_FAMILY_ORDER(ProtoSignalBulk);
+PCCL_ASSERT_SIMPLE_FAMILY_ORDER(ProtoSimpleBulkAR);
+#undef PCCL_ASSERT_SIMPLE_FAMILY_ORDER
+
+static_assert(ProtoSimple<2, 1>::Unroll == COLL_UNROLL,
+              "ProtoSimple<2,1> must default the third arg to COLL_UNROLL");
+static_assert(ProtoSimple<2, 1, 4>::MultimemSrcs == 0, "MultimemSrcs must default to 0");
+static_assert(ProtoSimple<2, 1, 4, 0, 0>::MultimemDsts == 0, "explicit multimem form must bind");
+
+/* Fan (as in fan-in & fan-out) classes hold recv and send counts. The template
+ * arguments are static bounds on the maximum values. Asymmetric counts are
+ * independent. Symmetric is a static guarantee that nrecv==nsend, so it only
+ * stores one value at runtime. This optimization save 32-bit register, but more
+ * importantly uses fewer predicate registers when unrolling loops.
+ */
+template<int MaxRecv_, int MaxSend_>
+struct FanAsymmetric {
+  static constexpr int MaxRecv = MaxRecv_, MaxSend = MaxSend_;
+  int nr, ns;
+  FanAsymmetric() = default;
+  __device__ FanAsymmetric(int nrecv, int nsend): nr(nrecv), ns(nsend) {
+    // assert(nrecv <= MaxRecv && nsend <= MaxSend);
+  }
+  __device__ int nrecv() const { return MaxRecv ? nr : 0; }
+  __device__ int nsend() const { return MaxSend ? ns : 0; }
+};
+
+template<int MaxArity>
+struct FanSymmetric {
+  static constexpr int MaxRecv = MaxArity, MaxSend = MaxArity;
+  int n;
+  FanSymmetric() = default;
+  __device__ FanSymmetric(int nrecv, int nsend): n(nrecv) {
+    // assert(nrecv == nsend && nrecv <= MaxArity);
+  }
+  __device__ int nrecv() const { return n; }
+  __device__ int nsend() const { return n; }
+};
+
+static_assert(FanAsymmetric<2, 0>::MaxRecv == 2, "FanAsymmetric MaxRecv");
+static_assert(FanAsymmetric<2, 0>::MaxSend == 0, "FanAsymmetric MaxSend");
+static_assert(FanSymmetric<3>::MaxRecv == 3 && FanSymmetric<3>::MaxSend == 3,
+              "FanSymmetric arity bounds both directions");
+static_assert(sizeof(FanSymmetric<1>) < sizeof(FanAsymmetric<1, 1>),
+              "FanSymmetric must store one count, not two");
+
 // The primitives class. Specialized per protocol in the other headers.
-template<typename T, typename FUNC, typename Proto, int NRECV, int NSEND, int DIRECT, int PrimitivesWithoutDirect>
+template<typename T, typename RedOp, typename Fan, int Direct, typename Proto, int P2p, bool isNetOffload = false>
 class Primitives;
 
-template <typename T, int NRECV, int NSEND, class FUNC, int UNROLL, int SLICESPERCHUNK, int SLICESTEPS, int DIRECT, typename Proto, class RealPrimitives, int P2P>
+template<typename T, typename Fan, typename RedOp, int SlicePerChunk, int StepPerSlice, int Unroll, int Direct, typename Proto, class RealPrimitives, int P2p>
 class PrimitivesSimpleBase;
+
+template <typename Proto, int MaxSend>
+__device__ __forceinline__ int ncclPrimsThreadsFromWorkers(int nworkers) {
+#ifdef NO_EXTRA_WARP
+  return nworkers;
+#else
+  constexpr bool postWarp =
+    MaxSend > 0 && Proto::Id != NCCL_PROTO_LL && Proto::Id != NCCL_PROTO_LL128;
+  return nworkers + (postWarp && nworkers >= NCCL_SIMPLE_EXTRA_GROUP_IF_NTHREADS_GE - WARP_SIZE
+                     ? WARP_SIZE : 0);
+#endif
+}
 
 // Used by LL & LL128 to implement direct members in the naive way.
 template<typename T, typename RealPrimitives>

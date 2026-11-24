@@ -16,6 +16,8 @@
 #include "reduce_kernel.h"
 #include <iostream>
 
+#define COLL_UNROLL (ncclCollUnroll())
+
 // Exit If Abort Barrier across CTA: make sure all threads exit consistently
 // Each thread sets a predicate to true if abort == 1
 // all CTA's threads enter the barrier and do a popc on their predicates being True

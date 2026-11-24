@@ -57,8 +57,8 @@ namespace {
     const T * __restrict__ thisInput = (const T*)work->sendbuff;
     T * __restrict__ thisOutput = (T*)work->recvbuff;
 
-    Primitives<T, FUNC, Proto, 1, 1, 1, 0>
-      prims(tid, nthreads, &ring->prev, &ring->next, thisOutput, comm, work->redOpArg, getShmemPtr(comm)->groups, 0, 0, 0, work);
+    Primitives<T, FUNC, FanAsymmetric<1, 1>, 1, Proto, 0>
+      prims(tid, ncclPrimsThreadsFromWorkers<Proto, FanAsymmetric<1, 1>::MaxSend>(nthreads), &ring->prev, &ring->next, thisOutput, comm, work->redOpArg, getShmemPtr(comm)->groups, 0, 0, 0, work);
 
     for (ssize_t gridOffset = 0; gridOffset < size; gridOffset += nranks*loopSize) {
       ssize_t realChunkSize;
@@ -191,8 +191,8 @@ namespace {
     const T * __restrict__ thisInput = (const T*)work->sendbuff;
     T * __restrict__ thisOutput = (T*)work->recvbuff;
 
-    Primitives<T, FUNC, Proto, NCCL_MAX_FC_ARITY-1, NCCL_MAX_FC_ARITY-1, 1, 0>
-      prims(tid, nthreads, fc->peerRanks, fc->peerRanks, thisOutput, comm, work->redOpArg, getShmemPtr(comm)->groups, 0, 0, 0, work);
+    Primitives<T, FUNC, FanAsymmetric<NCCL_MAX_FC_ARITY-1, NCCL_MAX_FC_ARITY-1>, 1, Proto, 0>
+      prims(tid, ncclPrimsThreadsFromWorkers<Proto, FanAsymmetric<NCCL_MAX_FC_ARITY-1, NCCL_MAX_FC_ARITY-1>::MaxSend>(nthreads), fc->peerRanks, fc->peerRanks, thisOutput, comm, work->redOpArg, getShmemPtr(comm)->groups, 0, 0, 0, work);
 
     if (Proto::Id == NCCL_PROTO_LL) {
       for (ssize_t gridOffset = 0; gridOffset < size; gridOffset += loopSize) {
@@ -266,8 +266,8 @@ namespace {
     if (tid < nthreads) {
 #endif
       // Reduce : max number of recv is 3, max number of send is 1 (binary tree + local)
-      Primitives<T, FUNC, upProto, NCCL_MAX_DEV_ARITY, 1, 0, 0>
-        prims(tid, nthreads, tree->down, &tree->up, NULL, comm, work->redOpArg, getShmemPtr(comm)->groups, 0, 0, 0, work);
+      Primitives<T, FUNC, FanAsymmetric<NCCL_MAX_DEV_ARITY, 1>, 0, upProto, 0>
+        prims(tid, ncclPrimsThreadsFromWorkers<upProto, FanAsymmetric<NCCL_MAX_DEV_ARITY, 1>::MaxSend>(nthreads), tree->down, &tree->up, NULL, comm, work->redOpArg, getShmemPtr(comm)->groups, 0, 0, 0, work);
 
       for (ssize_t gridOffset = 0; gridOffset < size; gridOffset += loopSize) {
         // Up
@@ -297,8 +297,8 @@ namespace {
     if (tid < nthreads) {
 #endif
       // Broadcast : max number of recv is 1, max number of send is 3 (binary tree + local)
-      Primitives<T, FUNC, downProto, 1, NCCL_MAX_DEV_ARITY, 1, 0>
-        prims(tid, nthreads, &tree->up, tree->down, thisOutput, comm, work->redOpArg, getShmemPtr(comm)->groups, 0, 0, 0, work, NULL, NCCL_STEPS, true);
+      Primitives<T, FUNC, FanAsymmetric<1, NCCL_MAX_DEV_ARITY>, 1, downProto, 0>
+        prims(tid, ncclPrimsThreadsFromWorkers<downProto, FanAsymmetric<1, NCCL_MAX_DEV_ARITY>::MaxSend>(nthreads), &tree->up, tree->down, thisOutput, comm, work->redOpArg, getShmemPtr(comm)->groups, 0, 0, 0, work, NULL, NCCL_STEPS, true);
 
       for (ssize_t gridOffset = 0; gridOffset < size; gridOffset += loopSize) {
         // Down
@@ -380,8 +380,8 @@ namespace {
       if (tid < nthreads) {
 #endif
         // ReduceAndBroadcast : max number of recv is 3, max number of send is 3
-        Primitives<T, FUNC, downProto,  NCCL_MAX_DEV_ARITY, NCCL_MAX_DEV_ARITY, 1, 0>
-          prims(tid, nthreads, tree->down, tree->down, thisOutput, comm, work->redOpArg, getShmemPtr(comm)->groups, 0, 0, 0, work);
+        Primitives<T, FUNC, FanAsymmetric<NCCL_MAX_DEV_ARITY, NCCL_MAX_DEV_ARITY>, 1, downProto, 0>
+          prims(tid, ncclPrimsThreadsFromWorkers<downProto, FanAsymmetric<NCCL_MAX_DEV_ARITY, NCCL_MAX_DEV_ARITY>::MaxSend>(nthreads), tree->down, tree->down, thisOutput, comm, work->redOpArg, getShmemPtr(comm)->groups, 0, 0, 0, work);
 
         for (ssize_t gridOffset = 0; gridOffset < size; gridOffset += loopSize) {
           ssize_t offset = gridOffset + bid*chunkSize;
@@ -396,8 +396,8 @@ namespace {
       if (tid < nthreadsSplit) {
 #endif
         // Reduce : max number of recv is 3, max number of send is 1 (binary tree + local)
-        Primitives<T, FUNC, upProto,  NCCL_MAX_DEV_ARITY, 1, 1, 0>
-          prims(tid, nthreadsSplit, tree->down, &tree->up, thisOutput, comm, work->redOpArg, getShmemPtr(comm)->groups, 0, 0, 0, work);
+        Primitives<T, FUNC, FanAsymmetric<NCCL_MAX_DEV_ARITY, 1>, 1, upProto, 0>
+          prims(tid, ncclPrimsThreadsFromWorkers<upProto, FanAsymmetric<NCCL_MAX_DEV_ARITY, 1>::MaxSend>(nthreadsSplit), tree->down, &tree->up, thisOutput, comm, work->redOpArg, getShmemPtr(comm)->groups, 0, 0, 0, work);
 
         for (ssize_t gridOffset = 0; gridOffset < size; gridOffset += loopSize) {
           // Up
@@ -411,10 +411,9 @@ namespace {
         }
       } else {
         // Broadcast : max number of recv is 1, max number of send is 3 (binary tree + local)
-        Primitives<T, FUNC, downProto, 1, NCCL_MAX_DEV_ARITY, 1, 0>
+        Primitives<T, FUNC, FanAsymmetric<1, NCCL_MAX_DEV_ARITY>, 1, downProto, 0>
 #ifndef NO_EXTRA_WARP
-          prims(tid-nthreadsSplit-(downProto::Id == NCCL_PROTO_LL128 ? 0 : WARP_SIZE), nthreads-nthreadsSplit,
-                &tree->up, tree->down, thisOutput, comm, work->redOpArg, getShmemPtr(comm)->groups, 2, 0, 0, work);
+          prims(tid-nthreadsSplit-(downProto::Id == NCCL_PROTO_LL128 ? 0 : WARP_SIZE), ncclPrimsThreadsFromWorkers<downProto, FanAsymmetric<1, NCCL_MAX_DEV_ARITY>::MaxSend>(nthreads-nthreadsSplit), &tree->up, tree->down, thisOutput, comm, work->redOpArg, getShmemPtr(comm)->groups, 2, 0, 0, work);
 #else
           prims(tid-nthreadsSplit, nthreads-nthreadsSplit, &tree->up, tree->down, thisOutput, comm, work->redOpArg, getShmemPtr(comm)->groups, 2, 0, 0, work);
 #endif
@@ -438,7 +437,7 @@ template<class FUNC, typename T, int UNROLL>
 class RunWorkColl<ncclFuncAllReduce, NCCL_ALGO_RING, NCCL_PROTO_SIMPLE, FUNC, T, UNROLL> {
   public:
   __device__ void run(struct ncclDevWorkColl* work) {
-    using Proto = ProtoSimple<UNROLL, ALLREDUCE_CHUNKSTEPS/ALLREDUCE_SLICESTEPS, ALLREDUCE_SLICESTEPS>;
+    using Proto = ProtoSimple<ALLREDUCE_CHUNKSTEPS/ALLREDUCE_SLICESTEPS, ALLREDUCE_SLICESTEPS, UNROLL>;
     runRing<FUNC, T, UNROLL, Proto>(work);
   }
 };
@@ -447,7 +446,7 @@ template<class FUNC, typename T, int UNROLL>
 class RunWorkColl<ncclFuncAllReduce, NCCL_ALGO_TREE, NCCL_PROTO_SIMPLE, FUNC, T, UNROLL> {
   public:
   __device__ void run(struct ncclDevWorkColl* work) {
-    using Proto = ProtoSimple<UNROLL, 1, 1>;
+    using Proto = ProtoSimple<1, 1, UNROLL>;
 #if 0
     runTreeUpDown<FUNC, T, UNROLL, Proto, Proto>(work);
 #else
@@ -460,7 +459,7 @@ template<class FUNC, typename T, int UNROLL>
 class RunWorkColl<ncclFuncAllReduce, NCCL_ALGO_FC, NCCL_PROTO_SIMPLE, FUNC, T, UNROLL> {
   public:
   __device__ void run(struct ncclDevWorkColl* work) {
-    using Proto = ProtoSimple<UNROLL, ALLREDUCE_CHUNKSTEPS/ALLREDUCE_SLICESTEPS, ALLREDUCE_SLICESTEPS>;
+    using Proto = ProtoSimple<ALLREDUCE_CHUNKSTEPS/ALLREDUCE_SLICESTEPS, ALLREDUCE_SLICESTEPS, UNROLL>;
     runFC<FUNC, T, UNROLL, Proto>(work);
   }
 };
@@ -503,7 +502,7 @@ class RunWorkColl<ncclFuncAllReduce, NCCL_ALGO_TREE, NCCL_PROTO_LL, FUNC, T, UNR
 
     do {
       // Reduce : max number of recv is 3, max number of send is 1 (binary tree + local)
-      Primitives<T, FUNC, ProtoLL, NCCL_MAX_DEV_ARITY, 1, 0, 0> LLprims(tid, nthreads, tree->down, &tree->up, NULL, comm, work->redOpArg);
+      Primitives<T, FUNC, FanAsymmetric<NCCL_MAX_DEV_ARITY, 1>, 0, ProtoLL, 0> LLprims(tid, ncclPrimsThreadsFromWorkers<ProtoLL, FanAsymmetric<NCCL_MAX_DEV_ARITY, 1>::MaxSend>(nthreads), tree->down, &tree->up, NULL, comm, work->redOpArg);
       for (ssize_t gridOffset = 0; gridOffset < size; gridOffset += loopSize) {
         // Up
         ssize_t offset = gridOffset + bid*chunkSize;
@@ -528,7 +527,7 @@ class RunWorkColl<ncclFuncAllReduce, NCCL_ALGO_TREE, NCCL_PROTO_LL, FUNC, T, UNR
 #ifndef KERNEL_LOOPBACK
     do {
       // Broadcast : max number of recv is 1, max number of send is 3 (binary tree + local)
-      Primitives<T, FUNC, ProtoLL, 1, NCCL_MAX_DEV_ARITY, 0, 0> LLprims(tid, nthreads, &tree->up, tree->down, NULL, comm, work->redOpArg, NULL, 0, 0, 0, work, nullptr, NCCL_STEPS, true);
+      Primitives<T, FUNC, FanAsymmetric<1, NCCL_MAX_DEV_ARITY>, 0, ProtoLL, 0> LLprims(tid, ncclPrimsThreadsFromWorkers<ProtoLL, FanAsymmetric<1, NCCL_MAX_DEV_ARITY>::MaxSend>(nthreads), &tree->up, tree->down, NULL, comm, work->redOpArg, NULL, 0, 0, 0, work, nullptr, NCCL_STEPS, true);
       for (ssize_t gridOffset = 0; gridOffset < size; gridOffset += loopSize) {
         // Down
         ssize_t offset = gridOffset + bid*chunkSize;
@@ -582,7 +581,7 @@ template<class FUNC, typename T, int UNROLL>
 class RunWorkColl<ncclFuncAllReduce, NCCL_ALGO_RING, NCCL_PROTO_SIGNAL, FUNC, T, UNROLL> {
   public:
   __device__ void run(struct ncclDevWorkColl* work) {
-    using Proto = ProtoSignal<UNROLL, ALLREDUCE_CHUNKSTEPS/ALLREDUCE_SLICESTEPS, ALLREDUCE_SLICESTEPS>;
+    using Proto = ProtoSignal<ALLREDUCE_CHUNKSTEPS/ALLREDUCE_SLICESTEPS, ALLREDUCE_SLICESTEPS, UNROLL>;
     runRing<FUNC, T, UNROLL, Proto>(work);
   }
 };
@@ -591,7 +590,7 @@ template<class FUNC, typename T, int UNROLL>
 class RunWorkColl<ncclFuncAllReduce, NCCL_ALGO_TREE, NCCL_PROTO_SIGNAL, FUNC, T, UNROLL> {
   public:
   __device__ void run(struct ncclDevWorkColl* work) {
-    using Proto = ProtoSignal<UNROLL, 1, 1>;
+    using Proto = ProtoSignal<1, 1, UNROLL>;
 
 #if 1
     runTreeUpDown<FUNC, T, UNROLL, Proto, Proto>(work);
@@ -609,10 +608,10 @@ class RunWorkColl<ncclFuncAllReduce, NCCL_ALGO_RING, NCCL_PROTO_SIMPLE_BULK, FUN
     const ncclConn_t sendConnType = getShmemPtr(comm)->channel.ring.sendConnType;
 
     if (sendConnType == CONN_ICN) {
-      using Proto = ProtoSimpleBulk<UNROLL, ALLREDUCE_CHUNKSTEPS/ALLREDUCE_SLICESTEPS, ALLREDUCE_SLICESTEPS, CONN_ICN, CONN_ICN>;
+      using Proto = ProtoSimpleBulk<ALLREDUCE_CHUNKSTEPS/ALLREDUCE_SLICESTEPS, ALLREDUCE_SLICESTEPS, UNROLL, CONN_ICN, CONN_ICN>;
       runRing<FUNC, T, UNROLL, Proto>(work);
     } else {
-      using Proto = ProtoSimpleBulk<UNROLL, ALLREDUCE_CHUNKSTEPS/ALLREDUCE_SLICESTEPS, ALLREDUCE_SLICESTEPS, CONN_NORMAL, CONN_ICN>;
+      using Proto = ProtoSimpleBulk<ALLREDUCE_CHUNKSTEPS/ALLREDUCE_SLICESTEPS, ALLREDUCE_SLICESTEPS, UNROLL, CONN_NORMAL, CONN_ICN>;
       runRing<FUNC, T, UNROLL, Proto>(work);
     }
   }
@@ -627,10 +626,10 @@ class RunWorkColl<ncclFuncAllReduce, NCCL_ALGO_RING, NCCL_PROTO_SIMPLE_BULK_AR, 
     const ncclConn_t sendConnType = getShmemPtr(comm)->channel.ring.sendConnType;
 
     if (sendConnType == CONN_ICN) {
-      using Proto = ProtoSimpleBulkAR<UNROLL, ALLREDUCE_CHUNKSTEPS/ALLREDUCE_SLICESTEPS, ALLREDUCE_SLICESTEPS, CONN_ICN, CONN_ICN>;
+      using Proto = ProtoSimpleBulkAR<ALLREDUCE_CHUNKSTEPS/ALLREDUCE_SLICESTEPS, ALLREDUCE_SLICESTEPS, UNROLL, CONN_ICN, CONN_ICN>;
       runRing<FUNC, T, UNROLL, Proto>(work);
     } else {
-      using Proto = ProtoSimpleBulkAR<UNROLL, ALLREDUCE_CHUNKSTEPS/ALLREDUCE_SLICESTEPS, ALLREDUCE_SLICESTEPS, CONN_NORMAL, CONN_ICN>;
+      using Proto = ProtoSimpleBulkAR<ALLREDUCE_CHUNKSTEPS/ALLREDUCE_SLICESTEPS, ALLREDUCE_SLICESTEPS, UNROLL, CONN_NORMAL, CONN_ICN>;
       runRing<FUNC, T, UNROLL, Proto>(work);
     }
 #endif
@@ -641,7 +640,7 @@ template<class FUNC, typename T, int UNROLL>
 class RunWorkColl<ncclFuncAllReduce, NCCL_ALGO_FC, NCCL_PROTO_SIGNAL, FUNC, T, UNROLL> {
   public:
 __device__ void run(struct ncclDevWorkColl* work) {
-    using Proto = ProtoSignal<UNROLL, ALLREDUCE_CHUNKSTEPS/ALLREDUCE_SLICESTEPS, ALLREDUCE_SLICESTEPS>;
+    using Proto = ProtoSignal<ALLREDUCE_CHUNKSTEPS/ALLREDUCE_SLICESTEPS, ALLREDUCE_SLICESTEPS, UNROLL>;
     runFC<FUNC, T, UNROLL, Proto>(work);
   }
 };
@@ -657,38 +656,38 @@ class RunWorkColl<ncclFuncAllReduce, NCCL_ALGO_TREE, NCCL_PROTO_SIMPLE_BULK, FUN
 
 #if 1
     if (upConnType == CONN_ICN && downConnType == CONN_ICN) {
-      using upProto = ProtoSimpleBulk<UNROLL, 1, 1, CONN_ICN, CONN_ICN>;
-      using downProto = ProtoSimpleBulk<UNROLL, 1, 1, CONN_ICN, CONN_ICN>;
+      using upProto = ProtoSimpleBulk<1, 1, UNROLL, CONN_ICN, CONN_ICN>;
+      using downProto = ProtoSimpleBulk<1, 1, UNROLL, CONN_ICN, CONN_ICN>;
       runTreeUpDown<FUNC, T, UNROLL, upProto, downProto>(work);
     } else if (upConnType == CONN_ICN && downConnType != CONN_ICN) {
-      using upProto = ProtoSimpleBulk<UNROLL, 1, 1, CONN_ICN, CONN_ICN>;
-      using downProto = ProtoSimpleBulk<UNROLL, 1, 1, CONN_NORMAL, CONN_ICN>;
+      using upProto = ProtoSimpleBulk<1, 1, UNROLL, CONN_ICN, CONN_ICN>;
+      using downProto = ProtoSimpleBulk<1, 1, UNROLL, CONN_NORMAL, CONN_ICN>;
       runTreeUpDown<FUNC, T, UNROLL, upProto, downProto>(work);
     } else if (upConnType != CONN_ICN && downConnType == CONN_ICN) {
-      using upProto = ProtoSimpleBulk<UNROLL, 1, 1, CONN_NORMAL, CONN_ICN>;
-      using downProto = ProtoSimpleBulk<UNROLL, 1, 1, CONN_ICN, CONN_ICN>;
+      using upProto = ProtoSimpleBulk<1, 1, UNROLL, CONN_NORMAL, CONN_ICN>;
+      using downProto = ProtoSimpleBulk<1, 1, UNROLL, CONN_ICN, CONN_ICN>;
       runTreeUpDown<FUNC, T, UNROLL, upProto, downProto>(work);
     } else {
-      using upProto = ProtoSimpleBulk<UNROLL, 1, 1, CONN_NORMAL, CONN_ICN>;
-      using downProto = ProtoSimpleBulk<UNROLL, 1, 1, CONN_NORMAL, CONN_ICN>;
+      using upProto = ProtoSimpleBulk<1, 1, UNROLL, CONN_NORMAL, CONN_ICN>;
+      using downProto = ProtoSimpleBulk<1, 1, UNROLL, CONN_NORMAL, CONN_ICN>;
       runTreeUpDown<FUNC, T, UNROLL, upProto, downProto>(work);
     }
 #else
     if (upConnType == CONN_ICN && downConnType == CONN_ICN) {
-      using upProto = ProtoSimpleBulk<UNROLL, 1, 1, CONN_ICN, CONN_ICN>;
-      using downProto = ProtoSimpleBulk<UNROLL, 1, 1, CONN_ICN, CONN_ICN>;
+      using upProto = ProtoSimpleBulk<1, 1, UNROLL, CONN_ICN, CONN_ICN>;
+      using downProto = ProtoSimpleBulk<1, 1, UNROLL, CONN_ICN, CONN_ICN>;
       runSplitTree<FUNC, T, UNROLL, upProto, downProto>(work);
     } else if (upConnType == CONN_ICN && downConnType != CONN_ICN) {
-      using upProto = ProtoSimpleBulk<UNROLL, 1, 1, CONN_ICN, CONN_ICN>;
-      using downProto = ProtoSimpleBulk<UNROLL, 1, 1, CONN_NORMAL, CONN_ICN>;
+      using upProto = ProtoSimpleBulk<1, 1, UNROLL, CONN_ICN, CONN_ICN>;
+      using downProto = ProtoSimpleBulk<1, 1, UNROLL, CONN_NORMAL, CONN_ICN>;
       runSplitTree<FUNC, T, UNROLL, upProto, downProto>(work);
     } else if (upConnType != CONN_ICN && downConnType == CONN_ICN) {
-      using upProto = ProtoSimpleBulk<UNROLL, 1, 1, CONN_NORMAL, CONN_ICN>;
-      using downProto = ProtoSimpleBulk<UNROLL, 1, 1, CONN_ICN, CONN_ICN>;
+      using upProto = ProtoSimpleBulk<1, 1, UNROLL, CONN_NORMAL, CONN_ICN>;
+      using downProto = ProtoSimpleBulk<1, 1, UNROLL, CONN_ICN, CONN_ICN>;
       runSplitTree<FUNC, T, UNROLL, upProto, downProto>(work);
     } else {
-      using upProto = ProtoSimpleBulk<UNROLL, 1, 1, CONN_NORMAL, CONN_ICN>;
-      using downProto = ProtoSimpleBulk<UNROLL, 1, 1, CONN_NORMAL, CONN_ICN>;
+      using upProto = ProtoSimpleBulk<1, 1, UNROLL, CONN_NORMAL, CONN_ICN>;
+      using downProto = ProtoSimpleBulk<1, 1, UNROLL, CONN_NORMAL, CONN_ICN>;
       runSplitTree<FUNC, T, UNROLL, upProto, downProto>(work);
     }
 #endif
@@ -699,7 +698,7 @@ template<class FUNC, typename T, int UNROLL>
 class RunWorkColl<ncclFuncAllReduce, NCCL_ALGO_RING, NCCL_PROTO_SIGNAL_BULK, FUNC, T, UNROLL> {
   public:
   __device__ void run(struct ncclDevWorkColl* work) {
-    using Proto = ProtoSignalBulk<UNROLL, ALLREDUCE_CHUNKSTEPS/ALLREDUCE_SLICESTEPS, ALLREDUCE_SLICESTEPS>;
+    using Proto = ProtoSignalBulk<ALLREDUCE_CHUNKSTEPS/ALLREDUCE_SLICESTEPS, ALLREDUCE_SLICESTEPS, UNROLL>;
     runRing<FUNC, T, UNROLL, Proto>(work);
   }
 };
@@ -712,10 +711,10 @@ class RunWorkColl<ncclFuncAllReduce, NCCL_ALGO_FC, NCCL_PROTO_SIMPLE_BULK, FUNC,
     struct ncclDevChannel* channel = &(getShmemPtr(comm)->channel);
     const ncclConn_t connType = channel->fc.connType;
     if (connType == CONN_ICN) {
-      using Proto = ProtoSimpleBulk<UNROLL, ALLREDUCE_CHUNKSTEPS/ALLREDUCE_SLICESTEPS, ALLREDUCE_SLICESTEPS, CONN_ICN, CONN_ICN>;
+      using Proto = ProtoSimpleBulk<ALLREDUCE_CHUNKSTEPS/ALLREDUCE_SLICESTEPS, ALLREDUCE_SLICESTEPS, UNROLL, CONN_ICN, CONN_ICN>;
       runFC<FUNC, T, UNROLL, Proto>(work);
     } else {
-      using Proto = ProtoSimpleBulk<UNROLL, ALLREDUCE_CHUNKSTEPS/ALLREDUCE_SLICESTEPS, ALLREDUCE_SLICESTEPS, CONN_NORMAL, CONN_ICN>;
+      using Proto = ProtoSimpleBulk<ALLREDUCE_CHUNKSTEPS/ALLREDUCE_SLICESTEPS, ALLREDUCE_SLICESTEPS, UNROLL, CONN_NORMAL, CONN_ICN>;
       runFC<FUNC, T, UNROLL, Proto>(work);
     }
   }
@@ -732,38 +731,38 @@ class RunWorkColl<ncclFuncAllReduce, NCCL_ALGO_TREE, NCCL_PROTO_SIGNAL_BULK, FUN
 
 #if 1
     if (upConnType == CONN_ICN && downConnType == CONN_ICN) {
-      using upProto = ProtoSignalBulk<UNROLL, 1, 1, CONN_ICN, CONN_ICN>;
-      using downProto = ProtoSignalBulk<UNROLL, 1, 1, CONN_ICN, CONN_ICN>;
+      using upProto = ProtoSignalBulk<1, 1, UNROLL, CONN_ICN, CONN_ICN>;
+      using downProto = ProtoSignalBulk<1, 1, UNROLL, CONN_ICN, CONN_ICN>;
       runTreeUpDown<FUNC, T, UNROLL, upProto, downProto>(work);
     } else if (upConnType == CONN_ICN && downConnType != CONN_ICN) {
-      using upProto = ProtoSignalBulk<UNROLL, 1, 1, CONN_ICN, CONN_ICN>;
-      using downProto = ProtoSignalBulk<UNROLL, 1, 1, CONN_NORMAL, CONN_ICN>;
+      using upProto = ProtoSignalBulk<1, 1, UNROLL, CONN_ICN, CONN_ICN>;
+      using downProto = ProtoSignalBulk<1, 1, UNROLL, CONN_NORMAL, CONN_ICN>;
       runTreeUpDown<FUNC, T, UNROLL, upProto, downProto>(work);
     } else if (upConnType != CONN_ICN && downConnType == CONN_ICN) {
-      using upProto = ProtoSignalBulk<UNROLL, 1, 1, CONN_NORMAL, CONN_ICN>;
-      using downProto = ProtoSignalBulk<UNROLL, 1, 1, CONN_ICN, CONN_ICN>;
+      using upProto = ProtoSignalBulk<1, 1, UNROLL, CONN_NORMAL, CONN_ICN>;
+      using downProto = ProtoSignalBulk<1, 1, UNROLL, CONN_ICN, CONN_ICN>;
       runTreeUpDown<FUNC, T, UNROLL, upProto, downProto>(work);
     } else {
-      using upProto = ProtoSignalBulk<UNROLL, 1, 1, CONN_NORMAL, CONN_ICN>;
-      using downProto = ProtoSignalBulk<UNROLL, 1, 1, CONN_NORMAL, CONN_ICN>;
+      using upProto = ProtoSignalBulk<1, 1, UNROLL, CONN_NORMAL, CONN_ICN>;
+      using downProto = ProtoSignalBulk<1, 1, UNROLL, CONN_NORMAL, CONN_ICN>;
       runTreeUpDown<FUNC, T, UNROLL, upProto, downProto>(work);
     }
 #else
     if (upConnType == CONN_ICN && downConnType == CONN_ICN) {
-      using upProto = ProtoSignalBulk<UNROLL, 1, 1, CONN_ICN, CONN_ICN>;
-      using downProto = ProtoSignalBulk<UNROLL, 1, 1, CONN_ICN, CONN_ICN>;
+      using upProto = ProtoSignalBulk<1, 1, UNROLL, CONN_ICN, CONN_ICN>;
+      using downProto = ProtoSignalBulk<1, 1, UNROLL, CONN_ICN, CONN_ICN>;
       runSplitTree<FUNC, T, UNROLL, upProto, downProto>(work);
     } else if (upConnType == CONN_ICN && downConnType != CONN_ICN) {
-      using upProto = ProtoSignalBulk<UNROLL, 1, 1, CONN_ICN, CONN_ICN>;
-      using downProto = ProtoSignalBulk<UNROLL, 1, 1, CONN_NORMAL, CONN_ICN>;
+      using upProto = ProtoSignalBulk<1, 1, UNROLL, CONN_ICN, CONN_ICN>;
+      using downProto = ProtoSignalBulk<1, 1, UNROLL, CONN_NORMAL, CONN_ICN>;
       runSplitTree<FUNC, T, UNROLL, upProto, downProto>(work);
     } else if (upConnType != CONN_ICN && downConnType == CONN_ICN) {
-      using upProto = ProtoSignalBulk<UNROLL, 1, 1, CONN_NORMAL, CONN_ICN>;
-      using downProto = ProtoSignalBulk<UNROLL, 1, 1, CONN_ICN, CONN_ICN>;
+      using upProto = ProtoSignalBulk<1, 1, UNROLL, CONN_NORMAL, CONN_ICN>;
+      using downProto = ProtoSignalBulk<1, 1, UNROLL, CONN_ICN, CONN_ICN>;
       runSplitTree<FUNC, T, UNROLL, upProto, downProto>(work);
     } else {
-      using upProto = ProtoSignalBulk<UNROLL, 1, 1, CONN_NORMAL, CONN_ICN>;
-      using downProto = ProtoSignalBulk<UNROLL, 1, 1, CONN_NORMAL, CONN_ICN>;
+      using upProto = ProtoSignalBulk<1, 1, UNROLL, CONN_NORMAL, CONN_ICN>;
+      using downProto = ProtoSignalBulk<1, 1, UNROLL, CONN_NORMAL, CONN_ICN>;
       runSplitTree<FUNC, T, UNROLL, upProto, downProto>(work);
     }
 #endif
@@ -778,10 +777,10 @@ class RunWorkColl<ncclFuncAllReduce, NCCL_ALGO_FC, NCCL_PROTO_SIGNAL_BULK, FUNC,
     struct ncclDevChannel* channel = &(getShmemPtr(comm)->channel);
     const ncclConn_t connType = channel->fc.connType;
     if (connType == CONN_ICN) {
-      using Proto = ProtoSignalBulk<UNROLL, ALLREDUCE_CHUNKSTEPS/ALLREDUCE_SLICESTEPS, ALLREDUCE_SLICESTEPS, CONN_ICN, CONN_ICN>;
+      using Proto = ProtoSignalBulk<ALLREDUCE_CHUNKSTEPS/ALLREDUCE_SLICESTEPS, ALLREDUCE_SLICESTEPS, UNROLL, CONN_ICN, CONN_ICN>;
       runFC<FUNC, T, UNROLL, Proto>(work);
     } else {
-      using Proto = ProtoSignalBulk<UNROLL, ALLREDUCE_CHUNKSTEPS/ALLREDUCE_SLICESTEPS, ALLREDUCE_SLICESTEPS, CONN_NORMAL, CONN_ICN>;
+      using Proto = ProtoSignalBulk<ALLREDUCE_CHUNKSTEPS/ALLREDUCE_SLICESTEPS, ALLREDUCE_SLICESTEPS, UNROLL, CONN_NORMAL, CONN_ICN>;
       runFC<FUNC, T, UNROLL, Proto>(work);
     }
   }

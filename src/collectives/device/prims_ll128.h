@@ -11,9 +11,11 @@
 #define NCCL_LL128_FLAGTHREAD (NCCL_LL128_LINEELEMS-1)
 #define REG_PHASE_NUM 2
 
-template <typename T, class FUNC, int NRECV, int NSEND, int DIRECT, int P2P>
-class Primitives<T, FUNC, ProtoLL128, NRECV, NSEND, DIRECT, P2P>:
-    public PrimitivesWithoutDirect<T, Primitives<T, FUNC, ProtoLL128, NRECV, NSEND, DIRECT, P2P>> {
+template <typename T, class FUNC, typename Fan, int DIRECT, int P2P>
+class Primitives<T, FUNC, Fan, DIRECT, ProtoLL128, P2P>:
+    public PrimitivesWithoutDirect<T, Primitives<T, FUNC, Fan, DIRECT, ProtoLL128, P2P>> {
+  static constexpr int NRECV = Fan::MaxRecv, NSEND = Fan::MaxSend;
+
  private:
   const int tid;
   const int nthreads;
@@ -21,8 +23,7 @@ class Primitives<T, FUNC, ProtoLL128, NRECV, NSEND, DIRECT, P2P>:
   const int stepSize;
   const int warp;
   const bool flagThread;
-  int nrecv = 0;
-  int nsend = 0;
+  Fan fan;
   struct ncclConnInfo* recvConn = NULL;
   volatile uint64_t* recvConnHeadPtr = NULL;
   uint64_t recvConnHead = 0;
@@ -247,7 +248,7 @@ class Primitives<T, FUNC, ProtoLL128, NRECV, NSEND, DIRECT, P2P>:
         }
       }
 
-      for (int i=1; i<NRECV && i<nrecv; i++) {
+      for (int i=1; i<NRECV && i<fan.nrecv(); i++) {
         uint64_t flag = recvFlag(i);
         uint64_t* ptr = recvPtr(i)+ll128Offset;
         bool needReload;
@@ -281,7 +282,7 @@ class Primitives<T, FUNC, ProtoLL128, NRECV, NSEND, DIRECT, P2P>:
 
     /************************ Send **************************/
     if (SEND) {
-      for (int i=1; i<NSEND && i<nsend; i++) {
+      for (int i=1; i<NSEND && i<fan.nsend(); i++) {
         uint64_t flag = sendFlag(i);
         uint64_t* ptr = sendPtr(i)+ll128Offset;
         #pragma unroll
@@ -430,10 +431,9 @@ class Primitives<T, FUNC, ProtoLL128, NRECV, NSEND, DIRECT, P2P>:
     recvBuff[i] = (uint64_t*)conn->buffs[NCCL_PROTO_LL128];
     recvStep[i] = conn->step;
     if (wid == i) recvConn = conn;
-    nrecv++;
   }
   __device__ __forceinline__ void loadRecvSync() {
-    if (tid >= nthreads-WARP_SIZE && wid < nrecv) {
+    if (tid >= nthreads-WARP_SIZE && wid < fan.nrecv()) {
       recvConnHeadPtr = recvConn->head;
       recvConnHead = recvConn->step;
     }
@@ -443,16 +443,15 @@ class Primitives<T, FUNC, ProtoLL128, NRECV, NSEND, DIRECT, P2P>:
     sendBuff[i] = (uint64_t*)conn->buffs[NCCL_PROTO_LL128];
     sendStep[i] = conn->step;
     if (wid == i) sendConn = conn;
-    nsend++;
   }
   __device__ __forceinline__ void loadSendSync() {
-    if (tid < nsend) {
+    if (tid < fan.nsend()) {
       sendConnHeadPtr = sendConn->head;
       sendConnHeadCache = volatileLoadU64(sendConnHeadPtr);
       sendConnHead = sendConn->step;
       sendConnFifoPtr = sendConn->sizesFifo;
     }
-    if (tid >= nthreads-WARP_SIZE && wid<nsend) {
+    if (tid >= nthreads-WARP_SIZE && wid<fan.nsend()) {
       if (sendConn->sizesFifo) {
         sendConnTailPtr = sendConn->tail;
         sendConnTail = sendConn->step;
@@ -477,14 +476,18 @@ class Primitives<T, FUNC, ProtoLL128, NRECV, NSEND, DIRECT, P2P>:
     // Make sure step is updated before we read it.
     barrier();
 
+    int localRecv = 0, localSend = 0;
     for (int i=0; i<NRECV && recvPeers[i] >= 0; i++) {
       recvPeer[i] = recvPeers[i];
       loadRecvConn(&getShmemPtr(comm)->channel.peers[recvPeers[i]]->recv[connIndexRecv], i);
+      localRecv++;
     }
     for (int i=0; i<NSEND && sendPeers[i] >= 0; i++) {
       sendPeer[i] = sendPeers[i];
       loadSendConn(&getShmemPtr(comm)->channel.peers[sendPeers[i]]->send[connIndexSend], i);
+      localSend++;
     }
+    this->fan = Fan(localRecv, localSend);
     loadRecvSync();
     loadSendSync();
   }
@@ -535,9 +538,9 @@ class Primitives<T, FUNC, ProtoLL128, NRECV, NSEND, DIRECT, P2P>:
 
   __device__ __forceinline__ ~Primitives() {
     // Save steps for the next operation
-    if (tid >= nthreads-WARP_SIZE && wid < nrecv)
+    if (tid >= nthreads-WARP_SIZE && wid < fan.nrecv())
       volatileStoreU64(reinterpret_cast<volatile uint64_t*>(&recvConn->step), recvConnHead);
-    if (tid < nsend)
+    if (tid < fan.nsend())
       volatileStoreU64(reinterpret_cast<volatile uint64_t*>(&sendConn->step), sendConnHead);
     barrier();
   }

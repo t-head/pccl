@@ -10,11 +10,11 @@
 #define NCCL_PRIMS_SIMPLE_H_
 #include "prims_simple_base.h"
 // Implementation of primitive types
-template <typename T, int NRECV, int NSEND, class FUNC, int UNROLL, int SLICESPERCHUNK, int SLICESTEPS, int DIRECT, int P2P>
-class Primitives<T, FUNC, ProtoSimple<UNROLL, SLICESPERCHUNK, SLICESTEPS>, NRECV, NSEND, DIRECT, P2P>:
-    public PrimitivesSimpleBase<T, NRECV, NSEND, FUNC, UNROLL, SLICESPERCHUNK, SLICESTEPS, DIRECT,
-     ProtoSimple<UNROLL, SLICESPERCHUNK, SLICESTEPS>,
-     Primitives<T, FUNC, ProtoSimple<UNROLL, SLICESPERCHUNK, SLICESTEPS>, NRECV, NSEND, DIRECT, P2P>, P2P> {
+template <typename T, typename Fan, class FUNC, int UNROLL, int SLICESPERCHUNK, int SLICESTEPS, int DIRECT, int P2P>
+class Primitives<T, FUNC, Fan, DIRECT, ProtoSimple<SLICESPERCHUNK, SLICESTEPS, UNROLL>, P2P>:
+    public PrimitivesSimpleBase<T, Fan, FUNC, SLICESPERCHUNK, SLICESTEPS, UNROLL, DIRECT, ProtoSimple<SLICESPERCHUNK, SLICESTEPS, UNROLL>, Primitives<T, FUNC, Fan, DIRECT, ProtoSimple<SLICESPERCHUNK, SLICESTEPS, UNROLL>, P2P>, P2P> {
+  static constexpr int NRECV = Fan::MaxRecv, NSEND = Fan::MaxSend;
+
 
  private:
   static constexpr int StepPerSlice = 1;
@@ -35,9 +35,7 @@ class Primitives<T, FUNC, ProtoSimple<UNROLL, SLICESPERCHUNK, SLICESTEPS>, NRECV
       struct ncclDevWorkP2p* p2pWork=nullptr, const uint64_t ncclSteps=NCCL_STEPS, bool noRed=false,
       const T* inputBuf = nullptr, T* outputBuf = nullptr, int mode = primsModeDefault
     ): 
-    PrimitivesSimpleBase<T, NRECV, NSEND, FUNC, UNROLL, SLICESPERCHUNK, SLICESTEPS, DIRECT,
-    ProtoSimple<UNROLL, SLICESPERCHUNK, SLICESTEPS>,
-    Primitives<T, FUNC, ProtoSimple<UNROLL, SLICESPERCHUNK, SLICESTEPS>, NRECV, NSEND, DIRECT, P2P>, P2P>
+    PrimitivesSimpleBase<T, Fan, FUNC, SLICESPERCHUNK, SLICESTEPS, UNROLL, DIRECT, ProtoSimple<SLICESPERCHUNK, SLICESTEPS, UNROLL>, Primitives<T, FUNC, Fan, DIRECT, ProtoSimple<SLICESPERCHUNK, SLICESTEPS, UNROLL>, P2P>, P2P>
     (tid, nworkers, recvPeers, sendPeers, directBuff, comm, redOpArg, ptrs, group, connIndexRecv, connIndexSend, collWork, p2pWork, ncclSteps, noRed, mode),
     inputBuf(inputBuf), outputBuf(outputBuf), flags(0) {
     if (mode == primsModePatRs || mode == primsModePatAg) {

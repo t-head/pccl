@@ -53,8 +53,8 @@ namespace {
     const T * __restrict__ thisInput = (const T*)work->sendbuff;
     T * __restrict__ thisOutput = (T*)work->recvbuff;
 
-    Primitives<T, FUNC, Proto, 1, 1, 0, 0>
-      prims(tid, nthreads, &ring->prev, &ring->next, NULL, comm, work->redOpArg, getShmemPtr(comm)->groups, 0, 0, 0, NULL);
+    Primitives<T, FUNC, FanAsymmetric<1, 1>, 0, Proto, 0>
+      prims(tid, ncclPrimsThreadsFromWorkers<Proto, FanAsymmetric<1, 1>::MaxSend>(nthreads), &ring->prev, &ring->next, NULL, comm, work->redOpArg, getShmemPtr(comm)->groups, 0, 0, 0, NULL);
 
     for (ssize_t gridOffset = 0; gridOffset < size; gridOffset += loopSize) {
       int realChunkSize;
@@ -141,8 +141,8 @@ namespace {
     const T* __restrict__ thisInput = (const T*)work->sendbuff;
     T* __restrict__ thisOutput = (T*)work->recvbuff;
 
-    Primitives<T, FUNC, Proto, NCCL_MAX_FC_ARITY-1, NCCL_MAX_FC_ARITY-1, 0, 0>
-      prims(tid, nthreads, fc->peerRanks, fc->peerRanks, NULL, comm, work->redOpArg, getShmemPtr(comm)->groups, 0, 0, 0, NULL);
+    Primitives<T, FUNC, FanAsymmetric<NCCL_MAX_FC_ARITY-1, NCCL_MAX_FC_ARITY-1>, 0, Proto, 0>
+      prims(tid, ncclPrimsThreadsFromWorkers<Proto, FanAsymmetric<NCCL_MAX_FC_ARITY-1, NCCL_MAX_FC_ARITY-1>::MaxSend>(nthreads), fc->peerRanks, fc->peerRanks, NULL, comm, work->redOpArg, getShmemPtr(comm)->groups, 0, 0, 0, NULL);
 
     for (ssize_t gridOffset = 0; gridOffset < size; gridOffset += loopSize) {
       int realChunkSize = min(chunkSize, DIVUP(size-gridOffset,nChannels));
@@ -160,7 +160,7 @@ template<class FUNC, typename T, int UNROLL>
 class RunWorkColl<ncclFuncReduceScatter, NCCL_ALGO_RING, NCCL_PROTO_SIMPLE, FUNC, T, UNROLL> {
   public:
     __device__ void run(struct ncclDevWorkColl* work) {
-      using Proto = ProtoSimple<UNROLL, REDUCESCATTER_CHUNKSTEPS/REDUCESCATTER_SLICESTEPS, REDUCESCATTER_SLICESTEPS>;
+      using Proto = ProtoSimple<REDUCESCATTER_CHUNKSTEPS/REDUCESCATTER_SLICESTEPS, REDUCESCATTER_SLICESTEPS, UNROLL>;
       runRing<FUNC, T, UNROLL, Proto>(work);
     }
 };
@@ -169,7 +169,7 @@ template<class FUNC, typename T, int UNROLL>
 class RunWorkColl<ncclFuncReduceScatter, NCCL_ALGO_FC, NCCL_PROTO_SIMPLE, FUNC, T, UNROLL> {
   public:
     __device__ void run(struct ncclDevWorkColl* work) {
-      using Proto = ProtoSimple<UNROLL, REDUCESCATTER_CHUNKSTEPS/REDUCESCATTER_SLICESTEPS, REDUCESCATTER_SLICESTEPS>;
+      using Proto = ProtoSimple<REDUCESCATTER_CHUNKSTEPS/REDUCESCATTER_SLICESTEPS, REDUCESCATTER_SLICESTEPS, UNROLL>;
       runFC<FUNC, T, UNROLL, Proto>(work);
     }
 };
@@ -202,7 +202,7 @@ template<class FUNC, typename T, int UNROLL>
 class RunWorkColl<ncclFuncReduceScatter, NCCL_ALGO_RING, NCCL_PROTO_SIGNAL, FUNC, T, UNROLL> {
   public:
     __device__ void run(struct ncclDevWorkColl* work) {
-      using Proto = ProtoSignal<UNROLL, REDUCESCATTER_CHUNKSTEPS/REDUCESCATTER_SLICESTEPS, REDUCESCATTER_SLICESTEPS>;
+      using Proto = ProtoSignal<REDUCESCATTER_CHUNKSTEPS/REDUCESCATTER_SLICESTEPS, REDUCESCATTER_SLICESTEPS, UNROLL>;
       runRing<FUNC, T, UNROLL, Proto>(work);
     }
 };
@@ -217,10 +217,10 @@ class RunWorkColl<ncclFuncReduceScatter, NCCL_ALGO_RING, NCCL_PROTO_SIMPLE_BULK,
       const ncclConn_t recvConnType = channel->ring.recvConnType;
 
       if (sendConnType == CONN_ICN) {
-        using Proto = ProtoSimpleBulk<UNROLL, REDUCESCATTER_CHUNKSTEPS/REDUCESCATTER_SLICESTEPS, REDUCESCATTER_SLICESTEPS, CONN_ICN, CONN_ICN>;
+        using Proto = ProtoSimpleBulk<REDUCESCATTER_CHUNKSTEPS/REDUCESCATTER_SLICESTEPS, REDUCESCATTER_SLICESTEPS, UNROLL, CONN_ICN, CONN_ICN>;
         runRing<FUNC, T, UNROLL, Proto>(work);
       } else {
-        using Proto = ProtoSimpleBulk<UNROLL, REDUCESCATTER_CHUNKSTEPS/REDUCESCATTER_SLICESTEPS, REDUCESCATTER_SLICESTEPS, CONN_NORMAL, CONN_ICN>;
+        using Proto = ProtoSimpleBulk<REDUCESCATTER_CHUNKSTEPS/REDUCESCATTER_SLICESTEPS, REDUCESCATTER_SLICESTEPS, UNROLL, CONN_NORMAL, CONN_ICN>;
         runRing<FUNC, T, UNROLL, Proto>(work);
       }
     }
@@ -234,10 +234,10 @@ class RunWorkColl<ncclFuncReduceScatter, NCCL_ALGO_FC, NCCL_PROTO_SIMPLE_BULK, F
       struct ncclDevChannel* channel = &(getShmemPtr(comm)->channel);
       const ncclConn_t connType = channel->fc.connType;
       if (connType != CONN_ICN) {
-        using Proto = ProtoSimpleBulk<UNROLL, REDUCESCATTER_CHUNKSTEPS/REDUCESCATTER_SLICESTEPS, REDUCESCATTER_SLICESTEPS, CONN_NORMAL, CONN_ICN>;
+        using Proto = ProtoSimpleBulk<REDUCESCATTER_CHUNKSTEPS/REDUCESCATTER_SLICESTEPS, REDUCESCATTER_SLICESTEPS, UNROLL, CONN_NORMAL, CONN_ICN>;
         runFC<FUNC, T, UNROLL, Proto>(work);
       } else {
-        using Proto = ProtoSimpleBulk<UNROLL, REDUCESCATTER_CHUNKSTEPS/REDUCESCATTER_SLICESTEPS, REDUCESCATTER_SLICESTEPS, CONN_ICN, CONN_ICN>;
+        using Proto = ProtoSimpleBulk<REDUCESCATTER_CHUNKSTEPS/REDUCESCATTER_SLICESTEPS, REDUCESCATTER_SLICESTEPS, UNROLL, CONN_ICN, CONN_ICN>;
         runFC<FUNC, T, UNROLL, Proto>(work);
       }
     }
@@ -247,7 +247,7 @@ template<class FUNC, typename T, int UNROLL>
 class RunWorkColl<ncclFuncReduceScatter, NCCL_ALGO_RING, NCCL_PROTO_SIGNAL_BULK, FUNC, T, UNROLL> {
   public:
     __device__ void run(struct ncclDevWorkColl* work) {
-      using Proto = ProtoSignalBulk<UNROLL, REDUCESCATTER_CHUNKSTEPS/REDUCESCATTER_SLICESTEPS, REDUCESCATTER_SLICESTEPS>;
+      using Proto = ProtoSignalBulk<REDUCESCATTER_CHUNKSTEPS/REDUCESCATTER_SLICESTEPS, REDUCESCATTER_SLICESTEPS, UNROLL>;
       runRing<FUNC, T, UNROLL, Proto>(work);
     }
 };
@@ -257,7 +257,7 @@ class RunWorkColl<ncclFuncReduceScatter, NCCL_ALGO_RING, NCCL_PROTO_SIMPLE_BULK_
   public:
     __device__ void run(struct ncclDevWorkColl* work) {
 #if defined(__HGGC_ARCH__) && __HGGC_ARCH__ >= 150
-      using Proto = ProtoSimpleBulkAR<UNROLL, REDUCESCATTER_CHUNKSTEPS/REDUCESCATTER_SLICESTEPS, REDUCESCATTER_SLICESTEPS, CONN_ICN, CONN_ICN>;
+      using Proto = ProtoSimpleBulkAR<REDUCESCATTER_CHUNKSTEPS/REDUCESCATTER_SLICESTEPS, REDUCESCATTER_SLICESTEPS, UNROLL, CONN_ICN, CONN_ICN>;
       runRing<FUNC, T, UNROLL, Proto>(work);
 #endif
     }
@@ -322,11 +322,8 @@ namespace {
       int nGroups = nworkers / groupSize;
       int tidInGroup = tid - group*groupSize;
       // We don't use recvPeers/sendPeers so let's pass shmem structs instead
-      Primitives<T, FUNC, ProtoSimple<UNROLL, 1, 1>, 1, 1, 0, 0> prims
-        (tidInGroup, groupSize, (int*)shmem->recvDims, (int*)shmem->sendDims,
-         nullptr /*directBuff*/, comm, work->redOpArg, getShmemPtr(comm)->groups,
-         group, 0, 0, nullptr, nullptr, NCCL_STEPS, false,
-         inputBuf, outputBuf, primsModePatRs);
+      Primitives<T, FUNC, FanAsymmetric<1, 1>, 0, ProtoSimple<1, 1, UNROLL>, 0> prims
+        (tidInGroup, groupSize, (int*)shmem->recvDims, (int*)shmem->sendDims, nullptr /*directBuff*/, comm, work->redOpArg, getShmemPtr(comm)->groups, group, 0, 0, nullptr, nullptr, NCCL_STEPS, false, inputBuf, outputBuf, primsModePatRs);
 
       int step = group;
       while (1) {

@@ -19,8 +19,8 @@ template<class FUNC, typename T, typename Proto>
 __device__ __forceinline__ void runRecv(
     int tid, int nt, int peer, T* recvbuff, ssize_t recvCount, int chunkSize,
     struct ncclKernelComm* comm, int group, struct ncclDevWorkP2p* work) {
-  Primitives<T, FUNC, Proto, 1, 0, 1, 1>
-    prims(tid, nt, &peer, NULL, recvbuff, comm, /*redOpArg(ignored)=*/0, getShmemPtr(comm)->groups, group, 1, 1, NULL, work);
+  Primitives<T, FUNC, FanAsymmetric<1, 0>, 1, Proto, 1>
+    prims(tid, ncclPrimsThreadsFromWorkers<Proto, FanAsymmetric<1, 0>::MaxSend>(nt), &peer, NULL, recvbuff, comm, /*redOpArg(ignored)=*/0, getShmemPtr(comm)->groups, group, 1, 1, NULL, work);
   if (recvCount == 0) {
     prims.recv(recvbuff, 0);
   } else for (ssize_t offset = 0; offset < recvCount; offset += chunkSize) {
@@ -35,8 +35,8 @@ template<class FUNC, typename T, typename Proto>
 __device__ __forceinline__ void runSend(
     int tid, int nt, int peer, const T* sendbuff, T* recvbuff, ssize_t sendCount, int chunkSize,
     struct ncclKernelComm* comm, int group, struct ncclDevWorkP2p* work) {
-  Primitives<T, FUNC, Proto, 0, 1, 1, 1>
-    prims(tid, nt, NULL, &peer, recvbuff, comm, /*redOpArg(ignored)=*/0, getShmemPtr(comm)->groups, group, 1, 1, NULL, work);
+  Primitives<T, FUNC, FanAsymmetric<0, 1>, 1, Proto, 1>
+    prims(tid, ncclPrimsThreadsFromWorkers<Proto, FanAsymmetric<0, 1>::MaxSend>(nt), NULL, &peer, recvbuff, comm, /*redOpArg(ignored)=*/0, getShmemPtr(comm)->groups, group, 1, 1, NULL, work);
   if (sendCount == 0) {
     prims.send(sendbuff, 0);
   } else for (ssize_t offset = 0; offset < sendCount; offset += chunkSize) {
@@ -131,7 +131,7 @@ template<class FUNC, typename T, int UNROLL>
 class RunWorkP2p<ncclFuncSendRecv, NCCL_ALGO_RING, NCCL_PROTO_SIMPLE, FUNC, T, UNROLL> {
   public:
     __device__ void run(struct ncclDevWorkP2p* work) {
-      using Proto = ProtoSimple<UNROLL, 1, 1>;
+      using Proto = ProtoSimple<1, 1, UNROLL>;
       runSendRecv<FUNC, T, UNROLL, Proto>(work);
     }
 };
@@ -140,7 +140,7 @@ template<class FUNC, typename T, int UNROLL>
 class RunWorkP2p<ncclFuncSendRecv, NCCL_ALGO_RING, NCCL_PROTO_SIMPLE_BULK, FUNC, T, UNROLL> {
   public:
     __device__ void run(struct ncclDevWorkP2p* work) {
-      using Proto = ProtoSimpleBulk<UNROLL, 1, 1>;
+      using Proto = ProtoSimpleBulk<1, 1, UNROLL>;
       runSendRecv<FUNC, T, UNROLL, Proto>(work);
     }
 };
@@ -149,7 +149,7 @@ template<class FUNC, typename T, int UNROLL>
 class RunWorkP2p<ncclFuncSendRecv, NCCL_ALGO_RING, NCCL_PROTO_SIGNAL, FUNC, T, UNROLL> {
   public:
     __device__ void run(struct ncclDevWorkP2p* work) {
-      using Proto = ProtoSignal<UNROLL, 1, 1>;
+      using Proto = ProtoSignal<1, 1, UNROLL>;
       runSendRecv<FUNC, T, UNROLL, Proto>(work);
     }
 };
@@ -158,7 +158,7 @@ template<class FUNC, typename T, int UNROLL>
 class RunWorkP2p<ncclFuncSendRecv, NCCL_ALGO_RING, NCCL_PROTO_SIGNAL_BULK, FUNC, T, UNROLL> {
   public:
     __device__ void run(struct ncclDevWorkP2p* work) {
-      using Proto = ProtoSignalBulk<UNROLL, 1, 1>;
+      using Proto = ProtoSignalBulk<1, 1, UNROLL>;
       runSendRecv<FUNC, T, UNROLL, Proto>(work);
     }
 };
@@ -168,7 +168,7 @@ class RunWorkP2p<ncclFuncSendRecv, NCCL_ALGO_RING, NCCL_PROTO_SIMPLE_BULK_AR, FU
   public:
     __device__ void run(struct ncclDevWorkP2p* work) {
 #if defined(__HGGC_ARCH__) && __HGGC_ARCH__ >= 150
-      using Proto = ProtoSimpleBulkAR<UNROLL, 1, 1>;
+      using Proto = ProtoSimpleBulkAR<1, 1, UNROLL>;
       runSendRecv<FUNC, T, UNROLL, Proto>(work);
 #endif
     }

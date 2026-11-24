@@ -12,8 +12,10 @@
 enum primsMode { primsModeDefault = 0, primsModePatRs = 1, primsModePatAg = 2 };
 
 // Implementation of primitive types
-template <typename T, int NRECV, int NSEND, class FUNC, int UNROLL, int SLICESPERCHUNK, int SLICESTEPS, int DIRECT, typename Proto, class RealPrimitives, int P2P>
+template <typename T, typename Fan, class FUNC, int SLICESPERCHUNK, int SLICESTEPS, int UNROLL, int DIRECT, typename Proto, class RealPrimitives, int P2P>
 class PrimitivesSimpleBase {
+  static constexpr int NRECV = Fan::MaxRecv, NSEND = Fan::MaxSend;
+
  public:
   struct ncclConnInfo* conn = NULL;
   int* connOffsFifoPtr = NULL;
@@ -44,8 +46,7 @@ class PrimitivesSimpleBase {
   int nthreads;
   int nworkers;
   const int stepSize;
-  int nrecv = 0;
-  int nsend = 0;
+  Fan fan;
   volatile int* connSizesFifoPtr = NULL;
   volatile uint64_t* connHeadPtr = NULL;
   uint64_t connHeadCache; // Cache last seen value
@@ -130,9 +131,9 @@ class PrimitivesSimpleBase {
   __device__ __forceinline__ void DirectReduceOrCopyMulti(bool postOp, int realSize) {
     // (1-SEND) is only there to avoid compilation errors in case NSEND=0 (and SEND=0).
     if (Proto::Id == NCCL_PROTO_SIMPLE || Proto::Id == NCCL_PROTO_SIGNAL) {
-      ReduceOrCopyMulti<UNROLL, FUNC, T, 1, 1, 1, (1-SEND)+NSEND>(tid, nworkers, redOp, false, false, 1, srcs, nsend, dsts+1, realSize);
+      ReduceOrCopyMulti<UNROLL, FUNC, T, 1, 1, 1, (1-SEND)+NSEND>(tid, nworkers, redOp, false, false, 1, srcs, fan.nsend(), dsts+1, realSize);
     } else {
-      ReduceOrCopyMultiBulk<UNROLL, FUNC, T, 1, 1, 1, (1-SEND)+NSEND, 0, 0, Proto::RTMD, Proto::sendConnType, Proto::recvConnType>(tid, nworkers, redOp, false, false, 1, srcs, nsend, dsts+1, realSize);
+      ReduceOrCopyMultiBulk<UNROLL, FUNC, T, 1, 1, 1, (1-SEND)+NSEND, 0, 0, Proto::RTMD, Proto::sendConnType, Proto::recvConnType>(tid, nworkers, redOp, false, false, 1, srcs, fan.nsend(), dsts+1, realSize);
     }
 
   }
@@ -140,9 +141,9 @@ class PrimitivesSimpleBase {
   template <int DIRECTRECV, int DIRECTSEND, int RECV, int SEND, int SRC, int DST>
   __device__ __forceinline__ void IndirectReduceOrCopyMulti(bool postOp, int realSize) {
     if (Proto::Id == NCCL_PROTO_SIMPLE || Proto::Id == NCCL_PROTO_SIGNAL) {
-      ReduceOrCopyMulti<UNROLL, FUNC, T, RECV+SRC, RECV*NRECV+SRC, SEND+DST, SEND*NSEND+DST>(tid, nworkers, redOp, SRC, postOp, RECV*nrecv+SRC, srcs, SEND*nsend+DST, dsts, realSize);
+      ReduceOrCopyMulti<UNROLL, FUNC, T, RECV+SRC, RECV*NRECV+SRC, SEND+DST, SEND*NSEND+DST>(tid, nworkers, redOp, SRC, postOp, RECV*fan.nrecv()+SRC, srcs, SEND*fan.nsend()+DST, dsts, realSize);
     } else {
-      ReduceOrCopyMultiBulk<UNROLL, FUNC, T, RECV+SRC, RECV*NRECV+SRC, SEND+DST, SEND*NSEND+DST, SRC, DST, Proto::RTMD, Proto::sendConnType, Proto::recvConnType>(tid, nworkers, redOp, SRC, postOp, RECV*nrecv+SRC, srcs, SEND*nsend+DST, dsts, realSize);
+      ReduceOrCopyMultiBulk<UNROLL, FUNC, T, RECV+SRC, RECV*NRECV+SRC, SEND+DST, SEND*NSEND+DST, SRC, DST, Proto::RTMD, Proto::sendConnType, Proto::recvConnType>(tid, nworkers, redOp, SRC, postOp, RECV*fan.nrecv()+SRC, srcs, SEND*fan.nsend()+DST, dsts, realSize);
     }
   }
 
@@ -189,18 +190,18 @@ class PrimitivesSimpleBase {
   template <int DIRECTRECV, int DIRECTSEND, int RECV, int SEND>
   __device__ __forceinline__ void ScatterImpl(int* realSizes) {
     if (Proto::Id == NCCL_PROTO_SIMPLE || Proto::Id == NCCL_PROTO_SIGNAL) {
-      ScatterGatherMulti<UNROLL, T, NSEND, FUNC, 1>(tid, nworkers, redOp, srcs, dsts, realSizes, nsend);
+      ScatterGatherMulti<UNROLL, T, NSEND, FUNC, 1>(tid, nworkers, redOp, srcs, dsts, realSizes, fan.nsend());
     } else {
-      ScatterGatherMultiBulk<UNROLL, T, NSEND, SEND, FUNC, 1, Proto::RTMD, Proto::sendConnType>(tid, nworkers, redOp, srcs, dsts, realSizes, nsend);
+      ScatterGatherMultiBulk<UNROLL, T, NSEND, SEND, FUNC, 1, Proto::RTMD, Proto::sendConnType>(tid, nworkers, redOp, srcs, dsts, realSizes, fan.nsend());
     }
   }
 
   template <int DIRECTRECV, int DIRECTSEND, int RECV, int SEND>
   __device__ __forceinline__ void GatherImpl(int* realSizes) {
     if (Proto::Id == NCCL_PROTO_SIMPLE || Proto::Id == NCCL_PROTO_SIGNAL) {
-      ScatterGatherMulti<UNROLL, T, NRECV, FUNC, 0>(tid, nworkers, redOp, srcs, dsts, realSizes, nrecv);
+      ScatterGatherMulti<UNROLL, T, NRECV, FUNC, 0>(tid, nworkers, redOp, srcs, dsts, realSizes, fan.nrecv());
     } else {
-      ScatterGatherMultiBulk<UNROLL, T, NRECV, SEND, FUNC, 0, Proto::RTMD, Proto::sendConnType>(tid, nworkers, redOp, srcs, dsts, realSizes, nrecv);
+      ScatterGatherMultiBulk<UNROLL, T, NRECV, SEND, FUNC, 0, Proto::RTMD, Proto::sendConnType>(tid, nworkers, redOp, srcs, dsts, realSizes, fan.nrecv());
     }
   }
 
@@ -238,7 +239,7 @@ class PrimitivesSimpleBase {
           subBarrier();
           if (DIRECTRECV) {
             int doRecv = 0;
-            for (int i=0; i<nrecv; i++) if (srcs[i] != dsts[i]) { doRecv++; break;}
+            for (int i=0; i<fan.nrecv(); i++) if (srcs[i] != dsts[i]) { doRecv++; break;}
             if (doRecv > 0) {
               GatherImpl<DIRECTRECV, DIRECTSEND, RECV, SEND>(realSizes);
             }
@@ -326,31 +327,35 @@ class PrimitivesSimpleBase {
   }
 
  public:
+  __host__ __device__ static constexpr int workersFromThreads(int nthreads) {
+#ifdef NO_EXTRA_WARP
+    return nthreads;
+#else
+    return nthreads - (NSEND && nthreads >= NCCL_SIMPLE_EXTRA_GROUP_IF_NTHREADS_GE ? WARP_SIZE : 0);
+#endif
+  }
   __device__ __forceinline__
   PrimitivesSimpleBase(
-      const int tid, const int nworkers, int* recvPeers, int* sendPeers, T* directBuff,
+      const int tid, const int nthreads, int* recvPeers, int* sendPeers, T* directBuff,
       struct ncclKernelComm* comm, uint64_t redOpArg, struct ncclShmemGroup* ptrs, int group, uint8_t connIndexRecv = 0, uint8_t connIndexSend = 0,
       struct ncclDevWorkColl* collWork = nullptr, struct ncclDevWorkP2p* p2pWork = nullptr, const uint64_t ncclSteps=NCCL_STEPS, bool noRed=false,
       int mode = primsModeDefault
       ):
     // WR: fix potential double preOp for up/down tree.
     redOp(noRed ? RedOpIdentityArg<FUNC>::value() : redOpArg),
-    comm(comm), tid(tid), nworkers(nworkers), stepSize(comm->buffSizes[NCCL_PROTO_SIMPLE]/NCCL_STEPS/sizeof(T)),
+    comm(comm), tid(tid), nthreads(nthreads), nworkers(nthreads), stepSize(comm->buffSizes[NCCL_PROTO_SIMPLE]/NCCL_STEPS/sizeof(T)),
     srcs((const T**)ptrs[group].srcs), dsts((T**)ptrs[group].dsts), realSizes(ptrs[group].realSizes), group(group),
     totalSendSize(ptrs[group].totalSendSize), ncclSteps(ncclSteps) {
-    nthreads = nworkers;
     if (mode == primsModeDefault) {
-#ifndef NO_EXTRA_WARP
-      // For send operations, we need an extra warp to overlap the threadfence and the copy
-      int postThreads = NSEND && nworkers >= 64 ? WARP_SIZE : 0;
-      nthreads += postThreads;
-#endif
+      this->nworkers = workersFromThreads(nthreads);
 
       // Make sure step is updated before we read it.
       barrier();
 
-      for (int i=0; i<NRECV; i++) if (recvPeers[i] != -1) nrecv++;
-      for (int i=0; i<NSEND; i++) if (sendPeers[i] != -1) nsend++;
+      int localRecv = 0, localSend = 0;
+      for (int i=0; i<NRECV; i++) if (recvPeers[i] != -1) localRecv++;
+      for (int i=0; i<NSEND; i++) if (sendPeers[i] != -1) localSend++;
+      this->fan = Fan(localRecv, localSend);
 
       #define SYNC_GROUP 8
       static_assert(NSEND < SYNC_GROUP && NRECV < SYNC_GROUP, "Not enough threads to cover all peers");
@@ -360,15 +365,15 @@ class PrimitivesSimpleBase {
       index = tid % SYNC_GROUP;
 
       if (g == 0) {
-        if (index < nrecv) role |= ROLE_WAIT_RECV;
-        if (index == nrecv) role |= ROLE_SRC;
+        if (index < fan.nrecv()) role |= ROLE_WAIT_RECV;
+        if (index == fan.nrecv()) role |= ROLE_SRC;
       } else if (g == 1) {
-        if (index < nsend) role |= ROLE_WAIT_SEND;
-        if (index == nsend) role |= ROLE_DST;
+        if (index < fan.nsend()) role |= ROLE_WAIT_SEND;
+        if (index == fan.nsend()) role |= ROLE_DST;
       } else if (g == ng - 2) {
-        if (index < nrecv) role |= ROLE_POST_RECV;
+        if (index < fan.nrecv()) role |= ROLE_POST_RECV;
       } else if (g == ng - 1) {
-        if (index < nsend) role |= ROLE_POST_SEND;
+        if (index < fan.nsend()) role |= ROLE_POST_SEND;
       }
 
       if (role & (ROLE_WAIT_RECV|ROLE_POST_RECV)) peer = recvPeers[index];
@@ -378,6 +383,8 @@ class PrimitivesSimpleBase {
         loadRecvConn(getShmemPtr(comm)->channel.peers[peer], directBuff, connIndexRecv, collWork, p2pWork);
       if (role & (ROLE_WAIT_SEND|ROLE_POST_SEND))
         loadSendConn(getShmemPtr(comm)->channel.peers[peer], connIndexSend, collWork, p2pWork);
+    } else {
+      this->fan = Fan(NRECV, NSEND);
     }
   }
 

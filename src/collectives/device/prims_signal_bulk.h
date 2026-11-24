@@ -10,12 +10,12 @@
 #define NCCL_PRIMS_SIGNAL_BULK_H_
 
 // Implementation of primitive types
-template <int UNROLL, int SLICESPERCHUNK, int SLICESTEPS, typename T, int NRECV, int NSEND,
+template <int UNROLL, int SLICESPERCHUNK, int SLICESTEPS, typename T, typename Fan,
          int DIRECT, class FUNC, ncclConn_t SENDCONNTYPE, ncclConn_t RECVCONNTYPE, int P2P>
-class Primitives<T, FUNC, ProtoSignalBulk<UNROLL, SLICESPERCHUNK, SLICESTEPS, SENDCONNTYPE, RECVCONNTYPE>, NRECV, NSEND, DIRECT, P2P> :
-    public PrimitivesSimpleBase<T, NRECV, NSEND, FUNC, UNROLL, SLICESPERCHUNK, SLICESTEPS, DIRECT,
-      ProtoSignalBulk<UNROLL, SLICESPERCHUNK, SLICESTEPS, SENDCONNTYPE, RECVCONNTYPE>,
-      Primitives<T, FUNC, ProtoSignalBulk<UNROLL, SLICESPERCHUNK, SLICESTEPS, SENDCONNTYPE, RECVCONNTYPE>, NRECV, NSEND, DIRECT, P2P>, P2P> {
+class Primitives<T, FUNC, Fan, DIRECT, ProtoSignalBulk<SLICESPERCHUNK, SLICESTEPS, UNROLL, SENDCONNTYPE, RECVCONNTYPE>, P2P> :
+    public PrimitivesSimpleBase<T, Fan, FUNC, SLICESPERCHUNK, SLICESTEPS, UNROLL, DIRECT, ProtoSignalBulk<SLICESPERCHUNK, SLICESTEPS, UNROLL, SENDCONNTYPE, RECVCONNTYPE>, Primitives<T, FUNC, Fan, DIRECT, ProtoSignalBulk<SLICESPERCHUNK, SLICESTEPS, UNROLL, SENDCONNTYPE, RECVCONNTYPE>, P2P>, P2P> {
+  static constexpr int NRECV = Fan::MaxRecv, NSEND = Fan::MaxSend;
+
  private:
   uint32_t minPathNum = 0;
   volatile uint32_t* signalMarkerPtr = NULL;
@@ -39,9 +39,7 @@ class Primitives<T, FUNC, ProtoSignalBulk<UNROLL, SLICESPERCHUNK, SLICESTEPS, SE
     }
   }
 
-  using Base = PrimitivesSimpleBase<T, NRECV, NSEND, FUNC, UNROLL, SLICESPERCHUNK, SLICESTEPS, DIRECT,
-                 ProtoSignalBulk<UNROLL, SLICESPERCHUNK, SLICESTEPS, SENDCONNTYPE, RECVCONNTYPE>,
-                 Primitives<T, FUNC, ProtoSignalBulk<UNROLL, SLICESPERCHUNK, SLICESTEPS, SENDCONNTYPE, RECVCONNTYPE>, NRECV, NSEND, DIRECT, P2P>, P2P>;
+  using Base = PrimitivesSimpleBase<T, Fan, FUNC, SLICESPERCHUNK, SLICESTEPS, UNROLL, DIRECT, ProtoSignalBulk<SLICESPERCHUNK, SLICESTEPS, UNROLL, SENDCONNTYPE, RECVCONNTYPE>, Primitives<T, FUNC, Fan, DIRECT, ProtoSignalBulk<SLICESPERCHUNK, SLICESTEPS, UNROLL, SENDCONNTYPE, RECVCONNTYPE>, P2P>, P2P>;
   using Base::conn;
   using Base::connOffsFifoPtr;
   using Base::connTailPtr;
@@ -65,9 +63,7 @@ class Primitives<T, FUNC, ProtoSignalBulk<UNROLL, SLICESPERCHUNK, SLICESTEPS, SE
       T* directBuff, struct ncclKernelComm* comm, uint64_t redOpArg, struct ncclShmemGroup* ptrs,
       int group, uint8_t connIndexRecv=0, uint8_t connIndexSend=0, struct ncclDevWorkColl* collWork = nullptr,
       struct ncclDevWorkP2p* p2pWork=nullptr, int ncclSteps=NCCL_STEPS, bool noRed=false
-      ): PrimitivesSimpleBase<T, NRECV, NSEND, FUNC, UNROLL, SLICESPERCHUNK, SLICESTEPS, DIRECT,
-        ProtoSignalBulk<UNROLL, SLICESPERCHUNK, SLICESTEPS, SENDCONNTYPE, RECVCONNTYPE>,
-        Primitives<T, FUNC, ProtoSignalBulk<UNROLL, SLICESPERCHUNK, SLICESTEPS, SENDCONNTYPE, RECVCONNTYPE>, NRECV, NSEND, DIRECT, P2P>, P2P>
+      ): PrimitivesSimpleBase<T, Fan, FUNC, SLICESPERCHUNK, SLICESTEPS, UNROLL, DIRECT, ProtoSignalBulk<SLICESPERCHUNK, SLICESTEPS, UNROLL, SENDCONNTYPE, RECVCONNTYPE>, Primitives<T, FUNC, Fan, DIRECT, ProtoSignalBulk<SLICESPERCHUNK, SLICESTEPS, UNROLL, SENDCONNTYPE, RECVCONNTYPE>, P2P>, P2P>
         (tid, nworkers, recvPeers, sendPeers, directBuff, comm, redOpArg, ptrs, group, connIndexRecv, connIndexSend, collWork, p2pWork, ncclSteps, noRed) {
     if (role & (ROLE_WAIT_RECV|ROLE_POST_RECV))
       loadRecvConnExtra(getShmemPtr(comm)->channel.peers[peer], connIndexRecv, directBuff);

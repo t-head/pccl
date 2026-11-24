@@ -55,8 +55,8 @@ namespace {
     const T * __restrict__ thisInput = (const T*)work->sendbuff;
     T * __restrict__ thisOutput = (T*)work->recvbuff;
 
-    Primitives<T, FUNC, Proto, 1, 1, 0, 0>
-      prims(tid, nthreads, &ring->prev, &ring->next, NULL, comm, work->redOpArg, getShmemPtr(comm)->groups, 0, 0, 0, work);
+    Primitives<T, FUNC, FanAsymmetric<1, 1>, 0, Proto, 0>
+      prims(tid, ncclPrimsThreadsFromWorkers<Proto, FanAsymmetric<1, 1>::MaxSend>(nthreads), &ring->prev, &ring->next, NULL, comm, work->redOpArg, getShmemPtr(comm)->groups, 0, 0, 0, work);
 
     for (ssize_t gridOffset = 0; gridOffset < size; gridOffset += loopSize) {
       int realChunkSize;
@@ -127,8 +127,8 @@ namespace {
     T* __restrict__ thisOutput = (T*)work->recvbuff;
 
     if (rank == root) {
-      Primitives<T, FUNC, Proto, NCCL_MAX_FC_ARITY-1, 0, 0, 0>
-        prims(tid, nthreads, fc->peerRanks, NULL, NULL, comm, work->redOpArg, getShmemPtr(comm)->groups, 0, 0, 0, work);
+      Primitives<T, FUNC, FanAsymmetric<NCCL_MAX_FC_ARITY-1, 0>, 0, Proto, 0>
+        prims(tid, ncclPrimsThreadsFromWorkers<Proto, FanAsymmetric<NCCL_MAX_FC_ARITY-1, 0>::MaxSend>(nthreads), fc->peerRanks, NULL, NULL, comm, work->redOpArg, getShmemPtr(comm)->groups, 0, 0, 0, work);
 
       for (ssize_t gridOffset = 0; gridOffset < size; gridOffset += loopSize) {
         ssize_t realChunkSize = min(chunkSize, DIVUP(size-gridOffset, nChannels));
@@ -138,8 +138,8 @@ namespace {
         prims.recvReduceCopy(thisInput+offset, thisOutput+offset, nelem, /*postOp=*/true);
       }
     } else {
-      Primitives<T, FUNC, Proto, 0, 1, 0, 0>
-        prims(tid, nthreads, NULL, &root, NULL, comm, work->redOpArg, getShmemPtr(comm)->groups, 0, 0, 0, work);
+      Primitives<T, FUNC, FanAsymmetric<0, 1>, 0, Proto, 0>
+        prims(tid, ncclPrimsThreadsFromWorkers<Proto, FanAsymmetric<0, 1>::MaxSend>(nthreads), NULL, &root, NULL, comm, work->redOpArg, getShmemPtr(comm)->groups, 0, 0, 0, work);
 
       for (ssize_t gridOffset = 0; gridOffset < size; gridOffset += loopSize) {
         ssize_t realChunkSize = min(chunkSize, DIVUP(size-gridOffset, nChannels));
@@ -156,7 +156,7 @@ template<class FUNC, typename T, int UNROLL>
 class RunWorkColl<ncclFuncReduce, NCCL_ALGO_RING, NCCL_PROTO_SIMPLE, FUNC, T, UNROLL> {
   public:
     __device__ void run(struct ncclDevWorkColl* work) {
-      using Proto = ProtoSimple<UNROLL, REDUCE_CHUNKSTEPS/REDUCE_SLICESTEPS, REDUCE_SLICESTEPS>;
+      using Proto = ProtoSimple<REDUCE_CHUNKSTEPS/REDUCE_SLICESTEPS, REDUCE_SLICESTEPS, UNROLL>;
       runRing<FUNC, T, UNROLL, Proto>(work);
     }
 };
@@ -181,7 +181,7 @@ template<class FUNC, typename T, int UNROLL>
 class RunWorkColl<ncclFuncReduce, NCCL_ALGO_RING, NCCL_PROTO_SIGNAL, FUNC, T, UNROLL> {
   public:
     __device__ void run(struct ncclDevWorkColl* work) {
-      using Progo = ProtoSignal<UNROLL, REDUCE_CHUNKSTEPS/REDUCE_SLICESTEPS, REDUCE_SLICESTEPS>;
+      using Progo = ProtoSignal<REDUCE_CHUNKSTEPS/REDUCE_SLICESTEPS, REDUCE_SLICESTEPS, UNROLL>;
       runRing<FUNC, T, UNROLL, Progo>(work);
     }
 };
@@ -196,10 +196,10 @@ class RunWorkColl<ncclFuncReduce, NCCL_ALGO_RING, NCCL_PROTO_SIMPLE_BULK, FUNC, 
       const ncclConn_t recvConnType = channel->ring.recvConnType;
 
       if (sendConnType == CONN_ICN) {
-        using Proto = ProtoSimpleBulk<UNROLL, REDUCE_CHUNKSTEPS/REDUCE_SLICESTEPS, REDUCE_SLICESTEPS, CONN_ICN, CONN_NORMAL>;
+        using Proto = ProtoSimpleBulk<REDUCE_CHUNKSTEPS/REDUCE_SLICESTEPS, REDUCE_SLICESTEPS, UNROLL, CONN_ICN, CONN_NORMAL>;
         runRing<FUNC, T, UNROLL, Proto>(work);
       } else {
-        using Proto = ProtoSimpleBulk<UNROLL, REDUCE_CHUNKSTEPS/REDUCE_SLICESTEPS, REDUCE_SLICESTEPS, CONN_NORMAL, CONN_ICN>;
+        using Proto = ProtoSimpleBulk<REDUCE_CHUNKSTEPS/REDUCE_SLICESTEPS, REDUCE_SLICESTEPS, UNROLL, CONN_NORMAL, CONN_ICN>;
         runRing<FUNC, T, UNROLL, Proto>(work);
       }
     }
@@ -209,7 +209,7 @@ template<class FUNC, typename T, int UNROLL>
 class RunWorkColl<ncclFuncReduce, NCCL_ALGO_RING, NCCL_PROTO_SIGNAL_BULK, FUNC, T, UNROLL> {
   public:
     __device__ void run(struct ncclDevWorkColl* work) {
-      using Proto = ProtoSignalBulk<UNROLL, REDUCE_CHUNKSTEPS/REDUCE_SLICESTEPS, REDUCE_SLICESTEPS>;
+      using Proto = ProtoSignalBulk<REDUCE_CHUNKSTEPS/REDUCE_SLICESTEPS, REDUCE_SLICESTEPS, UNROLL>;
       runRing<FUNC, T, UNROLL, Proto>(work);
     }
 };
@@ -219,7 +219,7 @@ class RunWorkColl<ncclFuncReduce, NCCL_ALGO_RING, NCCL_PROTO_SIMPLE_BULK_AR, FUN
   public:
     __device__ void run(struct ncclDevWorkColl* work) {
 #if defined(__HGGC_ARCH__) && __HGGC_ARCH__ >= 150
-      using Proto = ProtoSimpleBulkAR<UNROLL, REDUCE_CHUNKSTEPS/REDUCE_SLICESTEPS, REDUCE_SLICESTEPS, CONN_ICN, CONN_NORMAL>;
+      using Proto = ProtoSimpleBulkAR<REDUCE_CHUNKSTEPS/REDUCE_SLICESTEPS, REDUCE_SLICESTEPS, UNROLL, CONN_ICN, CONN_NORMAL>;
       runRing<FUNC, T, UNROLL, Proto>(work);
 #endif
     }
@@ -229,7 +229,7 @@ template<class FUNC, typename T, int UNROLL>
 class RunWorkColl<ncclFuncReduce, NCCL_ALGO_FC, NCCL_PROTO_SIMPLE, FUNC, T, UNROLL> {
   public:
     __device__ void run(struct ncclDevWorkColl* work) {
-      using Proto = ProtoSimple<UNROLL, REDUCE_CHUNKSTEPS/REDUCE_SLICESTEPS, REDUCE_SLICESTEPS>;
+      using Proto = ProtoSimple<REDUCE_CHUNKSTEPS/REDUCE_SLICESTEPS, REDUCE_SLICESTEPS, UNROLL>;
       runFC<FUNC, T, UNROLL, Proto>(work);
     }
 };
@@ -242,10 +242,10 @@ class RunWorkColl<ncclFuncReduce, NCCL_ALGO_FC, NCCL_PROTO_SIMPLE_BULK, FUNC, T,
       struct ncclDevChannel* channel = &(getShmemPtr(comm)->channel);
       const ncclConn_t connType = channel->fc.connType;
       if (connType == CONN_ICN) {
-        using Proto = ProtoSimpleBulk<UNROLL, REDUCE_CHUNKSTEPS/REDUCE_SLICESTEPS, REDUCE_SLICESTEPS, CONN_ICN, CONN_ICN>;
+        using Proto = ProtoSimpleBulk<REDUCE_CHUNKSTEPS/REDUCE_SLICESTEPS, REDUCE_SLICESTEPS, UNROLL, CONN_ICN, CONN_ICN>;
         runFC<FUNC, T, UNROLL, Proto>(work);
       } else {
-        using Proto = ProtoSimpleBulk<UNROLL, REDUCE_CHUNKSTEPS/REDUCE_SLICESTEPS, REDUCE_SLICESTEPS, CONN_NORMAL, CONN_ICN>;
+        using Proto = ProtoSimpleBulk<REDUCE_CHUNKSTEPS/REDUCE_SLICESTEPS, REDUCE_SLICESTEPS, UNROLL, CONN_NORMAL, CONN_ICN>;
         runFC<FUNC, T, UNROLL, Proto>(work);
       }
     }
