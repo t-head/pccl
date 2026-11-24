@@ -1,14 +1,14 @@
 {
   "classification": {
     "base_sha": "b451c3af88fbc0ea9fbbb85cdb8a66d779ec2831",
-    "head_sha": "b185c984bb79a13e1404d6f897675a3422230fb5",
-    "input_fingerprint": "8162fac1c083d64146e8dce147a35487697af8fe24a243994ec38ecea9411ec5",
+    "head_sha": "38a62b7383d39c410908902979458f9e86e0f8ab",
+    "input_fingerprint": "1be59aa35fd4a7bc73c660c0c34f162c3407432977f9e26c6fb61e77f1ee4189",
     "pr_number": 232,
     "proposal": {
       "modules": [
         "ci"
       ],
-      "reason": "Main substantive change updates open-source test workflow execution budgets in .github/workflows/pccl-daily-full.yml (daily 1440, weekly 2880, manual default 1440, preserving job margin behavior). The accompanying tests and xtest documentation changes are regression/supporting updates for this CI timeout policy, not independent module changes."
+      "reason": "Main functional change increases CI workflow execution timeout budgets in .github/workflows/pccl-daily-full.yml (daily 1440, weekly 2880, manual default 1440 with existing +30-minute job margin). The other edits are aligned CI documentation and regression tests validating timeout parsing/selection behavior, not an independent policy/build/module change."
     }
   },
   "reviewers": {
