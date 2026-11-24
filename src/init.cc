@@ -968,15 +968,15 @@ static ncclResult_t setupChannel(ncclComm_t comm, int channelId, int rank, int n
   NCCLCHECK(initChannel(comm, channelId));
 
   struct ncclRing* ring = &comm->channels[channelId].ring;
-  // Reorganize ranks to start with rank.
-  int shift;
-  for (shift = 0; shift<nranks; shift++) {
-    if (ringRanks[shift] == rank) {
-      break;
-    }
-  }
+  // Find our ring-distance from rank zero and reorganize ranks to start with rank.
+  int ixZero = 0, ixRank = 0;
   for (int i=0; i<nranks; i++) {
-    ring->userRanks[i] = ringRanks[(i+shift)%nranks];
+    if (ringRanks[i] == 0) ixZero = i;
+    if (ringRanks[i] == rank) ixRank = i;
+  }
+  ring->index = (ixRank - ixZero + nranks) % nranks;
+  for (int i=0; i<nranks; i++) {
+    ring->userRanks[i] = ringRanks[(i+ixRank)%nranks];
   }
   return ncclSuccess;
 }

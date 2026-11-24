@@ -145,6 +145,7 @@ struct ncclRing {
   // devices. Ordered from current device.
   int* userRanks;
   int* devUserRanks;
+  int index;
   int nRanks;
   ncclConn_t sendConnType;
   ncclConn_t recvConnType;

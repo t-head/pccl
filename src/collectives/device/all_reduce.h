@@ -10,19 +10,24 @@
 #include "collectives.h"
 #include "primitives.h"
 namespace {
+  __device__ __forceinline__ int modRanks(int r, int nranks) {
+    return r - (r >= nranks ? nranks : 0);
+  }
+
   template<typename T, typename RedOp, typename Proto>
   __device__ __forceinline__ void runRing(struct ncclDevWorkColl* work) {
     const int tid = threadIdx.x;
-    int nthreads;
+    int nworkers;
     if (Proto::Id == NCCL_PROTO_LL || Proto::Id == NCCL_PROTO_LL128) {
-      nthreads = work->nThreads;
+      nworkers = work->nThreads;
     } else {
 #ifndef NO_EXTRA_WARP
-      nthreads = work->nThreads-WARP_SIZE;
+      nworkers = work->nThreads-WARP_SIZE;
 #else
-      nthreads = work->nThreads;
+      nworkers = work->nThreads;
 #endif
     }
+    const int nthreads = ncclPrimsThreadsFromWorkers<Proto, 1>(nworkers);
     const int nChannels = work->nChannels;
     int bid = (blockIdx.x >= work->startChannelId) ?
       (blockIdx.x - work->startChannelId) :
@@ -32,6 +37,7 @@ namespace {
     struct ncclDevChannel* channel = &(getShmemPtr(comm)->channel);
     struct ncclRing* ring = &channel->ring;
     const int nranks = comm->nRanks;
+    const int ringIx = ring->index;
 
     int stepSize;
     ssize_t chunkSize;
@@ -39,12 +45,12 @@ namespace {
     if (Proto::Id == NCCL_PROTO_LL) {
       stepSize = comm->buffSizes[NCCL_PROTO_LL] / (sizeof(union ncclLLFifoLine)*NCCL_STEPS);
       chunkSize = stepSize * sizeof(uint64_t) / sizeof(T);
-      minChunkSize = nthreads * (sizeof(uint64_t)) / sizeof(T);
+      minChunkSize = nworkers * (sizeof(uint64_t)) / sizeof(T);
     } else if (Proto::Id == NCCL_PROTO_LL128) {
       stepSize = comm->buffSizes[NCCL_PROTO_LL128] / (sizeof(uint64_t)*NCCL_STEPS);
       chunkSize = stepSize*NCCL_LL128_DATAELEMS*sizeof(uint64_t) / (NCCL_LL128_LINEELEMS*sizeof(T));
       // We should not need the final /2 but it makes performance much, much smoother. Might be a bug somewhere.
-      minChunkSize = (NCCL_LL128_SHMEM_ELEMS_PER_THREAD*nthreads*NCCL_LL128_DATAELEMS*sizeof(uint64_t))/(NCCL_LL128_LINEELEMS*sizeof(T))/2;
+      minChunkSize = (NCCL_LL128_SHMEM_ELEMS_PER_THREAD*nworkers*NCCL_LL128_DATAELEMS*sizeof(uint64_t))/(NCCL_LL128_LINEELEMS*sizeof(T))/2;
     } else {
       stepSize = comm->buffSizes[NCCL_PROTO_SIMPLE] / (sizeof(T)*NCCL_STEPS);
       chunkSize = stepSize * ALLREDUCE_CHUNKSTEPS;
@@ -58,8 +64,8 @@ namespace {
     T * __restrict__ thisOutput = (T*)work->recvbuff;
 
     Primitives<T, RedOp, FanAsymmetric<1, 1>, 1, Proto, 0>
-      prims(tid, ncclPrimsThreadsFromWorkers<Proto, FanAsymmetric<1, 1>::MaxSend>(nthreads), &ring->prev, &ring->next, thisOutput, comm, work->redOpArg, getShmemPtr(comm)->groups, 0, 0, 0, work);
-      prims.setDataPtrs(thisInput, thisOutput);
+      prims(tid, nthreads, &ring->prev, &ring->next, thisOutput, comm, work->redOpArg, getShmemPtr(comm)->groups, 0, 0, 0, work);
+    prims.setDataPtrs(thisInput, thisOutput);
 
     for (ssize_t gridOffset = 0; gridOffset < size; gridOffset += nranks*loopSize) {
       ssize_t realChunkSize;
@@ -69,15 +75,15 @@ namespace {
       ssize_t chunkOffset;
       if (Proto::Id == NCCL_PROTO_LL || Proto::Id == NCCL_PROTO_LL128) {
         chunkSize = min(DIVUP(size-gridOffset, nChannels*nranks*minChunkSize)*minChunkSize, chunkSize);
-        chunk = ring->devUserRanks[nranks-1];
+        chunk = modRanks(ringIx + nranks-1, nranks);
         offset = gridOffset + (chunk*nChannels+bid) * chunkSize;
         nelem = min(chunkSize, size-offset);
       } else {
         realChunkSize = min(chunkSize, DIVUP(size-gridOffset,nranks*nChannels));
-        ALIGN_SIZE(realChunkSize, nthreads*sizeof(uint64_t)/sizeof(T));
+        ALIGN_SIZE(realChunkSize, nworkers*sizeof(uint64_t)/sizeof(T));
         chunkOffset = gridOffset + bid*nranks*realChunkSize;
         // step 0: push data to next GPU
-        chunk = ring->devUserRanks[nranks-1];
+        chunk = modRanks(ringIx + nranks-1, nranks);
         offset = chunkOffset + chunk * realChunkSize;
         nelem = min(realChunkSize, size-offset);
       }
@@ -90,11 +96,11 @@ namespace {
       }
 #endif
 
-      prims.send(offset, nelem);
+      prims.directSend(offset, offset, nelem);
 
       // k-2 steps: reduce and copy to next GPU
       for (int j=2; j<nranks; ++j) {
-        chunk = ring->devUserRanks[nranks-j];
+        chunk = modRanks(ringIx + nranks-j, nranks);
         if (Proto::Id == NCCL_PROTO_LL || Proto::Id == NCCL_PROTO_LL128) {
           offset = gridOffset + (chunk*nChannels+bid) * chunkSize;
           nelem = min(chunkSize, size-offset);
@@ -103,12 +109,12 @@ namespace {
           nelem = min(realChunkSize, size-offset);
         }
 
-        prims.recvReduceSend(offset, nelem);
+        prims.directRecvReduceDirectSend(offset, offset, nelem);
       }
 
       // step k-1: reduce this buffer and data, which will produce the final
       // result that we store in this data and push to the next GPU
-      chunk = ring->devUserRanks[0];
+      chunk = ringIx;
       if (Proto::Id == NCCL_PROTO_LL || Proto::Id == NCCL_PROTO_LL128) {
         offset = gridOffset + (chunk*nChannels+bid) * chunkSize;
         nelem = min(chunkSize, size-offset);
@@ -117,11 +123,11 @@ namespace {
         nelem = min(realChunkSize, size-offset);
       }
 
-      prims.recvReduceCopyDirectSend(offset, offset, nelem, /*postOp=*/true);
+      prims.directRecvReduceCopyDirectSend(offset, offset, nelem, /*postOp=*/true);
 
       // k-2 steps: copy to next GPU
       for (int j=1; j<nranks-1; ++j) {
-        chunk = ring->devUserRanks[nranks-j];
+        chunk = modRanks(ringIx + nranks-j, nranks);
         if (Proto::Id == NCCL_PROTO_LL || Proto::Id == NCCL_PROTO_LL128) {
           offset = gridOffset + (chunk*nChannels+bid) * chunkSize;
           nelem = min(chunkSize, size-offset);
@@ -134,7 +140,7 @@ namespace {
       }
 
       // Make final copy from buffer to dest.
-      chunk = ring->devUserRanks[1];
+      chunk = modRanks(ringIx + 1, nranks);
       if (Proto::Id == NCCL_PROTO_LL || Proto::Id == NCCL_PROTO_LL128) {
         offset = gridOffset + (chunk*nChannels+bid) * chunkSize;
         nelem = min(chunkSize, size-offset);
