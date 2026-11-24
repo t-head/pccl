@@ -1,7 +1,9 @@
 import ast
 import unittest
+from types import SimpleNamespace
+from unittest.mock import patch
 
-from node_audit import FAILED_HOSTS, PAIR, PROBE, classify, has_gpu_request, pod_manifest
+from node_audit import FAILED_HOSTS, PAIR, PROBE, classify, has_gpu_request, kube, pod_manifest
 
 
 class NodeAuditTests(unittest.TestCase):
@@ -36,6 +38,13 @@ class NodeAuditTests(unittest.TestCase):
         ast.parse(PROBE)
         self.assertNotIn("modprobe", PROBE)
         self.assertNotIn("rmmod", PROBE)
+
+    def test_cluster_credentials_are_not_broken_by_timeout_flags(self):
+        with patch("node_audit.subprocess.run", return_value=SimpleNamespace(
+                returncode=0, stdout="{}", stderr="")) as command:
+            self.assertEqual(kube("get", "nodes", "-o", "json"), "{}")
+        self.assertEqual(command.call_args.args[0], ["kubectl", "get", "nodes", "-o", "json"])
+        self.assertEqual(command.call_args.kwargs["timeout"], 35)
 
 
 if __name__ == "__main__":

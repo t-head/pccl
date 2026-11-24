@@ -50,7 +50,9 @@ print(json.dumps({'marker':'pccl-gdr-node-audit-v1', 'node_name':os.environ['NOD
 
 
 def kube(*args, payload=None):
-    process = subprocess.run(["kubectl", "--request-timeout=25s", *args],
+    # Match ci-infra's adapter: this runner loses in-cluster credentials when
+    # kubectl receives a nonzero --request-timeout. Bound the process externally.
+    process = subprocess.run(["kubectl", *args],
         input=json.dumps(payload) if payload is not None else None,
         text=True, capture_output=True, timeout=35)
     if process.returncode:
