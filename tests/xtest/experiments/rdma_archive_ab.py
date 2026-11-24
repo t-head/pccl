@@ -55,7 +55,7 @@ def run(args):
     for label in ('good-first', 'failed', 'good-repeat'):
         archive_name = 'good' if label.startswith('good') else 'failed'
         revision, digest = ARCHIVES[archive_name]
-        cache = args.cache / archive_name
+        cache = args.cache / 'standard' / digest
         archive = artifact_cache.validate(cache, 'standard', revision,
                                           artifact_cache.PCCL_TESTS_REVISION, digest)
         extraction = root / 'shared' / label

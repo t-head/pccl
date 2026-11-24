@@ -54,7 +54,7 @@ jobs:
             --pccl-tests-revision 394556512e87259e9ffa25225632c46b0a0bbcd5 \
             --expected-sha256 20b03ec2461a4d827037da4ba6bf2311c31f7c87852b1c5491255870bd93a548
       - id: good3-download
-        if: steps.good2-validate.outcome != 'success'
+        if: steps.good1-validate.outcome != 'success' && steps.good2-validate.outcome != 'success'
         continue-on-error: true
         uses: actions/download-artifact@v4
         with:
@@ -63,7 +63,7 @@ jobs:
           github-token: ${{ github.token }}
           path: download-good
       - id: good3-validate
-        if: steps.good2-validate.outcome != 'success'
+        if: steps.good1-validate.outcome != 'success' && steps.good2-validate.outcome != 'success'
         continue-on-error: true
         shell: bash
         run: |
@@ -83,7 +83,7 @@ jobs:
         shell: bash
         run: |
           python3 -S -B pccl/tests/xtest/artifact_cache.py publish \
-            --download download-good --cache /wl_nas/devops/pccl-rdma-ab-${{ github.run_id }}/cache/good \
+            --download download-good --cache /wl_nas/devops/pccl-rdma-ab-${{ github.run_id }}/cache/standard/20b03ec2461a4d827037da4ba6bf2311c31f7c87852b1c5491255870bd93a548 \
             --profile standard --pccl-revision abb6688b4b5419664e7bf13c2d9107bd7acafd89 \
             --pccl-tests-revision 394556512e87259e9ffa25225632c46b0a0bbcd5 \
             --expected-sha256 20b03ec2461a4d827037da4ba6bf2311c31f7c87852b1c5491255870bd93a548
@@ -129,7 +129,7 @@ jobs:
             --pccl-tests-revision 394556512e87259e9ffa25225632c46b0a0bbcd5 \
             --expected-sha256 f083b7721f306ce59362060165f332bd5dc758e1e79a83a2433578a9a398fffa
       - id: failed3-download
-        if: steps.failed2-validate.outcome != 'success'
+        if: steps.failed1-validate.outcome != 'success' && steps.failed2-validate.outcome != 'success'
         continue-on-error: true
         uses: actions/download-artifact@v4
         with:
@@ -138,7 +138,7 @@ jobs:
           github-token: ${{ github.token }}
           path: download-failed
       - id: failed3-validate
-        if: steps.failed2-validate.outcome != 'success'
+        if: steps.failed1-validate.outcome != 'success' && steps.failed2-validate.outcome != 'success'
         continue-on-error: true
         shell: bash
         run: |
@@ -158,7 +158,7 @@ jobs:
         shell: bash
         run: |
           python3 -S -B pccl/tests/xtest/artifact_cache.py publish \
-            --download download-failed --cache /wl_nas/devops/pccl-rdma-ab-${{ github.run_id }}/cache/failed \
+            --download download-failed --cache /wl_nas/devops/pccl-rdma-ab-${{ github.run_id }}/cache/standard/f083b7721f306ce59362060165f332bd5dc758e1e79a83a2433578a9a398fffa \
             --profile standard --pccl-revision 30ac5589671c608c51266cfd99f3b0b59eddc981 \
             --pccl-tests-revision 394556512e87259e9ffa25225632c46b0a0bbcd5 \
             --expected-sha256 f083b7721f306ce59362060165f332bd5dc758e1e79a83a2433578a9a398fffa
