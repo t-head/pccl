@@ -172,16 +172,17 @@ class PrimitivesSimpleBase {
     if (reqChunkSize > 0) {
       sliceSize = max(divUp(reqChunkSize, 16*SlicePerChunk)*16, stepSize*StepPerSlice/32);
     }
-    int offset = 0;
-
-    #pragma unroll
-    for (int slice = 0; slice < SlicePerChunk; ++slice) {
-      int realSize = max(0, min(sliceSize, nelem-offset));
+    if constexpr (SlicePerChunk == 1) {
+      // With a single slice the worker/non-worker split below saves no branch
+      // (2+1 vs 2*1) and only duplicates the wait/fence/post tail, which is
+      // measurably slower on the SlicePerChunk == 1 paths (reduce, broadcast,
+      // tree). Keep one straight path shared by all threads instead.
+      int realSize = max(0, min(sliceSize, nelem));
       if (tid < nworkers) {
-        if (Src && (role & ROLE_SRC)) srcs[0] = srcPtr+offset;
-        if (Recv && (role & ROLE_WAIT_RECV)) static_cast<RealPrimitives*>(this)->template waitRecv<Src, DirectRecv>(dstIx+offset);
-        if (Dst && (role & ROLE_DST)) dsts[0] = dstPtr+offset;
-        if (Send && (role & ROLE_WAIT_SEND)) waitSend<Dst, DirectSend>(dstIx+offset, realSize*sizeof(T));
+        if (Src && (role & ROLE_SRC)) srcs[0] = srcPtr;
+        if (Recv && (role & ROLE_WAIT_RECV)) static_cast<RealPrimitives*>(this)->template waitRecv<Src, DirectRecv>(dstIx);
+        if (Dst && (role & ROLE_DST)) dsts[0] = dstPtr;
+        if (Send && (role & ROLE_WAIT_SEND)) waitSend<Dst, DirectSend>(dstIx, realSize*sizeof(T));
         if (realSize > 0) {
           subBarrier();
           if (DirectRecv && srcs[0] == dsts[0] && !Src) {
@@ -198,7 +199,58 @@ class PrimitivesSimpleBase {
       __syncwarp();
       if (Send && (role & ROLE_POST_SEND)) postSend();
       if (Recv && (role & ROLE_POST_RECV)) postRecv();
+      return;
+    }
+
+    int slice = 0;
+    int offset = 0;
+
+    if (tid < nworkers && offset < nelem) {
+      // Worker-only loop over the non-empty slices: non-workers and
+      // empty slices are handled by the loop below. Splitting pulls two branches
+      // out of the critical path (perf_orig = 2*numslices, perf_new = 2+numslices).
+      #pragma unroll 1
+      do {
+        int realSize = min(sliceSize, nelem-offset);
+        if (Src && (role & ROLE_SRC)) srcs[0] = srcPtr+offset;
+        if (Recv && (role & ROLE_WAIT_RECV)) static_cast<RealPrimitives*>(this)->template waitRecv<Src, DirectRecv>(dstIx+offset);
+        if (Dst && (role & ROLE_DST)) dsts[0] = dstPtr+offset;
+        if (Send && (role & ROLE_WAIT_SEND)) waitSend<Dst, DirectSend>(dstIx+offset, realSize*sizeof(T));
+        subBarrier();
+        if (DirectRecv && srcs[0] == dsts[0] && !Src) {
+          if (Send && Dst && srcs[0] != dsts[1]) {
+            static_cast<RealPrimitives*>(this)->template DirectReduceOrCopyMulti<DirectRecv, DirectSend, Recv, Send, SrcBuf, DstBuf>(postOp, realSize);
+          }
+        } else {
+          static_cast<RealPrimitives*>(this)->template IndirectReduceOrCopyMulti<DirectRecv, DirectSend, Recv, Send, SrcBuf, DstBuf>(postOp, realSize);
+        }
+        barrier(); // This barrier has a counterpart in the following loop
+        static_cast<RealPrimitives*>(this)->template memoryFence<Send>(realSize);
+        __syncwarp();
+        if (Send && (role & ROLE_POST_SEND)) postSend();
+        if (Recv && (role & ROLE_POST_RECV)) postRecv();
+        offset += realSize;
+        slice += 1;
+      } while (slice < SlicePerChunk && offset < nelem);
+    }
+
+    // Non-workers arrive here directly, as do workers once every remaining slice
+    // is empty.
+    #pragma unroll 1
+    while (slice < SlicePerChunk) {
+      int realSize = max(0, min(sliceSize, nelem-offset));
+      { // Only workers hold a wait role and their slices are empty here, so just
+        // claim the step.
+        if (Recv && (role & ROLE_WAIT_RECV)) static_cast<RealPrimitives*>(this)->template waitRecv<Src, DirectRecv>(dstIx+offset);
+        if (Send && (role & ROLE_WAIT_SEND)) waitSend<Dst, DirectSend>(dstIx+offset, realSize*sizeof(T));
+      }
+      barrier(); // Has a counterpart in the preceding worker-only loop
+      static_cast<RealPrimitives*>(this)->template memoryFence<Send>(realSize);
+      __syncwarp();
+      if (Send && (role & ROLE_POST_SEND)) postSend();
+      if (Recv && (role & ROLE_POST_RECV)) postRecv();
       offset += realSize;
+      slice += 1;
     }
   }
 
