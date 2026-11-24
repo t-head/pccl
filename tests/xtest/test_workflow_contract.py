@@ -59,6 +59,20 @@ class WorkflowContractTests(unittest.TestCase):
                 values[name]['result'] = 'skipped'
         return values
 
+    def test_810e_pr_allocation_uses_two_cards_per_node(self):
+        self.assertIn("Path('tests/xtest/minimal-csv-oam810e-eic'), 2)", self.text)
+        self.assertEqual(self.text.count('platform: oam810e_eic, cards_per_node: 2'), 3)
+        self.assertNotIn('platform: oam810e_eic, cards_per_node: 4', self.text)
+        self.assertNotIn('platform: oam810e_eic, cards_per_node: 16', self.text)
+        self.assertIn("--cards-per-node '2'", self.text)
+
+    def test_all_platforms_map_allocated_devices_in_daily_and_sanity(self):
+        daily = (ROOT / '.github/workflows/pccl-daily-full.yml').read_text(encoding='utf-8')
+        self.assertEqual(self.text.count('--map-nvidia-devices'), 2)
+        self.assertEqual(daily.count('--map-nvidia-devices'), 3)
+        for workflow in (self.text, daily):
+            self.assertNotIn("matrix.platform == 'oam810e_eic' && '--map-nvidia-devices'", workflow)
+
     def results_eligible(self, needs, event='pull_request', repository='t-head/pccl',
                          head_repository='t-head/pccl', job='results'):
         condition = re.search(r'^    if: >-\n((?:      .+\n)+)', self.job(job), re.M).group(1)
@@ -129,6 +143,12 @@ class WorkflowContractTests(unittest.TestCase):
         self.assertNotIn('chmod -R a+rwX "$CACHE_DIR"', self.text)
         self.assertIn('--preserve-cache', self.text)
         self.assertIn('id: results-upload', self.text)
+        upload = self.text[self.text.index('id: results-upload'):]
+        upload = upload[:upload.index('- id: cleanup')]
+        self.assertIn('if: always()', upload)
+        self.assertIn('/results/**/raw.log', upload)
+        self.assertIn('/results/**/dmesg*.log', upload)
+        self.assertIn('if-no-files-found: warn', upload)
         self.assertIn('RESULTS_UPLOAD_OUTCOME', self.text)
         self.assertIn('[ "$PRESERVE" = 1 ]', self.text)
         self.assertNotIn('[[ "$PRESERVE" == 1 ]]', self.text)
@@ -258,13 +278,51 @@ class WorkflowContractTests(unittest.TestCase):
             with self.subTest(module=module):
                 self.assertIn(f"-p '{module}'", prepare)
 
+    def test_hpn_sdk_defaults_to_installation_and_reaches_every_hardware_step(self):
+        daily = (ROOT / '.github/workflows/pccl-daily-full.yml').read_text(encoding='utf-8')
+        url = ('https://zone-ci.oss-cn-hangzhou.aliyuncs.com/hpn-sdk/2.1.3/'
+               'hpnsdk2.1.3-ubuntu2404-202611121836-x86_64.bin')
+        for workflow in (self.text, daily):
+            self.assertIn('hpn_sdk_url:', workflow)
+            self.assertIn(f'default: {url}', workflow)
+            self.assertIn('  HPN_SDK_URL: ' + url, workflow)
+            self.assertNotIn('inputs.hpn_sdk_url', workflow)
+            self.assertIn('context.payload.inputs?.hpn_sdk_url || process.env.HPN_SDK_URL', workflow)
+            self.assertIn('hpn_sdk_url: ${{ steps.sdk-selection.outputs.hpn_sdk_url }}', workflow)
+            self.assertEqual(workflow.count('scripts/install_hpn_sdk.sh'), 4)
+            self.assertEqual(workflow.count('HPN_SDK_URL:?Selected HPN SDK URL'), 4)
+        self.assertIn('--image "$VALIDATION_IMAGE"', daily)
+        self.assertIn('--hpn-sdk-url "$HPN_SDK_URL"', daily)
+
+    def test_only_validated_public_sdk_selection_reaches_consumer_jobs(self):
+        workflows = ((self.text, ('build-standard', 'build-notsm', 'stage-cache',
+                                 'single-node', 'two-node', 'results')),
+                     ((ROOT / '.github/workflows/pccl-daily-full.yml').read_text(encoding='utf-8'),
+                      ('build-standard', 'stage-cache', 'execute', 'summary')))
+        scripts = []
+        for text, jobs in workflows:
+            script = text.split('        name: Select the public HPN SDK URL\n', 1)[1]
+            script = script.split('          script: |\n', 1)[1].split('      - ', 1)[0]
+            scripts.append(textwrap.dedent(script).strip())
+            self.assertIn('/[\\s?#@]/.test(selected)', script)
+            self.assertIn("core.setOutput('hpn_sdk_url', selected)", script)
+            self.assertIn("core.setFailed('HPN SDK URL must be a public", script)
+            self.assertNotIn('GITHUB_EVENT_PATH', script)
+            self.assertNotIn('secrets.', script)
+            for job in jobs:
+                block = text.split('  ' + job + ':\n', 1)[1]
+                block = re.split(r'^  [a-zA-Z0-9_-]+:', block, maxsplit=1, flags=re.MULTILINE)[0]
+                self.assertIn('      HPN_SDK_URL: ${{ needs.prepare.outputs.hpn_sdk_url }}', block)
+        self.assertEqual(scripts[0], scripts[1])
+
     def test_shared_build_is_cleaned_only_by_master_and_results_are_separate(self):
         self.assertIn('SHARED_ROOT=/mnt/wl_nas/devops/pccl-artifact-cache-${{ github.run_id }}/shared-standard/', self.text)
         self.assertIn('RESULT_ROOT=/mnt/wl_nas/devops/pccl-artifact-cache-${{ github.run_id }}/results/', self.text)
         start = self.text.index('cleanup_shared_build()')
         end = self.text.index('trap cleanup_shared_build EXIT', start)
         cleanup = self.text[start:end]
-        self.assertIn('rm -rf "$SHARED_ROOT"', cleanup)
+        self.assertNotIn('rm -rf "$SHARED_ROOT"', cleanup)
+        self.assertIn('rm -rf "$(dirname "$SHARED_ROOT")"', cleanup)
         self.assertNotIn('rm -rf "$RESULT_ROOT"', cleanup)
 
     def test_sanity_hardware_uses_the_validated_host_network_rdma_runtime(self):
@@ -287,7 +345,7 @@ class WorkflowContractTests(unittest.TestCase):
             self.assertIn('--mpi-interface "$MPI_INTERFACE"', section)
         self.assertIn("timeout -k 5s 30s cluster-ssh", cluster)
         self.assertIn('timeout -k 10s 60s mpirun --allow-run-as-root', cluster)
-        self.assertIn('rack_policy: same', cluster)
+        self.assertIn("rack_policy: ${{ matrix.platform == 'm890p' && 'same' || '' }}", cluster)
         self.assertNotIn('icn-rack=', self.text)
 
     def test_legacy_executor_and_experimental_triggers_are_absent(self):
@@ -323,11 +381,11 @@ class WorkflowContractTests(unittest.TestCase):
                          'filelock==4.2.10')
         action = 'uses: t-head/ci-infra/cluster-run@main'
         self.assertIn('VALIDATION_NODE_SELECTOR: board-type=ZW-M890P,nic-type=cx8', self.text)
-        for name in ('build-standard', 'build-notsm', 'single-node'):
+        for name in ('build-standard', 'build-notsm', 'single-node', 'two-node'):
             self.assertIn(action, self.job(name))
-        self.assertIn(action, self.job('two-node'))
         self.assertEqual(self.text.count(action), 4)
         self.assertNotIn('t-head/ci-infra/cluster-run@feat/rack-node-allocation', self.text)
+
 
 
 if __name__ == '__main__':

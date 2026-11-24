@@ -132,7 +132,7 @@ def _validate_group(results, inputs, identity):
 
 
 def load_selections(directory, cards_per_node=8):
-    """Reject any exported Case that the fixed CI resource layout cannot execute."""
+    """Reject Cases that exceed the maximum CI resource layout."""
     if type(cards_per_node) is not int or cards_per_node <= 0:
         raise ValueError("CI cards per node must be a positive integer")
     schedules = {"standard": ("standard", 1), "notsm": ("notsm", 1),
@@ -143,7 +143,7 @@ def load_selections(directory, cards_per_node=8):
                            if selected_profile == profile}
         for case in inputs["cases"]:
             suite = case["suite_spec"]
-            if suite["nodes"] not in supported_nodes or suite["cards_per_node"] != cards_per_node:
+            if suite["nodes"] not in supported_nodes or suite["cards_per_node"] > cards_per_node:
                 raise ValueError(
                     f"Unsupported CI resources for {'/'.join(_key(case))}: profile={profile}, "
                     f"nodes={suite['nodes']}, cards_per_node={suite['cards_per_node']}")

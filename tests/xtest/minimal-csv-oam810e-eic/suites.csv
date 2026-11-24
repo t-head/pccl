@@ -1,0 +1,9 @@
+plan,suite,nodes,cards_per_node,timeout,env
+pccl_810e_op_perf_eic_multi_node2_plan,op_perf_eic_810e_multi_nodes2_suite,2,2,300,op_perf.env
+pccl_810e_op_perf_single_node1_plan,op_perf_810e_single_node_suite,1,2,300,op_perf.env
+pccl_810e_pccl_fun_rdma_plan,pccl_fun_rdma_810e_multi_nodes2_suite,2,2,1800,op_perf.env
+pccl_810e_postsil_daily_single_node1_plan,postsil_daily_810e_single_node_suite,1,2,3600,op_perf.env
+pccl_810e_postsil_unit_test_single_node1_plan,postsil_unit_test_810e_single_node_suite,1,2,3600,op_perf.env
+pccl_810e_register_test_single_node1_plan,register_test_810e_single_node_suite,1,2,300,op_perf.env
+pccl_810e_sym_test_plan,sym_test_810e_single_node_suite,1,2,300,op_perf.env
+sanity_810e_single_node_plan,sanity_810e_register_suite,1,2,7200,sanity_m890p.env

@@ -12,10 +12,12 @@ import sys
 import tempfile
 
 import run_cases
+import platform_cases
 
 
 POLICY_EXCLUSION = "disabled by daily resource policy"
 SUPPORTED_NODE_COUNTS = frozenset((1, 2, 4, 8, 16))
+SUPPORTED_CARD_COUNTS = frozenset((1, 2, 4, 8, 16))
 CROSS_RACK_SUITES = {
     ("pccl_shm_op_perf_2_rack_icn8_plan", "op_perf_shm_2_rack_icn8_suite"): 2,
     ("pccl_shm_op_perf_2_rack_icn16_plan", "op_perf_shm_2_rack_icn16_suite"): 4,
@@ -24,31 +26,17 @@ CROSS_RACK_SUITES = {
 }
 
 
-def _validate_rack_policy(rack_policy, rack_count, nodes):
-    """Validate automatic rack placement without binding physical rack names."""
-    if rack_policy not in ("", "same", "spread"):
-        raise ValueError("rack_policy must be empty, same or spread")
-    if rack_policy != "spread":
-        if rack_count not in (None, ""):
-            raise ValueError("rack_count is valid only with rack_policy=spread")
-        return rack_policy, ""
-    if nodes < 2 or not isinstance(rack_count, int) or isinstance(rack_count, bool) or not 2 <= rack_count <= nodes:
-        raise ValueError("rack_count must be an integer between 2 and the Suite node count")
-    return rack_policy, rack_count
-
-
-def _rack_policy(case):
+def _rack_policy(case, platforms=None):
     key = (case["plan"], case["suite"])
-    allocation = CROSS_RACK_SUITES.get(key)
-    if allocation is None:
+    expected_nodes = CROSS_RACK_SUITES.get(key)
+    if expected_nodes is None:
         if "2_rack" in case["plan"] or "2_rack" in case["suite"]:
             raise ValueError(f"Cross-rack Suite has no reviewed rack policy: {key}")
-        nodes = case["suite_spec"]["nodes"]
-        return _validate_rack_policy("same" if nodes > 1 else "", "", nodes)
-    expected_nodes = allocation
+        return ("same", 1) if platform_cases.case_platform(
+            case, platforms) == platform_cases.DEFAULT_PLATFORM else ("", 0)
     if case["suite_spec"]["nodes"] != expected_nodes:
         raise ValueError(f"Cross-rack Suite has an unexpected node count: {key}")
-    return _validate_rack_policy("spread", 2, expected_nodes)
+    return "spread", 2
 
 
 def _write_csv(path, fields, rows):
@@ -58,11 +46,14 @@ def _write_csv(path, fields, rows):
         writer.writerows(rows)
 
 
-def build_plan(directory, max_cases, nodes=None, suite=None, allowed_nodes=None):
+def build_plan(directory, max_cases, nodes=None, suite=None, allowed_nodes=None, cards_per_node=None):
     if type(max_cases) is not int or max_cases <= 0:
         raise ValueError("max_cases must be a positive integer")
     if nodes is not None and (type(nodes) is not int or nodes not in SUPPORTED_NODE_COUNTS):
         raise ValueError("Node filter must be one of 1, 2, 4, 8, 16")
+    if cards_per_node is not None and (type(cards_per_node) is not int
+                                     or cards_per_node not in SUPPORTED_CARD_COUNTS):
+        raise ValueError("Card override must be one of 1, 2, 4, 8, 16")
     if allowed_nodes is not None:
         allowed_nodes = frozenset(allowed_nodes)
         if (not allowed_nodes or any(type(value) is not int or value <= 0 for value in allowed_nodes)):
@@ -77,6 +68,7 @@ def build_plan(directory, max_cases, nodes=None, suite=None, allowed_nodes=None)
     grouped = {}
     excluded = {}
     metadata = None
+    platforms = platform_cases.load_platforms()
     for profile in ("standard", "notsm"):
         try:
             selected = run_cases.load_inputs(directory, profile, nodes=nodes, suite=suite)
@@ -87,11 +79,14 @@ def build_plan(directory, max_cases, nodes=None, suite=None, allowed_nodes=None)
         metadata = selected["metadata"]
         for case in selected["cases"]:
             spec = case["suite_spec"]
-            rack_policy, rack_count = _rack_policy(case)
+            platform = platform_cases.case_platform(case, platforms)
+            rack_policy, rack_count = _rack_policy(case, platforms)
             if allowed_nodes is not None and spec["nodes"] not in allowed_nodes:
-                excluded.setdefault(spec["nodes"], []).append(case)
+                excluded.setdefault((platform, spec["nodes"]), []).append(case)
                 continue
-            key = (profile, spec["nodes"], spec["cards_per_node"], spec["env"], rack_policy, rack_count)
+            cards = platform_cases.allocation_cards_per_node(case, platform, platforms)
+            key = (platform, profile, spec["nodes"], cards, spec["env"],
+                   rack_policy, rack_count)
             grouped.setdefault(key, []).append(case)
     if metadata is None:
         raise ValueError("No Cases match the requested selection")
@@ -99,15 +94,18 @@ def build_plan(directory, max_cases, nodes=None, suite=None, allowed_nodes=None)
         raise ValueError("No Cases match the requested selection and resource policy")
     groups = []
     for key in sorted(grouped):
-        profile, group_nodes, cards, env, rack_policy, rack_count = key
+        platform, profile, group_nodes, cards, env, rack_policy, rack_count = key
         cases = sorted(grouped[key], key=lambda case: (case["plan"], case["suite"], case["name"]))
         for start in range(0, len(cases), max_cases):
             chunk = cases[start:start + max_cases]
             groups.append({
                 "id": f"g{len(groups) + 1:03d}",
                 "profile": profile,
+                "platform": platform,
+                "node_selector": platforms[platform]["node_selector"],
                 "nodes": group_nodes,
                 "cards_per_node": cards,
+                "effective_cards_per_node": cards if cards_per_node is None else cards_per_node,
                 "env": env,
                 "cross_rack": rack_policy == "spread",
                 "rack_policy": rack_policy,
@@ -116,10 +114,12 @@ def build_plan(directory, max_cases, nodes=None, suite=None, allowed_nodes=None)
                 "metadata": metadata,
             })
     exclusions = []
-    for node_count in sorted(excluded):
-        cases = sorted(excluded[node_count], key=lambda case: (case["plan"], case["suite"], case["name"]))
+    for platform, node_count in sorted(excluded):
+        cases = sorted(excluded[(platform, node_count)],
+                       key=lambda case: (case["plan"], case["suite"], case["name"]))
         exclusions.append({
             "nodes": node_count, "case_count": len(cases), "reason": POLICY_EXCLUSION,
+            "platform": platform,
             "case_keys": [[case["plan"], case["suite"], case["name"]] for case in cases],
         })
     return {"groups": groups, "exclusions": exclusions,
@@ -151,15 +151,23 @@ def write_groups(groups, output, input_directory, coverage=None):
         raise ValueError("Group output directory already exists")
     output.parent.mkdir(parents=True, exist_ok=True)
     temporary = Path(tempfile.mkdtemp(prefix=f".{output.name}.", dir=output.parent))
+    platforms = platform_cases.load_platforms()
     try:
         manifest = []
         for group in groups:
-            allocations = {_rack_policy(case) for case in group["cases"]}
+            cards = {platform_cases.allocation_cards_per_node(case, group["platform"], platforms)
+                     for case in group["cases"]}
+            if cards != {group["cards_per_node"]}:
+                raise ValueError("Execution group card allocation does not match its Cases")
+            effective_cards = group.get("effective_cards_per_node", group["cards_per_node"])
+            if type(effective_cards) is not int or effective_cards not in SUPPORTED_CARD_COUNTS:
+                raise ValueError("Effective card allocation must be one of 1, 2, 4, 8, 16")
+            allocations = {_rack_policy(case, platforms) for case in group["cases"]}
             if len(allocations) != 1:
-                raise ValueError("An execution group mixes different rack policies")
+                raise ValueError("An execution group mixes different rack allocations")
             rack_policy, rack_count = allocations.pop()
             if (group.get("rack_policy", "") != rack_policy
-                    or group.get("rack_count", "") != rack_count
+                    or group.get("rack_count", 0) != rack_count
                     or group.get("cross_rack", rack_policy == "spread") is not (rack_policy == "spread")):
                 raise ValueError("Execution group rack metadata does not match its Cases")
             directory = temporary / group["id"]
@@ -179,7 +187,9 @@ def write_groups(groups, output, input_directory, coverage=None):
                             directory / "envs" / group["env"])
             manifest.append({
                 "id": group["id"], "profile": group["profile"], "nodes": group["nodes"],
+                "platform": group["platform"], "node_selector": group["node_selector"],
                 "cards_per_node": group["cards_per_node"], "env": group["env"],
+                "effective_cards_per_node": effective_cards,
                 "cross_rack": rack_policy == "spread",
                 "rack_policy": rack_policy, "rack_count": rack_count,
                 "case_count": len(group["cases"]),
@@ -210,12 +220,13 @@ def main():
     parser.add_argument("--nodes", type=int)
     parser.add_argument("--suite")
     parser.add_argument("--allowed-nodes", help="Comma-separated node counts allowed by resource policy")
+    parser.add_argument("--cards-per-node", type=int, help="Debug scheduler allocation override; Case layouts are unchanged")
     args = parser.parse_args()
     try:
         allowed = (None if args.allowed_nodes is None else
                    {int(value) for value in args.allowed_nodes.split(",")})
         plan = build_plan(args.input, args.max_cases, nodes=args.nodes,
-                          suite=args.suite, allowed_nodes=allowed)
+                          suite=args.suite, allowed_nodes=allowed, cards_per_node=args.cards_per_node)
         write_plan(plan, args.output, args.input)
     except (OSError, ValueError) as error:
         parser.error(str(error))
