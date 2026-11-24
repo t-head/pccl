@@ -1,13 +1,22 @@
-name: Read-only host RDMA module inventory
+name: Read-only lsmod check on previously failing workers
 on:
   workflow_dispatch:
 permissions:
   contents: read
 concurrency:
-  group: rdma-host-module-audit-${{ github.ref }}
+  group: rdma-lsmod-check-${{ github.ref }}
   cancel-in-progress: false
 jobs:
-  diagnose:
+  check:
+    name: Loaded module check on worker ${{ matrix.worker.id }}
+    strategy:
+      fail-fast: false
+      matrix:
+        worker:
+          - id: '20'
+            hostname: na131g-m890-20.eng.t-head.cn
+          - id: '04'
+            hostname: na131g-m890-04.eng.t-head.cn
     runs-on: k8s-runner-group-cpu-thead
     container:
       image: ghcr.io/actions/actions-runner:latest
@@ -17,78 +26,40 @@ jobs:
         with:
           path: pccl
           persist-credentials: false
-      - name: Inspect host modules without loading drivers
+      - name: Run the requested lsmod and grep check
         uses: t-head/ci-infra/cluster-run@5d01766a74ca02a90bf257f24e741dbdab42d004
         with:
           image: download.t-head.cn/docker_release/ppu:sdk2.2.0-hggcrt3-ubuntu24.04-py312-20261005
           launch_mode: master
-          nnodes: 2
+          nnodes: 1
           nproc_per_node: 1
-          node_selector: board-type=ZW-M890P,nic-type=cx8
-          rack_policy: spread
-          rack_count: 2
+          node_selector: board-type=ZW-M890P,nic-type=cx8,kubernetes.io/hostname=${{ matrix.worker.hostname }}
           namespace: ppu-sched
           timeout_minutes: 10
           cleanup_policy: always
           container_options: |
-            privileged: true
+            privileged: false
             cpus: 2
-            memory: 4Gi
+            memory: 2Gi
             host_network: true
             dns_policy: ClusterFirstWithHostNet
-          host_volumes: /:/host-inspect,/dev/infiniband:/dev/infiniband
-          setup_command: |
+          command: |
             set -euo pipefail
-            source /usr/local/PPU_SDK/envsetup.sh
             umask 022
-            export UMD_PLATFORM_TYPE=1
-            export HWLOC_COMPONENTS=-gl
-            ulimit -l unlimited
-            ulimit -s 65536
-            root=/mnt/wl_nas/devops/pccl-rdma-host-modules-${{ github.run_id }}
-            # The pinned Action only supports writable hostPath inputs. Make
-            # this bind read-only in the Pod mount namespace before any audit.
-            mount -o remount,bind,ro /host-inspect
-            if ! command -v modinfo >/dev/null; then
+            if ! command -v lsmod >/dev/null; then
               apt-get update
               apt-get install -y --no-install-recommends kmod
             fi
-            # kmod is installed in this ephemeral container, not on the host.
-            mkdir -p "$root/diagnostics"
-            timeout --signal=TERM --kill-after=5s 180s python3 \
-              "$SOURCE_DIR/pccl/tests/xtest/experiments/rdma_host_module_audit.py" \
-              --host-root /host-inspect \
-              --output "$root/diagnostics/host-worker-${NODE_RANK}.json" \
-              > "$root/diagnostics/host-worker-${NODE_RANK}.log" 2>&1
-          command: |
-            set -euo pipefail
-            source /usr/local/PPU_SDK/envsetup.sh
-            umask 022
-            export DIAGNOSTIC_ROOT=/mnt/wl_nas/devops/pccl-rdma-host-modules-${{ github.run_id }}
-            python3 - <<'PY'
-            import json
-            import os
-            from pathlib import Path
-            root=Path(os.environ['DIAGNOSTIC_ROOT'])
-            reports=[]
-            for rank in (0, 1):
-                path=root/'diagnostics'/f'host-worker-{rank}.json'
-                reports.append(json.loads(path.read_text()))
-            (root/'summary.json').write_text(json.dumps({
-                'inspection_completed': True, 'read_only': True,
-                'reports': reports}, indent=2)+'\n')
-            for report in reports:
-                print(report['hostname'], 'loaded=', sorted(report['loaded_modules']),
-                      'module_files=', len(report['module_files']),
-                      'errors=', report['errors'])
-            PY
-      - name: Preserve diagnostic evidence
+            # Tools are installed only in this ephemeral container. This Pod
+            # has no SYS_MODULE capability and never mounts the host root.
+            export TARGET_HOSTNAME='${{ matrix.worker.hostname }}'
+            bash "$SOURCE_DIR/pccl/tests/xtest/experiments/check_peermem_loaded.sh" \
+              /mnt/wl_nas/devops/pccl-lsmod-${{ github.run_id }}/${{ matrix.worker.id }}
+      - name: Preserve the literal command result
         if: always()
         uses: actions/upload-artifact@v4
         with:
-          name: rdma-host-module-inventory
-          path: |
-            /wl_nas/devops/pccl-rdma-host-modules-${{ github.run_id }}/summary.json
-            /wl_nas/devops/pccl-rdma-host-modules-${{ github.run_id }}/diagnostics/
+          name: rdma-lsmod-worker-${{ matrix.worker.id }}
+          path: /wl_nas/devops/pccl-lsmod-${{ github.run_id }}/${{ matrix.worker.id }}/
           retention-days: 90
           if-no-files-found: warn
