@@ -1,0 +1,17 @@
+{
+  "classification": {
+    "base_sha": "c014efd792a7784724a4538760795122b7e39818",
+    "head_sha": "a05dffdaef9f80c084fec48ddddc74f85420f97e",
+    "input_fingerprint": "64838b9287bcabd0db3c484723a37c7b6b73fb5f56dffeb742346b86da3cc8d6",
+    "pr_number": 48,
+    "proposal": {
+      "modules": [
+        "network"
+      ],
+      "reason": "Main functional change is in the IB network backend and proxy progress path: QP-per-request selection now depends on advertised receive capacity plus a new IB_SPLIT_SIZE_THRESHOLD parameter, with matching send/recv logic and proxy local-rank caching updates. These are network transport/proxy behavior changes, not an independent change in another module."
+    }
+  },
+  "reviewers": {
+    "network": 341353320
+  }
+}
