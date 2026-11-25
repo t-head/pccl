@@ -18,9 +18,11 @@
 #include <sys/types.h>
 #include <unistd.h>
 #include <pthread.h>
+#include <pwd.h>
 
 const char* userHomeDir() {
-  return getenv("HOME");
+  struct passwd* pwUser = getpwuid(getuid());
+  return pwUser == nullptr ? nullptr : pwUser->pw_dir;
 }
 
 void setEnvFile(const char* fileName) {

@@ -83,7 +83,7 @@ struct alignas(16) ncclSymkDevWork {
   struct ncclWindow_vidmem* inputWin, *outputWin;
   size_t inputOff, outputOff;
   int rootRank;
-  uint64_t sChannelId:16, nChannels:16, padding:32;
+  uint64_t sChannelId:16, nChannels:16, pcclAccPrecisionInc:1, padding:31;
 };
 
 struct alignas(16) ncclSymkDevWorkArgs {
@@ -127,6 +127,7 @@ typedef enum {
 // Initialize symmetric kernel state (lazy, on first symk-eligible task)
 ncclResult_t ncclSymkInitOnce(struct pcclComm* comm);
 ncclResult_t ncclSymkFinalize(struct pcclComm* comm);
+int64_t pcclParamSymKernelId();
 
 // Check if a collective operation can use the symmetric kernel path
 bool ncclSymkAvailable(struct pcclComm* comm, ncclFunc_t coll, int/*ncclDevRedOp_t*/ red,

@@ -1689,8 +1689,17 @@ static ncclResult_t scheduleCollTasksToPlan(ncclComm_t comm, struct ncclKernelPl
       channelUsed += info.nChannels;
     }
     if (!plan->usingExtKernel) {
+      if (plan->nWorkBatches == 0) {
+        int maxChannels = ncclDevMaxChannelsForArgsBytes(comm->workArgsBytes);
+        info.nChannels = std::min(info.nChannels, maxChannels);
+        if (maxChannels < comm->nChannels) comm->lastChannel = 0;
+      }
       // Ensure room for worst case of one new batch per channel
       if (!testBudget(budget, plan->nWorkBatches + info.nChannels, plan->workBytes + workNode->size)) {
+        if (plan->nWorkBatches == 0) {
+          WARN("Kernel planning budget cannot hold one collective work");
+          return ncclInvalidArgument;
+        }
         return ncclSuccess;
       }
 

@@ -238,4 +238,9 @@ template<> struct ncclSymkAccumType<FuncSum, __hg_fp8_e5m2, false> { using Type 
 template<> struct ncclSymkAccumType<FuncSumPostDiv, __hg_fp8_e4m3, false> { using Type = __half; };
 template<> struct ncclSymkAccumType<FuncSumPostDiv, __hg_fp8_e5m2, false> { using Type = __half; };
 #endif
+
+template<template<typename> class Red, typename T>
+struct pcclSymkAccumType : ncclSymkAccumType<Red, T> {};
+template<typename T>
+struct pcclSymkAccumType<FuncSum, T> { using Type = T; };
 #endif

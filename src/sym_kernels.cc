@@ -98,6 +98,28 @@ static uint32_t kernelMask_coll(ncclFunc_t coll) {
   }
 }
 
+PCCL_PARAM(SymKernelId, "SYM_KERNEL_ID", -1);
+
+static uint32_t kernelMask_legacy(uint32_t mask) {
+  if (mask == 0xffu) return (1u << ncclSymkKernelId_Count) - 1;
+  // Legacy mask positions are independent of the device API kernel IDs.
+  constexpr uint32_t mapping[] = {
+    1u << ncclSymkKernelId_AllReduce_AGxLL_R,
+    1u << ncclSymkKernelId_AllReduce_RSxLD_AGxST,
+    1u << ncclSymkKernelId_AllGather_LL,
+    1u << ncclSymkKernelId_AllGather_ST,
+    0, 0,
+    1u << ncclSymkKernelId_ReduceScatter_LL,
+    1u << ncclSymkKernelId_ReduceScatter_LD
+  };
+  uint32_t got = 0;
+  for (unsigned k = 0; k < sizeof(mapping)/sizeof(mapping[0]); k++) {
+    if (mask & (1u << k)) got |= mapping[k];
+  }
+  if (mask & 0x30u) WARN("PCCL_SYM_KERNEL_ID requests unsupported AllGather ST_Ring/ST_2D mask bits");
+  return got;
+}
+
 static uint32_t kernelMask_user() {
   static uint32_t cache = -1u;
   uint32_t got = COMPILER_ATOMIC_LOAD(&cache, std::memory_order_relaxed);
@@ -115,14 +137,17 @@ static uint32_t kernelMask_user() {
           break;
         }
       }
+      if (got == 0 && name[0] != '\0') WARN("PCCL_SYM_KERNEL=%s is not a supported kernel name", name);
     }
     COMPILER_ATOMIC_STORE(&cache, got, std::memory_order_relaxed);
   }
-  return got;
+  int64_t legacyMask = pcclParamSymKernelId();
+  return legacyMask >= 0 ? kernelMask_legacy(uint32_t(legacyMask)) : got;
 }
 
 NCCL_PARAM(SymCTAs, "SYM_CTAS", 0)
-NCCL_PARAM(SymGinKernelsEnable, "SYM_GIN_KERNELS_ENABLE", 1)
+PCCL_PARAM(SymWarps, "SYM_WARPS", 0)
+NCCL_PARAM(SymGinKernelsEnable, "SYM_GIN_KERNELS_ENABLE", 0)
 DEFINE_PCCL_PARAM(pcclParamSymTmaEnable, int64_t, PCCL_SYM_TMA_ENABLE, 0,
                   PCCL_PARAM_FLAG_CACHED, PCCL_PARAM_DEFAULT, "TMA symmetric kernels");
 int64_t ncclParamSymTmaEnable() { return pcclParamSymTmaEnable(); }
@@ -401,7 +426,9 @@ ncclResult_t ncclSymkPickKernel(
           kmask &= ~kernelMask_LL;
         break;
       case ncclFuncAllGather:
-        if (comm->nRanks > 2 && nBusBytes <= (size_t(1)<<19)) kmask &= kernelMask_LL;
+        if (comm->nRanks > 2 &&
+            nBusBytes <= (size_t(1) << (comm->nRanks == 4 ? 18 : 19)))
+          kmask &= kernelMask_LL;
         break;
       case ncclFuncReduceScatter:
         if (nActualBytes <= (size_t(1)<<17)) kmask &= kernelMask_LL;
@@ -436,7 +463,13 @@ ncclResult_t ncclSymkPickKernel(
   *estTimeUs = bestKernel == ncclSymkKernelId_Count ||
                kernelMask_user() == (1<<ncclSymkKernelId_Count)-1 ? bestTime : 0.0f;
   *nBlocks = bestBlocks;
-  *nWarps = 16;
+  constexpr int maxWarps = ncclSymkMaxThreads/WARP_SIZE;
+  int64_t userWarps = pcclParamSymWarps();
+  *nWarps = userWarps > 0 && userWarps <= maxWarps ? int(userWarps) : maxWarps;
+  if (bestKernel != ncclSymkKernelId_Count && (kernelMask_LL & (1u << bestKernel)) && *nWarps != maxWarps) {
+    WARN("PCCL_SYM_WARPS=%d is unsupported by LL kernels; using %d warps", *nWarps, maxWarps);
+    *nWarps = maxWarps;
+  }
   return ncclSuccess;
 }
 

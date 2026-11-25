@@ -10,13 +10,6 @@
 #include "symmetric/kernel.cuh"
 #include "symmetric/primitives.cuh"
 
-namespace {
-template<template<typename> class Red, typename T>
-struct pcclSymkArBulkAccumType : ncclSymkAccumType<Red, T> {};
-template<> struct pcclSymkArBulkAccumType<FuncSum, __half> { using Type = __half; };
-template<> struct pcclSymkArBulkAccumType<FuncSum, __ppu_bfloat16> { using Type = __ppu_bfloat16; };
-}
-
 template<int BytePerPack, int UnrollPacks, int UnrollPeers, typename T, class Red>
 static __device__ __forceinline__ void allreduceDeep(
     pcclSymkPrims& prim, int tn, int t, bool waitNeeded,
@@ -274,8 +267,10 @@ __device__ __forceinline__ void ncclSymkRun_AllReduce_RSxLD_AGxST(ncclSymkDevWor
   ncclSymkArgsHandler handler{args};
   ncclLsaBarrierSession<ncclCoopCta> bar{ncclCoopCta(), handler.comm, ncclTeamTagLsa(), blockIdx.x};
   pcclSymkPrims prim(handler.comm, bar);
-  using Acc = typename pcclSymkArBulkAccumType<Red, T>::Type;
+  using Acc = typename pcclSymkAccumType<Red, T>::Type;
+  using AccWide = typename ncclSymkAccumType<Red, T>::Type;
   Red<Acc> red(handler.devWork->redOpArg);
+  Red<AccWide> redWide(handler.devWork->redOpArg);
   int rank = handler.comm.rank;
   int nRanks = handler.comm.nRanks;
   bar.arrive(ncclCoopCta(), hggc::memory_order_relaxed);
@@ -286,7 +281,11 @@ __device__ __forceinline__ void ncclSymkRun_AllReduce_RSxLD_AGxST(ncclSymkDevWor
                        rank, nRanks, block, nBlocks,
                        threadIdx.x/WARP_SIZE, blockDim.x/WARP_SIZE);
     int gtn = nRanks*nBlocks*blockDim.x;
-    allreduce<Red<Acc>, T>(prim, gtn, gt, waitNeeded, red, input, output, nElts);
+    if (handler.devWork->pcclAccPrecisionInc) {
+      allreduce<Red<AccWide>, T>(prim, gtn, gt, waitNeeded, redWide, input, output, nElts);
+    } else {
+      allreduce<Red<Acc>, T>(prim, gtn, gt, waitNeeded, red, input, output, nElts);
+    }
     waitNeeded = false;
   });
   bar.sync(ncclCoopCta(), hggc::memory_order_release);
@@ -298,7 +297,7 @@ __device__ __forceinline__ void ncclSymkRun_AllReduce_AGxLL_R(ncclSymkDevWorkArg
   pcclSymkLLa2ASession lla2a(handler.comm, handler.lsaLLA2A, blockIdx.x);
   int rank = handler.comm.rank;
   int nRanks = handler.comm.nRanks;
-  using Acc = typename ncclSymkAccumType<Red, T>::Type;
+  using Acc = typename pcclSymkAccumType<Red, T>::Type;
   Red<Acc> red(handler.devWork->redOpArg);
 
   using Pack = BytePack<8>;
@@ -323,9 +322,14 @@ __device__ __forceinline__ void ncclSymkRun_AllReduce_AGxLL_R(ncclSymkDevWorkArg
         int nIterPacks = min(nPacks, tn);
         Pack inp = loadPack<Pack>((Pack*)input, t, nPacks);
         lla2a.bcast(nIterPacks*rank + t, inp);
-        AccPack acc = lla2a.template recvReduce<8, Pack>(t, nRanks, nIterPacks,
-            [&](Pack x)->AccPack { return applyCast<T, Acc>(x); },
-            [&](AccPack a, AccPack b)->AccPack { return applyReduce(red, a, b); });
+        auto toAcc = [&](Pack x)->AccPack { return applyCast<T, Acc>(x); };
+        auto reduceAcc = [&](AccPack a, AccPack b)->AccPack { return applyReduce(red, a, b); };
+        AccPack acc;
+        if (sizeof(T) < 4 && sizeof(Acc) == sizeof(T) && nRanks == 2) {
+          acc = lla2a.template recvReduce<2, Pack>(t, nRanks, nIterPacks, toAcc, reduceAcc);
+        } else {
+          acc = lla2a.template recvReduce<8, Pack>(t, nRanks, nIterPacks, toAcc, reduceAcc);
+        }
         Pack out = applyCast<Acc, T>(acc);
         storePack((Pack*)output, t, nPacks, out);
       }
@@ -342,9 +346,14 @@ __device__ __forceinline__ void ncclSymkRun_AllReduce_AGxLL_R(ncclSymkDevWorkArg
         int nIterPacks = min(nPacks, tn);
         Pack inp = loadPack<Pack>(input, t*EltPerPack, nElts);
         lla2a.bcast(nIterPacks*rank + t, inp);
-        AccPack acc = lla2a.template recvReduce<8, Pack>(t, nRanks, nIterPacks,
-            [&](Pack x)->AccPack { return applyCast<T, Acc>(x); },
-            [&](AccPack a, AccPack b)->AccPack { return applyReduce(red, a, b); });
+        auto toAcc = [&](Pack x)->AccPack { return applyCast<T, Acc>(x); };
+        auto reduceAcc = [&](AccPack a, AccPack b)->AccPack { return applyReduce(red, a, b); };
+        AccPack acc;
+        if (sizeof(T) < 4 && sizeof(Acc) == sizeof(T) && nRanks == 2) {
+          acc = lla2a.template recvReduce<2, Pack>(t, nRanks, nIterPacks, toAcc, reduceAcc);
+        } else {
+          acc = lla2a.template recvReduce<8, Pack>(t, nRanks, nIterPacks, toAcc, reduceAcc);
+        }
         Pack out = applyCast<Acc, T>(acc);
         storePack(output, t*EltPerPack, nElts, out);
       }

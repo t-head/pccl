@@ -10,15 +10,6 @@
 #include "symmetric/kernel.cuh"
 #include "symmetric/primitives.cuh"
 
-namespace {
-template<template<typename> class Red, typename T>
-struct pcclSymkRsBulkAccumType : ncclSymkAccumType<Red, T> {};
-#if (defined __HGGC_ARCH__) && (__HGGC_ARCH__ >= 150) && defined(__HGGC_FP8_TYPES_EXIST__)
-template<> struct pcclSymkRsBulkAccumType<FuncSum, __hg_fp8_e4m3> { using Type = __hg_fp8_e4m3; };
-template<> struct pcclSymkRsBulkAccumType<FuncSum, __hg_fp8_e5m2> { using Type = __hg_fp8_e5m2; };
-#endif
-}
-
 template<int BytePerPack, int UnrollPacks, int UnrollPeers, typename T, typename Red>
 static __device__ void reduceDeep(
     pcclSymkPrims& prim, int tn, int t, bool waitNeeded,
@@ -246,8 +237,10 @@ __device__ __forceinline__ void ncclSymkRun_ReduceScatter_LD(ncclSymkDevWorkArgs
   ncclSymkArgsHandler handler{args};
   ncclLsaBarrierSession<ncclCoopCta> bar{ncclCoopCta(), handler.comm, ncclTeamTagLsa(), blockIdx.x};
   pcclSymkPrims prim(handler.comm, bar);
-  using Acc = typename pcclSymkRsBulkAccumType<Red, T>::Type;
+  using Acc = typename pcclSymkAccumType<Red, T>::Type;
+  using AccWide = typename ncclSymkAccumType<Red, T>::Type;
   Red<Acc> red(handler.devWork->redOpArg);
+  Red<AccWide> redWide(handler.devWork->redOpArg);
   int rank = handler.comm.rank;
   bar.arrive(ncclCoopCta(), hggc::memory_order_relaxed);
   bool waitNeeded = true;
@@ -256,8 +249,13 @@ __device__ __forceinline__ void ncclSymkRun_ReduceScatter_LD(ncclSymkDevWorkArgs
     int t = flattenIx(threadIdx.x%WARP_SIZE, WARP_SIZE,
                       block, nBlocks, threadIdx.x/WARP_SIZE, blockDim.x/WARP_SIZE);
     int tn = nBlocks*blockDim.x;
-    reduce<Red<Acc>, T>(prim, tn, t, waitNeeded, red,
-                       input + rank*nAllElts, output.localPtr(), nElts);
+    if (handler.devWork->pcclAccPrecisionInc) {
+      reduce<Red<AccWide>, T>(prim, tn, t, waitNeeded, redWide,
+                            input + rank*nAllElts, output.localPtr(), nElts);
+    } else {
+      reduce<Red<Acc>, T>(prim, tn, t, waitNeeded, red,
+                         input + rank*nAllElts, output.localPtr(), nElts);
+    }
     waitNeeded = false;
   });
   bar.sync(ncclCoopCta(), hggc::memory_order_relaxed);
@@ -297,9 +295,16 @@ __device__ __forceinline__ void ncclSymkRun_ReduceScatter_LL_body(
     if (t < nIterPacks) {
       using Acc = typename Red::EltType;
       using AccPack = BytePack<8*sizeof(Acc)/sizeof(T)>;
-      AccPack got = lla2a.template recvReduce<8, Pack>(t, nRanks, nIterPacks,
-          [&](Pack x)->AccPack { return applyCast<T, Acc>(x); },
-          [&](AccPack a, AccPack b)->AccPack { return applyReduce(red, a, b); });
+      auto toAcc = [&](Pack x)->AccPack { return applyCast<T, Acc>(x); };
+      auto reduceAcc = [&](AccPack a, AccPack b)->AccPack { return applyReduce(red, a, b); };
+      AccPack got;
+      if (sizeof(T) < 4 && sizeof(Acc) == sizeof(T) && nRanks == 2) {
+        got = lla2a.template recvReduce<2, Pack>(t, nRanks, nIterPacks, toAcc, reduceAcc);
+      } else if (sizeof(T) == 1 && sizeof(Acc) == sizeof(T) && nRanks == 4) {
+        got = lla2a.template recvReduce<4, Pack>(t, nRanks, nIterPacks, toAcc, reduceAcc);
+      } else {
+        got = lla2a.template recvReduce<8, Pack>(t, nRanks, nIterPacks, toAcc, reduceAcc);
+      }
       storePack(output, t*EltPerPack, nElts, applyCast<Acc, T>(applyPostOp(red, got)));
     }
     lla2a.endEpoch(cta);
@@ -314,7 +319,7 @@ template<template<typename> class Red, typename T>
 __device__ __forceinline__ void ncclSymkRun_ReduceScatter_LL(ncclSymkDevWorkArgs const* args) {
   ncclSymkArgsHandler handler{args};
   pcclSymkLLa2ASession lla2a(handler.comm, handler.lsaLLA2A, blockIdx.x);
-  Red<typename ncclSymkAccumType<Red, T>::Type> red(handler.devWork->redOpArg);
+  Red<typename pcclSymkAccumType<Red, T>::Type> red(handler.devWork->redOpArg);
   using Pack = BytePack<8>;
   constexpr int EltPerPack = 8/sizeof(T);
   handler.singleWork<T>([&](size_t nElts, size_t nAllElts,

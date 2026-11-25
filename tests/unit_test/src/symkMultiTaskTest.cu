@@ -745,9 +745,11 @@ static int checkFirstP2pDma(bool failInitialization = false) {
 
 static int checkBudgetContract(bool graphMode) {
   HG_CHECK(hggcSetDevice(rankId));
-  size_t budget = ncclSymkDevWorkArgs::calcArgsSize(MAXCHANNELS, 0);
+  size_t budget = 128;
   std::string budgetText = std::to_string(budget);
   setenv("PCCL_WORK_ARGS_BYTES", budgetText.c_str(), 1);
+  setenv("PCCL_MIN_NCHANNELS", "8", 1);
+  setenv("PCCL_MAX_NCHANNELS", "8", 1);
   setenv("PCCL_SYM_KERNEL", "AllReduce_RSxLD_AGxST", 1);
   setenv("PCCL_STATE_MONITOR_DISABLE", "0", 1);
   setenv("PCCL_STATE_MONITOR_LEVEL", "1", 1);
@@ -770,33 +772,42 @@ static int checkBudgetContract(bool graphMode) {
   hggcStream_t stream;
   HG_CHECK(hggcStreamCreate(&stream));
   uint64_t before = comm->kernelNum;
-  auto* planCell = comm->memPool_ncclKernelPlan.head;
-  int refs = comm->localPersistentRefs;
   hggcGraph_t graph = nullptr;
+  hggcGraphExec_t executable = nullptr;
   if (graphMode) HG_CHECK(hggcStreamBeginCapture(stream, hggcStreamCaptureModeThreadLocal));
   PC_CHECK(pcclGroupStart());
   PC_CHECK(pcclAllReduce(input, output, 1024, pcclFloat32, pcclSum, comm, stream));
-  pcclResult_t rejected = pcclGroupEnd();
+  pcclResult_t result = pcclGroupEnd();
+  PC_CHECK(result);
   if (graphMode) {
     HG_CHECK(hggcStreamEndCapture(stream, &graph));
-    if (graph) HG_CHECK(hggcGraphDestroy(graph));
+    HG_CHECK(hggcGraphInstantiate(&executable, graph, nullptr, nullptr, 0));
+    HG_CHECK(hggcGraphLaunch(executable, stream));
   }
-  bool ok = rejected == pcclInvalidArgument && comm->kernelNum == before &&
-            comm->memPool_ncclKernelPlan.head == planCell && comm->localPersistentRefs == refs &&
-            ncclIntruQueueEmpty(&comm->planner.planQueue) &&
+  HG_CHECK(hggcStreamSynchronize(stream));
+  if (graphMode) {
+    HG_CHECK(hggcGraphExecDestroy(executable));
+    HG_CHECK(hggcGraphDestroy(graph));
+  }
+  HG_CHECK(hggcMemcpy(values.data(), output, 4096, hggcMemcpyDeviceToHost));
+  bool ok = comm->kernelNum > before && ncclIntruQueueEmpty(&comm->planner.planQueue) &&
             ncclIntruQueueEmpty(&comm->planner.collTaskQueue) &&
             ncclIntruQueueEmpty(&comm->planner.collSymTaskQueue) && comm->planner.nTasksColl == 0;
+  float sum = float(ranks*(ranks + 1)/2);
+  for (float value : values) ok &= value == sum;
+  auto const& sumPlan = comm->kernelInfoMonitorPtr[(comm->kernelNum - 1)%pcclDevKernelArgsFifoDepth()];
+  ok &= !sumPlan.isSymColl && sumPlan.argsBytes <= budget;
   if (!ok) MPI_Abort(MPI_COMM_WORLD, 4);
-  // The same low-budget communicator must still execute an ineligible legacy operation.
+  uint64_t productBefore = comm->kernelNum;
   PC_CHECK(pcclAllReduce(input, output, 1024, pcclFloat32, pcclProd, comm, stream));
   HG_CHECK(hggcStreamSynchronize(stream));
   HG_CHECK(hggcMemcpy(values.data(), output, 4096, hggcMemcpyDeviceToHost));
   float expected = 1;
   for (int peer = 1; peer <= ranks; peer++) expected *= peer;
   for (float value : values) ok &= value == expected;
-  ok &= comm->kernelNum > before;
   auto const& last = comm->kernelInfoMonitorPtr[(comm->kernelNum - 1)%pcclDevKernelArgsFifoDepth()];
-  ok &= !last.isSymColl && last.argsBytes <= sizeof(ncclDevKernelArgs4K);
+  ok &= comm->kernelNum > productBefore && !last.isSymColl && last.argsBytes <= budget &&
+        ncclIntruQueueEmpty(&comm->planner.planQueue);
   int failed = !ok, wrong = 0;
   MPI_Allreduce(&failed, &wrong, 1, MPI_INT, MPI_SUM, MPI_COMM_WORLD);
   HG_CHECK(hggcStreamDestroy(stream));
@@ -805,8 +816,8 @@ static int checkBudgetContract(bool graphMode) {
   PC_CHECK(pcclMemFree(input));
   PC_CHECK(pcclMemFree(output));
   PC_CHECK(pcclCommDestroy(comm));
-  if (rankId == 0) printf("SYMK_BUDGET_REJECT graph=%d budget=%zu status=%d recovery=legacy wrong=%d\n",
-                           int(graphMode), budget, int(rejected), wrong);
+  if (rankId == 0) printf("SYMK_BUDGET_LEGACY graph=%d budget=%zu status=%d wrong=%d\n",
+                           int(graphMode), budget, int(result), wrong);
   return wrong ? 1 : 0;
 }
 

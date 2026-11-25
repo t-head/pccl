@@ -25,6 +25,7 @@
 #include "mnnvl.h"
 #include "u2mm.h"
 #include "utils.h"
+#include "param/utils.h"
 #include "gin.h"
 #include "mem_manager.h"
 #include <fcntl.h>
@@ -40,8 +41,6 @@
 #include "asyswrap.h"
 #include <signal.h>
 #include <atomic>
-#include <mutex>
-#include <errno.h>
 #include "check_items.h"
 #include "hgtx.h"
 #include "hgtx_payload_schemas.h"
@@ -66,19 +65,24 @@ PCCL_PARAM(DisableAbort, "DISABLE_ABORT", 0);
 NCCL_PARAM(CommBlocking, "COMM_BLOCKING", PCCL_CONFIG_UNDEF_INT);
 NCCL_PARAM(RuntimeConnect, "RUNTIME_CONNECT", 1);
 static int64_t ncclParamCtaPolicy() {
-  static int64_t policy = PCCL_CONFIG_UNDEF_INT;
-  static std::once_flag once;
-  std::call_once(once, [] {
-    const char* value = ncclGetEnv("PCCL_CTA_POLICY");
-    if (value == nullptr) return;
-    if ((value[0] >= '0' && value[0] <= '9') || value[0] == '+' || value[0] == '-') {
-      char* end;
-      errno = 0;
-      int64_t numeric = strtoll(value, &end, 10);
-      if (errno == 0 && end != value && *end == '\0' && numeric >= PCCL_CTA_POLICY_DEFAULT &&
-          numeric <= (PCCL_CTA_POLICY_EFFICIENCY | PCCL_CTA_POLICY_ZERO)) policy = numeric;
-      return;
+  static int64_t cache = INT64_MIN;
+  bool noCache = pcclParamIsCacheDisabled("PCCL_CTA_POLICY");
+  int64_t policy = __atomic_load_n(&cache, __ATOMIC_RELAXED);
+  if (!noCache && policy != INT64_MIN) return policy;
+  policy = PCCL_CONFIG_UNDEF_INT;
+  const char* value = ncclGetEnv("PCCL_CTA_POLICY");
+  const char* whitespace = " \t\n\r\f\v";
+  if (value != nullptr) value += strspn(value, whitespace);
+  if (value != nullptr && ((value[0] >= '0' && value[0] <= '9') || value[0] == '+' || value[0] == '-')) {
+    char* end;
+    errno = 0;
+    int64_t numeric = strtoll(value, &end, 0);
+    if (errno == 0 && end != value && end[strspn(end, whitespace)] == '\0') {
+      policy = numeric == PCCL_CONFIG_UNDEF_INT ? PCCL_CONFIG_UNDEF_INT
+             : numeric >= PCCL_CTA_POLICY_DEFAULT && numeric <= (PCCL_CTA_POLICY_EFFICIENCY | PCCL_CTA_POLICY_ZERO)
+                 ? numeric : PCCL_CTA_POLICY_DEFAULT;
     }
+  } else if (value != nullptr) {
     for (const char* token = value; *token != '\0';) {
       const char* end = strchr(token, '|');
       size_t len = end == nullptr ? strlen(token) : size_t(end - token);
@@ -92,7 +96,8 @@ static int64_t ncclParamCtaPolicy() {
       if (end == nullptr) break;
       token = end + 1;
     }
-  });
+  }
+  if (!noCache) __atomic_store_n(&cache, policy, __ATOMIC_RELAXED);
   return policy;
 }
 NCCL_PARAM(WinEnable, "WIN_ENABLE", 1);
@@ -1496,7 +1501,7 @@ static ncclResult_t initTransportsRank(ncclComm_t comm, ncclComm_t parent, uint6
   allGather3Data[rank].nGraphChannels = comm->nGraphChannels;
   allGather3Data[rank].ceAutoAllGatherEligible =
       minCompCap >= 89 && algoStr == nullptr &&
-      ncclGetEnv("PCCL_SYM_KERNEL") == nullptr &&
+      ncclGetEnv("PCCL_SYM_KERNEL") == nullptr && pcclParamSymKernelId() < 0 &&
       comm->icnRmtType == PCCL_ICNLINK_SWITCH;
 
   NCCLCHECKGOTO(bootstrapAllGather(comm->bootstrap, allGather3Data, sizeof(*allGather3Data)), res, fail);
@@ -2286,7 +2291,7 @@ static ncclResult_t envConfigOverride(ncclComm_t comm) {
       (comm->config.CTAPolicy & PCCL_CTA_POLICY_ZERO)) {
     comm->config.CTAPolicy &= ~PCCL_CTA_POLICY_EFFICIENCY;
   }
-  comm->checkMode = ncclParamCheckPointers() == 1 ? ncclCheckModeDebugLocal : ncclCheckModeDefault;
+  comm->checkMode = ncclParamCheckPointers() == 1 ? ncclCheckModeDebugGlobal : ncclCheckModeDefault;
   const char* checkMode = ncclGetEnv("PCCL_CHECK_MODE");
   if (checkMode != nullptr) {
     if (strcasecmp(checkMode, "DEBUG_GLOBAL") == 0) comm->checkMode = ncclCheckModeDebugGlobal;

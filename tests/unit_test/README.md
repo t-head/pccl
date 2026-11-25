@@ -249,6 +249,24 @@ different element count unless uniform counts are requested. The test checks eve
 the guard regions around it, and aborts when a requested symmetric window cannot be registered instead
 of reporting a fallback as covered. One process drives one device; build with `--use_mpi`.
 
+The symmetric environment controls retain their PCCL meanings:
+
+- `PCCL_SYM_OP_ACC_PRECISION_INC` defaults to `0`. Bulk sum uses the input type for accumulation;
+  a nonzero value selects FP32 accumulation for half, BF16 and FP8. LL sum retains input-type
+  accumulation independently of this switch. ReduceScatter average keeps its existing accumulation policy.
+- `PCCL_SYM_KERNEL_ID` retains the legacy bitmask numbering and takes precedence over `PCCL_SYM_KERNEL`:
+  bits 0/1 select AllReduce LL/bulk, bits 2/3 select AllGather LL/ST, and bits 6/7 select ReduceScatter LL/LD.
+  The full mask `0xff` enables all available kernels. Individual ST_Ring/ST_2D bits 4/5 have no separate
+  entry in the unified collection and produce a warning instead of being reinterpreted as different algorithms.
+- `PCCL_SYM_WARPS` retains bulk overrides from 1 through 16; other values use the default 16 warps.
+  LL kernels require 16 warps and warn when a different valid override is ignored.
+- `PCCL_SYM_NOWIN_ENABLE` retains its LL preference without registered windows. Mandatory registration,
+  system-memory and supported-kernel constraints still apply; it does not enable multi-work LL.
+- Legal `PCCL_WORK_ARGS_BYTES` values below the unified symmetric scheduler's metadata budget retain
+  legacy execution instead of causing a symmetric-planning error. This does not restore a short-argument ABI.
+- `PCCL_SYM_CTAS` remains available. `PCCL_SYMK_USE_MULTI_TASK` is removed because single and grouped
+  work use the same execution path.
+
 #### Examples
 
 Run 4 grouped float `AllReduce` operations of at least 1027 elements on 8 devices with both buffers
@@ -307,7 +325,8 @@ bash tests/unit_test/run_symk_validation.sh tests/unit_test/build/symkMultiTaskT
 
 The `p2p-budget` mode accepts `1024|4096` and `0|1` graph mode, checking P2P channel limits and zero-length
 communication followed by nonempty communication. `budget-contract` accepts graph mode and checks
-rejection before launch plus recovery on the same communicator. `kernel-cache-contract` uses the normal
+successful legacy execution within a 128-byte argument budget despite eight configured channels,
+followed by another operation on the same communicator. `kernel-cache-contract` uses the normal
 positional arguments with one float work, registered buffers and symmetric path verification.
 
 The standard single-node CI job builds and runs this suite against its verified build artifact.

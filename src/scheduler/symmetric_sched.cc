@@ -22,6 +22,7 @@
 #include <hggc_fp16.h>
 
 NCCL_PARAM(SymNoWinEnable, "SYM_NOWIN_ENABLE", 0);
+PCCL_PARAM(SymOpAccPrecisionInc, "SYM_OP_ACC_PRECISION_INC", 0);
 
 extern int64_t ncclParamSingleProcMemRegEnable();
 
@@ -89,6 +90,11 @@ ncclResult_t ncclMakeSymmetricTaskList(
 
   if (task) {
     NCCLCHECKGOTO(ncclDevrInitOnce(comm), ret, fail);
+    if (comm->workArgsBytes < ncclSymkDevWorkArgs::calcArgsSize(MAXCHANNELS, 1)) {
+      INFO(NCCL_TUNING, "PCCL_WORK_ARGS_BYTES=%u is too small for symmetric work metadata; using legacy", comm->workArgsBytes);
+      *remainTasksHead = task;
+      goto exit;
+    }
   }
 
   while (task != nullptr) {
@@ -122,10 +128,6 @@ ncclResult_t ncclMakeSymmetricTaskList(
   }
   if (remainTasksTail) remainTasksTail->next = nullptr;
   if (!foundSymm) goto exit;
-  if (comm->workArgsBytes < ncclSymkDevWorkArgs::calcArgsSize(MAXCHANNELS, 1)) {
-    ret = ncclInvalidArgument;
-    goto fail;
-  }
 
   // Group tasks by (func, op, type, regType); a batch is bounded by workArgsBytes.
   for (int cursor = 0; cursor < fnOpTySymCount; cursor++) {
@@ -179,10 +181,6 @@ ncclResult_t ncclMakeSymmetricTaskList(
         needFallback = isOneThreadMultiGpus && headTask->winRegType == ncclSymSendNonregRecvNonreg;
         if (!needFallback && !forced) {
           needFallback = !ncclParamSymNoWinEnable() && headTask->winRegType == ncclSymSendNonregRecvNonreg;
-          if (!needFallback) {
-            NOWARN(ncclGetAlgoInfo(comm, headTask, 0, 0, 1), NCCL_COLL);
-            needFallback = headTask->protocol != NCCL_PROTO_LL;
-          }
         }
       }
 
@@ -314,6 +312,7 @@ ncclResult_t ncclSymmetricTaskScheduler(
   workBufPtr = argsBuf->getWorks(nMaxChannels);
   argsBuf->nMaxChannels = nMaxChannels;
   argsBuf->maxDynamicSmem = maxDynamicSmem;
+  bool incPrecision = pcclParamSymOpAccPrecisionInc() != 0;
 
   while (!ncclIntruQueueEmpty(symTaskQueue)) {
     struct ncclSymkDevWork devWork = {};
@@ -330,6 +329,7 @@ ncclResult_t ncclSymmetricTaskScheduler(
       ncclMemoryPoolFree(&comm->memPool_ncclTaskColl, task);
       goto fail;
     }
+    devWork.pcclAccPrecisionInc = incPrecision;
 
     cellLeft = taskCell = DIVUP(task->count, cellCount);
     for (; curChannel < nMaxChannels;) {
