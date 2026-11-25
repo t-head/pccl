@@ -24,7 +24,7 @@
 //
 // The array element order MUST match these bases exactly:
 //   [ AR block | AG block | RS block ]
-// AR block is itself ONE_SHOT, TWO_SHOT, TWO_SHOT_REG, ONESHOT_LL in order.
+// AR block is itself ONE_SHOT, TWO_SHOT, TWO_SHOT_REG, ONESHOT_LL, ONESHOT_PUSH in order.
 // ============================================================================
 #define EXT_FUNC_AR_BASE 0
 #define EXT_FUNC_AG_BASE (AR_EXT_FUNCS_NUM)
