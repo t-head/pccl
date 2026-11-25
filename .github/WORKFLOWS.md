@@ -122,10 +122,11 @@ author is its sole Reviewer. Membership in an unrelated module does not create a
 exemption for that module. One person's approval covers all roster roles they hold, but
 does not waive another person's invitation.
 
-The Lead's valid current-HEAD approval on another author's PR covers all invitees and
-bypasses the complete-module requirement. Removing every invited module member keeps the gate
-pending even with Lead approval. Removing one person is allowed, but the gate stays
-pending if the remaining people and author exemptions no longer cover a complete module.
+These requirements also apply to the Lead and to Lead-authored PRs; ordinary module
+roles and author exemptions still count. Exceptional merges use GitHub's explicit
+**Bypass rules and merge** action, if the merging user has the required bypass permission.
+Being listed as Lead does not grant that permission, and bypassing a rule does not turn
+this gate green.
 
 After an invitation change, push or review change, allow the gate to refresh. If an
 invitation update was interrupted, its **Details** link identifies the run to retry.

@@ -59,8 +59,6 @@ def module_approval(api, pr, roster, skill, record, approvals):
                   else "At least one invited module member other than the author must remain")
         return False, reason, {}
     required_summary = "\n\nRequired reviewers: " + ", ".join(f"@{api.login(user)}" for user in sorted(required))
-    if roster["lead_maintainer"] in approvals:
-        return True, "Lead Maintainer approved all review requirements for the current commit" + required_summary, {}
     classification = record["classification"]
     if (not classification or classification.get("pr_number") != pr["number"] or
             classification.get("head_sha") != pr["head"]["sha"]):
@@ -70,7 +68,7 @@ def module_approval(api, pr, roster, skill, record, approvals):
         return False, "Module classification is stale. Rerun reviewer routing" + required_summary, {}
     requirements = routing.review_requirements(pr, record, roster, required)
     if not any({"Reviewer", "Maintainer"} <= roles for roles in requirements.values()):
-        return (False, "Invite a same-module Reviewer and Maintainer, or obtain Lead approval; author exemptions count" +
+        return (False, "Invite a same-module Reviewer and Maintainer; author exemptions count" +
                 required_summary, {})
     missing = {"Reviewer": {}, "Maintainer": {}, "Invited reviewer": {}}
     for user in sorted(required - approvals):
@@ -94,7 +92,7 @@ def module_approval(api, pr, roster, skill, record, approvals):
     if pending:
         reason = ("Awaiting " + "; ".join(details) +
                   ". Every invited module member must approve the current commit; remove an invitation to cancel its "
-                  "requirement. A replacement does not waive another invitee. The Lead can approve all requirements")
+                  "requirement. A replacement does not waive another invitee")
         return False, reason + required_summary, pending
     return True, "All required reviewers approved the current commit; module coverage satisfied" + required_summary, {}
 
