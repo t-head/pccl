@@ -1,14 +1,14 @@
 {
   "classification": {
-    "base_sha": "c014efd792a7784724a4538760795122b7e39818",
-    "head_sha": "2d09faed34ecce060fad857d09d2b12f03fd8062",
-    "input_fingerprint": "4ca1c0c06b4f4965d49b6da2c38ed92be4ed6fa6a8e34d8e8fa18dd062bd7fb4",
+    "base_sha": "e0114a05589f10117d258ae08597d10fc742a254",
+    "head_sha": "df7010d6d18cc07fe68961a2ed4075a03e473f66",
+    "input_fingerprint": "80d50fcc7485f923d26527776557e4baed96ff82b26ef8f42d89f3654746a8d3",
     "pr_number": 195,
     "proposal": {
       "modules": [
         "workflow"
       ],
-      "reason": "Main functional change is review/merge automation policy: review_automation.py and maintainer_approval.py now enforce required reviewer+maintainer invitation/approval rules from timeline state, and new/renamed workflows (review-routing/review-module/review-gate/review-squash-preview) rewire routing\u2192gate\u2192squash-preview orchestration; related SKILL/WORKFLOWS/CONTRIBUTING updates and commit_attribution-based squash/signoff checks are part of the same workflow policy surface, not independent CI/runtime modules."
+      "reason": "Main change is review/merge automation: reviewer routing was redesigned (primary/secondary modules, invitation syncing, required-approval logic), review gate workflows were restructured, and squash-preview publishing now depends on gate state with commit-attribution validation; these are contribution/review policy and automation behaviors owned by workflow."
     }
   },
   "reviewers": {
