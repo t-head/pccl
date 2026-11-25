@@ -1,14 +1,14 @@
 {
   "classification": {
-    "base_sha": "74c2d3f5e9bf90578520feda20a3938c3d938917",
-    "head_sha": "feb775390869e1e4449f565989f9f32f57df5a39",
-    "input_fingerprint": "79f15b984298658d4e3a89fbb1cd39d8137c69001aab7133ced8c061da6a167d",
+    "base_sha": "c014efd792a7784724a4538760795122b7e39818",
+    "head_sha": "7717aea4433dd01fdafab65e3bb2baf83455cedb",
+    "input_fingerprint": "0b07a8028bb9b374ef3bc76acf3af0c03973761a169b878a0076d058c8daac46",
     "pr_number": 195,
     "proposal": {
       "modules": [
         "workflow"
       ],
-      "reason": "Main functional change is review/merge workflow policy and automation: reviewer routing, required approval gate semantics, invitation lifecycle, and squash-preview publication were reworked in .github/scripts/review_automation.py, .github/scripts/maintainer_approval.py, .github/scripts/commit_message_squash.py plus new/renamed review-* workflows. Other edits (docs, skill text, roster wording) support this same workflow behavior rather than introducing an independent module scope."
+      "reason": "Main substantive change is in contribution/review automation: review_automation.py and maintainer_approval.py redesign module-based invitation/approval gating, new review-gate/review-module/review-command/review-squash-preview workflows rewire that process, and commit_message_squash.py plus commit_attribution.py add squash-preview/attribution policy enforcement; docs/catalog edits support this same workflow policy."
     }
   },
   "reviewers": {
