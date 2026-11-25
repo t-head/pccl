@@ -8,7 +8,7 @@
       "modules": [
         "network"
       ],
-      "reason": "Main change is in the IB network transport/proxy path: adds size-threshold-based QP selection for send/recv groups using CTS-advertised max receive capacity (`IB_SPLIT_SIZE_THRESHOLD`) and wires request/event handling accordingly; `src/proxy.cc` local-rank initialization tweak is supporting proxy-progress correctness, not a separate module-level policy change."
+      "reason": "Main change is in IB network transport/proxy behavior: request QP count is now selected from advertised max receive capacity using IB split-size threshold settings (single QP for small groups, split for larger), with matching sender/receiver logic and related proxy local-rank initialization update in src/proxy.cc."
     }
   },
   "reviewers": {
