@@ -257,7 +257,8 @@ def invite(api, pr, recommendation, roster, skill):
 def sync_invitations(api, pr, record, roster):
     number = pr["number"]
     defaults = default_reviewers(pr, record, roster)
-    requested, automated, cancelled = review_request_history(api.pages(f"/issues/{number}/timeline"))
+    history = api.pages(f"/issues/{number}/timeline")
+    requested, automated, cancelled = review_request_history(history)
     fresh = api.request("GET", f"/pulls/{number}")
     if pr_snapshot_key(fresh) != pr_snapshot_key(pr):
         raise ValueError("PR changed before invitation; rerun classification")
@@ -265,9 +266,18 @@ def sync_invitations(api, pr, record, roster):
     removed = (automated & pending) - defaults
     if removed:
         # A manual re-request can take ownership while the pending list is being read.
-        requested, automated, cancelled = review_request_history(api.pages(f"/issues/{number}/timeline"))
+        history = api.pages(f"/issues/{number}/timeline")
+        requested, automated, cancelled = review_request_history(history)
         removed.intersection_update(requested & automated)
-    new_users = sorted(defaults - requested - pending - cancelled, key=api.login)
+    rerequested = required_reviewers(fresh, record, roster, history) - pending - cancelled
+    if rerequested:
+        reviews = [review for review in api.pages(f"/pulls/{number}/reviews")
+                   if review["user"]["type"] == "User" and review["submitted_at"]]
+        reviewed = {review["user"]["id"] for review in reviews}
+        reviewed_current = {review["user"]["id"] for review in reviews
+                            if review["commit_id"] == fresh["head"]["sha"]}
+        rerequested.intersection_update(reviewed - reviewed_current)
+    new_users = sorted((defaults - requested - pending - cancelled) | rerequested, key=api.login)
     logins = [api.login(user_id) for user_id in new_users]
     removed_logins = [api.login(user_id) for user_id in sorted(removed, key=api.login)]
     if removed:
@@ -290,12 +300,13 @@ def review_request_history(history):
         actor = event.get("actor") or {}
         is_automation = actor.get("id") == GITHUB_ACTIONS_BOT_ID and actor.get("type") == "Bot"
         if event["event"] == "review_requested":
+            # Automatic reminders must not take ownership of an active manual invitation.
+            if not is_automation:
+                automated.discard(user_id)
+            elif user_id not in requested:
+                automated.add(user_id)
             requested.add(user_id)
             cancelled.discard(user_id)
-            if is_automation:
-                automated.add(user_id)
-            else:
-                automated.discard(user_id)
         else:
             requested.discard(user_id)
             if not is_automation or user_id not in automated:
@@ -304,9 +315,9 @@ def review_request_history(history):
     return requested, automated, cancelled
 
 
-def required_reviewers(api, pr, record, roster):
+def required_reviewers(pr, record, roster, history):
     # The timeline retains invitations after a review leaves the pending-request list.
-    requested, automated, _ = review_request_history(api.pages(f"/issues/{pr['number']}/timeline"))
+    requested, automated, _ = review_request_history(history)
     required = requested - (automated - default_reviewers(pr, record, roster))
     required.update(user["id"] for user in pr["requested_reviewers"] if user["type"] == "User")
     members = {roster["lead_maintainer"]}
