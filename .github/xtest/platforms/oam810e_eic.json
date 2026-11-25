@@ -14,6 +14,9 @@
   "families": {
     "postsil_unit_test_810e": {"nodes": [1]},
     "postsil_unit_test_810e_smoke": {"nodes": [1]},
+    "unit_test_checkin_810e_2card": {"nodes": [1]},
+    "unit_test_checkin_810e_4card": {"nodes": [1], "cards_per_node": 4},
+    "graph_search_test_shm": {"nodes": [1], "cards_per_node": 2},
     "all_gather_unit_test_810e": {"nodes": [1]},
     "op_perf_shm": {
       "nodes": [1],

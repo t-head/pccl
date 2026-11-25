@@ -1,0 +1,61 @@
+{
+  "axes": {},
+  "bindings": {
+    "1": {
+      "plan": "pccl_shm_graph_search_test_single_node1_plan",
+      "suite": "graph_search_test_shm_single_node_suite"
+    }
+  },
+  "defaults": {
+    "case_name": "graph_case",
+    "check": "exit_code"
+  },
+  "explicit_cases": [
+    {
+      "check": "exit_code",
+      "cmd": "build/graphSearchTest --root {test_root}/pccl/tests/graph_search_test/topo_and_reference_graph/ --gtest_filter='graphSearchTestWithoutPXN.*'",
+      "name": "checkin_graphSearchTest_without_pxn",
+      "nodes": 1
+    },
+    {
+      "check": "exit_code",
+      "cmd": "build/graphSearchTest --root {test_root}/pccl/tests/graph_search_test/topo_and_reference_graph/ --gtest_filter='*8PPU4CX7*'",
+      "name": "checkin_graphSearchTest_8ppu4cx7",
+      "nodes": 1
+    },
+    {
+      "check": "exit_code",
+      "cmd": "build/graphSearchTest --root {test_root}/pccl/tests/graph_search_test/topo_and_reference_graph/ --pxn --gtest_filter='graphSearchTestWithPXN.*'",
+      "name": "checkin_graphSearchTest_with_pxn",
+      "nodes": 1
+    }
+  ],
+  "family": "graph_search_test_shm",
+  "groups": [],
+  "layouts": {
+    "native": [
+      {
+        "name": "native",
+        "values": {}
+      }
+    ]
+  },
+  "profiles": {
+    "full": {
+      "include_explicit": true
+    },
+    "pr": {
+      "include_explicit": true
+    }
+  },
+  "provenance": {
+    "source_case_count": 3,
+    "source_revision": "c014efd792a7784724a4538760795122b7e39818",
+    "source_selection": "checkin-list graphSearchTest --pxn / --gtest_filter commands",
+    "source_suites": [
+      "pccl_shm_graph_search_test_single_node1_plan/graph_search_test_shm_single_node_suite"
+    ],
+    "validation": "public-graph-search-command-adaptation"
+  },
+  "schema_version": 2
+}

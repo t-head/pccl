@@ -32,8 +32,10 @@ else
     sed -i 's|security.ubuntu.com|mirrors.aliyun.com|g' "$f"
   done
 fi
+# cmake is required by tests/graph_search_test/setup_3rd.sh, which builds
+# googletest from source when the native test targets are enabled.
 apt update
-apt install -y libboost-program-options-dev
+apt install -y libboost-program-options-dev cmake
 
 # Validate required environment variables.
 if [ -z "${source_home}" ]; then
@@ -76,6 +78,18 @@ export PCCL_HOME=${source_home}/pccl/build
 echo "######################### $(date +%Y%m%d%H%M%S) Build pccl-tests ##########################"
 cd ${source_home}/pccl-tests
 bash build.sh --use_mpi
+
+echo "######################### $(date +%Y%m%d%H%M%S) Stage test binaries ##########################"
+# --enable_tests builds the unit tests into the pccl BUILDDIR. Only build.sh
+# rebuilds them into tests/unit_test/build for the MPI-capable variants.
+NATIVE_UNIT_BUILD=${source_home}/pccl/build
+GRAPH_SEARCH_BUILD=${source_home}/pccl/tests/graph_search_test/build
+mkdir -p ${source_home}/pccl-tests/build
+cp ${NATIVE_UNIT_BUILD}/collPcclUnitTest \
+  ${NATIVE_UNIT_BUILD}/hggcGraphUnitTest \
+  ${NATIVE_UNIT_BUILD}/pcclCommAbortTest \
+  ${GRAPH_SEARCH_BUILD}/graphSearchTest \
+  ${source_home}/pccl-tests/build/
 
 echo "######################### $(date +%Y%m%d%H%M%S) Collect final output ##########################"
 mv ${source_home}/pccl ${build_output}

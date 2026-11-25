@@ -801,7 +801,7 @@ package_pccl_tests() {
     local repo="${source_home}/pccl-tests"
     local bins="all_gather_perf all_reduce_perf broadcast_perf reduce_scatter_perf reduce_perf"
     local bin
-    bins="${bins} alltoall_perf gather_perf scatter_perf sendrecv_perf hypercube_perf"
+    bins="${bins} alltoall_perf alltoallv_perf gather_perf scatter_perf sendrecv_perf hypercube_perf"
     if [ ! -f "${repo}/build.sh" ]; then
         echo "::warning::${repo} is not checked out, skipping the pccl-tests tarball"
         return 0

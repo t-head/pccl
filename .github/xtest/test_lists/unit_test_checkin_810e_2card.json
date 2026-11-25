@@ -1,0 +1,77 @@
+{
+  "axes": {},
+  "bindings": {
+    "1": {
+      "plan": "pccl_shm_postsil_unit_test_single_node1_plan",
+      "suite": "postsil_unit_test_shm_single_node_suite"
+    }
+  },
+  "defaults": {
+    "case_name": "native_case",
+    "check": "exit_code"
+  },
+  "explicit_cases": [
+    {
+      "check": "exit_code",
+      "cmd": "NCCL_ALGO=Ring NCCL_PROTO=Signal build/collPcclUnitTest --coll_type=AllGather --dtype=float --max_num_elems=268435456 --min_num_elems=67108864 --num_gpus=2 --num_iterations=10",
+      "name": "checkin_collPcclUnitTest_algo_Ring_proto_Signal_AllGather_dtype_float_max_268435456_min_67108864_gpus_2_iters_10",
+      "nodes": 1
+    },
+    {
+      "check": "exit_code",
+      "cmd": "NCCL_ALGO=Tree NCCL_PROTO=SignalBulk build/collPcclUnitTest --coll_type=AllReduce --dtype=double --max_num_elems=134217728 --min_num_elems=33554432 --num_gpus=2 --num_iterations=10",
+      "name": "checkin_collPcclUnitTest_algo_Tree_proto_SignalBulk_AllReduce_dtype_double_max_134217728_min_33554432_gpus_2_iters_10",
+      "nodes": 1
+    },
+    {
+      "check": "exit_code",
+      "cmd": "HGGC_VISIBLE_DEVICES=0,1 build/hggcGraphUnitTest --num_threads=2 --test_config_file {test_root}/pccl/tests/unit_test/hggc_graph_test_configs/simple_test.json",
+      "name": "checkin_hggcGraphUnitTest_num_threads_2_simple_test",
+      "nodes": 1
+    },
+    {
+      "check": "exit_code",
+      "cmd": "HGGC_VISIBLE_DEVICES=0,1 build/hggcGraphUnitTest --num_threads=2 --test_config_file {test_root}/pccl/tests/unit_test/hggc_graph_test_configs/simple_alltoall_test.json",
+      "name": "checkin_hggcGraphUnitTest_num_threads_2_simple_alltoall_test",
+      "nodes": 1
+    },
+    {
+      "check": "exit_code",
+      "cmd": "HGGC_VISIBLE_DEVICES=0,1 build/hggcGraphUnitTest --num_threads=2 --test_config_file {test_root}/pccl/tests/unit_test/feature_test_configs/group_aggregation_test.json",
+      "name": "checkin_hggcGraphUnitTest_num_threads_2_group_aggregation_test",
+      "nodes": 1
+    }
+  ],
+  "family": "unit_test_checkin_810e_2card",
+  "groups": [],
+  "layouts": {
+    "native": [
+      {
+        "name": "native",
+        "values": {}
+      }
+    ]
+  },
+  "profiles": {
+    "full": {
+      "include_explicit": true
+    },
+    "pr": {
+      "include_explicit": true
+    }
+  },
+  "provenance": {
+    "source_case_count": 5,
+    "source_revision": "c014efd792a7784724a4538760795122b7e39818",
+    "source_selection": "checkin-list native unit commands that fit the two-card 810E allocation",
+    "source_suites": [
+      "pccl_shm_postsil_unit_test_single_node1_plan/postsil_unit_test_shm_single_node_suite"
+    ],
+    "validation": "two-card-810e-checkin-list-adaptation",
+    "command_normalization": {
+      "--num_gpus=4": "--num_gpus=2",
+      "--num_threads=4": "--num_threads=2"
+    }
+  },
+  "schema_version": 2
+}

@@ -59,12 +59,12 @@ class WorkflowContractTests(unittest.TestCase):
                 values[name]['result'] = 'skipped'
         return values
 
-    def test_810e_pr_allocation_uses_two_cards_per_node(self):
-        self.assertIn("Path('tests/xtest/minimal-csv-oam810e-eic'), 2)", self.text)
-        self.assertEqual(self.text.count('platform: oam810e_eic, cards_per_node: 2'), 3)
-        self.assertNotIn('platform: oam810e_eic, cards_per_node: 4', self.text)
+    def test_810e_pr_allocation_splits_two_and_four_card_suites(self):
+        self.assertIn("Path('.github/xtest/minimal-csv-oam810e-eic'), 4)", self.text)
+        self.assertEqual(self.text.count('platform: oam810e_eic, cards_per_node: 2'), 2)
+        self.assertEqual(self.text.count('platform: oam810e_eic, cards_per_node: 4'), 1)
         self.assertNotIn('platform: oam810e_eic, cards_per_node: 16', self.text)
-        self.assertIn("--cards-per-node '2'", self.text)
+        self.assertIn("--cards-per-node '4'", self.text)
 
     def test_all_platforms_map_allocated_devices_in_daily_and_sanity(self):
         daily = (ROOT / '.github/workflows/pccl-daily-full.yml').read_text(encoding='utf-8')
@@ -179,7 +179,7 @@ class WorkflowContractTests(unittest.TestCase):
         self.assertIn('    if: always()', summary)
         self.assertIn('    runs-on: ubuntu-24.04', summary)
         self.assertIn('    permissions: {}', summary)
-        for unsafe in ('actions/checkout', 'tests/xtest/', '/wl_nas/', 'k8s-runner', 'container:'):
+        for unsafe in ('actions/checkout', '.github/xtest/', '/wl_nas/', 'k8s-runner', 'container:'):
             self.assertNotIn(unsafe, summary)
         dependencies = re.search(r'    needs: \[(.+)\]', summary).group(1).split(', ')
         self.assertEqual(set(dependencies), set(PR_JOBS + REQUIRED_JOBS))
@@ -257,7 +257,7 @@ class WorkflowContractTests(unittest.TestCase):
 
     def test_final_reconciliation_uses_exact_case_and_build_identity_checks(self):
         results = self.job('results')
-        for expected in ('tests/xtest/reconcile_results.py',
+        for expected in ('.github/xtest/reconcile_results.py',
                          '--pccl-revision',
                          '--standard-sha256',
                          '--notsm-sha256'):
@@ -272,7 +272,7 @@ class WorkflowContractTests(unittest.TestCase):
 
     def test_prepare_runs_every_xtest_regression_module(self):
         prepare = self.text[self.text.index('  prepare:'):self.text.index('  ai-code-review:')]
-        modules = sorted(path.name for path in (ROOT / 'tests/xtest').glob('test_*.py'))
+        modules = sorted(path.name for path in (ROOT / '.github/xtest').glob('test_*.py'))
         self.assertTrue(modules)
         for module in modules:
             with self.subTest(module=module):
@@ -357,26 +357,26 @@ class WorkflowContractTests(unittest.TestCase):
         for path in ('catalog.py', 'command.py', 'execute.py', 'manifest.py', 'metrics.py',
                      'runner_capture.py', 'single_node_ci.py', 'cluster_ci.py', 'build_evidence.py',
                      'source-catalog.json', 'cluster-source-case.json', 'sanity-coverage.json'):
-            self.assertFalse((ROOT / 'tests/xtest' / path).exists(), path)
+            self.assertFalse((ROOT / '.github/xtest' / path).exists(), path)
         self.assertFalse((ROOT / '.github/workflows/source-cluster-debug.yml').exists())
 
     def test_real_csv_selection_and_source_revision(self):
-        directory = ROOT / 'tests/xtest/minimal-csv'
+        directory = ROOT / '.github/xtest/minimal-csv'
         metadata = json.loads((directory / 'export.json').read_text())
         self.assertEqual(metadata['format_version'], 1)
         self.assertEqual(metadata['xtest_version'], '0.12.0')
         self.assertEqual(metadata['runner_revision'], artifact_cache.PCCL_TESTS_REVISION)
         self.assertTrue(re.fullmatch(r'[0-9a-f]{40}', metadata['source_revision']))
-        expected = {('standard', 1): 71, ('standard', 2): 1, ('notsm', 1): 37}
+        expected = {('standard', 1): 116, ('standard', 2): 1, ('notsm', 1): 37}
         for (profile, nodes), count in expected.items():
             selected = run_cases.load_inputs(directory, profile, nodes)
             self.assertEqual(len(selected['cases']), count)
         selections = reconcile_results.load_selections(directory)
         self.assertEqual({name: len(inputs['cases']) for name, inputs in selections.items()},
-                         {'standard': 71, 'notsm': 37, 'cluster': 1})
+                         {'standard': 116, 'notsm': 37, 'cluster': 1})
 
     def test_public_runtime_dependencies_remain_minimal(self):
-        self.assertEqual((ROOT / 'tests/xtest/requirements.txt').read_text().strip(),
+        self.assertEqual((ROOT / '.github/xtest/requirements.txt').read_text().strip(),
                          '# Required by the public run_test.py entry point, not the CSV executor.\n'
                          'filelock==4.2.10')
         action = 'uses: t-head/ci-infra/cluster-run@main'

@@ -132,72 +132,72 @@ jobs:
           EXECUTION_TIMEOUT_MINUTES: ${{ env.REQUESTED_EXECUTION_TIMEOUT_MINUTES }}
         run: |
           python3 -S -B -W error::ResourceWarning -m unittest discover \
-            -s tests/xtest -p 'test_run_cases.py' -v
-          python3 -S -B -m unittest discover -s tests/xtest -p 'test_group_cases.py' -v
-          python3 -S -B -m unittest discover -s tests/xtest -p 'test_case_group_cache.py' -v
-          python3 -S -B -m unittest discover -s tests/xtest -p 'test_artifact_cache.py' -v
-          python3 -S -B -m unittest discover -s tests/xtest -p 'test_download_artifact_retry.py' -v
-          python3 -S -B -m unittest discover -s tests/xtest -p 'test_remote_recovery.py' -v
-          python3 -S -B -m unittest discover -s tests/xtest -p 'test_hpn_sdk.py' -v
-          python3 -S -B -m unittest discover -s tests/xtest -p 'test_daily_smoke.py' -v
-          python3 -S -B -m unittest discover -s tests/xtest -p 'test_daily_reconcile.py' -v
-          python3 -S -B -m unittest discover -s tests/xtest -p 'test_generate_cases.py' -v
-          python3 -S -B -m unittest discover -s tests/xtest -p 'test_platform_cases.py' -v
-          python3 -S -B -m unittest discover -s tests/xtest -p 'test_export_810e_unit_cases.py' -v
+            -s .github/xtest -p 'test_run_cases.py' -v
+          python3 -S -B -m unittest discover -s .github/xtest -p 'test_group_cases.py' -v
+          python3 -S -B -m unittest discover -s .github/xtest -p 'test_case_group_cache.py' -v
+          python3 -S -B -m unittest discover -s .github/xtest -p 'test_artifact_cache.py' -v
+          python3 -S -B -m unittest discover -s .github/xtest -p 'test_download_artifact_retry.py' -v
+          python3 -S -B -m unittest discover -s .github/xtest -p 'test_remote_recovery.py' -v
+          python3 -S -B -m unittest discover -s .github/xtest -p 'test_hpn_sdk.py' -v
+          python3 -S -B -m unittest discover -s .github/xtest -p 'test_daily_smoke.py' -v
+          python3 -S -B -m unittest discover -s .github/xtest -p 'test_daily_reconcile.py' -v
+          python3 -S -B -m unittest discover -s .github/xtest -p 'test_generate_cases.py' -v
+          python3 -S -B -m unittest discover -s .github/xtest -p 'test_platform_cases.py' -v
+          python3 -S -B -m unittest discover -s .github/xtest -p 'test_export_810e_unit_cases.py' -v
           GENERATED_DEFINITIONS=(
-            --definition tests/xtest/test_lists/op_perf_shm.json
-            --definition tests/xtest/test_lists/postsil_daily_shm.json
-            --definition tests/xtest/test_lists/postsil_unit_test_shm.json
+            --definition .github/xtest/test_lists/op_perf_shm.json
+            --definition .github/xtest/test_lists/postsil_daily_shm.json
+            --definition .github/xtest/test_lists/postsil_unit_test_shm.json
           )
           if [[ "$DATASET" == full ]]; then
             GENERATED_DEFINITIONS+=(
-              --definition tests/xtest/test_lists/pccl_fun_rdma_shm.json
-              --definition tests/xtest/test_lists/register_test_shm.json
-              --definition tests/xtest/test_lists/sanity_m890p_register.json
-              --definition tests/xtest/test_lists/sym_test_shm.json
-              --definition tests/xtest/test_lists/f8_test_shm.json
-              --definition tests/xtest/test_lists/device_api_shm.json
-              --definition tests/xtest/test_lists/local_register_perf_shm.json
-              --definition tests/xtest/test_lists/symetric_perf_shm.json
-              --definition tests/xtest/test_lists/copyengine_perf_shm.json
-              --definition tests/xtest/test_lists/op_perf_shm_2_rack.json
-              --definition tests/xtest/test_lists/op_perf_rdma_shm.json
-              --definition tests/xtest/test_lists/commabort_test_shm.json
+              --definition .github/xtest/test_lists/pccl_fun_rdma_shm.json
+              --definition .github/xtest/test_lists/register_test_shm.json
+              --definition .github/xtest/test_lists/sanity_m890p_register.json
+              --definition .github/xtest/test_lists/sym_test_shm.json
+              --definition .github/xtest/test_lists/f8_test_shm.json
+              --definition .github/xtest/test_lists/device_api_shm.json
+              --definition .github/xtest/test_lists/local_register_perf_shm.json
+              --definition .github/xtest/test_lists/symetric_perf_shm.json
+              --definition .github/xtest/test_lists/copyengine_perf_shm.json
+              --definition .github/xtest/test_lists/op_perf_shm_2_rack.json
+              --definition .github/xtest/test_lists/op_perf_rdma_shm.json
+              --definition .github/xtest/test_lists/commabort_test_shm.json
             )
           fi
-          python3 -S -B tests/xtest/generate_cases.py \
+          python3 -S -B .github/xtest/generate_cases.py \
             "${GENERATED_DEFINITIONS[@]}" \
-            --suites tests/xtest/test_lists/suites.json \
-            --env-root tests/xtest/test_lists/envs \
+            --suites .github/xtest/test_lists/suites.json \
+            --env-root .github/xtest/test_lists/envs \
             --profile "$DATASET" \
             --source-revision '${{ github.sha }}' \
             --runner-revision '${{ env.PCCL_TESTS_REVISION }}' \
             --output generated-case-input
           GENERATED_810E_DEFINITIONS=(
-            --definition tests/xtest/test_lists/op_perf_shm.json
-            --definition tests/xtest/test_lists/pccl_fun_rdma_shm.json
-            --definition tests/xtest/test_lists/postsil_unit_test_810e_smoke.json
+            --definition .github/xtest/test_lists/op_perf_shm.json
+            --definition .github/xtest/test_lists/pccl_fun_rdma_shm.json
+            --definition .github/xtest/test_lists/postsil_unit_test_810e_smoke.json
           )
           if [[ "$DATASET" == full ]]; then
             GENERATED_810E_DEFINITIONS+=(
-              --definition tests/xtest/test_lists/postsil_unit_test_810e.json
-              --definition tests/xtest/test_lists/all_gather_unit_test_810e.json
-              --definition tests/xtest/test_lists/postsil_daily_shm.json
-              --definition tests/xtest/test_lists/register_test_shm.json
-              --definition tests/xtest/test_lists/sanity_m890p_register.json
-              --definition tests/xtest/test_lists/sym_test_shm.json
-              --definition tests/xtest/test_lists/device_api_shm.json
-              --definition tests/xtest/test_lists/local_register_perf_shm.json
-              --definition tests/xtest/test_lists/symetric_perf_shm.json
-              --definition tests/xtest/test_lists/copyengine_perf_shm.json
-              --definition tests/xtest/test_lists/op_perf_rdma_shm.json
-              --definition tests/xtest/test_lists/commabort_test_shm.json
+              --definition .github/xtest/test_lists/postsil_unit_test_810e.json
+              --definition .github/xtest/test_lists/all_gather_unit_test_810e.json
+              --definition .github/xtest/test_lists/postsil_daily_shm.json
+              --definition .github/xtest/test_lists/register_test_shm.json
+              --definition .github/xtest/test_lists/sanity_m890p_register.json
+              --definition .github/xtest/test_lists/sym_test_shm.json
+              --definition .github/xtest/test_lists/device_api_shm.json
+              --definition .github/xtest/test_lists/local_register_perf_shm.json
+              --definition .github/xtest/test_lists/symetric_perf_shm.json
+              --definition .github/xtest/test_lists/copyengine_perf_shm.json
+              --definition .github/xtest/test_lists/op_perf_rdma_shm.json
+              --definition .github/xtest/test_lists/commabort_test_shm.json
             )
           fi
-          python3 -S -B tests/xtest/generate_cases.py \
+          python3 -S -B .github/xtest/generate_cases.py \
             "${GENERATED_810E_DEFINITIONS[@]}" \
-            --suites tests/xtest/test_lists/suites.json \
-            --env-root tests/xtest/test_lists/envs \
+            --suites .github/xtest/test_lists/suites.json \
+            --env-root .github/xtest/test_lists/envs \
             --profile "$DATASET" \
             --platform oam810e_eic \
             --source-revision '${{ github.sha }}' \
@@ -212,7 +212,7 @@ jobs:
           import subprocess
           import sys
 
-          sys.path.insert(0, 'tests/xtest')
+          sys.path.insert(0, '.github/xtest')
           import case_group_cache
           import generate_cases
           import group_cases
@@ -235,7 +235,7 @@ jobs:
           combined = generate_cases.combine_bundles(
               list(bundles.values()) if platform == 'all' else [bundles[platform]])
           input_directory = Path('combined-case-input')
-          generate_cases.write_bundle(combined, input_directory, 'tests/xtest/test_lists/envs')
+          generate_cases.write_bundle(combined, input_directory, '.github/xtest/test_lists/envs')
           nodes = int(os.environ['NODES']) if os.environ['NODES'] else None
           suite = os.environ['SUITE'] or None
           cards_per_node = int(os.environ['CARDS_PER_NODE']) if os.environ['CARDS_PER_NODE'] else None
@@ -334,7 +334,7 @@ jobs:
           PYTHONPATH=deps/xlsxwriter-3.2.5-py3-none-any.whl \
             python3 -S -B -c 'import xlsxwriter; assert xlsxwriter.__version__ == "3.2.5"'
           PYTHONPATH=deps/xlsxwriter-3.2.5-py3-none-any.whl \
-            python3 -S -B -m unittest discover -s pccl/tests/xtest -p 'test_performance_report.py' -v
+            python3 -S -B -m unittest discover -s pccl/.github/xtest -p 'test_performance_report.py' -v
       - uses: actions/upload-artifact@v4
         with:
           name: m890p-daily-full-python-deps
@@ -394,7 +394,7 @@ jobs:
             bash pccl/.github/workflows/scripts/build.sh
             tar -czf "$STAGING/output_standard.tar.gz" -C /workspace/source output_standard
             sha256sum "$STAGING/output_standard.tar.gz" > "$STAGING/output_standard.tar.gz.sha256"
-            python3 -S -B "$build_output/pccl/tests/xtest/artifact_cache.py" create \
+            python3 -S -B "$build_output/pccl/.github/xtest/artifact_cache.py" create \
               --archive "$STAGING/output_standard.tar.gz" \
               --pccl-revision "$(git -C "$build_output/pccl" rev-parse HEAD)" \
               --pccl-tests-revision "$(git -C "$build_output/pccl-tests" rev-parse HEAD)" \
@@ -406,7 +406,7 @@ jobs:
           STAGING: /wl_nas/devops/pccl-artifact-cache-${{ github.run_id }}/staging/standard
         run: |
           EXPECTED_SHA=$(python3 -c 'import json, os; print(json.load(open(os.path.join(os.environ["STAGING"], "output_standard.build.json")))["artifact_sha256"])')
-          python3 -S -B pccl/tests/xtest/artifact_cache.py validate \
+          python3 -S -B pccl/.github/xtest/artifact_cache.py validate \
             --directory "$STAGING" --profile standard \
             --pccl-revision '${{ github.sha }}' --pccl-tests-revision '${{ env.PCCL_TESTS_REVISION }}' \
             --expected-sha256 "$EXPECTED_SHA"
@@ -416,7 +416,7 @@ jobs:
           STAGING: /wl_nas/devops/pccl-artifact-cache-${{ github.run_id }}/staging/standard
           CACHE_DIR: /wl_nas/devops/pccl-artifact-cache-${{ github.run_id }}/cache/standard/${{ steps.identity.outputs.artifact_sha256 }}
         run: |
-          python3 -S -B pccl/tests/xtest/artifact_cache.py publish \
+          python3 -S -B pccl/.github/xtest/artifact_cache.py publish \
             --download "$STAGING" --cache "$CACHE_DIR" --profile standard \
             --pccl-revision '${{ github.sha }}' --pccl-tests-revision '${{ env.PCCL_TESTS_REVISION }}' \
             --expected-sha256 '${{ steps.identity.outputs.artifact_sha256 }}'
@@ -456,7 +456,7 @@ jobs:
         env:
           CACHE_DIR: /wl_nas/devops/pccl-artifact-cache-${{ github.run_id }}/cache/standard/${{ env.EXPECTED_SHA }}
         run: |
-          STATE=$(python3 -S -B pccl/tests/xtest/artifact_cache.py probe \
+          STATE=$(python3 -S -B pccl/.github/xtest/artifact_cache.py probe \
             --directory "$CACHE_DIR" --profile standard \
             --pccl-revision '${{ github.sha }}' --pccl-tests-revision '${{ env.PCCL_TESTS_REVISION }}' \
             --expected-sha256 '${{ env.EXPECTED_SHA }}')
@@ -481,7 +481,7 @@ jobs:
         env:
           CACHE_DIR: /wl_nas/devops/pccl-artifact-cache-${{ github.run_id }}/cache/standard/${{ env.EXPECTED_SHA }}
         run: |
-          python3 -S -B pccl/tests/xtest/artifact_cache.py publish \
+          python3 -S -B pccl/.github/xtest/artifact_cache.py publish \
             --download download --cache "$CACHE_DIR" --profile standard \
             --pccl-revision '${{ github.sha }}' --pccl-tests-revision '${{ env.PCCL_TESTS_REVISION }}' \
             --expected-sha256 '${{ env.EXPECTED_SHA }}'
@@ -489,7 +489,7 @@ jobs:
         env:
           CACHE_DIR: /wl_nas/devops/pccl-artifact-cache-${{ github.run_id }}/cache/standard/${{ env.EXPECTED_SHA }}
         run: |
-          STATE=$(python3 -S -B pccl/tests/xtest/artifact_cache.py probe \
+          STATE=$(python3 -S -B pccl/.github/xtest/artifact_cache.py probe \
             --directory "$CACHE_DIR" --profile standard \
             --pccl-revision '${{ github.sha }}' --pccl-tests-revision '${{ env.PCCL_TESTS_REVISION }}' \
             --expected-sha256 '${{ env.EXPECTED_SHA }}')
@@ -499,7 +499,7 @@ jobs:
         env:
           CACHE_DIR: /wl_nas/devops/pccl-artifact-cache-${{ github.run_id }}/cache/case-groups/${{ env.EXPECTED_GROUPS_SHA }}
         run: |
-          if python3 -S -B pccl/tests/xtest/case_group_cache.py validate \
+          if python3 -S -B pccl/.github/xtest/case_group_cache.py validate \
             --directory "$CACHE_DIR" --expected-sha256 '${{ env.EXPECTED_GROUPS_SHA }}'; then
             echo 'state=hit' >> "$GITHUB_OUTPUT"
           else
@@ -515,14 +515,14 @@ jobs:
         env:
           CACHE_DIR: /wl_nas/devops/pccl-artifact-cache-${{ github.run_id }}/cache/case-groups/${{ env.EXPECTED_GROUPS_SHA }}
         run: |
-          python3 -S -B pccl/tests/xtest/case_group_cache.py publish \
+          python3 -S -B pccl/.github/xtest/case_group_cache.py publish \
             --download case-groups-download --cache "$CACHE_DIR" \
             --expected-sha256 '${{ env.EXPECTED_GROUPS_SHA }}'
       - name: Confirm the final NAS Case groups
         env:
           CACHE_DIR: /wl_nas/devops/pccl-artifact-cache-${{ github.run_id }}/cache/case-groups/${{ env.EXPECTED_GROUPS_SHA }}
         run: |
-          python3 -S -B pccl/tests/xtest/case_group_cache.py validate \
+          python3 -S -B pccl/.github/xtest/case_group_cache.py validate \
             --directory "$CACHE_DIR" --expected-sha256 '${{ env.EXPECTED_GROUPS_SHA }}'
 
   execute:
@@ -558,7 +558,7 @@ jobs:
         env:
           CACHE_DIR: /wl_nas/devops/pccl-artifact-cache-${{ github.run_id }}/cache/case-groups/${{ env.EXPECTED_GROUPS_SHA }}
         run: |
-          if python3 -S -B pccl/tests/xtest/case_group_cache.py validate \
+          if python3 -S -B pccl/.github/xtest/case_group_cache.py validate \
             --directory "$CACHE_DIR" --expected-sha256 '${{ env.EXPECTED_GROUPS_SHA }}'; then
             echo 'state=hit' >> "$GITHUB_OUTPUT"
           else
@@ -574,7 +574,7 @@ jobs:
         env:
           CACHE_DIR: /wl_nas/devops/pccl-artifact-cache-${{ github.run_id }}/cache/case-groups/${{ env.EXPECTED_GROUPS_SHA }}
         run: |
-          python3 -S -B pccl/tests/xtest/case_group_cache.py publish \
+          python3 -S -B pccl/.github/xtest/case_group_cache.py publish \
             --download case-groups-download --cache "$CACHE_DIR" \
             --expected-sha256 '${{ env.EXPECTED_GROUPS_SHA }}'
       - id: build-cache
@@ -582,7 +582,7 @@ jobs:
         env:
           CACHE_DIR: /wl_nas/devops/pccl-artifact-cache-${{ github.run_id }}/cache/standard/${{ env.EXPECTED_SHA }}
         run: |
-          STATE=$(python3 -S -B pccl/tests/xtest/artifact_cache.py probe \
+          STATE=$(python3 -S -B pccl/.github/xtest/artifact_cache.py probe \
             --directory "$CACHE_DIR" --profile standard \
             --pccl-revision '${{ github.sha }}' --pccl-tests-revision '${{ env.PCCL_TESTS_REVISION }}' \
             --expected-sha256 '${{ env.EXPECTED_SHA }}')
@@ -607,7 +607,7 @@ jobs:
         env:
           CACHE_DIR: /wl_nas/devops/pccl-artifact-cache-${{ github.run_id }}/cache/standard/${{ env.EXPECTED_SHA }}
         run: |
-          python3 -S -B pccl/tests/xtest/artifact_cache.py publish \
+          python3 -S -B pccl/.github/xtest/artifact_cache.py publish \
             --download build-download --cache "$CACHE_DIR" --profile standard \
             --pccl-revision '${{ github.sha }}' --pccl-tests-revision '${{ env.PCCL_TESTS_REVISION }}' \
             --expected-sha256 '${{ env.EXPECTED_SHA }}'
@@ -616,12 +616,12 @@ jobs:
           BUILD_CACHE: /wl_nas/devops/pccl-artifact-cache-${{ github.run_id }}/cache/standard/${{ env.EXPECTED_SHA }}
           GROUPS_CACHE: /wl_nas/devops/pccl-artifact-cache-${{ github.run_id }}/cache/case-groups/${{ env.EXPECTED_GROUPS_SHA }}
         run: |
-          STATE=$(python3 -S -B pccl/tests/xtest/artifact_cache.py probe \
+          STATE=$(python3 -S -B pccl/.github/xtest/artifact_cache.py probe \
             --directory "$BUILD_CACHE" --profile standard \
             --pccl-revision '${{ github.sha }}' --pccl-tests-revision '${{ env.PCCL_TESTS_REVISION }}' \
             --expected-sha256 '${{ env.EXPECTED_SHA }}')
           test "$STATE" = hit
-          python3 -S -B pccl/tests/xtest/case_group_cache.py validate \
+          python3 -S -B pccl/.github/xtest/case_group_cache.py validate \
             --directory "$GROUPS_CACHE" --expected-sha256 '${{ env.EXPECTED_GROUPS_SHA }}'
       - name: Run the automatic group on one node
         if: env.NODES == '1'
@@ -692,13 +692,13 @@ jobs:
             git config --global --unset-all url.https://ai-gerrit.eng.t-head.cn/Public/Github/.insteadOf 2>/dev/null || true
             git config --global --add safe.directory /workspace/source
             git config --global --add safe.directory '*'
-            python3 -S -B pccl/tests/xtest/artifact_cache.py validate \
+            python3 -S -B pccl/.github/xtest/artifact_cache.py validate \
               --directory "$CACHE_DIR" --profile standard \
               --pccl-revision '${{ github.sha }}' --pccl-tests-revision '${{ env.PCCL_TESTS_REVISION }}' \
               --expected-sha256 '${{ env.EXPECTED_SHA }}'
-            python3 -S -B pccl/tests/xtest/case_group_cache.py validate \
+            python3 -S -B pccl/.github/xtest/case_group_cache.py validate \
               --directory "$GROUPS_DIR" --expected-sha256 '${{ env.EXPECTED_GROUPS_SHA }}'
-            python3 -S -B pccl/tests/xtest/case_group_cache.py stage \
+            python3 -S -B pccl/.github/xtest/case_group_cache.py stage \
               --directory "$GROUPS_DIR" --output "$CASE_INPUT" \
               --expected-sha256 '${{ env.EXPECTED_GROUPS_SHA }}'
             tar -xzf "$CACHE_DIR/output_standard.tar.gz" -C /workspace/source
@@ -707,7 +707,7 @@ jobs:
             python3 -m venv /workspace/minimal-csv-env
             /workspace/minimal-csv-env/bin/python -m pip install --disable-pip-version-check \
               --no-index --find-links /workspace/source/deps \
-              -r "$build_output/pccl/tests/xtest/requirements.txt"
+              -r "$build_output/pccl/.github/xtest/requirements.txt"
             /workspace/minimal-csv-env/bin/python -m pip check
             source /usr/local/PPU_SDK/envsetup.sh
             unset PCCL_PATH
@@ -716,7 +716,7 @@ jobs:
             test "$NCCL_SOCKET_IFNAME" = "$MPI_INTERFACE"
             test "$OMPI_MCA_orte_keep_fqdn_hostnames" = 1
             /workspace/minimal-csv-env/bin/python -B \
-              "$build_output/pccl/tests/xtest/run_cases.py" \
+              "$build_output/pccl/.github/xtest/run_cases.py" \
               --input "$CASE_INPUT/$GROUP_ID" \
               --profile "$PROFILE" \
               --map-nvidia-devices \
@@ -791,13 +791,13 @@ jobs:
             git config --global --unset-all url.https://ai-gerrit.eng.t-head.cn/Public/Github/.insteadOf 2>/dev/null || true
             git config --global --add safe.directory "$SOURCE_DIR"
             git config --global --add safe.directory '*'
-            python3 -S -B pccl/tests/xtest/artifact_cache.py validate \
+            python3 -S -B pccl/.github/xtest/artifact_cache.py validate \
               --directory "$CACHE_DIR" --profile standard \
               --pccl-revision '${{ github.sha }}' --pccl-tests-revision '${{ env.PCCL_TESTS_REVISION }}' \
               --expected-sha256 '${{ env.EXPECTED_SHA }}'
-            python3 -S -B pccl/tests/xtest/case_group_cache.py validate \
+            python3 -S -B pccl/.github/xtest/case_group_cache.py validate \
               --directory "$GROUPS_DIR" --expected-sha256 '${{ env.EXPECTED_GROUPS_SHA }}'
-            python3 -S -B pccl/tests/xtest/case_group_cache.py stage \
+            python3 -S -B pccl/.github/xtest/case_group_cache.py stage \
               --directory "$GROUPS_DIR" --output "$CASE_INPUT" \
               --expected-sha256 '${{ env.EXPECTED_GROUPS_SHA }}'
             tar -xzf "$CACHE_DIR/output_standard.tar.gz" -C "$SHARED_ROOT"
@@ -806,7 +806,7 @@ jobs:
             python3 -m venv /workspace/minimal-csv-cluster-env
             /workspace/minimal-csv-cluster-env/bin/python -m pip install --disable-pip-version-check \
               --no-index --find-links "$SOURCE_DIR/deps" \
-              -r "$build_output/pccl/tests/xtest/requirements.txt"
+              -r "$build_output/pccl/.github/xtest/requirements.txt"
             /workspace/minimal-csv-cluster-env/bin/python -m pip check
             source /usr/local/PPU_SDK/envsetup.sh
             unset PCCL_PATH
@@ -816,7 +816,7 @@ jobs:
             test "$OMPI_MCA_orte_keep_fqdn_hostnames" = 1
             test "$(wc -l < "$CLUSTER_HOSTS_FILE")" -eq "$NODES"
             /workspace/minimal-csv-cluster-env/bin/python -B \
-              "$build_output/pccl/tests/xtest/run_cases.py" \
+              "$build_output/pccl/.github/xtest/run_cases.py" \
               --input "$CASE_INPUT/$GROUP_ID" \
               --profile "$PROFILE" \
               --map-nvidia-devices \
@@ -893,13 +893,13 @@ jobs:
             git config --global --unset-all url.https://ai-gerrit.eng.t-head.cn/Public/Github/.insteadOf 2>/dev/null || true
             git config --global --add safe.directory "$SOURCE_DIR"
             git config --global --add safe.directory '*'
-            python3 -S -B pccl/tests/xtest/artifact_cache.py validate \
+            python3 -S -B pccl/.github/xtest/artifact_cache.py validate \
               --directory "$CACHE_DIR" --profile standard \
               --pccl-revision '${{ github.sha }}' --pccl-tests-revision '${{ env.PCCL_TESTS_REVISION }}' \
               --expected-sha256 '${{ env.EXPECTED_SHA }}'
-            python3 -S -B pccl/tests/xtest/case_group_cache.py validate \
+            python3 -S -B pccl/.github/xtest/case_group_cache.py validate \
               --directory "$GROUPS_DIR" --expected-sha256 '${{ env.EXPECTED_GROUPS_SHA }}'
-            python3 -S -B pccl/tests/xtest/case_group_cache.py stage \
+            python3 -S -B pccl/.github/xtest/case_group_cache.py stage \
               --directory "$GROUPS_DIR" --output "$CASE_INPUT" \
               --expected-sha256 '${{ env.EXPECTED_GROUPS_SHA }}'
             tar -xzf "$CACHE_DIR/output_standard.tar.gz" -C "$SHARED_ROOT"
@@ -908,7 +908,7 @@ jobs:
             python3 -m venv /workspace/minimal-csv-cluster-env
             /workspace/minimal-csv-cluster-env/bin/python -m pip install --disable-pip-version-check \
               --no-index --find-links "$SOURCE_DIR/deps" \
-              -r "$build_output/pccl/tests/xtest/requirements.txt"
+              -r "$build_output/pccl/.github/xtest/requirements.txt"
             /workspace/minimal-csv-cluster-env/bin/python -m pip check
             source /usr/local/PPU_SDK/envsetup.sh
             unset PCCL_PATH
@@ -918,7 +918,7 @@ jobs:
             test "$OMPI_MCA_orte_keep_fqdn_hostnames" = 1
             test "$(wc -l < "$CLUSTER_HOSTS_FILE")" -eq "$NODES"
             /workspace/minimal-csv-cluster-env/bin/python -B \
-              "$build_output/pccl/tests/xtest/run_cases.py" \
+              "$build_output/pccl/.github/xtest/run_cases.py" \
               --input "$CASE_INPUT/$GROUP_ID" \
               --profile "$PROFILE" \
               --map-nvidia-devices \
@@ -959,7 +959,7 @@ jobs:
         env:
           CACHE_DIR: /wl_nas/devops/pccl-artifact-cache-${{ github.run_id }}/cache/case-groups/${{ needs.prepare.outputs.groups_sha256 }}
         run: |
-          if python3 -S -B pccl/tests/xtest/case_group_cache.py validate \
+          if python3 -S -B pccl/.github/xtest/case_group_cache.py validate \
             --directory "$CACHE_DIR" --expected-sha256 '${{ needs.prepare.outputs.groups_sha256 }}'; then
             echo 'state=hit' >> "$GITHUB_OUTPUT"
           else
@@ -975,7 +975,7 @@ jobs:
         env:
           CACHE_DIR: /wl_nas/devops/pccl-artifact-cache-${{ github.run_id }}/cache/case-groups/${{ needs.prepare.outputs.groups_sha256 }}
         run: |
-          python3 -S -B pccl/tests/xtest/case_group_cache.py publish \
+          python3 -S -B pccl/.github/xtest/case_group_cache.py publish \
             --download case-groups-download --cache "$CACHE_DIR" \
             --expected-sha256 '${{ needs.prepare.outputs.groups_sha256 }}'
       - id: groups
@@ -984,7 +984,7 @@ jobs:
         env:
           CACHE_DIR: /wl_nas/devops/pccl-artifact-cache-${{ github.run_id }}/cache/case-groups/${{ needs.prepare.outputs.groups_sha256 }}
         run: |
-          python3 -S -B pccl/tests/xtest/case_group_cache.py validate \
+          python3 -S -B pccl/.github/xtest/case_group_cache.py validate \
             --directory "$CACHE_DIR" --expected-sha256 '${{ needs.prepare.outputs.groups_sha256 }}'
       - id: reconcile
         name: Reconcile every automatic group
@@ -1031,7 +1031,7 @@ jobs:
           for group in groups:
               group_output = output / group['id']
               completed = subprocess.run([
-                  sys.executable, '-S', '-B', 'pccl/tests/xtest/daily_reconcile.py',
+                  sys.executable, '-S', '-B', 'pccl/.github/xtest/daily_reconcile.py',
                   '--input', str(Path('/wl_nas/devops/pccl-artifact-cache-${{ github.run_id }}') /
                                    'cache/case-groups/${{ needs.prepare.outputs.groups_sha256 }}' / group['id']),
                   '--profile', group['profile'], '--nodes', str(group['nodes']),
@@ -1100,7 +1100,7 @@ jobs:
               *) echo "Unsupported report platform: $platform" >&2; exit 1 ;;
             esac
             PYTHONPATH=deps/xlsxwriter-3.2.5-py3-none-any.whl \
-              python3 -S -B pccl/tests/xtest/performance_report.py report \
+              python3 -S -B pccl/.github/xtest/performance_report.py report \
               --selection /wl_nas/devops/pccl-artifact-cache-${{ github.run_id }}/cache/case-groups/${{ needs.prepare.outputs.groups_sha256 }}/performance-cases.json \
               --groups /wl_nas/devops/pccl-artifact-cache-${{ github.run_id }}/cache/case-groups/${{ needs.prepare.outputs.groups_sha256 }}/groups.json \
               --coverage /wl_nas/devops/pccl-artifact-cache-${{ github.run_id }}/cache/case-groups/${{ needs.prepare.outputs.groups_sha256 }}/execution-coverage.json \
@@ -1147,11 +1147,11 @@ jobs:
           PY
           )
           if [ "$PRESERVE" = 1 ]; then
-            python3 -S -B pccl/tests/xtest/artifact_cache.py cleanup \
+            python3 -S -B pccl/.github/xtest/artifact_cache.py cleanup \
               --root /wl_nas/devops/pccl-artifact-cache-${{ github.run_id }} \
               --run-id '${{ github.run_id }}' --preserve-cache
           else
-            python3 -S -B pccl/tests/xtest/artifact_cache.py cleanup \
+            python3 -S -B pccl/.github/xtest/artifact_cache.py cleanup \
               --root /wl_nas/devops/pccl-artifact-cache-${{ github.run_id }} \
               --run-id '${{ github.run_id }}'
           fi

@@ -34,7 +34,7 @@ class CsvRunnerTests(unittest.TestCase):
         self.binary = self.runner / 'build'
         self.binary.mkdir(parents=True)
         (self.test_root / 'lib').mkdir()
-        helpers = self.test_root / 'pccl' / 'tests' / 'xtest'
+        helpers = self.test_root / 'pccl' / '.github' / 'xtest'
         (helpers / 'cluster-bin').mkdir(parents=True)
         for name in ('cluster-ssh', 'cluster-exec', 'cluster_case_ssh.sh'):
             (helpers / 'cluster-bin' / name).write_text('# test helper\n')
@@ -453,7 +453,7 @@ class CsvRunnerTests(unittest.TestCase):
     def test_recover_multinode_uses_one_group_case_id(self):
         hostfile = self.root / 'hosts.cfg'
         hostfile.write_text('worker-a\nworker-b\n')
-        script = self.test_root / 'pccl' / 'tests' / 'xtest' / 'remote_recovery.py'
+        script = self.test_root / 'pccl' / '.github' / 'xtest' / 'remote_recovery.py'
         script.parent.mkdir(parents=True, exist_ok=True)
         script.write_text('# helper\n')
         case = self.inputs([{'cmd': 'exit 1'}], nodes=2)['cases'][0]

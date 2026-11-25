@@ -60,11 +60,11 @@ and remains unchanged.
 ## Generate locally
 
 ```bash
-python3 -S tests/xtest/generate_cases.py \
-  --definition tests/xtest/test_lists/op_perf_shm.json \
-  --definition tests/xtest/test_lists/postsil_daily_shm.json \
-  --suites tests/xtest/test_lists/suites.json \
-  --env-root tests/xtest/test_lists/envs \
+python3 -S .github/xtest/generate_cases.py \
+  --definition .github/xtest/test_lists/op_perf_shm.json \
+  --definition .github/xtest/test_lists/postsil_daily_shm.json \
+  --suites .github/xtest/test_lists/suites.json \
+  --env-root .github/xtest/test_lists/envs \
   --profile full \
   --source-revision 1111111111111111111111111111111111111111 \
   --runner-revision 2222222222222222222222222222222222222222 \

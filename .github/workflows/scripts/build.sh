@@ -32,8 +32,10 @@ else
     sed -i 's|security.ubuntu.com|mirrors.aliyun.com|g' "$f"
   done
 fi
+# cmake is required by tests/graph_search_test/setup_3rd.sh, which builds
+# googletest from source when the native test targets are enabled.
 apt update
-apt install -y libboost-program-options-dev
+apt install -y libboost-program-options-dev cmake
 
 # Validate required environment variables.
 if [ -z "${source_home}" ]; then
@@ -78,7 +80,14 @@ cd ${source_home}/pccl-tests
 bash build.sh --use_mpi
 
 echo "######################### $(date +%Y%m%d%H%M%S) Build PCCL native unit tests ##########################"
+# pccl_build.sh builds the unit tests through --enable_tests, but multi-process
+# Cases need the MPI-capable variants. make does not rebuild on a flag change,
+# so the shared outputs are removed before the MPI build.
 NATIVE_UNIT_BUILD=${source_home}/pccl/tests/unit_test/build
+GRAPH_SEARCH_BUILD=${source_home}/pccl/tests/graph_search_test/build
+rm -f ${NATIVE_UNIT_BUILD}/collPcclUnitTest \
+  ${NATIVE_UNIT_BUILD}/hggcGraphUnitTest \
+  ${NATIVE_UNIT_BUILD}/pcclCommAbortTest
 make -C ${source_home}/pccl/tests/unit_test/src \
   PCCL_HOME=${source_home}/pccl/build \
   PPU_ARCHS=ppu_10,ppu_15 MPI=1 \
@@ -86,9 +95,13 @@ make -C ${source_home}/pccl/tests/unit_test/src \
   ${NATIVE_UNIT_BUILD}/collPcclUnitTest \
   ${NATIVE_UNIT_BUILD}/hggcGraphUnitTest \
   ${NATIVE_UNIT_BUILD}/pcclCommAbortTest
+
+echo "######################### $(date +%Y%m%d%H%M%S) Stage test binaries ##########################"
+mkdir -p ${source_home}/pccl-tests/build
 cp ${NATIVE_UNIT_BUILD}/collPcclUnitTest \
   ${NATIVE_UNIT_BUILD}/hggcGraphUnitTest \
   ${NATIVE_UNIT_BUILD}/pcclCommAbortTest \
+  ${GRAPH_SEARCH_BUILD}/graphSearchTest \
   ${source_home}/pccl-tests/build/
 
 echo "######################### $(date +%Y%m%d%H%M%S) Collect final output ##########################"
