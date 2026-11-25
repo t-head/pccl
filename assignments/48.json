@@ -8,7 +8,7 @@
       "modules": [
         "network"
       ],
-      "reason": "Main functional change is in the IB network backend and proxy progress path: QP-per-request selection now depends on advertised receive capacity plus a new IB_SPLIT_SIZE_THRESHOLD parameter, with matching send/recv logic and proxy local-rank caching updates. These are network transport/proxy behavior changes, not an independent change in another module."
+      "reason": "Main change is in the IB network transport/proxy path: adds size-threshold-based QP selection for send/recv groups using CTS-advertised max receive capacity (`IB_SPLIT_SIZE_THRESHOLD`) and wires request/event handling accordingly; `src/proxy.cc` local-rank initialization tweak is supporting proxy-progress correctness, not a separate module-level policy change."
     }
   },
   "reviewers": {
