@@ -1,14 +1,14 @@
 {
   "classification": {
     "base_sha": "c014efd792a7784724a4538760795122b7e39818",
-    "head_sha": "7717aea4433dd01fdafab65e3bb2baf83455cedb",
-    "input_fingerprint": "0b07a8028bb9b374ef3bc76acf3af0c03973761a169b878a0076d058c8daac46",
+    "head_sha": "d22b8dad24a541c4d3364eba20833bc3bd833785",
+    "input_fingerprint": "6dc176444f73a3f238cd123608484f262145a436c7681c86ba016a8a0b483f5b",
     "pr_number": 195,
     "proposal": {
       "modules": [
         "workflow"
       ],
-      "reason": "Main substantive change is in contribution/review automation: review_automation.py and maintainer_approval.py redesign module-based invitation/approval gating, new review-gate/review-module/review-command/review-squash-preview workflows rewire that process, and commit_message_squash.py plus commit_attribution.py add squash-preview/attribution policy enforcement; docs/catalog edits support this same workflow policy."
+      "reason": "Main functional change is in contribution/review automation: reviewer-routing and invitation state logic, review-gate requirement evaluation, and squash-preview generation/cleanup with commit-attribution policy checks across .github/scripts/* and .github/workflows/*."
     }
   },
   "reviewers": {
