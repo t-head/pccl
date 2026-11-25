@@ -53,7 +53,6 @@ __device__ __forceinline__ void runSendRecv(struct ncclDevWorkP2p* work) {
   struct ncclKernelComm* comm = getShmemComm(work);
   int nWorks = getShmemPtr(comm)->nWorks;
   struct ncclDevChannel* channel = &(getShmemPtr(comm)->channel);
-  int group = 0;
   constexpr bool kProtoNeedsExtraWarp = (Proto::Id != NCCL_PROTO_LL);
   constexpr bool kAllowLLSwitch = (Proto::Id == NCCL_PROTO_SIMPLE || Proto::Id == NCCL_PROTO_SIMPLE_BULK || Proto::Id == NCCL_PROTO_SIMPLE_BULK_AR);
   int nThreadsSegment = 16 * WARP_SIZE;
@@ -61,65 +60,68 @@ __device__ __forceinline__ void runSendRecv(struct ncclDevWorkP2p* work) {
 #ifndef NO_EXTRA_WARP
   if (kProtoNeedsExtraWarp && nThreadsSegment >= 128) nThreadsSegment += WARP_SIZE;
 #endif
-  for (int s=0; s<nWorks; s++) {
-    int groupRecv = group;
-    group += 1;
-    int groupSend = group;
-    group += nThreadsSegment > 128 ? 2 : 1;
-    if (tid < nThreadsSegment) {
-      const int nThreads = (kProtoNeedsExtraWarp && nThreadsSegment > 128) ? nThreadsSegment-WARP_SIZE : nThreadsSegment;
+  const int wid = tid/WARP_SIZE;
+  const int lane = tid%WARP_SIZE;
+  const int nWarpsSegment = nThreadsSegment/WARP_SIZE;
+  // Segments contain whole warps. Count boundaries at or below wid to compute
+  // wid/nWarpsSegment without a runtime integer division. All lanes must take
+  // the ballot, including warps with no work.
+  const int workIx = __popc(__ballot_sync(~0u, (lane+1)*nWarpsSegment <= wid));
+  if (workIx >= nWorks) return;
+  tid -= workIx*nThreadsSegment;
+  work += workIx;
 
-      // Compute pointers
-      const T* sendbuff = (const T*)work->sendbuff;
-      T* recvbuff = (T*)work->recvbuff;
-      const ssize_t sendCount = work->sendCount;
-      const ssize_t recvCount = work->recvCount;
+  // Preserve the recv/send barrier IDs from the segment walk.
+  const int groupRecv = workIx*(1 + (nThreadsSegment > 128 ? 2 : 1));
+  const int groupSend = groupRecv + 1;
+  const int nThreads = (kProtoNeedsExtraWarp && nThreadsSegment > 128) ? nThreadsSegment-WARP_SIZE : nThreadsSegment;
 
-      if (work->sendRank == comm->rank) {
-        if (tid < nThreads && sendbuff != recvbuff) {
-          // local copy : ReduceOrCopyMulti takes an int as number of elements,
-          // so we split it in blocks of 1G elements.
-          int blockSize = 1<<30;
-          for (ssize_t offset=0; offset<sendCount; offset += blockSize) {
-            size_t remaining = sendCount - offset;
-            if (remaining < blockSize) blockSize = remaining;
-            ReduceOrCopyMultiBulk<ncclSendRecvLocalUnroll(), FUNC, T, 1, 1, 1, 1, 1, 1, Proto::RTMD, CONN_ICN, CONN_ICN>(tid, nThreads, FUNC(), false, false, 1, &sendbuff, 1, &recvbuff, blockSize);
-            sendbuff += blockSize; recvbuff += blockSize;
-          }
-        }
-      } else {
-        struct ncclKernelComm* comm = getShmemComm(work);
+  // Compute pointers
+  const T* sendbuff = (const T*)work->sendbuff;
+  T* recvbuff = (T*)work->recvbuff;
+  const ssize_t sendCount = work->sendCount;
+  const ssize_t recvCount = work->recvCount;
 
-        const int stepSize = comm->buffSizes[Proto::Id]/(sizeof(T)*NCCL_STEPS);
-
-        int nThreadsSplit = nThreads/2;
-        const bool recvLL = kAllowLLSwitch && work->recvProtoLL;
-        const bool sendLL = kAllowLLSwitch && work->sendProtoLL;
-        if ((tid < nThreadsSplit) && recvCount >= 0) {
-          const int chunkSize = work->recvRegUsed ? NCCL_MAX_NET_SIZE : work->recvChunkSize/sizeof(T);
-          int peer = work->recvRank;
-          int nt = nThreadsSplit;
-          if (recvLL) {
-            runRecv<FUNC, T, ProtoLL>(tid, nt, peer, recvbuff, recvCount, chunkSize, comm, groupRecv, work);
-          } else {
-            runRecv<FUNC, T, Proto>(tid, nt, peer, recvbuff, recvCount, chunkSize, comm, groupRecv, work);
-          }
-        }
-        if ((tid >= nThreadsSplit) && sendCount >= 0) {
-          const int chunkSize = work->sendRegUsed ? NCCL_MAX_NET_SIZE : work->sendChunkSize/sizeof(T);
-          int peer = work->sendRank;
-          int nt = sendLL ? (nThreadsSegment - nThreadsSplit) : (nThreads - nThreadsSplit);
-          if (sendLL) {
-            runSend<FUNC, T, ProtoLL>(tid-nThreadsSplit, nt, peer, sendbuff, recvbuff, sendCount, chunkSize, comm, groupSend, work);
-          } else {
-            runSend<FUNC, T, Proto>(tid-nThreadsSplit, nt, peer, sendbuff, recvbuff, sendCount, chunkSize, comm, groupSend, work);
-          }
-        }
+  if (work->sendRank == comm->rank) {
+    if (tid < nThreads && sendbuff != recvbuff) {
+      // local copy : ReduceOrCopyMulti takes an int as number of elements,
+      // so we split it in blocks of 1G elements.
+      int blockSize = 1<<30;
+      for (ssize_t offset=0; offset<sendCount; offset += blockSize) {
+        size_t remaining = sendCount - offset;
+        if (remaining < blockSize) blockSize = remaining;
+        ReduceOrCopyMultiBulk<ncclSendRecvLocalUnroll(), FUNC, T, 1, 1, 1, 1, 1, 1, Proto::RTMD, CONN_ICN, CONN_ICN>(tid, nThreads, FUNC(), false, false, 1, &sendbuff, 1, &recvbuff, blockSize);
+        sendbuff += blockSize; recvbuff += blockSize;
       }
     }
-    tid -= nThreadsSegment;
-    if (tid < 0) break;
-    work++;
+  } else {
+    struct ncclKernelComm* comm = getShmemComm(work);
+
+    const int stepSize = comm->buffSizes[Proto::Id]/(sizeof(T)*NCCL_STEPS);
+
+    int nThreadsSplit = nThreads/2;
+    const bool recvLL = kAllowLLSwitch && work->recvProtoLL;
+    const bool sendLL = kAllowLLSwitch && work->sendProtoLL;
+    if ((tid < nThreadsSplit) && recvCount >= 0) {
+      const int chunkSize = work->recvRegUsed ? NCCL_MAX_NET_SIZE : work->recvChunkSize/sizeof(T);
+      int peer = work->recvRank;
+      int nt = nThreadsSplit;
+      if (recvLL) {
+        runRecv<FUNC, T, ProtoLL>(tid, nt, peer, recvbuff, recvCount, chunkSize, comm, groupRecv, work);
+      } else {
+        runRecv<FUNC, T, Proto>(tid, nt, peer, recvbuff, recvCount, chunkSize, comm, groupRecv, work);
+      }
+    }
+    if ((tid >= nThreadsSplit) && sendCount >= 0) {
+      const int chunkSize = work->sendRegUsed ? NCCL_MAX_NET_SIZE : work->sendChunkSize/sizeof(T);
+      int peer = work->sendRank;
+      int nt = sendLL ? (nThreadsSegment - nThreadsSplit) : (nThreads - nThreadsSplit);
+      if (sendLL) {
+        runSend<FUNC, T, ProtoLL>(tid-nThreadsSplit, nt, peer, sendbuff, recvbuff, sendCount, chunkSize, comm, groupSend, work);
+      } else {
+        runSend<FUNC, T, Proto>(tid-nThreadsSplit, nt, peer, sendbuff, recvbuff, sendCount, chunkSize, comm, groupSend, work);
+      }
+    }
   }
 }
 
