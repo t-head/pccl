@@ -132,12 +132,13 @@ def refresh(api, number, ask=ask_copilot, *, automatic=False, trigger_succeeded=
     delete_previews(api, [comment for comment in comments if comment not in current])
     if not eligible or cleanup_only:
         return None
-    gate_state = review_gate_status(api, data).get('state')
-    if gate_state in {'error', 'failure'}:
-        delete_previews(api, current)
-        return None
-    if not trigger_succeeded or gate_state != 'success':
-        return None
+    if automatic:
+        gate_state = review_gate_status(api, data).get('state')
+        if gate_state in {'error', 'failure'}:
+            delete_previews(api, current)
+            return None
+        if not trigger_succeeded or gate_state != 'success':
+            return None
     pages = api.request(f'/repos/{api.repository}/pulls/{number}/commits?per_page=100', paginate=True)
     commits = [commit for page in pages for commit in page]
     if len(commits) != data['commit_count'] or commits[-1]['sha'] != data['head']:

@@ -135,8 +135,8 @@ GitHub's other required checks. CI and hardware tests remain independent of revi
 ### Preparing the squash message
 
 For a multi-commit PR targeting `main`, a successful review gate lets the preview
-job generate a **Suggested squash commit body**. Match the commit printed in the
-comment to the HEAD you plan to merge. Check its summary, issue references and
+job automatically generate a **Suggested squash commit body**. Match the commit printed
+in the comment to the HEAD you plan to merge. Check its summary, issue references and
 sign-offs, then paste the body into **Squash and merge** and review the title.
 PR updates trigger cleanup without waiting for the review gate or generating a new body.
 Cleanup reads the latest PR state and removes previews for older commits, or all previews
@@ -144,16 +144,24 @@ when the PR is closed, draft, single-commit or no longer targets `main`. Editing
 or description preserves the current-commit preview while the PR remains eligible.
 Cleanup and generation share a per-PR queue; allow the workflow to finish and still check
 the printed commit before copying.
-Only a current-commit preview stays visible while the gate is pending or generation is retried.
+On automatic refreshes, only a current-commit preview stays visible while the gate is pending.
 A failed or cancelled gate run cannot generate a preview from an earlier green status,
-and a red gate removes the remaining preview. Successful publication replaces any
-current-commit preview only after the new comment is posted.
-Source commit messages and the generated body are checked for known AI tool signatures
-before publication. The generated body must also preserve every source `Signed-off-by`
-and `Co-authored-by` trailer in first-occurrence order, removing exact duplicates.
-Missing, changed or added trailers reject publication. A rejection keeps any current-commit
-preview and asks for correction; it does not silently remove or invent human co-authors
-or DCO sign-offs.
+and a red gate removes the remaining preview.
+
+To generate a preview without waiting for the review gate, open **Actions → PCCL Commit
+Message Preview → Run workflow**, select `main` and enter the PR number in `pr_number`.
+GitHub controls who can run the workflow. Manual generation requires an open, non-draft,
+multi-commit PR targeting `main`, but does not check the review gate. It neither approves
+the PR nor changes merge permissions; later automatic refreshes still apply the cleanup
+rules above.
+
+Both generation paths check source commit messages and the generated body for known AI tool
+signatures before publication. The generated body must also preserve every source
+`Signed-off-by` and `Co-authored-by` trailer in first-occurrence order, removing exact
+duplicates. Missing, changed or added trailers reject publication. A rejection keeps any
+current-commit preview and asks for correction; it does not silently remove or invent
+human co-authors or DCO sign-offs. Successful publication replaces any current-commit
+preview only after the new comment is posted.
 
 ### Maintaining the workflow
 
