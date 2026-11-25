@@ -1,16 +1,15 @@
 {
   "classification": {
-    "base_sha": "74c2d3f5e9bf90578520feda20a3938c3d938917",
-    "head_sha": "bc31591eb83d9f06c6e7f793419a10a586a29d0b",
-    "input_fingerprint": "58c91e3cb953416bf1e1585432b2580627af6a59ff16814adfb56c7e6cc76063",
+    "base_sha": "e0114a05589f10117d258ae08597d10fc742a254",
+    "head_sha": "f273908d383c822265b2ab723e791b04264db2e7",
+    "input_fingerprint": "1ac31866ea40a65a81e71a546f2b213ce6e8d1a20822aa1e742a04bb85a2ba5c",
     "pr_number": 167,
     "proposal": {
       "modules": [
-        "enqueue",
         "symmetric",
         "copy-engine"
       ],
-      "reason": "Main change is copy-engine behavior: CE memcpy and ltOki DMA rings are explicitly separated, OKI enablement is gated across ranks/system capabilities, CE stream/ring assignment is reworked, and QP queue IDs/resource lifecycle are updated to prevent mixed CE+ltOki hangs. Include symmetric because device-side symmetric CE/OKI kernels change DMA tail sizing and lane slice alignment, affecting AR/RS correctness. Include enqueue because ordinary enqueue now applies memcpy stream ring hints with capture-aware behavior, changing host-side stream/capture sequencing semantics."
+      "reason": "Primary change is copy-engine behavior: CE/ltOki ring isolation, reserved CE stream/ring hinting, OKI enablement gating across ranks, and OKI QP/ring mapping updates to prevent mixed CE/OKI hangs. Symmetric is additionally required because device-side symmetric OKI kernels and helpers change AR/RS tail sizing, broadcast pre-clamping, and lane/slice splitting logic, which are substantive correctness fixes in symmetric collective execution."
     }
   },
   "reviewers": {
