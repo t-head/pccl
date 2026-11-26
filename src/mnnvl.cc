@@ -37,7 +37,7 @@ ncclResult_t ncclMnnvlCheck(ncclComm_t comm) {
     // Check that all ranks have initialized the fabric fully
     for (int i = 0; i < comm->nRanks; i++) {
       if (comm->peerInfo[i].fabricInfo.state != HGML_GPU_FABRIC_STATE_COMPLETED) {
-        INFO(NCCL_INIT, "MNNVL rank %d has not initialized fabric fully");
+        INFO(NCCL_INIT, "MNNVL rank %d has not initialized fabric fully", i);
         return ncclSuccess;
       }
     }
