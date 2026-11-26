@@ -1,14 +1,14 @@
 {
   "classification": {
     "base_sha": "45088cc56be51899765bd637aae280d1ba7d10fc",
-    "head_sha": "e07273fbfbe159a21408205d24eb0cd346242253",
-    "input_fingerprint": "b3555f0bfd0d2ec3622467fdaaa570764283f9f269743471d42ebea4108d03b6",
+    "head_sha": "f485dca18b391fe21eb55ad59cf6f30b66046747",
+    "input_fingerprint": "8c60490dcb1c7a1cc7ac1bfc86ffb08cf94d7f0430da96387151a80b0e079645",
     "pr_number": 238,
     "proposal": {
       "modules": [
         "ci"
       ],
-      "reason": "Updates xtest/daily test workflow inputs by changing shared `device_api_single.env` logging (`NCCL_DEBUG=INFO` -> `PCCL_DEBUG=WARN`) and revising manifest/tests/docs to validate `maintained_environments` runtime file digests, with no substantive runtime/API module changes."
+      "reason": "Main substantive change is in test workflow inputs/validation: the shared xtest environment file now sets PCCL_DEBUG=WARN and source-export tracking/tests were updated to validate maintained runtime environment digests separately. This affects CI test execution/parsing hygiene, not device-api semantics or library runtime behavior."
     }
   },
   "reviewers": {
