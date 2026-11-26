@@ -242,7 +242,8 @@ class DailySmokeTests(unittest.TestCase):
             'cp ${NATIVE_UNIT_BUILD}', 1)[0]
         copy_command = 'cp ${NATIVE_UNIT_BUILD}' + text.split(
             'cp ${NATIVE_UNIT_BUILD}', 1)[1].split('\n\necho', 1)[0]
-        for binary in ('collPcclUnitTest', 'hggcGraphUnitTest', 'pcclCommAbortTest'):
+        for binary in ('collPcclUnitTest', 'hggcGraphUnitTest', 'pcclCommAbortTest',
+                       'pcclCommShrinkTest', 'pcclCommGrowTest', 'pcclCommRevokeTest'):
             with self.subTest(binary=binary):
                 self.assertIn(f'${{NATIVE_UNIT_BUILD}}/{binary}', make_command)
                 self.assertIn(f'${{NATIVE_UNIT_BUILD}}/{binary}', copy_command)
@@ -252,7 +253,7 @@ class DailySmokeTests(unittest.TestCase):
         self.assertGreater(text.index('Build PCCL native unit tests'), text.index('Build pccl-tests'))
         workflow = FULL_WORKFLOW.read_text()
         for family in ('postsil_unit_test_810e', 'all_gather_unit_test_810e',
-                       'postsil_unit_test_810e_smoke'):
+                       'postsil_unit_test_810e_smoke', 'comm_lifecycle_shm'):
             self.assertIn(f'--definition .github/xtest/test_lists/{family}.json', workflow)
 
     def test_full_workflow_dispatch_inputs_are_nested(self):

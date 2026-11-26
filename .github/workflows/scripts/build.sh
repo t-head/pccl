@@ -94,13 +94,19 @@ make -C ${source_home}/pccl/tests/unit_test/src \
   BUILDDIR=${NATIVE_UNIT_BUILD} \
   ${NATIVE_UNIT_BUILD}/collPcclUnitTest \
   ${NATIVE_UNIT_BUILD}/hggcGraphUnitTest \
-  ${NATIVE_UNIT_BUILD}/pcclCommAbortTest
+  ${NATIVE_UNIT_BUILD}/pcclCommAbortTest \
+  ${NATIVE_UNIT_BUILD}/pcclCommShrinkTest \
+  ${NATIVE_UNIT_BUILD}/pcclCommGrowTest \
+  ${NATIVE_UNIT_BUILD}/pcclCommRevokeTest
 
 echo "######################### $(date +%Y%m%d%H%M%S) Stage test binaries ##########################"
 mkdir -p ${source_home}/pccl-tests/build
 cp ${NATIVE_UNIT_BUILD}/collPcclUnitTest \
   ${NATIVE_UNIT_BUILD}/hggcGraphUnitTest \
   ${NATIVE_UNIT_BUILD}/pcclCommAbortTest \
+  ${NATIVE_UNIT_BUILD}/pcclCommShrinkTest \
+  ${NATIVE_UNIT_BUILD}/pcclCommGrowTest \
+  ${NATIVE_UNIT_BUILD}/pcclCommRevokeTest \
   ${GRAPH_SEARCH_BUILD}/graphSearchTest \
   ${source_home}/pccl-tests/build/
 

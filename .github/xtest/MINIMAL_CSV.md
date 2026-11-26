@@ -177,13 +177,13 @@ The M890P `smoke` selection generates four Cases from op_perf, postsil daily
 and native unit families. The dual-platform smoke dataset generates nine
 Cases in five groups: those four M890P Cases plus 810E single-node op_perf,
 native collective and graph Cases, two-node RDMA and two-node EIC. The M890P
-`full` dataset generates 10,193 standard Cases from 35 Suites, with
+`full` dataset generates 10,203 standard Cases from 35 Suites, with
 unsupported or out-of-scope source selections recorded in
 `test_lists/source-coverage.json`. The notsm daily profile is intentionally
 empty. Generated CSV is a temporary prepare artifact, not a maintained input.
 The Monday-Thursday 22:00 Asia/Shanghai schedule executes 1/2/4/8-node groups:
-10,184 Cases in 28 groups. Friday at the same time allows 1/2/4/8/16-node
-groups and selects all 10,193 Cases in 29 groups. Manual dispatch keeps the
+10,194 Cases in 28 groups. Friday at the same time allows 1/2/4/8/16-node
+groups and selects all 10,203 Cases in 29 groups. Manual dispatch keeps the
 weekday default unless `allowed_nodes` is explicitly overridden. Any excluded
 Cases remain in the export and are listed as `EXCLUDED_BY_POLICY` in
 `execution-coverage.json`, never as passed or skipped tests.
@@ -194,14 +194,18 @@ The Monday-Thursday schedule allows each execution group 1,440 minutes
 of 1,440; the execute Job adds 30 minutes for setup and cleanup. These workflow
 limits do not change the Suite or Case timeouts in the generated input.
 
-The 810E `full` conversion adds 7,666 selected Cases after excluding all 36
+The 810E `full` conversion adds 7,676 selected Cases after excluding all 36
 FP8 Cases and the 24 GIN Cases inherited from the shared M890P device_api
 family. The dedicated 18-Case 810E GIN3 selection is deferred until GIN
 communicator support is validated on the target environment. M890P GIN coverage
-is unchanged. The combined export has 17,859 Cases and selects 17,850 Cases in 53
+is unchanged. The combined export has 17,879 Cases and selects 17,870 Cases in 53
 groups after the same 16-node
 M890P exclusions. This is generation coverage only, not a claim that the full
 hardware dataset has been executed.
+
+Both platforms include two Shrink, three Grow and five Revoke native unit
+Cases in `full`. The standard build compiles and stages all three binaries;
+the smoke and PR execution lists exclude these Cases.
 
 Dual-platform daily runs generate separate `PCCL_M890P_daily_perf_<run-id>.xlsx`
 and `PCCL_810E_daily_perf_<run-id>.xlsx` workbooks. Manual platform filtering

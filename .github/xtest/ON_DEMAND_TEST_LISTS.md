@@ -84,22 +84,27 @@ The workflow supports two `workflow_dispatch` choices:
 
 - `smoke`: four Cases in one execution group, including one collective and one
   graph native unit Case.
-- `full`: all 10,193 daily Cases in 35 Suites. The current
-  1/2/4/8-node resource policy selects 10,184 Cases in 28 groups and records
+- `full`: all 10,203 daily Cases in 35 Suites. The current
+  1/2/4/8-node resource policy selects 10,194 Cases in 28 groups and records
   only the 9 sixteen-node Cases as excluded. Two-rack Suites are isolated from
   ordinary same-resource Suites and use `rack_policy: spread` with
   `rack_count: 2`. Ordinary M890P multi-node groups use `rack_policy: same`
   for automatic same-rack placement. OAM-810E has no rack constraint.
 
-These counts describe the preserved M890P baseline. Daily preparation also
+The M890P full selection adds ten communicator Cases to the preserved source
+baseline. Daily preparation also
 applies `platforms/oam810e_eic.json` to the supported shared families and adds
-7,666 full-selection Cases after excluding all 36 FP8 Cases and 24 GIN Cases
+7,676 full-selection Cases after excluding all 36 FP8 Cases and 24 GIN Cases
 inherited from the shared device_api family. The dedicated 18-Case 810E GIN3
 selection is deferred until GIN communicator support is validated on the target
 environment; M890P GIN coverage is unchanged. Combined dual-platform generation
-produces 17,859 Cases, selects 17,850 in 53 groups, and retains each group's
+produces 17,879 Cases, selects 17,870 in 53 groups, and retains each group's
 platform and `node_selector`. Dual-platform smoke has nine Cases in five groups,
 including one 810E collective and one graph native unit Case.
+
+Both platforms include two Shrink, three Grow and five Revoke native unit
+Cases in `full`. The standard build compiles and stages all three binaries;
+the smoke and PR execution lists exclude these Cases.
 
 The 810E allocation is derived from actual ranks per node rather than always
 requesting 16 cards. MPI rank counts are divided by the number of nodes;
@@ -131,8 +136,8 @@ This is the requested allocation, not a claim that pending Pods received devices
 
 The 22:00 Asia/Shanghai schedule selects `full`, which uses the same JSON
 generation path as manual dispatch. Monday-Thursday allows 1/2/4/8 nodes and
-selects 10,184 Cases in 28 groups with 9 exclusions. Friday allows 1/2/4/8/16
-nodes and selects all 10,193 Cases in 29 groups. Manual dispatch keeps the
+selects 10,194 Cases in 28 groups with 9 exclusions. Friday allows 1/2/4/8/16
+nodes and selects all 10,203 Cases in 29 groups. Manual dispatch keeps the
 weekday default unless `allowed_nodes` is explicitly overridden. No legacy
 daily CSV dataset remains.
 

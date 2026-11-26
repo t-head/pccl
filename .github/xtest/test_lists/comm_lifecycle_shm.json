@@ -1,0 +1,86 @@
+{
+  "schema_version": 2,
+  "family": "comm_lifecycle_shm",
+  "defaults": {"check": "exit_code", "case_name": "native_case"},
+  "axes": {},
+  "layouts": {"native": [{"name": "native", "values": {}}]},
+  "bindings": {
+    "1": {
+      "plan": "pccl_shm_postsil_unit_test_single_node1_plan",
+      "suite": "postsil_unit_test_shm_single_node_suite"
+    }
+  },
+  "groups": [],
+  "explicit_cases": [
+    {
+      "name": "comm_shrink_4_to_3_blocking",
+      "nodes": 1,
+      "check": "exit_code",
+      "cmd": "timeout -k 5s 120s mpirun --allow-run-as-root -np 4 --mca pml ob1 --mca btl self,tcp -x PCCL_ENABLE_EXT_KERNEL=0 build/pcclCommShrinkTest --exclude_ranks=1"
+    },
+    {
+      "name": "comm_shrink_4_to_2_nonblocking_abort",
+      "nodes": 1,
+      "check": "exit_code",
+      "cmd": "timeout -k 5s 120s mpirun --allow-run-as-root -np 4 --mca pml ob1 --mca btl self,tcp -x PCCL_ENABLE_EXT_KERNEL=0 build/pcclCommShrinkTest --exclude_ranks=1 --exclude_ranks=3 --blocking=0 --shrink_flag=1"
+    },
+    {
+      "name": "comm_grow_1_to_2_blocking",
+      "nodes": 1,
+      "check": "exit_code",
+      "cmd": "mpirun --allow-run-as-root -np 2 --mca pml ob1 --mca btl self,tcp -x PCCL_ENABLE_EXT_KERNEL=0 build/pcclCommGrowTest --old_ranks=1"
+    },
+    {
+      "name": "comm_grow_2_to_4_nonblocking_split_share",
+      "nodes": 1,
+      "check": "exit_code",
+      "cmd": "mpirun --allow-run-as-root -np 4 --mca pml ob1 --mca btl self,tcp -x PCCL_ENABLE_EXT_KERNEL=0 build/pcclCommGrowTest --old_ranks=2 --root=1 --blocking=0 --split_share=1"
+    },
+    {
+      "name": "comm_grow_3_to_4_nonblocking_split_share",
+      "nodes": 1,
+      "check": "exit_code",
+      "cmd": "mpirun --allow-run-as-root -np 4 --mca pml ob1 --mca btl self,tcp -x PCCL_ENABLE_EXT_KERNEL=0 build/pcclCommGrowTest --old_ranks=3 --root=1 --blocking=0 --split_share=1"
+    },
+    {
+      "name": "comm_revoke_4_to_3_nonblocking_shrink_share",
+      "nodes": 1,
+      "check": "exit_code",
+      "cmd": "mpirun --allow-run-as-root -np 4 --mca pml ob1 --mca btl self,tcp -x PCCL_ENABLE_EXT_KERNEL=0 build/pcclCommRevokeTest --exclude_rank=1 --blocking=0 --shrink_share=1"
+    },
+    {
+      "name": "comm_revoke_4_to_3_blocking_shrink_share",
+      "nodes": 1,
+      "check": "exit_code",
+      "cmd": "mpirun --allow-run-as-root -np 4 --mca pml ob1 --mca btl self,tcp -x PCCL_ENABLE_EXT_KERNEL=0 build/pcclCommRevokeTest --exclude_rank=1 --shrink_share=1"
+    },
+    {
+      "name": "comm_revoke_2_to_1_idle_blocking",
+      "nodes": 1,
+      "check": "exit_code",
+      "cmd": "mpirun --allow-run-as-root -np 2 --mca pml ob1 --mca btl self,tcp -x PCCL_ENABLE_EXT_KERNEL=0 build/pcclCommRevokeTest --in_flight=0"
+    },
+    {
+      "name": "comm_revoke_4_to_3_idle_blocking",
+      "nodes": 1,
+      "check": "exit_code",
+      "cmd": "mpirun --allow-run-as-root -np 4 --mca pml ob1 --mca btl self,tcp -x PCCL_ENABLE_EXT_KERNEL=0 build/pcclCommRevokeTest --in_flight=0"
+    },
+    {
+      "name": "comm_revoke_4_to_3_idle_nonblocking",
+      "nodes": 1,
+      "check": "exit_code",
+      "cmd": "mpirun --allow-run-as-root -np 4 --mca pml ob1 --mca btl self,tcp -x PCCL_ENABLE_EXT_KERNEL=0 build/pcclCommRevokeTest --blocking=0 --in_flight=0"
+    }
+  ],
+  "profiles": {
+    "full": {"include_explicit": true}
+  },
+  "provenance": {
+    "source_case_count": 10,
+    "source_selection": "native Shrink/Grow/Revoke unit cases for PCCL issue #241",
+    "source_suites": [
+      "pccl_shm_postsil_unit_test_single_node1_plan/postsil_unit_test_shm_single_node_suite"
+    ]
+  }
+}

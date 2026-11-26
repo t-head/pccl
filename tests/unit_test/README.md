@@ -9,6 +9,8 @@ This directory contains unit tests for PCCL (PPU Collective Communication Librar
 - **HGGC Graph Tests** (`hggcGraphUnitTest`): Validate HGGC graph integration with PCCL collective operations, including graph capture, task composition, and event-based synchronization.
 - **Communicator Abort Tests** (`pcclCommAbortTest`): Test communicator lifecycle with abort functionality at different execution stages and memory leak detection.
 - **Communicator Shrink Tests** (`pcclCommShrinkTest`): Test selective rank exclusion and communicator resizing with configurable resource sharing.
+- **Communicator Grow Tests** (`pcclCommGrowTest`): Verify `pcclCommGetUniqueId()`, communicator growth, and communication after parent destruction.
+- **Communicator Revoke Tests** (`pcclCommRevokeTest`): Verify revocation of idle or active communicators and recovery through shrink.
 - **Group Simulation Tests** (`pcclGroupSimulateEndTest`): Estimate collective operation performance without actual execution across multiple processes.
 - **Memory Management Tests** (`pcclCommMemManagerTest`): Verify communicator memory suspension/resumption with `pcclCommSuspend()`, `pcclCommResume()`, and `pcclCommMemStats()`.
 
@@ -238,6 +240,81 @@ Type `./build/pcclCommMemManagerTest --help` to query all help information.
   - `-i,--iters=<INTEGER>` default `10`
 - number of leading cycles whose tables are printed; `0` disables them, values above `--iters` are capped
   - `-p,--print-cycles=<INTEGER>` default `1`
+
+### PCCL Communicator Grow Test
+
+Requires building with `--use_mpi`. Each MPI process owns one device. The first
+`old_ranks` processes create a parent communicator and verify an `AllReduce`.
+One parent rank generates the grow ID with `pcclCommGetUniqueId()`; MPI distributes
+it to the new ranks. After Grow completes, the test checks the new rank, size, and
+device, destroys the parent, and verifies another `AllReduce` on the new group.
+
+#### Examples
+
+Grow a single-rank communicator to 2 ranks:
+
+```Shell
+mpirun -np 2 ./build/pcclCommGrowTest --old_ranks=1
+```
+
+Grow from 2 to 4 ranks with rank 1 generating the ID, using nonblocking
+communicators for 5 cycles:
+
+```Shell
+mpirun -np 4 ./build/pcclCommGrowTest --old_ranks=2 --root=1 --blocking=0 --iters=5
+```
+
+#### Arguments
+
+- `-n,--old_ranks=<INTEGER>` Parent size, default `1`; must be smaller than the MPI size.
+- `-r,--root=<INTEGER>` Parent rank generating the grow ID, default `0`.
+- `-b,--blocking=<0|1>` Communicator blocking mode, default `1`.
+- `-s,--split_share=<0|1>` Parent `splitShare` setting, default `0`.
+- `-i,--iters=<INTEGER>` Number of init/grow/destroy cycles, default `1`.
+- `-t,--timeout=<SECONDS>` Timeout for the whole test, default `120`.
+
+### PCCL Communicator Revoke Test
+
+Requires building with `--use_mpi` and at least 2 processes, one device per process.
+After a warm-up `AllReduce`, one rank skips the next collective while the remaining
+ranks launch it. The test checks that their streams are not ready, calls Revoke,
+waits for completion, and checks that a new `AllReduce` returns `pcclInvalidUsage`
+and a second Revoke returns `pcclInvalidArgument`.
+The surviving ranks then Shrink out the absent rank, destroy the parent, and verify
+an `AllReduce` on the reduced group. The absent rank stays available for MPI
+coordination and releases its communicator with Abort after Shrink completes.
+
+`--in_flight=0` skips the pending collective and tests Revoke on idle communicators.
+`shrink_share` is set on the parent before initialization. Nonblocking Revoke and
+Shrink are polled on the parent before using the new communicator.
+
+#### Examples
+
+Revoke on 3 of 4 ranks and recover with Shrink:
+
+```Shell
+mpirun -np 4 ./build/pcclCommRevokeTest
+```
+
+Exclude rank 1, use nonblocking communicators with parent `shrinkShare=1`, and
+repeat 5 times:
+
+```Shell
+mpirun -np 4 ./build/pcclCommRevokeTest --exclude_rank=1 --blocking=0 --shrink_share=1 --iters=5
+```
+
+#### Arguments
+
+- `-r,--exclude_rank=<INTEGER>` Rank skipping Revoke and Shrink, default: last rank.
+- `-b,--blocking=<0|1>` Communicator blocking mode, default `1`.
+- `-s,--shrink_share=<0|1>` Parent `shrinkShare` setting, default `0`.
+- `-f,--in_flight=<0|1>` Leave an `AllReduce` pending before Revoke, default `1`.
+- `-i,--iters=<INTEGER>` Number of init/revoke/shrink/destroy cycles, default `1`.
+- `-t,--timeout=<SECONDS>` Timeout for the whole test, default `120`.
+
+Both tests exit with a nonzero status on a timeout, API error, or incorrect result.
+They use `int32` sums over 1024 elements and check every output element.
+Run with external kernels disabled (`PCCL_ENABLE_EXT_KERNEL=0`).
 
 ## bench_oki ICN benchmark
 
