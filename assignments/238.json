@@ -1,14 +1,14 @@
 {
   "classification": {
     "base_sha": "45088cc56be51899765bd637aae280d1ba7d10fc",
-    "head_sha": "681f262740508206b98c0e0af9bef6ee425794ca",
-    "input_fingerprint": "4b97ebfbd1636fae0b0763d0de2fbb246b212778a8a61fc9274e14a417cac394",
+    "head_sha": "e07273fbfbe159a21408205d24eb0cd346242253",
+    "input_fingerprint": "b3555f0bfd0d2ec3622467fdaaa570764283f9f269743471d42ebea4108d03b6",
     "pr_number": 238,
     "proposal": {
       "modules": [
         "ci"
       ],
-      "reason": "Main change is in xtest CI test inputs: updating the shared device_api_single.env logging variable from NCCL_DEBUG=INFO to PCCL_DEBUG=WARN for daily test groups, with source-export.json updated only to keep the environment hash in sync."
+      "reason": "Updates xtest/daily test workflow inputs by changing shared `device_api_single.env` logging (`NCCL_DEBUG=INFO` -> `PCCL_DEBUG=WARN`) and revising manifest/tests/docs to validate `maintained_environments` runtime file digests, with no substantive runtime/API module changes."
     }
   },
   "reviewers": {
