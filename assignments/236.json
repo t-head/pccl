@@ -1,0 +1,17 @@
+{
+  "classification": {
+    "base_sha": "45088cc56be51899765bd637aae280d1ba7d10fc",
+    "head_sha": "681a931e3a32f4badce7346521dfc82e39c19267",
+    "input_fingerprint": "a288316a0400dc4d8849b6934736ca2c661da197453b23ca7f764b0699831cce",
+    "pr_number": 236,
+    "proposal": {
+      "modules": [
+        "symmetric"
+      ],
+      "reason": "Adds substantive unit-test coverage for symmetric-memory P2P all-to-all behavior (symmetric window registration, grouped send/recv per peer, and validation that the symmetric DMA path is selected), while README/script updates are supporting test documentation and execution."
+    }
+  },
+  "reviewers": {
+    "symmetric": 333277982
+  }
+}
