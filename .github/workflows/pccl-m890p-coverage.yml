@@ -1,0 +1,405 @@
+name: PCCL M890P CX8 host coverage
+
+on:
+  # The first full hardware validation must run before this workflow exists on main.
+  push:
+    branches: [codex/pccl-m890p-coverage-on-demand]
+    paths: [.github/workflows/pccl-m890p-coverage.yml]
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+concurrency:
+  group: pccl-m890p-host-coverage-${{ github.ref }}
+  cancel-in-progress: false
+
+env:
+  COVERAGE_IMAGE: download.t-head.cn/docker_release/ppu:sdk2.2.0-hggcrt3-ubuntu24.04-py312-20261005
+  HPN_SDK_URL: https://zone-ci.oss-cn-hangzhou.aliyuncs.com/hpn-sdk/2.1.3/hpnsdk2.1.3-ubuntu2404-202611121836-x86_64.bin
+  PCCL_REVISION: ${{ github.sha }}
+  PCCL_TESTS_REVISION: 394556512e87259e9ffa25225632c46b0a0bbcd5
+  COVERAGE_KEY: pccl-m890p-gcov-${{ github.run_id }}-${{ github.run_attempt }}
+
+jobs:
+  prepare:
+    if: >-
+      github.repository == 't-head/pccl' &&
+      (github.ref == 'refs/heads/main' || (github.event_name == 'push' &&
+       github.ref == 'refs/heads/codex/pccl-m890p-coverage-on-demand'))
+    name: Select all one- and two-node M890P CX8 daily Cases
+    runs-on: ubuntu-24.04
+    timeout-minutes: 15
+    outputs:
+      groups: ${{ steps.selection.outputs.groups }}
+      groups_sha256: ${{ steps.selection.outputs.groups_sha256 }}
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          persist-credentials: false
+      - id: selection
+        name: Generate and verify the exact daily full selection
+        shell: bash
+        run: |
+          set -euo pipefail
+          python3 -B -m unittest discover -s tests/host_coverage -v
+          bash tests/xtest/generate_m890p_daily.sh full \
+            "$PCCL_REVISION" "$PCCL_TESTS_REVISION" "$RUNNER_TEMP/m890p-cases"
+          python3 -S -B .github/workflows/scripts/pccl_m890p_coverage.py prepare \
+            --input "$RUNNER_TEMP/m890p-cases" --output coverage-selection
+      - uses: actions/upload-artifact@v4
+        with:
+          name: ${{ env.COVERAGE_KEY }}-selection
+          path: coverage-selection/
+          if-no-files-found: error
+          retention-days: 14
+
+  build:
+    needs: prepare
+    name: Build host-instrumented PCCL and daily executables once
+    runs-on: x86-ubuntu2404-8-32
+    timeout-minutes: 170
+    container:
+      image: download.t-head.cn/docker_release/ppu:sdk2.2.0-hggcrt3-ubuntu24.04-py312-20261005
+      options: --runtime=runc --cpus=8 --memory=28g --pids-limit=2048
+    outputs:
+      runtime_sha256: ${{ steps.build.outputs.runtime_sha256 }}
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          ref: ${{ github.sha }}
+          path: pccl
+          persist-credentials: false
+      - uses: actions/checkout@v4
+        with:
+          repository: t-head/pccl-tests
+          ref: ${{ env.PCCL_TESTS_REVISION }}
+          path: pccl-tests
+          persist-credentials: false
+      - id: build
+        name: Build the instrumented runtime and all needed executables
+        shell: bash
+        run: |
+          set -eo pipefail
+          mkdir -p "$GITHUB_WORKSPACE/coverage-build" /workspace/source
+          exec > >(tee "$GITHUB_WORKSPACE/coverage-build/build.log") 2>&1
+          apt-get update
+          apt-get install -y --no-install-recommends build-essential g++-13 libnuma-dev libibverbs-dev wget python3-venv
+          bash pccl/.github/workflows/scripts/install_hpn_sdk.sh
+          source /usr/local/PPU_SDK/envsetup.sh
+          export PATH="/usr/local/openmpi/bin:$PATH"
+          # Keep the compilation directory identical in the reporting job.
+          test ! -e /workspace/source/pccl
+          cp -a pccl /workspace/source/pccl
+          src=/workspace/source/pccl
+          build="$src/build"
+          test ! -e "$build"
+          cxx=$(command -v g++-13)
+          timeout -k 60s 110m env CXXFLAGS=-fprofile-update=atomic make -C "$src" -j8 \
+            src.lib BUILDDIR="$build" HOST_GCOV=1 GCOV=0 DEBUG=0 \
+            PPU_ARCHS=ppu_10,ppu_15 HGGCRT_VERSION=12 CXX="$cxx" "PPU_OPTION=-ccbin;$cxx"
+          bundle=$(mktemp -d)
+          mkdir -p "$bundle/benchmark" "$bundle/pccl-tests" "$bundle/notes"
+          helper="$src/.github/workflows/scripts/pccl_m890p_coverage.py"
+          python3 -S -B "$helper" binaries > "$bundle/binaries.txt"
+          benchmarks=()
+          units=()
+          while IFS= read -r binary; do
+            case "$binary" in
+              *_perf) benchmarks+=("$bundle/benchmark/$binary") ;;
+              *Test) units+=("$bundle/benchmark/$binary") ;;
+              *) echo "Unexpected daily executable: $binary" >&2; exit 1 ;;
+            esac
+          done < "$bundle/binaries.txt"
+          timeout -k 30s 30m make -C pccl-tests/src -j8 MPI=1 PCCL_HOME="$build" \
+            PPU_ARCHS=ppu_10,ppu_15 BUILDDIR="$bundle/benchmark" "${benchmarks[@]}"
+          timeout -k 30s 15m make -C "$src/tests/unit_test/src" -j4 MPI=1 PCCL_HOME="$build" \
+            PPU_ARCHS=ppu_10,ppu_15 BUILDDIR="$bundle/benchmark" "${units[@]}"
+          while IFS= read -r binary; do
+            test -x "$bundle/benchmark/$binary"
+            readelf -d "$bundle/benchmark/$binary" > "$bundle/benchmark/$binary.dynamic"
+            grep -E 'NEEDED.*\[libpccl\.so\.' "$bundle/benchmark/$binary.dynamic"
+          done < "$bundle/binaries.txt"
+          find "$bundle/benchmark" -type f ! -perm /111 -delete
+          cp pccl-tests/run_test.py pccl-tests/run_test_config.py "$bundle/pccl-tests/"
+          cp -a "$build/lib" "$build/include" "$bundle/"
+          for tool in gcov-13 gcov-tool-13; do
+            tool_version=$("$tool" --version)
+            printf '%s\n' "${tool_version%%$'\n'*}" > "$bundle/$tool-version.txt"
+          done
+          printf '%s\n' "$(git -C pccl rev-parse HEAD)" "$(git -C pccl-tests rev-parse HEAD)" > "$bundle/revisions.txt"
+          # Stage the same verified test dependency as daily, once for all shards.
+          python3 -m venv "$RUNNER_TEMP/coverage-build-tools"
+          "$RUNNER_TEMP/coverage-build-tools/bin/python" -m pip download \
+            --disable-pip-version-check --index-url https://pypi.org/simple \
+            --only-binary=:all: --no-deps --dest "$bundle/deps" filelock==4.2.10
+          (cd "$bundle/deps" && printf '%s  %s\n' \
+            9479aaeb4db20b5a53e3da28493edd24720b66b8a0b84030aa56ccdf243d6857 \
+            filelock-4.2.10-py3-none-any.whl | sha256sum --check -)
+          cd "$build"
+          find obj -name '*.gcno' -type f -print0 | tar -cf - --null -T - | tar -xf - -C "$bundle/notes"
+          test -s "$bundle/notes/obj/init.gcno"
+          test -z "$(find "$bundle/notes" -path '*/collectives/device/*' -name '*.gcno' -print -quit)"
+          chmod -R a+rX "$bundle"
+          cd "$GITHUB_WORKSPACE/coverage-build"
+          tar -czf runtime.tar.gz -C "$bundle" .
+          sha256sum runtime.tar.gz > runtime.tar.gz.sha256
+          read -r sha _ < runtime.tar.gz.sha256
+          printf 'runtime_sha256=%s\n' "$sha" >> "$GITHUB_OUTPUT"
+      - name: Upload coverage build log
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: ${{ env.COVERAGE_KEY }}-build-log
+          path: coverage-build/build.log
+          if-no-files-found: warn
+          retention-days: 14
+      - name: Upload the coverage runtime and build notes
+        uses: actions/upload-artifact@v4
+        with:
+          name: ${{ env.COVERAGE_KEY }}-runtime
+          path: |
+            coverage-build/runtime.tar.gz
+            coverage-build/runtime.tar.gz.sha256
+          if-no-files-found: error
+          retention-days: 14
+
+  stage:
+    needs: [prepare, build]
+    name: Stage the verified runtime and selection on NAS once
+    runs-on: k8s-runner-group-cpu-thead
+    container:
+      image: ghcr.io/actions/actions-runner:latest
+    timeout-minutes: 45
+    env:
+      RUNTIME_SHA: ${{ needs.build.outputs.runtime_sha256 }}
+      GROUPS_SHA: ${{ needs.prepare.outputs.groups_sha256 }}
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          persist-credentials: false
+      - uses: t-head/pccl/.github/actions/download-artifact-retry@42c06876282e700ae0434b4577fedd757b6f2db1
+        with:
+          name: ${{ env.COVERAGE_KEY }}-runtime
+          path: coverage-download
+      - uses: t-head/pccl/.github/actions/download-artifact-retry@42c06876282e700ae0434b4577fedd757b6f2db1
+        with:
+          name: ${{ env.COVERAGE_KEY }}-selection
+          path: coverage-selection
+      - name: Verify both artifacts before publishing them to the workers
+        shell: bash
+        run: |
+          set -euo pipefail
+          (cd coverage-download && printf '%s  runtime.tar.gz\n' "$RUNTIME_SHA" | sha256sum --check -)
+          python3 -S -B tests/xtest/case_group_cache.py validate \
+            --directory coverage-selection --expected-sha256 "$GROUPS_SHA"
+          shared="/wl_nas/devops/$COVERAGE_KEY"
+          umask 022
+          mkdir "$shared"
+          mkdir "$shared/runtime" "$shared/groups"
+          tar -xzf coverage-download/runtime.tar.gz -C "$shared/runtime"
+          cp -a coverage-selection "$shared/selection"
+          chmod -R a+rX "$shared/selection"
+          printf '%s\n' "$RUNTIME_SHA" > "$shared/runtime.sha256"
+
+  execute:
+    needs: [prepare, build, stage]
+    name: Run ${{ matrix.id }} (${{ matrix.nodes }} node(s), ${{ matrix.case_count }} Cases)
+    runs-on: k8s-runner-group-cpu-thead
+    container:
+      image: ghcr.io/actions/actions-runner:latest
+    timeout-minutes: 1470
+    strategy:
+      fail-fast: false
+      max-parallel: 4
+      matrix: ${{ fromJSON(needs.prepare.outputs.groups) }}
+    env:
+      GROUPS_SHA: ${{ needs.prepare.outputs.groups_sha256 }}
+      RUNTIME_SHA: ${{ needs.build.outputs.runtime_sha256 }}
+      GROUP_ID: ${{ matrix.id }}
+      EXPECTED_NODES: ${{ matrix.nodes }}
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          ref: ${{ github.sha }}
+          path: pccl
+          persist-credentials: false
+      - name: Run daily Cases with host instrumentation
+        uses: t-head/ci-infra/cluster-run@04c173f28ea637e582125110966344e4a6052a7e
+        with:
+          image: ${{ env.COVERAGE_IMAGE }}
+          launch_mode: ${{ matrix.nodes == 1 && 'each-node' || 'master' }}
+          nnodes: ${{ matrix.nodes == 1 && '0' || matrix.nodes }}
+          nproc_per_node: ${{ matrix.cards_per_node }}
+          node_selector: ${{ matrix.node_selector }}
+          rack_policy: ${{ matrix.nodes == 2 && matrix.rack_policy || '' }}
+          rack_count: ${{ matrix.cross_rack && format('{0}', matrix.rack_count) || '' }}
+          namespace: ppu-sched
+          timeout_minutes: 1440
+          container_options: |
+            privileged: true
+            host_network: true
+            dns_policy: ClusterFirstWithHostNet
+          host_volumes: /dev/infiniband:/dev/infiniband
+          setup_command: |
+            set -eo pipefail
+            : "${HPN_SDK_URL:?Missing HPN SDK URL}"
+            bash /workspace/source/pccl/.github/workflows/scripts/install_hpn_sdk.sh
+            source /usr/local/PPU_SDK/envsetup.sh
+            MPI_INTERFACE=$(awk '$2 == "00000000" {print $1; exit}' /proc/net/route)
+            test -n "$MPI_INTERFACE"
+            export HWLOC_COMPONENTS=-gl
+            export OMPI_MCA_orte_base_help_aggregate=0
+            export OMPI_MCA_orte_keep_fqdn_hostnames=1
+            export OMPI_MCA_oob_tcp_if_include="$MPI_INTERFACE"
+            export OMPI_MCA_btl_tcp_if_include="$MPI_INTERFACE"
+            export NCCL_SOCKET_IFNAME="$MPI_INTERFACE"
+            export UMD_PLATFORM_TYPE=1
+            export PATH="/usr/local/openmpi/bin:$PATH"
+            if [ "$EXPECTED_NODES" = 2 ]; then
+              export OMPI_MCA_plm_rsh_agent=cluster-ssh
+            fi
+            ulimit -l unlimited
+            ulimit -s 65536
+          command: |
+            set -eo pipefail
+            umask 022
+            shared="/mnt/wl_nas/devops/$COVERAGE_KEY"
+            src=/workspace/source/pccl
+            if ! python3 -m venv /workspace/m890p-coverage-tools; then
+              apt-get update
+              apt-get install -y --no-install-recommends python3-venv
+              python3 -m venv --clear /workspace/m890p-coverage-tools
+            fi
+            python=/workspace/m890p-coverage-tools/bin/python
+            "$python" -m pip install --disable-pip-version-check --no-index \
+              --find-links "$shared/runtime/deps" -r "$src/tests/xtest/requirements.txt"
+            MPI_INTERFACE=$(awk '$2 == "00000000" {print $1; exit}' /proc/net/route)
+            hostfile=()
+            if [ "$EXPECTED_NODES" = 2 ]; then
+              hostfile=(--hostfile "${CLUSTER_HOSTS_FILE:?Missing two-node hostfile}")
+            fi
+            "$python" -B "$src/.github/workflows/scripts/pccl_m890p_coverage.py" run-group \
+              --shared "$shared" --group "$GROUP_ID" --mpi-interface "$MPI_INTERFACE" "${hostfile[@]}"
+      - name: Upload this group's Case results and GCOV profiles
+        if: always() && !cancelled()
+        uses: actions/upload-artifact@v4
+        with:
+          name: ${{ env.COVERAGE_KEY }}-shard-${{ matrix.id }}
+          path: /wl_nas/devops/${{ env.COVERAGE_KEY }}/groups/${{ matrix.id }}/export/
+          if-no-files-found: warn
+          retention-days: 14
+
+  report:
+    needs: [prepare, build, execute]
+    if: always() && !cancelled() && needs.prepare.result == 'success' && needs.build.result == 'success'
+    name: Merge all available profiles and upload one host coverage report
+    runs-on: x86-ubuntu2404-8-32
+    timeout-minutes: 60
+    container:
+      image: download.t-head.cn/docker_release/ppu:sdk2.2.0-hggcrt3-ubuntu24.04-py312-20261005
+      options: --runtime=runc --cpus=8 --memory=28g --pids-limit=2048
+    env:
+      RUNTIME_SHA: ${{ needs.build.outputs.runtime_sha256 }}
+      GROUPS_SHA: ${{ needs.prepare.outputs.groups_sha256 }}
+      EXECUTION_RESULT: ${{ needs.execute.result }}
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          ref: ${{ github.sha }}
+          path: pccl
+          persist-credentials: false
+      - uses: t-head/pccl/.github/actions/download-artifact-retry@42c06876282e700ae0434b4577fedd757b6f2db1
+        with:
+          name: ${{ env.COVERAGE_KEY }}-runtime
+          path: coverage-download
+      - uses: t-head/pccl/.github/actions/download-artifact-retry@42c06876282e700ae0434b4577fedd757b6f2db1
+        with:
+          name: ${{ env.COVERAGE_KEY }}-selection
+          path: coverage-selection
+      - uses: actions/download-artifact@v4
+        continue-on-error: true
+        with:
+          pattern: ${{ env.COVERAGE_KEY }}-shard-*
+          path: coverage-shards
+          merge-multiple: false
+      - id: collect
+        name: Reconcile Case results and render HTML and Cobertura XML
+        shell: bash
+        run: |
+          set -euo pipefail
+          (cd coverage-download && printf '%s  runtime.tar.gz\n' "$RUNTIME_SHA" | sha256sum --check -)
+          mkdir coverage-runtime
+          tar -xzf coverage-download/runtime.tar.gz -C coverage-runtime
+          apt-get update
+          apt-get install -y --no-install-recommends gcc-13 python3-venv
+          python3 -m venv "$RUNNER_TEMP/gcovr"
+          export PATH="$RUNNER_TEMP/gcovr/bin:$PATH"
+          python -m pip install --disable-pip-version-check --index-url https://pypi.org/simple gcovr==8.4
+          mkdir -p /workspace/source
+          test ! -e /workspace/source/pccl
+          cp -a pccl /workspace/source/pccl
+          rc=0
+          python -B /workspace/source/pccl/.github/workflows/scripts/pccl_m890p_coverage.py report \
+            --runtime coverage-runtime --selection coverage-selection --downloads coverage-shards \
+            --key "$COVERAGE_KEY" --output coverage-report --execution-result "$EXECUTION_RESULT" || rc=$?
+          if python -c 'import json; assert json.load(open("coverage-report/summary.json"))["coverage"]'; then
+            echo 'report_ready=true' >> "$GITHUB_OUTPUT"
+          fi
+          exit "$rc"
+      - id: report
+        name: Upload downloadable host coverage report
+        if: always() && steps.collect.outputs.report_ready == 'true'
+        uses: actions/upload-artifact@v4
+        with:
+          name: ${{ env.COVERAGE_KEY }}-report
+          path: |
+            coverage-report/html/
+            coverage-report/coverage.xml
+            coverage-report/gcovr-summary.json
+            coverage-report/summary.json
+            coverage-report/summary.md
+          if-no-files-found: error
+          retention-days: 14
+      - name: Upload aggregate diagnostics
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: ${{ env.COVERAGE_KEY }}-diagnostics
+          path: |
+            coverage-report/*.log
+            coverage-report/profiles.tar.gz
+            coverage-report/summary.json
+            coverage-report/summary.md
+          if-no-files-found: warn
+          retention-days: 14
+      - name: Publish result status and report link
+        if: always()
+        env:
+          COVERAGE_REPORT_URL: ${{ steps.report.outputs.artifact-url }}
+        shell: bash
+        run: |
+          if [ -f coverage-report/summary.md ]; then
+            cat coverage-report/summary.md >> "$GITHUB_STEP_SUMMARY"
+          fi
+          if [ -n "$COVERAGE_REPORT_URL" ]; then
+            printf '\n[Download host coverage report (ZIP)](%s)\n' "$COVERAGE_REPORT_URL" >> "$GITHUB_STEP_SUMMARY"
+          else
+            printf '\nNo coverage report was uploaded; see shard and report logs.\n' >> "$GITHUB_STEP_SUMMARY"
+          fi
+
+  cleanup:
+    needs: [stage, report]
+    name: Remove this attempt's NAS workspace after a successful report
+    runs-on: k8s-runner-group-cpu-thead
+    container:
+      image: ghcr.io/actions/actions-runner:latest
+    timeout-minutes: 30
+    steps:
+      - shell: bash
+        run: |
+          set -euo pipefail
+          [[ "$COVERAGE_KEY" =~ ^pccl-m890p-gcov-[0-9]+-[0-9]+$ ]]
+          if ! rm -rf -- "/wl_nas/devops/$COVERAGE_KEY"; then
+            echo '::warning::NAS cleanup incomplete; the uploaded report is unchanged.'
+          fi

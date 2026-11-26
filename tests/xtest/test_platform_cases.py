@@ -226,35 +226,39 @@ class PlatformCasesTests(unittest.TestCase):
         with self.assertRaisesRegex(ValueError, "Cannot derive 810E allocation ranks"):
             platform_cases.allocation_cards_per_node(case("true", 1, name="unnamed"))
 
+    def daily_bundle(self, workflow, platform, dataset, output):
+        if platform == 'm890p':
+            self.assertIn('tests/xtest/generate_m890p_daily.sh', workflow)
+            command = ['bash', str(ROOT / 'generate_m890p_daily.sh'), dataset, SHA, SHA, str(output)]
+        else:
+            blocks = re.findall(r'^ *GENERATED_810E_DEFINITIONS\+?=\(\n(.*?)^ *\)',
+                                workflow, flags=re.MULTILINE | re.DOTALL)
+            if dataset == 'smoke':
+                blocks = blocks[:1]
+            definitions = re.findall(r'--definition (\S+)', '\n'.join(blocks))
+            self.assertTrue(definitions)
+            command = [sys.executable, '-S', '-B', str(ROOT / 'generate_cases.py')]
+            for definition in definitions:
+                command.extend(('--definition', str(DEFINITIONS / Path(definition).name)))
+            command.extend(('--suites', str(DEFINITIONS / 'suites.json'),
+                            '--env-root', str(DEFINITIONS / 'envs'), '--profile', dataset,
+                            '--platform', platform, '--source-revision', SHA,
+                            '--runner-revision', SHA, '--output', str(output)))
+        result = subprocess.run(command, capture_output=True, text=True)
+        self.assertEqual(result.returncode, 0, result.stderr)
+        return generate_cases.load_bundle(output)
+
     def test_full_daily_generation_and_grouping_preserve_platform_layouts(self):
         workflow = (ROOT.parents[1] / '.github/workflows/pccl-daily-full.yml').read_text(encoding='utf-8')
         bundles = []
-        families = {}
         with tempfile.TemporaryDirectory() as temporary:
             root = Path(temporary)
-            for variable, platform, expected in (("GENERATED_DEFINITIONS", "m890p", 10193),
-                                                ("GENERATED_810E_DEFINITIONS", "oam810e_eic", 7666)):
-                blocks = re.findall(r'^ *' + variable + r'\+?=\(\n(.*?)^ *\)',
-                                    workflow, flags=re.MULTILINE | re.DOTALL)
-                definitions = [Path(path).name for path in
-                               re.findall(r'--definition (\S+)', '\n'.join(blocks))]
-                self.assertTrue(definitions)
-                command = [sys.executable, '-S', '-B', str(ROOT / 'generate_cases.py')]
-                for definition in definitions:
-                    command.extend(('--definition', str(DEFINITIONS / definition)))
-                output = root / platform
-                command.extend(('--suites', str(DEFINITIONS / 'suites.json'),
-                                '--env-root', str(DEFINITIONS / 'envs'), '--profile', 'full',
-                                '--platform', platform, '--source-revision', SHA,
-                                '--runner-revision', SHA, '--output', str(output)))
-                result = subprocess.run(command, capture_output=True, text=True)
-                self.assertEqual(result.returncode, 0, result.stderr)
-                bundle = generate_cases.load_bundle(output)
+            for platform, expected in (('m890p', 10193), ('oam810e_eic', 7666)):
+                bundle = self.daily_bundle(workflow, platform, 'full', root / platform)
                 self.assertEqual(len(bundle['rows']), expected)
+                self.assertNotIn('device_api_gin_810e',
+                                 {family.get('family') for family in bundle['generation']['families']})
                 bundles.append(bundle)
-                families[platform] = definitions
-            self.assertNotIn('device_api_gin_810e.json', families['m890p'])
-            self.assertNotIn('device_api_gin_810e.json', families['oam810e_eic'])
             self.assertNotIn('device_api_gin_810e', platform_cases.load_platform('oam810e_eic')['families'])
             self.assertFalse(any('GIN_TYPE=' in row['cmd'] for row in bundles[1]['rows']))
             combined = generate_cases.combine_bundles(bundles)
@@ -318,22 +322,8 @@ class PlatformCasesTests(unittest.TestCase):
         workflow = (ROOT.parents[1] / '.github/workflows/pccl-daily-full.yml').read_text()
         with tempfile.TemporaryDirectory() as temporary:
             root = Path(temporary)
-            bundles = []
-            for variable, platform in (("GENERATED_DEFINITIONS", "m890p"),
-                                       ("GENERATED_810E_DEFINITIONS", "oam810e_eic")):
-                block = re.search(r'^ *' + variable + r'=\(\n(.*?)^ *\)', workflow,
-                                  flags=re.MULTILINE | re.DOTALL).group(1)
-                command = [sys.executable, '-S', '-B', str(ROOT / 'generate_cases.py')]
-                for definition in re.findall(r'--definition (\S+)', block):
-                    command.extend(('--definition', str(DEFINITIONS / Path(definition).name)))
-                output = root / platform
-                command.extend(('--suites', str(DEFINITIONS / 'suites.json'),
-                                '--env-root', str(DEFINITIONS / 'envs'), '--profile', 'smoke',
-                                '--platform', platform, '--source-revision', SHA,
-                                '--runner-revision', SHA, '--output', str(output)))
-                result = subprocess.run(command, capture_output=True, text=True)
-                self.assertEqual(result.returncode, 0, result.stderr)
-                bundles.append(generate_cases.load_bundle(output))
+            bundles = [self.daily_bundle(workflow, platform, 'smoke', root / platform)
+                       for platform in ('m890p', 'oam810e_eic')]
             generate_cases.write_bundle(generate_cases.combine_bundles(bundles),
                                         root / 'input', DEFINITIONS / 'envs')
             plan = group_cases.build_plan(root / 'input', 500, allowed_nodes=(1, 2, 4, 8))

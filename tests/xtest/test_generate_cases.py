@@ -329,18 +329,21 @@ class PublicGeneratorTests(unittest.TestCase):
         workflow = (ROOT.parent.parent / ".github/workflows/pccl-daily-full.yml").read_text()
         self.assertIn('options: [smoke, full]', workflow)
         self.assertIn('tests/xtest/generate_cases.py', workflow)
-        self.assertIn('--definition tests/xtest/test_lists/op_perf_shm.json', workflow)
-        self.assertIn('--definition tests/xtest/test_lists/postsil_daily_shm.json', workflow)
-        for family in ALL_FAMILIES:
-            self.assertIn(f'tests/xtest/test_lists/{family}.json', workflow)
+        self.assertIn('bash tests/xtest/generate_m890p_daily.sh "$DATASET"', workflow)
+        result = subprocess.run(["bash", ROOT / "generate_m890p_daily.sh", "full",
+                                 SOURCE_REVISION, RUNNER_REVISION, self.root / "m890p"],
+                                capture_output=True, text=True)
+        self.assertEqual(result.returncode, 0, result.stderr)
+        families = json.loads(result.stdout)["families"]
+        self.assertEqual({family["family"] for family in families}, set(ALL_FAMILIES))
         self.assertIn('if [[ "$DATASET" == full ]]', workflow)
-        self.assertIn("--output generated-case-input", workflow)
+        self.assertIn("--output generated-case-input-oam810e-eic", workflow)
         self.assertIn("case-groups/generation.json", workflow)
         self.assertNotIn("GENERATED_INPUT", workflow)
         self.assertNotIn("dataset.startswith('generated-')", workflow)
         self.assertNotIn("daily-full-csv", workflow)
         self.assertNotIn("daily-minimal-csv", workflow)
-        self.assertLess(workflow.index('--output generated-case-input'),
+        self.assertLess(workflow.index('bash tests/xtest/generate_m890p_daily.sh'),
                         workflow.index('group_cases.build_plan'))
 
 
