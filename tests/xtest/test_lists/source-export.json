@@ -6,11 +6,6 @@
   "case_rows_sha256": "64fd5814bedf1e89646b61f78c6177dd281fe24bb44ab77e2e1edfb18a388514",
   "csv_inputs_used": false,
   "csv_outputs_written": false,
-  "maintained_environments": {
-    "device_api_single.env": "55a5350b05ebb0ccf83f57d868fcc5aca29d5eaad779c188ee1c77cd209ba487",
-    "op_perf.env": "80092822049d659ced40836f75e683dd582b4e322b5bc4e7734f621e284b4d5b",
-    "sanity_m890p.env": "fc1eaed813ed1b59febfe458aedcd5b88750206a08de4d14b01b95507a616443"
-  },
   "families": [
     {
       "case_count": 54,
@@ -103,6 +98,11 @@
       "source_rows_sha256": "268d3230e7ad8f24a6d0aabb61bf6afcdac0b825d30d11a3ef4aa7959c406e48"
     }
   ],
+  "maintained_environments": {
+    "device_api_single.env": "55a5350b05ebb0ccf83f57d868fcc5aca29d5eaad779c188ee1c77cd209ba487",
+    "op_perf.env": "80092822049d659ced40836f75e683dd582b4e322b5bc4e7734f621e284b4d5b",
+    "sanity_m890p.env": "fc1eaed813ed1b59febfe458aedcd5b88750206a08de4d14b01b95507a616443"
+  },
   "runner_revision": "394556512e87259e9ffa25225632c46b0a0bbcd5",
   "schema_version": 1,
   "selection": "m890p_daily_standard_full",
