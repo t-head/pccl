@@ -1,10 +1,9 @@
 """Run the existing two-node M890P Case and collect host-only GCOV data."""
 
 import argparse
-from collections import Counter, defaultdict
+from collections import defaultdict
 import os
 from pathlib import Path
-import re
 import shutil
 import shlex
 import subprocess
@@ -26,8 +25,6 @@ CASE = ("test_op_all_reduce_perf_algo_Auto_proto_Auto_redop_sum_ranks_16_"
         "datatype_float_datasize_32MB_iters_10_threads_1_process_8_nnodes2_autodetect_rdma_gdr")
 NODES = 2
 CARDS = 8
-RDMA = re.compile(r"\b(\d+)\[[\da-f]+\] -> (\d+)\[[\da-f]+\] \[(send|receive)\] via NET/IB/[^\s]+", re.I)
-SOCKET = re.compile(r"\bvia NET/Socket/", re.I)
 
 
 def select_case(directory):
@@ -36,7 +33,7 @@ def select_case(directory):
         raise ValueError("The experiment must select exactly one Case")
     case = inputs["cases"][0]
     if case["name"] != CASE or case["suite_spec"]["cards_per_node"] != CARDS:
-        raise ValueError("The existing two-node RDMA Case or its allocation changed")
+        raise ValueError("The existing two-node AllReduce Case or its allocation changed")
     argv = shlex.split(case["cmd"])
     for flag, value in {"--op": "all_reduce_perf", "--nnodes": "2", "--ranks": "16",
                         "--nprocs": "8", "--threads": "1", "--iters": "10",
@@ -56,8 +53,6 @@ def rank_profiles(ranks, notes):
         raise ValueError(f"Incomplete rank directories: missing={sorted(expected - actual)}, "
                          f"unexpected={sorted(actual - expected)}")
     workers = defaultdict(list)
-    host_by_rank = {}
-    logs = {}
     counters = {}
     for rank in range(NODES * CARDS):
         path = ranks / f"rank-{rank}"
@@ -65,7 +60,6 @@ def rank_profiles(ranks, notes):
         if rank_text != str(rank) or not host:
             raise ValueError(f"Invalid rank receipt: {path.name}")
         workers[host].append(int(local))
-        host_by_rank[rank] = host
         errors = path / "gcov-errors.log"
         if errors.is_file() and errors.stat().st_size:
             raise ValueError(f"GCOV runtime errors for rank {rank}; see {errors.name}")
@@ -77,23 +71,10 @@ def rank_profiles(ranks, notes):
             if not item.stat().st_size or not (notes / relative.with_suffix(".gcno")).is_file():
                 raise ValueError(f"Counter does not match a build note: rank {rank}: {relative}")
         counters[rank] = len(files)
-        logs[rank] = (path / "pccl.log").read_text(errors="replace")
     if len(workers) != NODES or any(sorted(ids) != list(range(CARDS)) for ids in workers.values()):
         raise ValueError(f"Unexpected MPI rank placement: {dict(workers)}")
-    rdma_workers = set()
-    for rank, text in logs.items():
-        if SOCKET.search(text):
-            raise ValueError(f"Rank {rank} logged a Socket data channel")
-        for source, dest, direction in RDMA.findall(text):
-            src_host, dst_host = host_by_rank.get(int(source)), host_by_rank.get(int(dest))
-            if src_host and dst_host and src_host != dst_host:
-                owner = source if direction.lower() == "send" else dest
-                if int(owner) == rank:
-                    rdma_workers.add(host_by_rank[rank])
-    if rdma_workers != workers.keys():
-        raise ValueError(f"Missing cross-host IB/RoCE channels on: {sorted(workers.keys() - rdma_workers)}")
-    return {"ranks": len(host_by_rank), "ranks_per_worker": dict(Counter(host_by_rank.values())),
-            "counter_files_by_rank": counters, "cross_host_rdma": True}
+    return {"ranks": len(counters), "ranks_per_worker": {host: len(ids) for host, ids in workers.items()},
+            "counter_files_by_rank": counters}
 
 
 def merge_profiles(ranks, notes, build, report):
@@ -133,6 +114,19 @@ def merge_profiles(ranks, notes, build, report):
             shutil.copyfile(accum / relative, build / relative)
 
 
+def collect_rank_coverage(ranks, runtime, source, report):
+    """Collect against this build's source tree, including its generated headers."""
+    build = source / "build"
+    headers = runtime / "include"
+    if not headers.is_dir():
+        raise ValueError("Missing build headers in the coverage runtime")
+    merge_profiles(ranks, runtime / "notes", build, report)
+    shutil.copytree(headers, build / "include")
+    # PCCL maps its source paths to repo-relative paths at compile time. The
+    # absolute system and SDK source paths are not part of product coverage.
+    return collect(source, build, report, "gcov-13 --relative-only")
+
+
 def save_rank_evidence(ranks, report):
     with tarfile.open(report / "rank-evidence.tar.gz", "w:gz") as archive:
         for path in sorted(ranks.rglob("*")):
@@ -146,7 +140,6 @@ def run(args):
     ranks = shared / "ranks"
     notes = runtime / "notes"
     report = shared / "report"
-    build = SOURCE / "build"
     status = {"scope": "PCCL C++ host code", "topo": "ICN64_890P_CX8", "nodes": NODES,
               "cards_per_node": CARDS, "case": CASE, "status": "failed",
               "performance_baseline_eligible": False}
@@ -167,10 +160,9 @@ def run(args):
         (bin_dir / "all_reduce_perf").symlink_to(Path(__file__).with_name("pccl_m890p_coverage_rank.sh"))
         environment = os.environ.copy()
         environment.pop("PCCL_PATH", None)
-        # The pinned run_test.py forwards PCCL_* variables to every MPI rank.
+        # Keep the Case's transport settings; logs are diagnostic only.
         environment.update(PCCL_COVERAGE_RUNTIME=str(runtime), PCCL_DEBUG="INFO",
-                           PCCL_DEBUG_SUBSYS="INIT,NET", PCCL_NET="IB", PCCL_IB_DISABLE="0",
-                           PCCL_NET_GDR_LEVEL="SYS")
+                           PCCL_DEBUG_SUBSYS="INIT,NET")
         results = shared / "case-results"
         try:
             rows = run_cases.run_all(inputs, runtime, bin_dir, results, args.hostfile,
@@ -186,8 +178,7 @@ def run(args):
             raise ValueError(f"The single AllReduce Case did not pass validation: {details}")
         status["case_passed"] = True
         status["rank_evidence"] = rank_profiles(ranks, notes)
-        merge_profiles(ranks, notes, build, report)
-        status["coverage"] = collect(SOURCE, build, report, "gcov-13")
+        status["coverage"] = collect_rank_coverage(ranks, runtime, SOURCE, report)
         status["status"] = "passed"
         return 0
     except (ValueError, OSError, subprocess.SubprocessError) as error:

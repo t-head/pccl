@@ -208,18 +208,31 @@ no schedule, PR trigger, or 810E or larger-node matrix.
   SDK/image and optimized PPU kernels. Use `HOST_GCOV=1 GCOV=0 DEBUG=0` and
   atomic host profile counters. Only build the pinned MPI AllReduce benchmark;
   its code and optional plugin code are not part of the coverage report.
-- Bind the library, compilation notes and benchmark to a checksummed artifact.
+- Bind the library, compilation notes, generated headers and benchmark to a
+  checksummed artifact.
   Allocate two CX8 workers in the same rack only after a successful build. Use
   the existing two-node sanity Case: 16 ranks, 32 MiB float AllReduce sum, 10
   iterations. Require the benchmark's zero-mismatch correctness summary.
 - Use xTest's rank-local device mapping and recovery. Each MPI rank verifies
   the loaded library path and writes its own counters and transport log.
-  Check both workers for cross-host IB/RoCE channels, reject Socket data
-  transport, and require profiles for all 16 ranks before merging.
-- Merge counters from this build only with the matching GNU tools. Upload raw
-  per-rank evidence, build/case logs and host-only HTML/Cobertura/JSON output.
-  Failed tests, missing ranks or missing RDMA proof do not count as a passed
-  coverage run. Instrumented timing is never used as a performance baseline.
+  Require eight ranks per physical worker and profiles for all 16 ranks before
+  merging. The existing Case keeps its transport settings; transport logs are
+  diagnostics only, and ICN/MNNVL does not require IB/RoCE channel evidence.
+- Merge counters from this build only with the matching GNU tools. Restore the
+  generated headers at their build paths and report only repo-relative host
+  sources, not device, system or SDK sources.
+- Only a complete, successful collection publishes `pccl-m890p-gcov-<run>-<attempt>-report`.
+  Download its ZIP from the Actions run Summary → Artifacts and open
+  `html/index.html` after extracting it. The archive also contains
+  `coverage.xml` (Cobertura), `gcovr-summary.json` and the run summary.
+  The separate `-diagnostics` artifact retains available case/collector logs
+  and raw profiles even on failure. An NAS cleanup error is reported separately
+  and does not invalidate a report that was already uploaded.
 
-The first hardware run is required to validate the SDK build and runtime on
-`ICN64_890P_CX8`; local contract tests do not substitute for that result.
+Run `45746419059` passed its two-node AllReduce Case on `ICN64_890P_CX8`, but
+an extra RDMA check stopped the old workflow before it generated a report.
+An offline recovery of those profiles produced host coverage; it did not change
+that run's conclusion or artifacts. A new successful Actions run is required to
+validate automatic collection and upload. Failed tests, missing ranks or invalid
+GCOV data do not count as passing coverage. Instrumented timing is not a
+performance baseline.

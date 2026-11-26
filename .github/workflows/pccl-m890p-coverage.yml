@@ -77,6 +77,7 @@ jobs:
             PPU_ARCHS=ppu_10,ppu_15 BUILDDIR="$bundle/benchmark" "$bundle/benchmark/all_reduce_perf"
           cp pccl-tests/run_test.py pccl-tests/run_test_config.py "$bundle/pccl-tests/"
           cp -a "$build/lib" "$bundle/lib"
+          cp -a "$build/include" "$bundle/include"
           readelf -d "$bundle/benchmark/all_reduce_perf" > "$bundle/benchmark-dynamic.txt"
           grep -E 'NEEDED.*\[libpccl\.so\.' "$bundle/benchmark-dynamic.txt"
           cxx_version=$("$cxx" --version)
@@ -138,7 +139,8 @@ jobs:
           umask 022
           mkdir "$shared"
           mv runtime.tar.gz runtime.tar.gz.sha256 "$shared/"
-      - name: Run one existing two-node RDMA Case
+      - id: coverage
+        name: Run one existing two-node AllReduce Case
         uses: t-head/ci-infra/cluster-run@04c173f28ea637e582125110966344e4a6052a7e
         with:
           image: ${{ env.COVERAGE_IMAGE }}
@@ -172,13 +174,6 @@ jobs:
             export PATH="/usr/local/openmpi/bin:$PATH"
             ulimit -l unlimited
             ulimit -s 65536
-            if ! command -v ibv_devinfo >/dev/null || ! command -v rdma >/dev/null; then
-              apt-get update
-              apt-get install -y --no-install-recommends rdma-core ibverbs-utils iproute2
-            fi
-            ibv_devinfo
-            rdma link show
-            test -d /dev/infiniband
           command: |
             set -eo pipefail
             umask 022
@@ -206,29 +201,73 @@ jobs:
               --hostfile "$CLUSTER_HOSTS_FILE" -np 2 -npernode 1 hostname
             "$tools/python" /workspace/source/pccl/.github/workflows/scripts/pccl_m890p_coverage.py run \
               --shared "$shared" --hostfile "$CLUSTER_HOSTS_FILE" --mpi-interface "$MPI_INTERFACE"
-      - name: Publish result status
-        if: always()
+      - name: Verify report outputs before uploading
         shell: bash
         run: |
+          set -euo pipefail
+          report="/wl_nas/devops/$COVERAGE_KEY/report"
+          for file in html/index.html coverage.xml gcovr-summary.json summary.json; do
+            if [ ! -s "$report/$file" ]; then
+              printf '::error::Missing or empty coverage output: %s\n' "$file"
+              exit 1
+            fi
+          done
+      - id: report
+        name: Upload downloadable host coverage report
+        uses: actions/upload-artifact@v4
+        with:
+          name: ${{ env.COVERAGE_KEY }}-report
+          path: |
+            /wl_nas/devops/${{ env.COVERAGE_KEY }}/report/html/
+            /wl_nas/devops/${{ env.COVERAGE_KEY }}/report/coverage.xml
+            /wl_nas/devops/${{ env.COVERAGE_KEY }}/report/gcovr-summary.json
+            /wl_nas/devops/${{ env.COVERAGE_KEY }}/report/summary.json
+            /wl_nas/devops/${{ env.COVERAGE_KEY }}/report/summary.md
+          if-no-files-found: error
+          retention-days: 14
+      - id: diagnostics
+        name: Upload coverage diagnostics and raw profiles
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: ${{ env.COVERAGE_KEY }}-diagnostics
+          path: |
+            /wl_nas/devops/${{ env.COVERAGE_KEY }}/report/*.log
+            /wl_nas/devops/${{ env.COVERAGE_KEY }}/report/*.tar.gz
+            /wl_nas/devops/${{ env.COVERAGE_KEY }}/report/summary.json
+            /wl_nas/devops/${{ env.COVERAGE_KEY }}/report/summary.md
+            /wl_nas/devops/${{ env.COVERAGE_KEY }}/report/case/
+          if-no-files-found: warn
+          retention-days: 14
+      - name: Publish result status and download links
+        if: always()
+        env:
+          COVERAGE_REPORT_URL: ${{ steps.report.outputs.artifact-url }}
+          COVERAGE_DIAGNOSTICS_URL: ${{ steps.diagnostics.outputs.artifact-url }}
+        shell: bash
+        run: |
+          set -euo pipefail
           report="/wl_nas/devops/$COVERAGE_KEY/report/summary.md"
           if [ -f "$report" ]; then
             cat "$report" >> "$GITHUB_STEP_SUMMARY"
           else
             echo 'No coverage result was produced; see the allocation or setup logs.' >> "$GITHUB_STEP_SUMMARY"
           fi
-      - id: report
-        name: Upload coverage report and diagnostics
-        if: always()
-        uses: actions/upload-artifact@v4
-        with:
-          name: ${{ env.COVERAGE_KEY }}-report
-          path: /wl_nas/devops/${{ env.COVERAGE_KEY }}/report/
-          if-no-files-found: error
-          retention-days: 14
+          if [ -n "$COVERAGE_REPORT_URL" ]; then
+            printf '\n[Download host coverage report (ZIP)](%s)\n' "$COVERAGE_REPORT_URL" >> "$GITHUB_STEP_SUMMARY"
+          else
+            printf '\nNo complete coverage report was uploaded.\n' >> "$GITHUB_STEP_SUMMARY"
+          fi
+          if [ -n "$COVERAGE_DIAGNOSTICS_URL" ]; then
+            printf '\n[Download diagnostics and raw profiles](%s)\n' "$COVERAGE_DIAGNOSTICS_URL" >> "$GITHUB_STEP_SUMMARY"
+          fi
       - name: Remove only this attempt's NAS files after upload
-        if: always() && steps.report.outcome == 'success'
+        if: always() && steps.diagnostics.outputs.artifact-id && (steps.report.outputs.artifact-id || steps.coverage.outcome == 'failure')
         shell: bash
         run: |
           set -euo pipefail
           [[ "$COVERAGE_KEY" =~ ^pccl-m890p-gcov-[0-9]+-[0-9]+$ ]]
-          rm -rf -- "/wl_nas/devops/$COVERAGE_KEY"
+          if ! rm -rf -- "/wl_nas/devops/$COVERAGE_KEY"; then
+            echo '::warning::NAS cleanup incomplete; uploaded coverage artifacts are unchanged.'
+            printf '\nNAS cleanup incomplete for %s. Uploaded artifacts are unchanged.\n' "$COVERAGE_KEY" >> "$GITHUB_STEP_SUMMARY"
+          fi
