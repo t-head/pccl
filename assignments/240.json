@@ -1,15 +1,14 @@
 {
   "classification": {
     "base_sha": "45088cc56be51899765bd637aae280d1ba7d10fc",
-    "head_sha": "5199947413627d223f89e2f86a66fe25af212f14",
-    "input_fingerprint": "ca87e04fec270890dcbdacd9c8278eecc16d81f98277902cfc46d7535970ff90",
+    "head_sha": "27defe94ec4f258033fb2ea4a7b52078facb71b7",
+    "input_fingerprint": "3de6c925379527632c3883db738e7e4ad1c00347bc1f033e4fc9370e69365e28",
     "pr_number": 240,
     "proposal": {
       "modules": [
-        "build",
         "ci"
       ],
-      "reason": "Primary change is CI scope: it expands source-sanity PR coverage and platform allocation logic (new xtest case lists, suite/card split, generation logic, workflow counts, and contract tests). Add build because there are substantive build/packaging changes beyond test-data edits: enabling test targets in build entrypoints and src/Makefile, staging native/graphSearch binaries, adding required build deps, and updating packaged perf binaries."
+      "reason": "Expands PR source-sanity CI coverage and orchestration: adds/partitions 890P and 810E native/graph-search test cases, updates suite card-allocation logic (including 810E 2-card vs 4-card handling), and adjusts workflow build/packaging scripts to build and stage required test binaries for CI runs."
     }
   },
   "reviewers": {
