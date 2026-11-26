@@ -297,14 +297,7 @@ __device__ __forceinline__ void ncclSymkRun_ReduceScatter_LL_body(
       using AccPack = BytePack<8*sizeof(Acc)/sizeof(T)>;
       auto toAcc = [&](Pack x)->AccPack { return applyCast<T, Acc>(x); };
       auto reduceAcc = [&](AccPack a, AccPack b)->AccPack { return applyReduce(red, a, b); };
-      AccPack got;
-      if (sizeof(T) < 4 && sizeof(Acc) == sizeof(T) && nRanks == 2) {
-        got = lla2a.template recvReduce<2, Pack>(t, nRanks, nIterPacks, toAcc, reduceAcc);
-      } else if (sizeof(T) == 1 && sizeof(Acc) == sizeof(T) && nRanks == 4) {
-        got = lla2a.template recvReduce<4, Pack>(t, nRanks, nIterPacks, toAcc, reduceAcc);
-      } else {
-        got = lla2a.template recvReduce<8, Pack>(t, nRanks, nIterPacks, toAcc, reduceAcc);
-      }
+      AccPack got = lla2a.template recvReduce<8, Pack>(t, nRanks, nIterPacks, toAcc, reduceAcc);
       storePack(output, t*EltPerPack, nElts, applyCast<Acc, T>(applyPostOp(red, got)));
     }
     lla2a.endEpoch(cta);

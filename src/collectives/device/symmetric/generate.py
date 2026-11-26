@@ -83,7 +83,7 @@ ty_to_cxxtype = {
 }
 
 def enumerate_kernels():
-  for algo in ["LL", "ST"]:
+  for algo in ["LL", "ST", "ST_Ring", "ST_2D"]:
     yield Rec(coll="AllGather", algo=algo)
   for red in all_reds:
     for ty in all_tys:
@@ -132,8 +132,8 @@ def instantiate(k):
     call = '  ncclSymkRun_{id}(&args4K.args);'.format(id=id)
   if arch_cond is not None:
     call = '#if {cond}\n{call}\n#endif'.format(cond=arch_cond, call=call)
-  return ('__global__ void __launch_bounds__(ncclSymkMaxThreads, 2)\n'
-          '{cname}(ncclSymkDevWorkArgs4K NCCL_GRID_CONSTANT const args4K) {{\n{call}\n}}').format(
+  return ('__global__ void __launch_bounds__(512, 2)\n'
+          '{cname}(ncclSymkDevWorkArgs4K const args4K) {{\n{call}\n}}').format(
             cname=kernel_cname(k), call=call)
 
 def prototype(k):
@@ -171,7 +171,7 @@ for (fname, coll), ks in kernels_by_file.items():
 
 # Generate <gensrc>/symmetric_kernels.cc
 kernel_list = list(enumerate_kernels())
-with open(os.path.join(gensrc, "sym_kernels_host.cc"), "w") as f:
+with open(os.path.join(gensrc, "symmetric_kernels.cc"), "w") as f:
   emitln(f, '#include "sym_kernels.h"')
   emitln(f, '#include "devcomm.h"')
   emitln(f, '#include "debug.h"')
@@ -186,8 +186,6 @@ with open(os.path.join(gensrc, "sym_kernels_host.cc"), "w") as f:
   for k in kernel_list:
     emitln(f, '  (void*){cname},'.format(cname=kernel_cname(k)))
   emitln(f, '  nullptr};')
-  emitln(f, '')
-  emitln(f, 'int ncclSymkKernelMaxDynamicSmem[ncclSymkKernelCount] = {};')
   emitln(f, '')
 
   emitln(f, 'int ncclSymkKernelRequirements[] = {')
@@ -227,7 +225,7 @@ with open(os.path.join(gensrc, "sym_kernels_host.cc"), "w") as f:
 # Generate <gensrc>/rules.mk
 with open(os.path.join(gensrc, "rules.mk"), "w") as f:
   inst_names = sorted(set(kernel_fname(k) for k in enumerate_kernels()))
-  names = inst_names + ["sym_kernels_host.cc"]
+  names = inst_names + ["symmetric_kernels.cc"]
   f.write("LIB_OBJS_SYM_GEN = $(patsubst %,$(OBJDIR)/genobj/symmetric/%.o,{names})\n"
           .format(names=" ".join(names)))
   f.write("\n")

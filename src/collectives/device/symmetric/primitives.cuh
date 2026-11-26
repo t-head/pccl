@@ -19,7 +19,6 @@
 // align to 128B could get enough icn performance
 #define BULK_ALIGN_BYTES 128u
 #define WARP_SIZE 32
-#define NCCL_GRID_CONSTANT __grid_constant__
 
 // flattenIx(pos0, dim0, pos1, dim1, pos2, dim2, ...)
 // Given a position vector `pos` in a rectangular index space with lengths in the `dim`
@@ -57,16 +56,57 @@ static __device__ void partitionElts(unsigned nParts, unsigned part, size_t* nEl
 
 namespace {
 struct pcclSymkPrims {
+  ncclDevComm const& comm;
   int const& rank;
   int const& nRanks;
   uint32_t const& stride4G;
   ncclLsaBarrierSession<ncclCoopCta>& bar;
 
   __device__ pcclSymkPrims(ncclDevComm const& comm, ncclLsaBarrierSession<ncclCoopCta>& bar):
-    rank(comm.rank), nRanks(comm.nRanks), stride4G(comm.resourceWindow_inlined.stride4G), bar(bar) {}
+    comm(comm), rank(comm.rank), nRanks(comm.nRanks), stride4G(comm.resourceWindow_inlined.stride4G), bar(bar) {}
 
   __device__ void barrierWait(ncclCoopCta cta, bool acquire) {
     bar.wait(cta, acquire ? hggc::memory_order_acquire : hggc::memory_order_relaxed);
+  }
+
+  // Barrier restricted to a contiguous range of ranks [groupBase, groupBase+groupSize).
+  // Reuses the full-team inbox slots, touching only the in-group ones.
+  //
+  // Contract: every rank must issue the same total number of arrive/wait calls
+  // (full or group) so bar.epoch stays in lockstep. Inbox values only increase, so
+  // peers skipped by a group barrier are still satisfied by a later full barrier
+  // writing a strictly larger epoch.
+  __device__ void groupBarrierArrive(ncclCoopCta cta, int groupBase, int groupSize, bool release) {
+    cta.sync();
+    int r = cta.thread_rank();
+    if (r != rank && r >= groupBase && r < groupBase + groupSize && r < nRanks) {
+      uint32_t* inbox = bar.ucInbox(r, rank);
+      if (release) {
+        asm volatile("ppu.st.release.sys.u32 [%0],%1;" :: "l"(inbox), "r"(bar.epoch+1));
+      } else {
+        asm volatile("ppu.st.relaxed.sys.u32 [%0],%1;" :: "l"(inbox), "r"(bar.epoch+1));
+      }
+    }
+  }
+
+  __device__ void groupBarrierWait(ncclCoopCta cta, int groupBase, int groupSize, bool acquire) {
+    int r = cta.thread_rank();
+    if (r != rank && r >= groupBase && r < groupBase + groupSize && r < nRanks) {
+      uint32_t* inbox = bar.ucInbox(rank, r);
+      uint32_t steps = 0;
+      while (true) {
+        uint32_t got;
+        if (acquire) {
+          asm volatile("ppu.ld.acquire.sys.u32 %0,[%1];" : "=r"(got) : "l"(inbox));
+        } else {
+          asm volatile("ppu.ld.relaxed.sys.u32 %0,[%1];" : "=r"(got) : "l"(inbox));
+        }
+        if (got-(bar.epoch+1) <= uint32_t(-1)>>1) break;
+        if (pccl::utility::testAbort(comm.abortFlag, steps)) break;
+      }
+    }
+    bar.epoch += 1;
+    cta.sync();
   }
 };
 
@@ -94,21 +134,13 @@ namespace {
 struct ncclSymkArgsHandler {
   ncclDevComm const& comm;
   ncclLLA2AHandle const& lsaLLA2A;
-  ncclGinOutboxHandle const& ginOutbox;
-  ncclGinInboxA2AHandle const& ginInboxRail;
-  ncclGinCounter_t ginCounterPerBlock;
-  ncclGinSyncHandle const& ginSyncHandle;
   struct ncclSymkChannelWorkRange* channelWorkRange;
   struct ncclSymkDevWork* devWork;
-  uint32_t nRanks_rcp32;
 
   __device__ ncclSymkArgsHandler(ncclSymkDevWorkArgs const* args):
-    comm(args->kcomm.devComm), lsaLLA2A(args->kcomm.lsaLLA2A), ginOutbox(args->kcomm.ginOutbox),
-    ginInboxRail(args->kcomm.ginInboxRail), ginCounterPerBlock(args->kcomm.ginCounterPerBlock),
-    ginSyncHandle(args->kcomm.ginSyncHandle) {
+    comm(args->kcomm.devComm), lsaLLA2A(args->kcomm.lsaLLA2A) {
     channelWorkRange = args->getWorkRange();
     devWork = args->getWorks(args->nMaxChannels);
-    nRanks_rcp32 = comm.nRanks_rcp32;
   }
 
   template<typename T>
@@ -196,22 +228,6 @@ struct ncclSymkArgsHandler {
     fn(indexHi - indexLo, dw.nElts,
        ncclSymPtr<T>(dw.inputWin, dw.inputOff) + indexLo,
        ncclSymPtr<T>(dw.outputWin, dw.outputOff) + indexLo);
-  }
-
-  template<typename T, typename Fn>
-  __device__ void forEachWorkNoFusion(Fn const& fn) {
-    uint16_t workLo, workHi;
-    size_t indexLo, indexHi;
-    getWorkRange<T>(blockIdx.x, workLo, indexLo, workHi, indexHi);
-    #pragma unroll 1
-    for (int w = workLo; w <= workHi; w++) {
-      ncclSymkDevWork const& dw = devWork[w];
-      size_t currentIndexLo = w > workLo ? 0 : indexLo;
-      size_t currentIndexHi = w < workHi ? dw.nElts : indexHi;
-      fn(currentIndexHi - currentIndexLo, dw.nElts,
-         ncclSymPtr<T>(dw.inputWin, dw.inputOff) + currentIndexLo,
-         ncclSymPtr<T>(dw.outputWin, dw.outputOff) + currentIndexLo);
-    }
   }
 };
 }

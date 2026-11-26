@@ -170,8 +170,7 @@ struct alignas(16) pcclSymDevArgs {
 static_assert(sizeof(pcclSymDevArgs) == 80, "CE private arguments must stay 80 bytes");
 #define ncclSymDevArgs pcclSymDevArgs
 
-// 对称集合的选择、参数与分发由sym_kernels.h定义；这里保留CE使用的私有同步类型。
-
+// Symmetric dispatch lives in sym_kernels.h; these private device types remain for CE.
 __global__ void gpuBarrier(ncclSymDevArgs const args);
 __global__ void gpuGEQ(volatile uint64_t* ptr, uint64_t data);
 

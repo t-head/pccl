@@ -59,7 +59,7 @@ endef
 
 BIN_FILES_LIST := collPcclUnit sendRecvPcclUnit hggcGraphUnit pcclCommAbort pcclGroupSimulateEnd pcclCommMemManager
 ifeq ($(MPI), 1)
-BIN_FILES_LIST += pcclCommShrink symkMultiTask
+BIN_FILES_LIST += pcclCommShrink
 endif
 BIN_FILES := $(BIN_FILES_LIST:%=${BUILDDIR}/%Test)
 # bench_oki uses one SIMT warp per QP, independently of USE_SIMT for other tests.
@@ -93,17 +93,6 @@ ${BUILDDIR}/hggcGraphUnitTest: hggcGraphUnitTest.cu
 ifeq ($(MPI), 1)
 ${BUILDDIR}/pcclCommShrinkTest: pcclCommShrinkTest.cu
 	$(call build_func, $@, pcclCommShrinkTest)
-
-${BUILDDIR}/symkMultiTaskTest: COMMON_LDFLAGS := -L$(PCCL_HOME)/lib $(COMMON_LDFLAGS)
-${BUILDDIR}/symkMultiTaskTest: HGFLAGS += -std=c++14 -I../../../src/include -I../../../src/include/plugin \
-  -I../../../src/collectives/device -DPCCL_HGGC_VERSION=$(HGGC_VERSION_CODE) $(if $(filter 1,$(NO_TSM)),-DNO_TSM)
-${BUILDDIR}/symkMultiTaskTest: symkMultiTaskTest.cu
-	$(call build_func, $@, symkMultiTaskTest)
-
-${BUILDDIR}/symkPerf: COMMON_LDFLAGS := -L$(PCCL_HOME)/lib $(COMMON_LDFLAGS)
-${BUILDDIR}/symkPerf: HGFLAGS += -std=c++14 -DSYMK_TEST_PUBLIC_ONLY
-${BUILDDIR}/symkPerf: symkMultiTaskTest.cu
-	$(call build_func, $@, symkMultiTaskTest)
 endif
 
 ${BUILDDIR}/pcclCommAbortTest: pcclCommAbortTest.cu

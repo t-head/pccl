@@ -190,7 +190,6 @@ struct ncclTaskColl {
   ncclPattern_t pattern;
   int nThreads;
   size_t nBytes;
-  size_t trafficBytes;
   uint32_t devFuncId;
 
   bool isExtKernel;
@@ -301,7 +300,6 @@ struct ncclKernelPlan {
     struct ncclRmaArgs* rmaArgs;
   };
   size_t kernelArgsSize;
-  int kernelDynSmem;
   uint64_t channelMask; // bitset of which channels are present
   bool hasProxyOps; // does any channel have a non-empty proxyOpQueue
   int threadPerBlock;
@@ -334,55 +332,7 @@ struct ncclCudaStreamList {
   hggcStream_t stream;
 };
 
-struct ncclTaskCollSorter {
-  static constexpr int UnitLog2 = 10;
-  static constexpr size_t UnitSize = 1<<UnitLog2;
-  static constexpr int MaxLog2 = 30;
-  static constexpr size_t MaxSize = 1ull<<MaxLog2;
-  static constexpr int BitsPerPow2 = 2;
-  static constexpr int BinsPerPow2 = 1<<BitsPerPow2;
-  static constexpr int BinCount = 1 + (MaxLog2-UnitLog2)*BinsPerPow2;
-  struct ncclTaskColl* head;
-  struct ncclTaskColl* tail;
-  int binEdge;
-  struct ncclTaskColl** bins[BinCount];
-};
-
-inline void ncclTaskCollSorterInsert(ncclTaskCollSorter* me, ncclTaskColl* x, size_t size) {
-  constexpr int UnitLog2 = ncclTaskCollSorter::UnitLog2;
-  constexpr size_t MaxSize = ncclTaskCollSorter::MaxSize;
-  constexpr int BitsPerPow2 = ncclTaskCollSorter::BitsPerPow2;
-  constexpr int BinCount = ncclTaskCollSorter::BinCount;
-  int bin = u32fpEncode(static_cast<uint32_t>(std::min(MaxSize, size)>>UnitLog2), BitsPerPow2);
-  bin = BinCount-1 - bin;
-  if (me->bins[bin] == nullptr) {
-    if (me->binEdge <= bin) {
-      me->binEdge = bin+1;
-      me->bins[bin] = me->tail ? &me->tail->next : &me->head;
-      me->tail = x;
-    } else {
-      int succ = bin+1;
-      while (me->bins[succ] == nullptr) succ++;
-      me->bins[bin] = me->bins[succ];
-      me->bins[succ] = &x->next;
-    }
-  }
-  x->next = *me->bins[bin];
-  *me->bins[bin] = x;
-}
-
-inline bool ncclTaskCollSorterEmpty(ncclTaskCollSorter* me) {
-  return me->head == nullptr;
-}
-
-inline ncclTaskColl* ncclTaskCollSorterDequeueAll(ncclTaskCollSorter* me) {
-  ncclTaskColl* head = me->head;
-  if (head != nullptr) memset(me, 0, sizeof(*me));
-  return head;
-}
-
 struct ncclKernelPlanner {
-  struct ncclTaskCollSorter collSorter;
   struct Peer {
     bool sendSeen, recvSeen;
     struct ncclIntruQueue<struct ncclTaskP2p, &ncclTaskP2p::next> sendQueue;
@@ -460,25 +410,15 @@ typedef enum ncclGroupTaskType {
   ncclGroupTaskTypeNum = 2,
 } ncclGroupTaskType_t;
 
-typedef enum ncclCheckMode {
-  ncclCheckModeDefault = 0,
-  ncclCheckModeDebugLocal = 1,
-  ncclCheckModeDebugGlobal = 2,
-} ncclCheckMode_t;
-
 struct KernelInfoMonitor {
-  ncclDevKernelArgs4K kernelArgs;
+  ncclDevKernelArgsStorage<(4<<10)> kernelArgs;
   // Symk arguments are not ncclDevKernelArgs, so the dump decodes an entry from these launch fields.
   uint64_t kernelIdx; // launch order, begin from 1
   uint64_t channelMask;
   size_t argsBytes;
-  void* kernelFn;
-  int threadPerBlock;
   uint16_t symFuncIndex;
   bool isSymColl;
 };
-static_assert(sizeof(ncclDevKernelArgs4K) == sizeof(ncclSymkDevWorkArgs4K),
-              "Regular and symmetric kernel argument capacities must match");
 
 struct pcclComm {
   struct ncclMemoryStack memPermanent;
@@ -543,7 +483,7 @@ struct pcclComm {
   int cliqueRank; // Our rank within the MNNVL clique
   int nvlDomainSize; // Number of ranks in the same NVL domain (same clusterUuid)
 
-  ncclCheckMode_t checkMode;
+  bool checkPointers;
 
   // Counter to make sure collectives match (needed for bcast/reduce
   // where syncs are not symmetric).
@@ -595,7 +535,8 @@ struct pcclComm {
   // Host copy of the devComm (to free HGGC allocs)
   struct ncclKernelCommAndChannels hostDevComm;
 
-  uint32_t workArgsBytes; // max size of kernel args
+  uint32_t workArgsBytes; // max size of ordinary kernel args
+  uint32_t symkWorkArgsBytes; // max size of symmetric kernel args
   uint32_t workFifoBytes; // size of workFifoBuf, power of 2
   void* workFifoBuf;
   void* workFifoBufDev;

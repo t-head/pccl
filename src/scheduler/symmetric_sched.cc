@@ -23,8 +23,7 @@
 
 NCCL_PARAM(SymNoWinEnable, "SYM_NOWIN_ENABLE", 0);
 PCCL_PARAM(SymOpAccPrecisionInc, "SYM_OP_ACC_PRECISION_INC", 0);
-
-extern int64_t ncclParamSingleProcMemRegEnable();
+PCCL_PARAM(SymkUseMultiTask, "SYMK_USE_MULTI_TASK", 0);
 
 ////////////////////////////////////////////////////////////////////////////////
 // Helper: Convert ncclRedOp_t to the reduction op used by symmetric kernels
@@ -78,182 +77,100 @@ ncclResult_t ncclMakeSymmetricTaskList(
     struct ncclTaskColl** remainTasksHead
   ) {
   ncclResult_t ret = ncclSuccess;
-  int fnOpTySymCount = 0;
-  struct ncclTaskColl* tasksSymByFnOpTy[ncclNumFuncs * ncclNumDevRedOps * ncclNumTypes * ncclNumSymRegTypes];
-  int fnOpTySymIndices[ncclNumFuncs * ncclNumDevRedOps * ncclNumTypes * ncclNumSymRegTypes];
   struct ncclKernelPlanner* planner = &comm->planner;
   struct ncclTaskColl* remainTasksTail = nullptr;
-  bool foundSymm = false;
-
-  memset(tasksSymByFnOpTy, 0, sizeof(tasksSymByFnOpTy));
+  bool useMulti = pcclParamSymkUseMultiTask() != 0;
   *remainTasksHead = nullptr;
 
   if (task) {
-    NCCLCHECKGOTO(ncclDevrInitOnce(comm), ret, fail);
-    if (comm->workArgsBytes < ncclSymkDevWorkArgs::calcArgsSize(MAXCHANNELS, 1)) {
-      INFO(NCCL_TUNING, "PCCL_WORK_ARGS_BYTES=%u is too small for symmetric work metadata; using legacy", comm->workArgsBytes);
+    if (comm->symkWorkArgsBytes < ncclSymkDevWorkArgs::calcArgsSize(MAXCHANNELS, 1)) {
+      INFO(NCCL_TUNING, "PCCL_WORK_ARGS_BYTES=%u is too small for symmetric work metadata; using legacy",
+           comm->symkWorkArgsBytes);
       *remainTasksHead = task;
       goto exit;
     }
+    NCCLCHECKGOTO(ncclDevrInitOnce(comm), ret, fail);
   }
 
+  // Consume the linked input FIFO. Only adjacent compatible tasks may share a
+  // batch; disabling multi-task caps it at one work without changing the ABI.
   while (task != nullptr) {
-    struct ncclTaskColl* next = task->next;
+    struct ncclTaskColl* headTask = task;
     ncclDevRedOp_t symkOp = symkRedOp(task->opHost, task->opDev.op);
-    bool symAvailable = ncclSymkAvailable(comm, task->func, symkOp, task->datatype, task->count);
+    ncclSymkKernelId kernelId = ncclSymkKernelId_Count;
+    int nChannels = MAXCHANNELS;
+    int nWarps = 0;
+    int nWorks = 0;
+    float estTimeUs = 1.e18f;
+    size_t countTotal = 0, countMax = 0, countActualMax = 0;
+    size_t cellCount = NCCL_SYM_KERNEL_CELL_SIZE / ncclTypeSize(headTask->datatype);
+    bool forced = false;
+    bool needFallback = false;
 
-    if (symAvailable) {
-      NCCLCHECKGOTO(ncclDevrFindWindow(comm, task->sendbuff, &task->sendWin), ret, fail);
-      NCCLCHECKGOTO(ncclDevrFindWindow(comm, task->recvbuff, &task->recvWin), ret, fail);
-      NCCLCHECKGOTO(ncclGetSymRegType(task->sendWin, task->recvWin, &task->winRegType), ret, fail);
+    for (ncclTaskColl* candidate = headTask; candidate != nullptr; candidate = candidate->next) {
+      if (candidate->func != headTask->func || candidate->datatype != headTask->datatype ||
+          symkRedOp(candidate->opHost, candidate->opDev.op) != symkOp) break;
+      if (!ncclSymkAvailable(comm, candidate->func, symkOp, candidate->datatype, candidate->count)) break;
+      NCCLCHECKGOTO(ncclDevrFindWindow(comm, candidate->sendbuff, &candidate->sendWin), ret, fail);
+      NCCLCHECKGOTO(ncclDevrFindWindow(comm, candidate->recvbuff, &candidate->recvWin), ret, fail);
+      NCCLCHECKGOTO(ncclGetSymRegType(candidate->sendWin, candidate->recvWin, &candidate->winRegType), ret, fail);
+      if (candidate->winRegType != headTask->winRegType) break;
+
+      // Registration is conservative even when LL or NOWIN is forced. Do not
+      // initialize symmetric resources or convert an unregistered multi-GPU task.
+      if (comm->intraRanks > 1 && candidate->winRegType == ncclSymSendNonregRecvNonreg) break;
+      needFallback |= ncclDevrWindowHasSysmemSegment(candidate->sendWin) ||
+                      ncclDevrWindowHasSysmemSegment(candidate->recvWin);
+      nWorks++;
+      size_t count = alignUp(candidate->count, cellCount);
+      countTotal += count;
+      if (count > countMax) countMax = count;
+      if (candidate->count > countActualMax) countActualMax = candidate->count;
+      if (!useMulti || ncclSymkDevWorkArgs::calcArgsSize(MAXCHANNELS, nWorks + 1) > comm->symkWorkArgsBytes) break;
     }
 
-    if (symAvailable) {
-      int index = (((int)task->func * ncclNumDevRedOps + symkOp) * ncclNumTypes + (int)task->datatype) * ncclNumSymRegTypes + (int)task->winRegType;
-      if (tasksSymByFnOpTy[index] == nullptr) fnOpTySymIndices[fnOpTySymCount++] = index;
-      task->next = tasksSymByFnOpTy[index];
-      tasksSymByFnOpTy[index] = task;
-      planner->nTasksColl--;
-      foundSymm = true;
-    } else {
-      task->next = nullptr;
-      if (*remainTasksHead) {
-        remainTasksTail->next = task;
-        remainTasksTail = task;
-      } else {
-        *remainTasksHead = remainTasksTail = task;
-      }
-    }
-    task = next;
-  }
-  if (remainTasksTail) remainTasksTail->next = nullptr;
-  if (!foundSymm) goto exit;
-
-  // Group tasks by (func, op, type, regType); a batch is bounded by workArgsBytes.
-  for (int cursor = 0; cursor < fnOpTySymCount; cursor++) {
-    struct ncclTaskColl* task = tasksSymByFnOpTy[fnOpTySymIndices[cursor]];
-    while (task != nullptr) {
-      ncclSymkKernelId kernelId = ncclSymkKernelId_Count;
-      int nChannels = MAXCHANNELS;
-      int nWarps = 0;
-      int nWorks = 0;
-      float estTimeUs = 1.e18f;
-      size_t countTotal = 0, countMax = 0, countActualMax = 0;
-      struct ncclTaskColl* headTask = task;
-      size_t cellCount = NCCL_SYM_KERNEL_CELL_SIZE / ncclTypeSize(headTask->datatype);
-      bool forced = false;
-      ncclDevRedOp_t symkOp = symkRedOp(task->opHost, task->opDev.op);
-
-      while (task != nullptr) {
-        size_t count;
-        nWorks++;
-        count = alignUp(task->count, cellCount);
-        countTotal += count;
-        if (count > countMax) countMax = count;
-        if (task->count > countActualMax) countActualMax = task->count;
-        bool overflow = ncclSymkDevWorkArgs::calcArgsSize(MAXCHANNELS, nWorks + 1) > comm->workArgsBytes;
-        if (overflow || task->next == nullptr) {
-          task->isSymLast = 1;
-          break;
-        }
-        task = task->next;
-      }
-
+    if (nWorks != 0 && !needFallback) {
       NCCLCHECKGOTO(ncclSymkPickKernel(comm, headTask->func, symkOp, headTask->datatype,
                                        countTotal, countMax, countActualMax, nWorks, headTask->winRegType,
                                        &estTimeUs, &kernelId, &nChannels, &nWarps, &forced), ret, fail);
-      task = headTask;
-      bool isLLKernel = (1u << (int)kernelId) & ncclSymkLLKernelMask();
-      bool needFallback = false;
-
-      // Fallback logic for symmetric LL kernels:
-      // - If both src and dst are registered, we don't fall back if a symmetric kernel is available.
-      // - Otherwise, we have to fall back to a legacy kernel if running the selected symmetric LL
-      //   kernel is not possible (if the buffers are not registered and we manage multiple GPUs
-      //   in a single process, i.e. intraRanks > 1).
-      // - If the user forced a symmetric kernel via PCCL_SYM_KERNEL or requested preference for
-      //   using symmetric kernels even without symmetric buffers via PCCL_SYM_NOWIN_ENABLE, we
-      //   respect that.
-      if (headTask->winRegType == ncclSymSendRegRecvReg || headTask->algorithm == NCCL_ALGO_UNDEF) {
-        needFallback = false;
-      } else if (isLLKernel) {
-        bool isOneThreadMultiGpus = comm->intraRanks > 1 && !ncclParamSingleProcMemRegEnable();
-        needFallback = isOneThreadMultiGpus && headTask->winRegType == ncclSymSendNonregRecvNonreg;
-        if (!needFallback && !forced) {
-          needFallback = !ncclParamSymNoWinEnable() && headTask->winRegType == ncclSymSendNonregRecvNonreg;
-        }
-      }
-
-      if (!needFallback) {
-        for (ncclTaskColl* batchTask = headTask; batchTask != nullptr; batchTask = batchTask->next) {
-          needFallback = ncclDevrWindowHasSysmemSegment(batchTask->sendWin) ||
-                         ncclDevrWindowHasSysmemSegment(batchTask->recvWin);
-          if (needFallback || batchTask->isSymLast) break;
-        }
-      }
-
-      if (kernelId == ncclSymkKernelId_Count || needFallback) {
-        // Cannot find appropriate symmetric kernel; fallback to legacy
-        while (task != nullptr) {
-          struct ncclTaskColl* next = task->next;
-          int isSymLast = task->isSymLast;
-          task->next = nullptr;
-          if (*remainTasksHead) {
-            remainTasksTail->next = task;
-            remainTasksTail = task;
-          } else {
-            *remainTasksHead = remainTasksTail = task;
-          }
-          planner->nTasksColl++;
-          task = next;
-          if (isSymLast) break;
-        }
-        tasksSymByFnOpTy[fnOpTySymIndices[cursor]] = task;
-        continue;
-      }
-
-      // Initialize symmetric objects for LL kernels without registered buffers
+      bool isLLKernel = kernelId != ncclSymkKernelId_Count &&
+                        ((1u << (int)kernelId) & ncclSymkLLKernelMask());
       if (isLLKernel && headTask->winRegType == ncclSymSendNonregRecvNonreg) {
-        NCCLCHECKGOTO(ncclSymkInitOnce(comm), ret, fail);
+        needFallback = headTask->algorithm != NCCL_ALGO_UNDEF && !forced && !ncclParamSymNoWinEnable();
+        if (!needFallback) NCCLCHECKGOTO(ncclSymkInitOnce(comm), ret, fail);
       }
+    }
 
-      // Set all symmetric tasks in this group to the selected kernel
-      while (task != nullptr) {
-        struct ncclTaskColl* next = task->next;
-        int isSymLast = task->isSymLast;
+    // Leave fallback tasks' reduction descriptors untouched. The planner count
+    // changes only when ownership transfers to the symmetric queue.
+    if (nWorks == 0) nWorks = 1;
+    for (int work = 0; work < nWorks; work++) {
+      struct ncclTaskColl* next = task->next;
+      if (kernelId == ncclSymkKernelId_Count || needFallback) {
+        task->next = nullptr;
+        if (remainTasksTail) remainTasksTail->next = task;
+        else *remainTasksHead = task;
+        remainTasksTail = task;
+      } else {
         task->devFuncId = (uint32_t)kernelId;
         task->nMaxChannels = nChannels;
         task->nWarps = nWarps;
+        task->isSymLast = work == nWorks - 1;
         convertCollTaskToSymmetricTask(comm, task);
         ncclIntruQueueEnqueue(symTaskQueue, task);
-        task = next;
-        if (isSymLast) break;
+        planner->nTasksColl--;
       }
-      tasksSymByFnOpTy[fnOpTySymIndices[cursor]] = task;
+      task = next;
     }
   }
 
 exit:
   return ret;
 fail:
-  if (task != nullptr) {
-    if (remainTasksTail) remainTasksTail->next = task;
-    else *remainTasksHead = task;
-    remainTasksTail = task;
-    while (remainTasksTail->next) remainTasksTail = remainTasksTail->next;
-  }
-  for (int cursor = 0; cursor < fnOpTySymCount; cursor++) {
-    ncclTaskColl* pending = tasksSymByFnOpTy[fnOpTySymIndices[cursor]];
-    while (pending != nullptr) {
-      ncclTaskColl* next = pending->next;
-      pending->next = nullptr;
-      if (remainTasksTail) remainTasksTail->next = pending;
-      else *remainTasksHead = pending;
-      remainTasksTail = pending;
-      planner->nTasksColl++;
-      pending = next;
-    }
-  }
+  // The current batch has not been detached or converted; return it and the
+  // untouched suffix to the caller for normal cleanup.
+  if (remainTasksTail) remainTasksTail->next = task;
+  else *remainTasksHead = task;
   goto exit;
 }
 
@@ -263,6 +180,7 @@ ncclResult_t ncclSymmetricTaskScheduler(
     struct ncclKernelPlan* plan
   ) {
   struct ncclTaskColl* headTask = ncclIntruQueueHead(symTaskQueue);
+  if (headTask == nullptr) return ncclInternalError;
   uint32_t devFuncId = headTask->devFuncId;
   struct ncclTaskColl* task = nullptr;
   ssize_t totalCount = 0;
@@ -288,10 +206,10 @@ ncclResult_t ncclSymmetricTaskScheduler(
   ncclSymkKernelId kernelId = (ncclSymkKernelId)headTask->devFuncId;
   plan->symFuncIndex = (uint16_t)kernelId;
   int kernelIndex = ncclSymkGetKernelIndex(kernelId, headTask->opDev.op, headTask->datatype);
-  if (kernelIndex < 0 || kernelIndex >= ncclSymkKernelCount) return ncclInternalError;
+  if (kernelIndex < 0 || kernelIndex >= ncclSymkKernelCount || ncclSymkKernelList[kernelIndex] == nullptr ||
+      ncclSymkKernelRequirements[kernelIndex] > comm->minCompCap) return ncclInternalError;
   plan->kernelFn = ncclSymkKernelList[kernelIndex];
-  int maxDynamicSmem = ncclSymkKernelMaxDynamicSmem[kernelIndex];
-  plan->kernelDynSmem = (1u & (ncclSymkDynamicSmemKernelMask() >> kernelId)) ? maxDynamicSmem : 0;
+  if (nMaxChannels < 1 || nMaxChannels > ncclSymkMaxBlocks) return ncclInternalError;
 
   task = headTask;
   while (task != nullptr && task->devFuncId == devFuncId) {
@@ -303,7 +221,7 @@ ncclResult_t ncclSymmetricTaskScheduler(
   }
 
   size_t actualSize = ncclSymkDevWorkArgs::calcArgsSize(nMaxChannels, workCount);
-  if (actualSize > sizeof(ncclSymkDevWorkArgs4K) || actualSize > comm->workArgsBytes) return ncclInternalError;
+  if (actualSize > sizeof(ncclSymkDevWorkArgs4K) || actualSize > comm->symkWorkArgsBytes) return ncclInternalError;
   plan->kernelArgsSize = actualSize;
   NCCLCHECK(ncclCalloc(reinterpret_cast<char**>(&argsBuf), actualSize));
 
@@ -311,7 +229,7 @@ ncclResult_t ncclSymmetricTaskScheduler(
   workRangePtr = argsBuf->getWorkRange();
   workBufPtr = argsBuf->getWorks(nMaxChannels);
   argsBuf->nMaxChannels = nMaxChannels;
-  argsBuf->maxDynamicSmem = maxDynamicSmem;
+  argsBuf->reserved = 0;
   bool incPrecision = pcclParamSymOpAccPrecisionInc() != 0;
 
   while (!ncclIntruQueueEmpty(symTaskQueue)) {

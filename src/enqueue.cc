@@ -98,15 +98,6 @@ static void* const ncclKerns[NUM_P2P_FUNC+NCCL_NUM_FUNCTIONS*ncclNumDevRedOps*nc
 
 enum { P2P_Segment=1, Coll_Segment=2 };
 
-static inline int ncclFuncTrafficPerByte(ncclFunc_t func, int nRanks) {
-  switch (func) {
-  case ncclFuncAllReduce: return 2;
-  case ncclFuncAllGather: return nRanks;
-  case ncclFuncReduceScatter: return nRanks;
-  default: return 1;
-  }
-}
-
 static ncclResult_t ncclScanKernelMaxStackSize(void* const* kernels, int count, void* lru[2], size_t* maxStackSize) {
   ncclResult_t result = ncclSuccess;
   for (int i = 0; i < count; i++) {
@@ -132,19 +123,6 @@ ncclResult_t ncclInitKernelsForDevice(size_t* maxStackSize) {
   void* lru[2] = {nullptr, nullptr};
   NCCLCHECK(ncclScanKernelMaxStackSize(ncclKerns, KernelCount, lru, maxStackSize));
   NCCLCHECK(ncclScanKernelMaxStackSize(ncclSymkKernelList, ncclSymkKernelCount, lru, maxStackSize));
-  int device, maxSmem;
-  HGGCCHECK(hggcGetDevice(&device));
-  HGGCCHECK(hggcDeviceGetAttribute(&maxSmem, hggcDevAttrMaxSharedMemoryPerBlockOptin, device));
-  const int compCap = ncclHggcCompCap();
-  for (int i = 0; i < ncclSymkKernelCount; i++) {
-    if (ncclSymkKernelList[i] == nullptr || ncclSymkKernelRequirements[i] > compCap) continue;
-    hggcFuncAttributes attr = {};
-    HGGCCHECK(hggcFuncGetAttributes(&attr, ncclSymkKernelList[i]));
-    int maxDynamicSmem = std::max(0, maxSmem - int(attr.sharedSizeBytes));
-    HGGCCHECK(hggcFuncSetAttribute(ncclSymkKernelList[i], hggcFuncAttributeMaxDynamicSharedMemorySize,
-                                 maxDynamicSmem));
-    ncclSymkKernelMaxDynamicSmem[i] = maxDynamicSmem;
-  }
   return ncclSuccess;
 }
 
@@ -387,8 +365,6 @@ ncclResult_t saveDevKernelArgs(ncclComm_t comm, struct ncclKernelPlan* plan) {
   kernelInfoMonitorPtr->kernelIdx = comm->kernelNum;
   kernelInfoMonitorPtr->channelMask = plan->channelMask;
   kernelInfoMonitorPtr->argsBytes = plan->kernelArgsSize;
-  kernelInfoMonitorPtr->kernelFn = plan->kernelFn;
-  kernelInfoMonitorPtr->threadPerBlock = plan->threadPerBlock;
   kernelInfoMonitorPtr->symFuncIndex = plan->symFuncIndex;
   kernelInfoMonitorPtr->isSymColl = plan->isSymColl;
   // Symk kernels do not write per-channel completion indices, so they must not advance the enqueue
@@ -408,7 +384,7 @@ ncclResult_t ncclLaunchKernel(ncclComm_t comm, struct ncclKernelPlan* plan) {
   int nChannels = countOneBits(plan->channelMask);
   dim3 grid = {(unsigned)nChannels, 1, 1};
   dim3 block = {(unsigned)plan->threadPerBlock, 1, 1};
-  int smem = plan->isSymColl ? plan->kernelDynSmem : ncclShmemDynamicSize();
+  int smem = ncclShmemDynamicSize();
   hggcStream_t launchStream = planner->streams->stream;
   NCCLCHECK(ncclProfilerStartKernelLaunchEvent(plan, launchStream));
   // todo: save hgtxMessage per ncclKernelPlan, need to confirm patpro uses.
@@ -726,7 +702,7 @@ static bool algoSupportsRedOp(ncclTaskColl* info, int algorithm) {
   return true;
 }
 
-static ncclResult_t defaultGetAlgoInfo(ncclComm_t comm, ncclTaskColl* info, int numPipeOps) {
+static ncclResult_t defaultGetAlgoInfo(ncclComm_t comm, ncclTaskColl* info) {
   float minTime = 3600000000.0; // Hopefully no operation will take an hour to complete.
   // Find algorithm / protocol.
   info->algorithm = NCCL_ALGO_UNDEF;
@@ -737,7 +713,7 @@ static ncclResult_t defaultGetAlgoInfo(ncclComm_t comm, ncclTaskColl* info, int 
     if (!algoSupportsRedOp(info, a)) continue;
     for (int p=0; p<NCCL_NUM_PROTOCOLS; p++) {
       float time;
-      NCCLCHECK(ncclTopoGetAlgoTime(comm, info->func, a, p, info->nBytes, info->nChannels, &time, numPipeOps));
+      NCCLCHECK(ncclTopoGetAlgoTime(comm, info->func, a, p, info->nBytes, info->nChannels, &time));
       if (time >= 0 && time < minTime) {
         info->algorithm = a;
         info->protocol = p;
@@ -790,8 +766,7 @@ static ncclResult_t defaultGetAlgoInfo(ncclComm_t comm, ncclTaskColl* info, int 
 // Call the plugin first. Let it set algo+proto, and/or nChannels.
 // Then, defaultGetAlgoInfo will set algo/proto if not set, then nChannels and nThreads based on algo/proto.
 // Finally, nChannels will be overridden by the plugin setting.
-ncclResult_t ncclGetAlgoInfo(ncclComm_t comm, ncclTaskColl* info, int collNetSupport,
-                            int nvlsSupport, int numPipeOps, ncclSimInfo_t* simInfo) {
+static ncclResult_t getAlgoInfo(ncclComm_t comm, ncclTaskColl* info, ncclSimInfo_t* simInfo = NULL) {
   if (comm->nRanks == 1) {
     // Single-rank: no inter-rank communication is performed, so the estimated
     // time is 0. Keep this aligned with NCCL upstream, where the single-rank
@@ -807,7 +782,7 @@ ncclResult_t ncclGetAlgoInfo(ncclComm_t comm, ncclTaskColl* info, int collNetSup
   if (comm->tuner != NULL) {
     NCCLCHECK(comm->tuner->getCollInfo(
           info->func, comm->nRanks, info->nBytes,
-          collNetSupport, nvlsSupport, numPipeOps,
+          0, 0, 0,
           &info->algorithm, &info->protocol, &nChannels, &info->nThreads));
 
     if (nChannels > 0 && (info->algorithm < 0 || info->algorithm >= NCCL_NUM_ALGORITHMS ||
@@ -826,7 +801,7 @@ ncclResult_t ncclGetAlgoInfo(ncclComm_t comm, ncclTaskColl* info, int collNetSup
   }
   // if plugin do not provide valid config, use default;
   if (nChannels <= 0) {
-    NCCLCHECK(defaultGetAlgoInfo(comm, info, numPipeOps));
+    NCCLCHECK(defaultGetAlgoInfo(comm, info));
   } else {
     info->nChannels = nChannels;
   }
@@ -842,7 +817,7 @@ ncclResult_t ncclGetAlgoInfo(ncclComm_t comm, ncclTaskColl* info, int collNetSup
     // self-consistent with how algo/proto were selected.
     float time = -1.f;
     if (ncclTopoGetAlgoTime(comm, info->func, info->algorithm, info->protocol,
-                            info->nBytes, info->nChannels, &time, numPipeOps) == ncclSuccess
+                            info->nBytes, info->nChannels, &time) == ncclSuccess
         && time >= 0.f) {
       simInfo->estimatedTime = time;
     } else {
@@ -1794,7 +1769,7 @@ static ncclResult_t finishPlan(ncclComm_t comm, struct ncclKernelPlan* plan) {
   // budget (device-side loadWorkBatchToShmem indexes batches without any
   // bounds check, so a too-large table would silently corrupt following
   // args/work bytes).
-  constexpr size_t kMaxKernelArgsBytes = ncclMaxKernelArgsSize();
+  constexpr size_t kMaxKernelArgsBytes = ncclMaxKernelArgsSize(); // 1<<10 = 1024
   VERBOSE(NCCL_COLL,
        "finishPlan sizes: sizeof(pcclDevKernelArgs)=%zu batchBytes=%zu workBytes=%zu "
        "nWorkBatches=%d workArgsBytes=%zu kernelArgsBudget=%zu",
@@ -1984,13 +1959,12 @@ ncclResult_t ncclLaunchPrepare(ncclComm_t comm) {
           // Non-persistent kernels fill up at most half of our fifo per kernel.
           budget.outArgsBytes = plan->persistent ? (1<<30) : comm->workFifoBytes/2;
 
-          if (planner->nTasksColl != 0) {
-            NCCLCHECKGOTO(scheduleCollTasksToPlan(comm, plan, &budget), result, failure);
+          if (planner->nTasksP2p != 0) {
+            NCCLCHECKGOTO(scheduleP2pTasksToPlan(comm, &p2pEpoch, &p2pRound, pureAlltoallGroup, plan, &budget), result, failure);
           }
 
-          if (planner->nTasksColl == 0 && planner->nTasksP2p != 0) {
-            NCCLCHECKGOTO(scheduleP2pTasksToPlan(comm, &p2pEpoch, &p2pRound, pureAlltoallGroup, plan, &budget),
-                result, failure);
+          if (planner->nTasksP2p == 0 && planner->nTasksColl != 0) {
+            NCCLCHECKGOTO(scheduleCollTasksToPlan(comm, plan, &budget), result, failure);
           }
         }
 
@@ -2235,14 +2209,13 @@ static ncclResult_t collTaskAppend(
   t->opHost = info->op;
   t->opDev = opDev; // C++ struct assignment
   t->nBytes = info->nBytes;
-  t->trafficBytes = t->count*ncclTypeSize(t->datatype)*ncclFuncTrafficPerByte(t->func, comm->nRanks);
   t->chunkSteps = info->chunkSteps;
   t->sliceSteps = info->sliceSteps;
   t->eActivationMask = ncclProfilerApiState.eActivationMask;
   t->groupApiEventHandle = ncclProfilerApiState.groupApiEventHandle;
   t->collApiEventHandle = ncclProfilerApiState.collApiEventHandle;
 
-  ncclTaskCollSorterInsert(&planner->collSorter, t, t->trafficBytes);
+  ncclIntruQueueEnqueue(&planner->collTaskQueue, t);
   planner->collBytesTotal += t->count*ncclTypeSize(t->datatype);
   planner->nTasksColl += 1;
 
@@ -2678,7 +2651,7 @@ ncclResult_t ncclEnqueueCheck(struct ncclInfo* info) {
   int savedDev = -1;
   // Check whether communicator is ready to communicate
   NCCLCHECKGOTO(ncclCommEnsureReady(info->comm), ret, fail);
-  if (info->comm->checkMode != ncclCheckModeDefault) {
+  if (info->comm->checkPointers) {
     HGGCCHECKGOTO(hggcGetDevice(&savedDev), ret, fail);
     HGGCCHECKGOTO(hggcSetDevice(info->comm->hggcDev), ret, fail);
   }
@@ -2711,15 +2684,15 @@ fail:
 ncclResult_t ncclPrepareTasks(ncclComm_t comm, bool* algoNeedConnect, bool* needConnect, ncclSimInfo_t* simInfo) {
   struct ncclKernelPlanner* planner = &comm->planner;
   planner->persistent = ncclCudaGraphValid(planner->capturingGraph);
-  ncclTaskColl* task = ncclTaskCollSorterDequeueAll(&planner->collSorter);
+  ncclTaskColl* task = ncclIntruQueueHead(&planner->collTaskQueue);
   planner->isExtKernel = false;
 
-  // Symmetric kernel path
+  // Detach the original FIFO for classification and restore every unaccepted task, even on error.
+  ncclIntruQueueConstruct(&planner->collTaskQueue);
   ncclResult_t symmetricResult = ncclSuccess;
   if (comm->symmetricSupport) {
     symmetricResult = ncclMakeSymmetricTaskList(comm, task, &planner->collSymTaskQueue, &task);
   }
-  ncclIntruQueueConstruct(&planner->collTaskQueue);
   while (task != nullptr) {
     ncclTaskColl* next = task->next;
     ncclIntruQueueEnqueue(&planner->collTaskQueue, task);
@@ -2739,7 +2712,7 @@ ncclResult_t ncclPrepareTasks(ncclComm_t comm, bool* algoNeedConnect, bool* need
       NCCLCHECK(comm->extKernel->kernelPluginAvailCheck(&extTask, comm->extKernelPluginWorkspace.extKernelPluginParams, &task->isExtKernel));
     }
     if (!task->isExtKernel) {
-      NCCLCHECK(ncclGetAlgoInfo(comm, task, 0, 0, 1, simInfo));
+      NCCLCHECK(getAlgoInfo(comm, task, simInfo));
       if (comm->runtimeConn && comm->initAlgoChannels[task->algorithm] == false) {
         comm->initAlgoChannels[task->algorithm] = true;
         algoNeedConnect[task->algorithm] = true;
@@ -2754,53 +2727,9 @@ ncclResult_t ncclPrepareTasks(ncclComm_t comm, bool* algoNeedConnect, bool* need
     return ncclSuccess;
   }
 
-  ncclTaskColl* tasksByFnOpTy[ncclNumFuncs*ncclNumDevRedOps*ncclNumTypes] = {};
-  int fnOpTyIndices[ncclNumFuncs*ncclNumDevRedOps*ncclNumTypes];
-  int fnOpTyCount = 0;
-  ncclResult_t ret = ncclSuccess;
-  while (task != nullptr) {
-    ncclTaskColl* next = task->next;
-    int index = (int(task->func)*ncclNumDevRedOps + int(task->opDev.op))*ncclNumTypes + int(task->datatype);
-    if (tasksByFnOpTy[index] == nullptr) fnOpTyIndices[fnOpTyCount++] = index;
-    task->next = tasksByFnOpTy[index];
-    tasksByFnOpTy[index] = task;
-    task = next;
-  }
-  ncclIntruQueueConstruct(&planner->collTaskQueue);
-  int nTasksPerChannel = DIVUP(planner->nTasksColl, comm->nChannels);
-  for (int cursor = 0; cursor < fnOpTyCount; cursor++) {
-    ncclTaskColl* aggBeg = tasksByFnOpTy[fnOpTyIndices[cursor]];
-    do {
-      ncclTaskColl* aggEnd = aggBeg->next;
-      ncclTaskColl agg = *aggBeg;
-      while (aggEnd != nullptr && aggBeg->trafficBytes <= SIZE_MAX/4 &&
-             aggEnd->trafficBytes < 4*aggBeg->trafficBytes) {
-        if (agg.count > SIZE_MAX - aggEnd->count || agg.nBytes > SIZE_MAX - aggEnd->nBytes ||
-            agg.trafficBytes > SIZE_MAX - aggEnd->trafficBytes) {
-          ret = ncclInvalidArgument;
-          goto failSorted;
-        }
-        agg.count += aggEnd->count;
-        agg.nBytes += aggEnd->nBytes;
-        agg.trafficBytes += aggEnd->trafficBytes;
-        aggEnd = aggEnd->next;
-      }
-      NCCLCHECKGOTO(ncclGetAlgoInfo(comm, &agg, 0, 0, nTasksPerChannel, simInfo), ret, failSorted);
-      do {
-        ncclTaskColl* next = aggBeg->next;
-        aggBeg->algorithm = agg.algorithm;
-        aggBeg->protocol = agg.protocol;
-        aggBeg->nChannels = agg.nChannels;
-        aggBeg->nThreads = agg.nThreads;
-        aggBeg->nMaxChannels = agg.nChannels;
-        aggBeg->nWarps = agg.nThreads/WARP_SIZE;
-        aggBeg->devFuncId = FUNC_INDEX(aggBeg->func, aggBeg->opDev.op, aggBeg->datatype,
-                                      agg.algorithm, agg.protocol);
-        ncclIntruQueueEnqueue(&planner->collTaskQueue, aggBeg);
-        aggBeg = next;
-      } while (aggBeg != aggEnd);
-      tasksByFnOpTy[fnOpTyIndices[cursor]] = aggBeg;
-    } while (aggBeg != nullptr);
+  while(task) {
+    NCCLCHECK(getAlgoInfo(comm, task, simInfo));
+    task = task->next;
   }
 
   task = ncclIntruQueueHead(&planner->collTaskQueue);
@@ -2813,16 +2742,6 @@ ncclResult_t ncclPrepareTasks(ncclComm_t comm, bool* algoNeedConnect, bool* need
     task = task->next;
   }
   return ncclSuccess;
-failSorted:
-  for (int cursor = 0; cursor < fnOpTyCount; cursor++) {
-    task = tasksByFnOpTy[fnOpTyIndices[cursor]];
-    while (task != nullptr) {
-      ncclTaskColl* next = task->next;
-      ncclIntruQueueEnqueue(&planner->collTaskQueue, task);
-      task = next;
-    }
-  }
-  return ret;
 }
 
 NCCL_API(ncclResult_t, pcclRedOpCreatePreMulSum, ncclRedOp_t *op, void *scalar, ncclDataType_t datatype, ncclScalarResidence_t residence, ncclComm_t comm);

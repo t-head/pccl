@@ -222,8 +222,8 @@ static __device__ void allreduce(
 
   if (sizeof(T) >= 4 || (sizeof(T) < 4 && (inputUptr-outputUptr)%4 == 0)) {
     {
-      constexpr int BytePerPack = 16, UnrollPacks = 4;
-      constexpr int UnrollPeers = sizeof(T) == 1 && sizeof(typename Red::EltType) > sizeof(T) ? 2 : 4;
+      // for UnrollPacks*512B
+      constexpr int BytePerPack = 16, UnrollPacks = 4, UnrollPeers = 4;
       constexpr int BytePerWarp = WARP_SIZE*BytePerPack*UnrollPacks;
       uint32_t chunks = (nBytes-cursor)/BytePerWarp;
       if (chunks != 0) {
@@ -324,14 +324,7 @@ __device__ __forceinline__ void ncclSymkRun_AllReduce_AGxLL_R(ncclSymkDevWorkArg
         lla2a.bcast(nIterPacks*rank + t, inp);
         auto toAcc = [&](Pack x)->AccPack { return applyCast<T, Acc>(x); };
         auto reduceAcc = [&](AccPack a, AccPack b)->AccPack { return applyReduce(red, a, b); };
-        AccPack acc;
-        if (sizeof(T) <= 4 && sizeof(Acc) == sizeof(T) && nRanks == 2) {
-          acc = lla2a.template recvReduce<2, Pack>(t, nRanks, nIterPacks, toAcc, reduceAcc);
-        } else if (sizeof(T) <= 4 && sizeof(Acc) == sizeof(T) && nRanks == 4) {
-          acc = lla2a.template recvReduce<4, Pack>(t, nRanks, nIterPacks, toAcc, reduceAcc);
-        } else {
-          acc = lla2a.template recvReduce<8, Pack>(t, nRanks, nIterPacks, toAcc, reduceAcc);
-        }
+        AccPack acc = lla2a.template recvReduce<8, Pack>(t, nRanks, nIterPacks, toAcc, reduceAcc);
         Pack out = applyCast<Acc, T>(acc);
         storePack((Pack*)output, t, nPacks, out);
       }
@@ -350,14 +343,7 @@ __device__ __forceinline__ void ncclSymkRun_AllReduce_AGxLL_R(ncclSymkDevWorkArg
         lla2a.bcast(nIterPacks*rank + t, inp);
         auto toAcc = [&](Pack x)->AccPack { return applyCast<T, Acc>(x); };
         auto reduceAcc = [&](AccPack a, AccPack b)->AccPack { return applyReduce(red, a, b); };
-        AccPack acc;
-        if (sizeof(T) <= 4 && sizeof(Acc) == sizeof(T) && nRanks == 2) {
-          acc = lla2a.template recvReduce<2, Pack>(t, nRanks, nIterPacks, toAcc, reduceAcc);
-        } else if (sizeof(T) <= 4 && sizeof(Acc) == sizeof(T) && nRanks == 4) {
-          acc = lla2a.template recvReduce<4, Pack>(t, nRanks, nIterPacks, toAcc, reduceAcc);
-        } else {
-          acc = lla2a.template recvReduce<8, Pack>(t, nRanks, nIterPacks, toAcc, reduceAcc);
-        }
+        AccPack acc = lla2a.template recvReduce<8, Pack>(t, nRanks, nIterPacks, toAcc, reduceAcc);
         Pack out = applyCast<Acc, T>(acc);
         storePack(output, t*EltPerPack, nElts, out);
       }

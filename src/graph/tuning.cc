@@ -641,7 +641,7 @@ static const std::unordered_map<uint64_t, std::array<float, NUM_FACTORS>> fcCorr
     {  .3,  .3,  .3,  .3,  .3,  .3,  .3,  .3,  .3,  .3,  .3,  .3,  .3,  .3,  .3,  .3,  .3,  .3,  .3,  .3,  .3,  .3,  .3,  .3,  .3, 1.0, 1.0, 1.0 }},
 };
 
-ncclResult_t ncclTopoGetAlgoTime(ncclComm_t comm, int coll, int algorithm, int protocol, size_t nBytes, int nChannels, float* time, int numPipeOps) {
+ncclResult_t ncclTopoGetAlgoTime(ncclComm_t comm, int coll, int algorithm, int protocol, size_t nBytes, int nChannels, float* time) {
   float bw = comm->bandwidths[coll][algorithm][protocol];
   float lat = comm->latencies[coll][algorithm][protocol];
   if (bw == 0) {
@@ -657,15 +657,14 @@ ncclResult_t ncclTopoGetAlgoTime(ncclComm_t comm, int coll, int algorithm, int p
     }
   }
   if (nChannels != 0) {
-    int fullChannels = (algorithm == NCCL_ALGO_FC) ? comm->fcnChannels : comm->nChannels;
-    bw = bw / fullChannels * nChannels;
+    int nChannels = (algorithm == NCCL_ALGO_FC) ? comm->fcnChannels : comm->nChannels;
+    bw = bw / nChannels * nChannels;
   }
   if (algorithm == NCCL_ALGO_RING && (protocol == NCCL_PROTO_SIMPLE || protocol == NCCL_PROTO_SIGNAL
         || protocol == NCCL_PROTO_SIMPLE_BULK || protocol == NCCL_PROTO_SIGNAL_BULK
         || protocol == NCCL_PROTO_SIMPLE_BULK_AR) && comm->nNodes > 1
       && coll == ncclFuncAllReduce && nBytes >= comm->nRanks/16.0*65536) lat *= 1.9; // Plateau effect of ring
-  float latCount = algorithm == NCCL_ALGO_RING ? numPipeOps : DIVUP(numPipeOps, NCCL_MAX_DEV_WORK_BATCH_COLLS);
-  *time = lat * latCount + (nBytes) / (1000 * bw);
+  *time = lat + (nBytes) / (1000 * bw);
   if (comm->rank == 0) TRACE(NCCL_TUNING, "Tuning algo %d proto %d nBytes %ld lat %f bw %f time %f\n", algorithm, protocol, nBytes, lat, bw, *time);
   return ncclSuccess;
 }

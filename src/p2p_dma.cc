@@ -86,7 +86,8 @@ static int p2pDmaTakeableFromQueue(struct ncclIntruQueue<struct ncclTaskP2p, &nc
 
 bool pcclP2pDmaEligible(struct pcclComm* comm) {
   if (!pcclP2pDmaEnabled(comm)) return false;
-  if (!ncclDevrIsOneLsaTeam(comm)) return false;
+  // nNodes == 1 is already implied by pcclP2pDmaEnabled -> ncclCeSupported.
+  if (!ncclDevrIsOneLsaTeam(comm)) return false; // lsa index == world rank, assumed below
   // With a size threshold set, a group can be entirely below it. Building a plan
   // then would consume nothing, so the planner has to be told to use the kernel
   // path instead of looping on an empty batch.

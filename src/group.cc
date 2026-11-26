@@ -16,7 +16,6 @@
 #include <assert.h>
 #include "hgtx.h"
 #include "dev_runtime.h"
-#include "param/param.h"
 
 thread_local int ncclGroupDepth = 0; // depth of ncclGroupStart nesting
 thread_local ncclResult_t ncclGroupError = ncclSuccess;
@@ -235,7 +234,7 @@ ncclResult_t ncclCommGroupRegisterSymmetric(struct ncclAsyncJob* job_) {
   // safe here -- it would deadlock if done later at launch time, where
   // doLaunches walks comms sequentially on a single thread.
   if (hasSymmetricTasks && pcclP2pDmaEnabled(comm)) {
-    // DMA的执行期epoch依赖CE私有存储；在并行注册job内先满足该资源依赖。
+    // DMA epochs require CE storage before parallel registration completes.
     NCCLCHECKGOTO(ncclCeInit(comm), ret, fail);
     NCCLCHECKGOTO(pcclP2pDmaInitOnce(comm), ret, fail);
   }
@@ -404,12 +403,6 @@ static void groupCleanup(ncclComm_t* groupCommHeadPtr, struct ncclIntruQueue<str
         while (!ncclIntruQueueEmpty(&comm->argsInfoQueue)) {
           ncclArgsInfo* info = ncclIntruQueueDequeue(&comm->argsInfoQueue);
           ncclFree(info);
-        }
-        ncclTaskColl* sorted = ncclTaskCollSorterDequeueAll(&comm->planner.collSorter);
-        while (sorted != nullptr) {
-          ncclTaskColl* nextTask = sorted->next;
-          ncclMemoryPoolFree(&comm->memPool_ncclTaskColl, sorted);
-          sorted = nextTask;
         }
         for (auto* queue : {&comm->planner.collTaskQueue, &comm->planner.collSymTaskQueue,
                             &comm->planner.collCeTaskQueue}) {
@@ -615,51 +608,7 @@ fail:
   goto exit;
 }
 
-DEFINE_PCCL_PARAM(pcclParamSingleProcMemRegEnable, int64_t, PCCL_SINGLE_PROC_MEM_REG_ENABLE, 0,
-                  PCCL_PARAM_FLAG_CACHED, PCCL_PARAM_DEFAULT, "Single-process memory registration");
-int64_t ncclParamSingleProcMemRegEnable() { return pcclParamSingleProcMemRegEnable(); }
-
-struct ncclPrepareTasksAndCollPreconnectJob {
-  struct ncclAsyncJob base;
-  ncclComm_t comm;
-  ncclSimInfo_t* simInfo;
-};
-
-static void ncclPrepareTasksAndCollPreconnectJobFree(void* job) {
-  ncclFree(job);
-}
-
-static ncclResult_t ncclPrepareTasksAndCollPreconnectFunc(struct ncclAsyncJob* base) {
-  auto* job = reinterpret_cast<ncclPrepareTasksAndCollPreconnectJob*>(base);
-  bool algoNeedConnect[NCCL_NUM_ALGORITHMS] = {};
-  bool needConnect = false;
-  int savedDev;
-  ncclResult_t ret = ncclSuccess;
-  HGGCCHECK(hggcGetDevice(&savedDev));
-  HGGCCHECK(hggcSetDevice(job->comm->hggcDev));
-  NCCLCHECKGOTO(ncclPrepareTasks(job->comm, algoNeedConnect, &needConnect, job->simInfo), ret, exit);
-  if (job->comm->cuMemSupport && needConnect) {
-    NCCLCHECKGOTO(ncclCollPreconnect(job->comm, algoNeedConnect), ret, exit);
-  }
-exit:
-  HGGCCHECK(hggcSetDevice(savedDev));
-  return ret;
-}
-
 static ncclResult_t ncclPrepareTasksAndCollPreconnect(ncclComm_t comm, ncclSimInfo_t* simInfo, struct ncclIntruQueue<struct ncclAsyncJob, &ncclAsyncJob::next>* asyncCollJobs) {
-  if (ncclParamSingleProcMemRegEnable()) {
-    ncclPrepareTasksAndCollPreconnectJob* job;
-    NCCLCHECK(ncclCalloc(&job, 1));
-    job->base.func = ncclPrepareTasksAndCollPreconnectFunc;
-    job->base.destructor = ncclPrepareTasksAndCollPreconnectJobFree;
-    job->base.state = ncclGroupJobRunning;
-    job->base.abortFlag = comm->abortFlag;
-    job->base.abortFlagDev = comm->abortFlagDev;
-    job->comm = comm;
-    job->simInfo = simInfo;
-    ncclIntruQueueEnqueue(asyncCollJobs, &job->base);
-    return ncclSuccess;
-  }
   bool needConnect = false;
   bool algoNeedConnect[NCCL_NUM_ALGORITHMS];
   memset(algoNeedConnect, 0, sizeof(bool) * NCCL_NUM_ALGORITHMS);
@@ -825,7 +774,7 @@ static ncclResult_t groupLaunch(struct ncclAsyncJob *job_, ncclSimInfo_t* simInf
     do {
       comm = cliqueHead;
       do {
-        if (comm->checkMode == ncclCheckModeDebugGlobal && !ncclIntruQueueEmpty(&comm->argsInfoQueue)) {
+        if (comm->checkPointers && !ncclIntruQueueEmpty(&comm->argsInfoQueue)) {
           ncclAsyncJob* job;
           NCCLCHECKGOTO(ncclCalloc(&job, 1), ret, fail);
           job->func = ncclCommGroupArgsGlobalCheck;

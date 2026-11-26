@@ -24,8 +24,6 @@ ncclResult_t ncclLaunchFinish(ncclComm_t comm);
 ncclResult_t ncclLaunchReset(ncclComm_t comm);
 ncclResult_t ncclPrepareTasks(ncclComm_t comm, bool* algoNeedConnect, bool* needConnect, ncclSimInfo_t* simInfo = NULL);
 ncclResult_t ncclTasksRegAndEnqueue(ncclComm_t comm);
-ncclResult_t ncclGetAlgoInfo(ncclComm_t comm, ncclTaskColl* task, int collNetSupport,
-                            int nvlsSupport, int numPipeOps, ncclSimInfo_t* simInfo = nullptr);
 
 static inline size_t ncclFuncSendCount(ncclFunc_t func, int nRanks, size_t count) {
   return func == ncclFuncReduceScatter ? nRanks*count : count;

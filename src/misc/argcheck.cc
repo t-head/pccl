@@ -178,26 +178,28 @@ ncclResult_t ArgsCheck(struct ncclInfo* info) {
     return ncclInvalidArgument;
   }
 
-  if (info->comm->checkMode != ncclCheckModeDefault) {
+  if (info->comm->checkPointers) {
     if (info->coll == ncclFuncSend || info->coll == ncclFuncRecv) {
       if (info->count > 0) NCCLCHECK(HggcPtrCheck(info->recvbuff, info->comm, "buff", info->opName));
     } else if (info->coll == ncclFuncPutSignal || info->coll == ncclFuncSignal || info->coll == ncclFuncWaitSignal) {
       // One-sided RMA ops name the remote destination through peerWin.
       INFO(NCCL_COLL, "%s : skipping sendbuff/recvbuff pointer check (one-sided RMA uses peerWin)", info->opName);
     } else {
+      // Check hggc device pointers
       if (info->coll != ncclFuncBroadcast || info->comm->rank == info->root) {
         NCCLCHECK(HggcPtrCheck(info->sendbuff, info->comm, "sendbuff", info->opName));
       }
       if (info->coll != ncclFuncReduce || info->comm->rank == info->root) {
         NCCLCHECK(HggcPtrCheck(info->recvbuff, info->comm, "recvbuff", info->opName));
       }
-    }
-    if (info->comm->checkMode == ncclCheckModeDebugGlobal && info->count > 0 && info->comm->nRanks > 1) {
-      struct ncclArgsInfo* argsInfo;
-      NCCLCHECK(ncclCalloc(&argsInfo, 1));
-      argsInfo->info = *info;
-      ncclGroupCommJoin(info->comm, ncclGroupTaskTypeCollective);
-      ncclIntruQueueEnqueue(&info->comm->argsInfoQueue, argsInfo);
+      if (info->count > 0 && info->comm->nRanks > 1) {
+        // Registration checks are collective; group workers run same-process ranks in parallel.
+        struct ncclArgsInfo* argsInfo;
+        NCCLCHECK(ncclCalloc(&argsInfo, 1));
+        argsInfo->info = *info;
+        ncclGroupCommJoin(info->comm, ncclGroupTaskTypeCollective);
+        ncclIntruQueueEnqueue(&info->comm->argsInfoQueue, argsInfo);
+      }
     }
   }
   return ncclSuccess;

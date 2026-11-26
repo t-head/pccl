@@ -25,7 +25,6 @@
 #include "mnnvl.h"
 #include "u2mm.h"
 #include "utils.h"
-#include "param/utils.h"
 #include "gin.h"
 #include "mem_manager.h"
 #include <fcntl.h>
@@ -64,42 +63,7 @@ NCCL_PARAM(CheckPointers, "CHECK_POINTERS", 0);
 PCCL_PARAM(DisableAbort, "DISABLE_ABORT", 0);
 NCCL_PARAM(CommBlocking, "COMM_BLOCKING", PCCL_CONFIG_UNDEF_INT);
 NCCL_PARAM(RuntimeConnect, "RUNTIME_CONNECT", 1);
-static int64_t ncclParamCtaPolicy() {
-  static int64_t cache = INT64_MIN;
-  bool noCache = pcclParamIsCacheDisabled("PCCL_CTA_POLICY");
-  int64_t policy = __atomic_load_n(&cache, __ATOMIC_RELAXED);
-  if (!noCache && policy != INT64_MIN) return policy;
-  policy = PCCL_CONFIG_UNDEF_INT;
-  const char* value = ncclGetEnv("PCCL_CTA_POLICY");
-  const char* whitespace = " \t\n\r\f\v";
-  if (value != nullptr) value += strspn(value, whitespace);
-  if (value != nullptr && ((value[0] >= '0' && value[0] <= '9') || value[0] == '+' || value[0] == '-')) {
-    char* end;
-    errno = 0;
-    int64_t numeric = strtoll(value, &end, 0);
-    if (errno == 0 && end != value && end[strspn(end, whitespace)] == '\0') {
-      policy = numeric == PCCL_CONFIG_UNDEF_INT ? PCCL_CONFIG_UNDEF_INT
-             : numeric >= PCCL_CTA_POLICY_DEFAULT && numeric <= (PCCL_CTA_POLICY_EFFICIENCY | PCCL_CTA_POLICY_ZERO)
-                 ? numeric : PCCL_CTA_POLICY_DEFAULT;
-    }
-  } else if (value != nullptr) {
-    for (const char* token = value; *token != '\0';) {
-      const char* end = strchr(token, '|');
-      size_t len = end == nullptr ? strlen(token) : size_t(end - token);
-      int current = PCCL_CONFIG_UNDEF_INT;
-      if (len == 7 && strncasecmp(token, "DEFAULT", len) == 0) current = PCCL_CTA_POLICY_DEFAULT;
-      else if (len == 10 && strncasecmp(token, "EFFICIENCY", len) == 0) current = PCCL_CTA_POLICY_EFFICIENCY;
-      else if (len == 4 && strncasecmp(token, "ZERO", len) == 0) current = PCCL_CTA_POLICY_ZERO;
-      if (current != PCCL_CONFIG_UNDEF_INT) {
-        policy = policy == PCCL_CONFIG_UNDEF_INT ? current : policy | current;
-      }
-      if (end == nullptr) break;
-      token = end + 1;
-    }
-  }
-  if (!noCache) __atomic_store_n(&cache, policy, __ATOMIC_RELAXED);
-  return policy;
-}
+NCCL_PARAM(CtaPolicy, "CTA_POLICY", PCCL_CONFIG_UNDEF_INT);
 NCCL_PARAM(WinEnable, "WIN_ENABLE", 1);
 NCCL_PARAM(SetCpuStackSize, "SET_CPU_STACK_SIZE", 1);
 NCCL_PARAM(AllocP2pNetLLBuffers, "ALLOC_P2P_NET_LL_BUFFERS", 0);
@@ -729,6 +693,8 @@ static ncclResult_t commAlloc(ncclComm_t comm, ncclComm_t parentComm, int ndev, 
   comm->icnRmtType = ppuInfo->icnRmtType;
   VERBOSE(NCCL_INIT,"comm %p rank %d nranks %d hggcDev %d busId %x compCap %d ppuType %s icnRmtType %s", comm, rank, ndev, comm->hggcDev, comm->busId, comm->compCap, ppuTypeStr[comm->ppuType], icnRmtTypeStr[comm->icnRmtType]);
 
+  comm->checkPointers = ncclParamCheckPointers() == 1 ? true : false;
+
   comm->hostDevComm.comm.abortFlag = comm->abortFlagDev;
 
   *comm->abortFlag = 0;
@@ -839,7 +805,12 @@ static ncclResult_t devCommSetup(ncclComm_t comm) {
   NCCLCHECK(ncclHggcMemcpyAsync(rankToLocalRank, comm->rankToLocalRank, comm->nRanks, comm->sharedRes->deviceStream.hggcStream));
   comm->hostDevComm.comm.rankToLocalRank = rankToLocalRank;
 
-  comm->workArgsBytes = std::min<size_t>(ncclParamWorkArgsBytes(), ncclMaxKernelArgsSize());
+  {
+    size_t workArgsBytes = ncclParamWorkArgsBytes();
+    comm->workArgsBytes = workArgsBytes == 0 ? ncclMaxKernelArgsSize()
+                         : std::min<size_t>(workArgsBytes, ncclMaxKernelArgsSize());
+    comm->symkWorkArgsBytes = workArgsBytes == 0 ? (4<<10) : std::min<size_t>(workArgsBytes, 4<<10);
+  }
 
   comm->workFifoBytes = ncclParamWorkFifoBytes();
   if (0 != (comm->workFifoBytes & (comm->workFifoBytes-1))) {
@@ -1501,7 +1472,7 @@ static ncclResult_t initTransportsRank(ncclComm_t comm, ncclComm_t parent, uint6
   allGather3Data[rank].nGraphChannels = comm->nGraphChannels;
   allGather3Data[rank].ceAutoAllGatherEligible =
       minCompCap >= 89 && algoStr == nullptr &&
-      ncclGetEnv("PCCL_SYM_KERNEL") == nullptr && pcclParamSymKernelId() < 0 &&
+      pcclGetEnvWithDualPrefix("PCCL_SYM_KERNEL") == nullptr && pcclParamSymKernelId() < 0 &&
       comm->icnRmtType == PCCL_ICNLINK_SWITCH;
 
   NCCLCHECKGOTO(bootstrapAllGather(comm->bootstrap, allGather3Data, sizeof(*allGather3Data)), res, fail);
@@ -2282,20 +2253,9 @@ static ncclResult_t envConfigOverride(ncclComm_t comm) {
     comm->config.splitShare = 0;
   }
 
-  if (comm->config.CTAPolicy < PCCL_CTA_POLICY_DEFAULT ||
-      comm->config.CTAPolicy > (PCCL_CTA_POLICY_EFFICIENCY | PCCL_CTA_POLICY_ZERO)) {
+  if (comm->config.CTAPolicy < PCCL_CTA_POLICY_DEFAULT || comm->config.CTAPolicy > PCCL_CTA_POLICY_ZERO) {
     INFO(NCCL_ENV, "CTAPolicy %d is not a valid value, set it to %d", comm->config.CTAPolicy, PCCL_CTA_POLICY_DEFAULT);
     comm->config.CTAPolicy = PCCL_CTA_POLICY_DEFAULT;
-  }
-  if ((comm->config.CTAPolicy & PCCL_CTA_POLICY_EFFICIENCY) &&
-      (comm->config.CTAPolicy & PCCL_CTA_POLICY_ZERO)) {
-    comm->config.CTAPolicy &= ~PCCL_CTA_POLICY_EFFICIENCY;
-  }
-  comm->checkMode = ncclParamCheckPointers() == 1 ? ncclCheckModeDebugGlobal : ncclCheckModeDefault;
-  const char* checkMode = ncclGetEnv("PCCL_CHECK_MODE");
-  if (checkMode != nullptr) {
-    if (strcasecmp(checkMode, "DEBUG_GLOBAL") == 0) comm->checkMode = ncclCheckModeDebugGlobal;
-    else if (strcasecmp(checkMode, "DEBUG_LOCAL") == 0) comm->checkMode = ncclCheckModeDebugLocal;
   }
   return ret;
 }
@@ -2351,15 +2311,6 @@ static ncclResult_t parseCommConfig(ncclComm_t comm, ncclConfig_t *config) {
   }
 
   /* check input config attributes, -1 means user-undefined and we should use default value from NCCL. */
-  if ((internalConfigPtr->minCTAs != PCCL_CONFIG_UNDEF_INT && internalConfigPtr->minCTAs <= 0) ||
-      (internalConfigPtr->maxCTAs != PCCL_CONFIG_UNDEF_INT && internalConfigPtr->maxCTAs <= 0) ||
-      (internalConfigPtr->minCTAs != PCCL_CONFIG_UNDEF_INT &&
-       internalConfigPtr->maxCTAs != PCCL_CONFIG_UNDEF_INT &&
-       internalConfigPtr->minCTAs > internalConfigPtr->maxCTAs)) {
-    ERROR("Invalid config minCTAs %d or maxCTAs %d", internalConfigPtr->minCTAs, internalConfigPtr->maxCTAs);
-    ret = ncclInvalidArgument;
-    goto fail;
-  }
   if (internalConfigPtr->blocking != PCCL_CONFIG_UNDEF_INT && internalConfigPtr->blocking != 0 && internalConfigPtr->blocking != 1) {
     ERROR("Invalid config blocking attribute value %d", internalConfigPtr->blocking);
     ret = ncclInvalidArgument;
@@ -2373,7 +2324,7 @@ static ncclResult_t parseCommConfig(ncclComm_t comm, ncclConfig_t *config) {
   }
 
   if (internalConfigPtr->CTAPolicy != PCCL_CONFIG_UNDEF_INT && (internalConfigPtr->CTAPolicy < PCCL_CTA_POLICY_DEFAULT ||
-    internalConfigPtr->CTAPolicy > (PCCL_CTA_POLICY_EFFICIENCY | PCCL_CTA_POLICY_ZERO))) {
+    internalConfigPtr->CTAPolicy > PCCL_CTA_POLICY_ZERO)) {
     ERROR("Invalid config policy attribute value %d", internalConfigPtr->CTAPolicy);
     ret = ncclInvalidArgument;
     goto fail;

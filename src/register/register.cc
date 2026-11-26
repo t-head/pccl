@@ -31,7 +31,7 @@ ncclResult_t ncclRegister(ncclComm_t comm, void* data, size_t size, bool isGraph
   uintptr_t begAddr = (uintptr_t)data & -pageSize;
   uintptr_t endAddr = ((uintptr_t)data + size + pageSize-1) & -pageSize;
 
-  if (comm->checkMode != ncclCheckModeDefault) NCCLCHECK(HggcPtrCheck(data, comm, "buff", "pcclCommRegister"));
+  if (comm->checkPointers) NCCLCHECK(HggcPtrCheck(data, comm, "buff", "pcclCommRegister"));
   INFO(NCCL_REG, "register comm %p buffer %p size %zi", comm, data, size);
 
   for (int slot=0; /*true*/; slot++) {

@@ -33,25 +33,15 @@ constexpr __host__ __device__ int ncclSymkLLMaxSlots(int eltSize = ncclSymkLLMax
 
 enum ncclSymkKernelId {
   ncclSymkKernelId_AllReduce_AGxLL_R,
-  ncclSymkKernelId_AllReduce_AGxLLMC_R,
-  ncclSymkKernelId_AllReduce_RSxTmaLD_AGxTmaST,
   ncclSymkKernelId_AllReduce_RSxLD_AGxST,
-  ncclSymkKernelId_AllReduce_RSxLDMC_AGxSTMC,
 
   ncclSymkKernelId_AllGather_LL,
-  ncclSymkKernelId_AllGather_LLMC,
-  ncclSymkKernelId_AllGather_TmaST,
   ncclSymkKernelId_AllGather_ST,
-  ncclSymkKernelId_AllGather_TmaSTMC,
-  ncclSymkKernelId_AllGather_STMC,
-  ncclSymkKernelId_AllGather_RailRing_LsaSTMC,
+  ncclSymkKernelId_AllGather_ST_Ring,
+  ncclSymkKernelId_AllGather_ST_2D,
 
   ncclSymkKernelId_ReduceScatter_LL,
-  ncclSymkKernelId_ReduceScatter_TmaLD,
   ncclSymkKernelId_ReduceScatter_LD,
-  ncclSymkKernelId_ReduceScatter_LDMC,
-  ncclSymkKernelId_ReduceScatter_RailA2A_LsaLD,
-  ncclSymkKernelId_ReduceScatter_RailA2A_LsaLDMC,
 
   ncclSymkKernelId_Count
 };
@@ -89,7 +79,7 @@ struct alignas(16) ncclSymkDevWork {
 struct alignas(16) ncclSymkDevWorkArgs {
   struct ncclSymkDevComm kcomm;
   int nMaxChannels;
-  int maxDynamicSmem;
+  int reserved; // Must be zero; preserves the work-argument layout.
 
   __host__ static constexpr size_t calcArgsSize(int nChannels, int nWorks) {
     return alignUp(sizeof(struct ncclSymkDevWorkArgs), 16)
@@ -145,7 +135,6 @@ ncclResult_t ncclSymkMakeDevWork(struct pcclComm* comm, struct ncclTaskColl* tas
 extern int const ncclSymkKernelCount;
 extern void* ncclSymkKernelList[];
 extern int ncclSymkKernelRequirements[];
-extern int ncclSymkKernelMaxDynamicSmem[];
 
 // Kernel index lookup
 int ncclSymkGetKernelIndex(ncclSymkKernelId kernelId, int/*ncclDevRedOp_t*/ red, ncclDataType_t ty);
@@ -155,8 +144,10 @@ const char* ncclSymkKernelIdToString(int kernelId);
 ncclResult_t ncclGetSymRegType(struct ncclDevrWindow* sendWin, struct ncclDevrWindow* recvWin, ncclSymRegType_t* winRegType);
 
 int ncclSymkLLKernelMask();
-int ncclSymkDynamicSmemKernelMask();
-int ncclSymkMaxChunkElts(struct pcclComm* comm, ncclSymkKernelId kernelId, int red, ncclDataType_t ty);
-constexpr int ncclSymkAllGather_RailRing_ChunkSize = 1<<20;
+
+// Ranks per group for the 2D (hierarchical) AllGather. One group maps to one
+// node; this is a functional constant, not a tuning knob. The kernel derives
+// nGroups directly as nRanks/ncclSymkAg2DGroupSize.
+constexpr int ncclSymkAg2DGroupSize = 8;
 
 #endif // NCCL_SYM_KERNELS_H_
