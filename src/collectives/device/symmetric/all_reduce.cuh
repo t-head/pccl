@@ -325,8 +325,10 @@ __device__ __forceinline__ void ncclSymkRun_AllReduce_AGxLL_R(ncclSymkDevWorkArg
         auto toAcc = [&](Pack x)->AccPack { return applyCast<T, Acc>(x); };
         auto reduceAcc = [&](AccPack a, AccPack b)->AccPack { return applyReduce(red, a, b); };
         AccPack acc;
-        if (sizeof(T) < 4 && sizeof(Acc) == sizeof(T) && nRanks == 2) {
+        if (sizeof(T) <= 4 && sizeof(Acc) == sizeof(T) && nRanks == 2) {
           acc = lla2a.template recvReduce<2, Pack>(t, nRanks, nIterPacks, toAcc, reduceAcc);
+        } else if (sizeof(T) <= 4 && sizeof(Acc) == sizeof(T) && nRanks == 4) {
+          acc = lla2a.template recvReduce<4, Pack>(t, nRanks, nIterPacks, toAcc, reduceAcc);
         } else {
           acc = lla2a.template recvReduce<8, Pack>(t, nRanks, nIterPacks, toAcc, reduceAcc);
         }
@@ -349,8 +351,10 @@ __device__ __forceinline__ void ncclSymkRun_AllReduce_AGxLL_R(ncclSymkDevWorkArg
         auto toAcc = [&](Pack x)->AccPack { return applyCast<T, Acc>(x); };
         auto reduceAcc = [&](AccPack a, AccPack b)->AccPack { return applyReduce(red, a, b); };
         AccPack acc;
-        if (sizeof(T) < 4 && sizeof(Acc) == sizeof(T) && nRanks == 2) {
+        if (sizeof(T) <= 4 && sizeof(Acc) == sizeof(T) && nRanks == 2) {
           acc = lla2a.template recvReduce<2, Pack>(t, nRanks, nIterPacks, toAcc, reduceAcc);
+        } else if (sizeof(T) <= 4 && sizeof(Acc) == sizeof(T) && nRanks == 4) {
+          acc = lla2a.template recvReduce<4, Pack>(t, nRanks, nIterPacks, toAcc, reduceAcc);
         } else {
           acc = lla2a.template recvReduce<8, Pack>(t, nRanks, nIterPacks, toAcc, reduceAcc);
         }
