@@ -10,8 +10,9 @@ full source JSON exporter at source revision
 at `cefc8624ec1a2b58bc54e76eedeefae90046d84f` and is identified separately in
 `source-export.json.additional_source_revisions`.
 `test_lists/source-export.json` records their exact 10,193-Case, 35-Suite
-real-Runner comparison and SHA-256 digests. CSV is not an input or output of
-that publication step.
+real-Runner comparison and SHA-256 digests. Its `maintained_environments` field
+separately tracks the current public runtime files, not the original source
+files. CSV is not an input or output of that publication step.
 
 ## Maintained inputs
 
@@ -212,8 +213,13 @@ effective HPN SDK URL.
 
 Tests compare every generated row with the source-export digests: all 10,193
 Cases and all 35 Suite definitions match,
-including commands, checks, Suite resources, shared environments and explicit
-special Cases. Two legacy `device_api` Plan/Suite identities are explicitly
+including commands, checks, Suite resources, environment references and
+explicit special Cases. The shared environment file contents are maintained
+here and validated against their current digests, not against the source
+revision. In particular, `device_api_single.env` uses `PCCL_DEBUG=WARN` to
+avoid interleaving INFO logs with benchmark rows.
+
+Two legacy `device_api` Plan/Suite identities are explicitly
 normalized to the current source names; their 52 commands and resources remain
 unchanged. The existing grouping and public input consumer accept the generated
 bundle and reproduce the same 10,184 selected Cases, 28 groups and 9 resource
