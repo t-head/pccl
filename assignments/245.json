@@ -1,0 +1,19 @@
+{
+  "classification": {
+    "base_sha": "c6fab1fe8ba458595e12c09da15243c6a9f22a7f",
+    "head_sha": "3bd9ddf6b56c4eec769a3dbd2d5dc03ac130fdb7",
+    "input_fingerprint": "b09ea9e037cf4aa4634773414bdf9b2278f325c2da0529aeb29932ba2d72d99b",
+    "pr_number": 245,
+    "proposal": {
+      "modules": [
+        "symmetric",
+        "copy-engine"
+      ],
+      "reason": "Main change is in symmetric-memory collective OKI paths: rank-slice tail sizing and broadcast pre-copy bounds are fixed in symmetric CE kernels. Additional copy-engine review is needed because the patch also changes CE/DMA transfer partitioning and lane activity logic (4-byte per-die split, zero-byte lane suppression for P2P DMA doorbell/CQ behavior)."
+    }
+  },
+  "reviewers": {
+    "copy-engine": 333277982,
+    "symmetric": 335730053
+  }
+}
