@@ -61,6 +61,9 @@ jobs:
           import subprocess
           import sys
 
+          sys.path.insert(0, '.github/scripts')
+          from commit_attribution import validate_attribution
+
           def git(*args):
               return subprocess.check_output(['git', *args], text=True)
 
@@ -73,6 +76,10 @@ jobs:
           errors = []
           for sha in commits:
               message = git('show', '-s', '--format=%B', sha)
+              try:
+                  validate_attribution(message)
+              except ValueError as error:
+                  errors.append(f'{sha[:12]}: {error}')
               lines = message.splitlines()
               if not lines or not lines[0].strip():
                   errors.append(f'{sha[:12]}: title must not be empty')

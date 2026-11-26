@@ -8,9 +8,10 @@ STATE_BRANCH = "workflow/review"
 STATE_README = """# PCCL review assignments
 
 - rotation.json: last Reviewer ID per module.
-- assignments/<PR>.json: assigned reviewer IDs and the current module classification.
+- assignments/<PR>.json: default reviewer IDs and module classification.
 
 Reviewer choices and rotation are committed together before new invitations. Retries reuse those choices.
+Required reviewers and manual cancellations are reconstructed from GitHub's invitation timeline.
 Only trusted reviewer-routing automation and authorized maintainers may write this branch. Maintain the roster
 in .github/skills/pccl-review-assignment/modules.json on main. Keep this branch
 separate; do not merge or rebase it onto main.
@@ -32,26 +33,39 @@ def read_state_file(api, revision, path, optional=False):
     return record
 
 
+def validate_reviewers(assignments):
+    if not isinstance(assignments, dict) or any(
+            not re.fullmatch(r"[a-z][a-z0-9-]*", module) or not reviewer_api.valid_user_id(reviewer)
+            for module, reviewer in assignments.items()):
+        raise ValueError("Invalid Reviewer IDs; repair workflow/review before retrying")
+
+
+def validate_assignments(record):
+    if record is None:
+        return {"reviewers": {}, "classification": None}
+    if (not isinstance(record, dict) or not isinstance(record.get("reviewers"), dict) or
+            (record.get("classification") is not None and not isinstance(record["classification"], dict))):
+        raise ValueError("Invalid PR review state; repair workflow/review before retrying")
+    validate_reviewers(record["reviewers"])
+    return record
+
+
+def read_pr_assignments(api, number):
+    """Read only this PR's record without depending on rotation state."""
+    return validate_assignments(read_state_file(api, STATE_BRANCH, f"assignments/{number}.json", optional=True))
+
+
 def read_assignments(api, number):
     """Read both records at one revision; a missing branch starts the rotation."""
-    empty = {"reviewers": {}, "classification": None}
     try:
         revision = api.request("GET", f"/git/ref/heads/{STATE_BRANCH}")["object"]["sha"]
     except reviewer_api.GitHubError as error:
         if error.status == 404:
-            return empty, {}, None
+            return validate_assignments(None), {}, None
         raise
     latest = read_state_file(api, revision, "rotation.json")
-    record = read_state_file(api, revision, f"assignments/{number}.json", optional=True)
-    if record is None:
-        record = empty
-    elif not isinstance(record.get("reviewers"), dict) or not isinstance(record.get("classification"), dict):
-        raise ValueError("Invalid PR review state; repair workflow/review before retrying")
-    for assignments in (latest, record["reviewers"]):
-        if not isinstance(assignments, dict) or any(
-                not re.fullmatch(r"[a-z][a-z0-9-]*", module) or not reviewer_api.valid_user_id(reviewer)
-                for module, reviewer in assignments.items()):
-            raise ValueError("Invalid Reviewer IDs; repair workflow/review before retrying")
+    record = validate_assignments(read_state_file(api, revision, f"assignments/{number}.json", optional=True))
+    validate_reviewers(latest)
     return record, latest, revision
 
 
@@ -59,7 +73,7 @@ def save_review_state(api, number, previous, record, latest, revision):
     if record == previous:
         return revision
     new_choices = {module: reviewer for module, reviewer in record["reviewers"].items()
-                   if module not in previous["reviewers"]}
+                   if previous["reviewers"].get(module) != reviewer}
     files = {f"assignments/{number}.json": record}
     if new_choices or not revision:
         files["rotation.json"] = {**latest, **new_choices}

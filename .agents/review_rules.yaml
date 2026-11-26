@@ -224,9 +224,16 @@ rules:
       - "Concurrency and Memory Ordering: lazy initialization of shared state without safe publication or synchronization."
       - "Stream / Event / PPU Asynchronous Semantics: new device, asynchronous, or platform-specific operations omitting existing context switching, mode switching, or platform safeguards."
 
+  - category: "Documentation & PR Consistency"
+    items:
+      - "Check that documentation, prompts and comments affected by the PR match the resulting implementation; flag factual mismatches such as removed commands, obsolete defaults or missing trigger paths."
+      - "Compare the PR title and description with the complete target...HEAD diff, not superseded designs. Verify that linked documentation supports the stated version; a pinned commit is not a defect by itself."
+      - "When public APIs, environment variables, CLI flags or workflow behavior change, check whether the corresponding user-facing documentation needs an update. Do not require documentation changes for internal refactors with no user-visible impact."
+      - "Cite the conflicting description and implementation when reporting inconsistencies. Report factual mismatches or missing guidance needed to use the changed behavior, not wording or style preferences."
+
   - category: "Commit Message Requirements"
     items:
-      - "Check every contribution commit's Signed-off-by according to CONTRIBUTING.md. Preserve existing Signed-off-by and Co-authored-by trailers when amending or squashing; never invent signing identities or certifications."
+      - "Check every contribution commit's Signed-off-by according to CONTRIBUTING.md. Reject AI tool identities in Signed-off-by or Co-authored-by and ask the author to correct the source messages; do not silently drop them during squash. Preserve human sign-offs and co-author trailers; never invent signing identities or certifications."
       - "Breaking changes must explain compatibility impact and migration."
       - "Check commit titles according to CONTRIBUTING.md: a nonempty, concise English imperative summary. Aim for at most 50 characters including any prefix; longer titles are accepted and must not be rejected solely for length. Type prefixes such as feat:, fix:, and docs: are recommended but optional; the summary after a prefix uses the imperative mood. Do not reject a commit solely for lacking a type prefix."
       - "Every contribution commit must reference a real, relevant GitHub issue using Refs #<issue_number>, Closes #<issue_number>, or Fixes #<issue_number>. Cross-repository references use owner/repo#<issue_number>; full GitHub issue URLs (https://github.com/owner/repo/issues/<issue_number>) are also accepted. Never invent references; add missing references before committing or pushing. Use closing keywords only when resolving the issue and intending automatic closure."

@@ -1,0 +1,48 @@
+name: Update PCCL review modules
+run-name: "PCCL review for PR #${{ inputs.pr_number }}"
+
+on:
+  workflow_call:
+    inputs:
+      pr_number:
+        required: true
+        type: number
+      recommendation:
+        type: string
+
+permissions: {}
+
+concurrency:
+  group: reviewer-invitations
+  queue: max
+  cancel-in-progress: false
+
+jobs:
+  invite:
+    name: Request reviewers
+    if: >-
+      github.repository == 't-head/pccl' && inputs.recommendation != '' &&
+      (github.event_name == 'pull_request_target' ||
+       (github.event_name == 'workflow_dispatch' && github.ref == 'refs/heads/main'))
+    runs-on: ubuntu-24.04
+    timeout-minutes: 5
+    concurrency:
+      group: "review-state-PCCL review for PR #${{ inputs.pr_number }}"
+      queue: max
+      cancel-in-progress: false
+    permissions:
+      contents: write
+      pull-requests: write
+      statuses: write
+    steps:
+      - uses: actions/checkout@d23441a48e516b6c34aea4fa41551a30e30af803 # v6
+        with:
+          ref: ${{ github.sha }}
+          persist-credentials: false
+      - name: Rotate reviewers and request review
+        env:
+          GITHUB_TOKEN: ${{ github.token }}
+          PR_NUMBER: ${{ inputs.pr_number }}
+          RECOMMENDATION: ${{ inputs.recommendation }}
+          PYTHONUTF8: '1'
+        run: python3 .github/scripts/review_automation.py invite

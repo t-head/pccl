@@ -19,6 +19,9 @@ ROOT = Path(__file__).resolve().parents[2]
 SKILL = ROOT / ".github/skills/pccl-review-assignment"
 COPILOT_TIMEOUT_SECONDS = 300
 WORKFLOW_BRANCH = "main"
+GITHUB_ACTIONS_BOT_ID = 41898282
+UPDATE_PENDING = "Updating module requirements and invitations"
+UPDATE_FAILED = "Module update failed; rerun its workflow. See logs"
 PR_FILE_FIELDS = ("filename", "previous_filename", "status", "additions", "deletions", "changes", "patch")
 
 
@@ -34,7 +37,7 @@ def load_config():
     for module, entry in source["modules"].items():
         required = {"name", "description", "key_files", "maintainer", "reviewers"}
         if (not re.fullmatch(r"[a-z][a-z0-9-]*", module) or not isinstance(entry, dict) or
-                not required <= set(entry) or set(entry) - required - {"author_review_exemption"}):
+                set(entry) != required):
             raise ValueError("Invalid module configuration")
         if any(not isinstance(entry[key], str) or not entry[key].strip()
                for key in ("name", "description")):
@@ -50,10 +53,6 @@ def load_config():
         reviewers = [account_id(account) for account in candidates]
         if len(set(reviewers)) != len(reviewers):
             raise ValueError(f"Duplicate Reviewer in module {module}")
-        if "author_review_exemption" in entry:
-            exempt_id = entry["author_review_exemption"]
-            if not reviewer_api.valid_user_id(exempt_id) or exempt_id != maintainer:
-                raise ValueError("Author review exemption must be the module Maintainer's numeric ID")
         roster["modules"][module] = {**entry, "maintainer": maintainer, "reviewers": reviewers}
     return roster, (SKILL / "SKILL.md").read_text()
 
@@ -121,17 +120,19 @@ def classification_fingerprint(pr, files, roster, skill):
 
 
 def validate_classification(proposal, roster):
-    """Reject malformed or unknown modules before model output can affect routing or approvals."""
-    if not isinstance(proposal, dict) or set(proposal) != {"modules", "reason"}:
-        raise ValueError("Expected module IDs and a reason")
-    modules, reason = (proposal[key] for key in ("modules", "reason"))
-    if (not isinstance(modules, list) or not modules or
+    """Reject malformed classifications before routing or approval checks."""
+    if not isinstance(proposal, dict) or set(proposal) != {"modules", "additional_modules", "reason"}:
+        raise ValueError("Expected primary modules, additional modules and a reason")
+    modules, additional, reason = (proposal[key] for key in ("modules", "additional_modules", "reason"))
+    if (not isinstance(modules, list) or not modules or not isinstance(additional, list) or
             not isinstance(reason, str) or not reason.strip() or len(reason) > 1000):
         raise ValueError("No valid module classification")
-    if any(not isinstance(module, str) or module not in roster["modules"] for module in modules):
+    all_modules = modules + additional
+    if any(not isinstance(module, str) or module not in roster["modules"] for module in all_modules):
         raise ValueError("Unknown module")
-    return {"modules": [module for module in roster["modules"] if module in modules],
-            "reason": reason.strip()}
+    if len(all_modules) != len(set(all_modules)):
+        raise ValueError("Primary and additional modules must be unique and disjoint")
+    return {"modules": modules, "additional_modules": additional, "reason": reason.strip()}
 
 
 def ask_copilot(prompt):
@@ -171,7 +172,9 @@ def classification_summary(pr, proposal, files):
     reason = re.sub(r"([\\`*_\[\]])", r"\\\1", reason)
     summary = (f"### Module classification · PR #{pr['number']}\n\n"
                f"- Commit: `{pr['head']['sha']}`\n"
-               f"- Modules: {', '.join(proposal['modules'])}\n"
+               f"- Primary module: {proposal['modules'][0]}\n"
+               f"- Secondary module: {', '.join(proposal['modules'][1:]) or 'none'}\n"
+               f"- Additional modules (manual review): {', '.join(proposal['additional_modules']) or 'none'}\n"
                f"- Reason: {reason}\n")
     omitted = [{"filename": file["filename"], "reason": file["patch_omitted"]}
                for file in files if "patch_omitted" in file]
@@ -183,65 +186,159 @@ def classification_summary(pr, proposal, files):
 
 # Reviewer assignment and invitations
 
+def primary_modules(record, roster):
+    classification = record["classification"]
+    if classification is None:
+        return []
+    try:
+        return validate_classification(classification.get("proposal"), roster)["modules"]
+    except ValueError as error:
+        raise ValueError("Saved module classification is invalid; rerun reviewer routing") from error
+
+
+def default_reviewers(pr, record, roster):
+    modules = primary_modules(record, roster)
+    users = {record["reviewers"][module] for module in modules if module in record["reviewers"]}
+    if modules:
+        owner = module_maintainer(roster, modules[0], pr["user"]["id"])
+        if owner is not None:
+            users.add(owner)
+    return users
+
+
+def review_requirements(pr, record, roster, required):
+    modules = primary_modules(record, roster)
+    affected = set(modules)
+    if record["classification"]:
+        affected.update(record["classification"]["proposal"]["additional_modules"])
+    author = pr["user"]["id"]
+    requirements = {}
+    for module, entry in roster["modules"].items():
+        reviewers = required.intersection(entry["reviewers"])
+        maintainer = entry["maintainer"] in required
+        if not reviewers and not maintainer and module not in modules:
+            continue
+        roles = set()
+        if reviewers or (module in affected and author in entry["reviewers"] and
+                         (module not in modules[1:] or len(entry["reviewers"]) == 1)):
+            roles.add("Reviewer")
+        if maintainer or (module in affected and entry["maintainer"] == author):
+            roles.add("Maintainer")
+        if roles:
+            requirements[module] = roles
+    return requirements
+
+
 def invite(api, pr, recommendation, roster, skill):
     """Persist choices before contacting reviewers so retries keep the same rotation."""
+    from maintainer_approval import publish_status
+
     number = pr["number"]
     files = fetch_pr_diff(api, pr)
     if (recommendation.get("base_sha") != pr["base"]["sha"] or
             recommendation.get("input_fingerprint") != classification_fingerprint(pr, files, roster, skill)):
         raise ValueError("PR or configuration changed; rerun classification")
     modules = validate_classification(recommendation.get("proposal"), roster)["modules"]
-    previous, latest, revision = reviewer_state.read_assignments(api, number)
-    author = pr["user"]["id"]
-    active = [module for module in modules
-              if author != roster["modules"][module].get("author_review_exemption")]
-    record = {"classification": recommendation, "reviewers": previous["reviewers"]}
-    # Save the modules even if the roster has no eligible reviewer. The approval gate needs only the modules.
+    publish_status(api, pr["head"]["sha"], "pending", UPDATE_PENDING)
     try:
-        record["reviewers"] = select_reviewers(active, roster["modules"], previous["reviewers"], latest, author)
-    finally:
+        previous, latest, revision = reviewer_state.read_assignments(api, number)
+        record = {"classification": recommendation, "reviewers": select_reviewers(
+            modules, roster["modules"], previous["reviewers"], latest, pr["user"]["id"], modules[1:])}
         reviewer_state.save_review_state(api, number, previous, record, latest, revision)
-    roles_by_user = {}
-    for module in active:
-        roles = ((record["reviewers"][module], "Reviewer"),
-                 (module_maintainer(roster, module, author), "Maintainer"))
-        for user_id, role in roles:
-            if user_id is not None:
-                roles_by_user.setdefault(user_id, {}).setdefault(module, []).append(role)
+        summary, invited = sync_invitations(api, pr, record, roster)
+        notify_modules(api, pr, record, roster, invited)
+        publish_status(api, pr["head"]["sha"], "pending", "Checking required reviewers' approvals")
+        return summary
+    except Exception:
+        publish_status(api, pr["head"]["sha"], "error", UPDATE_FAILED)
+        raise
 
-    # A submitted review or manual removal must not cause a repeat invitation.
+
+def sync_invitations(api, pr, record, roster):
+    number = pr["number"]
+    defaults = default_reviewers(pr, record, roster)
     history = api.pages(f"/issues/{number}/timeline")
-    requested = {event["requested_reviewer"]["id"] for event in history
-                 if event["event"] == "review_requested" and event.get("requested_reviewer")}
-    # Unchanged head/base SHAs identify the same diff; do not download it again.
+    requested, automated, cancelled = review_request_history(history)
     fresh = api.request("GET", f"/pulls/{number}")
     if pr_snapshot_key(fresh) != pr_snapshot_key(pr):
         raise ValueError("PR changed before invitation; rerun classification")
-    requested.update(user["id"] for user in fresh["requested_reviewers"])
-    requested.update(current_approvals(fresh, api.pages(f"/pulls/{number}/reviews")))
-    new_users = sorted(roles_by_user.keys() - requested, key=api.login)
+    pending = {user["id"] for user in fresh["requested_reviewers"] if user["type"] == "User"}
+    removed = (automated & pending) - defaults
+    if removed:
+        # A manual re-request can take ownership while the pending list is being read.
+        history = api.pages(f"/issues/{number}/timeline")
+        requested, automated, cancelled = review_request_history(history)
+        removed.intersection_update(requested & automated)
+    rerequested = required_reviewers(fresh, record, roster, history) - pending - cancelled
+    if rerequested:
+        reviews = [review for review in api.pages(f"/pulls/{number}/reviews")
+                   if review["user"]["type"] == "User" and review["submitted_at"]]
+        reviewed = {review["user"]["id"] for review in reviews}
+        reviewed_current = {review["user"]["id"] for review in reviews
+                            if review["commit_id"] == fresh["head"]["sha"]}
+        rerequested.intersection_update(reviewed - reviewed_current)
+    new_users = sorted((defaults - requested - pending - cancelled) | rerequested, key=api.login)
     logins = [api.login(user_id) for user_id in new_users]
-    # Explain the author's Maintainer exemption without adding a self-review request.
-    roles_by_user[author] = {module: ["Maintainer"] for module in modules
-                             if roster["modules"][module]["maintainer"] == author}
-    notice_users = new_users + ([author] if roles_by_user[author] else [])
-    # Refresh existing notices even when everyone has already been invited.
-    notify_reviewers(api, number, notice_users, roles_by_user, author)
+    removed_logins = [api.login(user_id) for user_id in sorted(removed, key=api.login)]
+    if removed:
+        api.request("DELETE", f"/pulls/{number}/requested_reviewers", {"reviewers": removed_logins})
     if new_users:
         api.request("POST", f"/pulls/{number}/requested_reviewers", {"reviewers": logins})
-    return (f"### Reviewer invitations · PR #{number}\n\n"
-            f"New requests: {', '.join(logins) or 'none'}.\n")
+    summary = (f"### Reviewer invitations · PR #{number}\n\n"
+               f"New requests: {', '.join(logins) or 'none'}.\n"
+               f"Withdrawn requests: {', '.join(removed_logins) or 'none'}.\n")
+    return summary, defaults & (requested | pending | set(new_users))
 
 
-def select_reviewers(modules, module_roster, current, latest, author):
-    """Keep saved choices; roster changes affect new assignments only."""
+def review_request_history(history):
+    requested, automated, cancelled = set(), set(), set()
+    events = [event for event in history
+              if event["event"] in {"review_requested", "review_request_removed"}
+              and (event.get("requested_reviewer") or {}).get("type") == "User"]
+    for event in sorted(events, key=lambda item: (item["created_at"], item["id"])):
+        user_id = event["requested_reviewer"]["id"]
+        actor = event.get("actor") or {}
+        is_automation = actor.get("id") == GITHUB_ACTIONS_BOT_ID and actor.get("type") == "Bot"
+        if event["event"] == "review_requested":
+            # Automatic reminders must not take ownership of an active manual invitation.
+            if not is_automation:
+                automated.discard(user_id)
+            elif user_id not in requested:
+                automated.add(user_id)
+            requested.add(user_id)
+            cancelled.discard(user_id)
+        else:
+            requested.discard(user_id)
+            if not is_automation or user_id not in automated:
+                cancelled.add(user_id)
+            automated.discard(user_id)
+    return requested, automated, cancelled
+
+
+def required_reviewers(pr, record, roster, history):
+    # The timeline retains invitations after a review leaves the pending-request list.
+    requested, automated, _ = review_request_history(history)
+    required = requested - (automated - default_reviewers(pr, record, roster))
+    required.update(user["id"] for user in pr["requested_reviewers"] if user["type"] == "User")
+    members = {roster["lead_maintainer"]}
+    for entry in roster["modules"].values():
+        members.add(entry["maintainer"])
+        members.update(entry["reviewers"])
+    return (required & members) - {pr["user"]["id"]}
+
+
+def select_reviewers(modules, module_roster, current, latest, author, secondary_modules):
+    """Keep saved choices while they remain eligible default invitees."""
     assignments = dict(current)
     for module in modules:
-        if module in current:
-            if current[module] == author:
-                raise ValueError(f"Assigned Reviewer is the PR author for {module}; reassign manually")
-            continue
-        assignments[module] = next_reviewer(module_roster[module]["reviewers"], latest.get(module), author)
+        candidates = module_roster[module]["reviewers"]
+        if author in candidates and (module not in secondary_modules or len(candidates) == 1):
+            assignments.pop(module, None)
+        elif current.get(module) not in candidates or current.get(module) == author:
+            reviewer = next_reviewer(candidates, latest.get(module), author)
+            if reviewer is None:
+                raise ValueError(f"No Reviewer other than the PR author for {module}; update modules.json")
+            assignments[module] = reviewer
     return assignments
 
 
@@ -252,7 +349,7 @@ def next_reviewer(candidates, previous, author):
         candidate = candidates[(start + offset) % len(candidates)]
         if candidate != author:
             return candidate
-    raise ValueError("No Reviewer other than the PR author; update modules.json")
+    return None
 
 
 def module_maintainer(roster, module, author):
@@ -261,57 +358,37 @@ def module_maintainer(roster, module, author):
     return None if maintainer == author else maintainer
 
 
-def notify_reviewers(api, number, new_users, roles_by_user, author=None):
-    """Keep module notices current and retain account IDs for retry deduplication."""
-    notices = []
-    notified = set()
+def notify_modules(api, pr, record, roster, invited):
+    number = pr["number"]
+    proposal = record["classification"]["proposal"]
+    marker = "<!-- pccl-module-summary -->\n"
+    notice, retired = None, []
     for comment in api.pages(f"/issues/{number}/comments"):
-        if (comment["user"].get("login") != "github-actions[bot]" or
-                comment["user"].get("type") != "Bot"):
+        if comment["user"]["id"] != GITHUB_ACTIONS_BOT_ID or comment["user"]["type"] != "Bot":
             continue
-        existing_body = (comment.get("body") or "").replace("\r\n", "\n")
-        marker = re.match(r"<!-- pccl-review-notice:([0-9]+(?:,[0-9]+)*) -->\n", existing_body)
-        if marker:
-            recipients = [int(user_id) for user_id in marker[1].split(",")]
-            notified.update(recipients)
-            notices.append((comment, recipients, existing_body))
-    # Keep the author's exemption with a current Reviewer's invitation, not a retired notice.
-    if notices and author in new_users and author not in notified:
-        current_reviewers = {user_id for user_id, modules in roles_by_user.items()
-                             if any("Reviewer" in roles for roles in modules.values())}
-        for _, recipients, _ in notices:
-            if not current_reviewers or current_reviewers.intersection(recipients):
-                recipients.append(author)
-                notified.add(author)
-                break
-    for comment, recipients, existing_body in notices:
-        body = review_notice_body(api, recipients, roles_by_user, author)
-        if body != existing_body:
-            api.request("PATCH", f"/issues/comments/{comment['id']}", {"body": body})
-    recipients = [user_id for user_id in new_users if user_id not in notified]
-    if recipients:
-        api.request("POST", f"/issues/{number}/comments",
-                    {"body": review_notice_body(api, recipients, roles_by_user, author)})
-
-
-def review_notice_body(api, recipients, roles_by_user, author=None):
-    """Render current assignments while preserving the notice's original recipients."""
-    lines = []
-    for user_id in recipients:
-        assignments = [f"**{' and '.join(roles)}** for the **{module}** module"
-                       for module, roles in roles_by_user.get(user_id, {}).items()]
-        if not assignments:
-            continue
-        description = (", ".join(assignments[:-1]) + " and " + assignments[-1]
-                       if len(assignments) > 1 else assignments[0])
-        if user_id == author:
-            lines.append(f"@{api.login(user_id)}: {description} (PR author; Maintainer approval waived). "
-                         "Other modules follow the normal approval rules.")
-        else:
-            lines.append(f"@{api.login(user_id)}, please review as {description}.")
-    marker = "<!-- pccl-review-notice:" + ",".join(str(user_id) for user_id in recipients) + " -->\n"
-    body = "\n\n".join(lines) or "No current module assignments remain for the reviewers in this notice."
-    return marker + "\n" + body + "\n"
+        body = (comment.get("body") or "").replace("\r\n", "\n")
+        if body.startswith(marker):
+            notice = comment
+        elif re.match(r"<!-- pccl-review-notice:[0-9]+(?:,[0-9]+)* -->\n", body):
+            retired.append(comment["id"])
+    body = marker + "\n### Review modules\n\n" + f"- Primary module: {proposal['modules'][0]}\n"
+    if proposal["modules"][1:]:
+        body += f"- Secondary module: {', '.join(proposal['modules'][1:])}\n"
+    body += f"- Other affected modules: {', '.join(proposal['additional_modules']) or 'none'}\n\n"
+    for index, module in enumerate(proposal["modules"]):
+        roles = [("Maintainer", module_maintainer(roster, module, pr["user"]["id"]))] if index == 0 else []
+        roles.append(("Reviewer", record["reviewers"].get(module)))
+        for role, user_id in roles:
+            if user_id in invited:
+                body += f"@{api.login(user_id)}, please review as **{role}** for the **{module}** module.\n\n"
+    body += (f"[Full module roster](https://github.com/{api.repository}/blob/{WORKFLOW_BRANCH}/"
+             ".github/skills/pccl-review-assignment/modules.json)\n")
+    if notice is None:
+        api.request("POST", f"/issues/{number}/comments", {"body": body})
+    elif notice["body"].replace("\r\n", "\n") != body:
+        api.request("PATCH", f"/issues/comments/{notice['id']}", {"body": body})
+    for comment_id in retired:
+        api.request("DELETE", f"/issues/comments/{comment_id}")
 
 
 # Review history

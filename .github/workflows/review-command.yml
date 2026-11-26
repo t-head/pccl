@@ -1,0 +1,17 @@
+name: PCCL invitation trigger
+run-name: "PCCL review for PR #${{ github.event.pull_request.number }}"
+
+on:
+  pull_request_target:
+    branches: [main, 'release/**']
+    types: [review_requested, review_request_removed]
+
+permissions: {}
+
+jobs:
+  notify:
+    if: github.repository == 't-head/pccl'
+    runs-on: ubuntu-24.04
+    timeout-minutes: 1
+    steps:
+      - run: echo "Review invitations changed. Refreshing approval requirements."

@@ -58,7 +58,7 @@ When changing only the message, keep committed content unchanged. Do not rewrite
 2. Preserve commit contents, authorship, and sign-offs. Review the full target-to-head diff.
 3. If HEAD lacks the latest target tip, automatically rebase before pushing. Require a clean worktree and verified target; abort and report conflicts.
 4. Verify the remote branch tip. For rewrites, use `--force-with-lease=<ref>:<expected-sha>`; stop on unexpected changes. Never push directly to protected targets.
-5. Use the PR template and English text covering the final change, actual validation, limitations, and a relevant open issue. Apply authorized edits and read them back.
+5. Use the PR template and English text covering the final change, actual validation, limitations, and a relevant open issue. For existing PRs, compare the title and description with the full `target...HEAD` diff and propose updates when behavior, design or validation changes. Check that documentation links describe the stated version. Apply authorized edits and read them back.
 6. Check CI and reviews for the current HEAD. Report pending or failed checks separately; an AI gate passing does not prove a completed review.
 
 ## Review Feedback
@@ -70,7 +70,7 @@ When changing only the message, keep committed content unchanged. Do not rewrite
 
 ## Merge
 
-1. Present the final repository/PR, target, HEAD SHA, method, title/message, CI and approvals, unresolved discussions, and validation limits. For squash, verify final authorship/sign-offs and preserve authorized trailers and issue intent.
+1. Verify that the PR title and description reflect the final diff and validation results, and that documentation links support their claims. Present the final repository/PR, target, HEAD SHA, method, title/message, CI and approvals, unresolved discussions, and validation limits. For squash, verify final authorship/sign-offs and preserve authorized trailers and issue intent.
 2. Obtain explicit human approval for this merge. Push permission, passing CI, or a request to finish the PR is insufficient. Reuse approval only while HEAD, target, method, and message remain unchanged.
 3. Recheck immediately before merging; unmet checks or approvals block it. Do not bypass protection or enable auto-merge without explicit authorization.
 4. Guard the expected HEAD when supported. Verify and report the resulting commit and merge method.
@@ -81,5 +81,5 @@ When changing only the message, keep committed content unchanged. Do not rewrite
 - [Review rules](../../review_rules.yaml): code-review checklist.
 - [PR template](../../../.github/pull_request_template.md): PR description structure.
 - [Issue templates](../../../.github/ISSUE_TEMPLATE/): Bug, Feature, Question, and Task forms.
-- [CI workflow](../../../.github/workflows/pr-test-ppu.yml): pre-checks, approval gates, and build/test jobs.
+- [CI workflow](../../../.github/workflows/source-sanity.yml): source checks and PPU build/test jobs.
 - [README.md](../../../README.md): build and validation.

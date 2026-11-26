@@ -57,23 +57,11 @@ jobs:
     name: Request reviewers
     needs: classify
     if: needs.classify.outputs.recommendation != ''
-    runs-on: ubuntu-24.04
-    timeout-minutes: 5
-    concurrency:
-      # Read and update module rotations one PR at a time, without dropping queued PRs.
-      group: reviewer-invitations
-      queue: max
-      cancel-in-progress: false
     permissions:
-      contents: write # Store allocations on workflow/review; this job runs trusted base code.
+      contents: write
       pull-requests: write
-    steps:
-      - uses: actions/checkout@d23441a48e516b6c34aea4fa41551a30e30af803 # v6
-        with:
-          ref: ${{ github.sha }}
-          persist-credentials: false
-      - name: Rotate reviewers and request review
-        env:
-          GITHUB_TOKEN: ${{ github.token }}
-          RECOMMENDATION: ${{ needs.classify.outputs.recommendation }}
-        run: python3 .github/scripts/review_automation.py invite
+      statuses: write
+    uses: ./.github/workflows/review-module.yml
+    with:
+      pr_number: ${{ github.event.pull_request.number || inputs.pr_number }}
+      recommendation: ${{ needs.classify.outputs.recommendation }}
