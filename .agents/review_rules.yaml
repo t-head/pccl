@@ -224,6 +224,13 @@ rules:
       - "Concurrency and Memory Ordering: lazy initialization of shared state without safe publication or synchronization."
       - "Stream / Event / PPU Asynchronous Semantics: new device, asynchronous, or platform-specific operations omitting existing context switching, mode switching, or platform safeguards."
 
+  - category: "Documentation & PR Consistency"
+    items:
+      - "Check that documentation, prompts and comments affected by the PR match the resulting implementation; flag factual mismatches such as removed commands, obsolete defaults or missing trigger paths."
+      - "Compare the PR title and description with the complete target...HEAD diff, not superseded designs. Verify that linked documentation supports the stated version; a pinned commit is not a defect by itself."
+      - "When public APIs, environment variables, CLI flags or workflow behavior change, check whether the corresponding user-facing documentation needs an update. Do not require documentation changes for internal refactors with no user-visible impact."
+      - "Cite the conflicting description and implementation when reporting inconsistencies. Report factual mismatches or missing guidance needed to use the changed behavior, not wording or style preferences."
+
   - category: "Commit Message Requirements"
     items:
       - "Check every contribution commit's Signed-off-by according to CONTRIBUTING.md. Reject AI tool identities in Signed-off-by or Co-authored-by and ask the author to correct the source messages; do not silently drop them during squash. Preserve human sign-offs and co-author trailers; never invent signing identities or certifications."
