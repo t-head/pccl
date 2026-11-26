@@ -1,14 +1,14 @@
 {
   "classification": {
     "base_sha": "45088cc56be51899765bd637aae280d1ba7d10fc",
-    "head_sha": "681a931e3a32f4badce7346521dfc82e39c19267",
-    "input_fingerprint": "a288316a0400dc4d8849b6934736ca2c661da197453b23ca7f764b0699831cce",
+    "head_sha": "2f5c5de787fe13705cd2037e843295a231e78e99",
+    "input_fingerprint": "f365da31ba27ccb81689c29e8eee4ddf91b334cba45d5faa57fd6000507d9859",
     "pr_number": 236,
     "proposal": {
       "modules": [
         "symmetric"
       ],
-      "reason": "Adds substantive unit-test coverage for symmetric-memory P2P all-to-all behavior (symmetric window registration, grouped send/recv per peer, and validation that the symmetric DMA path is selected), while README/script updates are supporting test documentation and execution."
+      "reason": "Main substantive change is a new `symm_alltoall` path in `sendRecvPcclUnitTest` that exercises symmetric window registration and grouped Send/Recv all-to-all exchanges, verifies symmetric DMA batch selection via tuning logs, and validates per-element source/destination payload correctness. The workflow/CSV/build-script/docs updates are supporting test/CI plumbing for this new symmetric test coverage, not independent policy/protocol changes."
     }
   },
   "reviewers": {
