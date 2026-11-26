@@ -1,0 +1,17 @@
+{
+  "classification": {
+    "base_sha": "45088cc56be51899765bd637aae280d1ba7d10fc",
+    "head_sha": "361c516d489c33441e10b4882060fe275970b8b5",
+    "input_fingerprint": "7a132b948373b7058319661f1e623d1551323a1e4add027153e658fb6e68c4e6",
+    "pr_number": 239,
+    "proposal": {
+      "modules": [
+        "kernel-plugin"
+      ],
+      "reason": "Fixes plugin-provided extension kernel behavior for one-shot AllReduce by making source-slot/rank ordering and reduction accumulation consistent across ranks (customAllReduceKernels.cu and customDeviceUtils.cuh), addressing result divergence in extension-kernel execution."
+    }
+  },
+  "reviewers": {
+    "kernel-plugin": 341751581
+  }
+}
