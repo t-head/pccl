@@ -1,0 +1,19 @@
+{
+  "classification": {
+    "base_sha": "45088cc56be51899765bd637aae280d1ba7d10fc",
+    "head_sha": "9ae282a9b1cbcf30d050277c18893ff179805eb6",
+    "input_fingerprint": "0007a9159da931647747d12310da9d71b43f7abf5447f6d62e945b28c0ec410a",
+    "pr_number": 243,
+    "proposal": {
+      "modules": [
+        "communicator",
+        "ci"
+      ],
+      "reason": "Main change adds new MPI unit tests that validate communicator lifecycle semantics (pcclCommGetUniqueId, Grow, Revoke, Shrink interaction, parent destruction, blocking/nonblocking and share settings), which needs communicator-lifecycle review. It also substantively updates CI test orchestration by adding new native test binaries and a new xtest family/case counts to daily/full/smoke workflows, platform definitions, and generation checks, requiring ci review."
+    }
+  },
+  "reviewers": {
+    "ci": 333302477,
+    "communicator": 340404662
+  }
+}
