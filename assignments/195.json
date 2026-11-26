@@ -1,14 +1,14 @@
 {
   "classification": {
     "base_sha": "45088cc56be51899765bd637aae280d1ba7d10fc",
-    "head_sha": "7e192e27859fa998b0cc10b7de187eee738f47fc",
-    "input_fingerprint": "1ce76a35c925f7b59d480f14ca57ca7fa2addc5cdc12cdd523939b151ebc4fe6",
+    "head_sha": "65eb7c8411a02fbf81f1bd967ef16c2f41b73925",
+    "input_fingerprint": "97de31eeccddcc6a9c76969032d8a578dc4482aa472022f9a8f6a0cf3fd4c27e",
     "pr_number": 195,
     "proposal": {
       "modules": [
         "workflow"
       ],
-      "reason": "Main change is to contribution/review automation: review_automation.py and maintainer_approval.py redefine module routing, invitation persistence, and approval requirements; new/renamed workflows (review-routing/review-module/review-gate/review-squash-preview/review-command) rewire review-gate and squash-preview lifecycle; commit_message_squash.py plus commit_attribution.py add squash-preview attribution enforcement. These are workflow policy/automation changes, not PCCL runtime modules."
+      "reason": "Main substantive change is review/merge workflow policy and automation: reviewer routing and required-approval logic were rewritten in .github/scripts/review_automation.py and maintainer_approval.py, with new/renamed review and squash-preview workflows plus commit-attribution validation and related contributor/workflow docs updates."
     }
   },
   "reviewers": {
