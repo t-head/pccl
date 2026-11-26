@@ -191,7 +191,7 @@ jobs:
           assert metadata_810e['runner_revision'] == revision
           selections = reconcile_results.load_selections(
               Path('tests/xtest/minimal-csv'), int(os.environ['VALIDATION_CARDS']))
-          expected = {'standard': 71, 'cluster': 1, 'notsm': 37}
+          expected = {'standard': 74, 'cluster': 1, 'notsm': 37}
           for name, count in expected.items():
               selected = selections[name]
               assert len(selected['cases']) == count

@@ -242,7 +242,7 @@ class DailySmokeTests(unittest.TestCase):
             'cp ${NATIVE_UNIT_BUILD}', 1)[0]
         copy_command = 'cp ${NATIVE_UNIT_BUILD}' + text.split(
             'cp ${NATIVE_UNIT_BUILD}', 1)[1].split('\n\necho', 1)[0]
-        for binary in ('collPcclUnitTest', 'hggcGraphUnitTest', 'pcclCommAbortTest'):
+        for binary in ('collPcclUnitTest', 'sendRecvPcclUnitTest', 'hggcGraphUnitTest', 'pcclCommAbortTest'):
             with self.subTest(binary=binary):
                 self.assertIn(f'${{NATIVE_UNIT_BUILD}}/{binary}', make_command)
                 self.assertIn(f'${{NATIVE_UNIT_BUILD}}/{binary}', copy_command)

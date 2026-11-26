@@ -87,6 +87,27 @@ Type `./build/sendRecvPcclUnitTest --help` to query all help information.
 - starting device ID
   - `start_dev_id=<INT>` (default 0)
 
+#### Symmetric P2P all-to-all performance
+
+On a single node with symmetric P2P DMA support, run from `tests/unit_test`:
+
+```shell
+# 4 ranks, 262144 uint32 elements (1 MiB) per peer, 50 timed exchanges, starting at device 0
+./run_symm_p2p_alltoall.sh 4 262144 50 0
+```
+
+The runner invokes the binary once. Before printing performance, the binary checks
+its own tuning log for a full symmetric DMA batch for the warm-up and each timed
+exchange. Direct invocations perform the same check.
+The `symm_alltoall` mode of `sendRecvPcclUnitTest` registers separate symmetric
+send and receive windows and validates every received element against its source,
+destination and position. Each exchange groups one Send and one Recv per peer.
+
+`us/op` is wall time per exchange averaged over the timed batch, including host
+submission, tuning log writes and completion on all ranks. Window setup, one warm-up exchange and
+validation are outside the timed interval. `remote GB/s/rank` counts outgoing
+payload to other ranks, calculated as `(ranks - 1) * bytes_per_peer / seconds_per_op / 1e9`.
+
 ### PCCL Group Simulation Test
 
 Estimate the time a group of collectives would take by `pcclGroupSimulateEnd()`

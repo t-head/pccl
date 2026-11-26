@@ -84,9 +84,11 @@ make -C ${source_home}/pccl/tests/unit_test/src \
   PPU_ARCHS=ppu_10,ppu_15 MPI=1 \
   BUILDDIR=${NATIVE_UNIT_BUILD} \
   ${NATIVE_UNIT_BUILD}/collPcclUnitTest \
+  ${NATIVE_UNIT_BUILD}/sendRecvPcclUnitTest \
   ${NATIVE_UNIT_BUILD}/hggcGraphUnitTest \
   ${NATIVE_UNIT_BUILD}/pcclCommAbortTest
 cp ${NATIVE_UNIT_BUILD}/collPcclUnitTest \
+  ${NATIVE_UNIT_BUILD}/sendRecvPcclUnitTest \
   ${NATIVE_UNIT_BUILD}/hggcGraphUnitTest \
   ${NATIVE_UNIT_BUILD}/pcclCommAbortTest \
   ${source_home}/pccl-tests/build/

@@ -12,6 +12,8 @@
 #include <stdio.h>
 #include <stdlib.h>
 #include <random>
+#include <chrono>
+#include <vector>
 #include <unistd.h>
 #include <sys/types.h>
 
@@ -27,7 +29,7 @@
 #include "logger.h"
 #include "cxxopts.hpp"
 
-const int num_devs = 2;
+int num_devs = 2;
 int start_dev_id = 0;
 int num_elems = 32;
 int min_num_elems = 0;
@@ -56,9 +58,11 @@ void parseArguments(int argc, char **argv) {
   cxxopts::Options options("sendRecvPcclUnitTest", "This is PCCL send&recv test.");
   options.add_options()
     ("h,help", "Print usage")
+    ("g,num_gpus", "Number of devices for symm_alltoall (at least two).",
+            cxxopts::value<int>()->default_value("2"))
     ("s,start_dev_id", "Starting GPU device ID (default: 0).",
             cxxopts::value<int>()->default_value(std::to_string(start_dev_id)))
-    ("e,num_elems", "Number of float elements for send/recv operation.",
+    ("e,num_elems", "Number of elements per peer (uint32 for symm_alltoall, float otherwise).",
             cxxopts::value<int>()->default_value(std::to_string(num_elems)))
     ("n,min_num_elems", "Minimum number of float elements for random size testing.",
             cxxopts::value<int>()->default_value(std::to_string(min_num_elems)))
@@ -66,7 +70,7 @@ void parseArguments(int argc, char **argv) {
             cxxopts::value<int>()->default_value(std::to_string(max_num_elems)))
     ("i,num_iterations", "Number of test iterations.",
             cxxopts::value<int>()->default_value(std::to_string(num_iterations)))
-    ("m,mode", "Execution mode: 'single' (Group API) or 'thread' (multi-threaded with barrier synchronization). Default: 'single'.",
+    ("m,mode", "Execution mode: single, thread, or symm_alltoall (grouped all-to-all with symmetric windows).",
        cxxopts::value<std::string>()->default_value(mode));
   auto args = options.parse(argc, argv);
 
@@ -76,18 +80,8 @@ void parseArguments(int argc, char **argv) {
     exit(testSuccess);
   }
 
-  // Parse start_dev_id.
-  if (args.count("start_dev_id")) {
-    int tmp = args["start_dev_id"].as<int>();
-    int num_gpus = 0;
-    HGGCCHECK(hggcGetDeviceCount(&num_gpus));
-    if (tmp + num_devs - 1 >= num_gpus) {
-      ERROR("Exceed the maximum id of GPU, which is %d, but yours is %d", num_gpus - 1, tmp + num_devs - 1);
-      exit(testInternalError);
-    }
-    start_dev_id = tmp;
-  }
-  
+  num_devs = args["num_gpus"].as<int>();
+  start_dev_id = args["start_dev_id"].as<int>();
   // Parse num_elems, min_num_elems, max_num_elems to be used in random send&recv test.
   if (args.count("num_elems")) {
     num_elems = args["num_elems"].as<int>();
@@ -104,15 +98,23 @@ void parseArguments(int argc, char **argv) {
     num_iterations = args["num_iterations"].as<int>();
   }
 
-  // Parse mode.
-  if (args.count("mode")) {
-    mode = args["mode"].as<std::string>();
-    if (mode != "single" && mode != "thread") {
-      ERROR("%s mode is not supported, your input must be 'single' or 'thread'!", mode.c_str());
+  mode = args["mode"].as<std::string>();
+  if (mode == "symm_alltoall") {
+    if (num_elems <= 0 || num_iterations <= 0 || min_num_elems || max_num_elems) {
+      ERROR("symm_alltoall requires a fixed positive num_elems and positive num_iterations.");
       exit(testInternalError);
     }
+  } else if ((mode != "single" && mode != "thread") || num_devs != 2) {
+    ERROR("Use single or thread with two devices, or symm_alltoall with two or more.");
+    exit(testInternalError);
   }
 
+  int available = 0;
+  HGGCCHECK(hggcGetDeviceCount(&available));
+  if (num_devs < 2 || start_dev_id < 0 || num_devs > available - start_dev_id) {
+    ERROR("Invalid device range: start=%d count=%d available=%d", start_dev_id, num_devs, available);
+    exit(testInternalError);
+  }
 }
 
 int runTest(int* devs, hggcStream_t* s, pcclComm_t* comms, int num_devs, int num_elems) {
@@ -204,30 +206,182 @@ int runTest(int* devs, hggcStream_t* s, pcclComm_t* comms, int num_devs, int num
   return res;
 }
 
+static void setTestEnv(const char* name, const char* value) {
+  if (setenv(name, value, 1) != 0) {
+    perror(name);
+    exit(testInternalError);
+  }
+}
+
+static FILE* configureSymmAlltoAll() {
+  FILE* log = tmpfile();
+  if (!log) {
+    perror("Cannot open tuning log");
+    exit(testInternalError);
+  }
+  const std::string path = "/proc/self/fd/" + std::to_string(fileno(log));
+  setTestEnv("PCCL_DEBUG_FILE", path.c_str());
+  setTestEnv("PCCL_DEBUG", "INFO");
+  setTestEnv("PCCL_DEBUG_SUBSYS", "TUNING");
+  setTestEnv("PCCL_DEBUG_DEV", "-1");
+  setTestEnv("PCCL_PER_COMM_HASH_DEBUG_FILE", "");
+  setTestEnv("PCCL_COMM_BLOCKING", "1");
+  setTestEnv("PCCL_P2P_DMA_ENABLE", "1");
+  setTestEnv("PCCL_CTA_POLICY", "2"); // PCCL_CTA_POLICY_ZERO
+  setTestEnv("PCCL_P2P_DMA_MIN_BYTES", "0");
+  return log;
+}
+
+// Rank zero logs one full batch per exchange, including the warm-up.
+static bool allExchangesUsedDma(FILE* log) {
+  const std::string peers = std::to_string(num_devs);
+  const std::string batch = "]: batch nSend " + peers + " nRecv " + peers + " nSelfSend 1 ";
+  const char prefix[] = "SendRecv [Symmetric DMA";
+  size_t matches = 0;
+  char line[4096];
+  while (fgets(line, sizeof(line), log)) {
+    const char* label = strstr(line, prefix);
+    if (!label) continue;
+    const char* suffix = label + sizeof(prefix) - 1;
+    const char* end = strchr(suffix, ']');
+    if ((*suffix == ' ' || *suffix == ']') && end && strncmp(end, batch.c_str(), batch.size()) == 0)
+      ++matches;
+  }
+  const size_t exchanges = static_cast<size_t>(num_iterations) + 1;
+  if (ferror(log) || matches != exchanges) {
+    ERROR("Expected %zu full symmetric DMA batches, observed %zu", exchanges, matches);
+    return false;
+  }
+  return true;
+}
+
+// Each sender addresses blocks by destination. Each receiver lays them out by source.
+static uint32_t payload(int src, int dst, size_t i) {
+  return 0x9e3779b9u * (src + 1u) + 0x85ebca6bu * (dst + 1u) + static_cast<uint32_t>(i);
+}
+
+static int runSymmAlltoAll(const int* devs, const hggcStream_t* streams, const pcclComm_t* comms, FILE* log) {
+  const size_t count = num_elems;
+  const size_t rankBytes = num_devs * count * sizeof(uint32_t);
+  std::vector<uint32_t*> send(num_devs), recv(num_devs);
+  std::vector<pcclWindow_t> sendWin(num_devs), recvWin(num_devs);
+  std::vector<uint32_t> host(num_devs * count);
+  for (int r = 0; r < num_devs; ++r) {
+    HGGCCHECK(hggcSetDevice(devs[r]));
+    PCCLCHECK(pcclMemAlloc((void**)&send[r], rankBytes));
+    PCCLCHECK(pcclMemAlloc((void**)&recv[r], rankBytes));
+    for (int peer = 0; peer < num_devs; ++peer) {
+      for (size_t i = 0; i < count; ++i) host[peer * count + i] = payload(r, peer, i);
+    }
+    HGGCCHECK(hggcMemcpy(send[r], host.data(), rankBytes, hggcMemcpyHostToDevice));
+    HGGCCHECK(hggcDeviceSynchronize());
+  }
+
+  PCCLCHECK(pcclGroupStart());
+  for (int r = 0; r < num_devs; ++r) {
+    PCCLCHECK(pcclCommWindowRegister(comms[r], send[r], rankBytes, &sendWin[r], PCCL_WIN_COLL_SYMMETRIC));
+    PCCLCHECK(pcclCommWindowRegister(comms[r], recv[r], rankBytes, &recvWin[r], PCCL_WIN_COLL_SYMMETRIC));
+  }
+  PCCLCHECK(pcclGroupEnd());
+  for (int r = 0; r < num_devs; ++r) {
+    if (!sendWin[r] || !recvWin[r]) {
+      ERROR("Symmetric windows unavailable on rank %d", r);
+      exit(testPcclError);
+    }
+  }
+
+  auto exchange = [&]() {
+    PCCLCHECK(pcclGroupStart());
+    for (int r = 0; r < num_devs; ++r) {
+      for (int peer = 0; peer < num_devs; ++peer) {
+        PCCLCHECK(pcclSend(send[r] + peer * count, count, pcclUint32, peer, comms[r], streams[r]));
+        PCCLCHECK(pcclRecv(recv[r] + peer * count, count, pcclUint32, peer, comms[r], streams[r]));
+      }
+    }
+    PCCLCHECK(pcclGroupEnd());
+  };
+
+  exchange(); // Warm up the same windows, message size and set of peers.
+  for (int r = 0; r < num_devs; ++r) {
+    HGGCCHECK(hggcSetDevice(devs[r]));
+    HGGCCHECK(hggcStreamSynchronize(streams[r]));
+  }
+  for (int r = 0; r < num_devs; ++r) {
+    HGGCCHECK(hggcSetDevice(devs[r]));
+    for (int src = 0; src < num_devs; ++src) {
+      for (size_t i = 0; i < count; ++i) host[src * count + i] = ~payload(src, r, i);
+    }
+    HGGCCHECK(hggcMemcpy(recv[r], host.data(), rankBytes, hggcMemcpyHostToDevice));
+    HGGCCHECK(hggcDeviceSynchronize());
+  }
+
+  const auto start = std::chrono::steady_clock::now();
+  for (int iter = 0; iter < num_iterations; ++iter) exchange();
+  for (int r = 0; r < num_devs; ++r) {
+    HGGCCHECK(hggcSetDevice(devs[r]));
+    HGGCCHECK(hggcStreamSynchronize(streams[r]));
+  }
+  const double us = std::chrono::duration<double, std::micro>(
+      std::chrono::steady_clock::now() - start).count() / num_iterations;
+
+  int result = allExchangesUsedDma(log) ? testSuccess : testInternalError;
+  for (int r = 0; result == testSuccess && r < num_devs; ++r) {
+    HGGCCHECK(hggcSetDevice(devs[r]));
+    HGGCCHECK(hggcMemcpy(host.data(), recv[r], rankBytes, hggcMemcpyDeviceToHost));
+    for (size_t offset = 0; offset < host.size(); ++offset) {
+      int src = offset / count;
+      uint32_t expected = payload(src, r, offset % count);
+      if (host[offset] != expected) {
+        ERROR("src=%d dst=%d element=%zu expected=%u got=%u", src, r, offset % count, expected, host[offset]);
+        result = testInternalError;
+        break;
+      }
+    }
+  }
+  for (int r = 0; r < num_devs; ++r) {
+    HGGCCHECK(hggcSetDevice(devs[r]));
+    PCCLCHECK(pcclCommWindowDeregister(comms[r], recvWin[r]));
+    PCCLCHECK(pcclCommWindowDeregister(comms[r], sendWin[r]));
+    PCCLCHECK(pcclMemFree(recv[r]));
+    PCCLCHECK(pcclMemFree(send[r]));
+  }
+  if (result == testSuccess) {
+    INFO("Grouped all-to-all: ranks=%d bytes/peer=%zu iterations=%d us/op=%.3f remote GB/s/rank=%.3f",
+         num_devs, count * sizeof(uint32_t), num_iterations, us,
+         (num_devs - 1) * count * sizeof(uint32_t) / (us * 1000.0));
+  }
+  return result;
+}
+
 int main(int argc, char **argv) {
   gethostname(hostName, HOST_NAME_LEN);
   // parse input arguments
   parseArguments(argc, argv);
 
-  // set devices pair to do send/recv
-  int devs[num_devs];
-  hggcStream_t *s = (hggcStream_t *)malloc(sizeof(hggcStream_t) * num_devs);
+  std::unique_ptr<FILE, decltype(&fclose)> tuningLog(
+      mode == "symm_alltoall" ? configureSymmAlltoAll() : nullptr, &fclose);
+
+  // Use consecutive devices starting at start_dev_id.
+  std::vector<int> devs(num_devs);
+  std::vector<hggcStream_t> streams(num_devs);
   for (int i = 0; i < num_devs; ++i) {
     devs[i] = i + start_dev_id;
     HGGCCHECK(hggcSetDevice(devs[i]));
-    HGGCCHECK(hggcStreamCreate(s + i));
+    HGGCCHECK(hggcStreamCreate(&streams[i]));
   }
 
   // initialize pccl comm
   INFO("Init all comms start.");
-  pcclComm_t comms[num_devs];
-  PCCLCHECK(pcclCommInitAll(comms, num_devs, devs));
+  std::vector<pcclComm_t> comms(num_devs);
+  PCCLCHECK(pcclCommInitAll(comms.data(), num_devs, devs.data()));
   INFO("Init all comms done.");
 
   // start peer2peer pccl send/recv testing
   int res = 0;
   bool isRandomTest = min_num_elems > 0 && max_num_elems > 0 && min_num_elems < max_num_elems;
-  if (isRandomTest) {
+  if (mode == "symm_alltoall") {
+    res = runSymmAlltoAll(devs.data(), streams.data(), comms.data(), tuningLog.get());
+  } else if (isRandomTest) {
     std::random_device rd; // obtain a random number from hardware
     std::mt19937 gen(rd()); // seed the generator
     std::uniform_int_distribution<> distr(min_num_elems, max_num_elems); // define the range
@@ -235,7 +389,7 @@ int main(int argc, char **argv) {
     for (int i = 0; i < num_iterations; ++i) {
       num_elems = distr(gen);
       INFO("Elements number: %d", num_elems);
-      res = runTest(devs, s, comms, num_devs, num_elems);
+      res = runTest(devs.data(), streams.data(), comms.data(), num_devs, num_elems);
       if (res != 0) {
         ERROR("Test fail, result not matched.");
         return res;
@@ -245,7 +399,7 @@ int main(int argc, char **argv) {
     INFO("Elements number: %d", num_elems);
     for (int i = 0; i < num_iterations; ++i) {
       INFO("Iteration = %d", i);
-      res = runTest(devs, s, comms, num_devs, num_elems);
+      res = runTest(devs.data(), streams.data(), comms.data(), num_devs, num_elems);
       if (res != 0) {
         ERROR("Test fail, result not matched.");
         return res;
@@ -255,11 +409,10 @@ int main(int argc, char **argv) {
 
   // finalize PCCL
   for(int i = 0; i < num_devs; i++) {
-    pcclCommDestroy(comms[i]);
+    HGGCCHECK(hggcSetDevice(devs[i]));
+    HGGCCHECK(hggcStreamDestroy(streams[i]));
+    PCCLCHECK(pcclCommDestroy(comms[i]));
   }
-
-  // free resources
-  free(s);
 
   if (res == 0) {
     INFO("Test pass, results matched.");
