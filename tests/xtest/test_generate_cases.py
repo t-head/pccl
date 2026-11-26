@@ -282,6 +282,13 @@ class PublicGeneratorTests(unittest.TestCase):
         self.assertEqual(sum(record["case_count"] for record in plan["exclusions"]), 9)
         self.assertEqual(plan["exclusions"][0]["nodes"], 8)
 
+    def test_maintained_environment_digests_match_checked_in_files(self):
+        manifest = json.loads((DEFINITIONS / "source-export.json").read_text())
+        for name, expected_hash in manifest["maintained_environments"].items():
+            with self.subTest(environment=name):
+                environment = DEFINITIONS / "envs" / name
+                self.assertEqual(sha256(environment.read_bytes()).hexdigest(), expected_hash)
+
     def test_source_export_binds_every_daily_family_to_the_real_source_rows(self):
         manifest = json.loads((DEFINITIONS / "source-export.json").read_text())
         combined = generate_cases.combine_bundles([self.bundle(family) for family in ALL_FAMILIES])
@@ -295,9 +302,6 @@ class PublicGeneratorTests(unittest.TestCase):
         self.assertEqual(manifest["suites_sha256"], canonical_sha256(combined["suites"]))
         self.assertFalse(manifest["csv_inputs_used"])
         self.assertFalse(manifest["csv_outputs_written"])
-        for name, expected_hash in manifest["environments"].items():
-            environment = DEFINITIONS / "envs" / name
-            self.assertEqual(sha256(environment.read_bytes()).hexdigest(), expected_hash)
         records = {record["family"]: record for record in manifest["families"]}
         self.assertEqual(set(records), set(ALL_FAMILIES))
         for family in ALL_FAMILIES:
