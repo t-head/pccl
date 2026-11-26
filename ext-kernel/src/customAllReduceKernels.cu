@@ -86,9 +86,8 @@ __global__ void pcclKernel_oneShotAllReduceKernel(struct oneShotDevParams params
 
   volatile T* srcPtrs[NRANKS];
   #pragma unroll
-  for (int ii = 0; ii < NRANKS; ++ii) {
-    int rank = (params.myRank + ii) % NRANKS;
-    srcPtrs[ii] = (T*)params.peerBuffers[rank] + buffEltsOffset;
+  for (int rank = 0; rank < NRANKS; ++rank) {
+    srcPtrs[rank] = (T*)params.peerBuffers[rank] + buffEltsOffset;
   }
 
   volatile T* sendbuff = (T*)params.sendbuff + eltsOffset;
@@ -99,15 +98,16 @@ __global__ void pcclKernel_oneShotAllReduceKernel(struct oneShotDevParams params
   int32_t exElts = eltsPerBlock % (PACKED_ELTS_PER_WARP);
   int32_t Npack = eltsPerBlock / PACKED_ELTS_PER_WARP;
 
-  if (INPUT_ALIGN) memcpyPackWise<T, 1, 1>(srcPtrs[0], sendbuff, Npack, exElts, nWarps, wid, laneId);
-  else memcpyElementWise<T, 1, 1>(srcPtrs[0], sendbuff, eltsPerBlock, nWarps, wid, laneId);
+  volatile T* localBuffer = (T*)params.peerBuffers[params.myRank] + buffEltsOffset;
+  if (INPUT_ALIGN) memcpyPackWise<T, 1, 1>(localBuffer, sendbuff, Npack, exElts, nWarps, wid, laneId);
+  else memcpyElementWise<T, 1, 1>(localBuffer, sendbuff, eltsPerBlock, nWarps, wid, laneId);
 
   uint32_t barrierFlag = getBarrierFlag<NRANKS>(params.peerBarrierIn, params.myRank, tidx, bidx) + 1;
 
   __syncthreads();
   blockBarrier<NRANKS>(params.peerBarrierIn, barrierFlag, params.myRank, tidx, bidx, params.abortFlag);
 
-  if (OUTPUT_ALIGN) reduceFromMultiSource<T, NRANKS, 1>(srcPtrs, &recvbuff, Npack, exElts, nWarps, wid, laneId);
+  if (OUTPUT_ALIGN) reduceFromMultiSource<T, NRANKS, 1>(srcPtrs, &recvbuff, Npack, exElts, nWarps, wid, laneId, params.myRank);
   else reduceFromMultiSourceElemWise<T, NRANKS, 1>(srcPtrs, &recvbuff, eltsPerBlock, nWarps, wid, laneId);
 
   __syncthreads();

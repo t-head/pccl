@@ -445,19 +445,24 @@ __forceinline__ __device__ void broadcastToAllPeersElemWise(volatile T* dstPtrs[
   }
 }
 
+__forceinline__ __device__ void loadSourceBulk128(uint4& value, const uint4* ptr, int source, int localSource) {
+  if (source == localSource) BulkLoad128(value, ptr);
+  else RemoteBulkLoad128(value, ptr);
+}
+
 // Keep a bounded window of remote bulk requests in flight. The PPU scheduling boundary is
 // required: without it, the backend sinks each load next to its dependent add.
 // This is a compiler scheduling boundary, not a memory fence or warp barrier.
 template<typename T, int NRANKS>
-__forceinline__ __device__ uint4 reduceBulkWithPrefetch(volatile T* srcs[NRANKS], int32_t offset) {
+__forceinline__ __device__ uint4 reduceBulkWithPrefetch(volatile T* srcs[NRANKS], int32_t offset, int localSource) {
   using PackedStruct = typename PackedOn16Bytes<T>::Type;
   constexpr int window = NRANKS > 8 ? 8 : NRANKS - 1;
   PackedStruct sum;
   PackedStruct pending[window];
-  BulkLoad128(sum.upacked, (const uint4*)(srcs[0] + offset));
+  loadSourceBulk128(sum.upacked, (const uint4*)(srcs[0] + offset), 0, localSource);
   #pragma unroll
   for (int slot = 0; slot < window; ++slot) {
-    RemoteBulkLoad128(pending[slot].upacked, (const uint4*)(srcs[slot + 1] + offset));
+    loadSourceBulk128(pending[slot].upacked, (const uint4*)(srcs[slot + 1] + offset), slot + 1, localSource);
   }
   asm volatile("ppu.sched.bound;" ::: "memory");
 
@@ -468,7 +473,7 @@ __forceinline__ __device__ uint4 reduceBulkWithPrefetch(volatile T* srcs[NRANKS]
     sum.packed = add128b(sum, pending[slot]);
     if (rank + window < NRANKS) {
       asm volatile("ppu.sched.bound;" ::: "memory");
-      RemoteBulkLoad128(pending[slot].upacked, (const uint4*)(srcs[rank + window] + offset));
+      loadSourceBulk128(pending[slot].upacked, (const uint4*)(srcs[rank + window] + offset), rank + window, localSource);
       // The next add consumes an older slot, not the request just issued.
       asm volatile("ppu.sched.bound;" ::: "memory");
     }
@@ -478,7 +483,7 @@ __forceinline__ __device__ uint4 reduceBulkWithPrefetch(volatile T* srcs[NRANKS]
 }
 
 template<typename T, int NRANKS, int DSTS, int ELT_WISE_TAIL = 0>
-__inline__ __device__ void reduceFromMultiSource(volatile T* srcs[NRANKS], volatile T** dsts, int32_t Npack, int32_t exElts, int32_t warpGroupSize, int32_t wid, int32_t laneId) {
+__inline__ __device__ void reduceFromMultiSource(volatile T* srcs[NRANKS], volatile T** dsts, int32_t Npack, int32_t exElts, int32_t warpGroupSize, int32_t wid, int32_t laneId, int localSource = 0) {
   static constexpr int PACKED_ELTS_PER_THREAD = PACKED_ELEMS_SIZE / sizeof(T);
   static constexpr int PACKED_ELTS_PER_WARP = PACKED_ELTS_PER_THREAD * WARP_SIZE;
   using PackedStruct = typename PackedOn16Bytes<T>::Type;
@@ -489,14 +494,14 @@ __inline__ __device__ void reduceFromMultiSource(volatile T* srcs[NRANKS], volat
   while(wid < Npack) {
     PackedStruct sum;
     if (NRANKS > 8) {
-      sum.upacked = reduceBulkWithPrefetch<T, NRANKS>(srcs, offset);
+      sum.upacked = reduceBulkWithPrefetch<T, NRANKS>(srcs, offset, localSource);
     } else {
       PackedStruct vals[NRANKS];
-      BulkLoad128(vals[0].upacked, (const uint4*)(srcs[0] + offset));
+      loadSourceBulk128(vals[0].upacked, (const uint4*)(srcs[0] + offset), 0, localSource);
 
       #pragma unroll
       for (int ii = 1; ii < NRANKS; ++ii) {
-        RemoteBulkLoad128(vals[ii].upacked, (const uint4*)(srcs[ii] + offset));
+        loadSourceBulk128(vals[ii].upacked, (const uint4*)(srcs[ii] + offset), ii, localSource);
       }
       // Sum the values from the different ranks.
       #pragma unroll
