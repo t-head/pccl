@@ -1,16 +1,15 @@
 {
   "classification": {
-    "base_sha": "ec92aca1e9cb879a3b6c50f2c8ca2abc7b2c0c20",
-    "head_sha": "890d1c0beb5d9028ad5b382e9bb57216cf12999e",
-    "input_fingerprint": "bc37c7e3eb793f7e6ce0fc01b23e7217cf0ec8f29e3689491c54f80dd63a0c00",
+    "base_sha": "c6fab1fe8ba458595e12c09da15243c6a9f22a7f",
+    "head_sha": "43e5208d9302ce4a861344ab284d838a2b93ffe6",
+    "input_fingerprint": "b6b3a79899f5dbe77c195fe1033acf39a33a4d86b510cdb9a2aa74adf634efc3",
     "pr_number": 167,
     "proposal": {
       "modules": [
-        "enqueue",
         "symmetric",
         "copy-engine"
       ],
-      "reason": "Main change isolates CE memcpy from ltOki DMA by reserving rings/queue IDs, gating OKI feature agreement across ranks, and updating CE stream/QP setup and launch behavior for mixed CE/OKI execution. Add enqueue because ordinary enqueue now applies capture-safe user-stream ring hints that affect collective/P2P launch paths. Add symmetric because device-side OKI AR/RS and P2P-DMA kernel logic was corrected for tail chunk sizing, broadcast pre-chunk clamping, and per-lane byte validity, which are substantive correctness fixes in symmetric collective execution."
+      "reason": "Main functional change is copy-engine behavior: CE memcpy vs ltOki ring isolation, memcpy stream hinting, OKI feature negotiation across ranks, and OKI QP/ring allocation/launch policy updates. Add symmetric because there are independently substantive device-side symmetric OKI fixes (AR/RS tail chunk sizing, pre-broadcast clamping, lane-slice alignment, and slot/lane active-byte checks) that affect collective correctness."
     }
   },
   "reviewers": {
