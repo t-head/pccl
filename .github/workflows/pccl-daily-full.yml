@@ -227,6 +227,11 @@ jobs:
           if execution_timeout_minutes <= 0:
               raise ValueError('Execution timeout must be a positive integer')
           m890p = generate_cases.load_bundle('generated-case-input')
+          # Keep per-rank INFO off benchmark stdout for the single-node device API group.
+          for spec in m890p['suites']:
+              if spec['nodes'] == 1 and spec['env'] == 'device_api_single.env':
+                  spec['env'] = 'device_api_single_no_info.env'
+          m890p['environments'] = sorted({spec['env'] for spec in m890p['suites']})
           eic = generate_cases.load_bundle('generated-case-input-oam810e-eic')
           platform = os.environ['PLATFORM']
           bundles = {'m890p': m890p, 'oam810e_eic': eic}
