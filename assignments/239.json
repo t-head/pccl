@@ -1,14 +1,14 @@
 {
   "classification": {
     "base_sha": "45088cc56be51899765bd637aae280d1ba7d10fc",
-    "head_sha": "361c516d489c33441e10b4882060fe275970b8b5",
-    "input_fingerprint": "18fd65db746b7d3b775a8e78515d1f5769bce6ebca49bd55d3e49775bdb73c54",
+    "head_sha": "287d13c292dee5bc2db2bc85a463c9d752480ff8",
+    "input_fingerprint": "84ed0a66f4761fc85b2b8c0d81e473dbab0e5d342eadc0f13e70f5be64af9c84",
     "pr_number": 239,
     "proposal": {
       "modules": [
         "kernel-plugin"
       ],
-      "reason": "Changes the plugin-provided one-shot AllReduce device kernel implementation to enforce deterministic global rank-order accumulation (aligned and element-wise paths), including fixed-slot peer loading and updated reduction helpers; this is substantive extension-kernel execution logic, not ABI/loading-adjacent caller churn."
+      "reason": "PR changes extension-kernel device implementation for one-shot AllReduce to enforce deterministic global rank-order summation (aligned and element-wise paths), including source-slot ordering and reduction helper logic in ext-kernel code; this is plugin-provided kernel execution behavior, not core workflow/CI/build policy."
     }
   },
   "reviewers": {
