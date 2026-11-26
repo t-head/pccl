@@ -1,15 +1,16 @@
 {
   "classification": {
-    "base_sha": "e0114a05589f10117d258ae08597d10fc742a254",
-    "head_sha": "f273908d383c822265b2ab723e791b04264db2e7",
-    "input_fingerprint": "1ac31866ea40a65a81e71a546f2b213ce6e8d1a20822aa1e742a04bb85a2ba5c",
+    "base_sha": "ec92aca1e9cb879a3b6c50f2c8ca2abc7b2c0c20",
+    "head_sha": "890d1c0beb5d9028ad5b382e9bb57216cf12999e",
+    "input_fingerprint": "bc37c7e3eb793f7e6ce0fc01b23e7217cf0ec8f29e3689491c54f80dd63a0c00",
     "pr_number": 167,
     "proposal": {
       "modules": [
+        "enqueue",
         "symmetric",
         "copy-engine"
       ],
-      "reason": "Primary change is copy-engine behavior: CE/ltOki ring isolation, reserved CE stream/ring hinting, OKI enablement gating across ranks, and OKI QP/ring mapping updates to prevent mixed CE/OKI hangs. Symmetric is additionally required because device-side symmetric OKI kernels and helpers change AR/RS tail sizing, broadcast pre-clamping, and lane/slice splitting logic, which are substantive correctness fixes in symmetric collective execution."
+      "reason": "Main change isolates CE memcpy from ltOki DMA by reserving rings/queue IDs, gating OKI feature agreement across ranks, and updating CE stream/QP setup and launch behavior for mixed CE/OKI execution. Add enqueue because ordinary enqueue now applies capture-safe user-stream ring hints that affect collective/P2P launch paths. Add symmetric because device-side OKI AR/RS and P2P-DMA kernel logic was corrected for tail chunk sizing, broadcast pre-chunk clamping, and per-lane byte validity, which are substantive correctness fixes in symmetric collective execution."
     }
   },
   "reviewers": {
