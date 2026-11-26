@@ -1,14 +1,14 @@
 {
   "classification": {
-    "base_sha": "45088cc56be51899765bd637aae280d1ba7d10fc",
-    "head_sha": "65eb7c8411a02fbf81f1bd967ef16c2f41b73925",
-    "input_fingerprint": "97de31eeccddcc6a9c76969032d8a578dc4482aa472022f9a8f6a0cf3fd4c27e",
+    "base_sha": "c6fab1fe8ba458595e12c09da15243c6a9f22a7f",
+    "head_sha": "a6c667933b4ac7d826a1c90cb0a019d70ce4788c",
+    "input_fingerprint": "e296da363c548e41c9a1a1891bda69320a1427d89374f381475e552eb2060270",
     "pr_number": 195,
     "proposal": {
       "modules": [
         "workflow"
       ],
-      "reason": "Main substantive change is review/merge workflow policy and automation: reviewer routing and required-approval logic were rewritten in .github/scripts/review_automation.py and maintainer_approval.py, with new/renamed review and squash-preview workflows plus commit-attribution validation and related contributor/workflow docs updates."
+      "reason": "Primary change is the review/merge workflow itself: .github/scripts/review_automation.py and maintainer_approval.py rewrite module classification, invitation persistence, and required-approval enforcement, while review-routing/review-gate/review-module/review-squash-preview workflows and commit_message_squash.py restructure squash-preview generation/cleanup and attribution-policy checks. Changes in SKILL/docs/modules.json are supporting policy/documentation updates for the same workflow behavior, not separate runtime modules."
     }
   },
   "reviewers": {
