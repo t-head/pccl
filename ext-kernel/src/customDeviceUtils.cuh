@@ -580,26 +580,31 @@ __inline__ __device__ void reduceFromMultiSource(volatile T* srcs[NRANKS], volat
 
 template<typename T, int NRANKS, int DSTS>
 __inline__ __device__ void reduceFromMultiSourceElemWise(volatile T* srcs[NRANKS], volatile T** dsts, int32_t totalElts, int32_t warpGroupSize, int32_t wid, int32_t laneId, int firstRank = 0) {
-  // element wise data load/store.
-  // do not fuse with bulk load/store for now. handle the address later.
+  // Load into fixed slots so staggered reads can stay in registers.
+  const int zeroSlot = (NRANKS - firstRank) % NRANKS;
   int32_t offset = laneId + wid * WARP_SIZE;
   while(offset < totalElts) {
     T vals[NRANKS];
     #pragma unroll
-    for (int ii = 0; ii < NRANKS; ++ii) {
-      const int rank = (firstRank + ii) % NRANKS;
-      vals[rank] = srcs[ii][offset];
+    for (int i = 0; i < NRANKS; ++i) {
+      vals[i] = srcs[i][offset];
+    }
+    T sum = vals[0];
+    #pragma unroll
+    for (int i = 1; i < NRANKS; ++i) {
+      if (i == zeroSlot) sum = vals[i];
+      else if (i > zeroSlot) sum += vals[i];
     }
     #pragma unroll
-    for (int ii = 1; ii < NRANKS; ++ii) {
-      vals[0] += vals[ii];
+    for (int i = 0; i < NRANKS - 1; ++i) {
+      if (i < zeroSlot) sum += vals[i];
     }
-    dsts[0][offset] = vals[0];
+    dsts[0][offset] = sum;
 
     if (DSTS > 1) {
       #pragma unroll
       for (int ii = 1; ii < NRANKS; ++ii) {
-        dsts[ii][offset] = vals[0];
+        dsts[ii][offset] = sum;
       }
     }
 
