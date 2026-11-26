@@ -1,20 +1,21 @@
 {
   "classification": {
     "base_sha": "c6fab1fe8ba458595e12c09da15243c6a9f22a7f",
-    "head_sha": "43e5208d9302ce4a861344ab284d838a2b93ffe6",
-    "input_fingerprint": "b6b3a79899f5dbe77c195fe1033acf39a33a4d86b510cdb9a2aa74adf634efc3",
+    "head_sha": "65cb13a8a107c4366385f618e51f6395d645ec18",
+    "input_fingerprint": "74a2948a74f71366be8c5deebb0571465703022cc75e68ce44967c5cef2d9ec4",
     "pr_number": 167,
     "proposal": {
       "modules": [
-        "symmetric",
+        "transport",
         "copy-engine"
       ],
-      "reason": "Main functional change is copy-engine behavior: CE memcpy vs ltOki ring isolation, memcpy stream hinting, OKI feature negotiation across ranks, and OKI QP/ring allocation/launch policy updates. Add symmetric because there are independently substantive device-side symmetric OKI fixes (AR/RS tail chunk sizing, pre-broadcast clamping, lane-slice alignment, and slot/lane active-byte checks) that affect collective correctness."
+      "reason": "Primary change is copy-engine behavior: CE/ltOki ring isolation, CE stream hinting/ring mapping, reserved-stream submission policy, OKI QP queue-id allocation, and CE reduction DMA tail/bounds handling to avoid mixed CE+ltOki hangs. transport is additionally needed because peer capability exchange now carries an OKI feature bitmap (peerInfo.okiEnable) with cross-rank agreement checks in transport initialization, changing connection-time feature negotiation semantics."
     }
   },
   "reviewers": {
     "copy-engine": 333277982,
     "enqueue": 341355176,
-    "symmetric": 333277982
+    "symmetric": 333277982,
+    "transport": 340104201
   }
 }
