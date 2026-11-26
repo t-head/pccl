@@ -1,15 +1,18 @@
 {
   "classification": {
     "base_sha": "45088cc56be51899765bd637aae280d1ba7d10fc",
-    "head_sha": "8e86a1446ac9ca1adbb7a612e9b9c94800edb53e",
-    "input_fingerprint": "c0e0482c5016819327df2aaf7055ea4ffeafcfcb31873ea51fa1b74f7490840c",
+    "head_sha": "5199947413627d223f89e2f86a66fe25af212f14",
+    "input_fingerprint": "ca87e04fec270890dcbdacd9c8278eecc16d81f98277902cfc46d7535970ff90",
     "pr_number": 240,
     "proposal": {
       "modules": [
+        "build",
         "ci"
       ],
-      "reason": "Expands open-source CI coverage by adding and splitting source-sanity xtest case/suite inputs (including graphSearch/native unit checks), updating 810E card-allocation and selection assertions, and wiring CI build scripts to stage required test binaries for those jobs."
+      "reason": "Primary change is CI scope: it expands source-sanity PR coverage and platform allocation logic (new xtest case lists, suite/card split, generation logic, workflow counts, and contract tests). Add build because there are substantive build/packaging changes beyond test-data edits: enabling test targets in build entrypoints and src/Makefile, staging native/graphSearch binaries, adding required build deps, and updating packaged perf binaries."
     }
   },
-  "reviewers": {}
+  "reviewers": {
+    "build": 333277982
+  }
 }
