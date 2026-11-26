@@ -1,0 +1,17 @@
+{
+  "classification": {
+    "base_sha": "45088cc56be51899765bd637aae280d1ba7d10fc",
+    "head_sha": "f72a202c9861a683b35de53dd17cd5ad8e729dee",
+    "input_fingerprint": "d833ee4d9ed913d531e639acdf8cf4e978da1feea2a5649b506f4580c0f26858",
+    "pr_number": 238,
+    "proposal": {
+      "modules": [
+        "ci"
+      ],
+      "reason": "Adjusts Daily test workflow behavior by remapping the single-node M890P device API group to a WARN-level environment file, changing CI runtime logging/output parsing conditions without modifying library/runtime modules."
+    }
+  },
+  "reviewers": {
+    "ci": 333302477
+  }
+}
