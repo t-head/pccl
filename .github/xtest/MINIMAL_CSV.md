@@ -4,6 +4,17 @@ The maintained Plan/Suite/Case definitions are exported by the trusted-side
 `github_csv_export.py` tool. The public executor uses only the Python standard
 library and does not install or import xtest/mmengine.
 
+The reviewed M890P export also carries the native `checkin_list.sh` smoke
+Cases. Thirty-seven `collPcclUnitTest` algorithm/protocol combinations and five
+`hggcGraphUnitTest` configs share
+`pccl_shm_postsil_unit_test_single_node1_plan`, and three `graphSearchTest`
+selections (`graphSearchTestWithoutPXN.*`, `*8PPU4CX7*`, and `--pxn` with
+`graphSearchTestWithPXN.*`) share
+`pccl_shm_graph_search_test_single_node1_plan`. The graph Cases read their
+topology from XML, so the Suite declares a two-card allocation on both
+platforms. The bundle selects 116 standard single-node, one two-node and 37
+notsm Cases.
+
 ## Inputs
 
 - `minimal-csv/export.json`: format and source/runner revision metadata.
@@ -18,17 +29,17 @@ reconstruct Runner arguments.
 Validate an export without running Cases:
 
 ```bash
-python3 -S -B tests/xtest/run_cases.py \
-  --input tests/xtest/minimal-csv --profile standard --nodes 1 --validate-only
-python3 -S -B tests/xtest/run_cases.py \
-  --input tests/xtest/minimal-csv --profile notsm --nodes 1 --validate-only
+python3 -S -B .github/xtest/run_cases.py \
+  --input .github/xtest/minimal-csv --profile standard --nodes 1 --validate-only
+python3 -S -B .github/xtest/run_cases.py \
+  --input .github/xtest/minimal-csv --profile notsm --nodes 1 --validate-only
 ```
 
 Run a profile after the matching build has been staged:
 
 ```bash
-python3 -S -B tests/xtest/run_cases.py \
-  --input tests/xtest/minimal-csv --profile standard --nodes 1 \
+python3 -S -B .github/xtest/run_cases.py \
+  --input .github/xtest/minimal-csv --profile standard --nodes 1 \
   --test-root /workspace/build-output \
   --binary-dir /workspace/build-output/pccl-tests/build \
   --build-record /workspace/build-cache/output_standard.build.json \
@@ -203,15 +214,25 @@ Result verification inspects all platform groups before filtering each workbook;
 cross-platform duplicate or misplaced Case evidence remains `UNVERIFIED`.
 
 `generate_pr_cases.py` writes the reviewed 810E PR input under
-`minimal-csv-oam810e-eic`: 21 standard Cases (19 single-node and two two-node)
+`minimal-csv-oam810e-eic`: 68 standard Cases (66 single-node and two two-node)
 and nine notsm Cases. Single-node coverage includes five two-rank op_perf
 collectives, the complete nine-Case sanity_register family in both standard
-and notsm, and two native unit smoke Cases. The PR graph smoke uses two cards
-with `devices 0,1`, while daily full retains the original four-card `devices 0,3`
-topology Case. PR CI builds standard and notsm once,
-then runs both platforms with independent inputs, result directories and
-reconciliation. Every 810E PR Suite requests two cards per node. Both two-node
-Cases use four ranks, two per node:
+and notsm, and two native unit smoke Cases. The checkin-list adaptation is split
+by the cards each command needs: the two `--num_gpus=2` collective Cases and
+three `hggcGraphUnitTest` configs at `--num_threads=2` (with
+`HGGC_VISIBLE_DEVICES=0,1`) keep the two-card
+`postsil_unit_test_810e_single_node_suite`, while the 35 `--num_gpus=4`
+collective Cases and four `--num_threads=4` graph configs (with
+`HGGC_VISIBLE_DEVICES=0,1,2,3`) live in the four-card
+`postsil_unit_test_810e_4card_single_node_suite`. Each family therefore declares
+its own `cards_per_node` (2 or 4) and the 810E standard Pod is sized to the
+largest requirement, four cards; two-card Cases still select only two devices.
+Three `graphSearchTest` selections run from their own two-card allocation. The PR
+graph smoke uses two cards with `devices 0,1`, while daily full retains the
+original four-card `devices 0,3` topology Case. PR CI builds standard and notsm
+once, then runs both platforms with independent inputs, result directories and
+reconciliation. The notsm and two-node 810E Suites keep the two-card PR
+allocation. Both two-node Cases use four ranks, two per node:
 EIC uses `-np 4 -npernode 2`, and RDMA uses `--ranks 4 --nprocs 2`. This PR-only
 layout does not change the 16-card daily profile.
 
@@ -238,15 +259,15 @@ compatible selection. For example, `nodes=2`, `cards_per_node=1`, and
 smoke on one card per node without changing the full 16-card profile.
 
 ```bash
-python3 -S -B tests/xtest/generate_cases.py \
-  --definition tests/xtest/test_lists/op_perf_shm.json \
-  --definition tests/xtest/test_lists/postsil_daily_shm.json \
-  --suites tests/xtest/test_lists/suites.json \
-  --env-root tests/xtest/test_lists/envs \
+python3 -S -B .github/xtest/generate_cases.py \
+  --definition .github/xtest/test_lists/op_perf_shm.json \
+  --definition .github/xtest/test_lists/postsil_daily_shm.json \
+  --suites .github/xtest/test_lists/suites.json \
+  --env-root .github/xtest/test_lists/envs \
   --profile smoke --source-revision 1111111111111111111111111111111111111111 \
   --runner-revision 2222222222222222222222222222222222222222 \
   --output /tmp/daily-case-input
-python3 -S -B tests/xtest/group_cases.py \
+python3 -S -B .github/xtest/group_cases.py \
   --input /tmp/daily-case-input \
   --output /tmp/daily-case-groups --max-cases 500
 ```

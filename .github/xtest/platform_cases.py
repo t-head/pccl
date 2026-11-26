@@ -107,6 +107,11 @@ def allocation_cards_per_node(case, platform=None, platforms=None):
         allocation = max(rank_cards or 0, max(device_spans))
     elif rank_cards is not None:
         allocation = rank_cards
+    elif "graphSearchTest" in command:
+        # graphSearchTest builds a graph from the topology XML given by --root and names PPUs in
+        # its gtest filter, never in a rank switch, so the Suite's declared allocation is the
+        # only card count it has.
+        return power_of_two(spec["cards_per_node"])
     else:
         raise ValueError(f"Cannot derive 810E allocation ranks: {case['plan']}/{case['suite']}/{case['name']}")
     return power_of_two(allocation)
@@ -165,6 +170,9 @@ def apply_platform(bundle, profile, family=None):
         raise ValueError(f"Platform {profile['name']} does not support family {family}")
     renames = list(profile.get("rename", [])) + list(rule.get("rename", []))
     numeric = rule.get("numeric", {})
+    cards_per_node = rule.get("cards_per_node", profile["cards_per_node"])
+    if type(cards_per_node) is not int or cards_per_node <= 0:
+        raise ValueError(f"Platform {profile['name']} has an invalid card count for {family}")
     suite_map = {}
     suites = []
     for source in bundle["suites"]:
@@ -173,7 +181,7 @@ def apply_platform(bundle, profile, family=None):
         row = deepcopy(source)
         row["plan"] = _rename(row["plan"], renames)
         row["suite"] = _rename(row["suite"], renames)
-        row["cards_per_node"] = profile["cards_per_node"]
+        row["cards_per_node"] = cards_per_node
         suite_map[(source["plan"], source["suite"])] = (row["plan"], row["suite"])
         suites.append(row)
     rows = []

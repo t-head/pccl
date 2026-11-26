@@ -14,7 +14,7 @@ import run_cases
 
 
 ROOT = Path(__file__).resolve().parents[2]
-DEFINITIONS = ROOT / 'tests/xtest/test_lists'
+DEFINITIONS = ROOT / '.github/xtest/test_lists'
 ALL_FAMILIES = (
     "op_perf_shm", "postsil_daily_shm", "pccl_fun_rdma_shm", "register_test_shm",
     "sanity_m890p_register", "sym_test_shm", "f8_test_shm", "device_api_shm",
@@ -187,8 +187,8 @@ class DailySmokeTests(unittest.TestCase):
             rows = list(csv.DictReader(stream))
         self.assertEqual(len(rows), 10193)
         self.assertEqual(sum('pcclCommAbortTest' in row['cmd'] for row in rows), 16)
-        self.assertFalse((ROOT / 'tests/xtest/daily-full-csv').exists())
-        self.assertFalse((ROOT / 'tests/xtest/daily-minimal-csv').exists())
+        self.assertFalse((ROOT / '.github/xtest/daily-full-csv').exists())
+        self.assertFalse((ROOT / '.github/xtest/daily-minimal-csv').exists())
         for row in rows:
             self.assertNotIn('no_tsm', row['plan'])
             self.assertNotIn('no_tsm', row['suite'])
@@ -248,11 +248,12 @@ class DailySmokeTests(unittest.TestCase):
                 self.assertIn(f'${{NATIVE_UNIT_BUILD}}/{binary}', copy_command)
         self.assertIn('PPU_ARCHS=ppu_10,ppu_15 MPI=1', text)
         self.assertIn('${source_home}/pccl-tests/build/', copy_command)
+        self.assertIn('${GRAPH_SEARCH_BUILD}/graphSearchTest', copy_command)
         self.assertGreater(text.index('Build PCCL native unit tests'), text.index('Build pccl-tests'))
         workflow = FULL_WORKFLOW.read_text()
         for family in ('postsil_unit_test_810e', 'all_gather_unit_test_810e',
                        'postsil_unit_test_810e_smoke'):
-            self.assertIn(f'--definition tests/xtest/test_lists/{family}.json', workflow)
+            self.assertIn(f'--definition .github/xtest/test_lists/{family}.json', workflow)
 
     def test_full_workflow_dispatch_inputs_are_nested(self):
         dispatch = FULL_WORKFLOW.read_text().split("  workflow_dispatch:\n", 1)[1]

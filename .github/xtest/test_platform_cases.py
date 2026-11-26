@@ -88,13 +88,20 @@ class PlatformCasesTests(unittest.TestCase):
 
     def test_pr_bundle_has_standard_notsm_and_two_node_coverage(self):
         bundle = generate_pr_cases.build_pr_bundle(SHA, SHA)
-        self.assertEqual(len(bundle["standard"]), 21)
+        self.assertEqual(len(bundle["standard"]), 68)
         self.assertEqual(len(bundle["notsm"]), 9)
         self.assertFalse(any("GIN_TYPE=" in row["cmd"]
                              for row in bundle["standard"] + bundle["notsm"]))
         self.assertEqual({row["nodes"] for row in bundle["suites"]}, {1, 2})
-        self.assertTrue(all(row["cards_per_node"] == 2 for row in bundle["suites"]))
-        graph_case = next(row for row in bundle["standard"] if "GraphUnitTest" in row["cmd"])
+        self.assertEqual({row["cards_per_node"] for row in bundle["suites"]}, {2, 4})
+        four_card_suites = {(row["plan"], row["suite"]) for row in bundle["suites"]
+                            if row["cards_per_node"] == 4}
+        self.assertEqual(four_card_suites,
+                         {("pccl_810e_postsil_unit_test_4card_single_node1_plan",
+                           "postsil_unit_test_810e_4card_single_node_suite")})
+        graph_case = next(row for row in bundle["standard"]
+                          if "GraphUnitTest" in row["cmd"]
+                          and not row["name"].startswith("checkin_"))
         self.assertIn("HGGC_VISIBLE_DEVICES=0,1", graph_case["cmd"])
         self.assertNotIn("HGGC_VISIBLE_DEVICES=0,3", graph_case["cmd"])
         self.assertIn("devices_0_1", graph_case["name"])
@@ -123,8 +130,54 @@ class PlatformCasesTests(unittest.TestCase):
                          {row["name"] for row in bundle["notsm"]})
         native = [row for row in bundle["standard"]
                   if "collPcclUnitTest" in row["cmd"] or "hggcGraphUnitTest" in row["cmd"]]
-        self.assertEqual(len(native), 2)
+        self.assertEqual(len(native), 46)
         self.assertTrue(all("unit_test.py" not in row["cmd"] for row in native))
+        two_card_suite = ("pccl_810e_postsil_unit_test_single_node1_plan",
+                          "postsil_unit_test_810e_single_node_suite")
+        four_card_suite = ("pccl_810e_postsil_unit_test_4card_single_node1_plan",
+                           "postsil_unit_test_810e_4card_single_node_suite")
+        self.assertEqual(Counter((row["plan"], row["suite"]) for row in native),
+                         Counter({two_card_suite: 7, four_card_suite: 39}))
+        checkin_coll = [row for row in native if "checkin_collPcclUnitTest" in row["name"]]
+        self.assertEqual(len(checkin_coll), 37)
+        self.assertEqual(sum("--num_gpus=2" in row["cmd"] for row in checkin_coll), 2)
+        self.assertEqual(sum("--num_gpus=4" in row["cmd"] for row in checkin_coll), 35)
+        self.assertTrue(all("--num_gpus=4" in row["cmd"]
+                            for row in checkin_coll
+                            if (row["plan"], row["suite"]) == four_card_suite))
+        checkin_graph = [row for row in native if "checkin_hggcGraphUnitTest" in row["name"]]
+        self.assertEqual(len(checkin_graph), 7)
+        two_card_graph = [row for row in checkin_graph if "--num_threads=2" in row["cmd"]]
+        self.assertEqual(len(two_card_graph), 3)
+        self.assertTrue(all("HGGC_VISIBLE_DEVICES=0,1" in row["cmd"]
+                            for row in two_card_graph))
+        four_card_graph = [row for row in checkin_graph if "--num_threads=4" in row["cmd"]]
+        self.assertEqual(len(four_card_graph), 4)
+        self.assertTrue(all("HGGC_VISIBLE_DEVICES=0,1,2,3" in row["cmd"]
+                            for row in four_card_graph))
+        graph_search = [row for row in bundle["standard"] if "graphSearchTest" in row["cmd"]]
+        self.assertEqual(len(graph_search), 3)
+        self.assertTrue(all(row["plan"] == "pccl_810e_graph_search_test_single_node1_plan"
+                            for row in graph_search))
+        self.assertTrue(all("--root {test_root}/pccl/tests/graph_search_test/" in row["cmd"]
+                            for row in graph_search))
+
+    def test_graph_search_allocates_two_cards_on_both_platforms(self):
+        generated = self.bundle("graph_search_test_shm", "full", platform="oam810e_eic")
+        self.assertEqual({row["cards_per_node"] for row in generated["suites"]}, {2})
+        for directory in (ROOT / "minimal-csv", ROOT / "minimal-csv-oam810e-eic"):
+            with self.subTest(bundle=directory.name):
+                cases = run_cases.load_inputs(directory, "standard", 1)["cases"]
+                graph = [case for case in cases if "graphSearchTest" in case["cmd"]]
+                self.assertEqual(len(graph), 3)
+                self.assertEqual({case["suite_spec"]["cards_per_node"] for case in graph}, {2})
+                self.assertEqual({platform_cases.allocation_cards_per_node(case)
+                                  for case in graph}, {2})
+        plan = group_cases.build_plan(ROOT / "minimal-csv-oam810e-eic", 500)
+        allocated = [group["cards_per_node"] for group in plan["groups"]
+                     for case in group["cases"] if "graphSearchTest" in case["cmd"]]
+        self.assertEqual(len(allocated), 3)
+        self.assertEqual(set(allocated), {2})
 
     def test_groups_retain_platform_selector_and_results_identity(self):
         raw = [self.bundle("op_perf_shm", "smoke")]
@@ -219,6 +272,11 @@ class PlatformCasesTests(unittest.TestCase):
             case("run_test.py --nprocs 4 --nnodes 2", 2)), 4)
         self.assertEqual(platform_cases.allocation_cards_per_node(
             case("true", 2)), 4)
+        graph = case("build/graphSearchTest --root {test_root}/pccl/tests/graph_search_test/ "
+                     "--gtest_filter='graphSearchTestWithoutPXN.*'", 1,
+                     name="checkin_graphSearchTest_without_pxn")
+        graph["suite_spec"]["cards_per_node"] = 2
+        self.assertEqual(platform_cases.allocation_cards_per_node(graph), 2)
         m890p = case("mpirun -np 2 hostname", 1)
         m890p["plan"] = "pccl_shm_plan"
         m890p["suite_spec"]["cards_per_node"] = 8

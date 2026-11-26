@@ -11,7 +11,10 @@ set -e
 #   package name    : pccl_for_test_hggcrt13_ubuntu24
 #
 # Keep the body in sync with pccl_hggcrt13_tar_build.sh by hand; the two are meant to start out
-# identical and diverge only on purpose.
+# identical and diverge only on purpose. This script diverges by building with --enable_tests and
+# shipping the complete pccl/tests subtree: the test pipeline runs graphSearchTest from
+# tests/graph_search_test/build/ and reads the topology XMLs next to it. A second, test-free build
+# pass adds the pcclras/pcclparam binaries that the test target omits.
 #
 # Validate required environment variables.
 if [ -z "${source_home}" ]; then
@@ -536,7 +539,7 @@ apt_install_toolchain() {
     timeout -k 30 1800 apt-get -o Acquire::http::Timeout=30 -o Acquire::https::Timeout=30 \
         -o Acquire::Retries=2 -o Acquire::ForceIPv4=true \
         -o Dpkg::Options::=--force-confdef -o Dpkg::Options::=--force-confold \
-        install -y --no-install-recommends wget make gcc g++ cmake git ca-certificates python3 libopenmpi-dev openmpi-bin tzdata </dev/null
+        install -y --no-install-recommends wget make gcc g++ cmake git ca-certificates python3 libopenmpi-dev openmpi-bin tzdata unzip </dev/null
 }
 
 # The docker_base images are plain OS images: they carry neither the PPU SDK nor the build
@@ -544,7 +547,7 @@ apt_install_toolchain() {
 # internal-only proxy, hence the mirror rewrite below.
 install_build_dependencies() {
     local missing=""
-    for tool in wget make gcc g++ cmake git python3; do
+    for tool in wget make gcc g++ cmake git python3 unzip; do
         command -v "$tool" >/dev/null 2>&1 || missing="$missing $tool"
     done
     command -v mpicxx >/dev/null 2>&1 || missing="$missing openmpi"
@@ -616,7 +619,7 @@ install_build_dependencies() {
         # `tar`/`gzip` are missing from alinux3's minimal image too, and both the source staging of
         # the worker pod and the final tarball packaging need them.
         yum install -y --setopt=timeout=60 --setopt=retries=3 \
-            tar gzip wget make gcc gcc-c++ cmake git ca-certificates openmpi-devel
+            tar gzip wget make gcc gcc-c++ cmake git ca-certificates openmpi-devel unzip
         if ! yum install -y python3 >/dev/null 2>&1 && ! yum install -y python36 >/dev/null 2>&1; then
             echo "python3/python36 are not packaged here; falling back to the bundled interpreter"
         fi
@@ -737,10 +740,11 @@ fi
 # build.sh defaults --hggcrt_version to 12 and forwards it to make, which stamps the
 # hggcrt_version field of the packaged release.yaml, so this HGGCRT 13 script has to name its
 # runtime explicitly or the bundle advertises v2.
+build_log=/tmp/pccl-build.log
 set +e
 if [ -n "${package_version}" ]; then
     echo "Building with package version: ${package_version}"
-    bash build.sh --use_sdk --hggcrt_version 13 --package_version ${package_version} --cpu_num ${cpu_num} 2>&1 | tee /tmp/pccl-build.log
+    bash build.sh --use_sdk --hggcrt_version 13 --package_version ${package_version} --cpu_num ${cpu_num} --enable_tests 2>&1 | tee "${build_log}"
 else
     echo "Building without package version (default)"
     VERSION_FILE="${source_home}/pccl/makefiles/version.mk"
@@ -749,14 +753,27 @@ else
     PCCL_PATCH=$(grep "^PCCL_PATCH" ${VERSION_FILE} | sed 's/.*:=\s*//')
     TIMESTAMP=$(date +%Y%m%d%H%M%S)
     GENERATED_VERSION="${PCCL_MAJOR}.${PCCL_MINOR}.${PCCL_PATCH}-${TIMESTAMP}"
-    bash build.sh --use_sdk --hggcrt_version 13 --package_version ${GENERATED_VERSION} --cpu_num ${cpu_num} 2>&1 | tee /tmp/pccl-build.log
+    bash build.sh --use_sdk --hggcrt_version 13 --package_version ${GENERATED_VERSION} --cpu_num ${cpu_num} --enable_tests 2>&1 | tee "${build_log}"
 fi
 build_rc=${PIPESTATUS[0]}
+# A test build replaces `binary` with `tests` in src/Makefile, so pcclras/pcclparam only exist in a
+# test-free pass; without them the pccl_build/bin/pcclras copy below fails. The second run is
+# incremental: the library and the test artifacts above are already up to date.
+if [ "${build_rc}" -eq 0 ]; then
+    echo "Building the utility binaries the test build omits"
+    build_log=/tmp/pccl-build-utils.log
+    if [ -n "${package_version}" ]; then
+        bash build.sh --use_sdk --hggcrt_version 13 --package_version ${package_version} --cpu_num ${cpu_num} 2>&1 | tee "${build_log}"
+    else
+        bash build.sh --use_sdk --hggcrt_version 13 --package_version ${GENERATED_VERSION} --cpu_num ${cpu_num} 2>&1 | tee "${build_log}"
+    fi
+    build_rc=${PIPESTATUS[0]}
+fi
 set -e
 if [ "${build_rc}" -ne 0 ]; then
     # The symmetric kernel tables only reach colldevice.a when generate.py ran before make parsed
     # the device Makefile; surface what the build itself said about that step.
-    grep -nE "Generating |pre-generated|rules\.mk|python3|ncclSymk" /tmp/pccl-build.log 2>/dev/null \
+    grep -nE "Generating |pre-generated|rules\.mk|python3|ncclSymk" "${build_log}" 2>/dev/null \
         | tail -n 30 || true
     dump_pccl_link_diagnostics
     exit "${build_rc}"
@@ -801,6 +818,19 @@ cp ${source_home}/pccl/LICENSE.txt ${build_output}/pccl_build/LICENSE.txt
 
 cp ${source_home}/pccl/build/release.yaml ${build_output}/pccl_build/release.yaml
 
+# Fail the row early when --enable_tests silently skipped the test targets. The graph-search
+# binary and every topology/reference XML it reads live under tests/, which the test pipeline
+# addresses as {test_root}/pccl/tests/..., so ship that complete subtree under pccl/.
+for binary in build/collPcclUnitTest build/hggcGraphUnitTest build/pcclCommAbortTest \
+              tests/graph_search_test/build/graphSearchTest; do
+    if [ ! -x "${source_home}/pccl/${binary}" ]; then
+        echo "::error::--enable_tests did not produce ${binary}"
+        exit 1
+    fi
+done
+mkdir -p ${build_output}/pccl
+cp -a ${source_home}/pccl/tests ${build_output}/pccl/
+
 echo "BUILD PCCL FINISHED"
 
 # pccl-tests ships from this same run: the perf binaries are linked against the libpccl.so built a
@@ -826,7 +856,7 @@ package_pccl_tests() {
     local repo="${source_home}/pccl-tests"
     local bins="all_gather_perf all_reduce_perf broadcast_perf reduce_scatter_perf reduce_perf"
     local component bin
-    bins="${bins} alltoall_perf gather_perf scatter_perf sendrecv_perf hypercube_perf"
+    bins="${bins} alltoall_perf alltoallv_perf gather_perf scatter_perf sendrecv_perf hypercube_perf"
     if [ ! -f "${repo}/build.sh" ]; then
         echo "::warning::${repo} is not checked out, skipping the pccl-tests tarball"
         return 0

@@ -20,7 +20,7 @@ The daily workflow generates its inputs from JSON test families. Its only datase
 `smoke` intentionally contains two single-node Cases. For multi-node debugging, select
 `full` together with `nodes=2`, `nodes=4` or `nodes=8`, and optionally an exact Suite name.
 
-`source-sanity.yml` runs on same-repository and fork pull requests, pushes to `main`, and manual dispatch. Every PR runs secret scanning, commit checks, AI review and human approval on GitHub-hosted runners first. Self-hosted builds and internal result processing start only after those gates succeed, so an unapproved fork PR receives no self-hosted allocation. The maintained Plan/Suite/Case definitions are the only test source. Their reviewed commands are exported to the versioned CSV files under `tests/xtest/minimal-csv`; GitHub does not install or import xtest/mmengine.
+`source-sanity.yml` runs on same-repository and fork pull requests, pushes to `main`, and manual dispatch. Every PR runs secret scanning, commit checks, AI review and human approval on GitHub-hosted runners first. Self-hosted builds and internal result processing start only after those gates succeed, so an unapproved fork PR receives no self-hosted allocation. The maintained Plan/Suite/Case definitions are the only test source. Their reviewed commands are exported to the versioned CSV files under `.github/xtest/minimal-csv`; GitHub does not install or import xtest/mmengine.
 
 The final gate always runs on a GitHub-hosted runner without token permissions,
 checkout, repository-script execution or NAS access. Internal result reconciliation
@@ -45,8 +45,8 @@ before execution rather than disappearing from the selected coverage.
 Validate selections without running hardware:
 
 ```bash
-python3 -S -B tests/xtest/run_cases.py   --input tests/xtest/minimal-csv --profile standard --nodes 1 --validate-only
-python3 -S -B tests/xtest/run_cases.py   --input tests/xtest/minimal-csv --profile notsm --nodes 1 --validate-only
+python3 -S -B .github/xtest/run_cases.py   --input .github/xtest/minimal-csv --profile standard --nodes 1 --validate-only
+python3 -S -B .github/xtest/run_cases.py   --input .github/xtest/minimal-csv --profile notsm --nodes 1 --validate-only
 ```
 
 Result checks are `exit_code`, `validation_summary` and `performance`. Performance requires command success, a validation summary and a valid table, and emits `metrics.csv`; there is no baseline or sample-stability gate. Raw logs remain unmodified in the private results area.

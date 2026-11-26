@@ -490,7 +490,7 @@ def run_case(case, runtime, interrupted):
         environment["PATH"] = (str(runtime["binary_dir"]) + os.pathsep
                                + str(runtime["python_bin"]) + os.pathsep + environment.get("PATH", ""))
         if suite["nodes"] > 1:
-            environment["PATH"] = str(runtime["test_root"] / "pccl" / "tests" / "xtest" / "cluster-bin") \
+            environment["PATH"] = str(runtime["test_root"] / "pccl" / ".github" / "xtest" / "cluster-bin") \
                 + os.pathsep + environment["PATH"]
         environment["LD_LIBRARY_PATH"] = str(runtime["test_root"] / "lib") + os.pathsep + environment.get(
             "LD_LIBRARY_PATH", "")
@@ -526,7 +526,7 @@ def run_case(case, runtime, interrupted):
         (directory / "command.txt").write_text(command + "\n", encoding="utf-8")
         popen_command = ["/bin/sh", "-c", command]
         if suite["nodes"] > 1:
-            launcher = runtime["test_root"] / "pccl" / "tests" / "xtest" / "remote_recovery.py"
+            launcher = runtime["test_root"] / "pccl" / ".github" / "xtest" / "remote_recovery.py"
             popen_command = [sys.executable, str(launcher), "--case-id", runtime["recovery_id"],
                              f"--launch={command}"]
         with log_path.open("wb") as output:
@@ -612,7 +612,7 @@ def _recover_multinode(case, runtime, row):
         fields = line.split()
         if fields and not fields[0].startswith("#"):
             hosts.append(fields[0])
-    script = runtime["test_root"] / "pccl" / "tests" / "xtest" / "remote_recovery.py"
+    script = runtime["test_root"] / "pccl" / ".github" / "xtest" / "remote_recovery.py"
     report = {"safe": False, "case_id": runtime["recovery_id"], "workers": {}}
     if not hosts or not script.is_file():
         report["error"] = "Missing allocated workers or remote recovery helper"
@@ -702,7 +702,7 @@ def run_all(inputs, test_root, binary_dir, output, hostfile=None, base_environme
             raise ValueError("Multi-node Cases require an allocated hostfile")
         for relative in ("cluster-bin/cluster-ssh", "cluster-bin/cluster-exec",
                          "cluster-bin/cluster_case_ssh.sh", "remote_recovery.py"):
-            if not (test_root / "pccl" / "tests" / "xtest" / relative).is_file():
+            if not (test_root / "pccl" / ".github" / "xtest" / relative).is_file():
                 raise ValueError(f"Multi-node recovery helper is missing: {relative}")
         if any("/run/cluster/bin/" in case["cmd"] for case in inputs["cases"]):
             raise ValueError("Absolute cluster-ssh paths bypass per-Case cgroup ownership")
