@@ -477,8 +477,27 @@ __forceinline__ __device__ uint4 reduceBulkWithPrefetch(volatile T* srcs[NRANKS]
   return sum.upacked;
 }
 
-template<typename T, int NRANKS, int DSTS, int ELT_WISE_TAIL = 0>
-__inline__ __device__ void reduceFromMultiSource(volatile T* srcs[NRANKS], volatile T** dsts, int32_t Npack, int32_t exElts, int32_t warpGroupSize, int32_t wid, int32_t laneId) {
+// The source slots start at firstRank. Fold the suffix starting at rank 0,
+// then the prefix, using constant slot indices so the packs stay in registers.
+template<typename Packed, int NRANKS>
+__forceinline__ __device__ uint4 sumInRankOrder(Packed (&vals)[NRANKS], int firstRank) {
+  const int zeroSlot = (NRANKS - firstRank) % NRANKS;
+  Packed sum;
+  sum.upacked = vals[0].upacked;
+  #pragma unroll
+  for (int i = 1; i < NRANKS; ++i) {
+    if (i == zeroSlot) sum.upacked = vals[i].upacked;
+    else if (i > zeroSlot) sum.packed = add128b(sum, vals[i]);
+  }
+  #pragma unroll
+  for (int i = 0; i < NRANKS - 1; ++i) {
+    if (i < zeroSlot) sum.packed = add128b(sum, vals[i]);
+  }
+  return sum.upacked;
+}
+
+template<typename T, int NRANKS, int DSTS, int ELT_WISE_TAIL = 0, bool NEXT_PEER_FIRST = false>
+__inline__ __device__ void reduceFromMultiSource(volatile T* srcs[NRANKS], volatile T** dsts, int32_t Npack, int32_t exElts, int32_t warpGroupSize, int32_t wid, int32_t laneId, int firstRank = 0) {
   static constexpr int PACKED_ELTS_PER_THREAD = PACKED_ELEMS_SIZE / sizeof(T);
   static constexpr int PACKED_ELTS_PER_WARP = PACKED_ELTS_PER_THREAD * WARP_SIZE;
   using PackedStruct = typename PackedOn16Bytes<T>::Type;
@@ -488,22 +507,17 @@ __inline__ __device__ void reduceFromMultiSource(volatile T* srcs[NRANKS], volat
 
   while(wid < Npack) {
     PackedStruct sum;
-    if (NRANKS > 8) {
+    if (!NEXT_PEER_FIRST && NRANKS > 8) {
       sum.upacked = reduceBulkWithPrefetch<T, NRANKS>(srcs, offset);
     } else {
       PackedStruct vals[NRANKS];
-      BulkLoad128(vals[0].upacked, (const uint4*)(srcs[0] + offset));
-
+      constexpr int localSlot = NEXT_PEER_FIRST ? NRANKS - 1 : 0;
       #pragma unroll
-      for (int ii = 1; ii < NRANKS; ++ii) {
-        RemoteBulkLoad128(vals[ii].upacked, (const uint4*)(srcs[ii] + offset));
+      for (int i = 0; i < NRANKS; ++i) {
+        if (i == localSlot) BulkLoad128(vals[i].upacked, (const uint4*)(srcs[i] + offset));
+        else RemoteBulkLoad128(vals[i].upacked, (const uint4*)(srcs[i] + offset));
       }
-      // Sum the values from the different ranks.
-      #pragma unroll
-      for (int ii = 1; ii < NRANKS; ++ii) {
-        vals[0].packed = add128b(vals[0], vals[ii]);
-      }
-      sum.upacked = vals[0].upacked;
+      sum.upacked = sumInRankOrder(vals, firstRank);
     }
     BulkStore128(sum.upacked, (uint4*)(dsts[0] + offset));
     if (DSTS > 1) {
@@ -526,21 +540,17 @@ __inline__ __device__ void reduceFromMultiSource(volatile T* srcs[NRANKS], volat
     if (laneOffset < alignedEx) {
       PackedStruct vals[NRANKS];
       int32_t elemOffset = baseOffset + laneOffset;
-      Load128(vals[0].upacked, (const uint4*)(srcs[0] + elemOffset));
-
       #pragma unroll
-      for (int ii = 1; ii < NRANKS; ++ii) {
-        Load128(vals[ii].upacked, (const uint4*)(srcs[ii] + elemOffset));
+      for (int i = 0; i < NRANKS; ++i) {
+        Load128(vals[i].upacked, (const uint4*)(srcs[i] + elemOffset));
       }
-      #pragma unroll
-      for (int ii = 1; ii < NRANKS; ++ii) {
-        vals[0].packed = add128b(vals[0], vals[ii]);
-      }
-      Store128(vals[0].upacked, (uint4*)(dsts[0] + elemOffset));
+      PackedStruct sum;
+      sum.upacked = sumInRankOrder(vals, firstRank);
+      Store128(sum.upacked, (uint4*)(dsts[0] + elemOffset));
       if (DSTS > 1) {
         #pragma unroll
         for (int ii = 1; ii < NRANKS; ++ii) {
-          Store128(vals[0].upacked, (uint4*)(dsts[ii] + elemOffset));
+          Store128(sum.upacked, (uint4*)(dsts[ii] + elemOffset));
         }
       }
     }
@@ -569,26 +579,32 @@ __inline__ __device__ void reduceFromMultiSource(volatile T* srcs[NRANKS], volat
 }
 
 template<typename T, int NRANKS, int DSTS>
-__inline__ __device__ void reduceFromMultiSourceElemWise(volatile T* srcs[NRANKS], volatile T** dsts, int32_t totalElts, int32_t warpGroupSize, int32_t wid, int32_t laneId) {
-  // element wise data load/store.
-  // do not fuse with bulk load/store for now. handle the address later.
+__inline__ __device__ void reduceFromMultiSourceElemWise(volatile T* srcs[NRANKS], volatile T** dsts, int32_t totalElts, int32_t warpGroupSize, int32_t wid, int32_t laneId, int firstRank = 0) {
+  // Load into fixed slots so staggered reads can stay in registers.
+  const int zeroSlot = (NRANKS - firstRank) % NRANKS;
   int32_t offset = laneId + wid * WARP_SIZE;
   while(offset < totalElts) {
     T vals[NRANKS];
     #pragma unroll
-    for (int ii = 0; ii < NRANKS; ++ii) {
-      vals[ii] = srcs[ii][offset];
+    for (int i = 0; i < NRANKS; ++i) {
+      vals[i] = srcs[i][offset];
+    }
+    T sum = vals[0];
+    #pragma unroll
+    for (int i = 1; i < NRANKS; ++i) {
+      if (i == zeroSlot) sum = vals[i];
+      else if (i > zeroSlot) sum += vals[i];
     }
     #pragma unroll
-    for (int ii = 1; ii < NRANKS; ++ii) {
-      vals[0] += vals[ii];
+    for (int i = 0; i < NRANKS - 1; ++i) {
+      if (i < zeroSlot) sum += vals[i];
     }
-    dsts[0][offset] = vals[0];
+    dsts[0][offset] = sum;
 
     if (DSTS > 1) {
       #pragma unroll
       for (int ii = 1; ii < NRANKS; ++ii) {
-        dsts[ii][offset] = vals[0];
+        dsts[ii][offset] = sum;
       }
     }
 

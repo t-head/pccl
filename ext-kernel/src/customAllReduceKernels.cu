@@ -84,11 +84,12 @@ __global__ void pcclKernel_oneShotAllReduceKernel(struct oneShotDevParams params
   const int32_t buffEltsOffset = params.buffEltsPerBlock * bidx;
   const int32_t eltsOffset = params.eltsPerBlock * bidx;
 
+  const int firstRank = (params.myRank + 1) % NRANKS;
   volatile T* srcPtrs[NRANKS];
   #pragma unroll
-  for (int ii = 0; ii < NRANKS; ++ii) {
-    int rank = (params.myRank + ii) % NRANKS;
-    srcPtrs[ii] = (T*)params.peerBuffers[rank] + buffEltsOffset;
+  for (int i = 0; i < NRANKS; ++i) {
+    const int rank = (firstRank + i) % NRANKS;
+    srcPtrs[i] = (T*)params.peerBuffers[rank] + buffEltsOffset;
   }
 
   volatile T* sendbuff = (T*)params.sendbuff + eltsOffset;
@@ -99,16 +100,17 @@ __global__ void pcclKernel_oneShotAllReduceKernel(struct oneShotDevParams params
   int32_t exElts = eltsPerBlock % (PACKED_ELTS_PER_WARP);
   int32_t Npack = eltsPerBlock / PACKED_ELTS_PER_WARP;
 
-  if (INPUT_ALIGN) memcpyPackWise<T, 1, 1>(srcPtrs[0], sendbuff, Npack, exElts, nWarps, wid, laneId);
-  else memcpyElementWise<T, 1, 1>(srcPtrs[0], sendbuff, eltsPerBlock, nWarps, wid, laneId);
+  volatile T* localBuffer = srcPtrs[NRANKS - 1];
+  if (INPUT_ALIGN) memcpyPackWise<T, 1, 1>(localBuffer, sendbuff, Npack, exElts, nWarps, wid, laneId);
+  else memcpyElementWise<T, 1, 1>(localBuffer, sendbuff, eltsPerBlock, nWarps, wid, laneId);
 
   uint32_t barrierFlag = getBarrierFlag<NRANKS>(params.peerBarrierIn, params.myRank, tidx, bidx) + 1;
 
   __syncthreads();
   blockBarrier<NRANKS>(params.peerBarrierIn, barrierFlag, params.myRank, tidx, bidx, params.abortFlag);
 
-  if (OUTPUT_ALIGN) reduceFromMultiSource<T, NRANKS, 1>(srcPtrs, &recvbuff, Npack, exElts, nWarps, wid, laneId);
-  else reduceFromMultiSourceElemWise<T, NRANKS, 1>(srcPtrs, &recvbuff, eltsPerBlock, nWarps, wid, laneId);
+  if (OUTPUT_ALIGN) reduceFromMultiSource<T, NRANKS, 1, 0, true>(srcPtrs, &recvbuff, Npack, exElts, nWarps, wid, laneId, firstRank);
+  else reduceFromMultiSourceElemWise<T, NRANKS, 1>(srcPtrs, &recvbuff, eltsPerBlock, nWarps, wid, laneId, firstRank);
 
   __syncthreads();
   blockBarrier<NRANKS>(params.peerBarrierOut, barrierFlag, params.myRank, tidx, bidx, params.abortFlag);
