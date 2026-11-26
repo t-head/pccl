@@ -1,0 +1,96 @@
+name: Restore PCCL host coverage from run 45746419059
+
+on:
+  push:
+    branches: [codex/pccl-coverage-replay-45746419059]
+    paths:
+      - .github/workflows/pccl-coverage-replay-45746419059.yml
+      - .github/workflows/scripts/pccl_coverage_replay_45746419059.py
+
+permissions:
+  actions: read
+  contents: read
+
+jobs:
+  replay:
+    if: github.repository == 't-head/pccl' && github.ref == 'refs/heads/codex/pccl-coverage-replay-45746419059'
+    name: Restore and archive the report on CPU
+    runs-on: ubuntu-24.04-arm
+    timeout-minutes: 20
+    steps:
+      - uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262 # v4
+        with:
+          persist-credentials: false
+      - uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262 # v4
+        with:
+          ref: ccdfb190b321acdbba91bc1e8b4dbbcf6d79c379
+          path: original-source
+          persist-credentials: false
+      - name: Download the original build notes bundle
+        uses: actions/download-artifact@d3f86a106a0bac45b974a628896c90dbdf5c8093 # v4
+        with:
+          github-token: ${{ github.token }}
+          run-id: 45746419059
+          artifact-ids: 15087017226
+          merge-multiple: true
+          path: ${{ runner.temp }}/pccl-replay-inputs
+      - name: Download the original per-rank profile bundle
+        uses: actions/download-artifact@d3f86a106a0bac45b974a628896c90dbdf5c8093 # v4
+        with:
+          github-token: ${{ github.token }}
+          run-id: 45746419059
+          artifact-ids: 15087441668
+          merge-multiple: true
+          path: ${{ runner.temp }}/pccl-replay-inputs
+      - name: Install the audited GCOV and gcovr versions
+        shell: bash
+        run: |
+          set -euo pipefail
+          tools="$RUNNER_TEMP/pccl-replay-tools"
+          mkdir -p "$tools/bin"
+          pkg="$tools/gcc-13.deb"
+          curl --fail --silent --show-error --location --retry 3 --output "$pkg" \
+            'https://ports.ubuntu.com/ubuntu-ports/pool/main/g/gcc-13/gcc-13-aarch64-linux-gnu_13.3.0-6ubuntu2~24.04.1_arm64.deb'
+          printf '%s  %s\n' '618086c3f64d780d0d8ffff2a07bef6115a301e71ee364bcf92c10b9b7dd499c' "$pkg" | sha256sum --check -
+          dpkg-deb --extract "$pkg" "$tools/gcc"
+          for tool in gcov-13 gcov-tool-13; do
+            ln -s "$tools/gcc/usr/bin/aarch64-linux-gnu-$tool" "$tools/bin/$tool"
+          done
+          python3 -m venv "$tools/venv"
+          "$tools/venv/bin/python" -m pip install --disable-pip-version-check \
+            --index-url https://pypi.org/simple 'gcovr==8.4'
+          printf '%s\n' "$tools/bin" "$tools/venv/bin" >> "$GITHUB_PATH"
+      - name: Verify provenance and regenerate the host report
+        shell: bash
+        run: |
+          set -euo pipefail
+          sudo mkdir -p /workspace/source
+          sudo chown "$(id -u):$(id -g)" /workspace/source
+          test ! -e /workspace/source/pccl
+          mv original-source /workspace/source/pccl
+          python3 -B .github/workflows/scripts/pccl_coverage_replay_45746419059.py \
+            "$RUNNER_TEMP/pccl-replay-inputs" "$RUNNER_TEMP/pccl-recovered-report"
+      - id: report
+        name: Upload HTML, Cobertura and provenance
+        uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02 # v4
+        with:
+          name: PCCL-host-coverage-45746419059
+          path: |
+            ${{ runner.temp }}/pccl-recovered-report/html/
+            ${{ runner.temp }}/pccl-recovered-report/coverage.xml
+            ${{ runner.temp }}/pccl-recovered-report/gcovr-summary.json
+            ${{ runner.temp }}/pccl-recovered-report/recovery-provenance.json
+          if-no-files-found: error
+          retention-days: 14
+      - name: Publish the verified report link
+        shell: bash
+        env:
+          ARTIFACT_URL: ${{ steps.report.outputs.artifact-url }}
+        run: |
+          {
+            printf '## Recovered PCCL C++ host coverage\n\n'
+            printf '[Download HTML, Cobertura XML and provenance (ZIP)](%s)\n\n' "$ARTIFACT_URL"
+            printf 'Source: [run 45746419059, attempt 1](https://github.com/t-head/pccl/actions/runs/45746419059/attempts/1). '
+            printf 'Offline report recovery only; the original run conclusion is unchanged.\n\n'
+            printf -- '- Lines: 11,134/37,159 (29.96%%)\n- Functions: 1,153/2,820 (40.89%%)\n- Branches: 8,238/77,348 (10.65%%)\n'
+          } >> "$GITHUB_STEP_SUMMARY"
