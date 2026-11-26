@@ -1,0 +1,234 @@
+name: PCCL M890P CX8 host coverage experiment
+
+on:
+  push:
+    branches: [codex/pccl-host-gcov-experiment]
+    paths:
+      - .github/workflows/pccl-m890p-coverage.yml
+      - .github/workflows/scripts/pccl_m890p_coverage.py
+      - .github/workflows/scripts/pccl_m890p_coverage_rank.sh
+      - tests/host_coverage/test_m890p_coverage.py
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+concurrency:
+  group: pccl-m890p-host-coverage-${{ github.ref }}
+  cancel-in-progress: false
+
+env:
+  COVERAGE_IMAGE: download.t-head.cn/docker_release/ppu:sdk2.2.0-hggcrt3-ubuntu24.04-py312-20261005
+  HPN_SDK_URL: https://zone-ci.oss-cn-hangzhou.aliyuncs.com/hpn-sdk/2.1.3/hpnsdk2.1.3-ubuntu2404-202611121836-x86_64.bin
+  PCCL_TESTS_REVISION: 394556512e87259e9ffa25225632c46b0a0bbcd5
+  COVERAGE_KEY: pccl-m890p-gcov-${{ github.run_id }}-${{ github.run_attempt }}
+
+jobs:
+  build:
+    if: github.repository == 't-head/pccl' && github.ref == 'refs/heads/codex/pccl-host-gcov-experiment'
+    name: Build full host-instrumented runtime and AllReduce on CPU
+    runs-on: x86-ubuntu2404-8-32
+    timeout-minutes: 170
+    container:
+      image: download.t-head.cn/docker_release/ppu:sdk2.2.0-hggcrt3-ubuntu24.04-py312-20261005
+      options: --runtime=runc --cpus=8 --memory=28g --pids-limit=2048
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          ref: ${{ github.sha }}
+          path: pccl
+          persist-credentials: false
+      - uses: actions/checkout@v4
+        with:
+          repository: t-head/pccl-tests
+          ref: ${{ env.PCCL_TESTS_REVISION }}
+          path: pccl-tests
+          persist-credentials: false
+      - name: Validate coverage helpers and the single existing Case
+        run: |
+          python3 -B -m unittest discover -s pccl/tests/host_coverage -v
+          python3 -B pccl/.github/workflows/scripts/pccl_m890p_coverage.py check-case
+      - name: Build PCCL and the single benchmark
+        shell: bash
+        run: |
+          set -eo pipefail
+          mkdir -p "$GITHUB_WORKSPACE/coverage-build" /workspace/source
+          exec > >(tee "$GITHUB_WORKSPACE/coverage-build/build.log") 2>&1
+          apt-get update
+          apt-get install -y --no-install-recommends build-essential g++-13 libnuma-dev libibverbs-dev wget
+          SECONDS=0
+          bash pccl/.github/workflows/scripts/install_hpn_sdk.sh
+          source /usr/local/PPU_SDK/envsetup.sh
+          export PATH="/usr/local/openmpi/bin:$PATH"
+          # Keep the compilation directory identical in the reporting worker.
+          test ! -e /workspace/source/pccl
+          cp -a pccl /workspace/source/pccl
+          src=/workspace/source/pccl
+          build="$src/build"
+          test ! -e "$build"
+          cxx=$(command -v g++-13)
+          timeout -k 60s 100m env CXXFLAGS=-fprofile-update=atomic make -C "$src" -j8 \
+            src.lib src.host_gcov_flags BUILDDIR="$build" HOST_GCOV=1 GCOV=0 DEBUG=0 \
+            PPU_ARCHS=ppu_10,ppu_15 HGGCRT_VERSION=12 CXX="$cxx" "PPU_OPTION=-ccbin;$cxx"
+          echo "PCCL build and SDK setup: ${SECONDS}s"
+          bundle=$(mktemp -d)
+          mkdir -p "$bundle/benchmark" "$bundle/pccl-tests" "$bundle/notes"
+          timeout -k 30s 15m make -C pccl-tests/src -j8 MPI=1 PCCL_HOME="$build" \
+            PPU_ARCHS=ppu_10,ppu_15 BUILDDIR="$bundle/benchmark" "$bundle/benchmark/all_reduce_perf"
+          cp pccl-tests/run_test.py pccl-tests/run_test_config.py "$bundle/pccl-tests/"
+          cp -a "$build/lib" "$bundle/lib"
+          readelf -d "$bundle/benchmark/all_reduce_perf" > "$bundle/benchmark-dynamic.txt"
+          grep -E 'NEEDED.*\[libpccl\.so\.' "$bundle/benchmark-dynamic.txt"
+          cxx_version=$("$cxx" --version)
+          gcov_version=$(gcov-13 --version)
+          printf '%s\n' "${cxx_version%%$'\n'*}" > "$bundle/cxx-version.txt"
+          printf '%s\n' "${gcov_version%%$'\n'*}" > "$bundle/gcov-version.txt"
+          printf '%s\n' "$GITHUB_SHA" "$PCCL_TESTS_REVISION" > "$bundle/revisions.txt"
+          cd "$build"
+          find obj -name '*.gcno' -type f -print0 | tar -cf - --null -T - | tar -xf - -C "$bundle/notes"
+          test -s "$bundle/notes/obj/init.gcno"
+          test -z "$(find "$bundle/notes" -path '*/collectives/device/*' -name '*.gcno' -print -quit)"
+          find "$bundle/benchmark" -type f ! -name all_reduce_perf -delete
+          chmod -R a+rX "$bundle"
+          tar -czf "$GITHUB_WORKSPACE/coverage-build/runtime.tar.gz" -C "$bundle" .
+          cd "$GITHUB_WORKSPACE/coverage-build"
+          sha256sum runtime.tar.gz > runtime.tar.gz.sha256
+          echo "Runtime bundle: $(du -h runtime.tar.gz | cut -f1)"
+      - name: Upload coverage build log
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: ${{ env.COVERAGE_KEY }}-build-log
+          path: coverage-build/build.log
+          if-no-files-found: warn
+      - name: Upload the coverage runtime and build notes
+        uses: actions/upload-artifact@v4
+        with:
+          name: ${{ env.COVERAGE_KEY }}-runtime
+          path: |
+            coverage-build/runtime.tar.gz
+            coverage-build/runtime.tar.gz.sha256
+          if-no-files-found: error
+          retention-days: 7
+
+  two-node:
+    needs: build
+    name: One AllReduce on two M890P CX8 workers
+    runs-on: k8s-runner-group-cpu-thead
+    container:
+      image: ghcr.io/actions/actions-runner:latest
+    timeout-minutes: 100
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          ref: ${{ github.sha }}
+          path: pccl
+          persist-credentials: false
+      - uses: t-head/pccl/.github/actions/download-artifact-retry@42c06876282e700ae0434b4577fedd757b6f2db1
+        with:
+          name: ${{ env.COVERAGE_KEY }}-runtime
+          path: coverage-download
+      - name: Verify and stage the isolated runtime
+        shell: bash
+        run: |
+          set -euo pipefail
+          cd coverage-download
+          sha256sum --check runtime.tar.gz.sha256
+          shared="/wl_nas/devops/$COVERAGE_KEY"
+          umask 022
+          mkdir "$shared"
+          mv runtime.tar.gz runtime.tar.gz.sha256 "$shared/"
+      - name: Run one existing two-node RDMA Case
+        uses: t-head/ci-infra/cluster-run@04c173f28ea637e582125110966344e4a6052a7e
+        with:
+          image: ${{ env.COVERAGE_IMAGE }}
+          launch_mode: master
+          nnodes: 2
+          nproc_per_node: 8
+          node_selector: board-type=ZW-M890P,nic-type=cx8
+          rack_policy: same
+          namespace: ppu-sched
+          timeout_minutes: 75
+          container_options: |
+            privileged: true
+            host_network: true
+            dns_policy: ClusterFirstWithHostNet
+          host_volumes: /dev/infiniband:/dev/infiniband
+          setup_command: |
+            set -eo pipefail
+            : "${HPN_SDK_URL:?Missing HPN SDK URL}"
+            bash /workspace/source/pccl/.github/workflows/scripts/install_hpn_sdk.sh
+            source /usr/local/PPU_SDK/envsetup.sh
+            MPI_INTERFACE=$(awk '$2 == "00000000" {print $1; exit}' /proc/net/route)
+            test -n "$MPI_INTERFACE"
+            export HWLOC_COMPONENTS=-gl
+            export OMPI_MCA_plm_rsh_agent=cluster-ssh
+            export OMPI_MCA_orte_base_help_aggregate=0
+            export OMPI_MCA_orte_keep_fqdn_hostnames=1
+            export OMPI_MCA_oob_tcp_if_include="$MPI_INTERFACE"
+            export OMPI_MCA_btl_tcp_if_include="$MPI_INTERFACE"
+            export NCCL_SOCKET_IFNAME="$MPI_INTERFACE"
+            export UMD_PLATFORM_TYPE=1
+            export PATH="/usr/local/openmpi/bin:$PATH"
+            ulimit -l unlimited
+            ulimit -s 65536
+            if ! command -v ibv_devinfo >/dev/null || ! command -v rdma >/dev/null; then
+              apt-get update
+              apt-get install -y --no-install-recommends rdma-core ibverbs-utils iproute2
+            fi
+            ibv_devinfo
+            rdma link show
+            test -d /dev/infiniband
+          command: |
+            set -eo pipefail
+            umask 022
+            shared="/mnt/wl_nas/devops/$COVERAGE_KEY"
+            mkdir "$shared/report"
+            exec > >(tee "$shared/report/worker.log") 2>&1
+            cd "$shared"
+            sha256sum --check runtime.tar.gz.sha256
+            mkdir runtime
+            tar -xzf runtime.tar.gz -C runtime
+            test "$(sed -n '1p' runtime/revisions.txt)" = '${{ github.sha }}'
+            test "$(sed -n '2p' runtime/revisions.txt)" = "$PCCL_TESTS_REVISION"
+            # Install the lightweight test driver before occupying the communicator.
+            apt-get update
+            apt-get install -y --no-install-recommends gcc-13 python3-venv
+            python3 -m venv /workspace/m890p-coverage-tools
+            tools=/workspace/m890p-coverage-tools/bin
+            "$tools/python" -m pip install --disable-pip-version-check --index-url https://pypi.org/simple \
+              'gcovr==8.4' -r /workspace/source/pccl/tests/xtest/requirements.txt
+            export PATH="$tools:$PATH"
+            source /usr/local/PPU_SDK/envsetup.sh
+            MPI_INTERFACE=$(awk '$2 == "00000000" {print $1; exit}' /proc/net/route)
+            test "$(wc -l < "$CLUSTER_HOSTS_FILE")" -eq 2
+            timeout -k 10s 60s mpirun --allow-run-as-root \
+              --hostfile "$CLUSTER_HOSTS_FILE" -np 2 -npernode 1 hostname
+            "$tools/python" /workspace/source/pccl/.github/workflows/scripts/pccl_m890p_coverage.py run \
+              --shared "$shared" --hostfile "$CLUSTER_HOSTS_FILE" --mpi-interface "$MPI_INTERFACE"
+      - name: Publish result status
+        if: always()
+        shell: bash
+        run: |
+          report="/wl_nas/devops/$COVERAGE_KEY/report/summary.md"
+          if [ -f "$report" ]; then
+            cat "$report" >> "$GITHUB_STEP_SUMMARY"
+          else
+            echo 'No coverage result was produced; see the allocation or setup logs.' >> "$GITHUB_STEP_SUMMARY"
+          fi
+      - id: report
+        name: Upload coverage report and diagnostics
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: ${{ env.COVERAGE_KEY }}-report
+          path: /wl_nas/devops/${{ env.COVERAGE_KEY }}/report/
+          if-no-files-found: error
+          retention-days: 14
+      - name: Remove only this attempt's NAS files after upload
+        if: always() && steps.report.outcome == 'success'
+        shell: bash
+        run: |
+          set -euo pipefail
+          [[ "$COVERAGE_KEY" =~ ^pccl-m890p-gcov-[0-9]+-[0-9]+$ ]]
+          rm -rf -- "/wl_nas/devops/$COVERAGE_KEY"

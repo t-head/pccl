@@ -1,15 +1,7 @@
 name: PCCL host GCOV experiment
 
 on:
-  # Bootstrap this new workflow without changing the default branch or daily CI.
-  push:
-    branches: [codex/pccl-host-gcov-experiment]
-    paths:
-      - .github/workflows/pccl-host-coverage.yml
-      - .github/workflows/scripts/pccl_host_coverage.py
-      - tests/host_coverage/test_host_coverage.py
-      - makefiles/common.mk
-      - src/Makefile
+  # Keep graph-only validation opt-in while the hardware experiment runs on push.
   workflow_dispatch:
     inputs:
       library_kind:

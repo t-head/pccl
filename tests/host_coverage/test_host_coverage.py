@@ -271,21 +271,13 @@ class HostCoverageTests(unittest.TestCase):
     def test_workflow_is_isolated_and_keeps_reports_after_failure(self):
         text = (ROOT / ".github/workflows/pccl-host-coverage.yml").read_text()
         self.assertIn("  workflow_dispatch:", text)
-        for trigger in ("  pull_request:", "  schedule:"):
+        for trigger in ("  pull_request:", "  schedule:", "  push:"):
             self.assertNotIn(trigger, text)
-        push = text.split("  push:\n", 1)[1].split("  workflow_dispatch:", 1)[0]
-        self.assertIn("branches: [codex/pccl-host-gcov-experiment]", push)
-        self.assertEqual(push.count("branches:"), 1)
-        self.assertNotIn("*", push)
-        for path in (".github/workflows/pccl-host-coverage.yml",
-                     ".github/workflows/scripts/pccl_host_coverage.py", "tests/host_coverage/test_host_coverage.py",
-                     "makefiles/common.mk", "src/Makefile"):
-            self.assertIn("      - " + path, push)
         self.assertIn("if: always()", text)
         self.assertNotIn("code-quality: write", text)
         self.assertIn("gcovr==" + coverage.GCOVR_VERSION, text)
 
-    def test_push_has_cpu_and_arch_defaults_without_dispatch_inputs(self):
+    def test_workflow_has_bounded_cpu_and_arch_fallbacks(self):
         text = (ROOT / ".github/workflows/pccl-host-coverage.yml").read_text()
         self.assertIn("--cpus=${{ inputs.jobs || '8' }}", text)
         self.assertIn("BUILD_JOBS: ${{ inputs.jobs || '8' }}", text)

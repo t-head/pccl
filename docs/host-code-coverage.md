@@ -1,10 +1,8 @@
 # PCCL C++ host coverage experiment
 
-This workflow (`PCCL host GCOV experiment`) accepts manual dispatch and a narrowly
-scoped push on `codex/pccl-host-gcov-experiment` when its workflow, helper or
-contract tests change. The branch-only push bootstraps the experiment in GitHub
-Actions without adding it to the default branch. It uses 8 CPU jobs and `ppu_15`
-device dependencies when no dispatch inputs exist. There is no scheduled or PR
+The graph-only workflow (`PCCL host GCOV experiment`) was bootstrapped via a
+branch-only push. It now runs only on manual dispatch; pushes for the M890P CX8
+experiment do not also launch the CPU graph tests. There is no scheduled or PR
 trigger. It does not alter daily/sanity builds, their gates, or performance
 baselines. It does not collect Python or PPU kernel coverage, and does not enable GitHub Code Quality.
 
@@ -199,3 +197,29 @@ complete job took about 50 minutes, mostly SDK container initialization (about
 PPU kernel correctness result or performance baseline.** The earlier full-runtime
 attempts remain recorded as timeouts. No Issue or PR was created and no default
 branch, daily/sanity workflow or baseline data was modified.
+
+## Two-node M890P CX8 experiment
+
+`PCCL M890P CX8 host coverage experiment` is separate from the graph-only job
+and normal CI. Only `codex/pccl-host-gcov-experiment` can start its jobs. It has
+no schedule, PR trigger, or 810E or larger-node matrix.
+
+- Build the complete core `libpccl.so` on a CPU-only runner, with the sanity
+  SDK/image and optimized PPU kernels. Use `HOST_GCOV=1 GCOV=0 DEBUG=0` and
+  atomic host profile counters. Only build the pinned MPI AllReduce benchmark;
+  its code and optional plugin code are not part of the coverage report.
+- Bind the library, compilation notes and benchmark to a checksummed artifact.
+  Allocate two CX8 workers in the same rack only after a successful build. Use
+  the existing two-node sanity Case: 16 ranks, 32 MiB float AllReduce sum, 10
+  iterations. Require the benchmark's zero-mismatch correctness summary.
+- Use xTest's rank-local device mapping and recovery. Each MPI rank verifies
+  the loaded library path and writes its own counters and transport log.
+  Check both workers for cross-host IB/RoCE channels, reject Socket data
+  transport, and require profiles for all 16 ranks before merging.
+- Merge counters from this build only with the matching GNU tools. Upload raw
+  per-rank evidence, build/case logs and host-only HTML/Cobertura/JSON output.
+  Failed tests, missing ranks or missing RDMA proof do not count as a passed
+  coverage run. Instrumented timing is never used as a performance baseline.
+
+The first hardware run is required to validate the SDK build and runtime on
+`ICN64_890P_CX8`; local contract tests do not substitute for that result.
