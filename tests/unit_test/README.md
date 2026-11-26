@@ -96,14 +96,15 @@ On a single node with symmetric P2P DMA support, run from `tests/unit_test`:
 ./run_symm_p2p_alltoall.sh 4 262144 50 0
 ```
 
-The script first checks the PCCL tuning log for a symmetric DMA batch covering
-every peer, including self. It then runs the same shape with tuning logs disabled.
+The runner invokes the binary once. Before printing performance, the binary checks
+its own tuning log for a full symmetric DMA batch for the warm-up and each timed
+exchange. Direct invocations perform the same check.
 The `symm_alltoall` mode of `sendRecvPcclUnitTest` registers separate symmetric
 send and receive windows and validates every received element against its source,
 destination and position. Each exchange groups one Send and one Recv per peer.
 
 `us/op` is wall time per exchange averaged over the timed batch, including host
-submission and completion on all ranks. Window setup, one warm-up exchange and
+submission, tuning log writes and completion on all ranks. Window setup, one warm-up exchange and
 validation are outside the timed interval. `remote GB/s/rank` counts outgoing
 payload to other ranks, calculated as `(ranks - 1) * bytes_per_peer / seconds_per_op / 1e9`.
 

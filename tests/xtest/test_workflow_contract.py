@@ -367,13 +367,13 @@ class WorkflowContractTests(unittest.TestCase):
         self.assertEqual(metadata['xtest_version'], '0.12.0')
         self.assertEqual(metadata['runner_revision'], artifact_cache.PCCL_TESTS_REVISION)
         self.assertTrue(re.fullmatch(r'[0-9a-f]{40}', metadata['source_revision']))
-        expected = {('standard', 1): 71, ('standard', 2): 1, ('notsm', 1): 37}
+        expected = {('standard', 1): 74, ('standard', 2): 1, ('notsm', 1): 37}
         for (profile, nodes), count in expected.items():
             selected = run_cases.load_inputs(directory, profile, nodes)
             self.assertEqual(len(selected['cases']), count)
         selections = reconcile_results.load_selections(directory)
         self.assertEqual({name: len(inputs['cases']) for name, inputs in selections.items()},
-                         {'standard': 71, 'notsm': 37, 'cluster': 1})
+                         {'standard': 74, 'notsm': 37, 'cluster': 1})
 
     def test_public_runtime_dependencies_remain_minimal(self):
         self.assertEqual((ROOT / 'tests/xtest/requirements.txt').read_text().strip(),

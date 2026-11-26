@@ -104,9 +104,6 @@ void parseArguments(int argc, char **argv) {
       ERROR("symm_alltoall requires a fixed positive num_elems and positive num_iterations.");
       exit(testInternalError);
     }
-    setenv("PCCL_P2P_DMA_ENABLE", "1", 1);
-    setenv("PCCL_CTA_POLICY", "2", 1); // PCCL_CTA_POLICY_ZERO
-    setenv("PCCL_P2P_DMA_MIN_BYTES", "0", 1);
   } else if ((mode != "single" && mode != "thread") || num_devs != 2) {
     ERROR("Use single or thread with two devices, or symm_alltoall with two or more.");
     exit(testInternalError);
@@ -209,12 +206,61 @@ int runTest(int* devs, hggcStream_t* s, pcclComm_t* comms, int num_devs, int num
   return res;
 }
 
+static void setTestEnv(const char* name, const char* value) {
+  if (setenv(name, value, 1) != 0) {
+    perror(name);
+    exit(testInternalError);
+  }
+}
+
+static FILE* configureSymmAlltoAll() {
+  FILE* log = tmpfile();
+  if (!log) {
+    perror("Cannot open tuning log");
+    exit(testInternalError);
+  }
+  const std::string path = "/proc/self/fd/" + std::to_string(fileno(log));
+  setTestEnv("PCCL_DEBUG_FILE", path.c_str());
+  setTestEnv("PCCL_DEBUG", "INFO");
+  setTestEnv("PCCL_DEBUG_SUBSYS", "TUNING");
+  setTestEnv("PCCL_DEBUG_DEV", "-1");
+  setTestEnv("PCCL_PER_COMM_HASH_DEBUG_FILE", "");
+  setTestEnv("PCCL_COMM_BLOCKING", "1");
+  setTestEnv("PCCL_P2P_DMA_ENABLE", "1");
+  setTestEnv("PCCL_CTA_POLICY", "2"); // PCCL_CTA_POLICY_ZERO
+  setTestEnv("PCCL_P2P_DMA_MIN_BYTES", "0");
+  return log;
+}
+
+// Rank zero logs one full batch per exchange, including the warm-up.
+static bool allExchangesUsedDma(FILE* log) {
+  const std::string peers = std::to_string(num_devs);
+  const std::string batch = "]: batch nSend " + peers + " nRecv " + peers + " nSelfSend 1 ";
+  const char prefix[] = "SendRecv [Symmetric DMA";
+  size_t matches = 0;
+  char line[4096];
+  while (fgets(line, sizeof(line), log)) {
+    const char* label = strstr(line, prefix);
+    if (!label) continue;
+    const char* suffix = label + sizeof(prefix) - 1;
+    const char* end = strchr(suffix, ']');
+    if ((*suffix == ' ' || *suffix == ']') && end && strncmp(end, batch.c_str(), batch.size()) == 0)
+      ++matches;
+  }
+  const size_t exchanges = static_cast<size_t>(num_iterations) + 1;
+  if (ferror(log) || matches != exchanges) {
+    ERROR("Expected %zu full symmetric DMA batches, observed %zu", exchanges, matches);
+    return false;
+  }
+  return true;
+}
+
 // Each sender addresses blocks by destination. Each receiver lays them out by source.
 static uint32_t payload(int src, int dst, size_t i) {
   return 0x9e3779b9u * (src + 1u) + 0x85ebca6bu * (dst + 1u) + static_cast<uint32_t>(i);
 }
 
-static int runSymmAlltoAll(const int* devs, const hggcStream_t* streams, const pcclComm_t* comms) {
+static int runSymmAlltoAll(const int* devs, const hggcStream_t* streams, const pcclComm_t* comms, FILE* log) {
   const size_t count = num_elems;
   const size_t rankBytes = num_devs * count * sizeof(uint32_t);
   std::vector<uint32_t*> send(num_devs), recv(num_devs);
@@ -262,8 +308,11 @@ static int runSymmAlltoAll(const int* devs, const hggcStream_t* streams, const p
   }
   for (int r = 0; r < num_devs; ++r) {
     HGGCCHECK(hggcSetDevice(devs[r]));
-    HGGCCHECK(hggcMemsetAsync(recv[r], 0, rankBytes, streams[r]));
-    HGGCCHECK(hggcStreamSynchronize(streams[r]));
+    for (int src = 0; src < num_devs; ++src) {
+      for (size_t i = 0; i < count; ++i) host[src * count + i] = ~payload(src, r, i);
+    }
+    HGGCCHECK(hggcMemcpy(recv[r], host.data(), rankBytes, hggcMemcpyHostToDevice));
+    HGGCCHECK(hggcDeviceSynchronize());
   }
 
   const auto start = std::chrono::steady_clock::now();
@@ -275,8 +324,8 @@ static int runSymmAlltoAll(const int* devs, const hggcStream_t* streams, const p
   const double us = std::chrono::duration<double, std::micro>(
       std::chrono::steady_clock::now() - start).count() / num_iterations;
 
-  int result = testSuccess;
-  for (int r = 0; r < num_devs; ++r) {
+  int result = allExchangesUsedDma(log) ? testSuccess : testInternalError;
+  for (int r = 0; result == testSuccess && r < num_devs; ++r) {
     HGGCCHECK(hggcSetDevice(devs[r]));
     HGGCCHECK(hggcMemcpy(host.data(), recv[r], rankBytes, hggcMemcpyDeviceToHost));
     for (size_t offset = 0; offset < host.size(); ++offset) {
@@ -288,6 +337,9 @@ static int runSymmAlltoAll(const int* devs, const hggcStream_t* streams, const p
         break;
       }
     }
+  }
+  for (int r = 0; r < num_devs; ++r) {
+    HGGCCHECK(hggcSetDevice(devs[r]));
     PCCLCHECK(pcclCommWindowDeregister(comms[r], recvWin[r]));
     PCCLCHECK(pcclCommWindowDeregister(comms[r], sendWin[r]));
     PCCLCHECK(pcclMemFree(recv[r]));
@@ -305,6 +357,9 @@ int main(int argc, char **argv) {
   gethostname(hostName, HOST_NAME_LEN);
   // parse input arguments
   parseArguments(argc, argv);
+
+  std::unique_ptr<FILE, decltype(&fclose)> tuningLog(
+      mode == "symm_alltoall" ? configureSymmAlltoAll() : nullptr, &fclose);
 
   // Use consecutive devices starting at start_dev_id.
   std::vector<int> devs(num_devs);
@@ -325,7 +380,7 @@ int main(int argc, char **argv) {
   int res = 0;
   bool isRandomTest = min_num_elems > 0 && max_num_elems > 0 && min_num_elems < max_num_elems;
   if (mode == "symm_alltoall") {
-    res = runSymmAlltoAll(devs.data(), streams.data(), comms.data());
+    res = runSymmAlltoAll(devs.data(), streams.data(), comms.data(), tuningLog.get());
   } else if (isRandomTest) {
     std::random_device rd; // obtain a random number from hardware
     std::mt19937 gen(rd()); // seed the generator
