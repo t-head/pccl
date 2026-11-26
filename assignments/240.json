@@ -1,14 +1,14 @@
 {
   "classification": {
     "base_sha": "45088cc56be51899765bd637aae280d1ba7d10fc",
-    "head_sha": "d15ce8ce0e540bbb096976aa55886bde73e93740",
-    "input_fingerprint": "bfdf8064386dae5b849c656cb66bf266cb734ae55a7a553855aa3b0fffcb7fca",
+    "head_sha": "d33c59c699fe82c53d75540459acb9b25df41e5c",
+    "input_fingerprint": "b87e8d0bdc56afc15bc2bacecf5c7ed5ff2f15ff5412fc07b8b955db32fc976c",
     "pr_number": 240,
     "proposal": {
       "modules": [
         "ci"
       ],
-      "reason": "Main change is CI test orchestration: source-sanity/daily workflows now run expanded native unit + graphSearch coverage (including 810E 2-card/4-card split), update case-generation inputs under .github/xtest, and adjust CI build/staging scripts to produce/package required test binaries and artifacts; no PCCL runtime/module behavior change is shown, and patch-omitted renames appear to support this same CI migration."
+      "reason": "Main change is in open-source test workflow execution: source-sanity/daily workflow wiring, xtest path migration, expanded 890P+810E case generation (including graphSearch/native unit suites), 810E card-allocation split, and CI build-job staging/packaging of test binaries. No evidence of PCCL runtime module behavior changes; patch_omitted files are predominantly rename-only CI runner assets."
     }
   },
   "reviewers": {
