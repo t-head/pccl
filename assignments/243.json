@@ -1,15 +1,15 @@
 {
   "classification": {
-    "base_sha": "c6fab1fe8ba458595e12c09da15243c6a9f22a7f",
-    "head_sha": "1c7e7c993f462f193653ad7c0fc4a69860bbb398",
-    "input_fingerprint": "e87424c88f2e445b0627c759e415eb3ccf401beca7d3e9ef3e94d2b48b140b6b",
+    "base_sha": "c83b84012932617ce91ff15e944ea3e5c27d87a6",
+    "head_sha": "df7320abaaac040a9a88b4926435fcdb8c6c6159",
+    "input_fingerprint": "f8b841208bc4334d86ed0c16ff9f6affe6901e7ef8093d0d7d23fad109a42011",
     "pr_number": 243,
     "proposal": {
+      "additional_modules": [],
       "modules": [
-        "communicator",
-        "ci"
+        "communicator"
       ],
-      "reason": "Primary change is new MPI native tests for communicator lifecycle APIs (`pcclCommGetUniqueId`, `pcclCommGrow`, `pcclCommRevoke`/`Shrink`) and their expected runtime behavior after parent destruction or revocation; CI is additionally required because the PR substantively adds a new `comm_lifecycle_810e` test family, wires new binaries into daily workflow/build scripts, and updates platform case-count expectations/documented test-set composition."
+      "reason": "Main change is new lifecycle API coverage for communicator grow/revoke semantics: tests/unit_test/src/pcclCommGrowTest.cu exercises pcclCommGetUniqueId()+pcclCommGrow with parent teardown and post-grow AllReduce checks, and tests/unit_test/src/pcclCommRevokeTest.cu exercises pcclCommRevoke+pcclCommShrink recovery and duplicate-revoke error contract. CI/build/list/doc edits (.github/workflows/scripts/build.sh, .github/xtest/test_lists/comm_lifecycle_810e.json, tests/unit_test/src/Makefile, docs) are integration/supporting updates for that communicator-lifecycle feature, not an independent module behavior change."
     }
   },
   "reviewers": {
