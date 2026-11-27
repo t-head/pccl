@@ -51,9 +51,10 @@ static __device__ __inline__ bool p2pDmaSlotLaneUsed(struct pcclP2pDmaWork* send
   for (int i = 0; i < nSend; i++) {
     size_t bytes = (size_t)sends[i].bytes;
     if (bytes == 0) continue;
-    if (lane >= p2pDmaActiveDies<DIE_NUM>(bytes, oki1DieMax)) continue;
+    int activeDies = p2pDmaActiveDies<DIE_NUM>(bytes, oki1DieMax);
+    if (lane >= activeDies) continue;
     if (p2pDmaSlotOf(sends[i].peer, rank, nRanks, qpSlots) != slot) continue;
-    return true;
+    if (p2pDmaLaneBytes<DIE_NUM>(bytes, activeDies, lane) > 0) return true;
   }
   return false;
 }
