@@ -226,6 +226,13 @@ class PlatformCasesTests(unittest.TestCase):
             with self.assertRaisesRegex(ValueError, "Invalid environment file"):
                 generate_pr_cases.write_pr_bundle(bundle, Path(temporary) / "input", DEFINITIONS / "envs")
 
+    def test_communicator_cases_are_excluded_from_pr_bundles(self):
+        for directory in (ROOT / "minimal-csv", ROOT / "minimal-csv-oam810e-eic"):
+            for profile in ("standard", "notsm"):
+                with self.subTest(bundle=directory.name, profile=profile):
+                    self.assertNotRegex((directory / f"{profile}.csv").read_text(),
+                                        r'\bpcclComm(?:Shrink|Grow|Revoke)Test\b')
+
     def test_ib_environment_is_inherited_and_forwarded_to_mpi_ranks(self):
         direct = run_cases._with_ib_environment("mpirun --allow-run-as-root -np 2 hostname")
         self.assertIn("mpirun -x NCCL_IB_ADAPTIVE_ROUTING=1 -x NCCL_IB_OOO_RQ=1 ", direct)
@@ -290,8 +297,8 @@ class PlatformCasesTests(unittest.TestCase):
         families = {}
         with tempfile.TemporaryDirectory() as temporary:
             root = Path(temporary)
-            for variable, platform, expected in (("GENERATED_DEFINITIONS", "m890p", 10193),
-                                                ("GENERATED_810E_DEFINITIONS", "oam810e_eic", 7666)):
+            for variable, platform, expected in (("GENERATED_DEFINITIONS", "m890p", 10203),
+                                                ("GENERATED_810E_DEFINITIONS", "oam810e_eic", 7676)):
                 blocks = re.findall(r'^ *' + variable + r'\+?=\(\n(.*?)^ *\)',
                                     workflow, flags=re.MULTILINE | re.DOTALL)
                 definitions = [Path(path).name for path in
@@ -309,6 +316,9 @@ class PlatformCasesTests(unittest.TestCase):
                 self.assertEqual(result.returncode, 0, result.stderr)
                 bundle = generate_cases.load_bundle(output)
                 self.assertEqual(len(bundle['rows']), expected)
+                for binary, count in (('pcclCommShrinkTest', 2), ('pcclCommGrowTest', 3),
+                                      ('pcclCommRevokeTest', 5)):
+                    self.assertEqual(sum(f'build/{binary} ' in row['cmd'] for row in bundle['rows']), count)
                 bundles.append(bundle)
                 families[platform] = definitions
             self.assertNotIn('device_api_gin_810e.json', families['m890p'])
@@ -316,7 +326,7 @@ class PlatformCasesTests(unittest.TestCase):
             self.assertNotIn('device_api_gin_810e', platform_cases.load_platform('oam810e_eic')['families'])
             self.assertFalse(any('GIN_TYPE=' in row['cmd'] for row in bundles[1]['rows']))
             combined = generate_cases.combine_bundles(bundles)
-            self.assertEqual(len(combined['rows']), 17859)
+            self.assertEqual(len(combined['rows']), 17879)
             generate_cases.write_bundle(combined, root / 'input', DEFINITIONS / 'envs')
             plan = group_cases.build_plan(root / 'input', 500, allowed_nodes=(1, 2, 4, 8))
             totals = Counter()
@@ -359,7 +369,7 @@ class PlatformCasesTests(unittest.TestCase):
                             self.assertEqual(arguments[arguments.index('--nproc') + 1], str(ranks))
                             self.assertEqual(cards, ranks)
                             covered[(platform, 'sym-eight-rank-source')] += 1
-            self.assertEqual(totals, {'m890p': 10184, 'oam810e_eic': 7666})
+            self.assertEqual(totals, {'m890p': 10194, 'oam810e_eic': 7676})
             self.assertEqual(len(plan['groups']), 53)
             self.assertEqual(sum(record['case_count'] for record in plan['exclusions']), 9)
             for platform, rdma in (('m890p', 18), ('oam810e_eic', 6)):
@@ -369,7 +379,7 @@ class PlatformCasesTests(unittest.TestCase):
                 self.assertGreater(covered[(platform, 'sym-eight-rank-source')], 0)
             group_cases.write_plan(plan, root / 'groups', root / 'input')
             manifest = json.loads((root / 'groups/groups.json').read_text(encoding='utf-8'))
-            self.assertEqual(sum(row['case_count'] for row in manifest), 17850)
+            self.assertEqual(sum(row['case_count'] for row in manifest), 17870)
             self.assertEqual({row['platform'] for row in manifest}, {'m890p', 'oam810e_eic'})
 
     def test_smoke_cli_grouping_matches_documented_platform_counts(self):
@@ -391,7 +401,10 @@ class PlatformCasesTests(unittest.TestCase):
                                 '--runner-revision', SHA, '--output', str(output)))
                 result = subprocess.run(command, capture_output=True, text=True)
                 self.assertEqual(result.returncode, 0, result.stderr)
-                bundles.append(generate_cases.load_bundle(output))
+                bundle = generate_cases.load_bundle(output)
+                for row in bundle['rows']:
+                    self.assertNotRegex(row['cmd'], r'\bpcclComm(?:Shrink|Grow|Revoke)Test\b')
+                bundles.append(bundle)
             generate_cases.write_bundle(generate_cases.combine_bundles(bundles),
                                         root / 'input', DEFINITIONS / 'envs')
             plan = group_cases.build_plan(root / 'input', 500, allowed_nodes=(1, 2, 4, 8))

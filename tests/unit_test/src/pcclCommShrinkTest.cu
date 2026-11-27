@@ -8,6 +8,7 @@
 
 #include <stdio.h>
 #include <iostream>
+#include <vector>
 #include "hggc_runtime.h"
 #include "pccl.h"
 #include "logger.h"
@@ -107,7 +108,7 @@ int main(int argc, char* argv[])
   hggcStream_t s;
 
   //get PCCL unique ID at myRank 0 and broadcast it to all others
-  if (myRank == 0) pcclGetUniqueId(&id);
+  if (myRank == 0) PCCLCHECK(pcclGetUniqueId(&id));
 #ifdef MPI_SUPPORT
   MPICHECK(MPI_Bcast((void *)&id, sizeof(id), MPI_BYTE, 0, MPI_COMM_WORLD));
 #endif
@@ -116,6 +117,11 @@ int main(int argc, char* argv[])
   HGGCCHECK(hggcMalloc(&sendbuff, size * sizeof(float)));
   HGGCCHECK(hggcMalloc(&recvbuff, size * sizeof(float)));
   HGGCCHECK(hggcStreamCreate(&s));
+
+  std::vector<float> hostbuff(size);
+  for (int i = 0; i < size; i++) hostbuff[i] = myRank + 1 + i % 7;
+  HGGCCHECK(hggcMemcpy(sendbuff, hostbuff.data(), size * sizeof(float), hggcMemcpyHostToDevice));
+  HGGCCHECK(hggcMemset(recvbuff, 0, size * sizeof(float)));
 
   pcclResult_t state = pcclSuccess;
   pcclConfig_t config = PCCL_CONFIG_INITIALIZER;
@@ -127,6 +133,7 @@ int main(int argc, char* argv[])
     do {
       PCCLCHECK(pcclCommGetAsyncError(comm, &state));
     } while(state == pcclInProgress);
+    PCCLCHECK(state);
   }
   // communicating using PCCL
   PCCLCHECK(pcclAllReduce((const void*)sendbuff, (void*)recvbuff, size, pcclFloat, pcclSum,
@@ -135,8 +142,20 @@ int main(int argc, char* argv[])
     do {
       PCCLCHECK(pcclCommGetAsyncError(comm, &state));
     } while(state == pcclInProgress);
+    PCCLCHECK(state);
   }
   HGGCCHECK(hggcStreamSynchronize(s));
+  HGGCCHECK(hggcMemcpy(hostbuff.data(), recvbuff, size * sizeof(float), hggcMemcpyDeviceToHost));
+  for (int i = 0; i < size; i++) {
+    float expected = nRanks * (nRanks + 1) / 2 + nRanks * (i % 7);
+    if (hostbuff[i] != expected) {
+      ERROR("Rank %d: parent AllReduce index %d got %f expected %f", myRank, i, hostbuff[i], expected);
+      exit(testInternalError);
+    }
+  }
+#ifdef MPI_SUPPORT
+  MPICHECK(MPI_Barrier(MPI_COMM_WORLD));
+#endif
 
   // comm shrink test
   pcclComm_t newcomm;
@@ -150,29 +169,57 @@ int main(int argc, char* argv[])
       do {
         PCCLCHECK(pcclCommGetAsyncError(comm, &state));
       } while(state == pcclInProgress);
+      PCCLCHECK(state);
+    }
+    int expectedRank = myRank;
+    int expectedCount = nRanks - args.excludeCount;
+    int rankSum = nRanks * (nRanks + 1) / 2;
+    for (int excludedRank : args.excludeRanks) {
+      if (excludedRank < myRank) expectedRank--;
+      rankSum -= excludedRank + 1;
+    }
+    int rank, count, dev;
+    PCCLCHECK(pcclCommUserRank(newcomm, &rank));
+    PCCLCHECK(pcclCommCount(newcomm, &count));
+    PCCLCHECK(pcclCommCuDevice(newcomm, &dev));
+    if (rank != expectedRank || count != expectedCount || dev != localRank) {
+      ERROR("Rank %d: communicator rank/count/device %d/%d/%d, expected %d/%d/%d",
+            myRank, rank, count, dev, expectedRank, expectedCount, localRank);
+      exit(testInternalError);
     }
     // Use the new communicator for collective operations
+    HGGCCHECK(hggcMemset(recvbuff, 0, size * sizeof(float)));
     PCCLCHECK(pcclAllReduce((const void*)sendbuff, (void*)recvbuff, size, pcclFloat, pcclSum,
             newcomm, s));
     if (args.blocking == 0) {
       do {
         PCCLCHECK(pcclCommGetAsyncError(newcomm, &state));
       } while(state == pcclInProgress);
+      PCCLCHECK(state);
     }
     //completing PCCL operation by synchronizing on the HGGC stream
     HGGCCHECK(hggcStreamSynchronize(s));
+    HGGCCHECK(hggcMemcpy(hostbuff.data(), recvbuff, size * sizeof(float), hggcMemcpyDeviceToHost));
+    for (int i = 0; i < size; i++) {
+      float expected = rankSum + expectedCount * (i % 7);
+      if (hostbuff[i] != expected) {
+        ERROR("Rank %d: child AllReduce index %d got %f expected %f", myRank, i, hostbuff[i], expected);
+        exit(testInternalError);
+      }
+    }
     // When done, destroy the new communicator
-    pcclCommDestroy(newcomm);
+    PCCLCHECK(pcclCommDestroy(newcomm));
   }
 #ifdef MPI_SUPPORT
-  MPI_Barrier(MPI_COMM_WORLD);
+  MPICHECK(MPI_Barrier(MPI_COMM_WORLD));
 #endif
   //free device buffers
   HGGCCHECK(hggcFree(sendbuff));
   HGGCCHECK(hggcFree(recvbuff));
+  HGGCCHECK(hggcStreamDestroy(s));
 
   // finalizing PCCL
-  pcclCommDestroy(comm);
+  PCCLCHECK(pcclCommDestroy(comm));
 
 #ifdef MPI_SUPPORT
   //finalizing MPI
