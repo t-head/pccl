@@ -1,19 +1,18 @@
 {
   "classification": {
-    "base_sha": "c6fab1fe8ba458595e12c09da15243c6a9f22a7f",
-    "head_sha": "3bd9ddf6b56c4eec769a3dbd2d5dc03ac130fdb7",
-    "input_fingerprint": "b09ea9e037cf4aa4634773414bdf9b2278f325c2da0529aeb29932ba2d72d99b",
+    "base_sha": "c83b84012932617ce91ff15e944ea3e5c27d87a6",
+    "head_sha": "c0a376f2c5426e484a803e107896dbeaac1b2970",
+    "input_fingerprint": "14d63858a47243bb1b3cb95fe645d7cc8fc62d4fed5265fd7b4c5ffa46cc837d",
     "pr_number": 245,
     "proposal": {
+      "additional_modules": [],
       "modules": [
-        "symmetric",
-        "copy-engine"
+        "symmetric"
       ],
-      "reason": "Main change is in symmetric-memory collective OKI paths: rank-slice tail sizing and broadcast pre-copy bounds are fixed in symmetric CE kernels. Additional copy-engine review is needed because the patch also changes CE/DMA transfer partitioning and lane activity logic (4-byte per-die split, zero-byte lane suppression for P2P DMA doorbell/CQ behavior)."
+      "reason": "Main change is in symmetric-memory collective OKI kernels: src/collectives/device/symmetric/ce_kernel_oki.cuh now sizes reduce DMA by remaining elements per iteration and caps broadcast pre-copy to local-rank elements, and src/collectives/device/symmetric/oki_utils.cuh plus p2p_dma_oki.cuh adjust per-die lane byte splitting/usage to avoid zero-byte lane fencing. This is symmetric-specific collective kernel behavior (including its CE path details), so symmetric takes priority over broader CE/DMA candidates."
     }
   },
   "reviewers": {
-    "copy-engine": 333277982,
-    "symmetric": 335730053
+    "copy-engine": 333277982
   }
 }
