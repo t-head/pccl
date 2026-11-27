@@ -1,23 +1,23 @@
 {
   "classification": {
-    "base_sha": "74c2d3f5e9bf90578520feda20a3938c3d938917",
-    "head_sha": "fc9871ce11b62db1c4da7c58df16dba7191e227b",
-    "input_fingerprint": "6bc79fe0bc1ac4e7df95f5303fae10c3891198ea3dd3dd4eb2bff81bc1248474",
+    "base_sha": "4620d52ab5ddcd700954bd03a41ecd81a39e38dd",
+    "head_sha": "eaa255010b4d521fb36109ca353b1a69d51c6735",
+    "input_fingerprint": "b48a9c0c3df69303426673e307c5a5fcd846d84aa6a252149c8d9e7a5324cbdc",
     "pr_number": 163,
     "proposal": {
+      "additional_modules": [
+        "enqueue"
+      ],
       "modules": [
-        "build",
-        "enqueue",
         "kernels",
         "kernel-plugin"
       ],
-      "reason": "Main change is a full rebase of device collective kernels and dispatch generation onto NCCL-style primitives/templates, including new generated function/kernel tables and reachability guards (kernels). enqueue is additionally needed because function-id mapping, redop encoding (Min/Max fold to MinMax), and kernel selection failure handling changed in runtime planning/launch paths. kernel-plugin is additionally needed because ext-kernel device redop enum/ABI-facing contracts changed (ncclDevMax/ncclDevMin -> ncclDevMinMax), affecting plugin compatibility. build is additionally needed because the device-kernel build pipeline was replaced by generate.py/rules.mk generation and new dependency/object wiring in the device Makefile."
+      "reason": "Primary is **kernels**: `src/collectives/device/*.h` rewrites collective device algorithms/primitives to NCCL-style `Primitives`+`Fan` contracts, removes hand-maintained `.cu` instantiations, and adds generator-owned dispatch (`src/collectives/device/generate.py`, generated table plumbing in `src/include/collectives.h`/`src/include/devcomm.h`). Secondary is **kernel-plugin**: ext-kernel ABI is versioned to v2 (`ext-kernel/pccl/ext_kernel.h`, `src/include/ext_kernel_plugin.h`, `ext-kernel/src/plugin.c`), changing plugin symbol, task struct, and device redop contract (`MinMax` fold + scalar args), which is an independent plugin-interface change. Additional **enqueue**: `src/enqueue.cc` switches runtime kernel lookup to generated func-id maps and changes host-to-device redop encoding (`ncclDevMinMax`, signed avg divisor encoding), impacting enqueue/dispatch behavior."
     }
   },
   "reviewers": {
     "build": 341349555,
     "enqueue": 341349555,
-    "kernel-plugin": 341751581,
-    "kernels": 340404662
+    "kernel-plugin": 341751581
   }
 }
