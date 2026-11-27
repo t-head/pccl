@@ -55,7 +55,7 @@ def saved_review_state(api, number):
 
 def module_approval(api, pr, roster, skill, record, approvals):
     history = api.pages(f"/issues/{pr['number']}/timeline")
-    required = routing.required_reviewers(pr, record, roster, history)
+    required = routing.required_reviewers(pr, roster, history)
     if not required:
         reason = ("Waiting for module classification; rerun reviewer routing" if not record["classification"]
                   else "At least one invited module member other than the author must remain")

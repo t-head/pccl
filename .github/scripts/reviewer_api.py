@@ -15,9 +15,10 @@ def valid_login(login):
 
 
 class GitHubError(RuntimeError):
-    def __init__(self, method, path, status):
+    def __init__(self, method, path, status, details):
         self.status = status
-        super().__init__(f"GitHub {method} {path} returned {status}")
+        message = f"GitHub {method} {path} returned {status}"
+        super().__init__(f"{message}: {details}" if details else message)
 
 
 class GitHub:
@@ -39,7 +40,15 @@ class GitHub:
             with urlopen(request, timeout=30) as response:
                 return None if response.status == 204 else json.load(response)
         except HTTPError as error:
-            raise GitHubError(method, path, error.code) from None
+            try:
+                body = json.load(error)
+            except Exception:
+                body = {}
+            details = {key: body[key] for key in ("message", "errors") if key in body} if isinstance(body, dict) else {}
+            details = json.dumps(details).replace(self.token, "[REDACTED]") if details else ""
+            if len(details) > 2000:
+                details = details[:2000] + "..."
+            raise GitHubError(method, path, error.code, details) from None
 
     @cache
     def login(self, user_id):
