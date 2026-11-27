@@ -1,15 +1,16 @@
 {
   "classification": {
     "base_sha": "c83b84012932617ce91ff15e944ea3e5c27d87a6",
-    "head_sha": "df7320abaaac040a9a88b4926435fcdb8c6c6159",
-    "input_fingerprint": "f8b841208bc4334d86ed0c16ff9f6affe6901e7ef8093d0d7d23fad109a42011",
+    "head_sha": "95864e9ec4da11dd19c7e2b96919412b53102b38",
+    "input_fingerprint": "ec6523d09df03ac3f97c6b902318128aee0b21009fe0257a87a4716df0ddd0f6",
     "pr_number": 243,
     "proposal": {
       "additional_modules": [],
       "modules": [
-        "communicator"
+        "communicator",
+        "ci"
       ],
-      "reason": "Main change is new lifecycle API coverage for communicator grow/revoke semantics: tests/unit_test/src/pcclCommGrowTest.cu exercises pcclCommGetUniqueId()+pcclCommGrow with parent teardown and post-grow AllReduce checks, and tests/unit_test/src/pcclCommRevokeTest.cu exercises pcclCommRevoke+pcclCommShrink recovery and duplicate-revoke error contract. CI/build/list/doc edits (.github/workflows/scripts/build.sh, .github/xtest/test_lists/comm_lifecycle_810e.json, tests/unit_test/src/Makefile, docs) are integration/supporting updates for that communicator-lifecycle feature, not an independent module behavior change."
+      "reason": "Primary is communicator: new tests `tests/unit_test/src/pcclCommGrowTest.cu` and `pcclCommRevokeTest.cu` add substantive lifecycle validation logic for `pcclCommGetUniqueId`, `pcclCommGrow`, `pcclCommRevoke`, and `pcclCommShrink` (async completion, rank/device checks, parent-destroy/recovery behavior), which is the core functional scope. Secondary is ci: `.github/xtest/test_lists/comm_lifecycle_shm.json` plus workflow/case-generation updates (`.github/workflows/pccl-daily-full.yml`, `test_platform_cases.py`, `oam810e_eic.json`) change daily full-suite composition and platform grouping policy for these cases while keeping PR/smoke exclusions."
     }
   },
   "reviewers": {
