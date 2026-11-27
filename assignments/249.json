@@ -1,15 +1,15 @@
 {
   "classification": {
     "base_sha": "4620d52ab5ddcd700954bd03a41ecd81a39e38dd",
-    "head_sha": "32e2096674c01c9f5eccc4b4a778e2e09d048036",
-    "input_fingerprint": "da4cff0b2fe2b17b1e6d0150ae2686bd312ea4fabd31b3cf31cc48df713af2fe",
+    "head_sha": "0a05bff956e98f93cdc5a08fb6f7ef2470d4f709",
+    "input_fingerprint": "f010774ab1c3c5a64f0755a0f5d91e17c66c31e9ab9b789281fd2072f693f9d5",
     "pr_number": 249,
     "proposal": {
       "additional_modules": [],
       "modules": [
         "ci"
       ],
-      "reason": "Main functional change is CI execution logic: .github/workflows/build-artifactory-ppu.yml adds authenticated docker/login-action before image pull and replaces fixed pccl-tests pin with prepare-time branch/sha resolution (same-name branch with fallback to main), and .github/workflows/source-sanity.yml plus .github/workflows/pccl-daily-full.yml propagate that resolved revision/branch through checkouts, cache probe/publish keys, and runner-revision assertions. Supporting updates in .github/xtest/artifact_cache.py and .github/xtest/test_workflow_contract.py only relabel fixture metadata to match the new CI contract, so they remain within CI ownership rather than a separate module."
+      "reason": "Main change is CI workflow execution logic: .github/workflows/build-artifactory-ppu.yml adds authenticated docker/login-action before image pulls, and all three workflows now resolve t-head/pccl-tests from a branch paired to github ref with retry/fallback to main, then propagate resolved sha/branch through checkout, runner-revision, and cache probe/publish paths. .github/xtest/artifact_cache.py and test_workflow_contract.py only align fixture-label checks with that runtime resolution. This is owned by ci (test workflow selection/execution/reporting), not workflow policy automation."
     }
   },
   "reviewers": {}
