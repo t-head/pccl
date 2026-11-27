@@ -1,8 +1,8 @@
 {
   "classification": {
     "base_sha": "cd97dc76bdd6b036db4a07662713fed215467ff0",
-    "head_sha": "c1402a8370cfbff3eb593492efe0063a9c259954",
-    "input_fingerprint": "d8fb9782f31082fb04b0743da0d1c7d833940f2080de55cae76291e165e6b897",
+    "head_sha": "9408a432c4c45e6dc02f7b00a8eceafc3694e892",
+    "input_fingerprint": "e934cc11b0789c0ef284b59dbc11f8350f9c281b92cac3135af01dbd4a05c701",
     "pr_number": 247,
     "proposal": {
       "additional_modules": [
@@ -12,7 +12,7 @@
         "workflow",
         "copy-engine"
       ],
-      "reason": "workflow is primary: .github/workflows/review-routing.yml changes the invitation handoff source for pr_number, and .github/scripts/review_automation.py plus .github/scripts/reviewer_api.py change routing behavior by treating only withdrawal HTTP 422 as a warning while preserving hard failures for other API errors, with sanitized/truncated HTTP diagnostics. copy-engine is secondary: .github/skills/pccl-review-assignment/modules.json expands copy-engine ownership to host/device ltoki/OKI CE/DMA execution details and adds CE device-side key files, which changes classification/ownership contract for those transfer behaviors. symmetric is additional: the same catalog patch narrows symmetric to collective algorithms/planning/path selection and explicitly excludes CE/DMA transfer execution even under symmetric paths, so boundary decisions for that module also changed."
+      "reason": "Main change is review-routing behavior in workflow automation: .github/workflows/review-routing.yml switches invitation input to fromJSON(needs.classify.outputs.recommendation).pr_number, and .github/scripts/review_automation.py/.github/scripts/reviewer_api.py change invitation sync semantics (HTTP 422 withdrawal downgraded to warning, routing continues) plus sanitized/capped GitHub error diagnostics. This is the core functional fix, so workflow is primary. copy-engine is a separate substantive policy/contract update in .github/skills/pccl-review-assignment/modules.json: its scope now explicitly owns device-side ltoki/OKI CE/DMA execution details and adds CE example files. symmetric also changes independently in the same catalog file by narrowing its scope and explicitly excluding those CE/DMA execution behaviors, so it is listed as additional."
     }
   },
   "reviewers": {
