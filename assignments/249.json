@@ -1,16 +1,19 @@
 {
   "classification": {
     "base_sha": "553701b1a4a7d738627763f1a4af3670500023a9",
-    "head_sha": "4e701859c54fdaa57ce96b6c9bb80d34bda6f065",
-    "input_fingerprint": "05f004e5621cd5be9299a23fdb30b8a7a0ea26c2c1032f7cd881ec0a4404b5aa",
+    "head_sha": "8a8cba95770d2002d47a07dcf80a74dbb3382e56",
+    "input_fingerprint": "bd475a28cd92000278fe6a7ef275a8252fec61a9959e2fa71da0b04c17f00974",
     "pr_number": 249,
     "proposal": {
       "additional_modules": [],
       "modules": [
-        "ci"
+        "ci",
+        "build"
       ],
-      "reason": "Main change is CI workflow execution policy: .github/workflows/build-artifactory-ppu.yml adds authenticated registry login before pulls, resolves t-head/pccl-tests by matching branch with fallback, and introduces artifact_version time-based commit pinning (plus paired pccl-tests pinning) that changes what commit each run builds. .github/workflows/source-sanity.yml and pccl-daily-full.yml propagate the same resolved pccl-tests revision/branch through checkout, cache probe/publish, and runner-revision assertions. .github/xtest/artifact_cache.py and test_workflow_contract.py only align fixture-label constants with that CI contract, so they remain supporting edits under ci rather than a separate module."
+      "reason": "Main change is CI execution logic: .github/workflows/build-artifactory-ppu.yml, source-sanity.yml, and pccl-daily-full.yml now resolve pccl-tests by matching branch with fallback, add authenticated registry pull, and pin workflow_dispatch builds to label-instants, changing test/build orchestration and artifact reproducibility owned by ci. Secondary build scope is independently substantive in .github/workflows/scripts/pccl_for_test_hggcrt13_ubuntu24_build.sh, which reorders two build passes and unsets LDFLAGS for --enable_tests to alter linker-flag application and fix unit-test link behavior, a compiler/link invocation concern owned by build."
     }
   },
-  "reviewers": {}
+  "reviewers": {
+    "build": 341355176
+  }
 }
