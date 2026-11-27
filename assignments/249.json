@@ -1,15 +1,15 @@
 {
   "classification": {
-    "base_sha": "4620d52ab5ddcd700954bd03a41ecd81a39e38dd",
-    "head_sha": "123b72b23b26c1e80e2e4f13974705fe840dcbdb",
-    "input_fingerprint": "fb96cef05654fded79c298d5905dfbeace3ac786dce2cf8445d70d2a88af8806",
+    "base_sha": "553701b1a4a7d738627763f1a4af3670500023a9",
+    "head_sha": "4e701859c54fdaa57ce96b6c9bb80d34bda6f065",
+    "input_fingerprint": "a2c161a56c208023a0114abf41703f069ccb00a1b1d6589dae391562f5d31c0d",
     "pr_number": 249,
     "proposal": {
       "additional_modules": [],
       "modules": [
         "ci"
       ],
-      "reason": "Main change is CI workflow execution behavior: `.github/workflows/build-artifactory-ppu.yml` adds authenticated registry login before image pull and introduces label/instant-based commit pinning for dispatch/schedule builds, while `.github/workflows/source-sanity.yml` and `.github/workflows/pccl-daily-full.yml` switch `pccl-tests` checkout from fixed SHA to ref-paired branch resolution with fallback and propagate resolved revisions through cache/validation steps. Supporting updates in `.github/xtest/artifact_cache.py` and `test_workflow_contract.py` only align CI fixture/revision checks with that runtime resolution contract, so no separate module is independently substantive."
+      "reason": "Main change is CI workflow execution logic: .github/workflows/build-artifactory-ppu.yml adds authenticated registry login before docker pull, resolves t-head/pccl-tests from a branch paired to github ref with fallback to main, and pins source/test commits for timestamp labels via prepare outputs; .github/workflows/source-sanity.yml and pccl-daily-full.yml propagate that resolved revision/branch through checkout, cache probe/publish, and runner validation paths. Supporting .github/xtest/artifact_cache.py and test_workflow_contract.py only retag fixture runner metadata to match this CI contract, so no separate module is independently changed."
     }
   },
   "reviewers": {}
