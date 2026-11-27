@@ -2,16 +2,18 @@
   "classification": {
     "base_sha": "45088cc56be51899765bd637aae280d1ba7d10fc",
     "head_sha": "22dc7029109dae7eee566cc372a8df97a55b2b1b",
-    "input_fingerprint": "71c32dd639f58b398037cb5aebfbe37d9335654c5986c8be2654ca894467e8b0",
+    "input_fingerprint": "73cc360f481013270b1f9b5ba32c5171a350a8eb6529cb41c31caf0bbd5d6a4a",
     "pr_number": 244,
     "proposal": {
+      "additional_modules": [],
       "modules": [
-        "other"
+        "communicator"
       ],
-      "reason": "The only change fixes an initialization diagnostic in `src/mnnvl.cc` by passing the peer index to an existing log message (`INFO(NCCL_INIT, ...)`). This is a logging-correctness edit in MNNVL fabric-init code, and the available diff does not provide enough evidence to map it reliably to a specific catalog specialty module."
+      "reason": "Main change is in communicator readiness diagnostics: src/mnnvl.cc updates ncclMnnvlCheck to pass peer index `i` into `INFO(NCCL_INIT, \"MNNVL rank %d...\", i)`, correcting the MNNVL fabric-initialization rank reported during init checks. This is owned by communicator because it governs initialization prerequisites/readiness (including MNNVL/fabric) and associated diagnostics, while no independent policy/protocol/resource change in another module is present."
     }
   },
   "reviewers": {
+    "communicator": 335730053,
     "other": 340101345
   }
 }
