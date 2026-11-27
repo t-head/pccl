@@ -123,27 +123,28 @@ def instantiate(k):
   arch_cond = kernel_conds(k)
   template = (
       "__global__ void __launch_bounds__(ncclSymkMaxThreads, ncclSymMinBlocksPerCU)\n"
-      "{cname}(ncclSymkDevWorkArgs4K const args4K) {{\n"
+      "{cname}(pcclSymkDevWorkArgs4K const args4K) {{\n"
       "{call}\n"
       "}}"
   )
   if arch_cond is None:
-    call_red_ty = "  ncclSymkRun_{id}<{red}, {ty}>(&args4K.args);"
-    call_form   = "  ncclSymkRun_{id}(&args4K.args);"
+    call_red_ty = "  {run}<{red}, {ty}>(&args4K.args);"
+    call_form   = "  {run}(&args4K.args);"
   else:
-    call_red_ty = "  #if {arch_cond}\n    ncclSymkRun_{id}<{red}, {ty}>(&args4K.args);\n  #endif"
-    call_form   = "  #if {arch_cond}\n    ncclSymkRun_{id}(&args4K.args);\n  #endif"
+    call_red_ty = "  #if {arch_cond}\n    {run}<{red}, {ty}>(&args4K.args);\n  #endif"
+    call_form   = "  #if {arch_cond}\n    {run}(&args4K.args);\n  #endif"
 
   id = k.coll+'_'+k.algo
+  run = ("pccl_symRun_" if id in ("AllGather_ST_Ring", "AllGather_ST_2D") else "ncclSymkRun_") + id
   cname = kernel_cname(k)
   if k.coll in reductions:
-    call = call_red_ty.format(id=id, red=red_to_Func[k.red], ty=ty_to_cxxtype[k.ty], arch_cond=arch_cond)
+    call = call_red_ty.format(run=run, red=red_to_Func[k.red], ty=ty_to_cxxtype[k.ty], arch_cond=arch_cond)
   else:
-    call = call_form.format(id=id, arch_cond=arch_cond)
+    call = call_form.format(run=run, arch_cond=arch_cond)
   return template.format(cname=cname, call=call)
 
 def prototype(k):
-  return "__global__ void {cname}(ncclSymkDevWorkArgs4K const);".format(cname=kernel_cname(k))
+  return "__global__ void {cname}(pcclSymkDevWorkArgs4K const);".format(cname=kernel_cname(k))
 
 ################################################################################
 

@@ -514,11 +514,11 @@ __device__ __forceinline__ void ncclSymkRun_AllGather_ST(ncclSymkDevWorkArgs con
   pccl_symRun_AllGather_ST_impl<false>(args);
 }
 
-__device__ __forceinline__ void ncclSymkRun_AllGather_ST_Ring(ncclSymkDevWorkArgs const* args) {
+__device__ __forceinline__ void pccl_symRun_AllGather_ST_Ring(ncclSymkDevWorkArgs const* args) {
   pccl_symRun_AllGather_ST_impl<true>(args);
 }
 
-__device__ __forceinline__ void ncclSymkRun_AllGather_ST_2D(ncclSymkDevWorkArgs const* args) {
+__device__ __forceinline__ void pccl_symRun_AllGather_ST_2D(ncclSymkDevWorkArgs const* args) {
   pccl_symRun_AllGather_ST_2D_impl(args);
 }
 

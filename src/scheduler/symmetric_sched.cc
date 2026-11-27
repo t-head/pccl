@@ -147,7 +147,7 @@ ncclResult_t ncclMakeSymmetricTaskList(
         count = alignUp(task->count, cellCount);
         countTotal += count;
         if (count > countMax) countMax = count;
-        bool overflow = useMulti && (ncclSymkDevWorkArgs::calcArgsSize(MAXCHANNELS, nWorks + 1) > sizeof(ncclSymkDevWorkArgs4K));
+        bool overflow = useMulti && (ncclSymkDevWorkArgs::calcArgsSize(MAXCHANNELS, nWorks + 1) > sizeof(pcclSymkDevWorkArgs4K));
         // Empty tasks have no cells to share with a multi-work channel range.
         if (!useMulti || overflow || task->count == 0 || task->next == nullptr || task->next->count == 0) {
           task->isSymLast = 1;
@@ -274,14 +274,14 @@ ncclResult_t ncclSymmetricTaskScheduler(
   }
 
   size_t actualSize = ncclSymkDevWorkArgs::calcArgsSize(nMaxChannels, workCount);
-  if (actualSize > sizeof(ncclSymkDevWorkArgs4K)) {
+  if (actualSize > sizeof(pcclSymkDevWorkArgs4K)) {
     WARN("Symmetric kernel args (%zu bytes) exceed 4KB by-value capacity (nMaxChannels=%d, workCount=%d)",
          actualSize, nMaxChannels, workCount);
     return ncclInternalError;
   }
   plan->kernelArgsSize = actualSize;
   argsBuf = (struct ncclSymkDevWorkArgs*)
-      ncclMemoryPoolAlloc<ncclSymkDevWorkArgs4K>(&comm->memPool_kernelSymkArgs, &comm->memPermanent);
+      ncclMemoryPoolAlloc<pcclSymkDevWorkArgs4K>(&comm->memPool_kernelSymkArgs, &comm->memPermanent);
   if (!argsBuf) {
     WARN("Failed to allocate symmetric kernel args buffer (%zu bytes)", plan->kernelArgsSize);
     return ncclSystemError;
@@ -381,8 +381,8 @@ exit:
   return ret;
 fail:
   if (argsBuf) {
-    ncclMemoryPoolFree<ncclSymkDevWorkArgs4K>(&comm->memPool_kernelSymkArgs,
-        reinterpret_cast<ncclSymkDevWorkArgs4K*>(argsBuf));
+    ncclMemoryPoolFree<pcclSymkDevWorkArgs4K>(&comm->memPool_kernelSymkArgs,
+        reinterpret_cast<pcclSymkDevWorkArgs4K*>(argsBuf));
   }
   goto exit;
 }

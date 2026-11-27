@@ -24,7 +24,8 @@ PCCL_DEVICE_INLINE pcclLLA2ASession<Coop>::pcclLLA2ASession(
     coop, comm, team, handle, (int)block, /*pitch=*/maxElts,
     multimem, mmHandle, /*epoch=*/0, /*slotsOffset=*/0
   } {
-  assert(!multimem && "multimem is not supported on PPU");
+  // Keep the condition boolean so HGCC can fold the non-multimem constructor.
+  assert(!multimem);
   uint4* line = (uint4*)pcclGetResourceBufferLocalPointer(comm, handle.bufHandle);
   line += block*(1 + 2*handle.nSlots);
   this->epoch = line->x + 2;

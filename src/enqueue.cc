@@ -1201,8 +1201,8 @@ static ncclResult_t reclaimPlan(ncclComm_t comm, struct ncclCommCallback* me) {
 
   if (plan->isSymColl && plan->workStorageType == ncclDevWorkStorageTypeArgs
       && plan->kernelSymkArgs != nullptr) {
-    ncclMemoryPoolFree<ncclSymkDevWorkArgs4K>(&comm->memPool_kernelSymkArgs,
-        reinterpret_cast<ncclSymkDevWorkArgs4K*>(plan->kernelSymkArgs));
+    ncclMemoryPoolFree<pcclSymkDevWorkArgs4K>(&comm->memPool_kernelSymkArgs,
+        reinterpret_cast<pcclSymkDevWorkArgs4K*>(plan->kernelSymkArgs));
     plan->kernelSymkArgs = nullptr;
   }
 
@@ -1936,8 +1936,8 @@ ncclResult_t ncclLaunchPrepare(ncclComm_t comm) {
           nPlans += 1;
         } else if (plan->isSymColl && plan->workStorageType == ncclDevWorkStorageTypeArgs
                    && plan->kernelSymkArgs != nullptr) {
-          ncclMemoryPoolFree<ncclSymkDevWorkArgs4K>(&comm->memPool_kernelSymkArgs,
-              reinterpret_cast<ncclSymkDevWorkArgs4K*>(plan->kernelSymkArgs));
+          ncclMemoryPoolFree<pcclSymkDevWorkArgs4K>(&comm->memPool_kernelSymkArgs,
+              reinterpret_cast<pcclSymkDevWorkArgs4K*>(plan->kernelSymkArgs));
           plan->kernelSymkArgs = nullptr;
         }
       }

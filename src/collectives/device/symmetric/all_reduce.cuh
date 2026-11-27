@@ -315,6 +315,7 @@ __device__ __forceinline__ void pccl_symRun_AllReduce_AGxLL_R_impl(ncclSymkDevWo
     using Pack = BytePack<8>;
     using AccPack = BytePack<8*sizeof(Acc)/sizeof(T)>;
     constexpr int EltPerPack = 8/sizeof(T);
+    constexpr int UnrollPeers = sizeof(T) == 2 ? 4 : 8;
     int nElts = nSliceElts;
     int nPacks = divUp(nElts, EltPerPack);
     T* input = inputPtr.localPtr();
@@ -337,7 +338,7 @@ __device__ __forceinline__ void pccl_symRun_AllReduce_AGxLL_R_impl(ncclSymkDevWo
           int nIterPacks = min(nPacks, tn);
           Pack inp = loadPack<Pack>((Pack*)input, t, nPacks);
           prim.bcastLL(/*slot=*/nIterPacks*rank + t, inp);
-          Pack out = prim.template recvReduceLL<Pack, T>(t, nIterPacks, red);
+          Pack out = prim.template recvReduceLL<Pack, T, Red<Acc>, UnrollPeers>(t, nIterPacks, red);
           storePack((Pack*)output, t, nPacks, out);
         }
         prim.endLL(cta);
@@ -353,7 +354,7 @@ __device__ __forceinline__ void pccl_symRun_AllReduce_AGxLL_R_impl(ncclSymkDevWo
           int nIterPacks = min(nPacks, tn);
           Pack inp = loadPack<Pack>(input, t*EltPerPack, nElts);
           prim.bcastLL(/*slot=*/nIterPacks*rank + t, inp);
-          Pack out = prim.template recvReduceLL<Pack, T>(t, nIterPacks, red);
+          Pack out = prim.template recvReduceLL<Pack, T, Red<Acc>, UnrollPeers>(t, nIterPacks, red);
           storePack(output, t*EltPerPack, nElts, out);
         }
         prim.endLL(cta);

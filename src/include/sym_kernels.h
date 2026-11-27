@@ -98,13 +98,13 @@ struct alignas(16) ncclSymkDevWorkArgs {
   }
 };
 
-union ncclSymkDevWorkArgs4K {
+union pcclSymkDevWorkArgs4K {
   struct ncclSymkDevWorkArgs args;
   char buf4K[4096];
 };
 static_assert(sizeof(ncclSymkDevWork) == 64, "ncclSymkDevWork size");
 static_assert(alignof(ncclSymkDevWork) == 16, "ncclSymkDevWork alignment");
-static_assert(sizeof(ncclSymkDevWorkArgs4K) == 4096, "ncclSymkDevWorkArgs4K size");
+static_assert(sizeof(pcclSymkDevWorkArgs4K) == 4096, "pcclSymkDevWorkArgs4K size");
 
 // Registration type for symmetric windows
 typedef enum {

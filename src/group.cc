@@ -380,8 +380,8 @@ static void groupCleanup(ncclComm_t* groupCommHeadPtr, struct ncclIntruQueue<str
               ncclMemoryPoolFree(&comm->memPool_ncclTaskRma, ncclIntruQueueDequeue(&plan->rmaTaskQueueCe));
             }
             if (plan->isSymColl && plan->kernelSymkArgs != nullptr) {
-              ncclMemoryPoolFree<ncclSymkDevWorkArgs4K>(&comm->memPool_kernelSymkArgs,
-                  reinterpret_cast<ncclSymkDevWorkArgs4K*>(plan->kernelSymkArgs));
+              ncclMemoryPoolFree<pcclSymkDevWorkArgs4K>(&comm->memPool_kernelSymkArgs,
+                  reinterpret_cast<pcclSymkDevWorkArgs4K*>(plan->kernelSymkArgs));
             }
             ncclMemoryPoolFree(&comm->memPool_ncclKernelPlan, plan);
           }

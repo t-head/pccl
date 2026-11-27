@@ -20,8 +20,8 @@ __device__ __forceinline__ void ncclSymkRun_AllReduce_RSxLD_AGxST(struct ncclSym
 
 __device__ __forceinline__ void ncclSymkRun_AllGather_LL(struct ncclSymkDevWorkArgs const* args);
 __device__ __forceinline__ void ncclSymkRun_AllGather_ST(struct ncclSymkDevWorkArgs const* args);
-__device__ __forceinline__ void ncclSymkRun_AllGather_ST_Ring(struct ncclSymkDevWorkArgs const* args);
-__device__ __forceinline__ void ncclSymkRun_AllGather_ST_2D(struct ncclSymkDevWorkArgs const* args);
+__device__ __forceinline__ void pccl_symRun_AllGather_ST_Ring(struct ncclSymkDevWorkArgs const* args);
+__device__ __forceinline__ void pccl_symRun_AllGather_ST_2D(struct ncclSymkDevWorkArgs const* args);
 
 template<template<typename> class Red, typename T>
 __device__ __forceinline__ void ncclSymkRun_ReduceScatter_LL(struct ncclSymkDevWorkArgs const* args);
