@@ -9,7 +9,7 @@
       "modules": [
         "ci"
       ],
-      "reason": "Main change is CI workflow execution logic: `.github/workflows/build-artifactory-ppu.yml`, `source-sanity.yml`, and `pccl-daily-full.yml` now resolve `t-head/pccl-tests` by matching branch with fallback to `main`, propagate resolved SHA/branch across jobs, and add authenticated `docker/login-action` before image pull to prevent unauthenticated pull failures. `ci` takes priority because this is test/build workflow selection and run orchestration behavior, while `.github/xtest/artifact_cache.py` and `test_workflow_contract.py` are supporting CI contract updates (`FIXTURE_RUNNER_REVISION`) aligned to that workflow change, not an independent module policy change."
+      "reason": "Main change is CI execution behavior: `.github/workflows/source-sanity.yml`, `pccl-daily-full.yml`, and `build-artifactory-ppu.yml` now resolve `t-head/pccl-tests` by matching branch with fallback to `main`, propagate the resolved SHA through jobs, and in build-artifactory add authenticated `docker/login-action` before image pull to avoid unauthenticated pull failures. This is test/workflow run selection, checkout, cache-key/revision plumbing, and job execution control owned by **ci**. Supporting edits in `.github/xtest/artifact_cache.py` and `test_workflow_contract.py` only realign CI fixture/revision contract checks to that runtime-resolution model, not contribution/review policy (workflow)."
     }
   },
   "reviewers": {}
