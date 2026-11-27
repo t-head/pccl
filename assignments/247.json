@@ -1,15 +1,15 @@
 {
   "classification": {
     "base_sha": "4620d52ab5ddcd700954bd03a41ecd81a39e38dd",
-    "head_sha": "5023dfb80d6db8b0ed0caf146d9d8800abffb272",
-    "input_fingerprint": "14eb5cf7c08886a76e3b43a6853ee2e147f200576bc73c17991c8b3846eaa5ab",
+    "head_sha": "d10975356ea86e5c0d995ed31467f7166166be64",
+    "input_fingerprint": "9734084a92987d44d0a6e2d51c8acc87e666f7d18dd20d64ca9edcac2d96325d",
     "pr_number": 247,
     "proposal": {
       "additional_modules": [],
       "modules": [
         "workflow"
       ],
-      "reason": "Main functional change is review-routing/gate automation behavior: PR-number normalization and handoff, invitation sync semantics, and non-fatal handling of HTTP 422 withdrawal failures. Evidence: .github/scripts/review_automation.py changes required_reviewers/invitation withdrawal flow; .github/scripts/maintainer_approval.py adds identify mode and stricter PR-number parsing; .github/workflows/review-gate.yml and review-routing.yml rewire PR-number source and concurrency key. This outweighs other candidates because module-catalog/classification-boundary edits are governance of review automation (also workflow), not substantive runtime library changes in copy-engine/symmetric/ci."
+      "reason": "Main change is reviewer-routing behavior and review-state lifecycle, owned by workflow: .github/scripts/review_automation.py adds run-number staleness protection before saving/inviting, changes required_reviewers semantics, prevents obsolete auto re-requests, and handles 422 withdrawal as warning-only while preserving invitation flow. Supporting workflow wiring in .github/workflows/review-gate.yml, review-routing.yml, and review-squash-preview.yml normalizes PR-number identification/concurrency and passes canonical PR numbers into routing/squash automation. .github/scripts/maintainer_approval.py and commit_message_squash.py add shared PR-number identification paths for these review workflows. Catalog/rule text edits in .github/skills/pccl-review-assignment/modules.json and .github/WORKFLOWS.md are review-classification policy maintenance, not runtime PCCL module implementation."
     }
   },
   "reviewers": {
