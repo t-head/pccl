@@ -1,15 +1,15 @@
 {
   "classification": {
     "base_sha": "553701b1a4a7d738627763f1a4af3670500023a9",
-    "head_sha": "09dd785400817341aa1ad9a68856c50c8e494f46",
-    "input_fingerprint": "de2a81da7ddb8fc6a8da31fe9c9f6defc3dc410aac3538d476f75a03e73bd1e3",
+    "head_sha": "d0b654db6337bbf935007f0a2884124bb645e966",
+    "input_fingerprint": "ef99500b647a4235bc7498babf669131130b19be752ec80ce90fa64ca00feaca",
     "pr_number": 249,
     "proposal": {
       "additional_modules": [],
       "modules": [
         "ci"
       ],
-      "reason": "Main change is CI workflow execution correctness: `.github/workflows/build-artifactory-ppu.yml` adds authenticated registry pull, branch-paired `pccl-tests` resolution with fallback, and dispatch-time commit pinning logic, which changes how builds/tests are selected and run. `.github/workflows/source-sanity.yml` and `pccl-daily-full.yml` propagate resolved `pccl-tests` revision/branch through cache validation and runner checks, and `.github/workflows/scripts/pccl_for_test_hggcrt13_ubuntu24_build.sh` adjusts CI build pass ordering/env for unit-test linking in that workflow context. These are test/build orchestration behaviors owned by **ci**, not review-policy automation (`workflow`) or core product modules."
+      "reason": "Main change is CI execution correctness and reproducibility: `.github/workflows/build-artifactory-ppu.yml`, `source-sanity.yml`, and `pccl-daily-full.yml` now add authenticated registry pull, resolve paired `pccl-tests` branches with fallback, and pin dispatch builds/tests to label instants; this directly changes workflow run behavior, matrix reliability, and artifact/test identity. Supporting updates in `.github/xtest/run_cases.py`, `reconcile_results.py`, and `daily_reconcile.py` propagate `--pccl-tests-revision` through validation contracts, and `.github/workflows/scripts/pccl_for_test_hggcrt13_ubuntu24_build.sh` adjusts CI build pass ordering/env for the test row. These are CI orchestration/verification changes rather than contribution-policy (`workflow`) or product build-rule ownership."
     }
   },
   "reviewers": {
