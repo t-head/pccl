@@ -1,15 +1,15 @@
 {
   "classification": {
     "base_sha": "553701b1a4a7d738627763f1a4af3670500023a9",
-    "head_sha": "7bf55f6c2c3b21123cee964dfb34c00df3ecf4d2",
-    "input_fingerprint": "8c8b09bdfa32a087d9330428797c869290bd2af2e0ae9f13135ca54bc88eec2c",
+    "head_sha": "5b5c3c4834c06c1d4a886ef96c42111222ab0efe",
+    "input_fingerprint": "36d447cf90a8ac6b97a22f281d4323d124a123b77ed74223c91e0c4de44e1726",
     "pr_number": 251,
     "proposal": {
       "additional_modules": [],
       "modules": [
         "ci"
       ],
-      "reason": "Main change is CI job execution behavior, not product build rules: .github/workflows/scripts/pccl_for_test_hggcrt13_ubuntu24_build.sh removes exported LDFLAGS (-Wl,--allow-shlib-undefined) for the ubuntu24 for-test path to prevent unit-test link invocation from passing split -Xcompiler args that fail. This is a test-workflow environment/script fix (runner/image-specific build-test orchestration), so ci owns the review priority over build/workflow."
+      "reason": "Main change is CI test-workflow execution logic: .github/workflows/scripts/pccl_for_test_hggcrt13_ubuntu24_build.sh now splits build into two passes and runs the unit-test pass with `env -u LDFLAGS` plus `--enable_tests`, preventing hgcc `-Xcompiler` forwarding from breaking g++ link flags. This is owned by ci (runner/workflow test execution behavior). build is not primary because no Makefile/toolchain/build-rule contract is changed; only workflow-script invocation/environment for this CI row is adjusted."
     }
   },
   "reviewers": {}
