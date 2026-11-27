@@ -9,7 +9,7 @@
       "modules": [
         "workflow"
       ],
-      "reason": "Main change is reviewer-routing behavior and review-state lifecycle, owned by workflow: .github/scripts/review_automation.py adds run-number staleness protection before saving/inviting, changes required_reviewers semantics, prevents obsolete auto re-requests, and handles 422 withdrawal as warning-only while preserving invitation flow. Supporting workflow wiring in .github/workflows/review-gate.yml, review-routing.yml, and review-squash-preview.yml normalizes PR-number identification/concurrency and passes canonical PR numbers into routing/squash automation. .github/scripts/maintainer_approval.py and commit_message_squash.py add shared PR-number identification paths for these review workflows. Catalog/rule text edits in .github/skills/pccl-review-assignment/modules.json and .github/WORKFLOWS.md are review-classification policy maintenance, not runtime PCCL module implementation."
+      "reason": "Main change is review-routing correctness and invitation lifecycle in workflow automation: .github/scripts/review_automation.py adds run-number staleness protection before saving/inviting, adjusts required-reviewer/rerequest logic, and handles 422 withdrawal as warning-only while preserving invite state. Supporting ownership stays in workflow via .github/scripts/maintainer_approval.py and commit_message_squash.py PR-number normalization/identify mode plus .github/workflows/review-gate.yml and review-squash-preview.yml canonical per-PR concurrency wiring; .github/skills/pccl-review-assignment/modules.json only updates catalog/classification policy, which workflow explicitly owns."
     }
   },
   "reviewers": {
