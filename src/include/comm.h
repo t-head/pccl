@@ -218,7 +218,7 @@ struct ncclTaskColl {
   void** recvNetHandles;
   void** srecvNetHandles;
   uint32_t isSymLast:1;  // last task in multi-task symmetric group
-  int nMaxChannels;      // kernel-selected max channels for this task group
+  int nMaxChannels;      // tuned channel budget for a task or symmetric task group
   int nWarps;            // kernel-selected warp count for this task group
 };
 
@@ -335,7 +335,6 @@ struct ncclKernelPlanner {
     struct ncclIntruQueue<struct ncclTaskP2p, &ncclTaskP2p::next> recvQueue;
   };
 
-  size_t collBytesTotal;
   struct Peer* peers/*[nRanks]*/;
   int nTasksColl;
   int nTasksP2p;
@@ -559,7 +558,6 @@ struct pcclComm {
   struct ncclInfo* asyncOps;
   int asyncOpCount;
   size_t asyncTotalSize;
-  int lastChannel;
 
   int localPersistentRefs;
 
