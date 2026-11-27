@@ -1,15 +1,15 @@
 {
   "classification": {
     "base_sha": "4620d52ab5ddcd700954bd03a41ecd81a39e38dd",
-    "head_sha": "6274af40fa7c6d31c20646c29170a3924219fd85",
-    "input_fingerprint": "27e8c2b522c796ba91fc7e0104cc58accbdb173dc940e10b550bd522714b49df",
+    "head_sha": "5023dfb80d6db8b0ed0caf146d9d8800abffb272",
+    "input_fingerprint": "14eb5cf7c08886a76e3b43a6853ee2e147f200576bc73c17991c8b3846eaa5ab",
     "pr_number": 247,
     "proposal": {
       "additional_modules": [],
       "modules": [
         "workflow"
       ],
-      "reason": "Main change is review-routing/approval automation behavior, owned by workflow: .github/workflows/review-routing.yml now passes pr_number from classify JSON output, .github/workflows/review-gate.yml adds an identify job and normalized PR-based concurrency key, and .github/scripts/maintainer_approval.py adds identify/refresh modes with stricter PR-number normalization/validation for gate association. .github/scripts/review_automation.py and .github/scripts/reviewer_api.py change invitation-withdrawal handling (HTTP 422 downgraded to warning) and safe GitHub error diagnostics, which are reviewer-assignment/approval workflow mechanics. .github/skills/pccl-review-assignment/modules.json edits are module-catalog/classification-boundary maintenance, explicitly scoped to workflow rather than runtime PCCL modules."
+      "reason": "Main functional change is review-routing/gate automation behavior: PR-number normalization and handoff, invitation sync semantics, and non-fatal handling of HTTP 422 withdrawal failures. Evidence: .github/scripts/review_automation.py changes required_reviewers/invitation withdrawal flow; .github/scripts/maintainer_approval.py adds identify mode and stricter PR-number parsing; .github/workflows/review-gate.yml and review-routing.yml rewire PR-number source and concurrency key. This outweighs other candidates because module-catalog/classification-boundary edits are governance of review automation (also workflow), not substantive runtime library changes in copy-engine/symmetric/ci."
     }
   },
   "reviewers": {
