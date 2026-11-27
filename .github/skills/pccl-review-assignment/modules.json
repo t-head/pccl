@@ -172,7 +172,7 @@
     },
     "symmetric": {
       "name": "Symmetric-memory collectives",
-      "description": "Symmetric-memory collective kernels, eligibility, task planning, kernel/CE path selection, local thresholds and synchronization. Window/LSA API semantics belong to device-api; independent CE/DMA transfer execution belongs to copy-engine.",
+      "description": "Symmetric-memory collective algorithms and compute kernels, eligibility, task planning, kernel/CE path selection, local thresholds and collective-level synchronization. CE/DMA transfer execution, including device-side ltoki/OKI commands and their completion synchronization, belongs to copy-engine even under the symmetric directory. Window/LSA API semantics belong to device-api.",
       "key_files": ["src/sym_kernels.cc", "src/scheduler/symmetric_sched.cc", "src/collectives/device/symmetric/kernel.cuh"],
       "maintainer": {"login": "snowdrift-zw", "id": 341341178},
       "reviewers": [
@@ -183,8 +183,8 @@
     },
     "copy-engine": {
       "name": "Copy-engine operations",
-      "description": "Collective/P2P/RMA execution through CE/DMA: batch submission, transfer partitioning, queues, streams and completion synchronization, including OKI and P2P DMA. Symmetric collective kernel/CE path selection and its thresholds belong to symmetric.",
-      "key_files": ["src/ce_coll.cc", "src/ce_coll_oki.cc", "src/p2p_dma.cc"],
+      "description": "Host- and device-side collective/P2P/RMA execution through CE/DMA, including ltoki/OKI: transfer partitioning, alignment and byte-count/tail bounds, batch/WQE submission, queues, streams, doorbells, CQ polling and completion synchronization. This includes CE/DMA kernels and helpers under symmetric; symmetric collective algorithms, kernel/CE path selection and thresholds belong to symmetric. Calls to unchanged CE/DMA interfaces alone do not select this module.",
+      "key_files": ["src/ce_coll.cc", "src/ce_coll_oki.cc", "src/p2p_dma.cc", "src/collectives/device/symmetric/ce_kernel_oki.cuh", "src/collectives/device/symmetric/oki_utils.cuh", "src/collectives/device/symmetric/p2p_dma_oki.cuh"],
       "maintainer": {"login": "ck-milo", "id": 341349555},
       "reviewers": [
         {"login": "snowdrift-zw", "id": 341341178},
@@ -223,8 +223,8 @@
     },
     "workflow": {
       "name": "Contribution and review workflows",
-      "description": "Contribution and review/merge policy, issue/PR templates, reviewer assignment/approval, commit validation and squash-message automation, including supporting Actions wiring. Normal test execution and pass/fail criteria belong to ci.",
-      "key_files": ["CONTRIBUTING.md", ".github/scripts/review_automation.py", ".github/workflows/review-routing.yml"],
+      "description": "Contribution and review/merge policy, issue/PR templates, reviewer assignment/approval, commit validation and squash-message automation, including supporting Actions and scripts. Review classification rules and module-catalog maintenance (scope descriptions, file examples and member lists) belong here, not to the modules described. Changes confined to review policy or CI orchestration select only workflow and/or ci; mentioning or testing a library module is not a change to that module. Substantive compiler options, toolchain and release-package content changes belong to build, even in CI scripts. Classify substantive library changes in the same PR separately. Normal build/test execution and pass/fail criteria belong to ci.",
+      "key_files": ["CONTRIBUTING.md", ".github/scripts/review_automation.py", ".github/workflows/review-routing.yml", ".github/skills/pccl-review-assignment/SKILL.md", ".github/skills/pccl-review-assignment/modules.json"],
       "maintainer": {"login": "honganlxh", "id": 335730053},
       "reviewers": [
         {"login": "wensuyang", "id": 333277982}
@@ -232,7 +232,7 @@
     },
     "ci": {
       "name": "Open-source test workflows",
-      "description": "Normal CI build/test selection, matrices, runners/environments, execution, result reporting and test pass/fail aggregation. Contribution/review policy belongs to workflow; compiler/build definitions and packaging belong to build.",
+      "description": "CI build/test selection, matrices, runners/environments, execution, result reporting and test pass/fail aggregation, including Actions and supporting scripts. CI-only changes stay here rather than selecting modules merely named or tested. Contribution/review policy and module-catalog maintenance belong to workflow; compiler/build definitions and packaging belong to build.",
       "key_files": [".github/workflows/pr-test-ppu.yml", ".github/workflows/scripts/pr-ut-runner.py", ".github/workflows/scripts/casecmd.list"],
       "maintainer": {"login": "guanqi808", "id": 340459893},
       "reviewers": [
