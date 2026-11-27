@@ -1,0 +1,16 @@
+{
+  "classification": {
+    "base_sha": "4620d52ab5ddcd700954bd03a41ecd81a39e38dd",
+    "head_sha": "67ef6f3b02543f794f105c2278f884ada0ce13b3",
+    "input_fingerprint": "ba7e7061129e04b9ed8e5fc1890e9874117c18aba8e2b330ef56797ba5f4440d",
+    "pr_number": 249,
+    "proposal": {
+      "additional_modules": [],
+      "modules": [
+        "ci"
+      ],
+      "reason": "Main functional change is CI job execution reliability: .github/workflows/build-artifactory-ppu.yml adds a new step `Log in to the distribution registry` using docker/login-action@v3 with RELEASE_USERNAME/RELEASE_TOKEN before `Pull the distribution image`, changing workflow runtime authentication behavior for each build matrix row so pulls succeed on clean runners. This is owned by ci (workflow execution/runners/environment), and no separate module shows an independent contract or policy change requiring secondary classification."
+    }
+  },
+  "reviewers": {}
+}
