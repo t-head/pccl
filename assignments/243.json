@@ -1,8 +1,8 @@
 {
   "classification": {
     "base_sha": "c83b84012932617ce91ff15e944ea3e5c27d87a6",
-    "head_sha": "95864e9ec4da11dd19c7e2b96919412b53102b38",
-    "input_fingerprint": "ec6523d09df03ac3f97c6b902318128aee0b21009fe0257a87a4716df0ddd0f6",
+    "head_sha": "75133bfc446eb13c0995ab6554ba23a9314332f9",
+    "input_fingerprint": "b1944940dfc1170aead9d54fb8e3b270d1c35abb4aa4f8b2586d223000e6316f",
     "pr_number": 243,
     "proposal": {
       "additional_modules": [],
@@ -10,7 +10,7 @@
         "communicator",
         "ci"
       ],
-      "reason": "Primary is communicator: new tests `tests/unit_test/src/pcclCommGrowTest.cu` and `pcclCommRevokeTest.cu` add substantive lifecycle validation logic for `pcclCommGetUniqueId`, `pcclCommGrow`, `pcclCommRevoke`, and `pcclCommShrink` (async completion, rank/device checks, parent-destroy/recovery behavior), which is the core functional scope. Secondary is ci: `.github/xtest/test_lists/comm_lifecycle_shm.json` plus workflow/case-generation updates (`.github/workflows/pccl-daily-full.yml`, `test_platform_cases.py`, `oam810e_eic.json`) change daily full-suite composition and platform grouping policy for these cases while keeping PR/smoke exclusions."
+      "reason": "Primary communicator: tests/unit_test/src/pcclCommGrowTest.cu and pcclCommRevokeTest.cu introduce new MPI lifecycle test implementations around pcclCommGetUniqueId, pcclCommGrow, pcclCommRevoke, and shrink-based recovery, and tests/unit_test/src/pcclCommShrinkTest.cu adds stricter rank/count/device and AllReduce result validation; this is the main functional change (communicator lifecycle contract coverage). Secondary ci: .github/xtest/test_lists/comm_lifecycle_shm.json plus .github/workflows/pccl-daily-full.yml, .github/workflows/scripts/build.sh, and .github/xtest/test_platform_cases.py add/route/stage the new cases and enforce full-vs-PR/smoke selection and count expectations, which is an independent test-workflow orchestration change."
     }
   },
   "reviewers": {
