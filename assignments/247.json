@@ -1,0 +1,18 @@
+{
+  "classification": {
+    "base_sha": "c83b84012932617ce91ff15e944ea3e5c27d87a6",
+    "head_sha": "79c664c98ef52cb85b8a466f2ccd6071802cc7e6",
+    "input_fingerprint": "79d0979111259c5545f8d3dc5f6551b7f26cf2f90c946515a3e2bd0ed29aebfa",
+    "pr_number": 247,
+    "proposal": {
+      "additional_modules": [],
+      "modules": [
+        "workflow"
+      ],
+      "reason": "Main change is in review-routing behavior: `.github/workflows/review-routing.yml` updates the reusable-workflow input `pr_number` to `fromJSON(format(...))`, fixing numeric-type normalization at the reviewer-invitation call boundary after classification. This is owned by `workflow` because it changes review-routing/assignment automation wiring and input contract handling, not CI test execution (`ci`) or build/runtime modules."
+    }
+  },
+  "reviewers": {
+    "workflow": 333277982
+  }
+}
