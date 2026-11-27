@@ -9,7 +9,7 @@
       "modules": [
         "ci"
       ],
-      "reason": "The main functional change is CI workflow behavior: .github/workflows/build-artifactory-ppu.yml adds authenticated registry pulls, branch-aware pccl-tests revision resolution/fallback, and dispatch-label time pinning for built commits/tests; .github/workflows/source-sanity.yml and pccl-daily-full.yml propagate that resolved runner revision through checkout, cache/probe/validate, and gating logic. Evidence for ci: .github/workflows/scripts/pccl_for_test_hggcrt13_ubuntu24_build.sh changes CI build-pass sequencing and unsets LDFLAGS for the test pass to restore unit-test linking, while .github/xtest/artifact_cache.py and test_workflow_contract.py update fixture-runner revision contract checks used by workflow validation."
+      "reason": "Main change is CI execution reliability and source-pairing logic across test/build workflows: .github/workflows/build-artifactory-ppu.yml adds registry auth, ref-time commit pinning, and paired pccl-tests branch/commit resolution; .github/workflows/source-sanity.yml and pccl-daily-full.yml propagate resolved pccl-tests revisions and adjust runner-hash gating/fallback behavior. .github/workflows/scripts/pccl_for_test_hggcrt13_ubuntu24_build.sh changes CI build-pass ordering and unsets LDFLAGS for the test pass to restore unit-test linking in the workflow row. These are test/build workflow orchestration changes (CI scope) rather than review-policy automation (workflow module) or core build-system rule changes."
     }
   },
   "reviewers": {
