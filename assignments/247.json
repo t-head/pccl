@@ -1,15 +1,15 @@
 {
   "classification": {
     "base_sha": "4620d52ab5ddcd700954bd03a41ecd81a39e38dd",
-    "head_sha": "2c12ab0f3c6c58448d273cacb212c2417528b213",
-    "input_fingerprint": "79b949bcbe6d95f3c6458bf5e61a99f38bf50b8d63659d0ceafee8e487bffc06",
+    "head_sha": "877744a8492fa5f22bf25103ada8c06a29a2002b",
+    "input_fingerprint": "1f7fa8e10f444ec50d7fb426b659dfddde5e7aaeb2bb93c4960e791c5b1745da",
     "pr_number": 247,
     "proposal": {
       "additional_modules": [],
       "modules": [
         "workflow"
       ],
-      "reason": "Main change is review-routing policy/automation behavior: .github/scripts/review_automation.py adds run-number staleness protection before saving/inviting, adjusts required-reviewer lifecycle, and handles 422 withdrawal as warning with explicit gate guidance. Supporting workflow plumbing in .github/workflows/review-gate.yml, review-squash-preview.yml, review-routing.yml plus maintainer_approval.py/commit_message_squash.py normalizes PR-number identification and concurrency groups for the same review/squash pipelines. .github/skills/pccl-review-assignment/modules.json and .github/WORKFLOWS.md update module-classification and reviewer-policy documentation. These are all owned by contribution/review workflow policy and wiring, not runtime PCCL modules."
+      "reason": "Main change is review-routing policy/automation behavior, owned by workflow: .github/scripts/review_automation.py adds run-number stale-result suppression, invitation lifecycle changes (no obsolete re-request loop), and selective HTTP 422 withdrawal warning handling; .github/workflows/review-gate.yml and review-squash-preview.yml add PR-number identification/normalization and canonical per-PR concurrency locks; .github/scripts/maintainer_approval.py and commit_message_squash.py add identify mode and strict positive PR parsing. .github/skills/pccl-review-assignment/modules.json only updates catalog boundaries/descriptions, which are workflow-owned metadata, not runtime copy-engine/symmetric implementation changes."
     }
   },
   "reviewers": {
