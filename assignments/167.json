@@ -1,18 +1,20 @@
 {
   "classification": {
-    "base_sha": "c6fab1fe8ba458595e12c09da15243c6a9f22a7f",
-    "head_sha": "65cb13a8a107c4366385f618e51f6395d645ec18",
-    "input_fingerprint": "74a2948a74f71366be8c5deebb0571465703022cc75e68ce44967c5cef2d9ec4",
+    "base_sha": "553701b1a4a7d738627763f1a4af3670500023a9",
+    "head_sha": "b1f8144d49b1318e249307ef6dcdc240b4670f96",
+    "input_fingerprint": "63e4af3381a3e54a690ff6cb17f78bb16e216c510dcbebfe8d866227f971e078",
     "pr_number": 167,
     "proposal": {
+      "additional_modules": [],
       "modules": [
-        "transport",
-        "copy-engine"
+        "copy-engine",
+        "communicator"
       ],
-      "reason": "Primary change is copy-engine behavior: CE/ltOki ring isolation, CE stream hinting/ring mapping, reserved-stream submission policy, OKI QP queue-id allocation, and CE reduction DMA tail/bounds handling to avoid mixed CE+ltOki hangs. transport is additionally needed because peer capability exchange now carries an OKI feature bitmap (peerInfo.okiEnable) with cross-rank agreement checks in transport initialization, changing connection-time feature negotiation semantics."
+      "reason": "Primary is copy-engine: src/ce_coll.cc changes CE batch-launch path selection to use OKI-ring mode (pcclCeUsesOkiRings), adds pcclCeHintMemcpyStream capture-safe ring hints, and routes CE stream groups/ring IDs to isolate memcpy from ltOki DMA queues; src/init.cc also remaps OKI QP queueId allocation to reserve ring 0 and shift local/remote OKI rings. Secondary is communicator: src/init.cc + src/include/transport.h add per-rank okiEnable feature bitmap exchange (fillInfo/bootstrapAllGather), enforce all-rank feature consistency/global gating, and move OKI enable/disable readiness checks into communicator init lifecycle before resource creation."
     }
   },
   "reviewers": {
+    "communicator": 340404662,
     "copy-engine": 333277982,
     "enqueue": 341355176,
     "symmetric": 333277982,
