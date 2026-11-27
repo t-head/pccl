@@ -1,17 +1,16 @@
 {
   "classification": {
-    "base_sha": "b451c3af88fbc0ea9fbbb85cdb8a66d779ec2831",
-    "head_sha": "e5ba71b9faae2f422fe306cd502411362f953719",
-    "input_fingerprint": "0622cc53c664b92d78d08607800952b4e06a6592a146982f908c3b2c29f36dc6",
+    "base_sha": "c83b84012932617ce91ff15e944ea3e5c27d87a6",
+    "head_sha": "642138d85b16c74c9134de6568775947ba3e5af4",
+    "input_fingerprint": "ff3b6944270503f16844b85473324bcca4879173990b77866aeb3b69264fd93b",
     "pr_number": 228,
     "proposal": {
+      "additional_modules": [],
       "modules": [
         "graph-search"
       ],
-      "reason": "Main change is in logical ring/channel graph construction and connection: it introduces execution-to-graph channel mapping through copy/shuffle, restores odd-node ring reversal during postset after node IDs are known, and fixes proxy reuse decisions by validating cached graph endpoints (send rank/NIC) before selecting a proxy."
+      "reason": "Main change is in logical channel/ring graph construction and mapping, so graph-search is primary: src/graph/connect.cc adds per-graph channelMap propagation across copy/shuffle, fixes SM80/SM89 channel remap behavior, and moves reverse-ring application to Postset with rank-neighbor swaps after node assignment; src/graph/search.cc switches net-device lookup to channelMap and validates cached proxy endpoints (send rank + NIC) before reuse. src/include/graph.h adds channelMap/ringReverse state used by this flow, and src/init.cc only wires shuffle inputs/guard rails for the same graph behavior rather than introducing an independent communicator/network policy change."
     }
   },
-  "reviewers": {
-    "graph-search": 341349555
-  }
+  "reviewers": {}
 }
