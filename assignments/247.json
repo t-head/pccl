@@ -1,18 +1,22 @@
 {
   "classification": {
     "base_sha": "cd97dc76bdd6b036db4a07662713fed215467ff0",
-    "head_sha": "93193bb1947869d6127abc0ad87d4f8578268810",
-    "input_fingerprint": "049f87d77d367221cff7059adab5bfc9eb37fd16088a33bb7927d322a65c4037",
+    "head_sha": "c1402a8370cfbff3eb593492efe0063a9c259954",
+    "input_fingerprint": "d8fb9782f31082fb04b0743da0d1c7d833940f2080de55cae76291e165e6b897",
     "pr_number": 247,
     "proposal": {
-      "additional_modules": [],
-      "modules": [
-        "workflow"
+      "additional_modules": [
+        "symmetric"
       ],
-      "reason": "Primary change is review-routing behavior, owned by workflow: .github/workflows/review-routing.yml changes PR-number handoff to use classify output (`fromJSON(...).pr_number`), and .github/scripts/review_automation.py updates invitation sync to treat DELETE-withdrawal HTTP 422 as warning while continuing routing/summary generation. Supporting API diagnostic handling in .github/scripts/reviewer_api.py (sanitized/truncated GitHub error details) and docs in .github/WORKFLOWS.md are part of the same reviewer-assignment/approval automation path, not an independent module scope."
+      "modules": [
+        "workflow",
+        "copy-engine"
+      ],
+      "reason": "workflow is primary: .github/workflows/review-routing.yml changes the invitation handoff source for pr_number, and .github/scripts/review_automation.py plus .github/scripts/reviewer_api.py change routing behavior by treating only withdrawal HTTP 422 as a warning while preserving hard failures for other API errors, with sanitized/truncated HTTP diagnostics. copy-engine is secondary: .github/skills/pccl-review-assignment/modules.json expands copy-engine ownership to host/device ltoki/OKI CE/DMA execution details and adds CE device-side key files, which changes classification/ownership contract for those transfer behaviors. symmetric is additional: the same catalog patch narrows symmetric to collective algorithms/planning/path selection and explicitly excludes CE/DMA transfer execution even under symmetric paths, so boundary decisions for that module also changed."
     }
   },
   "reviewers": {
+    "copy-engine": 341341178,
     "workflow": 333277982
   }
 }
