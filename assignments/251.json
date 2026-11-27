@@ -2,14 +2,14 @@
   "classification": {
     "base_sha": "553701b1a4a7d738627763f1a4af3670500023a9",
     "head_sha": "5b5c3c4834c06c1d4a886ef96c42111222ab0efe",
-    "input_fingerprint": "36d447cf90a8ac6b97a22f281d4323d124a123b77ed74223c91e0c4de44e1726",
+    "input_fingerprint": "ef5832e643e8e7ec045ee5bacd10bb52b3e82200e6fc5dc0b4613d96d20cfc62",
     "pr_number": 251,
     "proposal": {
       "additional_modules": [],
       "modules": [
         "ci"
       ],
-      "reason": "Main change is CI test-workflow execution logic: .github/workflows/scripts/pccl_for_test_hggcrt13_ubuntu24_build.sh now splits build into two passes and runs the unit-test pass with `env -u LDFLAGS` plus `--enable_tests`, preventing hgcc `-Xcompiler` forwarding from breaking g++ link flags. This is owned by ci (runner/workflow test execution behavior). build is not primary because no Makefile/toolchain/build-rule contract is changed; only workflow-script invocation/environment for this CI row is adjusted."
+      "reason": "Primary change is CI execution behavior in .github/workflows/scripts/pccl_for_test_hggcrt13_ubuntu24_build.sh: it reorders two build.sh passes and runs the test pass as `env -u LDFLAGS ... --enable_tests` so unit-test links avoid forwarded `-Wl,--allow-shlib-undefined` while the non-test pass keeps utility binaries and library linking behavior. This is test-workflow runner/environment orchestration (ci), not review-policy automation (workflow) and not a source build-rule/toolchain contract change in Makefiles (build)."
     }
   },
   "reviewers": {}
