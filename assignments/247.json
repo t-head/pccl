@@ -1,15 +1,15 @@
 {
   "classification": {
-    "base_sha": "c83b84012932617ce91ff15e944ea3e5c27d87a6",
-    "head_sha": "79c664c98ef52cb85b8a466f2ccd6071802cc7e6",
-    "input_fingerprint": "79d0979111259c5545f8d3dc5f6551b7f26cf2f90c946515a3e2bd0ed29aebfa",
+    "base_sha": "cd97dc76bdd6b036db4a07662713fed215467ff0",
+    "head_sha": "fe5a7f21ebc8b2dcd1b124be46231af99ad44c52",
+    "input_fingerprint": "1f280a54ae11d5a76fc8a75403bc7f0f5bc104ceb3281af30c2557431a219b66",
     "pr_number": 247,
     "proposal": {
       "additional_modules": [],
       "modules": [
         "workflow"
       ],
-      "reason": "Main change is in review-routing behavior: `.github/workflows/review-routing.yml` updates the reusable-workflow input `pr_number` to `fromJSON(format(...))`, fixing numeric-type normalization at the reviewer-invitation call boundary after classification. This is owned by `workflow` because it changes review-routing/assignment automation wiring and input contract handling, not CI test execution (`ci`) or build/runtime modules."
+      "reason": "Main change is review-routing automation behavior: .github/workflows/review-routing.yml now normalizes pr_number with fromJSON(format(...)) at the reusable-workflow boundary, fixing manual routing dispatch input typing. .github/scripts/reviewer_api.py independently changes workflow diagnostics by extending GitHubError and extracting/redacting/truncating HTTP error details (message/errors) for reviewer-invitation sync failures. These are contribution/review workflow policy-automation mechanics, so workflow is the most specific owner; no separate CI/build/runtime module behavior or contract is substantively changed."
     }
   },
   "reviewers": {
