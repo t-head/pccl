@@ -1,16 +1,15 @@
 {
   "classification": {
-    "base_sha": "c83b84012932617ce91ff15e944ea3e5c27d87a6",
-    "head_sha": "642138d85b16c74c9134de6568775947ba3e5af4",
-    "input_fingerprint": "fc8d7c38d1aca0ad8e12f74afd1e69372f1c10404db8b898bee9eb54efed84a6",
+    "base_sha": "cd97dc76bdd6b036db4a07662713fed215467ff0",
+    "head_sha": "110b182cb1add9c8cba32902fbd2f9c0a3182d4f",
+    "input_fingerprint": "1814c49383a26e80c5bbedcabbe8d5b328443e1569952b5eab3f5fbf3cade8a6",
     "pr_number": 228,
     "proposal": {
       "additional_modules": [],
       "modules": [
-        "graph-search",
-        "network"
+        "graph-search"
       ],
-      "reason": "Main change is logical channel/ring graph correctness in graph construction and post-processing, so graph-search is primary: src/graph/connect.cc adds per-algorithm channelMap initialization/copying, fixes compCap80/89 shuffle behavior, restores odd-node ring reversal in ncclTopoPostset, and updates connectRings endpoint assignment; src/include/graph.h adds channelMap and ringReverse fields that support this graph behavior. Secondary network review is needed for an independent proxy-selection contract fix: src/graph/search.cc (ncclTopoGetNetDev) now reuses cached proxyDevs only when send-rank/NIC match and otherwise resolves intermediate proxy rank, changing NIC/proxy selection semantics."
+      "reason": "Main functional change is in logical graph channel/ring construction and mapping: src/graph/connect.cc adds channelMap propagation, fixes compCap80/89 channel shuffle behavior, and moves reverse-ring application to postset rank/node wiring; src/graph/search.cc switches net/proxy selection to graph->channelMap and validates cached proxy by send-rank+NIC match before fallback path lookup. This is core graph construction/connection correctness, so graph-search takes priority. src/init.cc and src/include/graph.h changes are supporting wiring/state for the same behavior, not an independent module contract change."
     }
   },
   "reviewers": {
