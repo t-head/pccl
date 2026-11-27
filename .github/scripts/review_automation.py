@@ -107,6 +107,7 @@ def classify(pr, files, roster, skill):
         "title": pr["title"], "body": pr["body"], "files": files}, ensure_ascii=False)
     proposal = validate_classification(json.loads(ask_copilot(prompt)), roster)
     return {"pr_number": pr["number"], "head_sha": pr["head"]["sha"], "base_sha": pr["base"]["sha"],
+            "run_number": int(os.environ["GITHUB_RUN_NUMBER"]),
             "input_fingerprint": classification_fingerprint(pr, files, roster, skill), "proposal": proposal}
 
 
@@ -239,9 +240,12 @@ def invite(api, pr, recommendation, roster, skill):
             recommendation.get("input_fingerprint") != classification_fingerprint(pr, files, roster, skill)):
         raise ValueError("PR or configuration changed; rerun classification")
     modules = validate_classification(recommendation.get("proposal"), roster)["modules"]
+    previous, latest, revision = reviewer_state.read_assignments(api, number)
+    if recommendation["run_number"] < (previous["classification"] or {}).get("run_number", 0):
+        return (f"### Reviewer invitations · PR #{number}\n\n"
+                "Skipped: a newer routing run already saved its classification.\n")
     publish_status(api, pr["head"]["sha"], "pending", UPDATE_PENDING)
     try:
-        previous, latest, revision = reviewer_state.read_assignments(api, number)
         record = {"classification": recommendation, "reviewers": select_reviewers(
             modules, roster["modules"], previous["reviewers"], latest, pr["user"]["id"], modules[1:])}
         reviewer_state.save_review_state(api, number, previous, record, latest, revision)
@@ -269,7 +273,7 @@ def sync_invitations(api, pr, record, roster):
         history = api.pages(f"/issues/{number}/timeline")
         requested, automated, cancelled = review_request_history(history)
         removed.intersection_update(requested & automated)
-    rerequested = required_reviewers(fresh, record, roster, history) - pending - cancelled
+    rerequested = required_reviewers(fresh, roster, history) - pending - cancelled - (automated - defaults)
     if rerequested:
         reviews = [review for review in api.pages(f"/pulls/{number}/reviews")
                    if review["user"]["type"] == "User" and review["submitted_at"]]
@@ -280,13 +284,27 @@ def sync_invitations(api, pr, record, roster):
     new_users = sorted((defaults - requested - pending - cancelled) | rerequested, key=api.login)
     logins = [api.login(user_id) for user_id in new_users]
     removed_logins = [api.login(user_id) for user_id in sorted(removed, key=api.login)]
+    withdrawal_warning = ""
     if removed:
-        api.request("DELETE", f"/pulls/{number}/requested_reviewers", {"reviewers": removed_logins})
+        try:
+            api.request("DELETE", f"/pulls/{number}/requested_reviewers", {"reviewers": removed_logins})
+        except reviewer_api.GitHubError as error:
+            if error.status != 422:
+                raise
+            withdrawal_warning = (f"Could not withdraw requests for {', '.join(removed_logins)} "
+                                  "(HTTP 422). Existing approval requirements remain in effect. "
+                                  "If these reviews are no longer needed, remove the requests in GitHub's "
+                                  "Reviewers sidebar and confirm in Review Gate Details. See workflow logs for details.")
+            message = f"{withdrawal_warning} {error}"
+            print("::warning::" + message.replace("%", "%25").replace("\r", "%0D").replace("\n", "%0A"))
+            removed_logins = []
     if new_users:
         api.request("POST", f"/pulls/{number}/requested_reviewers", {"reviewers": logins})
     summary = (f"### Reviewer invitations · PR #{number}\n\n"
                f"New requests: {', '.join(logins) or 'none'}.\n"
                f"Withdrawn requests: {', '.join(removed_logins) or 'none'}.\n")
+    if withdrawal_warning:
+        summary += f"\nWarning: {withdrawal_warning}\n"
     return summary, defaults & (requested | pending | set(new_users))
 
 
@@ -315,10 +333,9 @@ def review_request_history(history):
     return requested, automated, cancelled
 
 
-def required_reviewers(pr, record, roster, history):
+def required_reviewers(pr, roster, history):
     # The timeline retains invitations after a review leaves the pending-request list.
-    requested, automated, _ = review_request_history(history)
-    required = requested - (automated - default_reviewers(pr, record, roster))
+    required, _, _ = review_request_history(history)
     required.update(user["id"] for user in pr["requested_reviewers"] if user["type"] == "User")
     members = {roster["lead_maintainer"]}
     for entry in roster["modules"].values():

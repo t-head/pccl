@@ -169,21 +169,28 @@ def main():
     parser = argparse.ArgumentParser(description=__doc__)
     parser.add_argument('--pr', type=int, default=os.environ.get('PR_NUMBER') or None)
     parser.add_argument('--repository', default=os.environ.get('GITHUB_REPOSITORY', 't-head/pccl'))
+    parser.add_argument('--identify', action='store_true')
     args = parser.parse_args()
-    api = GitHub(args.repository, os.environ.get('GITHUB_TOKEN', ''))
     number = args.pr
     trigger_succeeded = True
     event_name = os.environ.get('GITHUB_EVENT_NAME')
     if event_name == 'workflow_run':
         run = json.loads(Path(os.environ['GITHUB_EVENT_PATH']).read_text())['workflow_run']
-        number = event_pr_number(run, api.repository,
+        number = event_pr_number(run, args.repository,
                                  {'.github/workflows/review-gate.yml': {'workflow_run', 'workflow_dispatch'}})
         trigger_succeeded = run['conclusion'] == 'success'
     elif event_name == 'pull_request_target':
         event = json.loads(Path(os.environ['GITHUB_EVENT_PATH']).read_text())
-        if event['repository']['full_name'] != api.repository:
+        if event['repository']['full_name'] != args.repository:
             raise ValueError('Unexpected PR event repository')
         number = event['pull_request']['number']
+    if type(number) is not int or number <= 0:
+        raise ValueError('PR number must be a positive integer')
+    if args.identify:
+        with open(os.environ['GITHUB_OUTPUT'], 'a') as output:
+            output.write(f'pr_number={number}\n')
+        return
+    api = GitHub(args.repository, os.environ.get('GITHUB_TOKEN', ''))
     url = refresh(api, number, automatic=event_name in {'workflow_run', 'pull_request_target'},
                   trigger_succeeded=trigger_succeeded, cleanup_only=event_name == 'pull_request_target')
     print('Published squash message: ' + url if url else 'No squash preview published.')

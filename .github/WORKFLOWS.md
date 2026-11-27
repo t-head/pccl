@@ -101,11 +101,14 @@ bypass GitHub's own merge rules.
 
 Manual invitations and cancellations carry forward across pushes and routing retries.
 The bot does not restore a manually cancelled invitation; request that person again
-in GitHub to restore the requirement. Obsolete automatic assignments are retired when
-classification changes, without withdrawing manually managed invitations.
-After a push, the bot re-requests still-required members who have reviewed only older
-commits and have no pending request, including manually invited members. It does not
-repeat pending requests or re-request someone who has already reviewed the current HEAD.
+in GitHub to restore the requirement. After reclassification, the bot withdraws obsolete
+pending automatic requests, without withdrawing manually managed invitations. It does
+not re-request obsolete automatic invitees just to withdraw them. Until explicitly
+cancelled, their approval remains required; use the cancellation steps above when it
+is no longer needed.
+After a push, the bot re-requests current default or manually invited members who have
+reviewed only older commits and have no pending request. It does not repeat pending
+requests or re-request someone who has already reviewed the current HEAD.
 These reminders leave manually managed invitations under manual control.
 
 ### What turns the review gate green?

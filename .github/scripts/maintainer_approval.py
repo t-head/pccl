@@ -22,10 +22,12 @@ def event_pr_number(run, repository, sources=SOURCES):
     if (run["repository"]["full_name"] != repository or
             run["event"] not in sources.get(run["path"].split("@", 1)[0], set())):
         raise ValueError("Unexpected review workflow")
-    match = re.fullmatch(r"PCCL review for PR #([1-9][0-9]*)", run["display_title"])
+    match = re.fullmatch(r"PCCL review for PR #(.+)", run["display_title"], re.DOTALL)
     if not match:
         raise ValueError("Review workflow did not identify a PR")
     number = int(match[1])
+    if number <= 0:
+        raise ValueError("Invalid PR number")
     if run["pull_requests"] and not any(item["number"] == number for item in run["pull_requests"]):
         raise ValueError("Review workflow title conflicts with GitHub's PR association")
     return number  # Fork notifications can omit the PR list. Always read verdicts from the PR API.
@@ -53,7 +55,7 @@ def saved_review_state(api, number):
 
 def module_approval(api, pr, roster, skill, record, approvals):
     history = api.pages(f"/issues/{pr['number']}/timeline")
-    required = routing.required_reviewers(pr, record, roster, history)
+    required = routing.required_reviewers(pr, roster, history)
     if not required:
         reason = ("Waiting for module classification; rerun reviewer routing" if not record["classification"]
                   else "At least one invited module member other than the author must remain")
@@ -133,7 +135,10 @@ def refresh(api, number):
 
 
 def main():
-    api = reviewer_api.GitHub(os.environ["GITHUB_REPOSITORY"], os.environ["GITHUB_TOKEN"])
+    mode = sys.argv[1] if len(sys.argv) > 1 else "refresh"
+    if mode not in {"identify", "refresh"}:
+        raise ValueError("Use identify or refresh")
+    repository = os.environ["GITHUB_REPOSITORY"]
     event = json.loads(Path(os.environ["GITHUB_EVENT_PATH"]).read_text())
     if os.environ["GITHUB_EVENT_NAME"] == "workflow_dispatch":
         if os.environ["GITHUB_REF"] != f"refs/heads/{routing.WORKFLOW_BRANCH}":
@@ -142,7 +147,12 @@ def main():
         if number <= 0:
             raise ValueError("Invalid PR number")
     else:
-        number = event_pr_number(event["workflow_run"], api.repository)
+        number = event_pr_number(event["workflow_run"], repository)
+    if mode == "identify":
+        with open(os.environ["GITHUB_OUTPUT"], "a") as output:
+            output.write(f"pr_number={number}\n")
+        return
+    api = reviewer_api.GitHub(repository, os.environ["GITHUB_TOKEN"])
     refresh(api, number)
 
 
