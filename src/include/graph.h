@@ -121,6 +121,7 @@ ncclResult_t ncclTopoIdToNetDev(struct ncclTopoSystem* system, int64_t id, int* 
 ncclResult_t pcclShuffleChannel(ncclComm_t comm, struct ncclTopoGraph* graph, int ngpus);
 
 struct ncclTopoRanks {
+  int ringReverse;
   int ringRecv[MAXCHANNELS];
   int ringSend[MAXCHANNELS];
   int ringPrev[MAXCHANNELS];

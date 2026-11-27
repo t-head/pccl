@@ -23,6 +23,7 @@ ncclResult_t ncclTopoPreset(ncclComm_t comm,
   int rank = comm->rank;
   int localRanks = comm->localRanks;
   int nChannels = comm->nChannels;
+  topoRanks->ringReverse = pcclParamReverseRingInterleave() == 1;
 
   for (int c=0; c<nChannels; c++) {
     struct ncclChannel* channel = comm->channels+c;
@@ -38,28 +39,12 @@ ncclResult_t ncclTopoPreset(ncclComm_t comm,
     int* treeIntra = treeGraph->intra+c*localRanks;
     int* fcIntra = fcGraph->intra;
     int fcPeer = 0;
-    static int reverseRingInterleave = pcclParamReverseRingInterleave();
-
-    if (reverseRingInterleave == 1) {
-      if (ringGraph->crossNic == 0) INFO(NCCL_GRAPH, "SameNic graph mode might have no effects while using reverse ring.");
-      if (comm->nNodes%2 == 1) INFO(NCCL_GRAPH, "Reverse ring order interleave might have no perf gains while total node number is odd.");
-    }
-
     for (int i=0; i<localRanks; i++) {
       if (ringIntra[i] == rank) {
-        if (reverseRingInterleave == 1 && comm->node%2 == 1) {
-          // For HPN7.0 reverse ring order
-          // When set reverse even ring, make sure every node has the same localRanks
-          topoRanks->ringRecv[c] = ringIntra[localRanks-1];
-          topoRanks->ringSend[c] = ringIntra[0];
-          channel->ring.prev = (i == localRanks-1) ? -1 : ringIntra[i+1];
-          channel->ring.next = (i == 0) ? -1 : ringIntra[i-1];
-        } else {
-          topoRanks->ringRecv[c] = ringIntra[0];
-          topoRanks->ringSend[c] = ringIntra[localRanks-1];
-          channel->ring.prev = (i == 0) ? -1 : ringIntra[i-1];
-          channel->ring.next = (i == localRanks-1) ? -1 : ringIntra[i+1];
-        }
+        topoRanks->ringRecv[c] = ringIntra[0];
+        topoRanks->ringSend[c] = ringIntra[localRanks-1];
+        channel->ring.prev = (i == 0) ? -1 : ringIntra[i-1];
+        channel->ring.next = (i == localRanks-1) ? -1 : ringIntra[i+1];
       }
       if (treeIntra[i] == rank) {
         int parentIndex = 0;
@@ -121,18 +106,12 @@ static ncclResult_t connectRings(ncclComm_t comm, int* ringRecv, int* ringSend, 
       int recvRank = recv[firstRanks[n]];
       int prevSendRank = send[firstRanks[(n-1+nNodes)%nNodes]];
       prev[recvRank] = prevSendRank;
-      if (comm->rank == recvRank) {
-        channel0->ring.prev = prevSendRank;
-        channel1->ring.prev = prevSendRank;
-      }
       int sendRank = send[firstRanks[n]];
       int nextRecvRank = recv[firstRanks[(n+1)%nNodes]];
       next[sendRank] = nextRecvRank;
-      if (comm->rank == sendRank) {
-        channel0->ring.next = nextRecvRank;
-        channel1->ring.next = nextRecvRank;
-      }
     }
+    channel0->ring.prev = channel1->ring.prev = prev[comm->rank];
+    channel0->ring.next = channel1->ring.next = next[comm->rank];
 #ifdef KERNEL_LOOPBACK
     if (comm->nRanks == 1) {
       channel0->ring.prev = -1;
@@ -336,14 +315,28 @@ ncclResult_t ncclTopoPostset(ncclComm_t comm, int* firstRanks, int* treePatterns
   NCCLCHECKGOTO(ncclCalloc(&treeToChild0, nranks*MAXCHANNELS), res, end);
   NCCLCHECKGOTO(ncclCalloc(&treeToChild1, nranks*MAXCHANNELS), res, end);
   for (int i=0; i<nranks; i++) {
+    bool reverse = allTopoRanks[i]->ringReverse && comm->rankToNode[i]%2 == 1;
     for (int c=0; c<nChannels; c++) {
       ringRecv[c*nranks+i] = allTopoRanks[i]->ringRecv[c];
       ringSend[c*nranks+i] = allTopoRanks[i]->ringSend[c];
       ringPrev[c*nranks+i] = allTopoRanks[i]->ringPrev[c];
       ringNext[c*nranks+i] = allTopoRanks[i]->ringNext[c];
+      if (reverse) {
+        std::swap(ringRecv[c*nranks+i], ringSend[c*nranks+i]);
+        std::swap(ringPrev[c*nranks+i], ringNext[c*nranks+i]);
+      }
       treeToParent[c*nranks+i] = allTopoRanks[i]->treeToParent[c];
       treeToChild0[c*nranks+i] = allTopoRanks[i]->treeToChild0[c];
       treeToChild1[c*nranks+i] = allTopoRanks[i]->treeToChild1[c];
+    }
+  }
+
+  if (allTopoRanks[comm->rank]->ringReverse) {
+    if (comm->graphs[NCCL_ALGO_RING].crossNic == 0) {
+      INFO(NCCL_GRAPH, "SameNic graph mode might have no effects while using reverse ring.");
+    }
+    if (comm->nNodes%2 == 1) {
+      INFO(NCCL_GRAPH, "Reverse ring order interleave might have no perf gains while total node number is odd.");
     }
   }
 
