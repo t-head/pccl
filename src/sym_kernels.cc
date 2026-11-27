@@ -195,10 +195,11 @@ ncclResult_t ncclSymkInitOnce(struct pcclComm* comm) {
   NCCLCHECK(ncclDevrInitOnce(comm));
 
   struct ncclSymkState* symk = &comm->symkState;
-  if (symk->initialized || symk->initInProgress) return ncclSuccess;
-  symk->initInProgress = true;
+  if (symk->initialized) return ncclSuccess;
   {
     struct ncclDevCommRequirements reqs = NCCL_DEV_COMM_REQUIREMENTS_INITIALIZER;
+    symk->hasLsaMultimem = false;
+    reqs.lsaMultimem = symk->hasLsaMultimem;
     reqs.lsaBarrierCount = ncclSymkMaxBlocks;
 
     struct ncclDevResourceRequirements lla2aReq;
@@ -206,6 +207,9 @@ ncclResult_t ncclSymkInitOnce(struct pcclComm* comm) {
       ncclSymkMaxBlocks, ncclLLA2ACalcSlots(ncclTeamLsa(comm).nRanks*ncclSymkMaxThreads, ncclSymkLLMaxEltSize),
       &symk->kcomm.lsaLLA2A, &lla2aReq
     );
+    // Skip metadata rows to retain 128-byte PPU LL payload alignment.
+    lla2aReq.bufferSize *= pcclSymkLLRowStride;
+    lla2aReq.bufferAlign = 128;
     lla2aReq.next = reqs.resourceRequirementsList;
     reqs.resourceRequirementsList = &lla2aReq;
 
@@ -253,36 +257,9 @@ ncclResult_t ncclSymkInitOnce(struct pcclComm* comm) {
 
     NCCLCHECKGOTO(ncclDevrCommCreateInternal(comm, &reqs, &symk->kcomm.devComm, true), ret, exit);
 
-    // symk's ncclSymDevBase prefix (barInbox/llEpoch/LL buffer) in a devr
-    // window. kcomm.base = lsa-flat self slot so ncclSymPrims::peerPtr lands
-    // on peers' barInbox via the window's IPC mapping.
-    {
-      uint8_t* symkDevBase = nullptr;
-      size_t symkDevBaseSize = ncclSymDevBase::size_symk(ncclTeamLsa(comm).nRanks);
-      ncclWindow_vidmem* symkWinDev = nullptr;
-      ncclWindow_vidmem* symkWinDevHost = nullptr;
-      NCCLCHECKGOTO(pcclMemAlloc((void**)&symkDevBase, symkDevBaseSize), ret, fail_symkdev);
-      NCCLCHECKGOTO(ncclDevrWindowRegisterInGroup(
-          comm, symkDevBase, symkDevBaseSize, NCCL_WIN_COLL_SYMMETRIC, &symkWinDev), ret, fail_symkdev);
-      NCCLCHECKGOTO(ncclShadowPoolToHost(&comm->devrState.shadows, symkWinDev, &symkWinDevHost), ret, fail_symkdev);
-      symk->symkWin = (struct ncclDevrWindow*)symkWinDevHost->winHost;
-      HGGCCHECKGOTO(hggcMemset(symk->symkWin->userPtr, 0, symkDevBaseSize), ret, exit);
-      {
-        char* selfSlot = (char*)symkWinDevHost->lsaFlatBase
-                         + (size_t)symkWinDevHost->lsaRank * comm->devrState.bigSize;
-        symk->kcomm.base = (struct ncclSymDevBase*)selfSlot;
-      }
-      goto symkdev_ok;
-    fail_symkdev:
-      if (symkDevBase) pcclMemFree(symkDevBase);
-      goto exit;
-    symkdev_ok:;
-    }
-    NCCLCHECKGOTO(ncclCeInit(comm), ret, exit);
     symk->initialized = true;
   }
 exit:
-  symk->initInProgress = false;
   return ret;
 }
 
@@ -291,12 +268,7 @@ ncclResult_t ncclSymkFinalize(struct pcclComm* comm) {
   struct ncclSymkState* symk = &comm->symkState;
   if (symk->initialized) {
     NCCLCHECKIGNORE(ncclDevCommDestroy(comm, &symk->kcomm.devComm), ret);
-    if (symk->symkWin) {
-      void* userPtr = symk->symkWin->userPtr;
-      NCCLCHECKIGNORE(ncclCommWindowDeregister(comm, symk->symkWin->vidmem), ret);
-      NCCLCHECKIGNORE(pcclMemFree(userPtr), ret);
-      symk->symkWin = nullptr;
-    }
+    symk->initialized = false;
   }
   return ret;
 }
@@ -424,8 +396,8 @@ bool ncclSymkAvailable(struct pcclComm* comm, ncclFunc_t coll, int/*ncclDevRedOp
                        ncclDataType_t ty, size_t nElts) {
   if (!comm->symmetricSupport)
     return false;
-  // Multi-node symk is disabled: surviving kernels are LSA-only.
-  if (comm->nNodes > 1)
+  // Surviving kernels require the whole communicator to be one LSA team.
+  if (comm->nNodes > 1 || ncclTeamLsa(comm).nRanks < comm->nRanks)
     return false;
   if (!ncclSymkImplemented(coll, red, ty))
     return false;
@@ -486,7 +458,7 @@ const char* ncclSymkKernelIdToString(int kernelId) {
   return kernelName[kernelId];
 }
 
-ncclResult_t ncclSymkMakeDevWork(struct pcclComm* comm, struct ncclTaskColl* task, struct pcclSymkDevWork* outDevWork) {
+ncclResult_t ncclSymkMakeDevWork(struct pcclComm* comm, struct ncclTaskColl* task, struct ncclSymkDevWork* outDevWork) {
   outDevWork->rootRank = task->root;
   outDevWork->redOpArg = task->opDev.scalarArg;
   outDevWork->nElts = task->count;

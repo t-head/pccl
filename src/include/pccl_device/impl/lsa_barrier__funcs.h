@@ -23,7 +23,8 @@ PCCL_DEVICE_INLINE pcclLsaBarrierSession<Coop>::pcclLsaBarrierSession(
     coop, comm, team, handle, (int)index,
     multimem, mmHandle, /*epoch=*/0
   } {
-  assert(!multimem && "multimem is not supported on PPU");
+  // Keep the condition boolean so HGCC can fold the non-multimem constructor.
+  assert(!multimem);
   uint32_t* state = (uint32_t*)pcclGetResourceBufferLocalPointer(comm, handle.bufHandle);
   this->epoch = state[(this->multimem ? 0 : 1)*this->handle.nBarriers + this->index];
 }

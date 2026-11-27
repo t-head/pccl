@@ -1199,10 +1199,8 @@ static ncclResult_t reclaimPlan(ncclComm_t comm, struct ncclCommCallback* me) {
   }
   NCCLCHECK(result);
 
-  // Multi-task path pool-allocates 4KB args; fast-path uses memScoped.
   if (plan->isSymColl && plan->workStorageType == ncclDevWorkStorageTypeArgs
-      && plan->kernelSymkArgs != nullptr
-      && plan->kernelArgsSize == sizeof(pcclSymkDevWorkArgs4K)) {
+      && plan->kernelSymkArgs != nullptr) {
     ncclMemoryPoolFree<pcclSymkDevWorkArgs4K>(&comm->memPool_kernelSymkArgs,
         reinterpret_cast<pcclSymkDevWorkArgs4K*>(plan->kernelSymkArgs));
     plan->kernelSymkArgs = nullptr;
@@ -1936,6 +1934,11 @@ ncclResult_t ncclLaunchPrepare(ncclComm_t comm) {
         if (plan->workBytes != 0) {
           ncclIntruQueueEnqueue(&planner->planQueue, plan);
           nPlans += 1;
+        } else if (plan->isSymColl && plan->workStorageType == ncclDevWorkStorageTypeArgs
+                   && plan->kernelSymkArgs != nullptr) {
+          ncclMemoryPoolFree<pcclSymkDevWorkArgs4K>(&comm->memPool_kernelSymkArgs,
+              reinterpret_cast<pcclSymkDevWorkArgs4K*>(plan->kernelSymkArgs));
+          plan->kernelSymkArgs = nullptr;
         }
       }
     } while ((planner->nTasksColl + planner->nTasksP2p != 0) ||

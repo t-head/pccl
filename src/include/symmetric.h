@@ -138,18 +138,6 @@ static void* ncclSymDevBase_getKuiRemoteFenceAddr(struct ncclSymDevBase* base, i
   return (void*)ans;
 }
 
-static __device__ uint4* ncclSymDevBase_getLLBuf(struct ncclSymDevBase* base, int nRanks, int block, uint32_t epoch) {
-  // Get pointer to buffer trailing the header struct.
-  char* ans = (char*)(base + 1);
-  // Skip over barInboxPerPeer[]
-  ans += alignUp(ncclSymMaxBlocks*nRanks*sizeof(uint32_t), 16);
-  // Skip to our block
-  int epochSize = ncclSymLLEpochSize(nRanks);
-  ans += block * /*epochs=*/2 * epochSize;
-  ans += (epoch & 1)*epochSize;
-  return (uint4*)ans;
-}
-
 struct ncclSymDevComm {
   ncclSymDevBase* base;
   uint32_t stride4G;
@@ -168,11 +156,6 @@ struct alignas(16) pcclSymDevArgs {
   bool incPrecision;
 };
 #define ncclSymDevArgs pcclSymDevArgs
-
-// Symmetric kernel selection and dispatch live in sym_kernels.h (the multi-task
-// symk path); this header exposes only the device-side types still used by the
-// CE path and by the legacy ncclSymRun_* inline kernel bodies that the
-// generated __global__ wrappers translate into.
 
 __global__ void gpuBarrier(ncclSymDevArgs const args);
 __global__ void gpuGEQ(volatile uint64_t* ptr, uint64_t data);

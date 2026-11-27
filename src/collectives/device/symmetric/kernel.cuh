@@ -10,19 +10,21 @@
 #define NCCL_DEVICE_SYMMETRIC_KERNEL_H_
 
 #include "symmetric.h"
+#include "sym_kernels.h"
 
 template<template<typename> class Red, typename T>
-__device__ __forceinline__ void pccl_symRun_AllReduce_AGxLL_R(struct ncclSymDevArgs const* args);
+__device__ __forceinline__ void ncclSymkRun_AllReduce_AGxLL_R(struct ncclSymkDevWorkArgs const* args);
 
 template<template<typename> class Red, typename T>
-__device__ __forceinline__ void pccl_symRun_AllReduce_RSxLD_AGxST(struct ncclSymDevArgs const* args);
+__device__ __forceinline__ void ncclSymkRun_AllReduce_RSxLD_AGxST(struct ncclSymkDevWorkArgs const* args);
 
-__device__ __forceinline__ void pccl_symRun_AllGather_LL(struct ncclSymDevArgs const* args);
-__device__ __forceinline__ void pccl_symRun_AllGather_ST(struct ncclSymDevArgs const* args);
+__device__ __forceinline__ void ncclSymkRun_AllGather_LL(struct ncclSymkDevWorkArgs const* args);
+__device__ __forceinline__ void ncclSymkRun_AllGather_ST(struct ncclSymkDevWorkArgs const* args);
+__device__ __forceinline__ void pccl_symRun_AllGather_ST_Ring(struct ncclSymkDevWorkArgs const* args);
+__device__ __forceinline__ void pccl_symRun_AllGather_ST_2D(struct ncclSymkDevWorkArgs const* args);
 
 template<template<typename> class Red, typename T>
-__device__ __forceinline__ void pccl_symRun_ReduceScatter_LL(struct ncclSymDevArgs const* args);
+__device__ __forceinline__ void ncclSymkRun_ReduceScatter_LL(struct ncclSymkDevWorkArgs const* args);
 template<template<typename> class Red, typename T>
-__device__ __forceinline__ void pccl_symRun_ReduceScatter_LD(struct ncclSymDevArgs const* args);
-template<template<typename> class Red, typename T>
+__device__ __forceinline__ void ncclSymkRun_ReduceScatter_LD(struct ncclSymkDevWorkArgs const* args);
 #endif
