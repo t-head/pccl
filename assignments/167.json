@@ -7,10 +7,9 @@
     "proposal": {
       "additional_modules": [],
       "modules": [
-        "copy-engine",
-        "communicator"
+        "copy-engine"
       ],
-      "reason": "Primary is copy-engine: src/ce_coll.cc changes CE batch-launch path selection to use OKI-ring mode (pcclCeUsesOkiRings), adds pcclCeHintMemcpyStream capture-safe ring hints, and routes CE stream groups/ring IDs to isolate memcpy from ltOki DMA queues; src/init.cc also remaps OKI QP queueId allocation to reserve ring 0 and shift local/remote OKI rings. Secondary is communicator: src/init.cc + src/include/transport.h add per-rank okiEnable feature bitmap exchange (fillInfo/bootstrapAllGather), enforce all-rank feature consistency/global gating, and move OKI enable/disable readiness checks into communicator init lifecycle before resource creation."
+      "reason": "Main change is CE/OKI DMA execution policy: src/init.cc reassigns OKI QP/ring IDs (reserve ring 0, move local/remote queue mapping) and enables OKI only when rank-wide feature bits match, while src/ce_coll.cc switches CE batch launch to OKI-ring mode and adds stream channel hinting behavior for memcpy/capture. This is copy-engine-owned queue/stream partitioning and DMA synchronization behavior; enqueue.cc and peerInfo plumbing are supporting wiring for that same CE/OKI path, not an independent module contract change."
     }
   },
   "reviewers": {
