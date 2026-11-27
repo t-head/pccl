@@ -8,6 +8,7 @@
 
 #include "comm.h"
 #include "graph.h"
+#include "topo.h"
 #include "trees.h"
 #include "rings.h"
 
@@ -273,27 +274,41 @@ extern int ppuDiesNum;
 ncclResult_t pcclShuffleChannel(ncclComm_t comm, struct ncclTopoGraph* graph, int ngpus) {
   if (!comm->channelShuffle) return ncclSuccess;
   // now only shuffle when the graph has replay channels
-  if (graph->nSubChannels < graph->nChannels && graph->nSubChannels > 1) {
+  if (graph->nSubChannels > 1 && graph->nSubChannels < graph->nGraphChannels &&
+      graph->nGraphChannels % graph->nSubChannels == 0) {
     int finalChannelsPerDie = std::min(std::min(graph->nChannels*2, std::max(ncclMaxNchannels(comm), ncclMinNchannels(comm))), comm->config.maxCTAs) / ppuDiesNum;
     int repeat = graph->nGraphChannels / graph->nSubChannels;
     bool isPerfectRepetition = finalChannelsPerDie % graph->nSubChannels == 0 ?  true : false;
     // check if the graph channels are perfect repetition of sub channels
-    for (int c=1; isPerfectRepetition && c<graph->nGraphChannels; c++) {
+    for (int c=0; isPerfectRepetition && c<graph->nGraphChannels; c++) {
       if (memcmp(graph->intra+c*ngpus, graph->subIntra+c/repeat*ngpus, sizeof(int)*ngpus) != 0) {
         isPerfectRepetition = false;
         break;
       }
     }
     if (isPerfectRepetition) {
+      if (!comm->topo->icnFullyConnected) {
+        // Preserve each channel's NICs so independent shuffles keep cross-node rail matching.
+        int nChannels = std::min(graph->nChannels, finalChannelsPerDie*ppuDiesNum);
+        for (int c=0; c<nChannels; c++) {
+          int c0 = (c%graph->nSubChannels)*repeat+(c/graph->nSubChannels)%repeat;
+          if (graph->inter[c*2] != graph->inter[c0*2] || graph->inter[c*2+1] != graph->inter[c0*2+1])
+            return ncclSuccess;
+        }
+      }
       VERBOSE(NCCL_GRAPH, "Start to shuffle channels, num of sub channels: %d, num of graph channels %d, final channels per die %d num of dies %d",
                           graph->nSubChannels, graph->nGraphChannels, finalChannelsPerDie, ppuDiesNum);
+      int64_t inter[MAXCHANNELS*2];
+      int proxyDevs[MAXCHANNELS];
+      // Save the original endpoints before interleaving graph channels.
+      memcpy(inter, graph->inter, graph->nGraphChannels*2*sizeof(int64_t));
+      memcpy(proxyDevs, graph->proxyDevs, graph->nGraphChannels*sizeof(int));
       // per die channel shuffle, try put the different channels to different CEs when enable one batch per ce
-      for (int c=0; c<finalChannelsPerDie; c++) {
+      for (int c=0; c<finalChannelsPerDie*ppuDiesNum; c++) {
+        int c0 = (c%graph->nSubChannels)*repeat+(c/graph->nSubChannels)%repeat;
         memcpy(graph->intra+c*ngpus, graph->subIntra+(c%graph->nSubChannels)*ngpus, ngpus*sizeof(int));
-      }
-      // duplicated for multi-die
-      for (int d=1; d<ppuDiesNum; d++) {
-        memcpy(graph->intra+d*finalChannelsPerDie*ngpus, graph->intra, finalChannelsPerDie*ngpus*sizeof(int));
+        memcpy(graph->inter+c*2, inter+c0*2, 2*sizeof(int64_t));
+        graph->proxyDevs[c] = proxyDevs[c0];
       }
     }
   }

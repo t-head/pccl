@@ -1406,7 +1406,8 @@ static ncclResult_t initTransportsRank(ncclComm_t comm, ncclComm_t parent, uint6
   ringGraph->minChannels = 1;
   ringGraph->maxChannels = MAXCHANNELS/2;
   NCCLCHECKGOTO(ncclTopoCompute(comm->topo, ringGraph), res, fail);
-  if (comm->channelShuffle && minCompCap == 89) NCCLCHECKGOTO(pcclShuffleChannel(comm, ringGraph, nranks), res, fail);
+  if (comm->channelShuffle && minCompCap == 89)
+    NCCLCHECKGOTO(pcclShuffleChannel(comm, ringGraph, comm->localRanks), res, fail);
   NCCLCHECKGOTO(ncclTopoPrintGraph(comm->topo, ringGraph), res, fail);
 
   treeGraph->id = 1;
