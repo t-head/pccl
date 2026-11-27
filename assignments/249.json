@@ -1,16 +1,15 @@
 {
   "classification": {
     "base_sha": "553701b1a4a7d738627763f1a4af3670500023a9",
-    "head_sha": "8a8cba95770d2002d47a07dcf80a74dbb3382e56",
-    "input_fingerprint": "bd475a28cd92000278fe6a7ef275a8252fec61a9959e2fa71da0b04c17f00974",
+    "head_sha": "a6a6a7fd028522c0744662551425328db5c33cb2",
+    "input_fingerprint": "598948597c8396c35081d7917ec4268082fd415adee2190a3c3691c1830fcaa9",
     "pr_number": 249,
     "proposal": {
       "additional_modules": [],
       "modules": [
-        "ci",
-        "build"
+        "ci"
       ],
-      "reason": "Main change is CI execution logic: .github/workflows/build-artifactory-ppu.yml, source-sanity.yml, and pccl-daily-full.yml now resolve pccl-tests by matching branch with fallback, add authenticated registry pull, and pin workflow_dispatch builds to label-instants, changing test/build orchestration and artifact reproducibility owned by ci. Secondary build scope is independently substantive in .github/workflows/scripts/pccl_for_test_hggcrt13_ubuntu24_build.sh, which reorders two build passes and unsets LDFLAGS for --enable_tests to alter linker-flag application and fix unit-test link behavior, a compiler/link invocation concern owned by build."
+      "reason": "The main functional change is CI workflow behavior: .github/workflows/build-artifactory-ppu.yml adds authenticated registry pulls, branch-aware pccl-tests revision resolution/fallback, and dispatch-label time pinning for built commits/tests; .github/workflows/source-sanity.yml and pccl-daily-full.yml propagate that resolved runner revision through checkout, cache/probe/validate, and gating logic. Evidence for ci: .github/workflows/scripts/pccl_for_test_hggcrt13_ubuntu24_build.sh changes CI build-pass sequencing and unsets LDFLAGS for the test pass to restore unit-test linking, while .github/xtest/artifact_cache.py and test_workflow_contract.py update fixture-runner revision contract checks used by workflow validation."
     }
   },
   "reviewers": {
