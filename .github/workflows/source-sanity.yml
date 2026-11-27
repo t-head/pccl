@@ -25,11 +25,15 @@ concurrency:
 
 env:
   HPN_SDK_URL: https://zone-ci.oss-cn-hangzhou.aliyuncs.com/hpn-sdk/2.1.3/hpnsdk2.1.3-ubuntu2404-202611121836-x86_64.bin
-  VALIDATION_IMAGE: download.t-head.cn/docker_release/ppu:sdk2.2.0-hggcrt3-ubuntu24.04-py312-20261005
+  VALIDATION_IMAGE: download.t-head.cn/docker_release/ppu:sdk2.2.1-hggcrt3-ubuntu24.04-py312-20261123
   # Install HPN SDK 2.1.3 by default; manual dispatch can select another trusted URL.
   VALIDATION_NODE_SELECTOR: board-type=ZW-M890P,nic-type=cx8
   VALIDATION_CARDS: '8'
-  PCCL_TESTS_REVISION: 394556512e87259e9ffa25225632c46b0a0bbcd5
+  # t-head/pccl-tests is checked out from the branch of the same name as the ref this run builds, so a
+  # release branch pairs with its own tests instead of the mainline. A pull request uses its source
+  # branch, a push to main uses main, and a ref without a paired pccl-tests branch falls back to main.
+  # The revision itself is resolved once in prepare and handed to every job.
+  PCCL_TESTS_BRANCH: ${{ github.head_ref || github.ref_name }}
 
 jobs:
   precheck:
@@ -120,6 +124,8 @@ jobs:
        github.event_name == 'push')
     outputs:
       hpn_sdk_url: ${{ steps.sdk-selection.outputs.hpn_sdk_url }}
+      pccl_tests_revision: ${{ steps.pccl-tests.outputs.sha }}
+      pccl_tests_branch: ${{ steps.pccl-tests.outputs.branch }}
     runs-on: ubuntu-24.04
     timeout-minutes: 20
     steps:
@@ -145,10 +151,42 @@ jobs:
         with:
           path: pccl
           persist-credentials: false
+      - id: pccl-tests
+        name: Resolve the pccl-tests revision
+        env:
+          TESTS_BRANCH: ${{ env.PCCL_TESTS_BRANCH }}
+        run: |
+          set -euo pipefail
+          resolve() {
+            git ls-remote https://github.com/t-head/pccl-tests.git "refs/heads/$1" 2>/dev/null \
+              | awk 'NR==1 {print $1}'
+          }
+          branch="${TESTS_BRANCH}"
+          sha=""
+          for attempt in 1 2 3; do
+            sha=$(resolve "${branch}") || true
+            if [ -n "${sha}" ]; then break; fi
+            echo "::warning::could not resolve t-head/pccl-tests ${branch} (attempt ${attempt}/3)"
+            sleep 15
+          done
+          # A ref without a paired pccl-tests branch keeps running against main instead of failing
+          # the whole workflow; the fallback is named here and in every job's build identity.
+          if [ -z "${sha}" ] && [ "${branch}" != "main" ]; then
+            echo "::warning::t-head/pccl-tests has no branch ${branch}; falling back to main"
+            branch="main"
+            sha=$(resolve "${branch}") || true
+          fi
+          if [ -z "${sha}" ]; then
+            echo "::error::could not resolve t-head/pccl-tests ${branch}"
+            exit 1
+          fi
+          echo "pccl-tests source: ${branch} @ ${sha}"
+          echo "sha=${sha}" >> "$GITHUB_OUTPUT"
+          echo "branch=${branch}" >> "$GITHUB_OUTPUT"
       - uses: actions/checkout@v4
         with:
           repository: t-head/pccl-tests
-          ref: ${{ env.PCCL_TESTS_REVISION }}
+          ref: ${{ steps.pccl-tests.outputs.sha }}
           path: pccl-tests
           persist-credentials: false
       - uses: actions/setup-python@v5
@@ -158,6 +196,8 @@ jobs:
         working-directory: pccl
         env:
           HPN_SDK_URL: ${{ steps.sdk-selection.outputs.hpn_sdk_url }}
+          PCCL_TESTS_REVISION: ${{ steps.pccl-tests.outputs.sha }}
+          PCCL_TESTS_BRANCH: ${{ steps.pccl-tests.outputs.branch }}
         run: |
           python3 -S -B -W error::ResourceWarning -m unittest discover \
             -s .github/xtest -p 'test_run_cases.py' -v
@@ -185,17 +225,28 @@ jobs:
 
           sys.path.insert(0, '.github/xtest')
           import reconcile_results
-          from artifact_cache import PCCL_TESTS_REVISION, RUNNER_HASHES
+          from artifact_cache import FIXTURE_RUNNER_REVISION, RUNNER_HASHES
 
           runner = Path('../pccl-tests').resolve()
           revision = subprocess.check_output(['git', '-C', str(runner), 'rev-parse', 'HEAD'], text=True).strip()
-          assert revision == PCCL_TESTS_REVISION == os.environ['PCCL_TESTS_REVISION']
-          for name, expected in RUNNER_HASHES.items():
-              assert hashlib.sha256((runner / name).read_bytes()).hexdigest() == expected
+          assert revision == os.environ['PCCL_TESTS_REVISION']
+          # RUNNER_HASHES records the run_test entry points validated against the committed export
+          # fixtures, which only exist for main. A branch carries its own runner, so drift there is
+          # reported and the run continues; on main the bytes must still match the baseline exactly.
+          drift = sorted(name for name, expected in RUNNER_HASHES.items()
+                         if hashlib.sha256((runner / name).read_bytes()).hexdigest() != expected)
+          if drift and os.environ['PCCL_TESTS_BRANCH'] == 'main':
+              raise AssertionError(f'pccl-tests main runner scripts drifted: {drift}')
+          for name in drift:
+              print(f"::warning::pccl-tests {os.environ['PCCL_TESTS_BRANCH']} {name} differs from "
+                    'the validated main baseline')
+          # The fixtures under .github/xtest are committed together with the pccl-tests main
+          # revision they were generated from, so they are checked against that label rather
+          # than against the branch this run happens to check out.
           metadata = json.loads(Path('.github/xtest/minimal-csv/export.json').read_text())
-          assert metadata['runner_revision'] == revision
+          assert metadata['runner_revision'] == FIXTURE_RUNNER_REVISION
           metadata_810e = json.loads(Path('.github/xtest/minimal-csv-oam810e-eic/export.json').read_text())
-          assert metadata_810e['runner_revision'] == revision
+          assert metadata_810e['runner_revision'] == FIXTURE_RUNNER_REVISION
           selections = reconcile_results.load_selections(
               Path('.github/xtest/minimal-csv'), int(os.environ['VALIDATION_CARDS']))
           expected = {'standard': 116, 'cluster': 1, 'notsm': 37}
@@ -273,7 +324,7 @@ jobs:
       - uses: actions/checkout@v4
         with:
           repository: t-head/pccl-tests
-          ref: ${{ env.PCCL_TESTS_REVISION }}
+          ref: ${{ needs.prepare.outputs.pccl_tests_revision }}
           path: pccl-tests
           persist-credentials: false
       - name: Build standard output
@@ -317,7 +368,7 @@ jobs:
           EXPECTED_SHA=$(python3 -c 'import json, os; print(json.load(open(os.path.join(os.environ["STAGING"], "output_standard.build.json")))["artifact_sha256"])')
           python3 -S -B pccl/.github/xtest/artifact_cache.py validate \
             --directory "$STAGING" --profile standard \
-            --pccl-revision '${{ github.sha }}' --pccl-tests-revision '${{ env.PCCL_TESTS_REVISION }}' \
+            --pccl-revision '${{ github.sha }}' --pccl-tests-revision '${{ needs.prepare.outputs.pccl_tests_revision }}' \
             --expected-sha256 "$EXPECTED_SHA"
           echo "artifact_sha256=$EXPECTED_SHA" >> "$GITHUB_OUTPUT"
       - name: Publish the standard NAS cache
@@ -327,7 +378,7 @@ jobs:
         run: |
           python3 -S -B pccl/.github/xtest/artifact_cache.py publish \
             --download "$STAGING" --cache "$CACHE_DIR" --profile standard \
-            --pccl-revision '${{ github.sha }}' --pccl-tests-revision '${{ env.PCCL_TESTS_REVISION }}' \
+            --pccl-revision '${{ github.sha }}' --pccl-tests-revision '${{ needs.prepare.outputs.pccl_tests_revision }}' \
             --expected-sha256 '${{ steps.identity.outputs.artifact_sha256 }}'
       - uses: actions/upload-artifact@v4
         with:
@@ -371,7 +422,7 @@ jobs:
       - uses: actions/checkout@v4
         with:
           repository: t-head/pccl-tests
-          ref: ${{ env.PCCL_TESTS_REVISION }}
+          ref: ${{ needs.prepare.outputs.pccl_tests_revision }}
           path: pccl-tests
           persist-credentials: false
       - name: Build notsm output
@@ -415,7 +466,7 @@ jobs:
           EXPECTED_SHA=$(python3 -c 'import json, os; print(json.load(open(os.path.join(os.environ["STAGING"], "output_notsm.build.json")))["artifact_sha256"])')
           python3 -S -B pccl/.github/xtest/artifact_cache.py validate \
             --directory "$STAGING" --profile notsm \
-            --pccl-revision '${{ github.sha }}' --pccl-tests-revision '${{ env.PCCL_TESTS_REVISION }}' \
+            --pccl-revision '${{ github.sha }}' --pccl-tests-revision '${{ needs.prepare.outputs.pccl_tests_revision }}' \
             --expected-sha256 "$EXPECTED_SHA"
           echo "artifact_sha256=$EXPECTED_SHA" >> "$GITHUB_OUTPUT"
       - name: Publish the notsm NAS cache
@@ -425,7 +476,7 @@ jobs:
         run: |
           python3 -S -B pccl/.github/xtest/artifact_cache.py publish \
             --download "$STAGING" --cache "$CACHE_DIR" --profile notsm \
-            --pccl-revision '${{ github.sha }}' --pccl-tests-revision '${{ env.PCCL_TESTS_REVISION }}' \
+            --pccl-revision '${{ github.sha }}' --pccl-tests-revision '${{ needs.prepare.outputs.pccl_tests_revision }}' \
             --expected-sha256 '${{ steps.identity.outputs.artifact_sha256 }}'
       - uses: actions/upload-artifact@v4
         with:
@@ -471,7 +522,7 @@ jobs:
         run: |
           STATE=$(python3 -S -B pccl/.github/xtest/artifact_cache.py probe \
             --directory "$CACHE_DIR" --profile '${{ matrix.profile }}' \
-            --pccl-revision '${{ github.sha }}' --pccl-tests-revision '${{ env.PCCL_TESTS_REVISION }}' \
+            --pccl-revision '${{ github.sha }}' --pccl-tests-revision '${{ needs.prepare.outputs.pccl_tests_revision }}' \
             --expected-sha256 '${{ env.EXPECTED_SHA }}')
           case "$STATE" in
             hit)
@@ -496,7 +547,7 @@ jobs:
         run: |
           python3 -S -B pccl/.github/xtest/artifact_cache.py publish \
             --download download --cache "$CACHE_DIR" --profile '${{ matrix.profile }}' \
-            --pccl-revision '${{ github.sha }}' --pccl-tests-revision '${{ env.PCCL_TESTS_REVISION }}' \
+            --pccl-revision '${{ github.sha }}' --pccl-tests-revision '${{ needs.prepare.outputs.pccl_tests_revision }}' \
             --expected-sha256 '${{ env.EXPECTED_SHA }}'
       - name: Confirm the final NAS cache
         env:
@@ -504,7 +555,7 @@ jobs:
         run: |
           STATE=$(python3 -S -B pccl/.github/xtest/artifact_cache.py probe \
             --directory "$CACHE_DIR" --profile '${{ matrix.profile }}' \
-            --pccl-revision '${{ github.sha }}' --pccl-tests-revision '${{ env.PCCL_TESTS_REVISION }}' \
+            --pccl-revision '${{ github.sha }}' --pccl-tests-revision '${{ needs.prepare.outputs.pccl_tests_revision }}' \
             --expected-sha256 '${{ env.EXPECTED_SHA }}')
           test "$STATE" = hit
 
@@ -552,7 +603,7 @@ jobs:
         run: |
           STATE=$(python3 -S -B pccl/.github/xtest/artifact_cache.py probe \
             --directory "$CACHE_DIR" --profile '${{ matrix.profile }}' \
-            --pccl-revision '${{ github.sha }}' --pccl-tests-revision '${{ env.PCCL_TESTS_REVISION }}' \
+            --pccl-revision '${{ github.sha }}' --pccl-tests-revision '${{ needs.prepare.outputs.pccl_tests_revision }}' \
             --expected-sha256 '${{ env.EXPECTED_SHA }}')
           case "$STATE" in
             hit)
@@ -577,7 +628,7 @@ jobs:
         run: |
           python3 -S -B pccl/.github/xtest/artifact_cache.py publish \
             --download build-download --cache "$CACHE_DIR" --profile '${{ matrix.profile }}' \
-            --pccl-revision '${{ github.sha }}' --pccl-tests-revision '${{ env.PCCL_TESTS_REVISION }}' \
+            --pccl-revision '${{ github.sha }}' --pccl-tests-revision '${{ needs.prepare.outputs.pccl_tests_revision }}' \
             --expected-sha256 '${{ env.EXPECTED_SHA }}'
       - name: Restore the NAS cache and run single-node Cases
         uses: t-head/ci-infra/cluster-run@main
@@ -650,11 +701,11 @@ jobs:
             git config --global --add safe.directory '*'
             python3 -S -B pccl/.github/xtest/artifact_cache.py validate \
               --directory "$CACHE_DIR" --profile '${{ matrix.profile }}' \
-              --pccl-revision '${{ github.sha }}' --pccl-tests-revision '${{ env.PCCL_TESTS_REVISION }}' \
+              --pccl-revision '${{ github.sha }}' --pccl-tests-revision '${{ needs.prepare.outputs.pccl_tests_revision }}' \
               --expected-sha256 '${{ env.EXPECTED_SHA }}'
             tar -xzf "$CACHE_DIR/output_${{ matrix.profile }}.tar.gz" -C /workspace/source
             test "$(git -C "$build_output/pccl" rev-parse HEAD)" = '${{ github.sha }}'
-            test "$(git -C "$build_output/pccl-tests" rev-parse HEAD)" = '${{ env.PCCL_TESTS_REVISION }}'
+            test "$(git -C "$build_output/pccl-tests" rev-parse HEAD)" = '${{ needs.prepare.outputs.pccl_tests_revision }}'
             python3 -m venv /workspace/minimal-csv-env
             /workspace/minimal-csv-env/bin/python -m pip install --disable-pip-version-check \
               --no-index --find-links /workspace/source/deps \
@@ -676,6 +727,7 @@ jobs:
               --mpi-interface "$MPI_INTERFACE" \
               --build-record "$CACHE_DIR/output_${{ matrix.profile }}.build.json" \
               --pccl-revision '${{ github.sha }}' \
+              --pccl-tests-revision '${{ needs.prepare.outputs.pccl_tests_revision }}' \
               --expected-sha256 '${{ env.EXPECTED_SHA }}' \
               --output "$RESULT_ROOT"
 
@@ -717,7 +769,7 @@ jobs:
         run: |
           STATE=$(python3 -S -B pccl/.github/xtest/artifact_cache.py probe \
             --directory "$CACHE_DIR" --profile standard \
-            --pccl-revision '${{ github.sha }}' --pccl-tests-revision '${{ env.PCCL_TESTS_REVISION }}' \
+            --pccl-revision '${{ github.sha }}' --pccl-tests-revision '${{ needs.prepare.outputs.pccl_tests_revision }}' \
             --expected-sha256 '${{ env.EXPECTED_SHA }}')
           case "$STATE" in
             hit)
@@ -742,7 +794,7 @@ jobs:
         run: |
           python3 -S -B pccl/.github/xtest/artifact_cache.py publish \
             --download build-download --cache "$CACHE_DIR" --profile standard \
-            --pccl-revision '${{ github.sha }}' --pccl-tests-revision '${{ env.PCCL_TESTS_REVISION }}' \
+            --pccl-revision '${{ github.sha }}' --pccl-tests-revision '${{ needs.prepare.outputs.pccl_tests_revision }}' \
             --expected-sha256 '${{ env.EXPECTED_SHA }}'
       - name: Restore the shared NAS cache and run on master
         uses: t-head/ci-infra/cluster-run@main
@@ -830,11 +882,11 @@ jobs:
             git config --global --add safe.directory '*'
             python3 -S -B pccl/.github/xtest/artifact_cache.py validate \
               --directory "$CACHE_DIR" --profile standard \
-              --pccl-revision '${{ github.sha }}' --pccl-tests-revision '${{ env.PCCL_TESTS_REVISION }}' \
+              --pccl-revision '${{ github.sha }}' --pccl-tests-revision '${{ needs.prepare.outputs.pccl_tests_revision }}' \
               --expected-sha256 '${{ env.EXPECTED_SHA }}'
             tar -xzf "$CACHE_DIR/output_standard.tar.gz" -C "$SHARED_ROOT"
             test "$(git -C "$build_output/pccl" rev-parse HEAD)" = '${{ github.sha }}'
-            test "$(git -C "$build_output/pccl-tests" rev-parse HEAD)" = '${{ env.PCCL_TESTS_REVISION }}'
+            test "$(git -C "$build_output/pccl-tests" rev-parse HEAD)" = '${{ needs.prepare.outputs.pccl_tests_revision }}'
             python3 -m venv /workspace/minimal-csv-cluster-env
             /workspace/minimal-csv-cluster-env/bin/python -m pip install --disable-pip-version-check \
               --no-index --find-links "$SOURCE_DIR/deps" \
@@ -866,6 +918,7 @@ jobs:
               --mpi-interface "$MPI_INTERFACE" \
               --build-record "$CACHE_DIR/output_standard.build.json" \
               --pccl-revision '${{ github.sha }}' \
+              --pccl-tests-revision '${{ needs.prepare.outputs.pccl_tests_revision }}' \
               --expected-sha256 '${{ env.EXPECTED_SHA }}' \
               --output "$RESULT_ROOT"
 
@@ -903,6 +956,7 @@ jobs:
             --results /wl_nas/devops/pccl-artifact-cache-${{ github.run_id }}/results/m890p \
             --public public-results/m890p \
             --pccl-revision '${{ github.sha }}' \
+            --pccl-tests-revision '${{ needs.prepare.outputs.pccl_tests_revision }}' \
             --standard-sha256 '${{ needs.build-standard.outputs.artifact_sha256 }}' \
             --notsm-sha256 '${{ needs.build-notsm.outputs.artifact_sha256 }}' \
             --cards-per-node '${{ env.VALIDATION_CARDS }}' || status=$?
@@ -911,6 +965,7 @@ jobs:
             --results /wl_nas/devops/pccl-artifact-cache-${{ github.run_id }}/results/oam810e_eic \
             --public public-results/oam810e_eic \
             --pccl-revision '${{ github.sha }}' \
+            --pccl-tests-revision '${{ needs.prepare.outputs.pccl_tests_revision }}' \
             --standard-sha256 '${{ needs.build-standard.outputs.artifact_sha256 }}' \
             --notsm-sha256 '${{ needs.build-notsm.outputs.artifact_sha256 }}' \
             --cards-per-node '4' || status=$?

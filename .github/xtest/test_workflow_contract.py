@@ -253,12 +253,15 @@ class WorkflowContractTests(unittest.TestCase):
             self.assertIn('path: build-download', section)
             self.assertIn('--build-record "$CACHE_DIR/output_', section)
             self.assertIn("--pccl-revision '${{ github.sha }}'", section)
+            self.assertIn("--pccl-tests-revision '${{ needs.prepare.outputs.pccl_tests_revision }}'",
+                          section)
             self.assertIn("--expected-sha256 '${{ env.EXPECTED_SHA }}'", section)
 
     def test_final_reconciliation_uses_exact_case_and_build_identity_checks(self):
         results = self.job('results')
         for expected in ('.github/xtest/reconcile_results.py',
                          '--pccl-revision',
+                         '--pccl-tests-revision',
                          '--standard-sha256',
                          '--notsm-sha256'):
             self.assertIn(expected, results)
@@ -365,7 +368,7 @@ class WorkflowContractTests(unittest.TestCase):
         metadata = json.loads((directory / 'export.json').read_text())
         self.assertEqual(metadata['format_version'], 1)
         self.assertEqual(metadata['xtest_version'], '0.12.0')
-        self.assertEqual(metadata['runner_revision'], artifact_cache.PCCL_TESTS_REVISION)
+        self.assertEqual(metadata['runner_revision'], artifact_cache.FIXTURE_RUNNER_REVISION)
         self.assertTrue(re.fullmatch(r'[0-9a-f]{40}', metadata['source_revision']))
         expected = {('standard', 1): 116, ('standard', 2): 1, ('notsm', 1): 37}
         for (profile, nodes), count in expected.items():

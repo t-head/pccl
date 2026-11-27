@@ -318,13 +318,26 @@ class CsvRunnerTests(unittest.TestCase):
                   'build_profile': 'standard', 'artifact_sha256': 'd' * 64}
         path = self.root / 'output_standard.build.json'
         path.write_text(json.dumps(record))
-        identity = run_cases._verified_build_identity(inputs, path, 'c' * 40, 'd' * 64)
+        identity = run_cases._verified_build_identity(inputs, path, 'c' * 40, RUNNER, 'd' * 64)
         rows = self.execute(inputs, build_identity=identity)
         self.assertEqual(rows[0]['status'], 'PASSED')
         retained = json.loads((self.root / 'output-1/build.json').read_text())
         self.assertEqual(retained, record)
         with self.assertRaisesRegex(ValueError, 'Build record differs'):
-            run_cases._verified_build_identity(inputs, path, 'e' * 40, 'd' * 64)
+            run_cases._verified_build_identity(inputs, path, 'e' * 40, RUNNER, 'd' * 64)
+
+    def test_build_identity_uses_the_archive_pccl_tests_revision_not_the_fixture(self):
+        # A build paired with a pccl-tests branch records that revision, not the fixture's
+        # runner_revision, so the comparison must take the revision the workflow resolved.
+        inputs = self.inputs([{'cmd': 'printf "build identity\\n"'}])
+        record = {'schema_version': 1, 'pccl_revision': 'c' * 40, 'pccl_tests_revision': 'e' * 40,
+                  'build_profile': 'standard', 'artifact_sha256': 'd' * 64}
+        path = self.root / 'output_standard.build.json'
+        path.write_text(json.dumps(record))
+        identity = run_cases._verified_build_identity(inputs, path, 'c' * 40, 'e' * 40, 'd' * 64)
+        self.assertEqual(identity, record)
+        with self.assertRaisesRegex(ValueError, 'Build record differs'):
+            run_cases._verified_build_identity(inputs, path, 'c' * 40, RUNNER, 'd' * 64)
 
     def test_csv_shell_text_and_raw_log_are_preserved(self):
         command = "printf '%s\\n' 'USER=root NCCL WARN https://example.invalid/a,b \"quoted\" @tag'"

@@ -94,7 +94,7 @@ def _check_metrics(directory, errors):
 
 
 def reconcile(input_directory, profile, nodes, suite, results_directory, output_directory,
-              pccl_revision, expected_sha256):
+              pccl_revision, pccl_tests_revision, expected_sha256):
     selected = run_cases.load_inputs(input_directory, profile, nodes=nodes, suite=suite)
     expected = {(case["plan"], case["suite"], case["name"]): case for case in selected["cases"]}
     results = Path(results_directory)
@@ -104,7 +104,7 @@ def reconcile(input_directory, profile, nodes, suite, results_directory, output_
     output.mkdir(parents=True)
     errors = []
     expected_build = {"schema_version": 1, "pccl_revision": pccl_revision,
-                      "pccl_tests_revision": selected["metadata"]["runner_revision"],
+                      "pccl_tests_revision": pccl_tests_revision,
                       "build_profile": profile, "artifact_sha256": expected_sha256}
     try:
         build_record = artifact_cache.read_record(results / "build.json")
@@ -203,11 +203,14 @@ def main():
     parser.add_argument("--results", type=Path, required=True)
     parser.add_argument("--output", type=Path, required=True)
     parser.add_argument("--pccl-revision", required=True)
+    parser.add_argument("--pccl-tests-revision", required=True,
+                        help="pccl-tests revision the verified archive was built with; the fixtures "
+                             "only label which mainline runner generated them")
     parser.add_argument("--expected-sha256", required=True)
     args = parser.parse_args()
     try:
         report = reconcile(args.input, args.profile, args.nodes, args.suite, args.results, args.output,
-                           args.pccl_revision, args.expected_sha256)
+                           args.pccl_revision, args.pccl_tests_revision, args.expected_sha256)
     except (OSError, ValueError, json.JSONDecodeError) as error:
         parser.error(str(error))
     print(json.dumps(report, sort_keys=True))

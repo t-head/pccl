@@ -325,7 +325,7 @@ class PerformanceReportTests(unittest.TestCase):
         def reconcile():
             return daily_reconcile.reconcile(
                 input_directory, "standard", 1, None, group, output,
-                pccl_revision, build_sha256)
+                pccl_revision, "2" * 40, build_sha256)
 
         return rows, output, reconcile
 

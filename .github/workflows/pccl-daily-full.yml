@@ -64,11 +64,22 @@ concurrency:
 
 env:
   HPN_SDK_URL: https://zone-ci.oss-cn-hangzhou.aliyuncs.com/hpn-sdk/2.1.3/hpnsdk2.1.3-ubuntu2404-202611121836-x86_64.bin
-  VALIDATION_IMAGE: download.t-head.cn/docker_release/ppu:sdk2.2.0-hggcrt3-ubuntu24.04-py312-20261005
+  VALIDATION_IMAGE: download.t-head.cn/docker_release/ppu:sdk2.2.1-hggcrt3-ubuntu24.04-py312-20261123
   # Install HPN SDK 2.1.3 by default; manual dispatch can select another trusted URL.
   VALIDATION_NODE_SELECTOR: board-type=ZW-M890P,nic-type=cx8
   VALIDATION_CARDS: '8'
-  PCCL_TESTS_REVISION: 394556512e87259e9ffa25225632c46b0a0bbcd5
+  # t-head/pccl-tests is checked out from the branch of the same name as the ref this run builds, so a
+  # release branch pairs with its own tests instead of the mainline. This workflow has no pull request
+  # trigger, so `ref_name` is the branch itself: a schedule and a push to the default branch both
+  # resolve to main, and a dispatch from a branch without a paired pccl-tests branch falls back to
+  # main. The revision itself is resolved once in prepare and handed to every job.
+  #
+  # CodeQL reports the ref-derived pccl-tests checkout of a scheduled run as cache poisoning. The
+  # branch can only name a branch of t-head/pccl-tests, and every cache and artifact this workflow
+  # writes is keyed by the run id, so a paired branch cannot feed another run's cache; the finding is
+  # accepted rather than worked around, because pinning pccl-tests here would validate a new branch
+  # against mainline tests.
+  PCCL_TESTS_BRANCH: ${{ github.ref_name }}
   REQUESTED_EXECUTION_TIMEOUT_MINUTES: ${{ github.event_name == 'workflow_dispatch' && format('{0}', inputs.execution_timeout_minutes) || (github.event.schedule == '0 14 * * 5' && 2880 || 1440) }}
 
 jobs:
@@ -85,6 +96,8 @@ jobs:
       groups_sha256: ${{ steps.selection.outputs.groups_sha256 }}
       execution_timeout_minutes: ${{ steps.selection.outputs.execution_timeout_minutes }}
       execution_job_timeout_minutes: ${{ steps.selection.outputs.execution_job_timeout_minutes }}
+      pccl_tests_revision: ${{ steps.pccl-tests.outputs.sha }}
+      pccl_tests_branch: ${{ steps.pccl-tests.outputs.branch }}
     steps:
       - id: sdk-selection
         name: Select the public HPN SDK URL
@@ -108,10 +121,42 @@ jobs:
         with:
           path: pccl
           persist-credentials: false
+      - id: pccl-tests
+        name: Resolve the pccl-tests revision
+        env:
+          TESTS_BRANCH: ${{ env.PCCL_TESTS_BRANCH }}
+        run: |
+          set -euo pipefail
+          resolve() {
+            git ls-remote https://github.com/t-head/pccl-tests.git "refs/heads/$1" 2>/dev/null \
+              | awk 'NR==1 {print $1}'
+          }
+          branch="${TESTS_BRANCH}"
+          sha=""
+          for attempt in 1 2 3; do
+            sha=$(resolve "${branch}") || true
+            if [ -n "${sha}" ]; then break; fi
+            echo "::warning::could not resolve t-head/pccl-tests ${branch} (attempt ${attempt}/3)"
+            sleep 15
+          done
+          # A ref without a paired pccl-tests branch keeps running against main instead of failing
+          # the whole workflow; the fallback is named here and in every job's build identity.
+          if [ -z "${sha}" ] && [ "${branch}" != "main" ]; then
+            echo "::warning::t-head/pccl-tests has no branch ${branch}; falling back to main"
+            branch="main"
+            sha=$(resolve "${branch}") || true
+          fi
+          if [ -z "${sha}" ]; then
+            echo "::error::could not resolve t-head/pccl-tests ${branch}"
+            exit 1
+          fi
+          echo "pccl-tests source: ${branch} @ ${sha}"
+          echo "sha=${sha}" >> "$GITHUB_OUTPUT"
+          echo "branch=${branch}" >> "$GITHUB_OUTPUT"
       - uses: actions/checkout@v4
         with:
           repository: t-head/pccl-tests
-          ref: ${{ env.PCCL_TESTS_REVISION }}
+          ref: ${{ steps.pccl-tests.outputs.sha }}
           path: pccl-tests
           persist-credentials: false
       - uses: actions/setup-python@v5
@@ -130,6 +175,8 @@ jobs:
           CARDS_PER_NODE: ${{ format('{0}', inputs.cards_per_node) }}
           ALLOWED_NODES: ${{ inputs.allowed_nodes || (github.event.schedule == '0 14 * * 5' && '1,2,4,8,16' || '1,2,4,8') }}
           EXECUTION_TIMEOUT_MINUTES: ${{ env.REQUESTED_EXECUTION_TIMEOUT_MINUTES }}
+          PCCL_TESTS_REVISION: ${{ steps.pccl-tests.outputs.sha }}
+          PCCL_TESTS_BRANCH: ${{ steps.pccl-tests.outputs.branch }}
         run: |
           python3 -S -B -W error::ResourceWarning -m unittest discover \
             -s .github/xtest -p 'test_run_cases.py' -v
@@ -172,7 +219,7 @@ jobs:
             --env-root .github/xtest/test_lists/envs \
             --profile "$DATASET" \
             --source-revision '${{ github.sha }}' \
-            --runner-revision '${{ env.PCCL_TESTS_REVISION }}' \
+            --runner-revision '${{ steps.pccl-tests.outputs.sha }}' \
             --output generated-case-input
           GENERATED_810E_DEFINITIONS=(
             --definition .github/xtest/test_lists/op_perf_shm.json
@@ -203,7 +250,7 @@ jobs:
             --profile "$DATASET" \
             --platform oam810e_eic \
             --source-revision '${{ github.sha }}' \
-            --runner-revision '${{ env.PCCL_TESTS_REVISION }}' \
+            --runner-revision '${{ steps.pccl-tests.outputs.sha }}' \
             --output generated-case-input-oam810e-eic
           python3 -S -B - <<'PY'
           import hashlib
@@ -220,7 +267,7 @@ jobs:
           import group_cases
           import performance_report
           import run_cases
-          from artifact_cache import PCCL_TESTS_REVISION, RUNNER_HASHES
+          from artifact_cache import RUNNER_HASHES
 
           dataset = os.environ['DATASET']
           if dataset not in ('smoke', 'full'):
@@ -287,9 +334,17 @@ jobs:
           assert all(group['nodes'] in allowed_nodes for group in manifest)
           runner = Path('../pccl-tests').resolve()
           revision = subprocess.check_output(['git', '-C', str(runner), 'rev-parse', 'HEAD'], text=True).strip()
-          assert revision == PCCL_TESTS_REVISION == os.environ['PCCL_TESTS_REVISION']
-          for name, expected in RUNNER_HASHES.items():
-              assert hashlib.sha256((runner / name).read_bytes()).hexdigest() == expected
+          assert revision == os.environ['PCCL_TESTS_REVISION']
+          # RUNNER_HASHES records the run_test entry points validated against the committed export
+          # fixtures, which only exist for main. A branch carries its own runner, so drift there is
+          # reported and the run continues; on main the bytes must still match the baseline exactly.
+          drift = sorted(name for name, expected in RUNNER_HASHES.items()
+                         if hashlib.sha256((runner / name).read_bytes()).hexdigest() != expected)
+          if drift and os.environ['PCCL_TESTS_BRANCH'] == 'main':
+              raise AssertionError(f'pccl-tests main runner scripts drifted: {drift}')
+          for name in drift:
+              print(f"::warning::pccl-tests {os.environ['PCCL_TESTS_BRANCH']} {name} differs from "
+                    'the validated main baseline')
           assert groups[0]['metadata']['runner_revision'] == revision
           assert subprocess.check_output(['git', 'rev-parse', 'HEAD'], text=True).strip() == os.environ['GITHUB_SHA']
           matrix = {'include': [
@@ -366,7 +421,7 @@ jobs:
       - uses: actions/checkout@v4
         with:
           repository: t-head/pccl-tests
-          ref: ${{ env.PCCL_TESTS_REVISION }}
+          ref: ${{ needs.prepare.outputs.pccl_tests_revision }}
           path: pccl-tests
           persist-credentials: false
       - name: Build standard output
@@ -410,7 +465,7 @@ jobs:
           EXPECTED_SHA=$(python3 -c 'import json, os; print(json.load(open(os.path.join(os.environ["STAGING"], "output_standard.build.json")))["artifact_sha256"])')
           python3 -S -B pccl/.github/xtest/artifact_cache.py validate \
             --directory "$STAGING" --profile standard \
-            --pccl-revision '${{ github.sha }}' --pccl-tests-revision '${{ env.PCCL_TESTS_REVISION }}' \
+            --pccl-revision '${{ github.sha }}' --pccl-tests-revision '${{ needs.prepare.outputs.pccl_tests_revision }}' \
             --expected-sha256 "$EXPECTED_SHA"
           echo "artifact_sha256=$EXPECTED_SHA" >> "$GITHUB_OUTPUT"
       - name: Publish the standard NAS cache
@@ -420,7 +475,7 @@ jobs:
         run: |
           python3 -S -B pccl/.github/xtest/artifact_cache.py publish \
             --download "$STAGING" --cache "$CACHE_DIR" --profile standard \
-            --pccl-revision '${{ github.sha }}' --pccl-tests-revision '${{ env.PCCL_TESTS_REVISION }}' \
+            --pccl-revision '${{ github.sha }}' --pccl-tests-revision '${{ needs.prepare.outputs.pccl_tests_revision }}' \
             --expected-sha256 '${{ steps.identity.outputs.artifact_sha256 }}'
       - uses: actions/upload-artifact@v4
         with:
@@ -460,7 +515,7 @@ jobs:
         run: |
           STATE=$(python3 -S -B pccl/.github/xtest/artifact_cache.py probe \
             --directory "$CACHE_DIR" --profile standard \
-            --pccl-revision '${{ github.sha }}' --pccl-tests-revision '${{ env.PCCL_TESTS_REVISION }}' \
+            --pccl-revision '${{ github.sha }}' --pccl-tests-revision '${{ needs.prepare.outputs.pccl_tests_revision }}' \
             --expected-sha256 '${{ env.EXPECTED_SHA }}')
           case "$STATE" in
             hit)
@@ -485,7 +540,7 @@ jobs:
         run: |
           python3 -S -B pccl/.github/xtest/artifact_cache.py publish \
             --download download --cache "$CACHE_DIR" --profile standard \
-            --pccl-revision '${{ github.sha }}' --pccl-tests-revision '${{ env.PCCL_TESTS_REVISION }}' \
+            --pccl-revision '${{ github.sha }}' --pccl-tests-revision '${{ needs.prepare.outputs.pccl_tests_revision }}' \
             --expected-sha256 '${{ env.EXPECTED_SHA }}'
       - name: Confirm the final NAS cache
         env:
@@ -493,7 +548,7 @@ jobs:
         run: |
           STATE=$(python3 -S -B pccl/.github/xtest/artifact_cache.py probe \
             --directory "$CACHE_DIR" --profile standard \
-            --pccl-revision '${{ github.sha }}' --pccl-tests-revision '${{ env.PCCL_TESTS_REVISION }}' \
+            --pccl-revision '${{ github.sha }}' --pccl-tests-revision '${{ needs.prepare.outputs.pccl_tests_revision }}' \
             --expected-sha256 '${{ env.EXPECTED_SHA }}')
           test "$STATE" = hit
       - id: groups-cache
@@ -586,7 +641,7 @@ jobs:
         run: |
           STATE=$(python3 -S -B pccl/.github/xtest/artifact_cache.py probe \
             --directory "$CACHE_DIR" --profile standard \
-            --pccl-revision '${{ github.sha }}' --pccl-tests-revision '${{ env.PCCL_TESTS_REVISION }}' \
+            --pccl-revision '${{ github.sha }}' --pccl-tests-revision '${{ needs.prepare.outputs.pccl_tests_revision }}' \
             --expected-sha256 '${{ env.EXPECTED_SHA }}')
           case "$STATE" in
             hit)
@@ -611,7 +666,7 @@ jobs:
         run: |
           python3 -S -B pccl/.github/xtest/artifact_cache.py publish \
             --download build-download --cache "$CACHE_DIR" --profile standard \
-            --pccl-revision '${{ github.sha }}' --pccl-tests-revision '${{ env.PCCL_TESTS_REVISION }}' \
+            --pccl-revision '${{ github.sha }}' --pccl-tests-revision '${{ needs.prepare.outputs.pccl_tests_revision }}' \
             --expected-sha256 '${{ env.EXPECTED_SHA }}'
       - name: Confirm both NAS caches before hardware allocation
         env:
@@ -620,7 +675,7 @@ jobs:
         run: |
           STATE=$(python3 -S -B pccl/.github/xtest/artifact_cache.py probe \
             --directory "$BUILD_CACHE" --profile standard \
-            --pccl-revision '${{ github.sha }}' --pccl-tests-revision '${{ env.PCCL_TESTS_REVISION }}' \
+            --pccl-revision '${{ github.sha }}' --pccl-tests-revision '${{ needs.prepare.outputs.pccl_tests_revision }}' \
             --expected-sha256 '${{ env.EXPECTED_SHA }}')
           test "$STATE" = hit
           python3 -S -B pccl/.github/xtest/case_group_cache.py validate \
@@ -696,7 +751,7 @@ jobs:
             git config --global --add safe.directory '*'
             python3 -S -B pccl/.github/xtest/artifact_cache.py validate \
               --directory "$CACHE_DIR" --profile standard \
-              --pccl-revision '${{ github.sha }}' --pccl-tests-revision '${{ env.PCCL_TESTS_REVISION }}' \
+              --pccl-revision '${{ github.sha }}' --pccl-tests-revision '${{ needs.prepare.outputs.pccl_tests_revision }}' \
               --expected-sha256 '${{ env.EXPECTED_SHA }}'
             python3 -S -B pccl/.github/xtest/case_group_cache.py validate \
               --directory "$GROUPS_DIR" --expected-sha256 '${{ env.EXPECTED_GROUPS_SHA }}'
@@ -705,7 +760,7 @@ jobs:
               --expected-sha256 '${{ env.EXPECTED_GROUPS_SHA }}'
             tar -xzf "$CACHE_DIR/output_standard.tar.gz" -C /workspace/source
             test "$(git -C "$build_output/pccl" rev-parse HEAD)" = '${{ github.sha }}'
-            test "$(git -C "$build_output/pccl-tests" rev-parse HEAD)" = '${{ env.PCCL_TESTS_REVISION }}'
+            test "$(git -C "$build_output/pccl-tests" rev-parse HEAD)" = '${{ needs.prepare.outputs.pccl_tests_revision }}'
             python3 -m venv /workspace/minimal-csv-env
             /workspace/minimal-csv-env/bin/python -m pip install --disable-pip-version-check \
               --no-index --find-links /workspace/source/deps \
@@ -727,6 +782,7 @@ jobs:
               --mpi-interface "$MPI_INTERFACE" \
               --build-record "$CACHE_DIR/output_standard.build.json" \
               --pccl-revision '${{ github.sha }}' \
+              --pccl-tests-revision '${{ needs.prepare.outputs.pccl_tests_revision }}' \
               --expected-sha256 '${{ env.EXPECTED_SHA }}' \
               --output "$RESULT_ROOT"
       - name: Run the automatic multi-node group on master
@@ -795,7 +851,7 @@ jobs:
             git config --global --add safe.directory '*'
             python3 -S -B pccl/.github/xtest/artifact_cache.py validate \
               --directory "$CACHE_DIR" --profile standard \
-              --pccl-revision '${{ github.sha }}' --pccl-tests-revision '${{ env.PCCL_TESTS_REVISION }}' \
+              --pccl-revision '${{ github.sha }}' --pccl-tests-revision '${{ needs.prepare.outputs.pccl_tests_revision }}' \
               --expected-sha256 '${{ env.EXPECTED_SHA }}'
             python3 -S -B pccl/.github/xtest/case_group_cache.py validate \
               --directory "$GROUPS_DIR" --expected-sha256 '${{ env.EXPECTED_GROUPS_SHA }}'
@@ -804,7 +860,7 @@ jobs:
               --expected-sha256 '${{ env.EXPECTED_GROUPS_SHA }}'
             tar -xzf "$CACHE_DIR/output_standard.tar.gz" -C "$SHARED_ROOT"
             test "$(git -C "$build_output/pccl" rev-parse HEAD)" = '${{ github.sha }}'
-            test "$(git -C "$build_output/pccl-tests" rev-parse HEAD)" = '${{ env.PCCL_TESTS_REVISION }}'
+            test "$(git -C "$build_output/pccl-tests" rev-parse HEAD)" = '${{ needs.prepare.outputs.pccl_tests_revision }}'
             python3 -m venv /workspace/minimal-csv-cluster-env
             /workspace/minimal-csv-cluster-env/bin/python -m pip install --disable-pip-version-check \
               --no-index --find-links "$SOURCE_DIR/deps" \
@@ -828,6 +884,7 @@ jobs:
               --mpi-interface "$MPI_INTERFACE" \
               --build-record "$CACHE_DIR/output_standard.build.json" \
               --pccl-revision '${{ github.sha }}' \
+              --pccl-tests-revision '${{ needs.prepare.outputs.pccl_tests_revision }}' \
               --expected-sha256 '${{ env.EXPECTED_SHA }}' \
               --output "$RESULT_ROOT"
       - name: Run the automatic cross-rack group on master
@@ -897,7 +954,7 @@ jobs:
             git config --global --add safe.directory '*'
             python3 -S -B pccl/.github/xtest/artifact_cache.py validate \
               --directory "$CACHE_DIR" --profile standard \
-              --pccl-revision '${{ github.sha }}' --pccl-tests-revision '${{ env.PCCL_TESTS_REVISION }}' \
+              --pccl-revision '${{ github.sha }}' --pccl-tests-revision '${{ needs.prepare.outputs.pccl_tests_revision }}' \
               --expected-sha256 '${{ env.EXPECTED_SHA }}'
             python3 -S -B pccl/.github/xtest/case_group_cache.py validate \
               --directory "$GROUPS_DIR" --expected-sha256 '${{ env.EXPECTED_GROUPS_SHA }}'
@@ -906,7 +963,7 @@ jobs:
               --expected-sha256 '${{ env.EXPECTED_GROUPS_SHA }}'
             tar -xzf "$CACHE_DIR/output_standard.tar.gz" -C "$SHARED_ROOT"
             test "$(git -C "$build_output/pccl" rev-parse HEAD)" = '${{ github.sha }}'
-            test "$(git -C "$build_output/pccl-tests" rev-parse HEAD)" = '${{ env.PCCL_TESTS_REVISION }}'
+            test "$(git -C "$build_output/pccl-tests" rev-parse HEAD)" = '${{ needs.prepare.outputs.pccl_tests_revision }}'
             python3 -m venv /workspace/minimal-csv-cluster-env
             /workspace/minimal-csv-cluster-env/bin/python -m pip install --disable-pip-version-check \
               --no-index --find-links "$SOURCE_DIR/deps" \
@@ -930,6 +987,7 @@ jobs:
               --mpi-interface "$MPI_INTERFACE" \
               --build-record "$CACHE_DIR/output_standard.build.json" \
               --pccl-revision '${{ github.sha }}' \
+              --pccl-tests-revision '${{ needs.prepare.outputs.pccl_tests_revision }}' \
               --expected-sha256 '${{ env.EXPECTED_SHA }}' \
               --output "$RESULT_ROOT"
 
@@ -1041,6 +1099,7 @@ jobs:
                                    'results/full' / group['id']),
                   '--output', str(group_output),
                   '--pccl-revision', os.environ['PCCL_REVISION'],
+                  '--pccl-tests-revision', '${{ needs.prepare.outputs.pccl_tests_revision }}',
                   '--expected-sha256', os.environ['EXPECTED_SHA'],
               ])
               report_path = group_output / 'reconciliation.json'
@@ -1114,7 +1173,7 @@ jobs:
               --run-url '${{ github.server_url }}/${{ github.repository }}/actions/runs/${{ github.run_id }}' \
               --dataset '${{ inputs.dataset || (github.event_name == 'schedule' && 'full' || 'smoke') }}' \
               --source-revision '${{ github.sha }}' \
-              --runner-revision '${{ env.PCCL_TESTS_REVISION }}' \
+              --runner-revision '${{ needs.prepare.outputs.pccl_tests_revision }}' \
               --image "$VALIDATION_IMAGE" \
               --hpn-sdk-url "$HPN_SDK_URL" || status=1
           done

@@ -99,7 +99,7 @@ def _validate_group(results, inputs, identity):
     name = inputs["name"]
     source = results / name
     expected_identity = {"schema_version": 1, "pccl_revision": identity["pccl_revision"],
-                         "pccl_tests_revision": inputs["metadata"]["runner_revision"],
+                         "pccl_tests_revision": identity["pccl_tests_revision"],
                          "build_profile": inputs["profile"], "artifact_sha256": identity["artifact_sha256"]}
     actual_identity = artifact_cache.read_record(
         _regular_file(source / "build.json", f"{name} build identity"))
@@ -157,12 +157,19 @@ def load_selections(directory, cards_per_node=8):
     return selections
 
 
-def reconcile(directory, results, public, pccl_revision, standard_sha256, notsm_sha256,
-              *, cards_per_node=8):
-    """Validate every selected Case before publishing only non-sensitive summaries and metrics."""
+def reconcile(directory, results, public, pccl_revision, pccl_tests_revision,
+              standard_sha256, notsm_sha256, *, cards_per_node=8):
+    """Validate every selected Case before publishing only non-sensitive summaries and metrics.
+
+    ``pccl_tests_revision`` is the revision the archives were built with. It is supplied by the
+    caller because the fixtures' ``runner_revision`` only names the mainline runner that generated
+    the CSV bundles, which differs on a build paired with another pccl-tests branch.
+    """
     directory, results, public = Path(directory), Path(results), Path(public)
     if not artifact_cache.HEX40.fullmatch(pccl_revision):
         raise ValueError("Invalid PCCL revision")
+    if not artifact_cache.HEX40.fullmatch(pccl_tests_revision):
+        raise ValueError("Invalid pccl-tests revision")
     for value in (standard_sha256, notsm_sha256):
         if not artifact_cache.HEX64.fullmatch(value):
             raise ValueError("Invalid expected archive SHA-256")
@@ -171,7 +178,8 @@ def reconcile(directory, results, public, pccl_revision, standard_sha256, notsm_
     errors = []
     for name, inputs in selections.items():
         archive_sha256 = notsm_sha256 if inputs["profile"] == "notsm" else standard_sha256
-        identity = {"pccl_revision": pccl_revision, "artifact_sha256": archive_sha256}
+        identity = {"pccl_revision": pccl_revision, "pccl_tests_revision": pccl_tests_revision,
+                    "artifact_sha256": archive_sha256}
         try:
             validated[name] = _validate_group(results, inputs, identity)
         except (OSError, ValueError, json.JSONDecodeError) as error:
@@ -200,13 +208,16 @@ def main():
     parser.add_argument("--results", type=Path, required=True)
     parser.add_argument("--public", type=Path, required=True)
     parser.add_argument("--pccl-revision", required=True)
+    parser.add_argument("--pccl-tests-revision", required=True,
+                        help="pccl-tests revision the verified archives were built with")
     parser.add_argument("--standard-sha256", required=True)
     parser.add_argument("--notsm-sha256", required=True)
     parser.add_argument("--cards-per-node", type=int, default=8)
     args = parser.parse_args()
     try:
         reconcile(args.input, args.results, args.public, args.pccl_revision,
-                  args.standard_sha256, args.notsm_sha256, cards_per_node=args.cards_per_node)
+                  args.pccl_tests_revision, args.standard_sha256, args.notsm_sha256,
+                  cards_per_node=args.cards_per_node)
         return 0
     except (OSError, ValueError, json.JSONDecodeError) as error:
         for line in str(error).splitlines():
