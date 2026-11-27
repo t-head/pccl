@@ -1,8 +1,8 @@
 {
   "classification": {
     "base_sha": "c83b84012932617ce91ff15e944ea3e5c27d87a6",
-    "head_sha": "75133bfc446eb13c0995ab6554ba23a9314332f9",
-    "input_fingerprint": "b1944940dfc1170aead9d54fb8e3b270d1c35abb4aa4f8b2586d223000e6316f",
+    "head_sha": "624aefd757ee263145e95de4861097ef5ad1d9e4",
+    "input_fingerprint": "33f615a0b3b6cd9f8ed7d1f644364d56ed09ab7aef07cbe97d3a9c8b9f3012be",
     "pr_number": 243,
     "proposal": {
       "additional_modules": [],
@@ -10,7 +10,7 @@
         "communicator",
         "ci"
       ],
-      "reason": "Primary communicator: tests/unit_test/src/pcclCommGrowTest.cu and pcclCommRevokeTest.cu introduce new MPI lifecycle test implementations around pcclCommGetUniqueId, pcclCommGrow, pcclCommRevoke, and shrink-based recovery, and tests/unit_test/src/pcclCommShrinkTest.cu adds stricter rank/count/device and AllReduce result validation; this is the main functional change (communicator lifecycle contract coverage). Secondary ci: .github/xtest/test_lists/comm_lifecycle_shm.json plus .github/workflows/pccl-daily-full.yml, .github/workflows/scripts/build.sh, and .github/xtest/test_platform_cases.py add/route/stage the new cases and enforce full-vs-PR/smoke selection and count expectations, which is an independent test-workflow orchestration change."
+      "reason": "Primary **communicator**: the core substantive change is new lifecycle behavior verification for communicator APIs and contracts (pcclCommGetUniqueId/pcclCommGrow/pcclCommRevoke/pcclCommShrink), implemented in tests/unit_test/src/pcclCommGrowTest.cu and pcclCommRevokeTest.cu with rank/size/device checks, revoke error-state checks, and post-grow/shrink AllReduce correctness. Secondary **ci**: independent test-selection/execution wiring changes in .github/workflows/pccl-daily-full.yml and .github/xtest/test_platform_cases.py add the new comm_lifecycle_shm family to full daily generation while explicitly excluding these cases from PR/smoke bundles, which is CI policy/orchestration scope."
     }
   },
   "reviewers": {
