@@ -15,21 +15,40 @@ on:
 
 permissions: {}
 
-concurrency:
-  group: "squash-message-${{ github.event.workflow_run.display_title || format('PCCL review for PR #{0}', github.event.pull_request.number || inputs.pr_number) }}"
-  queue: max
-  cancel-in-progress: false
-
 jobs:
-  squash-message:
-    name: Squash message preview
+  identify:
+    name: Identify PR
     # PR cleanup and Gate notifications, including forks, execute trusted default-branch code.
     if: >-
       github.repository == 't-head/pccl' && (
         github.event_name == 'pull_request_target' || github.event_name == 'workflow_run' ||
         (github.event_name == 'workflow_dispatch' && inputs.pr_number && github.ref == 'refs/heads/main'))
     runs-on: ubuntu-24.04
+    timeout-minutes: 5
+    permissions:
+      contents: read
+    outputs:
+      pr_number: ${{ steps.identify.outputs.pr_number }}
+    steps:
+      - uses: actions/checkout@d23441a48e516b6c34aea4fa41551a30e30af803 # v6
+        with:
+          ref: ${{ github.sha }}
+          persist-credentials: false
+      - name: Normalize PR number
+        id: identify
+        env:
+          PR_NUMBER: ${{ inputs.pr_number }}
+        run: python3 .github/scripts/commit_message_squash.py --identify
+
+  squash-message:
+    name: Squash message preview
+    needs: identify
+    runs-on: ubuntu-24.04
     timeout-minutes: 15
+    concurrency:
+      group: "squash-message-PCCL review for PR #${{ needs.identify.outputs.pr_number }}"
+      queue: max
+      cancel-in-progress: false
     permissions:
       contents: read
       pull-requests: write
@@ -45,6 +64,6 @@ jobs:
         env:
           GITHUB_TOKEN: ${{ github.token }}
           COPILOT_CLI: ${{ runner.temp }}/copilot/bin/copilot
-          PR_NUMBER: ${{ inputs.pr_number }}
+          PR_NUMBER: ${{ needs.identify.outputs.pr_number }}
           PYTHONUTF8: '1'
         run: python3 .github/scripts/commit_message_squash.py

@@ -107,6 +107,7 @@ def classify(pr, files, roster, skill):
         "title": pr["title"], "body": pr["body"], "files": files}, ensure_ascii=False)
     proposal = validate_classification(json.loads(ask_copilot(prompt)), roster)
     return {"pr_number": pr["number"], "head_sha": pr["head"]["sha"], "base_sha": pr["base"]["sha"],
+            "run_number": int(os.environ["GITHUB_RUN_NUMBER"]),
             "input_fingerprint": classification_fingerprint(pr, files, roster, skill), "proposal": proposal}
 
 
@@ -239,9 +240,12 @@ def invite(api, pr, recommendation, roster, skill):
             recommendation.get("input_fingerprint") != classification_fingerprint(pr, files, roster, skill)):
         raise ValueError("PR or configuration changed; rerun classification")
     modules = validate_classification(recommendation.get("proposal"), roster)["modules"]
+    previous, latest, revision = reviewer_state.read_assignments(api, number)
+    if recommendation["run_number"] < (previous["classification"] or {}).get("run_number", 0):
+        return (f"### Reviewer invitations · PR #{number}\n\n"
+                "Skipped: a newer routing run already saved its classification.\n")
     publish_status(api, pr["head"]["sha"], "pending", UPDATE_PENDING)
     try:
-        previous, latest, revision = reviewer_state.read_assignments(api, number)
         record = {"classification": recommendation, "reviewers": select_reviewers(
             modules, roster["modules"], previous["reviewers"], latest, pr["user"]["id"], modules[1:])}
         reviewer_state.save_review_state(api, number, previous, record, latest, revision)
