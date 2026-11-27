@@ -40,8 +40,9 @@ name: build_artifactory
 #   github_generic/nightly/<owner>/<repo>/comm.<ref>-<stamp>/<artifact>.zip
 # Every item of one run shares that version directory, so a consumer that knows the ref and the
 # label can build the URL directly; the items differ by file name and by the os / runtime /
-# edition properties set on each one, and the run id / attempt travel as item properties too. Only
-# that job needs secrets (RELEASE_USERNAME / RELEASE_TOKEN); the build jobs themselves need none.
+# edition properties set on each one, and the run id / attempt travel as item properties too. The
+# upload job and the image pull of every build row authenticate with the release account
+# (RELEASE_USERNAME / RELEASE_TOKEN); no other step needs a secret.
 #
 # Each item also carries a note in the free-form `extra_info` property, which is the field an
 # artifact page shows next to a package. The note is one JSON object with a single key, so the whole
@@ -51,13 +52,20 @@ name: build_artifactory
 # name what was built (a nightly names its slot commit, not the triggering one), sail names the SDK
 # the row compiled against as recorded in PPU_SDK/release.yaml, which the build step compares against
 # the installer name before publishing. A pccl-tests item names its own source instead
-# (pccl-tests-main-<commit 7>@...), because that package is built from a different repository.
+# (pccl-tests-<branch>-<commit 7>@...), because that package is built from a different repository
+# on the pccl-tests branch of the same name as the ref this run builds, or on main when that pair
+# does not exist.
 #
 # The artifact label is the UTC+8 YYYY-MM-DD-1900 nightly slot of a scheduled run, and a nightly
 # run also builds the default-branch commit as of that 19:00 timestamp: a queued-late run still
-# produces the slot's code and a predictable upload path. Push and manual runs are not that slot and
-# keep their real YYYY-MM-DD-HHmm start time and their triggering commit, so two builds of one day
-# never share a version; artifact_version overrides the label.
+# produces the slot's code and a predictable upload path. Push runs keep their real YYYY-MM-DD-HHmm
+# start time and the commit that triggered them, so two builds of one day never share a version.
+# artifact_version overrides the label, and a label that itself names a UTC+8 instant
+# (YYYY-MM-DD-HHmm) also pins the build to the commit this ref had at that instant, so a slot can be
+# re-run hours later without picking up the commits that landed in between and the code inside the
+# tarballs always matches the label a consumer reads. A pinned run pins t-head/pccl-tests the same
+# way, because this workflow ships the pccl-tests tarballs too: one instant per run, never a slot's
+# pccl paired with the tip of its tests.
 #
 # Each matrix entry calls one of the tar build scripts in .github/workflows/scripts:
 #   hggcrt 12 -> pccl_hggcrt12_tar_build.sh
@@ -67,7 +75,8 @@ name: build_artifactory
 # longer ship the PPU SDK, so each matrix row also carries the SDK run package for its OS and
 # HGGCRT runtime: the tar build script downloads sdk_url into sdk_name and installs it under
 # ${source_home}, which lets one base image serve both hggcrt rows. Every enabled row must carry
-# a container image, otherwise the prepare job fails fast.
+# a container image, otherwise the prepare job fails fast. The registry advertises an anonymous
+# pull as 401, so each row logs in with the release account before it pulls its image.
 
 on:
   # Nightly artifact build at 19:00 UTC+8 (11:00 UTC; GitHub cron is always UTC). GitHub only
@@ -99,7 +108,7 @@ on:
         type: string
         default: '["12","13"]'
       artifact_version:
-        description: 'Label used for the upload version and the run summary; empty means the UTC+8 "YYYY-MM-DD-1900" slot for a scheduled run and the actual "YYYY-MM-DD-HHmm" start time otherwise'
+        description: 'Label used for the upload version and the run summary; empty means the UTC+8 "YYYY-MM-DD-1900" slot for a scheduled run and the actual "YYYY-MM-DD-HHmm" start time otherwise. A YYYY-MM-DD-HHmm label also pins the built commit to what this ref had at that UTC+8 instant'
         required: false
         type: string
         default: ''
@@ -134,6 +143,14 @@ concurrency:
   # superseded run would only hold matrix rows on the runner pool for an obsolete commit.
   cancel-in-progress: true
 
+env:
+  # t-head/pccl-tests is checked out from the branch of the same name as the ref this run builds,
+  # so a release or CI branch pairs with its own pccl-tests branch instead of a fixed main. A
+  # schedule and a push to main both resolve to main; a dispatch from a branch resolves to that
+  # branch and needs the paired pccl-tests branch to exist. `head_ref` is only set for pull
+  # request events, where `ref_name` would be the merge ref, so it wins when present.
+  PCCL_TESTS_BRANCH: ${{ github.head_ref || github.ref_name }}
+
 jobs:
   # Expand the OS x HGGCRT matrix and resolve the artifact label once, so every downstream
   # job and the run summary stay consistent even across re-runs.
@@ -155,7 +172,9 @@ jobs:
       slot_commit: ${{ steps.matrix.outputs.slot_commit }}
       buildable: ${{ steps.matrix.outputs.buildable }}
       max_parallel: ${{ steps.matrix.outputs.max_parallel }}
-      pccl_tests_sha: ${{ steps.pccl_tests.outputs.sha }}
+      # The pccl-tests commit resolved from the paired branch, moved back to the pin instant when the
+      # run names one, because the pccl-tests tarballs ship from this workspace as well.
+      pccl_tests_sha: ${{ steps.matrix.outputs.pccl_tests_commit || steps.pccl_tests.outputs.sha }}
     steps:
       - name: Check out source
         uses: actions/checkout@v4
@@ -167,27 +186,43 @@ jobs:
       - name: Resolve the pccl-tests commit
         id: pccl_tests
         # Every row packages pccl-tests, and all rows of one run have to build against the same
-        # commit: resolving it once here keeps them consistent even when main advances while the
-        # rest of the matrix is still queued. The ref stays a value from this file, never an
-        # input, so a scheduled run cannot be pointed at arbitrary branch content.
+        # commit: resolving it once here keeps them consistent even when the paired branch advances
+        # while the rest of the matrix is still queued. The branch is derived from the ref this run
+        # builds (PCCL_TESTS_BRANCH), never from an input, so a scheduled run cannot be pointed at
+        # arbitrary branch content (CodeQL cache poisoning / pwn request).
+        env:
+          TESTS_BRANCH: ${{ env.PCCL_TESTS_BRANCH }}
         run: |
           set -euo pipefail
+          resolve() {
+            git ls-remote https://github.com/t-head/pccl-tests.git "refs/heads/$1" 2>/dev/null \
+              | awk 'NR==1 {print $1}'
+          }
+          branch="${TESTS_BRANCH}"
           sha=""
           for attempt in 1 2 3; do
-            sha=$(git ls-remote https://github.com/t-head/pccl-tests.git refs/heads/main 2>/dev/null \
-              | awk 'NR==1 {print $1}')
+            sha=$(resolve "${branch}") || true
             if [ -n "${sha}" ]; then
               break
             fi
-            echo "::warning::could not resolve the pccl-tests main commit (attempt ${attempt}/3)"
+            echo "::warning::could not resolve t-head/pccl-tests ${branch} (attempt ${attempt}/3)"
             sleep 15
           done
+          # A ref without a paired pccl-tests branch (an ad-hoc dispatch from a feature branch, a
+          # release branch whose counterpart was never created) keeps building against main instead
+          # of failing the whole matrix, but the fallback is named here and in the artifact note.
+          if [ -z "${sha}" ] && [ "${branch}" != "main" ]; then
+            echo "::warning::t-head/pccl-tests has no branch ${branch}; falling back to main"
+            branch="main"
+            sha=$(resolve "${branch}") || true
+          fi
           if [ -z "${sha}" ]; then
-            echo "::error::could not resolve the pccl-tests main commit"
+            echo "::error::could not resolve t-head/pccl-tests ${branch}"
             exit 1
           fi
-          echo "pccl-tests commit: ${sha}"
+          echo "pccl-tests source: ${branch} @ ${sha}"
           echo "sha=${sha}" >> "$GITHUB_OUTPUT"
+          echo "branch=${branch}" >> "$GITHUB_OUTPUT"
 
       - name: Resolve matrix and artifact version
         id: matrix
@@ -199,19 +234,22 @@ jobs:
           HGGCRT_VERSIONS: ${{ inputs.hggcrt_versions || '["12","13"]' }}
           ARTIFACT_VERSION: ${{ inputs.artifact_version || '' }}
           MAX_PARALLEL: ${{ inputs.max_parallel || '8' }}
-          # Resolved by the step above; the note of a pccl-tests item names the commit that package
-          # was built from, which is not the pccl one.
+          # Resolved by the step above; the note of a pccl-tests item names the branch and commit
+          # that package was actually built from, which are not the pccl ones.
           PCCL_TESTS_SHA: ${{ steps.pccl_tests.outputs.sha }}
+          PCCL_TESTS_BRANCH: ${{ steps.pccl_tests.outputs.branch }}
         run: |
           python3 - <<'PY'
           import json
           import os
           import re
           import subprocess
+          import tempfile
           from datetime import datetime, timedelta, timezone
           from pathlib import Path
 
           SOURCE_DIR = Path("pccl")
+          TESTS_REPO = "https://github.com/t-head/pccl-tests.git"
 
           # (os label, hggcrt, SDK run package name, container image)
           # Images are plain OS base images: the SDK .run that matches the OS and the HGGCRT
@@ -302,22 +340,53 @@ jobs:
               return now.strftime("%Y-%m-%d-%H%M")
 
 
-          def resolve_slot_commit(slot_start):
-              # A delayed run must still build the code as of the slot, not whatever was pushed
-              # while it queued, so the default-branch commit at the slot is resolved explicitly.
-              for revision in ("origin/main", "HEAD"):
+          def resolve_commit_at(when, revisions):
+              # A delayed or back-filled run must still build the code as of the label, not whatever
+              # was pushed meanwhile, so the commit of that instant is resolved explicitly.
+              for revision in revisions:
                   try:
                       found = subprocess.run(
                           ["git", "-C", str(SOURCE_DIR), "rev-list", "-1",
-                           f"--before={slot_start.isoformat()}", revision],
+                           f"--before={when.isoformat()}", revision],
                           check=True, capture_output=True, text=True).stdout.strip()
                   except (subprocess.CalledProcessError, FileNotFoundError):
                       continue
                   if found:
                       return found
-              print("::warning::could not resolve the default-branch commit of the slot; "
-                    "building the commit that triggered the run", flush=True)
               return ""
+
+
+          def label_instant(label):
+              # A caller can hand back any label of the shape a run writes for itself, so a label
+              # that names a UTC+8 instant is read as the code a consumer of it expects to get.
+              if not re.fullmatch(r"\d{4}-\d{2}-\d{2}-\d{4}", label):
+                  return None
+              try:
+                  parsed = datetime.strptime(label, "%Y-%m-%d-%H%M")
+              except ValueError:
+                  fail(f"artifact_version {label} has the shape of a UTC+8 instant but is not a "
+                       "real time")
+              return parsed.replace(tzinfo=timezone(timedelta(hours=8)))
+
+
+          def pin_tests_commit(branch, when):
+              # prepare checks out pccl only, so the pccl-tests history around the instant is not
+              # here; a blob-less clone of that one branch answers the same `rev-list --before`
+              # question without a full checkout in front of the matrix expansion.
+              if not branch:
+                  return ""
+              with tempfile.TemporaryDirectory() as tmp:
+                  clone = subprocess.run(
+                      ["git", "clone", "-q", "--bare", "--filter=blob:none", "--single-branch",
+                       "--branch", branch, TESTS_REPO, str(Path(tmp) / "pccl-tests.git")],
+                      capture_output=True, text=True)
+                  if clone.returncode != 0:
+                      return ""
+                  found = subprocess.run(
+                      ["git", "-C", str(Path(tmp) / "pccl-tests.git"), "rev-list", "-1",
+                       f"--before={when.isoformat()}", "HEAD"],
+                      capture_output=True, text=True)
+              return found.stdout.strip() if found.returncode == 0 else ""
 
 
           def sdk_identity(sdk_name):
@@ -334,9 +403,41 @@ jobs:
           selected_hggcrt = parse_filter(os.environ["HGGCRT_VERSIONS"], "hggcrt_versions", HGGCRT_LABELS)
           event_name = os.environ.get("GITHUB_EVENT_NAME", "")
           now = datetime.now(timezone(timedelta(hours=8)))
-          version = resolve_version(os.environ.get("ARTIFACT_VERSION", "").strip(), event_name)
-          # Only a scheduled run is pinned; a push or a dispatch builds exactly what it triggered on.
-          slot_commit = resolve_slot_commit(resolve_slot(now)) if event_name == "schedule" else ""
+          raw_label = os.environ.get("ARTIFACT_VERSION", "").strip()
+          version = resolve_version(raw_label, event_name)
+          # A run is pinned when it names an instant: a nightly names its slot, and a manual run
+          # names one through the label the caller typed. Everything else builds what it was
+          # triggered on, so an unlabeled dispatch cannot be pinned by its own start-time label.
+          if event_name == "schedule":
+              pin_instant = resolve_slot(now)
+              slot_commit = resolve_commit_at(pin_instant, ("origin/main", "HEAD"))
+              if not slot_commit:
+                  pin_instant = None
+                  print("::warning::could not resolve the default-branch commit of the slot; "
+                        "building the commit that triggered the run", flush=True)
+          elif event_name == "workflow_dispatch" and raw_label and label_instant(raw_label):
+              # Only the dispatched ref is walked: a release branch has to build that branch's code,
+              # and falling back to another branch would publish the wrong tarballs under the label.
+              pin_instant = label_instant(raw_label)
+              slot_commit = resolve_commit_at(pin_instant, ("HEAD",))
+              if not slot_commit:
+                  fail(f"artifact_version {raw_label} names a UTC+8 instant before this ref has any "
+                       "commit; drop the label to build the triggering commit")
+          else:
+              pin_instant = None
+              slot_commit = ""
+          # The pccl-tests tarballs ship from this run, so a pinned run pins them to the same instant;
+          # otherwise one instant of pccl would be paired with another instant of its tests.
+          tests_commit = os.environ.get("PCCL_TESTS_SHA", "")
+          if pin_instant and tests_commit:
+              pinned_tests = pin_tests_commit(os.environ.get("PCCL_TESTS_BRANCH", ""), pin_instant)
+              if pinned_tests:
+                  tests_commit = pinned_tests
+                  print(f"pccl-tests pinned to {pinned_tests} as of {pin_instant.isoformat()}",
+                        flush=True)
+              else:
+                  print("::warning::could not resolve the pccl-tests commit of the pin instant; "
+                        "building the branch tip", flush=True)
           # The upload directory is comm.<ref>-<stamp> and is shared by every item of the run: the
           # label loses its dashes (2026-11-17-1900 -> 202611171900) and the ref keeps only
           # characters a path accepts, so callers can build the URL and no two runs collide.
@@ -350,7 +451,8 @@ jobs:
           # one, and the sail half names the SDK that row compiled against.
           note_branch = os.environ.get("GITHUB_REF_NAME") or "unknown"
           note_commit = slot_commit or os.environ.get("GITHUB_SHA", "")
-          note_tests_commit = os.environ.get("PCCL_TESTS_SHA", "")
+          note_tests_commit = tests_commit
+          note_tests_branch = os.environ.get("PCCL_TESTS_BRANCH", "") or "unknown"
 
           def extra_info_for(package, sdk_name):
               # `extra_info` is one free-form field, so the note travels as a single value under a
@@ -360,7 +462,7 @@ jobs:
               sdk = sdk_identity(sdk_name)
               sail = f"sail-{sdk['branch']}-{sdk['commit']}"
               if package == "pccl-tests":
-                  note = f"pccl-tests-main-{note_tests_commit[:7] or 'unknown'}@{sail}"
+                  note = f"pccl-tests-{note_tests_branch}-{note_tests_commit[:7] or 'unknown'}@{sail}"
               else:
                   note = f"pccl-{note_branch}-{note_commit[:7] or 'unknown'}@{sail}"
               return json.dumps({"comment": note}, separators=(",", ":"))
@@ -453,6 +555,7 @@ jobs:
               output.write(f"ref_slug={ref_slug}\n")
               output.write(f"upload_stamp={upload_stamp}\n")
               output.write(f"slot_commit={slot_commit}\n")
+              output.write(f"pccl_tests_commit={tests_commit}\n")
               output.write(f"buildable={buildable}\n")
               output.write(f"max_parallel={max_parallel}\n")
           PY
@@ -502,8 +605,9 @@ jobs:
       - name: Check out source
         uses: actions/checkout@v4
         with:
-          # A nightly run builds the code as of 19:00 UTC+8 even when the run is queued late; push
-          # and dispatch runs leave the ref empty and get the triggered commit.
+          # A nightly run builds the code as of 19:00 UTC+8 even when queued late, and a dispatch
+          # labelled with a UTC+8 instant builds that instant's commit; a push or an unlabeled
+          # dispatch leaves the ref empty and gets the triggered commit.
           ref: ${{ needs.prepare.outputs.slot_commit || github.sha }}
           fetch-depth: 0
           path: pccl
@@ -515,9 +619,10 @@ jobs:
         uses: actions/checkout@v4
         with:
           repository: t-head/pccl-tests
-          # The commit `prepare` resolved from main, not an input: this workflow also runs on
-          # schedule with the default branch's privileges, so a caller-supplied ref would let that
-          # privileged context execute arbitrary branch content (CodeQL cache poisoning / pwn request).
+          # The commit `prepare` resolved from the pccl-tests branch that pairs with this ref, not
+          # an input: this workflow also runs on schedule with the default branch's privileges, so a
+          # caller-supplied ref would let that privileged context execute arbitrary branch content
+          # (CodeQL cache poisoning / pwn request).
           ref: ${{ needs.prepare.outputs.pccl_tests_sha }}
           fetch-depth: 0
           path: pccl-tests
@@ -546,6 +651,17 @@ jobs:
             sudo -n rm -rf "${dir}" 2>/dev/null || echo "::warning::could not remove ${dir} (no passwordless sudo)"
           done
           df -h /
+
+      - name: Log in to the distribution registry
+        # The base images live in download.t-head.cn, which answers anonymous pulls with a rate
+        # limit and, when that is hit, a 401 that the retry loop below cannot recover from. The
+        # credentials are the release account the transfer-back step already uses, and the login
+        # only grants read access to the image this row pulls.
+        uses: docker/login-action@v3
+        with:
+          registry: download.t-head.cn
+          username: ${{ secrets.RELEASE_USERNAME }}
+          password: ${{ secrets.RELEASE_TOKEN }}
 
       - name: Pull the distribution image
         env:

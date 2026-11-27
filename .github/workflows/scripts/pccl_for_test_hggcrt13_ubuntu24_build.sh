@@ -724,7 +724,8 @@ prepare_symmetric_sources
 #   libhg_wrapper.so: undefined reference to `std::__cxx11::basic_stringstream<...>@GLIBCXX_3.4.21'
 # A host that runs these libraries needs a libstdc++ new enough for the SDK anyway, so let the link
 # step trust the shared libraries instead of failing on them; the objects compiled here keep their
-# full symbol checking.
+# full symbol checking. The unit-test link has to stay out of it, which is why the test pass below
+# runs with `env -u LDFLAGS`.
 export LDFLAGS="${LDFLAGS:+${LDFLAGS} }-Wl,--allow-shlib-undefined"
 # build.sh only bounds make when --cpu_num is positive; with 0 it falls through to a bare
 # `make -j`, which is unbounded and OOMs the link step on a small build machine. Resolve the
@@ -741,10 +742,20 @@ fi
 # hggcrt_version field of the packaged release.yaml, so this HGGCRT 13 script has to name its
 # runtime explicitly or the bundle advertises v2.
 build_log=/tmp/pccl-build.log
+# Two passes, test-free first. A test build replaces `binary` with `tests` in src/Makefile, so
+# pcclras/pcclparam only exist in a test-free pass and the pccl_build/bin/pcclras copy below needs
+# them; building the library first also lets the test pass reuse it incrementally.
+# The test pass then runs with `env -u LDFLAGS`: tests/unit_test/src/makefiles/common.mk forwards
+# every word of the host LDFLAGS through hgcc's -Xcompiler, which takes a comma-separated list, so
+# the -Wl,--allow-shlib-undefined exported above would arrive as "-Wl" plus
+# "--allow-shlib-undefined" and the link would fail with
+#   g++: error: unrecognized command-line option '-Wl'
+# Dropping it for that one pass leaves the exemption on the library and utility links, which is
+# where the prebuilt SDK libraries are actually referenced.
 set +e
 if [ -n "${package_version}" ]; then
     echo "Building with package version: ${package_version}"
-    bash build.sh --use_sdk --hggcrt_version 13 --package_version ${package_version} --cpu_num ${cpu_num} --enable_tests 2>&1 | tee "${build_log}"
+    bash build.sh --use_sdk --hggcrt_version 13 --package_version ${package_version} --cpu_num ${cpu_num} 2>&1 | tee "${build_log}"
 else
     echo "Building without package version (default)"
     VERSION_FILE="${source_home}/pccl/makefiles/version.mk"
@@ -753,19 +764,16 @@ else
     PCCL_PATCH=$(grep "^PCCL_PATCH" ${VERSION_FILE} | sed 's/.*:=\s*//')
     TIMESTAMP=$(date +%Y%m%d%H%M%S)
     GENERATED_VERSION="${PCCL_MAJOR}.${PCCL_MINOR}.${PCCL_PATCH}-${TIMESTAMP}"
-    bash build.sh --use_sdk --hggcrt_version 13 --package_version ${GENERATED_VERSION} --cpu_num ${cpu_num} --enable_tests 2>&1 | tee "${build_log}"
+    bash build.sh --use_sdk --hggcrt_version 13 --package_version ${GENERATED_VERSION} --cpu_num ${cpu_num} 2>&1 | tee "${build_log}"
 fi
 build_rc=${PIPESTATUS[0]}
-# A test build replaces `binary` with `tests` in src/Makefile, so pcclras/pcclparam only exist in a
-# test-free pass; without them the pccl_build/bin/pcclras copy below fails. The second run is
-# incremental: the library and the test artifacts above are already up to date.
 if [ "${build_rc}" -eq 0 ]; then
-    echo "Building the utility binaries the test build omits"
-    build_log=/tmp/pccl-build-utils.log
+    echo "Building the unit tests without the shared-library link exemption"
+    build_log=/tmp/pccl-build-tests.log
     if [ -n "${package_version}" ]; then
-        bash build.sh --use_sdk --hggcrt_version 13 --package_version ${package_version} --cpu_num ${cpu_num} 2>&1 | tee "${build_log}"
+        env -u LDFLAGS bash build.sh --use_sdk --hggcrt_version 13 --package_version ${package_version} --cpu_num ${cpu_num} --enable_tests 2>&1 | tee "${build_log}"
     else
-        bash build.sh --use_sdk --hggcrt_version 13 --package_version ${GENERATED_VERSION} --cpu_num ${cpu_num} 2>&1 | tee "${build_log}"
+        env -u LDFLAGS bash build.sh --use_sdk --hggcrt_version 13 --package_version ${GENERATED_VERSION} --cpu_num ${cpu_num} --enable_tests 2>&1 | tee "${build_log}"
     fi
     build_rc=${PIPESTATUS[0]}
 fi

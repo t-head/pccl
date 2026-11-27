@@ -20,7 +20,9 @@ import time
 HEX40 = re.compile(r"[0-9a-f]{40}\Z")
 HEX64 = re.compile(r"[0-9a-f]{64}\Z")
 FIELDS = {"schema_version", "pccl_revision", "pccl_tests_revision", "build_profile", "artifact_sha256"}
-PCCL_TESTS_REVISION = "394556512e87259e9ffa25225632c46b0a0bbcd5"
+# t-head/pccl-tests main revision the committed export fixtures were generated with. The workflows
+# resolve their own pccl-tests revision at run time, so this value only labels those fixtures.
+FIXTURE_RUNNER_REVISION = "394556512e87259e9ffa25225632c46b0a0bbcd5"
 RUNNER_HASHES = {
     "run_test.py": "fdbdf7623703157b49b9605491fb1cb602fe50ec931ae6763c2645bef7c6b0fc",
     "run_test_config.py": "d58194c5c210ebaabe1ed42d7c2ced924c5dde22081285c22516e1ccdf611b1a",

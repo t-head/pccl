@@ -89,7 +89,7 @@ class ReconcileResultsTests(unittest.TestCase):
 
     def reconcile(self):
         return daily_reconcile.reconcile(self.input, "standard", 1, "suite", self.results, self.output,
-                                         self.pccl_revision, self.build_sha256)
+                                         self.pccl_revision, "2" * 40, self.build_sha256)
 
     def test_valid_results_produce_a_report(self):
         report = self.reconcile()

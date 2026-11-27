@@ -752,11 +752,17 @@ def run_all(inputs, test_root, binary_dir, output, hostfile=None, base_environme
     return rows
 
 
-def _verified_build_identity(inputs, record_path, pccl_revision, expected_sha):
-    """Bind execution results to the archive identity already validated by the workflow."""
+def _verified_build_identity(inputs, record_path, pccl_revision, pccl_tests_revision, expected_sha):
+    """Bind execution results to the archive identity already validated by the workflow.
+
+    The pccl-tests revision comes from the workflow rather than from the export metadata: the
+    fixtures are generated once from a pinned mainline runner, while a branch build pairs the
+    archive with the pccl-tests revision it actually compiled, and only that value can match the
+    record produced by the build job.
+    """
     record = artifact_cache.read_record(record_path)
     expected = {"schema_version": 1, "pccl_revision": pccl_revision,
-                "pccl_tests_revision": inputs["metadata"]["runner_revision"],
+                "pccl_tests_revision": pccl_tests_revision,
                 "build_profile": inputs["profile"], "artifact_sha256": expected_sha}
     if record != expected:
         raise ValueError("Build record differs from the selected profile, source or verified archive")
@@ -776,6 +782,8 @@ def main():
     parser.add_argument("--mpi-interface", help="Actual TCP interface for an exported {mpi_interface} binding")
     parser.add_argument("--build-record", type=Path, help="Verified output_PROFILE.build.json from the restored archive")
     parser.add_argument("--pccl-revision", help="PCCL revision verified in the build record")
+    parser.add_argument("--pccl-tests-revision",
+                        help="pccl-tests revision the verified archive was built with")
     parser.add_argument("--expected-sha256", help="Archive SHA-256 verified in the build record")
     parser.add_argument("--map-nvidia-devices", action="store_true",
                         help="Map Case device selections to the Pod's NVIDIA_VISIBLE_DEVICES allocation")
@@ -791,10 +799,13 @@ def main():
             return 0
         if args.test_root is None or args.output is None:
             raise ValueError("Execution requires --test-root and --output")
-        if args.build_record is None or args.pccl_revision is None or args.expected_sha256 is None:
-            raise ValueError("Execution requires --build-record, --pccl-revision and --expected-sha256")
+        if (args.build_record is None or args.pccl_revision is None
+                or args.pccl_tests_revision is None or args.expected_sha256 is None):
+            raise ValueError("Execution requires --build-record, --pccl-revision, "
+                             "--pccl-tests-revision and --expected-sha256")
         build_identity = _verified_build_identity(
-            inputs, args.build_record, args.pccl_revision, args.expected_sha256)
+            inputs, args.build_record, args.pccl_revision, args.pccl_tests_revision,
+            args.expected_sha256)
         rows = run_all(inputs, args.test_root, args.binary_dir, args.output, args.hostfile,
                        mpi_interface=args.mpi_interface, build_identity=build_identity,
                        map_nvidia_devices=args.map_nvidia_devices)

@@ -85,7 +85,7 @@ class ReconcileResultsTests(unittest.TestCase):
         self.public_number += 1
         return reconcile_results.reconcile(
             self.input, self.results, self.root / f'public-{self.public_number}',
-            PCCL, STANDARD_SHA, NOTSM_SHA)
+            PCCL, RUNNER, STANDARD_SHA, NOTSM_SHA)
 
     def case_directory(self, group, suite, name):
         return self.results / group / 'plan' / suite / name
