@@ -1,15 +1,15 @@
 {
   "classification": {
     "base_sha": "4620d52ab5ddcd700954bd03a41ecd81a39e38dd",
-    "head_sha": "d10975356ea86e5c0d995ed31467f7166166be64",
-    "input_fingerprint": "9734084a92987d44d0a6e2d51c8acc87e666f7d18dd20d64ca9edcac2d96325d",
+    "head_sha": "2c12ab0f3c6c58448d273cacb212c2417528b213",
+    "input_fingerprint": "79b949bcbe6d95f3c6458bf5e61a99f38bf50b8d63659d0ceafee8e487bffc06",
     "pr_number": 247,
     "proposal": {
       "additional_modules": [],
       "modules": [
         "workflow"
       ],
-      "reason": "Main change is review-routing correctness and invitation lifecycle in workflow automation: .github/scripts/review_automation.py adds run-number staleness protection before saving/inviting, adjusts required-reviewer/rerequest logic, and handles 422 withdrawal as warning-only while preserving invite state. Supporting ownership stays in workflow via .github/scripts/maintainer_approval.py and commit_message_squash.py PR-number normalization/identify mode plus .github/workflows/review-gate.yml and review-squash-preview.yml canonical per-PR concurrency wiring; .github/skills/pccl-review-assignment/modules.json only updates catalog/classification policy, which workflow explicitly owns."
+      "reason": "Main change is review-routing policy/automation behavior: .github/scripts/review_automation.py adds run-number staleness protection before saving/inviting, adjusts required-reviewer lifecycle, and handles 422 withdrawal as warning with explicit gate guidance. Supporting workflow plumbing in .github/workflows/review-gate.yml, review-squash-preview.yml, review-routing.yml plus maintainer_approval.py/commit_message_squash.py normalizes PR-number identification and concurrency groups for the same review/squash pipelines. .github/skills/pccl-review-assignment/modules.json and .github/WORKFLOWS.md update module-classification and reviewer-policy documentation. These are all owned by contribution/review workflow policy and wiring, not runtime PCCL modules."
     }
   },
   "reviewers": {
