@@ -2,14 +2,14 @@
   "classification": {
     "base_sha": "553701b1a4a7d738627763f1a4af3670500023a9",
     "head_sha": "d0b654db6337bbf935007f0a2884124bb645e966",
-    "input_fingerprint": "ef99500b647a4235bc7498babf669131130b19be752ec80ce90fa64ca00feaca",
+    "input_fingerprint": "7036a0256f334b700b597ffdbe3520b5d056166edf535a85c625f92f40f577f7",
     "pr_number": 249,
     "proposal": {
       "additional_modules": [],
       "modules": [
         "ci"
       ],
-      "reason": "Main change is CI execution correctness and reproducibility: `.github/workflows/build-artifactory-ppu.yml`, `source-sanity.yml`, and `pccl-daily-full.yml` now add authenticated registry pull, resolve paired `pccl-tests` branches with fallback, and pin dispatch builds/tests to label instants; this directly changes workflow run behavior, matrix reliability, and artifact/test identity. Supporting updates in `.github/xtest/run_cases.py`, `reconcile_results.py`, and `daily_reconcile.py` propagate `--pccl-tests-revision` through validation contracts, and `.github/workflows/scripts/pccl_for_test_hggcrt13_ubuntu24_build.sh` adjusts CI build pass ordering/env for the test row. These are CI orchestration/verification changes rather than contribution-policy (`workflow`) or product build-rule ownership."
+      "reason": "Main change is CI workflow/test orchestration behavior, so **ci** is primary: `.github/workflows/build-artifactory-ppu.yml`, `source-sanity.yml`, and `pccl-daily-full.yml` now resolve paired `pccl-tests` branches/revisions, pin dispatch builds by label time, add registry login for image pulls, and thread resolved revisions through build/cache/hardware validation paths. CI-owned validation tooling is updated consistently (`.github/xtest/run_cases.py`, `reconcile_results.py`, `daily_reconcile.py`, `artifact_cache.py`) to enforce archive identity with explicit `--pccl-tests-revision`; related unit/workflow-contract tests confirm that CI contract change. This outweighs incidental script mechanics because the core functional impact is run selection/identity correctness and workflow reliability."
     }
   },
   "reviewers": {
