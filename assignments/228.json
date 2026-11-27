@@ -1,16 +1,15 @@
 {
   "classification": {
     "base_sha": "4620d52ab5ddcd700954bd03a41ecd81a39e38dd",
-    "head_sha": "283d58244211ad8cfd73d99d2812836400b46129",
-    "input_fingerprint": "6bbe3cdacd8ad4f8514101c53791b32efad2274b2b5b00da4a77737bcb9fc292",
+    "head_sha": "39e34e114136c073bc4fed12bf368ec16f441112",
+    "input_fingerprint": "471d926d33109ae087bfec0b164f9b37fc5cc829d599425f8e084a603fbf02f1",
     "pr_number": 228,
     "proposal": {
       "additional_modules": [],
       "modules": [
-        "graph-search",
-        "network"
+        "graph-search"
       ],
-      "reason": "Main change is in logical graph construction/mapping, so graph-search is primary: src/graph/connect.cc adds channelMap initialization/copying, fixes compCap80/89 channel shuffle ordering, and reapplies ring reversal after node mapping in ncclTopoPostset/connectRings; src/include/graph.h adds channelMap and ringReverse state used by this flow. Secondary network review is warranted for proxy-selection correctness: src/graph/search.cc changes ncclTopoGetNetDev to use execution->graph channelMap and to accept cached proxyDevs only when sender rank and NIC match, otherwise recomputing intermediate proxy path, which affects network proxy routing behavior."
+      "reason": "Main change is to logical graph channel/ring behavior, so graph-search owns it: src/graph/connect.cc rewires ring reversal timing into ncclTopoPostset, preserves per-algorithm channelMap during channel copy/shuffle, and fixes compCap80 channel remap math; src/graph/search.cc switches ncclTopoGetNetDev to graph->channelMap and only reuses cached proxyDevs when sender+NIC match, otherwise recomputes path. src/include/graph.h adds channelMap/ringReverse to support that contract. init.cc changes are feature setup for the same graph logic, not an independent communicator/network policy change."
     }
   },
   "reviewers": {
