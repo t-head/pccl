@@ -1,15 +1,15 @@
 {
   "classification": {
     "base_sha": "cd97dc76bdd6b036db4a07662713fed215467ff0",
-    "head_sha": "fe5a7f21ebc8b2dcd1b124be46231af99ad44c52",
-    "input_fingerprint": "1f280a54ae11d5a76fc8a75403bc7f0f5bc104ceb3281af30c2557431a219b66",
+    "head_sha": "c223822a30025cdb7795dbfceb4fde2cea83f3d9",
+    "input_fingerprint": "8a577c1f37fd2ad18a6c2c37de4e4305866a373d739ccb065bbe6ab1149b446e",
     "pr_number": 247,
     "proposal": {
       "additional_modules": [],
       "modules": [
         "workflow"
       ],
-      "reason": "Main change is review-routing automation behavior: .github/workflows/review-routing.yml now normalizes pr_number with fromJSON(format(...)) at the reusable-workflow boundary, fixing manual routing dispatch input typing. .github/scripts/reviewer_api.py independently changes workflow diagnostics by extending GitHubError and extracting/redacting/truncating HTTP error details (message/errors) for reviewer-invitation sync failures. These are contribution/review workflow policy-automation mechanics, so workflow is the most specific owner; no separate CI/build/runtime module behavior or contract is substantively changed."
+      "reason": "Primary change is review-routing behavior in workflow automation: .github/workflows/review-routing.yml switches invitation input to fromJSON(needs.classify.outputs.recommendation).pr_number, fixing reusable-workflow handoff/type correctness for PR-number routing. Supporting but still same module scope is .github/scripts/reviewer_api.py, which changes GitHubError/request diagnostics (bounded message/errors extraction, redaction, truncation) for reviewer-invitation API failures; this is review/assignment workflow policy tooling, not CI/build/runtime logic."
     }
   },
   "reviewers": {
