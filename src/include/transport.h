@@ -60,6 +60,7 @@ struct ncclPeerInfo {
   bool crossNicSupport;
   bool cuMemGdrSupport;
   bool rmaPlatformSupport;
+  uint8_t okiEnable;
 };
 
 #define PCCL_SAME_PID(MYINFO, PEERINFO) \

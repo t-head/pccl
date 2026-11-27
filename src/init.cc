@@ -203,15 +203,17 @@ void pcclDumpCommList(int signal) {
 
 #if PCCL_HGGC_VERSION >= PCCL_HGGC_DRIVER_VERSION(2, 2, 0)
 static ncclResult_t pcclOkiDestroyResources(ncclComm_t comm) {
-  if (!comm->okiSupport) return ncclSuccess;
+  if (comm->okiDevice == nullptr) return ncclSuccess;
   for (int i = 0; i < comm->okiQpCount; i++) {
     LT_OKI_CHECK(ltOkiDestroyQP(comm->okiDevice, comm->okiQps[i]));
     comm->okiQps[i] = nullptr;
   }
-  HGGCCHECK(hggcFreeHost(comm->okiQps));
+  if (comm->okiQps != nullptr) HGGCCHECK(hggcFreeHost(comm->okiQps));
   LT_OKI_CHECK(ltOkiCloseDevice(comm->okiDevice));
   comm->okiQps = NULL;
   comm->okiDevice = NULL;
+  comm->okiQpCount = 0;
+  comm->okiSupport = false;
   return ncclSuccess;
 }
 #endif
@@ -936,6 +938,11 @@ static ncclResult_t fillInfo(ncclComm_t comm, struct ncclPeerInfo* info, uint64_
   info->rmaPlatformSupport = pcclHostRmaPlatformSupported(comm);
   INFO(NCCL_INIT, "Rank %d device %d Host RMA platform support %d (compCap %d icnRmtType %s)",
        comm->rank, comm->hggcDev, info->rmaPlatformSupport, comm->compCap, icnRmtTypeStr[comm->icnRmtType]);
+#if PCCL_HGGC_VERSION >= PCCL_HGGC_DRIVER_VERSION(2, 2, 0)
+  info->okiEnable = comm->compCap == 89 && comm->icnRmtType == PCCL_ICNLINK_SWITCH &&
+      comm->config.CTAPolicy == PCCL_CTA_POLICY_ZERO
+      ? pcclCeOkiRequestedFeatures() : 0;
+#endif
 
   // MNNVL support
   if (pcclHgmlEnsureInitialized() == ncclSuccess) {
@@ -1272,6 +1279,9 @@ static ncclResult_t initTransportsRank(ncclComm_t comm, ncclComm_t parent, uint6
   bool globalCrossNicSupport = true;
   bool globalCuMemGdrSupport = true;
   bool globalRmaPlatformSupport = true;
+#if PCCL_HGGC_VERSION >= PCCL_HGGC_DRIVER_VERSION(2, 2, 0)
+  bool globalOkiEnable = false;
+#endif
 
   // respect NCCL_ALGO when init
   const char *algoStr = pcclGetEnvWithDualPrefix("PCCL_ALGO");
@@ -1304,6 +1314,9 @@ static ncclResult_t initTransportsRank(ncclComm_t comm, ncclComm_t parent, uint6
   NCCLCHECKGOTO(fillInfo(comm, comm->peerInfo+rank, comm->commHash), res, fail);
   NCCLCHECKGOTO(bootstrapAllGather(comm->bootstrap, comm->peerInfo, sizeof(struct ncclPeerInfo)), res, fail);
   __atomic_store_n(&comm->peerInfoValid, true, __ATOMIC_RELEASE);
+#if PCCL_HGGC_VERSION >= PCCL_HGGC_DRIVER_VERSION(2, 2, 0)
+  globalOkiEnable = comm->peerInfo[0].okiEnable != 0;
+#endif
 
   globalGinSupport = comm->sharedRes->ginState.ginType != NCCL_GIN_TYPE_NONE;
   comm->cuMemSupport = 1;
@@ -1320,6 +1333,9 @@ static ncclResult_t initTransportsRank(ncclComm_t comm, ncclComm_t parent, uint6
     globalCrossNicSupport &= comm->peerInfo[i].crossNicSupport;
     globalCuMemGdrSupport &= comm->peerInfo[i].cuMemGdrSupport;
     globalRmaPlatformSupport &= comm->peerInfo[i].rmaPlatformSupport;
+#if PCCL_HGGC_VERSION >= PCCL_HGGC_DRIVER_VERSION(2, 2, 0)
+    globalOkiEnable &= comm->peerInfo[i].okiEnable == comm->peerInfo[0].okiEnable;
+#endif
     if (i == rank) comm->peerInfo[comm->rank].hostid = nNodes - 1;
     if ((i != rank) && (comm->peerInfo[i].hostHash == comm->peerInfo[rank].hostHash) && (comm->peerInfo[i].busId == comm->peerInfo[rank].busId)) {
       ERROR("Duplicate PPU detected : rank %d and rank %d both on HGGC device %lx", rank, i, comm->peerInfo[rank].busId);
@@ -1760,7 +1776,32 @@ static ncclResult_t initTransportsRank(ncclComm_t comm, ncclComm_t parent, uint6
   // explicit ZERO policy. Keep OKI and P2P DMA on their existing ZERO-only gate.
   INFO(NCCL_INIT, "CE AllGather auto support %d minCompCap %d architecture / ICNS / algorithm eligibility %d",
        pcclCeAutoAllGatherSupported(comm), minCompCap, comm->ceAutoAllGatherEligible);
+#if PCCL_HGGC_VERSION >= PCCL_HGGC_DRIVER_VERSION(2, 2, 0)
+  if (comm->peerInfo[rank].okiEnable != 0 && !globalOkiEnable)
+    INFO(NCCL_INIT, "disable OKI: all ranks must be SM89 with ICN switch connectivity and opt in with the same OKI feature settings.");
+  if (ncclCeSupported(comm) && globalOkiEnable) {
+    uint systemDriverVersion = 0;
+    NCCLCHECKGOTO(ncclSystemDriverVersion(&systemDriverVersion), res, fail);
+    // support user compile install kmd version check for 0xffffffff
+    if (systemDriverVersion < PCCL_MIN_KMD_VERSION_FOR_OKI) {
+      INFO(NCCL_INIT, "disable OKI as system driver version smaller than %x(%x).", PCCL_MIN_KMD_VERSION_FOR_OKI, systemDriverVersion);
+    } else if (comm->nRanks < 2) {
+      // OKI needs at least one remote QP group.
+      INFO(NCCL_INIT, "disable OKI as nRanks %d is below the minimum 2.", comm->nRanks);
+    } else if (comm->nRanks > PCCL_OKI_MAX_LOCAL_RANKS) {
+      // The batch op arrays are passed to the kernels by value with this fixed capacity.
+      INFO(NCCL_INIT, "disable OKI as nRanks %d exceeds max %d.", comm->nRanks, PCCL_OKI_MAX_LOCAL_RANKS);
+    } else if (ppuDiesNum > PCCL_CE_MAX_DIE_NUM) {
+      // Kernels and fence arrays support only one or two dies.
+      INFO(NCCL_INIT, "disable OKI as %d dies exceeds max %d.", ppuDiesNum, PCCL_CE_MAX_DIE_NUM);
+    } else {
+      comm->okiSupport = true;
+      INFO(NCCL_INIT, "enable OKI");
+    }
+  }
+#endif
   if (ncclCeSupported(comm) || pcclCeAutoAllGatherSupported(comm)) {
+    bool useOkiRings = pcclCeUsesOkiRings(comm);
     int p2pRingNeededPerDie = std::min(comm->nRanks, HG_DMA_RING_PER_DIE);
     int num = p2pRingNeededPerDie * ppuDiesNum;
     comm->ceStreamsNum = num;
@@ -1770,8 +1811,8 @@ static ncclResult_t initTransportsRank(ncclComm_t comm, ncclComm_t parent, uint6
       for (int dieId = 0; dieId < ppuDiesNum; ++dieId) {
         int streamId = r * ppuDiesNum + dieId;
         HGGCCHECKGOTO(hggcEitInterface::getInstance().wrapHggcStreamCreateForCopyEngine(comm->ceStreams + streamId), res, fail);
-        HGGCCHECKGOTO(hggcEitInterface::getInstance().wrapHggcStreamHintChannel(comm->ceStreams[streamId], HG_STREAM_CHANNEL_PEER, dieId * HG_DMA_RING_PER_DIE + r), res, fail);
-        HGGCCHECKGOTO(hggcEitInterface::getInstance().wrapHggcStreamHintChannel(comm->ceStreams[streamId], HG_STREAM_CHANNEL_COPY, dieId * HG_DMA_RING_PER_DIE + r), res, fail);
+        int ringId = dieId * HG_DMA_RING_PER_DIE + (useOkiRings ? 0 : r);
+        NCCLCHECKGOTO(pcclCeHintMemcpyStream(comm->ceStreams[streamId], ringId), res, fail);
         HGGCCHECKGOTO(hggcEventCreateWithFlags(comm->ceEvents + streamId, hggcEventDisableTiming), res, fail);
       }
     }
@@ -1985,45 +2026,21 @@ static ncclResult_t ncclCommInitRankFunc(struct ncclAsyncJob* job_) {
   NCCLCHECKGOTO(initTransportsRank(comm, job->parent, timers), res, fail);
 
 #if PCCL_HGGC_VERSION >= PCCL_HGGC_DRIVER_VERSION(2, 2, 0)
-  {
-    uint systemDriverVersion = 0;
-    NCCLCHECKGOTO(ncclSystemDriverVersion(&systemDriverVersion), res, fail);
-    if (ncclCeSupported(comm) && (ncclCeOkiRequested() || pcclParamP2pDmaEnable())) {
-      // support user compile install kmd version check for 0xffffffff
-      if (!pcclOkiArchSupported(comm)) {
-        INFO(NCCL_INIT, "disable OKI: all ranks must have SM89 or newer PPUs.");
-      } else if (systemDriverVersion < PCCL_MIN_KMD_VERSION_FOR_OKI) {
-        INFO(NCCL_INIT, "disable OKI as system driver version smaller than %x(%x).", PCCL_MIN_KMD_VERSION_FOR_OKI, systemDriverVersion);
-      } else if (comm->nRanks < 2) {
-        // OKI needs at least one remote QP group.
-        INFO(NCCL_INIT, "disable OKI as nRanks %d is below the minimum 2.", comm->nRanks);
-      } else if (comm->nRanks > PCCL_OKI_MAX_LOCAL_RANKS) {
-        // The batch op arrays are passed to the kernels by value with this fixed capacity.
-        INFO(NCCL_INIT, "disable OKI as nRanks %d exceeds max %d.", comm->nRanks, PCCL_OKI_MAX_LOCAL_RANKS);
-      } else if (ppuDiesNum > PCCL_CE_MAX_DIE_NUM) {
-        // Kernels and fence arrays support only one or two dies.
-        INFO(NCCL_INIT, "disable OKI as %d dies exceeds max %d.", ppuDiesNum, PCCL_CE_MAX_DIE_NUM);
-      } else {
-        comm->okiSupport = true;
-        INFO(NCCL_INIT, "enable OKI");
-      }
-    }
-  }
-
   if (comm->okiSupport) {
-    LT_OKI_CHECK(ltOkiOpenDevice(&comm->okiDevice, comm->hggcDev));
+    LT_OKI_CHECKGOTO(ltOkiOpenDevice(&comm->okiDevice, comm->hggcDev), res, fail);
 
-    // Local D2D queues use a separate pool from the capped remote ICN rings.
-    int remotePairs = std::min(comm->nRanks - 1, LT_OKI_DMA_RING_PER_DIE);
+    // Reserve ring 0 on each die for runtime memcpy and user streams.
+    // OKI uses local rings 1/9 and ICN rings 1-7/9-15 on two-die devices.
+    int remotePairs = std::min(comm->nRanks - 1, LT_OKI_DMA_RING_PER_DIE - 1);
     int maxQPNum = ppuDiesNum + remotePairs * ppuDiesNum;
     NCCLCHECKGOTO(ncclHggcHostCalloc(&comm->okiQps, maxQPNum, &(comm->pinnedMemUsed)), res, fail);
 
-    // qps[slot * ppuDiesNum + die]: slot 0 uses local queueId=die; remote queueId=die*LT_OKI_DMA_RING_PER_DIE+slot-1.
+    // Preserve qps[slot * ppuDiesNum + die]: local group first, then remote groups.
     for (int i = 0; i < maxQPNum; i++) {
       int slot = i / ppuDiesNum;
       int dieId = i % ppuDiesNum;
       bool isRemote = (slot != 0);
-      int queueId = isRemote ? dieId * LT_OKI_DMA_RING_PER_DIE + (slot - 1) : dieId;
+      int queueId = dieId * LT_OKI_DMA_RING_PER_DIE + (isRemote ? slot : 1);
       LT_OKI_CHECKGOTO(ltOkiCreateQP(&comm->okiQps[i], comm->okiDevice, isRemote, queueId, PCCL_LT_OKI_QP_DEPTH), res, fail);
       comm->okiQpCount += 1;
     }
