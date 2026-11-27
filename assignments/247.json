@@ -1,15 +1,15 @@
 {
   "classification": {
     "base_sha": "cd97dc76bdd6b036db4a07662713fed215467ff0",
-    "head_sha": "c223822a30025cdb7795dbfceb4fde2cea83f3d9",
-    "input_fingerprint": "8a577c1f37fd2ad18a6c2c37de4e4305866a373d739ccb065bbe6ab1149b446e",
+    "head_sha": "93193bb1947869d6127abc0ad87d4f8578268810",
+    "input_fingerprint": "049f87d77d367221cff7059adab5bfc9eb37fd16088a33bb7927d322a65c4037",
     "pr_number": 247,
     "proposal": {
       "additional_modules": [],
       "modules": [
         "workflow"
       ],
-      "reason": "Primary change is review-routing behavior in workflow automation: .github/workflows/review-routing.yml switches invitation input to fromJSON(needs.classify.outputs.recommendation).pr_number, fixing reusable-workflow handoff/type correctness for PR-number routing. Supporting but still same module scope is .github/scripts/reviewer_api.py, which changes GitHubError/request diagnostics (bounded message/errors extraction, redaction, truncation) for reviewer-invitation API failures; this is review/assignment workflow policy tooling, not CI/build/runtime logic."
+      "reason": "Primary change is review-routing behavior, owned by workflow: .github/workflows/review-routing.yml changes PR-number handoff to use classify output (`fromJSON(...).pr_number`), and .github/scripts/review_automation.py updates invitation sync to treat DELETE-withdrawal HTTP 422 as warning while continuing routing/summary generation. Supporting API diagnostic handling in .github/scripts/reviewer_api.py (sanitized/truncated GitHub error details) and docs in .github/WORKFLOWS.md are part of the same reviewer-assignment/approval automation path, not an independent module scope."
     }
   },
   "reviewers": {
