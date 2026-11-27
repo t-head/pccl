@@ -1,7 +1,7 @@
 /*************************************************************************
  * SPDX-FileCopyrightText: Copyright (c) 2025-2026 NVIDIA CORPORATION & AFFILIATES. All rights reserved.
  * SPDX-FileCopyrightText: Modifications Copyright (c) 2025-2026 T-Head (Shanghai) Semiconductor Co., Ltd. All rights reserved.
- * SPDX-License-Identifier: BSD-3-Clause
+ * SPDX-License-Identifier: BSD-3-Clause AND Apache-2.0
  *
  * See LICENSE.txt for more license information
  *************************************************************************/
@@ -10,10 +10,15 @@
 #define NCCL_DEVICE_SYMMETRIC_PRIMITIVES_H_
 
 #include "symmetric.h"
+#include "sym_kernels.h"
 #include "bitops.h"
 #include "sym_reduce_kernel.h"
 #include "op128.h"
-#include "pccl_device/coop.h"
+#include "pccl_device.h"
+#include "pccl_device/core.h"
+#include "pccl_device/ptr.h"
+#include "pccl_device/ll_a2a.h"
+#include "pccl_device/lsa_barrier.h"
 
 // align to 128B could get enough icn performance
 #define BULK_ALIGN_BYTES 128u
@@ -59,8 +64,156 @@ static __device__ uint32_t idivRcp32_upto64(int x) {
 }
 
 namespace {
+template<typename Coop>
+using ncclLsaBarrierSession = pcclLsaBarrierSession<Coop>;
+template<typename Coop>
+using ncclLLA2ASession = pcclLLA2ASession<Coop>;
+
+struct ncclSymkArgsHandler {
+  ncclDevComm const& comm;
+  ncclLLA2AHandle const& lsaLLA2A;
+  ncclGinOutboxHandle const& ginOutbox;
+  ncclGinInboxA2AHandle const& ginInboxRail;
+  ncclGinCounter_t ginCounterPerBlock;
+  ncclGinSyncHandle const& ginSyncHandle;
+  struct ncclSymkChannelWorkRange* channelWorkRange;
+  struct ncclSymkDevWork* devWork;
+  struct ncclSymkDevWork const* currentWork;
+  uint32_t nRanks_rcp32;
+
+  __device__ ncclSymkArgsHandler(ncclSymkDevWorkArgs const* args):
+    comm(args->kcomm.devComm),
+    lsaLLA2A(args->kcomm.lsaLLA2A),
+    ginOutbox(args->kcomm.ginOutbox),
+    ginInboxRail(args->kcomm.ginInboxRail),
+    ginCounterPerBlock(args->kcomm.ginCounterPerBlock),
+    ginSyncHandle(args->kcomm.ginSyncHandle) {
+    channelWorkRange = args->getWorkRange();
+    devWork = args->getWorks(args->nMaxChannels);
+    currentWork = nullptr;
+    nRanks_rcp32 = comm.nRanks_rcp32;
+  }
+
+  __device__ uint64_t redOpArg() const { return currentWork->redOpArg; }
+  __device__ bool incPrecision() const { return (currentWork->padding & 1) != 0; }
+
+  template<typename T>
+  __device__ void getWorkRange(int block, uint16_t& workLo, size_t& indexLo, uint16_t& workHi, size_t& indexHi) {
+    constexpr int EltPerCell = NCCL_SYM_KERNEL_CELL_SIZE / sizeof(T);
+    uint32_t fracLo, fracHi;
+
+    workLo = (block==0) ? 0 : channelWorkRange[block-1].workHi;
+    fracLo = (block==0) ? 0 : channelWorkRange[block-1].fracHi + 1;
+    if (fracLo == 0x10000) {
+      workLo++;
+      fracLo = 0;
+    }
+    struct ncclSymkDevWork const& dwLo = devWork[workLo];
+    indexLo = ((fracLo * divUp(dwLo.nElts, EltPerCell)) >> 16) * EltPerCell;
+
+    workHi = channelWorkRange[block].workHi;
+    fracHi = channelWorkRange[block].fracHi + 1;
+    struct ncclSymkDevWork const& dwHi = devWork[workHi];
+    indexHi = min(((fracHi * divUp(dwHi.nElts, EltPerCell)) >> 16) * EltPerCell, dwHi.nElts);
+  }
+
+  template<typename T>
+  __device__ void getWorkRangeFused(int blockIdx, int w, int& block, int& nBlocks, size_t& indexLo, size_t& indexHi) {
+    constexpr int EltPerCell = NCCL_SYM_KERNEL_CELL_SIZE / sizeof(T);
+    struct ncclSymkDevWork const& dw = devWork[w];
+    uint32_t fracLo, fracHi;
+    int lastBlock;
+
+    block = blockIdx - dw.sChannelId;
+    nBlocks = dw.nChannels;
+    lastBlock = dw.sChannelId+dw.nChannels-1;
+
+    fracLo = (dw.sChannelId>0 && channelWorkRange[dw.sChannelId-1].workHi == w)
+           ? ((channelWorkRange[dw.sChannelId-1].fracHi + 1) & 0xFFFF) : 0;
+    indexLo = ((fracLo * divUp(dw.nElts, EltPerCell)) >> 16) * EltPerCell;
+    fracHi = (channelWorkRange[lastBlock].workHi == w) ? channelWorkRange[lastBlock].fracHi + 1 : 0x10000;
+    indexHi = min(((fracHi * divUp(dw.nElts, EltPerCell)) >> 16) * EltPerCell, dw.nElts);
+  }
+
+  template<typename T, typename Fn>
+  __device__ void forEachWork(Fn const& fn) {
+    constexpr int EltPerCell = NCCL_SYM_KERNEL_CELL_SIZE / sizeof(T);
+    uint16_t workLo, workHi;
+    uint32_t fracLo, fracHi;
+
+    workLo = (blockIdx.x==0) ? 0 : channelWorkRange[blockIdx.x-1].workHi;
+    fracLo = (blockIdx.x==0) ? 0 : channelWorkRange[blockIdx.x-1].fracHi + 1;
+    if (fracLo == 0x10000) {
+      workLo++;
+      fracLo = 0;
+    }
+    workHi = channelWorkRange[blockIdx.x].workHi;
+    fracHi = channelWorkRange[blockIdx.x].fracHi + 1;
+
+    #pragma unroll 1
+    for (int w = workLo; w <= workHi; w++) {
+      struct ncclSymkDevWork const& dw = devWork[w];
+      size_t const& nAllElts = dw.nElts;
+      size_t currentIndexLo, currentIndexHi;
+      int block, nBlocks;
+      if (blockIdx.x >= dw.sChannelId && blockIdx.x < dw.sChannelId + dw.nChannels) {
+        getWorkRangeFused<T>(blockIdx.x, w, block, nBlocks, currentIndexLo, currentIndexHi);
+      } else {
+        currentIndexLo = (w > workLo) ? 0 : ((fracLo * divUp(nAllElts, EltPerCell)) >> 16) * EltPerCell;
+        currentIndexHi = (w < workHi) ? nAllElts : min(((fracHi * divUp(nAllElts, EltPerCell)) >> 16) * EltPerCell, nAllElts);
+        block = 0;
+        nBlocks = 1;
+      }
+
+      currentWork = &dw;
+      fn(block, nBlocks, currentIndexHi - currentIndexLo, nAllElts,
+         ncclSymPtr<T>(dw.inputWin, dw.inputOff) + currentIndexLo,
+         ncclSymPtr<T>(dw.outputWin, dw.outputOff) + currentIndexLo);
+
+      currentIndexLo = 0;
+    }
+  }
+
+  template<typename T, typename Fn>
+  __device__ void singleWork(Fn const& fn) {
+    constexpr int EltPerCell = NCCL_SYM_KERNEL_CELL_SIZE / sizeof(T);
+    // The single-work contract makes work index zero invariant.
+    struct ncclSymkDevWork const& dw = devWork[0];
+    size_t nCells = divUp(dw.nElts, EltPerCell);
+    uint32_t fracLo = blockIdx.x == 0 ? 0 : channelWorkRange[blockIdx.x-1].fracHi + 1;
+    uint32_t fracHi = channelWorkRange[blockIdx.x].fracHi + 1;
+    size_t indexLo = ((fracLo * nCells) >> 16) * EltPerCell;
+    size_t indexHi = min(((fracHi * nCells) >> 16) * EltPerCell, dw.nElts);
+    currentWork = &dw;
+    fn(indexHi - indexLo, dw.nElts,
+       ncclSymPtr<T>(dw.inputWin, dw.inputOff) + indexLo,
+       ncclSymPtr<T>(dw.outputWin, dw.outputOff) + indexLo);
+  }
+
+  template<typename T, typename Fn>
+  __device__ void forEachWorkNoFusion(Fn const& fn) {
+    uint16_t workLo, workHi;
+    size_t indexLo, indexHi;
+
+    getWorkRange<T>(blockIdx.x, workLo, indexLo, workHi, indexHi);
+
+    #pragma unroll 1
+    for (int w = workLo; w <= workHi; w++) {
+      struct ncclSymkDevWork const& dw = devWork[w];
+      size_t const& nAllElts = dw.nElts;
+      size_t currentIndexLo, currentIndexHi;
+      currentIndexLo = (w > workLo) ? 0 : indexLo;
+      currentIndexHi = (w < workHi) ? nAllElts : indexHi;
+
+      currentWork = &dw;
+      fn(currentIndexHi - currentIndexLo, nAllElts,
+         ncclSymPtr<T>(dw.inputWin, dw.inputOff) + currentIndexLo,
+         ncclSymPtr<T>(dw.outputWin, dw.outputOff) + currentIndexLo);
+    }
+  }
+};
+
 static constexpr int ncclSymPrims_UseBarrier = 1;
-static constexpr int ncclSymPrims_UseLL = 2;
 struct ncclSymPrims {
   int flags;
   int const &rank;
@@ -75,7 +228,6 @@ struct ncclSymPrims {
 
   uint32_t const &stride4G;
   uint32_t barEpoch;
-  uint32_t llEpoch;
 
   __device__ ncclSymPrims(ncclSymDevComm const &comm, int numBlocks, int flags):
     flags(flags),
@@ -94,14 +246,12 @@ struct ncclSymPrims {
     if ((flags & ncclSymPrims_UseBarrier) && threadIdx.x < nRanks) {
       barEpoch = base->barEpochUc[block];
     }
-    if (flags & ncclSymPrims_UseLL) llEpoch = base->llEpoch[block] + 2;
   }
   __device__  ~ncclSymPrims() {
     if (threadIdx.x == 0) {
       if (flags & ncclSymPrims_UseBarrier) {
         base->barEpochUc[block] = barEpoch;
       }
-      if (flags & ncclSymPrims_UseLL) base->llEpoch[block] = llEpoch - 2;
     }
   }
 
@@ -178,47 +328,158 @@ struct ncclSymPrims {
     barEpoch += 1;
     cta.sync();
   }
+};
 
-  __device__ void endLL(ncclCoopCta cta) {
-    if (__builtin_expect(llEpoch >= -2u, false)) {
-      cta.sync();
-      uint4* buf = ncclSymDevBase_getLLBuf(base, nRanks, block, llEpoch);
-      int epochSize = ncclSymLLEpochSize(nRanks);
-      #pragma unroll 4
-      for (int i=cta.thread_rank(); i*16 < epochSize; i += cta.size()) {
-        buf[i] = uint4{0, 0, 0, 0};
+struct ncclSymkPrims {
+  int const &rank;
+  int const &nRanks;
+  uint32_t const &nRanks_rcp32;
+  int block, nBlocks;
+  uint32_t nBlocks_rcp32;
+  uint32_t nBlocks_nWarps_rcp32;
+  uint32_t nRanks_nBlocks_rcp32;
+  uint32_t nWarpPerRank, nWarpPerRank_rcp32;
+  uint32_t stride4G;
+
+private:
+  ncclLsaBarrierSession<ncclCoopCta>* barSession;
+  ncclLLA2ASession<ncclCoopCta>* llSession;
+
+  __device__ ncclSymkPrims(ncclDevComm const &comm, int block, int nBlocks, uint32_t stride4G):
+    rank(comm.rank),
+    nRanks(comm.nRanks),
+    nRanks_rcp32(comm.nRanks_rcp32),
+    block(block),
+    nBlocks(nBlocks),
+    nBlocks_rcp32(idivRcp32_upto64(nBlocks)),
+    nBlocks_nWarps_rcp32(imulRcp32(nBlocks, nBlocks_rcp32, blockDim.x/32, idivRcp32_upto64(blockDim.x/32))),
+    nRanks_nBlocks_rcp32(imulRcp32(nRanks, nRanks_rcp32, nBlocks, nBlocks_rcp32)),
+    nWarpPerRank(idivFast32(nBlocks*blockDim.x/32, nRanks, nRanks_rcp32)),
+    nWarpPerRank_rcp32(idivRcp32_upto64(nWarpPerRank)),
+    stride4G(stride4G),
+    barSession(nullptr),
+    llSession(nullptr) {
+  }
+
+  __device__ uint32_t* barInbox(int owner, int peer) {
+    uint32_t* state = (uint32_t*)pcclGetResourceBufferLsaPointer(
+      barSession->comm, barSession->handle.bufHandle, owner);
+    return state + 3*barSession->handle.nBarriers + barSession->index*barSession->comm.lsaSize + peer;
+  }
+
+public:
+  __device__ ncclSymkPrims(ncclDevComm const &comm, int block, int nBlocks, uint32_t stride4G,
+                         ncclLsaBarrierSession<ncclCoopCta>& session):
+    ncclSymkPrims(comm, block, nBlocks, stride4G) {
+    barSession = &session;
+  }
+
+  __device__ ncclSymkPrims(ncclDevComm const &comm, int block, int nBlocks, uint32_t stride4G,
+                         ncclLLA2ASession<ncclCoopCta>& session):
+    ncclSymkPrims(comm, block, nBlocks, stride4G) {
+    llSession = &session;
+  }
+
+  template<typename T>
+  __device__ T* peerPtr(int peer, T* selfPtr) {
+    return add4G(selfPtr, (peer-rank)*stride4G);
+  }
+
+  __device__ void barrierArrive(ncclCoopCta cta, bool release) {
+    cta.sync();
+    int r = cta.thread_rank();
+    if (r != barSession->comm.lsaRank && r < barSession->comm.lsaSize) {
+      uint32_t* inbox = barInbox(r, barSession->comm.lsaRank);
+      if (release) {
+        asm volatile("ppu.st.release.sys.u32 [%0],%1;" :: "l"(inbox), "r"(barSession->epoch+1));
+      } else {
+        asm volatile("ppu.st.relaxed.sys.u32 [%0],%1;" :: "l"(inbox), "r"(barSession->epoch+1));
       }
     }
+  }
+
+  __device__ void barrierWait(ncclCoopCta cta, bool acquire) {
+    int r = cta.thread_rank();
+    if (r != barSession->comm.lsaRank && r < barSession->comm.lsaSize) {
+      uint32_t* inbox = barInbox(barSession->comm.lsaRank, r);
+      while (true) {
+        uint32_t got;
+        if (acquire) {
+          asm volatile("ppu.ld.acquire.sys.u32 %0,[%1];" : "=r"(got) : "l"(inbox));
+        } else {
+          asm volatile("ppu.ld.relaxed.sys.u32 %0,[%1];" : "=r"(got) : "l"(inbox));
+        }
+        if (got-(barSession->epoch+1) <= uint32_t(-1)>>1) break;
+      }
+    }
+    barSession->epoch += 1;
     cta.sync();
-    llEpoch += (llEpoch == -1u) ? 3 : 1;
+  }
+
+  __device__ void groupBarrierArrive(ncclCoopCta cta, int groupBase, int groupSize, bool release) {
+    cta.sync();
+    int r = cta.thread_rank();
+    if (r != barSession->comm.lsaRank && r >= groupBase && r < groupBase + groupSize &&
+        r < barSession->comm.lsaSize) {
+      uint32_t* inbox = barInbox(r, barSession->comm.lsaRank);
+      if (release) {
+        asm volatile("ppu.st.release.sys.u32 [%0],%1;" :: "l"(inbox), "r"(barSession->epoch+1));
+      } else {
+        asm volatile("ppu.st.relaxed.sys.u32 [%0],%1;" :: "l"(inbox), "r"(barSession->epoch+1));
+      }
+    }
+  }
+
+  __device__ void groupBarrierWait(ncclCoopCta cta, int groupBase, int groupSize, bool acquire) {
+    int r = cta.thread_rank();
+    if (r != barSession->comm.lsaRank && r >= groupBase && r < groupBase + groupSize &&
+        r < barSession->comm.lsaSize) {
+      uint32_t* inbox = barInbox(barSession->comm.lsaRank, r);
+      while (true) {
+        uint32_t got;
+        if (acquire) {
+          asm volatile("ppu.ld.acquire.sys.u32 %0,[%1];" : "=r"(got) : "l"(inbox));
+        } else {
+          asm volatile("ppu.ld.relaxed.sys.u32 %0,[%1];" : "=r"(got) : "l"(inbox));
+        }
+        if (got-(barSession->epoch+1) <= uint32_t(-1)>>1) break;
+      }
+    }
+    barSession->epoch += 1;
+    cta.sync();
+  }
+
+  __device__ void endLL(ncclCoopCta cta) {
+    llSession->endEpoch(cta);
   }
 
   template<typename T>
   __device__ void sendLL(int peer, int slot, T val) {
-    union { T tmp; uint32_t u32[divUp(sizeof(T),8)][2]; };
-    tmp = val;
-    uint4* buf = ncclSymDevBase_getLLBuf(peerPtr(peer, base), nRanks, block, llEpoch) + slot;
-    #pragma unroll
-    for (int u=0; u < divUp(sizeof(T),8); u++) {
-      asm volatile("ppu.st.volatile.v4.u32 [%0],{%1,%3,%2,%3};" :: "l"(buf + ncclSymLLMaxSlots(sizeof(T))*u), "r"(u32[u][0]), "r"(u32[u][1]), "r"(llEpoch));
-    }
+    llSession->send(peer, slot, val);
   }
 
   template<typename T>
   __device__ void bcastLL(int slot, T val) {
     union { T tmp; uint32_t u32[divUp(sizeof(T),8)][2]; };
     tmp = val;
-    uint4* buf0 = ncclSymDevBase_getLLBuf(peerPtr(0, base), nRanks, block, llEpoch) + slot;
+    uint4* buf0 = (uint4*)pcclGetResourceBufferPeerPointer(
+      llSession->comm, llSession->handle.bufHandle, llSession->team, 0);
+    buf0 += llSession->slotsOffset + slot;
+    uint32_t const peerStride4G = llSession->team.stride*stride4G;
+    uint32_t const epoch = llSession->epoch;
+    int const pitch = llSession->pitch;
+    int const nRanks = llSession->team.nRanks;
     int dr = 0;
-    int r = rank;
+    int r = llSession->team.rank;
     #pragma unroll 1
     for (; dr+8 <= nRanks; dr += 8) {
       #pragma unroll
       for (int ur=0; ur < 8; ur++) {
-        uint4* buf = add4G(buf0, r*stride4G);
+        uint4* buf = add4G(buf0, r*peerStride4G);
         #pragma unroll
         for (int u=0; u < divUp(sizeof(T),8); u++) {
-          asm volatile("ppu.st.volatile.v4.u32 [%0],{%1,%3,%2,%3};" :: "l"(buf + ncclSymLLMaxSlots(sizeof(T))*u), "r"(u32[u][0]), "r"(u32[u][1]), "r"(llEpoch));
+          asm volatile("st.relaxed.sys.v4.u32 [%0],{%1,%3,%2,%3};" ::
+            "l"(buf + u*pitch), "r"(u32[u][0]), "r"(u32[u][1]), "r"(epoch) : "memory");
         }
         r += 1;
         if (r == nRanks) r = 0;
@@ -227,10 +488,11 @@ struct ncclSymPrims {
     #pragma unroll
     for (int ur=0; ur < 8; ur++, dr++) {
       if (dr == nRanks) break;
-      uint4* buf = add4G(buf0, r*stride4G);
+      uint4* buf = add4G(buf0, r*peerStride4G);
       #pragma unroll
       for (int u=0; u < divUp(sizeof(T),8); u++) {
-        asm volatile("ppu.st.volatile.v4.u32 [%0],{%1,%3,%2,%3};" :: "l"(buf + ncclSymLLMaxSlots(sizeof(T))*u), "r"(u32[u][0]), "r"(u32[u][1]), "r"(llEpoch));
+        asm volatile("st.relaxed.sys.v4.u32 [%0],{%1,%3,%2,%3};" ::
+          "l"(buf + u*pitch), "r"(u32[u][0]), "r"(u32[u][1]), "r"(epoch) : "memory");
       }
       r += 1;
       if (r == nRanks) r = 0;
@@ -239,45 +501,7 @@ struct ncclSymPrims {
 
   template<int nSlotsMin, int nSlotsMax, typename T>
   __device__ void recvLL(int slot0, int nSlots, int stride, T(&elts)[nSlotsMax]) {
-    uint4* buf = ncclSymDevBase_getLLBuf(base, nRanks, block, llEpoch) + slot0;
-    uint4 tmp[nSlotsMax][divUp(sizeof(T),8)];
-    //int spins=0;
-    while (true) {
-      #pragma unroll
-      for (int u=0; u < nSlotsMax; u++) {
-        if (u < nSlotsMin || u < nSlots) {
-          #pragma unroll
-          for (int v=0; v < divUp(sizeof(T),8); v++) {
-            asm volatile("ppu.ld.volatile.v4.u32 {%0,%1,%2,%3},[%4];" : "=r"(tmp[u][v].x), "=r"(tmp[u][v].y), "=r"(tmp[u][v].z), "=r"(tmp[u][v].w) : "l"(buf + u*stride + v*ncclSymLLMaxSlots(sizeof(T))));
-          }
-        }
-      }
-      bool okAll = true;
-      #pragma unroll
-      for (int u=0; u < nSlotsMax; u++) {
-        #pragma unroll
-        for (int v=0; v < divUp(sizeof(T),8); v++) {
-          if (u < nSlotsMin || u < nSlots) {
-            bool ok = tmp[u][v].y == llEpoch &&
-                      tmp[u][v].w == llEpoch;
-            okAll &= ok;
-          }
-        }
-      }
-      if (__builtin_expect(okAll, true)) break;
-      //if (spins++ == 10<<20) spins=0;
-    }
-    #pragma unroll
-    for (int u=0; u < nSlotsMax; u++) {
-      if (nSlotsMin <= u && u == nSlots) break;
-      union { T val; uint32_t u32[divUp(sizeof(T),8)][2]; };
-      #pragma unroll
-      for (int v=0; v < divUp(sizeof(T),8); v++) {
-        u32[v][0] = tmp[u][v].x;
-        u32[v][1] = tmp[u][v].z;
-      }
-      elts[u] = val;
-    }
+    llSession->template recvUnrolled<nSlotsMin, nSlotsMax, T>(slot0, nSlots, stride, elts);
   }
 
   template<typename Pack, typename T, typename Red, int Unroll=8>
@@ -312,9 +536,7 @@ struct ncclSymPrims {
 
   template<typename T>
   __device__ T recvLL(int slot) {
-    T one[1];
-    this->template recvLL<1, 1, T>(slot, 1, 0, one);
-    return one[0];
+    return llSession->template recv<T>(slot);
   }
 };
 }

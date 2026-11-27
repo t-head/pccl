@@ -11,6 +11,7 @@
 #include "enqueue.h"
 #include "transport.h"
 #include "symmetric.h"
+#include "sym_kernels.h"
 #include "ce_coll.h"
 #include "rma/rma.h"
 #include <assert.h>
@@ -226,6 +227,10 @@ ncclResult_t ncclCommGroupRegisterSymmetric(struct ncclAsyncJob* job_) {
     ncclFree(task);
   }
 
+  if (comm->symkState.initialized) {
+    NCCLCHECKGOTO(ncclCeInit(comm), ret, fail);
+  }
+
   // Lazily allocate the p2p-DMA mailbox window the first time this comm
   // registers a symmetric window. This runs inside a per-comm parallel job
   // (asyncJobLaunch), so the bootstrap exchange inside pcclP2pDmaInitOnce is
@@ -373,6 +378,10 @@ static void groupCleanup(ncclComm_t* groupCommHeadPtr, struct ncclIntruQueue<str
             }
             while (!ncclIntruQueueEmpty(&plan->rmaTaskQueueCe)) {
               ncclMemoryPoolFree(&comm->memPool_ncclTaskRma, ncclIntruQueueDequeue(&plan->rmaTaskQueueCe));
+            }
+            if (plan->isSymColl && plan->kernelSymkArgs != nullptr) {
+              ncclMemoryPoolFree<ncclSymkDevWorkArgs4K>(&comm->memPool_kernelSymkArgs,
+                  reinterpret_cast<ncclSymkDevWorkArgs4K*>(plan->kernelSymkArgs));
             }
             ncclMemoryPoolFree(&comm->memPool_ncclKernelPlan, plan);
           }

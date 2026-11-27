@@ -288,9 +288,7 @@ bool ncclCeAvailable(ncclComm_t comm, ncclFunc_t coll, int/*ncclRedOp_t*/ red, n
   return true;
 }
 
-// Allocate CE-private symmetric storage as a devr-backed window. Layout is
-// the existing ncclSymDevBase so ncclSymDevBase_get* accessors index from
-// comm->ceColl.ceSyncBase. Called lazily from ncclSymkInitOnce.
+// CE accessors retain the ncclSymDevBase layout independently of Symk resources.
 ncclResult_t ncclCeInit(ncclComm_t comm) {
   ncclResult_t ret = ncclSuccess;
   struct ncclCeColl* cec = &comm->ceColl;

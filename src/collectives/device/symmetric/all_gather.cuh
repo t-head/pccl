@@ -12,7 +12,7 @@
 
 template<int BytePerPack, int UnrollPacks, int UnrollPeers>
 static __device__ void bcastDeep(
-    ncclSymPrims& prim, int tn, int t, bool waitNeeded,
+    ncclSymkPrims& prim, int tn, int t, bool waitNeeded,
     char* inputHere, char* outputRank0, bool inPlace, int nIters
   ) {
   using Pack = BytePack<BytePerPack>;
@@ -78,7 +78,7 @@ static __device__ void bcastDeep(
 
 template<int BytePerPack, int UnrollPacks>
 static __device__ void bcastDeepRing(
-    ncclSymPrims& prim, int tn, int t, bool waitNeeded,
+    ncclSymkPrims& prim, int tn, int t, bool waitNeeded,
     char* inputHere, char* outputRank0, bool inPlace, int nIters
   ) {
   using Pack = BytePack<BytePerPack>;
@@ -128,7 +128,7 @@ static __device__ void bcastDeepRing(
 
 template<int UnrollPeers, typename T>
 static __device__ void bcastEnds(
-    ncclSymPrims& prim, int tn, int t,
+    ncclSymkPrims& prim, int tn, int t,
     T* inputHere, T* outputRank0, bool inPlace, size_t nElts, uint32_t nPreElts, size_t nSufElts
   ) {
   int const& rank = prim.rank;
@@ -162,7 +162,7 @@ static __device__ void bcastEnds(
 
 template<typename T, bool RingTraverseOrder>
 static __device__ void bcast(
-    ncclSymPrims& prim, int tn, int t, bool waitNeeded, T* input, T* output, size_t nElts
+    ncclSymkPrims& prim, int tn, int t, bool waitNeeded, T* input, T* output, size_t nElts
   ) {
   bool inPlace = (input == output);
   // Move to rank=0
@@ -226,28 +226,33 @@ static __device__ void bcast(
 }
 
 template<bool RingTraverseOrder>
-__device__ __forceinline__ void pccl_symRun_AllGather_ST_impl(ncclSymDevArgs const* args) {
-  ncclSymPrims prim(args->comm, args->nBlocks, ncclSymPrims_UseBarrier);
-  int const& rank = prim.rank;
+__device__ __forceinline__ void pccl_symRun_AllGather_ST_impl(ncclSymkDevWorkArgs const* args) {
+  ncclSymkArgsHandler handler(args);
+  ncclLsaBarrierSession<ncclCoopCta> bar(ncclCoopCta(), handler.comm, pcclTeamTagLsa{}, blockIdx.x);
+  handler.forEachWork<char>([&](int workBlock, int workNBlocks, size_t nElts, size_t nAllElts,
+                               ncclSymPtr<char> input, ncclSymPtr<char> output) {
+    ncclSymkPrims prim(handler.comm, workBlock, workNBlocks, handler.comm.resourceWindow_inlined.stride4G, bar);
+    int const& rank = prim.rank;
 
-  // Threads numbered over rank.
-  int bt = flattenIx(threadIdx.x%WARP_SIZE, WARP_SIZE,
-                     prim.block, prim.nBlocks,
-                     threadIdx.x/WARP_SIZE, blockDim.x/WARP_SIZE);
-  int btn = prim.nBlocks*blockDim.x;
+    // Threads numbered over rank.
+    int bt = flattenIx(threadIdx.x%WARP_SIZE, WARP_SIZE,
+                       prim.block, prim.nBlocks,
+                       threadIdx.x/WARP_SIZE, blockDim.x/WARP_SIZE);
+    int btn = prim.nBlocks*blockDim.x;
 
-  prim.barrierArrive(ncclCoopCta(), /*release=*/false);
-  //prim.barrierWait(ncclCoopCta(), /*acquire=*/false);
+    prim.barrierArrive(ncclCoopCta(), /*release=*/false);
+    //prim.barrierWait(ncclCoopCta(), /*acquire=*/false);
 
-  bcast<char, RingTraverseOrder>(prim, btn, bt, /*waitNeeded=*/true, (char*)args->input, (char*)args->output + rank*args->nElts, args->nElts);
+    bcast<char, RingTraverseOrder>(prim, btn, bt, /*waitNeeded=*/true, input.localPtr(), output.localPtr() + rank*nAllElts, nElts);
 
-  prim.barrierArrive(ncclCoopCta(), /*release=*/true);
-  prim.barrierWait(ncclCoopCta(), /*acquire=*/false);
+    prim.barrierArrive(ncclCoopCta(), /*release=*/true);
+    prim.barrierWait(ncclCoopCta(), /*acquire=*/false);
+  });
 }
 
 template<typename EltType>
 static __device__ void allgather_LL_body(
-    ncclSymPrims &prim, EltType* input, EltType* output, int nElts, int nPacks, int nStrideElts
+    ncclSymkPrims &prim, EltType* input, EltType* output, int nElts, int nPacks, int nStrideElts
   ) {
   using Pack = BytePack<8>;
   constexpr int EltPerPack = 8/sizeof(EltType);
@@ -255,7 +260,7 @@ static __device__ void allgather_LL_body(
   ncclCoopCta cta;
   int rank = prim.rank;
   int nRanks = prim.nRanks;
-  constexpr int tn = ncclSymMaxThreads;
+  constexpr int tn = ncclSymkMaxThreads;
   int t = threadIdx.x;
 
   #pragma unroll 1
@@ -322,32 +327,30 @@ static __device__ void allgather_LL_body(
   }
 }
 
-static __device__ void pccl_symRun_AllGather_LL_impl(ncclSymDevArgs const* args) {
-  ncclSymPrims prim(args->comm, args->nBlocks, ncclSymPrims_UseLL);
-  using Pack = BytePack<8>;
-  constexpr int BytePerPack = 8;
-  int nElts = args->nElts;
-  int nPacks = divUp(nElts, BytePerPack);
+static __device__ void pccl_symRun_AllGather_LL_impl(ncclSymkDevWorkArgs const* args) {
+  ncclSymkArgsHandler handler(args);
+  ncclLLA2ASession<ncclCoopCta> ll(ncclCoopCta(), handler.comm, ncclTeamLsa(handler.comm), handler.lsaLLA2A,
+                                 pcclSymkLLRow(blockIdx.x), ncclSymkMaxThreads*handler.comm.lsaSize);
+  handler.singleWork<char>([&](size_t nSliceElts, size_t nAllElts,
+                              ncclSymPtr<char> inputPtr, ncclSymPtr<char> outputPtr) {
+    ncclSymkPrims prim(handler.comm, 0, 1, handler.comm.resourceWindow_inlined.stride4G, ll);
+    using Pack = BytePack<8>;
+    constexpr int BytePerPack = 8;
+    int nElts = nSliceElts;
+    int nPacks = divUp(nElts, BytePerPack);
+    char* input = inputPtr.localPtr();
+    char* output = outputPtr.localPtr();
 
-  uint32_t nPackPerBlock, nPackModBlock;
-  idivmodFast32(&nPackPerBlock, &nPackModBlock, nPacks, prim.nBlocks, prim.nBlocks_rcp32);
-  int blockPackBegin = prim.block*nPackPerBlock + minval<int>(prim.block, nPackModBlock);
-  int blockPackEnd = blockPackBegin + nPackPerBlock + (prim.block < nPackModBlock ? 1 : 0);
-  int nBlockPacks = blockPackEnd - blockPackBegin;
-  int nBlockElts = nElts - blockPackBegin*BytePerPack;
-  nBlockElts = min(nBlockElts, nBlockPacks*BytePerPack);
-  char* blockInput = args->input + blockPackBegin*BytePerPack;
-  char* blockOutput = args->output + blockPackBegin*BytePerPack;
-
-  uint32_t lowBits = args->nElts;
-  lowBits |= (uint32_t)reinterpret_cast<uintptr_t>(args->input);
-  lowBits |= (uint32_t)reinterpret_cast<uintptr_t>(args->output);
-  if (__builtin_expect(lowBits%8 == 0, true)) {
-    // NOTE: Specializing for 8-byte alignment in one case help at size=65K: 8.9us vs 5.6us
-    allgather_LL_body(prim, (BytePack<8>*)blockInput, (BytePack<8>*)blockOutput, nBlockElts/8, nBlockPacks, nElts/8);
-  } else {
-    allgather_LL_body(prim, blockInput, blockOutput, nBlockElts, nBlockPacks, nElts);
-  }
+    uint32_t lowBits = nAllElts;
+    lowBits |= (uint32_t)reinterpret_cast<uintptr_t>(input);
+    lowBits |= (uint32_t)reinterpret_cast<uintptr_t>(output);
+    if (__builtin_expect(lowBits%8 == 0, true)) {
+      // NOTE: Specializing for 8-byte alignment in one case help at size=65K: 8.9us vs 5.6us
+      allgather_LL_body(prim, (BytePack<8>*)input, (BytePack<8>*)output, nElts/8, nPacks, nAllElts/8);
+    } else {
+      allgather_LL_body(prim, input, output, nElts, nPacks, nAllElts);
+    }
+  });
 }
 
 // 2D (hierarchical) AllGather: view the ranks as a grid (g = rank/groupSize,
@@ -419,101 +422,106 @@ static __device__ void bulkCopy(
   }
 }
 
-__device__ __forceinline__ void pccl_symRun_AllGather_ST_2D_impl(ncclSymDevArgs const* args) {
-  ncclSymPrims prim(args->comm, args->nBlocks, ncclSymPrims_UseBarrier);
-  int const& rank = prim.rank;
-  int const& nRanks = prim.nRanks;
+__device__ __forceinline__ void pccl_symRun_AllGather_ST_2D_impl(ncclSymkDevWorkArgs const* args) {
+  ncclSymkArgsHandler handler(args);
+  ncclLsaBarrierSession<ncclCoopCta> bar(ncclCoopCta(), handler.comm, pcclTeamTagLsa{}, blockIdx.x);
+  handler.forEachWork<char>([&](int workBlock, int workNBlocks, size_t nElts, size_t nAllElts,
+                               ncclSymPtr<char> inputPtr, ncclSymPtr<char> outputPtr) {
+    ncclSymkPrims prim(handler.comm, workBlock, workNBlocks, handler.comm.resourceWindow_inlined.stride4G, bar);
+    int const& rank = prim.rank;
+    int const& nRanks = prim.nRanks;
 
-  int bt = flattenIx(threadIdx.x%WARP_SIZE, WARP_SIZE,
-                     prim.block, prim.nBlocks,
-                     threadIdx.x/WARP_SIZE, blockDim.x/WARP_SIZE);
-  int btn = prim.nBlocks*blockDim.x;
+    int bt = flattenIx(threadIdx.x%WARP_SIZE, WARP_SIZE,
+                       prim.block, prim.nBlocks,
+                       threadIdx.x/WARP_SIZE, blockDim.x/WARP_SIZE);
+    int btn = prim.nBlocks*blockDim.x;
 
-  size_t nBytes = args->nElts; // per-rank block size in bytes
-  char* input = (char*)args->input;
-  char* output = (char*)args->output;
+    size_t nBytes = nElts; // per-rank block size in bytes
+    char* input = inputPtr.localPtr();
+    char* output = outputPtr.localPtr();
 
-  int groupSize = ncclSymkAg2DGroupSize;
-  int nGroups = nRanks / groupSize;
-  int groupId = rank / groupSize;
-  int groupBase = groupId * groupSize;
-  int lr = rank - groupBase; // local rank within group
+    int groupSize = ncclSymkAg2DGroupSize;
+    int nGroups = nRanks / groupSize;
+    int groupId = rank / groupSize;
+    int groupBase = groupId * groupSize;
+    int lr = rank - groupBase; // local rank within group
 
-  // The hierarchy is only worth it when every slot base sits on a bulk boundary;
-  // otherwise the flat broadcast is faster than anything this kernel can do. A slot
-  // base is output + b*nBytes, so the test covers output, input and nBytes -- all of
-  // which have the same low bits on every rank (symmetric window), so every rank
-  // takes the same branch. That is required: phase 2 forwards what phase 1 laid
-  // down, and the two must agree on every chunk boundary.
-  bool bulkAligned = ((((uint32_t)reinterpret_cast<uintptr_t>(output)
-                      | (uint32_t)reinterpret_cast<uintptr_t>(input)
-                      | (uint32_t)nBytes) % BULK_ALIGN_BYTES) == 0);
-  char* selfSlot = output + (size_t)rank*nBytes;
+    // The hierarchy is only worth it when every slot base sits on a bulk boundary;
+    // otherwise the flat broadcast is faster than anything this kernel can do. A slot
+    // base is output + b*nAllElts, so the test covers output, input and nAllElts -- all of
+    // which have the same low bits on every rank (symmetric window), so every rank
+    // takes the same branch. That is required: phase 2 forwards what phase 1 laid
+    // down, and the two must agree on every chunk boundary.
+    bool bulkAligned = ((((uint32_t)reinterpret_cast<uintptr_t>(output)
+                        | (uint32_t)reinterpret_cast<uintptr_t>(input)
+                        | (uint32_t)nAllElts) % BULK_ALIGN_BYTES) == 0);
+    char* selfSlot = output + (size_t)rank*nAllElts;
 
-  // Make the previous kernel's remote writes visible before overwriting output.
-  prim.barrierArrive(ncclCoopCta(), /*release=*/false);
-  prim.barrierWait(ncclCoopCta(), /*acquire=*/true);
+    // Make the previous kernel's remote writes visible before overwriting output.
+    prim.barrierArrive(ncclCoopCta(), /*release=*/false);
+    prim.barrierWait(ncclCoopCta(), /*acquire=*/true);
 
-  if (!bulkAligned) {
-    bcast<char, false>(prim, btn, bt, /*waitNeeded=*/false, input, selfSlot, nBytes);
+    if (!bulkAligned) {
+      bcast<char, false>(prim, btn, bt, /*waitNeeded=*/false, input, selfSlot, nBytes);
+      prim.barrierArrive(ncclCoopCta(), /*release=*/true);
+      prim.barrierWait(ncclCoopCta(), /*acquire=*/false);
+      return;
+    }
+
+    // Phase 1: intra-group allgather of this rank's own block. Out of place, the
+    // copy into our own slot is fused into the first remote send (one fetch, two
+    // stores) so it costs no extra pass -- which relies on there being a remote send
+    // to ride along with.
+    static_assert(ncclSymkAg2DGroupSize >= 2, "phase 1 needs at least one group mate");
+    bool selfPending = (input != selfSlot);
+    for (int dr = 1; dr < groupSize; dr++) {
+      int dstRank = groupBase + (lr + dr) % groupSize;
+      char* rmtSlot = prim.peerPtr(dstRank, output) + (size_t)rank*nAllElts;
+      if (selfPending) {
+        bulkCopy<true>(btn, bt, input, selfSlot, rmtSlot, nBytes);
+        selfPending = false;
+      } else {
+        bulkCopy<false>(btn, bt, input, selfSlot, rmtSlot, nBytes);
+      }
+    }
+
+    // Phase 2 only needs my group mates' phase-1 writes into MY output, so an
+    // in-group barrier suffices. My phase-2 writes land in the partner's output at my
+    // group's block range, disjoint from what the partner itself touches, so the
+    // groups may run out of step.
+    prim.groupBarrierArrive(ncclCoopCta(), groupBase, groupSize, /*release=*/true);
+    prim.groupBarrierWait(ncclCoopCta(), groupBase, groupSize, /*acquire=*/true);
+
+    // Phase 2: one outer step per other group, target staggered by groupId so
+    // every group sends to a distinct group instead of piling onto the lowest one.
+    // The partner is fixed for all groupSize sends, which keeps the pacing flat.
+    for (int gi = 1; gi < nGroups; gi++) {
+      int g = (groupId + gi) % nGroups;
+      int partner = g * groupSize + lr;
+      for (int k = 0; k < groupSize; k++) {
+        size_t slotOff = (size_t)(groupBase + k)*nAllElts;
+        char* slot = output + slotOff;
+        bulkCopy<false>(btn, bt, slot, slot, prim.peerPtr(partner, output) + slotOff, nBytes);
+      }
+    }
+
     prim.barrierArrive(ncclCoopCta(), /*release=*/true);
     prim.barrierWait(ncclCoopCta(), /*acquire=*/false);
-    return;
-  }
-
-  // Phase 1: intra-group allgather of this rank's own block. Out of place, the
-  // copy into our own slot is fused into the first remote send (one fetch, two
-  // stores) so it costs no extra pass -- which relies on there being a remote send
-  // to ride along with.
-  static_assert(ncclSymkAg2DGroupSize >= 2, "phase 1 needs at least one group mate");
-  bool selfPending = (input != selfSlot);
-  for (int dr = 1; dr < groupSize; dr++) {
-    int dstRank = groupBase + (lr + dr) % groupSize;
-    char* rmtSlot = prim.peerPtr(dstRank, output) + (size_t)rank*nBytes;
-    if (selfPending) {
-      bulkCopy<true>(btn, bt, input, selfSlot, rmtSlot, nBytes);
-      selfPending = false;
-    } else {
-      bulkCopy<false>(btn, bt, input, selfSlot, rmtSlot, nBytes);
-    }
-  }
-
-  // Phase 2 only needs my group mates' phase-1 writes into MY output, so an
-  // in-group barrier suffices. My phase-2 writes land in the partner's output at my
-  // group's block range, disjoint from what the partner itself touches, so the
-  // groups may run out of step.
-  prim.groupBarrierArrive(ncclCoopCta(), groupBase, groupSize, /*release=*/true);
-  prim.groupBarrierWait(ncclCoopCta(), groupBase, groupSize, /*acquire=*/true);
-
-  // Phase 2: one outer step per other group, target staggered by groupId so
-  // every group sends to a distinct group instead of piling onto the lowest one.
-  // The partner is fixed for all groupSize sends, which keeps the pacing flat.
-  for (int gi = 1; gi < nGroups; gi++) {
-    int g = (groupId + gi) % nGroups;
-    int partner = g * groupSize + lr;
-    for (int k = 0; k < groupSize; k++) {
-      size_t slotOff = (size_t)(groupBase + k)*nBytes;
-      char* slot = output + slotOff;
-      bulkCopy<false>(btn, bt, slot, slot, prim.peerPtr(partner, output) + slotOff, nBytes);
-    }
-  }
-
-  prim.barrierArrive(ncclCoopCta(), /*release=*/true);
-  prim.barrierWait(ncclCoopCta(), /*acquire=*/false);
+  });
 }
 
-__device__ __forceinline__ void pccl_symRun_AllGather_ST(ncclSymDevArgs const* args) {
+__device__ __forceinline__ void ncclSymkRun_AllGather_ST(ncclSymkDevWorkArgs const* args) {
   pccl_symRun_AllGather_ST_impl<false>(args);
 }
 
-__device__ __forceinline__ void pccl_symRun_AllGather_ST_Ring(ncclSymDevArgs const* args) {
+__device__ __forceinline__ void ncclSymkRun_AllGather_ST_Ring(ncclSymkDevWorkArgs const* args) {
   pccl_symRun_AllGather_ST_impl<true>(args);
 }
 
-__device__ __forceinline__ void pccl_symRun_AllGather_ST_2D(ncclSymDevArgs const* args) {
+__device__ __forceinline__ void ncclSymkRun_AllGather_ST_2D(ncclSymkDevWorkArgs const* args) {
   pccl_symRun_AllGather_ST_2D_impl(args);
 }
 
-__device__ __forceinline__ void pccl_symRun_AllGather_LL(ncclSymDevArgs const* args) {
+__device__ __forceinline__ void ncclSymkRun_AllGather_LL(ncclSymkDevWorkArgs const* args) {
   pccl_symRun_AllGather_LL_impl(args);
 }
