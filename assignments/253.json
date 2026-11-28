@@ -1,0 +1,19 @@
+{
+  "classification": {
+    "base_sha": "b98c56cb64ffcb14d72308aacafde9e025364d24",
+    "head_sha": "80242892c55923bc9cc13dbdce979ba385db372c",
+    "input_fingerprint": "35105452d8cc21e160fab1f35f647bf861f0e7bba7f66bd644f24be745126327",
+    "pr_number": 253,
+    "proposal": {
+      "additional_modules": [],
+      "modules": [
+        "workflow"
+      ],
+      "reason": "Main functional change is review-routing withdrawal behavior in contribution workflow automation: .github/scripts/review_automation.py adds withdraw_review_requests() and pending_review_requests() to preserve bot/team requests while withdrawing only managed pending humans, with snapshot/history conflict checks and fail-closed rerun errors. .github/scripts/reviewer_api.py adds GitHub.graphql() and GraphQLError for typed GraphQL reads/mutation with bounded redacted diagnostics. This is review-policy automation logic, so workflow takes priority; no independent CI/build/runtime PCCL module contract change is evidenced."
+    },
+    "run_number": 69
+  },
+  "reviewers": {
+    "workflow": 333277982
+  }
+}
