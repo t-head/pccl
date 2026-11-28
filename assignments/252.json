@@ -2,7 +2,7 @@
   "classification": {
     "base_sha": "b98c56cb64ffcb14d72308aacafde9e025364d24",
     "head_sha": "181e5630291e71aa2e9b68040c8b2a0ef469b98b",
-    "input_fingerprint": "77e612290fd754207e53363498ee792858caf8dadd5236a8e3bba88ce14dc8c4",
+    "input_fingerprint": "de4ef37edba0b2b07213bcd414148dfd31314e68955573c3853b485babbd8f52",
     "pr_number": 252,
     "proposal": {
       "additional_modules": [],
@@ -10,9 +10,9 @@
         "workflow",
         "ci"
       ],
-      "reason": "Primary is workflow: .github/WORKFLOWS.md is restructured into module-owned guide links and .github/docs/review.md now holds the review-routing/invitation/gate/squash-policy content, which is workflow-owned review-process behavior documentation. Secondary is ci: .github/docs/ci.md is an independently substantive CI-operations guide split (PCCL Tests Gate flow, source-sanity/daily workflows, CSV case validation, artifact/NAS cache rules) requiring ci expertise. No library/runtime module behavior is changed."
+      "reason": "Primary is workflow: .github/WORKFLOWS.md is rewritten from a full policy reference into an index, and .github/docs/review.md now carries the contribution/review-routing, invitation, approval-gate, and squash-preview guidance that defines review workflow policy ownership. Secondary is ci: .github/docs/ci.md is a substantive extracted CI/PPU execution guide (gates, datasets, CSV case semantics, artifact/cache rules) that is independently maintained by CI expertise. Workflow takes priority because the core functional documentation change is reorganizing review/workflow governance content and its entrypoint, with CI content split out as an additional substantive track."
     },
-    "run_number": 67
+    "run_number": 68
   },
   "reviewers": {
     "ci": 333302477,
