@@ -16,6 +16,8 @@
 int analyzerFormatReport(FILE* fp, const struct rasCollComms* blob, int nLegTimeouts,
                      int singleCategory, const char* title = nullptr);
 int analyzerFormatSummary(FILE* fp, const struct rasCollComms* blob);
+// Keep all entries matching commHash in place (0 keeps all); return byte count or -1 on invalid input.
+int analyzerSelectComm(struct rasCollComms* blob, int nBlobBytes, uint64_t commHash);
 
 int analyzerConnTypeFromString(const char* s, int peer);
 

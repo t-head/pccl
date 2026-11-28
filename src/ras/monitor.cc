@@ -123,7 +123,9 @@ void rasStateMonitorAtDevice() {
   for (int i = 0; i < nNcclComms; i++) {
     struct rasNcclComm* rasComm = ncclComms + i;
     ncclComm_t comm = rasComm->comm;
-    if (comm == nullptr) continue;
+    // RAS registration precedes channel allocation during bootstrap. An id
+    // alone does not make the channel's device counters ready for MemDump.
+    if (comm == nullptr || __atomic_load_n(&comm->initState, __ATOMIC_ACQUIRE) != ncclSuccess) continue;
 
     struct ncclChannel* channels = comm->channels;
     int nChannels = 0;
@@ -168,7 +170,7 @@ void rasStateMonitorAtHost() {
   for (int i = 0; i < nNcclComms; i++) {
     struct rasNcclComm* rasComm = ncclComms + i;
     ncclComm_t comm = rasComm->comm;
-    if (comm == nullptr) continue;
+    if (comm == nullptr || __atomic_load_n(&comm->initState, __ATOMIC_ACQUIRE) != ncclSuccess) continue;
 
     int nChannels = 0;
     struct ncclChannel* channels = comm->channels;
