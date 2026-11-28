@@ -21,6 +21,10 @@ class GitHubError(RuntimeError):
         super().__init__(f"{message}: {details}" if details else message)
 
 
+class GraphQLError(RuntimeError):
+    pass
+
+
 class GitHub:
     def __init__(self, repository, token):
         if not re.fullmatch(r"[\w.-]+/[\w.-]+", repository) or not token:
@@ -49,6 +53,17 @@ class GitHub:
             if len(details) > 2000:
                 details = details[:2000] + "..."
             raise GitHubError(method, path, error.code, details) from None
+
+    def graphql(self, query, variables):
+        response = self.request("POST", "/graphql", {"query": query, "variables": variables}, repository=False)
+        if response.get("errors"):
+            details = json.dumps(response["errors"]).replace(self.token, "[REDACTED]")
+            if len(details) > 2000:
+                details = details[:2000] + "..."
+            raise GraphQLError(f"GitHub GraphQL returned errors: {details}")
+        if not isinstance(response.get("data"), dict):
+            raise GraphQLError("GitHub GraphQL returned no data")
+        return response["data"]
 
     @cache
     def login(self, user_id):
