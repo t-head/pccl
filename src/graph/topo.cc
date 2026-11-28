@@ -409,6 +409,7 @@ struct kvDict kvDictPciClass[] = {
   { "0x000000", GPU}, // for ppu, fixed to 0x000000 boot by pcie, EVB/early EVT periods
   { "0xffff00", GPU}, // for ppu, fixed to 0xffff00 boot by mcu, EVB/early EVT periods
   { "0x02", NIC },
+  { "0x00ff00", NIC}, // for erdma
   { NULL, PCI /* Default fallback value */ }
 };
 
@@ -1274,6 +1275,10 @@ ncclResult_t pcclTopoGetNetFromNIC(struct ncclXmlNode* nic, int *netId) {
     struct ncclXmlNode* xmlNet = nic->subs[s];
     // TODO: assumption one NetNode per NicNode
     if (strcmp(xmlNet->name, "net") != 0) continue;
+    // Imported NETs may still carry an old dev until the next trim.
+    const char* keep;
+    NCCLCHECK(xmlGetAttr(xmlNet, "keep", &keep));
+    if (keep == nullptr || strcmp(keep, "1") != 0) continue;
     NCCLCHECK(xmlGetAttrInt(xmlNet, "dev", &id));
     if (id != -1) break;
   }
