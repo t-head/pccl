@@ -101,7 +101,7 @@ ncclResult_t ncclIbMultiSend(struct ncclIbSendComm* comm, int slot) {
 
   // Multi-QP: make sure IB writes are multiples of 128B so that LL and LL128 protocols still work
   const int align = 128;
-  const int nqps = ncclIbCommBaseGetNqpsPerRequest(&comm->base);
+  const int nqps = reqs[0]->events;
   for (int q = 0; q < nqps; q++) {
     TRACE(NCCL_NET, "NET/IB: %s: Posting send (req=%p, comm=%p, slot=%d, nreqs=%d, wr_id=%ld) on QP (qp_num=%u, qpIndex=%d)",
           __func__, reqs[0], reqs[0]->base, slot, nreqs, wr_id, comm->base.qps[comm->base.qpIndex]->qp_num, comm->base.qpIndex);
@@ -162,6 +162,12 @@ ncclResult_t ncclIbIsend(void* sendComm, void* data, int size, int tag, void* mh
   // Wait until all data has arrived
   for (int r = 1; r < nreqs; r++) while(slots[r].idx != idx);
   __sync_synchronize(); // order the nreqsPtr load against tag/rkey/addr loads below
+  int maxRecvSize = 0;
+  for (int i = 0; i < nreqs; i++) {
+    const int recvSize = slots[i].size;
+    maxRecvSize = std::max(maxRecvSize, recvSize);
+  }
+  const int requestQps = ncclIbCommBaseGetNqpsPerRequest(&comm->base, maxRecvSize);
   for (int r = 0; r < nreqs; r++) {
     if (reqs[r] != NULL || slots[r].tag != tag) continue;
 
@@ -189,7 +195,7 @@ ncclResult_t ncclIbIsend(void* sendComm, void* data, int size, int tag, void* mh
     req->send.data = data;
     req->send.lkey = mr->lkey;
     req->send.offset = 0;
-    req->events = ncclIbCommBaseGetNqpsPerRequest(&comm->base);
+    req->events = requestQps;
     *request = reqs[r] = req;
     TRACE(NCCL_NET, "NET/IB: %s: Send request created (req=%p, comm=%p, slot=%d, reqIdx=%d, nreqs=%d, tag=%x, size=%ld, data=0x%016" PRIx64 ")",
           __func__, req, req->base, slot, r, nreqs, tag, size, (uint64_t)data);
@@ -289,6 +295,10 @@ ncclResult_t ncclIbIrecv(void* recvComm, int n, void** data, int* sizes, int* ta
   }
 
   if (n > NCCL_NET_IB_MAX_RECVS) return ncclInternalError;
+  int maxRecvSize = 0;
+  for (int i = 0; i < n; i++) {
+    maxRecvSize = std::max(maxRecvSize, sizes[i]);
+  }
   NCCLCHECK(ncclIbStatsCheckFatalCount(&comm->base.stats, __func__));
 
   struct ncclIbRequest* req;
@@ -305,7 +315,8 @@ ncclResult_t ncclIbIrecv(void* recvComm, int n, void** data, int* sizes, int* ta
 
   uint64_t reqIdx = req - comm->base.reqs;
   comm->recvReqs[reqIdx] = req;
-  const int nqps = ncclIbCommBaseGetNqpsPerRequest(&comm->base);
+  // PostFifo advertises these same capacities to the sender.
+  const int nqps = ncclIbCommBaseGetNqpsPerRequest(&comm->base, maxRecvSize);
   if (comm->base.recvMatchingScheme == BY_INDEX) {
     struct ibv_recv_wr wr;
     memset(&wr, 0, sizeof(wr));

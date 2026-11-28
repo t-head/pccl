@@ -22,6 +22,7 @@ const char* ncclIbReqTypeStr[] = {
 };
 
 NCCL_PARAM(IbSplitDataOnQps, "IB_SPLIT_DATA_ON_QPS", 1);
+NCCL_PARAM(IbSplitSizeThreshold, "IB_SPLIT_SIZE_THRESHOLD", 4096);
 NCCL_PARAM(IbAsyncEvents,"IB_RETURN_ASYNC_EVENTS",1);
 
 ncclResult_t ncclIbStatsCheckFatalCount(struct ncclIbStats* stat, const char* funcName) {
