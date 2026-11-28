@@ -1,17 +1,17 @@
 {
   "classification": {
     "base_sha": "b98c56cb64ffcb14d72308aacafde9e025364d24",
-    "head_sha": "1dff1ed0856d4c2ec9464fd7357c517ee371d18b",
-    "input_fingerprint": "2a4fbcbeb703b51715f45817e6d12d277df691ccbd6d628f259af5a3a0938400",
+    "head_sha": "f4c0babb8c74247d5f31bbcad8acf944a9ce2fda",
+    "input_fingerprint": "0e8bd397bc8fe90f8db6869e190cf0e6b1eb60f0b448b4295aa2a0e73338f1a3",
     "pr_number": 253,
     "proposal": {
       "additional_modules": [],
       "modules": [
         "workflow"
       ],
-      "reason": "Primary change is in review/approval automation behavior owned by workflow: .github/scripts/review_automation.py adds typed GraphQL fallback (withdraw_review_requests, pending_review_requests) with snapshot/history conflict checks for reviewer-withdrawal handling, and .github/scripts/maintainer_approval.py changes freshness gating to pr_number+head_sha+base_ref. .github/scripts/reviewer_api.py adds graphql() and GraphQLError to support that control flow. Evidence points to reviewer assignment/approval policy logic rather than CI execution or runtime library modules."
+      "reason": "Main change is review-routing policy/automation behavior, so workflow owns it over any runtime module. Evidence: .github/scripts/review_automation.py adds typed review-request withdrawal with REST->GraphQL fallback, snapshot/conflict checks, and classification freshness keyed to pr_number+head_sha with optional base_ref; .github/scripts/maintainer_approval.py enforces the new freshness gate and removes diff-fingerprint revalidation; .github/scripts/reviewer_api.py adds GraphQL client/error handling; .github/WORKFLOWS.md documents the updated gate boundary and refresh policy."
     },
-    "run_number": 71
+    "run_number": 73
   },
   "reviewers": {
     "workflow": 333277982
