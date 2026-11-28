@@ -49,7 +49,7 @@ class Rec(object):
 # Edit this region for introducing new algos etc
 
 reductions = ["AllReduce","ReduceScatter"]
-all_reds = ["sum"]
+all_reds = ["sum", "avg"]
 all_tys = ["f32","f16","bf16","f8e4m3","f8e5m2"]
 
 coll_to_lower = {
@@ -59,10 +59,12 @@ coll_to_lower = {
 }
 
 red_to_ncclDevRedOp = {
-  "sum": "ncclDevSum"
+  "sum": "ncclDevSum",
+  "avg": "ncclDevSumPostDiv"
 }
 red_to_Func = {
-  "sum": "FuncSum"
+  "sum": "FuncSum",
+  "avg": "FuncSumPostDiv"
 }
 
 ty_to_ncclDataType = {
@@ -81,13 +83,14 @@ ty_to_cxxtype = {
 }
 
 def enumerate_kernels():
-  for algo in ["LL","ST","ST_Ring","ST_2D"]:
+  for algo in ["LL", "ST", "ST_Ring", "ST_2D"]:
     yield Rec(coll="AllGather", algo=algo)
   for red in all_reds:
     for ty in all_tys:
-      for algo in ["AGxLL_R","RSxLD_AGxST"]:
-        yield Rec(coll="AllReduce", algo=algo, red=red, ty=ty)
-      for algo in ["LL","LD"]:
+      if red == "sum":
+        for algo in ["AGxLL_R", "RSxLD_AGxST"]:
+          yield Rec(coll="AllReduce", algo=algo, red=red, ty=ty)
+      for algo in ["LL", "LD"]:
         yield Rec(coll="ReduceScatter", algo=algo, red=red, ty=ty)
 
 def required_hggc(k):
@@ -110,101 +113,31 @@ def kernel_fname(k):
 
 def kernel_cname(k):
   if k.coll in reductions:
-    return paste("_", "pccl_symDevKernel", k.coll, k.algo, k.red, k.ty)
+    return paste("_", "ncclSymkDevKernel", k.coll, k.algo, k.red, k.ty)
   else:
-    return paste("_", "pccl_symDevKernel", k.coll, k.algo)
-
-def kernel_cname_fast(k):
-  return kernel_cname(k) + "_fast"
+    return paste("_", "ncclSymkDevKernel", k.coll, k.algo)
 
 def kernel_conds(k):
   arch = required_hggc(k)
   if arch == 0: return None
   return "(defined __HGGC_ARCH__) && (__HGGC_ARCH__ >= %d)"%arch
 
-# Multi-task wrapper (4KB by-value); the body unpacks per-channel work from
-# pcclSymkDevWorkArgs and dispatches to the inline ncclSymRun_* bodies which
-# take ncclSymDevArgs.
-MULTI_WRAPPER_PROLOGUE = (
-    "  pcclSymkDevWorkArgs const* args = &args4K.args;\n"
-    "  int blockId = blockIdx.x;\n"
-    "  pcclSymkChannelWorkRange* range = args->getWorkRange();\n"
-    "  pcclSymkDevWork* works = args->getWorks(args->nMaxChannels);\n"
-    "  int workLo = (blockId == 0) ? 0 : (int)range[blockId-1].workHi;\n"
-    "  if (blockId != 0 && (uint32_t)range[blockId-1].fracHi + 1u == 0x10000u) workLo++;\n"
-    "  int workHi = (int)range[blockId].workHi;\n"
-    "  for (int wi = workLo; wi <= workHi; wi++) {{\n"
-    "    pcclSymkDevWork const& work = works[wi];\n"
-    "    if (blockId < (int)work.sChannelId ||\n"
-    "        blockId >= (int)work.sChannelId + (int)work.nChannels) continue;\n"
-    "    ncclSymDevArgs perWork;\n"
-    "    perWork.comm.base         = args->kcomm.base;\n"
-    "    perWork.comm.stride4G     = work.inputWin->stride4G;\n"
-    "    perWork.comm.nRanks       = args->kcomm.devComm.lsaSize;\n"
-    "    perWork.comm.rank         = args->kcomm.devComm.lsaRank;\n"
-    "    perWork.comm.nRanks_rcp32 = args->kcomm.devComm.lsaSize_rcp32;\n"
-    "    perWork.rootRank          = work.rootRank;\n"
-    "    perWork.nBlocks           = work.nChannels;\n"
-    "    perWork.redOpArg          = work.redOpArg;\n"
-    "    perWork.nElts             = work.nElts;\n"
-    "    perWork.input             = (char*)::add4G((void*)work.inputWin->lsaFlatBase,\n"
-    "                                  (int)(args->kcomm.devComm.lsaRank * work.inputWin->stride4G)) + work.inputOff;\n"
-    "    perWork.output            = (char*)::add4G((void*)work.outputWin->lsaFlatBase,\n"
-    "                                  (int)(args->kcomm.devComm.lsaRank * work.outputWin->stride4G)) + work.outputOff;\n"
-    "    perWork.incPrecision      = false;\n"
-)
-MULTI_WRAPPER_EPILOGUE = "  }}"
-
 def instantiate(k):
   arch_cond = kernel_conds(k)
-  # Fast-path: 64B ncclSymDevArgs by value. Used when PCCL_SYMK_USE_MULTI_TASK=0
-  # (default). Avoids PPU hgLaunchKernelExAD memcpying the full 4KB args
-  # signature per launch.
-  fast_template = (
-      "__global__ void __launch_bounds__(ncclSymMaxThreads, ncclSymMinBlocksPerCU)\n"
-      "{cname_fast}(ncclSymDevArgs args) {{\n"
-      "{fast_call}\n"
-      "}}"
-  )
-  # Multi-task: 4KB pcclSymkDevWorkArgs4K by value.
-  # Currently no callers; re-enable via PCCL_SYMK_USE_MULTI_TASK=1 when PPU
-  # SDK exposes a per-launch args-size override.
-  multi_template = (
-      "__global__ void __launch_bounds__(ncclSymMaxThreads, ncclSymMinBlocksPerCU)\n"
-      "{cname}(pcclSymkDevWorkArgs4K const args4K) {{\n"
-      + MULTI_WRAPPER_PROLOGUE
-      + "{multi_call}\n"
-      + MULTI_WRAPPER_EPILOGUE
-      + "\n}}"
-  )
-  if arch_cond is None:
-    fast_call_red_ty  = "  pccl_symRun_{id}<{red}, {ty}>(&args);"
-    fast_call_form    = "  pccl_symRun_{id}(&args);"
-    multi_call_red_ty = "    pccl_symRun_{id}<{red}, {ty}>(&perWork);"
-    multi_call_form   = "    pccl_symRun_{id}(&perWork);"
-  else:
-    fast_call_red_ty = "  #if {arch_cond}\n    pccl_symRun_{id}<{red}, {ty}>(&args);\n  #endif"
-    fast_call_form   = "  #if {arch_cond}\n    pccl_symRun_{id}(&args);\n  #endif"
-    multi_call_red_ty = "    #if {arch_cond}\n      pccl_symRun_{id}<{red}, {ty}>(&perWork);\n    #endif"
-    multi_call_form   = "    #if {arch_cond}\n      pccl_symRun_{id}(&perWork);\n    #endif"
-
-  id = k.coll+'_'+k.algo
-  cname = kernel_cname(k)
-  cname_fast = kernel_cname_fast(k)
+  id = k.coll + '_' + k.algo
   if k.coll in reductions:
-    fast_call  = fast_call_red_ty.format(id=id, red=red_to_Func[k.red], ty=ty_to_cxxtype[k.ty], arch_cond=arch_cond)
-    multi_call = multi_call_red_ty.format(id=id, red=red_to_Func[k.red], ty=ty_to_cxxtype[k.ty], arch_cond=arch_cond)
+    call = '  ncclSymkRun_{id}<{red}, {ty}>(&args4K.args);'.format(
+      id=id, red=red_to_Func[k.red], ty=ty_to_cxxtype[k.ty])
   else:
-    fast_call  = fast_call_form.format(id=id, arch_cond=arch_cond)
-    multi_call = multi_call_form.format(id=id, arch_cond=arch_cond)
-  return (multi_template.format(cname=cname, multi_call=multi_call)
-          + "\n"
-          + fast_template.format(cname_fast=cname_fast, fast_call=fast_call))
+    call = '  ncclSymkRun_{id}(&args4K.args);'.format(id=id)
+  if arch_cond is not None:
+    call = '#if {cond}\n{call}\n#endif'.format(cond=arch_cond, call=call)
+  return ('__global__ void __launch_bounds__(512, 2)\n'
+          '{cname}(ncclSymkDevWorkArgs4K const args4K) {{\n{call}\n}}').format(
+            cname=kernel_cname(k), call=call)
 
 def prototype(k):
-  return ("__global__ void {cname}(pcclSymkDevWorkArgs4K const);\n"
-          "__global__ void {cname_fast}(ncclSymDevArgs);").format(
-            cname=kernel_cname(k), cname_fast=kernel_cname_fast(k))
+  return '__global__ void {}(ncclSymkDevWorkArgs4K const);'.format(kernel_cname(k))
 
 ################################################################################
 
@@ -229,7 +162,6 @@ for coll in set(k.coll for k in enumerate_kernels()):
 # Generate each kernel instantiation file
 for (fname, coll), ks in kernels_by_file.items():
   with open(os.path.join(gensrc, fname), "w") as f:
-    emitln(f, '#include "symmetric.h"')
     emitln(f, '#include "sym_kernels.h"')
     emitln(f, '#include "pccl_device/core.h"')
     emitln(f, '#include "symmetric/kernel.cuh"')
@@ -241,7 +173,6 @@ for (fname, coll), ks in kernels_by_file.items():
 kernel_list = list(enumerate_kernels())
 with open(os.path.join(gensrc, "symmetric_kernels.cc"), "w") as f:
   emitln(f, '#include "sym_kernels.h"')
-  emitln(f, '#include "symmetric.h"')
   emitln(f, '#include "devcomm.h"')
   emitln(f, '#include "debug.h"')
   emitln(f, '')
@@ -256,16 +187,11 @@ with open(os.path.join(gensrc, "symmetric_kernels.cc"), "w") as f:
     emitln(f, '  (void*){cname},'.format(cname=kernel_cname(k)))
   emitln(f, '  nullptr};')
   emitln(f, '')
-  emitln(f, 'void* ncclSymkKernelList_fast[] = {')
-  for k in kernel_list:
-    emitln(f, '  (void*){cname},'.format(cname=kernel_cname_fast(k)))
-  emitln(f, '  nullptr};')
-  emitln(f, '')
 
-  # symk kernels are unconditional (no runtime/arch gating).
   emitln(f, 'int ncclSymkKernelRequirements[] = {')
   for index, k in enumerate(kernel_list):
-    emitln(f, '  0, /*%4d %s*/' % (index, kernel_cname(k)))
+    min_comp_cap = 89 if required_hggc(k) >= 150 else 0
+    emitln(f, '  %d, /*%4d %s*/' % (min_comp_cap, index, kernel_cname(k)))
   emitln(f, '};')
   emitln(f, '')
 

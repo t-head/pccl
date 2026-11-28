@@ -8,8 +8,7 @@
 
 #include "symmetric.h"
 #include "devcomm.h"
-#include "symmetric/all_reduce.cuh"
-#include "symmetric/kernel.cuh"
+#include "pccl_device/coop.h"
 #if PCCL_HGGC_VERSION >= PCCL_HGGC_DRIVER_VERSION(2, 2, 0)
 #include "symmetric/ce_kernel_oki.cuh"
 #include "symmetric/p2p_dma_kernel.cuh"
@@ -154,8 +153,50 @@ __global__ void gpuGEQ(volatile uint64_t* flagPtr, uint64_t targetValue) {
   }
 }
 
+namespace {
+struct pcclCeBarrierPrims {
+  int rank, nRanks, block;
+  uint32_t stride4G, epoch;
+  ncclSymDevBase* base;
+  __device__ pcclCeBarrierPrims(ncclSymDevComm const& comm):
+    rank(comm.rank), nRanks(comm.nRanks), block(blockIdx.x), stride4G(comm.stride4G), base(comm.base) {
+    epoch = base->barEpochUc[block];
+  }
+  __device__ ~pcclCeBarrierPrims() {
+    if (threadIdx.x == 0) base->barEpochUc[block] = epoch;
+  }
+  template<typename T>
+  __device__ T* peerPtr(int peer, T* ptr) const {
+    return add4G(ptr, (peer-rank)*stride4G);
+  }
+  __device__ void barrierArrive(ncclCoopCta cta, bool release) {
+    cta.sync();
+    int peer = cta.thread_rank();
+    if (peer != rank && peer < nRanks) {
+      uint32_t* inbox = &peerPtr(peer, base)->barInboxPerPeer[block*nRanks + rank];
+      if (release) asm volatile("ppu.st.release.sys.u32 [%0],%1;" :: "l"(inbox), "r"(epoch+1));
+      else asm volatile("ppu.st.relaxed.sys.u32 [%0],%1;" :: "l"(inbox), "r"(epoch+1));
+    }
+  }
+  __device__ void barrierWait(ncclCoopCta cta, bool acquire) {
+    int peer = cta.thread_rank();
+    if (peer != rank && peer < nRanks) {
+      uint32_t* inbox = &base->barInboxPerPeer[block*nRanks + peer];
+      while (true) {
+        uint32_t got;
+        if (acquire) asm volatile("ppu.ld.acquire.sys.u32 %0,[%1];" : "=r"(got) : "l"(inbox));
+        else asm volatile("ppu.ld.relaxed.sys.u32 %0,[%1];" : "=r"(got) : "l"(inbox));
+        if (got-(epoch+1) <= uint32_t(-1)>>1) break;
+      }
+    }
+    epoch++;
+    cta.sync();
+  }
+};
+}
+
 __global__ void gpuBarrier(ncclSymDevArgs const args) {
-  ncclSymPrims prim(args.comm, 1, ncclSymPrims_UseBarrier);
+  pcclCeBarrierPrims prim(args.comm);
   prim.barrierArrive(ncclCoopCta(), /*release=*/true);
   prim.barrierWait(ncclCoopCta(), /*acquire=*/false);
 }
@@ -458,7 +499,7 @@ __global__ void pcclCeOkiReduceFused(struct pcclCeOkiReduceArgs args) {
   } else {
     // Entry protects station reuse; exit makes peers' remote writes visible after
     // the command block has drained its completion queues.
-    ncclSymPrims prim(args.comm, 1, ncclSymPrims_UseBarrier);
+    pcclCeBarrierPrims prim(args.comm);
     prim.barrierArrive(ncclCoopCta(), /*release=*/true);
     prim.barrierWait(ncclCoopCta(), /*acquire=*/false);
 

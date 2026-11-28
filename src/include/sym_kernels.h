@@ -13,8 +13,9 @@
 #include "pccl_internal.h"
 #include "pccl_device/core.h"
 #include "../device/symmetric/gin_scratch.h"
-#include "dev_runtime.h"
 #include "bitops.h"
+
+struct ncclDevrWindow;
 
 ////////////////////////////////////////////////////////////////////////////////
 // ncclSymk[Foo]: Kernels built on the device API
@@ -24,6 +25,7 @@
 constexpr int ncclSymkMaxBlocks = 64;
 constexpr int ncclSymkMaxThreads = 512;
 constexpr int ncclSymkLLMaxEltSize = 8;
+constexpr int pcclSymkLLMetadataBytesPerBlock = 128;
 
 constexpr __host__ __device__ int ncclSymkLLMaxSlots(int eltSize = ncclSymkLLMaxEltSize) {
   return ncclSymkMaxThreads * ncclSymkLLMaxEltSize / eltSize;
@@ -44,14 +46,8 @@ enum ncclSymkKernelId {
   ncclSymkKernelId_Count
 };
 
-struct ncclSymDevBase;
-
-// Extended DevComm for symmetric kernels.
-//   base = lsa-flat self-rank slot of symk->symkWin; ncclSymPrims's
-//          peerPtr(peer, base) = add4G(base, (peer-rank)*stride4G).
 struct ncclSymkDevComm {
   struct ncclDevComm devComm;
-  struct ncclSymDevBase* base;
   struct ncclLLA2AHandle lsaLLA2A;
   struct ncclGinOutboxHandle ginOutbox;
   ncclGinCounter_t ginCounterPerBlock;
@@ -61,48 +57,50 @@ struct ncclSymkDevComm {
 
 struct ncclSymkState {
   bool initialized;
-  bool initInProgress;
+  bool hasLsaMultimem;
   int maxGinInboxBlocks;
   struct ncclSymkDevComm kcomm;
-  struct ncclDevrWindow* symkWin;
 };
 
-struct pcclSymkChannelWorkRange {
+struct ncclSymkChannelWorkRange {
   uint16_t workHi;
   uint16_t fracHi;
 };
 
-struct alignas(16) pcclSymkDevWork {
+struct alignas(16) ncclSymkDevWork {
   uint64_t redOpArg;
   size_t nElts;
   struct ncclWindow_vidmem* inputWin, *outputWin;
   size_t inputOff, outputOff;
   int rootRank;
-  uint64_t sChannelId:16, nChannels:16, padding:32;
+  uint64_t sChannelId:16, nChannels:16, pcclAccPrecisionInc:1, padding:31;
 };
 
-struct alignas(16) pcclSymkDevWorkArgs {
+struct alignas(16) ncclSymkDevWorkArgs {
   struct ncclSymkDevComm kcomm;
   int nMaxChannels;
+  int reserved; // Must be zero; preserves the work-argument layout.
 
   __host__ static constexpr size_t calcArgsSize(int nChannels, int nWorks) {
-    return alignUp(sizeof(struct pcclSymkDevWorkArgs), 16)
-         + alignUp(nChannels * sizeof(struct pcclSymkChannelWorkRange), 16)
-         + nWorks * sizeof(struct pcclSymkDevWork);
+    return alignUp(sizeof(struct ncclSymkDevWorkArgs), 16)
+         + alignUp(nChannels * sizeof(struct ncclSymkChannelWorkRange), 16)
+         + nWorks * sizeof(struct ncclSymkDevWork);
   }
-  __host__ __device__ struct pcclSymkChannelWorkRange* getWorkRange() const {
-    return (struct pcclSymkChannelWorkRange*)((uint8_t*)this + alignUp(sizeof(struct pcclSymkDevWorkArgs), 16));
+  __host__ __device__ struct ncclSymkChannelWorkRange* getWorkRange() const {
+    return (struct ncclSymkChannelWorkRange*)((uint8_t*)this + alignUp(sizeof(struct ncclSymkDevWorkArgs), 16));
   }
-  __host__ __device__ struct pcclSymkDevWork* getWorks(int nChannels) const {
-    return (struct pcclSymkDevWork*)((uint8_t*)this->getWorkRange() + alignUp(nChannels * sizeof(struct pcclSymkChannelWorkRange), 16));
+  __host__ __device__ struct ncclSymkDevWork* getWorks(int nChannels) const {
+    return (struct ncclSymkDevWork*)((uint8_t*)this->getWorkRange() + alignUp(nChannels * sizeof(struct ncclSymkChannelWorkRange), 16));
   }
 };
 
-// 4KB by-value: hgLaunchKernelExAD memcpys the full kernel-signature size.
-union pcclSymkDevWorkArgs4K {
-  struct pcclSymkDevWorkArgs args;
+union ncclSymkDevWorkArgs4K {
+  struct ncclSymkDevWorkArgs args;
   char buf4K[4096];
 };
+static_assert(sizeof(ncclSymkDevWork) == 64, "ncclSymkDevWork size");
+static_assert(alignof(ncclSymkDevWork) == 16, "ncclSymkDevWork alignment");
+static_assert(sizeof(ncclSymkDevWorkArgs4K) == 4096, "ncclSymkDevWorkArgs4K size");
 
 // Registration type for symmetric windows
 typedef enum {
@@ -119,29 +117,23 @@ typedef enum {
 // Initialize symmetric kernel state (lazy, on first symk-eligible task)
 ncclResult_t ncclSymkInitOnce(struct pcclComm* comm);
 ncclResult_t ncclSymkFinalize(struct pcclComm* comm);
+int64_t pcclParamSymKernelId();
 
 // Check if a collective operation can use the symmetric kernel path
 bool ncclSymkAvailable(struct pcclComm* comm, ncclFunc_t coll, int/*ncclDevRedOp_t*/ red,
                        ncclDataType_t ty, size_t nElts);
 
-// A nonnegative user mask forces symmetric kernel selection.
-int64_t pcclParamSymKernelId();
-
 // Select the best kernel for a set of symmetric operations
 ncclResult_t ncclSymkPickKernel(struct pcclComm* comm, ncclFunc_t coll, int/*ncclDevRedOp_t*/ red, ncclDataType_t ty,
-                                size_t nEltsTotal, size_t nEltsMax, int nWorks, ncclSymRegType_t winRegType,
+                                size_t nEltsTotal, size_t nEltsMax, size_t nEltsActualMax, int nWorks, ncclSymRegType_t winRegType,
                                 float* estTimeUs, ncclSymkKernelId* kernelId, int* nBlocks, int* nWarps, bool* forced);
 
 // Fill a device work descriptor from a task
 struct ncclTaskColl;
-ncclResult_t ncclSymkMakeDevWork(struct pcclComm* comm, struct ncclTaskColl* task, struct pcclSymkDevWork* outDevWork);
+ncclResult_t ncclSymkMakeDevWork(struct pcclComm* comm, struct ncclTaskColl* task, struct ncclSymkDevWork* outDevWork);
 
-// ncclSymkKernelList[]: multi-task wrappers (4KB pcclSymkDevWorkArgs4K).
-// ncclSymkKernelList_fast[]: single-task wrappers (64B ncclSymDevArgs).
-// Scheduler selects via PCCL_PARAM(SymkUseMultiTask); default fast-path.
 extern int const ncclSymkKernelCount;
 extern void* ncclSymkKernelList[];
-extern void* ncclSymkKernelList_fast[];
 extern int ncclSymkKernelRequirements[];
 
 // Kernel index lookup

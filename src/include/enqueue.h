@@ -16,7 +16,8 @@
 ncclResult_t ncclInitKernelsForDevice(size_t* maxStackSize);
 ncclResult_t ncclEnqueueCheck(struct ncclInfo* info);
 ncclResult_t ncclLaunchPrepare(ncclComm_t comm);
-ncclResult_t ncclLaunchKernelBefore_NoUncapturedHggc(ncclComm_t comm, struct ncclKernelPlan* plan);
+ncclResult_t ncclLaunchKernelBefore_NoUncapturedHggc(ncclComm_t comm, struct ncclKernelPlan* plan, bool* ready);
+ncclResult_t pcclWorkFifoCheckAvailable(ncclComm_t comm, uint32_t desiredProduced, bool* available);
 ncclResult_t ncclLaunchKernel(ncclComm_t comm, struct ncclKernelPlan* plan);
 ncclResult_t ncclLaunchKernelAfter_NoHggc(ncclComm_t comm, struct ncclKernelPlan* plan);
 ncclResult_t ncclLaunchFinish(ncclComm_t comm);

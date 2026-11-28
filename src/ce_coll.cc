@@ -290,8 +290,8 @@ bool ncclCeAvailable(ncclComm_t comm, ncclFunc_t coll, int/*ncclRedOp_t*/ red, n
 
 // Allocate CE-private symmetric storage as a devr-backed window. Layout is
 // the existing ncclSymDevBase so ncclSymDevBase_get* accessors index from
-// comm->ceColl.ceSyncBase. Called lazily from ncclSymkInitOnce.
-ncclResult_t ncclCeInit(ncclComm_t comm) {
+// comm->ceColl.ceSyncBase.
+static ncclResult_t ncclCeInitLocal(ncclComm_t comm) {
   ncclResult_t ret = ncclSuccess;
   struct ncclCeColl* cec = &comm->ceColl;
   if (cec->initialized) return ncclSuccess;
@@ -304,7 +304,9 @@ ncclResult_t ncclCeInit(ncclComm_t comm) {
   ncclWindow_vidmem* ceWinDev = nullptr;
   ncclWindow_vidmem* ceWinDevHost = nullptr;
   uint64_t* ceArStepInitMem = nullptr;
+  hggcStream_t initStream = nullptr;
 
+  HGGCCHECKGOTO(hggcStreamCreateWithFlags(&initStream, hggcStreamNonBlocking), ret, fail);
   NCCLCHECKGOTO(ncclDevrInitOnce(comm), ret, fail);
   NCCLCHECKGOTO(pcclMemAlloc((void**)&ceDevBase, ceDevBaseSize), ret, fail);
   NCCLCHECKGOTO(ncclDevrWindowRegisterInGroup(comm, ceDevBase, ceDevBaseSize, NCCL_WIN_COLL_SYMMETRIC, &ceWinDev), ret, fail);
@@ -322,7 +324,7 @@ ncclResult_t ncclCeInit(ncclComm_t comm) {
   cec->symDevComm.nRanks_rcp32 = idivRcp32(comm->localRanks);
   cec->symDevComm.rank = comm->localRank;
 
-  HGGCCHECKGOTO(hggcMemset(cec->ceSyncBase, 0, ceDevBaseSize), ret, fail);
+  HGGCCHECKGOTO(hggcMemsetAsync(cec->ceSyncBase, 0, ceDevBaseSize, initStream), ret, fail);
 #if PCCL_HGGC_VERSION >= PCCL_HGGC_DRIVER_VERSION(2, 2, 0)
   // The CE reduce family's waitValue semantics are waitValue = 1 + iter - pcclCeReduceMaxSect,
   // with the first iter == pcclCeReduceMaxSect. The tail/head arrays must be pre-seeded
@@ -333,24 +335,62 @@ ncclResult_t ncclCeInit(ncclComm_t comm) {
     for (int i = 0; i < count; i++) ceArStepInitMem[i] = pcclCeReduceMaxSect;
     uint64_t* tailBase = (uint64_t*)ncclSymDevBase_getCeTailBase((struct ncclSymDevBase*)cec->ceSyncBase, comm->nRanks);
     uint64_t* headBase = (uint64_t*)ncclSymDevBase_getCeHeadBase((struct ncclSymDevBase*)cec->ceSyncBase, comm->nRanks);
-    HGGCCHECKGOTO(hggcMemcpy(tailBase, ceArStepInitMem, count * sizeof(uint64_t), hggcMemcpyHostToDevice), ret, fail);
-    HGGCCHECKGOTO(hggcMemcpy(headBase, ceArStepInitMem, count * sizeof(uint64_t), hggcMemcpyHostToDevice), ret, fail);
+    HGGCCHECKGOTO(hggcMemcpyAsync(tailBase, ceArStepInitMem, count * sizeof(uint64_t),
+                                hggcMemcpyHostToDevice, initStream), ret, fail);
+    HGGCCHECKGOTO(hggcMemcpyAsync(headBase, ceArStepInitMem, count * sizeof(uint64_t),
+                                hggcMemcpyHostToDevice, initStream), ret, fail);
     auto* sync = (struct ncclCeGridSyncMem*)ncclSymDevBase_getGridSyncBase(
         (struct ncclSymDevBase*)cec->ceSyncBase, comm->nRanks);
-    HGGCCHECKGOTO(hggcMemcpy(&sync->reduceStep, ceArStepInitMem, sizeof(uint64_t), hggcMemcpyHostToDevice), ret, fail);
+    HGGCCHECKGOTO(hggcMemcpyAsync(&sync->reduceStep, ceArStepInitMem, sizeof(uint64_t),
+                                hggcMemcpyHostToDevice, initStream), ret, fail);
   }
 #endif
+  HGGCCHECKGOTO(hggcStreamSynchronize(initStream), ret, fail);
   cec->initialized = true;
 
 exit:
+  if (initStream) {
+    hggcError_t closed = hggcStreamDestroy(initStream);
+    if (closed != hggcSuccess) {
+      ERROR("CE initialization stream destruction failed: %s", hggcGetErrorString(closed));
+      if (ret == ncclSuccess) ret = pcclUnhandledHggcError;
+    }
+  }
   if (ceArStepInitMem) ncclFree(ceArStepInitMem);
   return ret;
 fail:
+  if (initStream) HGGCCHECKIGNORE(hggcStreamSynchronize(initStream));
   if (ceWinDev) (void)ncclCommWindowDeregister(comm, ceWinDev);
   if (ceDevBase) (void)pcclMemFree(ceDevBase);
   cec->ceSyncWin = nullptr;
   cec->ceSyncBase = nullptr;
   goto exit;
+}
+
+static ncclResult_t ncclCeInitOnDevice(ncclComm_t comm) {
+  int savedDev;
+  hggcError_t error = hggcGetDevice(&savedDev);
+  if (error != hggcSuccess) return pcclUnhandledHggcError;
+  error = hggcSetDevice(comm->hggcDev);
+  if (error != hggcSuccess) {
+    (void)hggcSetDevice(savedDev);
+    return pcclUnhandledHggcError;
+  }
+  hggcStreamCaptureMode mode = hggcStreamCaptureModeRelaxed;
+  error = hggcThreadExchangeStreamCaptureMode(&mode);
+  ncclResult_t result = error == hggcSuccess ? ncclCeInitLocal(comm) : pcclUnhandledHggcError;
+  if (error == hggcSuccess) {
+    error = hggcThreadExchangeStreamCaptureMode(&mode);
+    if (error != hggcSuccess && result == ncclSuccess) result = pcclUnhandledHggcError;
+  }
+  error = hggcSetDevice(savedDev);
+  if (error != hggcSuccess && result == ncclSuccess) result = pcclUnhandledHggcError;
+  return result;
+}
+
+ncclResult_t ncclCeInit(ncclComm_t comm) {
+  if (comm->ceColl.initialized) return ncclSuccess;
+  return ncclCeInitOnDevice(comm);
 }
 
 ncclResult_t ncclCeFinalize(ncclComm_t comm) {

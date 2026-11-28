@@ -362,6 +362,14 @@ ncclResult_t saveDevKernelArgs(ncclComm_t comm, struct ncclKernelPlan* plan) {
   memcpy(&kernelInfoMonitorPtr->kernelArgs, plan->kernelArgs,
          std::min(plan->kernelArgsSize, sizeof(kernelInfoMonitorPtr->kernelArgs)));
   comm->kernelNum++;
+  kernelInfoMonitorPtr->kernelIdx = comm->kernelNum;
+  kernelInfoMonitorPtr->channelMask = plan->channelMask;
+  kernelInfoMonitorPtr->argsBytes = plan->kernelArgsSize;
+  kernelInfoMonitorPtr->symFuncIndex = plan->symFuncIndex;
+  kernelInfoMonitorPtr->isSymColl = plan->isSymColl;
+  // Symk kernels do not write per-channel completion indices, so they must not advance the enqueue
+  // indices that the state monitor compares with those.
+  if (plan->isSymColl) return ncclSuccess;
   for (int i = 0; i < MAXCHANNELS; i++) {
     if (plan->channelMask & (1L << i)) {
       comm->channelKernelIdx[i] = comm->kernelNum;
@@ -569,6 +577,7 @@ static ncclResult_t hostStreamPlanTask(ncclComm_t comm, struct ncclKernelPlan* p
   NCCLCHECK(ncclProfilerStopGroupEvent(plan));
   if (!plan->persistent) {
     // Notify main thread of our reclaiming. This will reclaim eqInfo concurrently.
+    plan->reclaimQueued = true;
     ncclIntruQueueMpscEnqueue(&comm->callbackQueue, &plan->reclaimer);
   }
   return ncclSuccess;
@@ -583,7 +592,13 @@ static void HGGCRT_CB hostStreamPlanCallback(void *plan_) {
   }
 }
 
+static ncclResult_t ncclRecordWorkFifoCompletion(ncclComm_t comm, uint32_t produced);
+
 ncclResult_t ncclLaunchKernelAfter_NoHggc(ncclComm_t comm, struct ncclKernelPlan* plan) {
+  bool usesFifo = !plan->isSymColl && !plan->isCeColl && !plan->isCeP2p && !plan->isRma &&
+                  !plan->persistent && plan->workStorageType == ncclDevWorkStorageTypeFifo;
+  uint32_t produced = plan->workFifoProduced;
+  if (usesFifo) comm->workFifoProducedLastSubmitted = produced;
   if (!plan->isHostCbEnq) {
     // We are not using the host stream for proxy ops and reclamation submission.
     NCCLCHECK(hostStreamPlanTask(comm, plan));
@@ -607,6 +622,26 @@ namespace {
   }
 }
 
+static ncclResult_t ncclRecordWorkFifoCompletion(ncclComm_t comm, uint32_t produced) {
+  ncclResult_t result = ncclSuccess;
+  KernelFinishCallback* cb = nullptr;
+  hggcEvent_t replacement = nullptr;
+  NCCLCHECK(ncclCalloc(&cb, 1));
+  HGGCCHECKGOTO(hggcEventCreateWithFlags(&replacement, hggcEventDisableTiming), result, fail);
+  cb->base.event = comm->sharedRes->scratchEvent;
+  cb->base.fn = KernelFinishCallback_fn;
+  cb->workFifoConsumed = produced;
+  HGGCCHECKGOTO(hggcEventRecord(cb->base.event, comm->planner.streams->stream), result, fail);
+  comm->sharedRes->scratchEvent = replacement;
+  comm->workFifoProducedLastRecorded = produced;
+  ncclIntruQueueEnqueue(&comm->eventCallbackQueue, &cb->base);
+  return ncclSuccess;
+fail:
+  if (replacement != nullptr) HGGCCHECKIGNORE(hggcEventDestroy(replacement));
+  NCCLCHECKIGNORE(ncclFree(cb), result);
+  return result;
+}
+
 ncclResult_t ncclLaunchFinish(ncclComm_t comm) {
   ncclResult_t result = ncclSuccess;
   struct ncclKernelPlanner* planner = &(comm->planner);
@@ -623,22 +658,7 @@ ncclResult_t ncclLaunchFinish(ncclComm_t comm) {
   hggcStream_t launchStream = planner->streams->stream; // First user stream gets launch
 
   if (comm->workFifoProduced - comm->workFifoProducedLastRecorded > comm->workFifoBytes/8) {
-    hggcEvent_t finishedEvent = comm->sharedRes->scratchEvent;
-    HGGCCHECK(hggcEventRecord(finishedEvent, launchStream));
-
-    comm->workFifoProducedLastRecorded = comm->workFifoProduced;
-    struct KernelFinishCallback* cb;
-    NCCLCHECK(ncclCalloc(&cb, 1));
-    cb->base.event = finishedEvent;
-    cb->base.fn = KernelFinishCallback_fn;
-    cb->workFifoConsumed = comm->workFifoProduced;
-    ncclIntruQueueEnqueue(&comm->eventCallbackQueue, &cb->base);
-
-    // We just stole scratchEvent so must create a new one.
-    // coverity[leaked_storage]
-    HGGCCHECK(hggcEventCreateWithFlags(&comm->sharedRes->scratchEvent, hggcEventDisableTiming));
-
-    // coverity[leaked_storage]
+    NCCLCHECK(ncclRecordWorkFifoCompletion(comm, comm->workFifoProduced));
   }
 
   // Enqueue event after NCCL kernel
@@ -660,6 +680,7 @@ ncclResult_t ncclLaunchFinish(ncclComm_t comm) {
     // Release device stream as acquired in ncclLaunchPrepare()
 
     NCCLCHECKGOTO(ncclStrongStreamRelease(planner->capturingGraph, &comm->sharedRes->deviceStream), result, resume3);
+    planner->deviceStreamAcquired = false;
   resume3:;
   return result;
 }
@@ -990,16 +1011,15 @@ uint16_t ncclComputeP2pFuncIndex(int protocol) {
   return funcIndex;
 }
 
-// Spin until its safe to increase comm->workFifoProduced to desiredProduced.
-static ncclResult_t waitWorkFifoAvailable(ncclComm_t comm, uint32_t desiredProduced) {
-  bool hasRoom = (desiredProduced - comm->workFifoConsumed) <= comm->workFifoBytes;
-  if (!hasRoom) {
-    while (true) {
-      NCCLCHECK(ncclCommPollEventCallbacks(comm, /*waitSome=*/true));
-      hasRoom = (desiredProduced - comm->workFifoConsumed) <= comm->workFifoBytes;
-      if (hasRoom) break;
-      sched_yield();
-    }
+ncclResult_t pcclWorkFifoCheckAvailable(ncclComm_t comm, uint32_t desiredProduced, bool* available) {
+  if (__atomic_load_n(comm->abortFlag, __ATOMIC_ACQUIRE)) return ncclInternalError;
+  *available = (desiredProduced - comm->workFifoConsumed) <= comm->workFifoBytes;
+  if (*available) return ncclSuccess;
+  NCCLCHECK(ncclCommPollEventCallbacks(comm, /*waitSome=*/false));
+  *available = (desiredProduced - comm->workFifoConsumed) <= comm->workFifoBytes;
+  if (!*available && comm->workFifoProducedLastSubmitted != comm->workFifoProducedLastRecorded) {
+    // An unrecorded submitted tail can hold capacity needed by a later peer.
+    NCCLCHECK(ncclRecordWorkFifoCompletion(comm, comm->workFifoProducedLastSubmitted));
   }
   return ncclSuccess;
 }
@@ -1020,10 +1040,10 @@ namespace {
   }
 }
 
-static ncclResult_t uploadWork(ncclComm_t comm, struct ncclKernelPlan* plan) {
-  // isCeP2p plans carry no ncclDevKernelArgs at all (kernelArgs is null);
-  // their device-visible work list was already reserved from the work FIFO
-  // and filled by pcclP2pDmaBuildPlan.
+static ncclResult_t uploadWork(ncclComm_t comm, struct ncclKernelPlan* plan, bool* ready) {
+  *ready = true;
+  // Symk plans upload no work, but their launch also takes a kernel monitor slot (saveDevKernelArgs).
+  if (plan->isSymColl) comm->planner.uploadKernelSeq++;
   if (plan->isSymColl || plan->isCeColl || plan->isCeP2p || plan->isRma) return ncclSuccess;
 
   size_t workBytes = plan->workBytes;
@@ -1042,7 +1062,8 @@ static ncclResult_t uploadWork(ncclComm_t comm, struct ncclKernelPlan* plan) {
     fifoBufHost = comm->workFifoBuf;
     fifoCursor = comm->workFifoProduced;
     fifoMask = comm->workFifoBytes-1;
-    NCCLCHECK(waitWorkFifoAvailable(comm, fifoCursor + workBytes));
+    NCCLCHECK(pcclWorkFifoCheckAvailable(comm, fifoCursor + workBytes, ready));
+    if (!*ready) return ncclSuccess;
     plan->kernelArgs->workBuf = comm->workFifoBufDev;
     break;
   case ncclDevWorkStorageTypePersistent:
@@ -1088,7 +1109,7 @@ static ncclResult_t uploadWork(ncclComm_t comm, struct ncclKernelPlan* plan) {
     workNode = workNode->next;
   }
 
-  plan->kernelArgs->kernelIdx = comm->kernelNum + 1 + comm->planner.uploadKernelSeq++;
+  plan->kernelArgs->kernelIdx = 1 + comm->planner.uploadKernelSeq++;
   if (pcclParamDumpWorkElems() == 1) {
     for(int i = 0; i < MAXCHANNELS; i++) {
       comm->channelWorks[i] += plan->channelWorks[i];
@@ -1099,6 +1120,7 @@ static ncclResult_t uploadWork(ncclComm_t comm, struct ncclKernelPlan* plan) {
   switch (plan->workStorageType) {
   case ncclDevWorkStorageTypeFifo:
     comm->workFifoProduced = fifoCursor;
+    plan->workFifoProduced = fifoCursor;
     if (comm->workFifoBufGdrHandle != nullptr) wc_store_fence();
     break;
   case ncclDevWorkStorageTypePersistent:
@@ -1143,11 +1165,8 @@ static ncclResult_t uploadWork(ncclComm_t comm, struct ncclKernelPlan* plan) {
   return ncclSuccess;
 }
 
-ncclResult_t ncclLaunchKernelBefore_NoUncapturedHggc(ncclComm_t comm, struct ncclKernelPlan* plan) {
-  // This code is called after we've checked in to the intra-process barrier
-  // but before launching the kernel. We are not allowed to call HGGC unless the
-  // kernel launch is captured.
-  NCCLCHECK(uploadWork(comm, plan));
+ncclResult_t ncclLaunchKernelBefore_NoUncapturedHggc(ncclComm_t comm, struct ncclKernelPlan* plan, bool* ready) {
+  NCCLCHECK(uploadWork(comm, plan, ready));
   return ncclSuccess;
 }
 
@@ -1199,12 +1218,8 @@ static ncclResult_t reclaimPlan(ncclComm_t comm, struct ncclCommCallback* me) {
   }
   NCCLCHECK(result);
 
-  // Multi-task path pool-allocates 4KB args; fast-path uses memScoped.
-  if (plan->isSymColl && plan->workStorageType == ncclDevWorkStorageTypeArgs
-      && plan->kernelSymkArgs != nullptr
-      && plan->kernelArgsSize == sizeof(pcclSymkDevWorkArgs4K)) {
-    ncclMemoryPoolFree<pcclSymkDevWorkArgs4K>(&comm->memPool_kernelSymkArgs,
-        reinterpret_cast<pcclSymkDevWorkArgs4K*>(plan->kernelSymkArgs));
+  if (plan->isSymColl) {
+    NCCLCHECK(ncclFree(plan->kernelSymkArgs));
     plan->kernelSymkArgs = nullptr;
   }
 
@@ -1557,7 +1572,6 @@ static ncclResult_t scheduleP2pTasksToPlan(ncclComm_t comm, int* p2pEpoch, int* 
           }
           planner->nTasksP2p = 0;
           planner->nTasksP2pAlltoall = 0;
-          ncclMemoryPoolFree(&comm->memPool_ncclKernelPlan, plan);
           return ncclInvalidUsage;
         }
         return ncclSuccess;
@@ -1650,8 +1664,17 @@ static ncclResult_t scheduleCollTasksToPlan(ncclComm_t comm, struct ncclKernelPl
       channelUsed += info.nChannels;
     }
     if (!plan->usingExtKernel) {
+      if (plan->nWorkBatches == 0) {
+        int maxChannels = ncclDevMaxChannelsForArgsBytes(comm->workArgsBytes);
+        info.nChannels = std::min(info.nChannels, maxChannels);
+        if (maxChannels < comm->nChannels) comm->lastChannel = 0;
+      }
       // Ensure room for worst case of one new batch per channel
       if (!testBudget(budget, plan->nWorkBatches + info.nChannels, plan->workBytes + workNode->size)) {
+        if (plan->nWorkBatches == 0) {
+          WARN("Kernel planning budget cannot hold one collective work");
+          return ncclInvalidArgument;
+        }
         return ncclSuccess;
       }
 
@@ -1834,16 +1857,23 @@ static ncclResult_t finishPlan(ncclComm_t comm, struct ncclKernelPlan* plan) {
   return ncclSuccess;
 }
 
-PCCL_PARAM(SymOpAccPrecisionInc, "SYM_OP_ACC_PRECISION_INC", 0);
 ncclResult_t ncclLaunchPrepare(ncclComm_t comm) {
   ncclResult_t result = ncclSuccess;
   struct ncclKernelPlanner* planner = &comm->planner;
   bool persistent = ncclCudaGraphValid(planner->capturingGraph);
   planner->persistent = persistent;
-  planner->uploadKernelSeq = 0;
+  planner->uploadKernelSeq = comm->kernelNum;
+  planner->launchBeforeDone = false;
+  planner->launchFinished = false;
+  planner->deviceStreamAcquired = false;
+  planner->hostStreamAcquired = false;
   int nPlans = 0;
   hggcStream_t launchStream = planner->streams->stream;
   struct ncclKernelPlan* planHead = nullptr;
+  struct ncclKernelPlan* wipPlan = nullptr;
+  if (!ncclIntruQueueEmpty(&planner->collCeTaskQueue)) {
+    NCCLCHECKGOTO(ncclCeInit(comm), result, failure);
+  }
 
   if (planner->nTasksColl + planner->nTasksP2p != 0 ||
       !ncclIntruQueueEmpty(&planner->collSymTaskQueue) ||
@@ -1857,6 +1887,7 @@ ncclResult_t ncclLaunchPrepare(ncclComm_t comm) {
     bool pureAlltoallGroup = planner->nTasksP2p == planner->nTasksP2pAlltoall;
     do {
       struct ncclKernelPlan* plan = ncclMemoryPoolAlloc<struct ncclKernelPlan>(&comm->memPool_ncclKernelPlan, &comm->memPermanent);
+      wipPlan = plan;
       plan->comm = comm;
       plan->reclaimer.fn = reclaimPlan;
       plan->persistent = persistent;
@@ -1911,7 +1942,12 @@ ncclResult_t ncclLaunchPrepare(ncclComm_t comm) {
         nPlans += 1;
       } else {
         if (!ncclIntruQueueEmpty(&planner->collSymTaskQueue)) {
-          NCCLCHECKGOTO(ncclSymmetricTaskScheduler(comm, &planner->collSymTaskQueue, plan), result, failure);
+          result = ncclSymmetricTaskScheduler(comm, &planner->collSymTaskQueue, plan);
+          if (result != ncclSuccess) {
+            ncclMemoryPoolFree(&comm->memPool_ncclKernelPlan, plan);
+            wipPlan = nullptr;
+            goto failure;
+          }
         }
         else {
           if (planner->isExtKernel) {
@@ -1936,8 +1972,12 @@ ncclResult_t ncclLaunchPrepare(ncclComm_t comm) {
         if (plan->workBytes != 0) {
           ncclIntruQueueEnqueue(&planner->planQueue, plan);
           nPlans += 1;
+        } else {
+          if (plan->isSymColl) NCCLCHECKGOTO(ncclFree(plan->kernelSymkArgs), result, failure);
+          ncclMemoryPoolFree(&comm->memPool_ncclKernelPlan, plan);
         }
       }
+      wipPlan = nullptr;
     } while ((planner->nTasksColl + planner->nTasksP2p != 0) ||
              !ncclIntruQueueEmpty(&planner->collSymTaskQueue) ||
              !ncclIntruQueueEmpty(&planner->collCeTaskQueue) ||
@@ -1965,7 +2005,26 @@ ncclResult_t ncclLaunchPrepare(ncclComm_t comm) {
   // The two-level fan-in fan-out is because ncclStrongStreamWaitStream() requires
   // at least one of the two streams to be strong-stream.
 
+  if (persistent) {
+    // Establish a reclaimer before capturing any node that can reference a plan.
+    comm->sharedRes->persistentRefs += nPlans;
+    comm->localPersistentRefs += nPlans;
+    for (struct ncclKernelPlan* plan = planHead; plan != nullptr; plan = plan->next)
+      plan->graphReclaimOwned = true;
+    bool ownerCreated = false;
+    result = ncclCudaGraphAddDestructor(planner->capturingGraph, persistentDestructor,
+                                        (void*)planHead, &ownerCreated);
+    if (!ownerCreated) {
+      comm->sharedRes->persistentRefs -= nPlans;
+      comm->localPersistentRefs -= nPlans;
+      for (struct ncclKernelPlan* plan = planHead; plan != nullptr; plan = plan->next)
+        plan->graphReclaimOwned = false;
+    }
+    if (result != ncclSuccess) goto failure;
+  }
+
   NCCLCHECKGOTO(ncclStrongStreamAcquire(planner->capturingGraph, &comm->sharedRes->deviceStream), result, failure);
+  planner->deviceStreamAcquired = true;
 
   // Create dependency for device stream on user streams. First from extra user
   // streams to deviceStream. Then deviceStream to first user stream.
@@ -1982,22 +2041,25 @@ ncclResult_t ncclLaunchPrepare(ncclComm_t comm) {
     for (struct ncclKernelPlan* plan=planHead; plan != nullptr; plan = plan->next) {
       if (plan->hasProxyOps) {
         NCCLCHECKGOTO(ncclStrongStreamAcquire(planner->capturingGraph, &comm->sharedRes->hostStream), result, failure);
+        planner->hostStreamAcquired = true;
         plan->isHostCbEnq = true;
-        NCCLCHECKGOTO(ncclStrongStreamLaunchHost(planner->capturingGraph, &comm->sharedRes->hostStream, hostStreamPlanCallback, plan), result, failure);
+        result = ncclStrongStreamLaunchHost(planner->capturingGraph, &comm->sharedRes->hostStream,
+                                           hostStreamPlanCallback, plan);
+        if (result != ncclSuccess) {
+          // A failed submission leaves cleanup responsible; successful callbacks may run concurrently.
+          plan->isHostCbEnq = false;
+          goto failure;
+        }
         // Make to-be-launched kernels dependent on just-launched host stream tasks.
         NCCLCHECKGOTO(ncclStrongStreamWaitStream(planner->capturingGraph, launchStream, &comm->sharedRes->hostStream), result, failure);
         NCCLCHECKGOTO(ncclStrongStreamRelease(planner->capturingGraph, &comm->sharedRes->hostStream), result, failure);
+        planner->hostStreamAcquired = false;
       }
     }
   }
 
-  if (persistent) {
-    comm->sharedRes->persistentRefs += nPlans;
-    comm->localPersistentRefs += nPlans;
-    NCCLCHECKGOTO(ncclCudaGraphAddDestructor(planner->capturingGraph, persistentDestructor, (void*)planHead), result, failure);
-  }
-
 failure:
+  if (wipPlan != nullptr) ncclIntruQueueEnqueue(&planner->planQueue, wipPlan);
   return result;
 }
 
@@ -2499,8 +2561,10 @@ static ncclResult_t taskAppend(ncclComm_t comm, struct ncclInfo* info) {
   } else if (info->coll == ncclFuncPutSignal || info->coll == ncclFuncSignal || info->coll == ncclFuncWaitSignal) {
     NCCLCHECK(rmaTaskAppend(comm, info));
   } else {
+    if (info->count == 0) return ncclSuccess;
     if (info->datatype == ncclFloat8e4m3 || info->datatype == ncclFloat8e5m2) {
-      if (ncclHggcCompCap() < 89 && info->coll != ncclFuncAllGather && info->coll != ncclFuncBroadcast && info->coll != ncclFuncAlltoAll && info->coll != ncclFuncScatter && info->coll != ncclFuncGather) {
+      if (comm->minCompCap < 89 && info->coll != ncclFuncAllGather && info->coll != ncclFuncBroadcast &&
+          info->coll != ncclFuncAlltoAll && info->coll != ncclFuncScatter && info->coll != ncclFuncGather) {
         WARN("FP8 reduction support begins with sm89 capable devices.");
         return ncclInvalidArgument;
       }
@@ -2576,15 +2640,15 @@ static ncclResult_t taskAppend(ncclComm_t comm, struct ncclInfo* info) {
 }
 
 ncclResult_t ncclEnqueueCheck(struct ncclInfo* info) {
-  if (info->comm && info->comm->revokedFlag) {
+  ncclResult_t ret = CommCheck(info->comm, info->opName, "comm");
+  if (ret != ncclSuccess) return ncclGroupErrCheck(ret);
+  if (info->comm->revokedFlag) {
     ERROR("%s: communicator was revoked", info->opName);
     return ncclGroupErrCheck(ncclInvalidUsage);
   }
   NCCLCHECK(ncclGroupStartInternal());
-  ncclResult_t ret = ncclSuccess;
+  ret = ncclSuccess;
   int savedDev = -1;
-  // Check arguments
-  NCCLCHECK(PtrCheck(info->comm, info->opName, "comm"));
   // Check whether communicator is ready to communicate
   NCCLCHECKGOTO(ncclCommEnsureReady(info->comm), ret, fail);
   if (info->comm->checkPointers) {
@@ -2623,18 +2687,18 @@ ncclResult_t ncclPrepareTasks(ncclComm_t comm, bool* algoNeedConnect, bool* need
   ncclTaskColl* task = ncclIntruQueueHead(&planner->collTaskQueue);
   planner->isExtKernel = false;
 
-  // Symmetric kernel path
+  // Detach the original FIFO for classification and restore every unaccepted task, even on error.
+  ncclIntruQueueConstruct(&planner->collTaskQueue);
+  ncclResult_t symmetricResult = ncclSuccess;
   if (comm->symmetricSupport) {
-    struct ncclTaskColl* remainTasksHead = nullptr;
-    NCCLCHECK(ncclMakeSymmetricTaskList(comm, &planner->collTaskQueue, &planner->collSymTaskQueue, &remainTasksHead));
-    // Re-enqueue non-symk-eligible tasks back into collTaskQueue
-    while (remainTasksHead != nullptr) {
-      struct ncclTaskColl* next = remainTasksHead->next;
-      remainTasksHead->next = nullptr;
-      ncclIntruQueueEnqueue(&planner->collTaskQueue, remainTasksHead);
-      remainTasksHead = next;
-    }
+    symmetricResult = ncclMakeSymmetricTaskList(comm, task, &planner->collSymTaskQueue, &task);
   }
+  while (task != nullptr) {
+    ncclTaskColl* next = task->next;
+    ncclIntruQueueEnqueue(&planner->collTaskQueue, task);
+    task = next;
+  }
+  NCCLCHECK(symmetricResult);
 
   // If all tasks went to symk path, nothing left for standard scheduling
   if (planner->nTasksColl == 0) return ncclSuccess;

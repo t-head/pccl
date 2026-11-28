@@ -805,7 +805,12 @@ static ncclResult_t devCommSetup(ncclComm_t comm) {
   NCCLCHECK(ncclHggcMemcpyAsync(rankToLocalRank, comm->rankToLocalRank, comm->nRanks, comm->sharedRes->deviceStream.hggcStream));
   comm->hostDevComm.comm.rankToLocalRank = rankToLocalRank;
 
-  comm->workArgsBytes = std::min<size_t>(ncclParamWorkArgsBytes(), ncclMaxKernelArgsSize());
+  {
+    size_t workArgsBytes = ncclParamWorkArgsBytes();
+    comm->workArgsBytes = workArgsBytes == 0 ? ncclMaxKernelArgsSize()
+                         : std::min<size_t>(workArgsBytes, ncclMaxKernelArgsSize());
+    comm->symkWorkArgsBytes = workArgsBytes == 0 ? (4<<10) : std::min<size_t>(workArgsBytes, 4<<10);
+  }
 
   comm->workFifoBytes = ncclParamWorkFifoBytes();
   if (0 != (comm->workFifoBytes & (comm->workFifoBytes-1))) {
@@ -830,6 +835,7 @@ static ncclResult_t devCommSetup(ncclComm_t comm) {
 
   comm->workFifoProduced = 0;
   comm->workFifoProducedLastRecorded = 0;
+  comm->workFifoProducedLastSubmitted = 0;
   comm->workFifoConsumed = 0;
 
   for (int c=0; c < MAXCHANNELS; c++) {
@@ -1346,6 +1352,8 @@ static ncclResult_t initTransportsRank(ncclComm_t comm, ncclComm_t parent, uint6
     minCompCap = std::min(comm->peerInfo[i].hggcCompCap, minCompCap);
     maxCompCap = std::max(comm->peerInfo[i].hggcCompCap, maxCompCap);
   }
+  comm->minCompCap = minCompCap;
+  comm->maxCompCap = maxCompCap;
   TRACE(NCCL_INIT,"hostHash[%d] %lx intraRank %d intraRanks %d intraRank0 %d",
         rank, comm->peerInfo[rank].hostHash, intraRank, intraRanks, intraRank0);
   if (intraRank == -1 || intraRank0 == -1 || comm->peerInfo[intraRank0].comm == NULL) {
@@ -2645,6 +2653,7 @@ static ncclResult_t commDestroySync(struct ncclAsyncJob* job_) {
     if ((ret = ncclStrongStreamSynchronize(&comm->sharedRes->deviceStream)) != ncclSuccess) {
       WARN("commDestroySync: comm %p rank %d sync deviceStream error %d", comm, comm->rank, ret);
     }
+    NCCLCHECKGOTO(ncclCommPollEventCallbacks(comm, true), ret, fail);
   }
 
   NCCLCHECK(ncclCommPollCallbacks(comm, false));

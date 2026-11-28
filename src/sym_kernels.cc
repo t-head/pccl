@@ -6,14 +6,14 @@
  * See LICENSE.txt for more license information
  *************************************************************************/
 #include "sym_kernels.h"
+#include "dev_runtime.h"
+#include "param/param.h"
 #include "comm.h"
 #include "compiler.h"
 #include "devcomm.h"
 #include "pccl_device/core.h"
 #include "transport.h"
-#include "symmetric.h"
 #include "graph/topo.h"
-#include "ce_coll.h"     // ncclCeInit
 #include "check_items.h" // pcclGetPpuDevInfo, PPU_TYPE
 #include <cmath>
 #include <cfloat>
@@ -30,20 +30,17 @@ constexpr char const* kernelName[] = {
   "ReduceScatter_LD",
 };
 
-constexpr uint32_t kernelMask_LL = 1<<ncclSymkKernelId_AllReduce_AGxLL_R |
-                                   1<<ncclSymkKernelId_AllGather_LL |
-                                   1<<ncclSymkKernelId_ReduceScatter_LL;
-
-constexpr uint32_t kernelMask_AG = 1<<ncclSymkKernelId_AllGather_LL |
-                                   1<<ncclSymkKernelId_AllGather_ST |
-                                   1<<ncclSymkKernelId_AllGather_ST_Ring |
-                                   1<<ncclSymkKernelId_AllGather_ST_2D;
-
-constexpr uint32_t kernelMask_AR = 1<<ncclSymkKernelId_AllReduce_AGxLL_R |
-                                   1<<ncclSymkKernelId_AllReduce_RSxLD_AGxST;
-
-constexpr uint32_t kernelMask_RS = 1<<ncclSymkKernelId_ReduceScatter_LL |
-                                   1<<ncclSymkKernelId_ReduceScatter_LD;
+constexpr uint32_t kernelMask_LL = 1u<<ncclSymkKernelId_AllReduce_AGxLL_R |
+                                  1u<<ncclSymkKernelId_AllGather_LL |
+                                  1u<<ncclSymkKernelId_ReduceScatter_LL;
+constexpr uint32_t kernelMask_AR = 1u<<ncclSymkKernelId_AllReduce_AGxLL_R |
+                                  1u<<ncclSymkKernelId_AllReduce_RSxLD_AGxST;
+constexpr uint32_t kernelMask_AG = 1u<<ncclSymkKernelId_AllGather_LL |
+                                  1u<<ncclSymkKernelId_AllGather_ST |
+                                  1u<<ncclSymkKernelId_AllGather_ST_Ring |
+                                  1u<<ncclSymkKernelId_AllGather_ST_2D;
+constexpr uint32_t kernelMask_RS = 1u<<ncclSymkKernelId_ReduceScatter_LL |
+                                  1u<<ncclSymkKernelId_ReduceScatter_LD;
 
 int ncclSymkLLKernelMask() {
   return kernelMask_LL;
@@ -59,11 +56,12 @@ static uint32_t kernelMask_coll(ncclFunc_t coll) {
 }
 
 PCCL_PARAM(SymKernelId, "SYM_KERNEL_ID", -1);
+
 static uint32_t kernelMask_user() {
   static uint32_t cache = -1u;
   uint32_t got = COMPILER_ATOMIC_LOAD(&cache, std::memory_order_relaxed);
   if (got == -1u) {
-    char const* name = pcclGetEnvWithDualPrefix("PCCL_SYM_KERNEL");
+    char const* name = ncclGetEnv("PCCL_SYM_KERNEL");
     if (name == nullptr || strcmp(name, "^") == 0) {
       static_assert((int)ncclSymkKernelId_Count < 32, "Use more than 32 bits");
       got = (1<<(int)ncclSymkKernelId_Count)-1;
@@ -76,18 +74,17 @@ static uint32_t kernelMask_user() {
           break;
         }
       }
+      if (got == 0 && name[0] != '\0') WARN("PCCL_SYM_KERNEL=%s is not a supported kernel name", name);
     }
     COMPILER_ATOMIC_STORE(&cache, got, std::memory_order_relaxed);
   }
-  got = pcclParamSymKernelId() >= 0 ? pcclParamSymKernelId() : got;
-  return got;
+  int64_t legacyMask = pcclParamSymKernelId();
+  return legacyMask >= 0 ? uint32_t(legacyMask) : got;
 }
 
 NCCL_PARAM(SymCTAs, "SYM_CTAS", 0)
-NCCL_PARAM(SymGinKernelsEnable, "SYM_GIN_KERNELS_ENABLE", 0)
 PCCL_PARAM(SymWarps, "SYM_WARPS", 0)
-
-#define DEFAULT_SYM_WARPS (ncclSymkMaxThreads/WARP_SIZE)
+NCCL_PARAM(SymGinKernelsEnable, "SYM_GIN_KERNELS_ENABLE", 0)
 // In a hypercube-connected topology, each rank is connected to at most 4 peers.
 #define MAX_DIRECT_CONNS 4
 // Recommended max num of blocks
@@ -99,8 +96,7 @@ static double softplus(double x, double softness) {
 }
 
 static double model(double busBytes, double baseLat, int nSMs, double smBw, double busMultiplier, double peakBw) {
-  double totalSmBw = nSMs*smBw*busMultiplier;
-  double bw = totalSmBw > peakBw ? peakBw : totalSmBw;
+  double bw = std::min(nSMs*smBw*busMultiplier, peakBw);
   return baseLat + softplus(busBytes/bw - 1, 1);
 }
 
@@ -130,7 +126,8 @@ constexpr double PEAKBW[NUM_TOPO][NUM_PROTO] = {
 // Given the kernel and bytes, return the minimum number of blocks to run on such that
 // perf is 99% of running at max blocks, and return the estimate runtime for that
 // block count.
-static void queryModel(struct pcclComm* comm, ncclSymkKernelId k, size_t nBytes, float* timeUs, int* nBlocks, bool isICNSTopo) {
+static void queryModel(struct pcclComm* comm, ncclSymkKernelId k, size_t nBytes,
+                       float* timeUs, int* nBlocks, bool isICNSTopo) {
   constexpr double LL_BusFactor = 2; // 2X the bytes (1x for data, 1x for flags)
 
   int nRanks = comm->nRanks;
@@ -145,7 +142,7 @@ static void queryModel(struct pcclComm* comm, ncclSymkKernelId k, size_t nBytes,
   case ncclSymkKernelId_AllGather_LL:            busBytes = nRanks*nBytes*LL_BusFactor; break;
   case ncclSymkKernelId_AllGather_ST:
   case ncclSymkKernelId_AllGather_ST_Ring:
-  case ncclSymkKernelId_AllGather_ST_2D:      busBytes = (nRanks-1)*nBytes; break;
+  case ncclSymkKernelId_AllGather_ST_2D:         busBytes = (nRanks-1)*nBytes; break;
   case ncclSymkKernelId_ReduceScatter_LL:        busBytes = nRanks*nBytes*LL_BusFactor; break;
   case ncclSymkKernelId_ReduceScatter_LD:        busBytes = (nRanks-1)*nBytes; break;
   }
@@ -195,10 +192,13 @@ ncclResult_t ncclSymkInitOnce(struct pcclComm* comm) {
   NCCLCHECK(ncclDevrInitOnce(comm));
 
   struct ncclSymkState* symk = &comm->symkState;
-  if (symk->initialized || symk->initInProgress) return ncclSuccess;
-  symk->initInProgress = true;
+  if (symk->initialized) return ncclSuccess;
+  // Internal symmetric collectives require a single LSA team.
+  if (ncclTeamLsa(comm).nRanks < comm->nRanks) return ncclSuccess;
   {
     struct ncclDevCommRequirements reqs = NCCL_DEV_COMM_REQUIREMENTS_INITIALIZER;
+    symk->hasLsaMultimem = false;
+    reqs.lsaMultimem = symk->hasLsaMultimem;
     reqs.lsaBarrierCount = ncclSymkMaxBlocks;
 
     struct ncclDevResourceRequirements lla2aReq;
@@ -206,6 +206,9 @@ ncclResult_t ncclSymkInitOnce(struct pcclComm* comm) {
       ncclSymkMaxBlocks, ncclLLA2ACalcSlots(ncclTeamLsa(comm).nRanks*ncclSymkMaxThreads, ncclSymkLLMaxEltSize),
       &symk->kcomm.lsaLLA2A, &lla2aReq
     );
+    lla2aReq.bufferAlign = pcclSymkLLMetadataBytesPerBlock;
+    lla2aReq.bufferSize = ncclSymkMaxBlocks*(pcclSymkLLMetadataBytesPerBlock +
+                                          size_t(2)*symk->kcomm.lsaLLA2A.nSlots*16);
     lla2aReq.next = reqs.resourceRequirementsList;
     reqs.resourceRequirementsList = &lla2aReq;
 
@@ -253,36 +256,9 @@ ncclResult_t ncclSymkInitOnce(struct pcclComm* comm) {
 
     NCCLCHECKGOTO(ncclDevrCommCreateInternal(comm, &reqs, &symk->kcomm.devComm, true), ret, exit);
 
-    // symk's ncclSymDevBase prefix (barInbox/llEpoch/LL buffer) in a devr
-    // window. kcomm.base = lsa-flat self slot so ncclSymPrims::peerPtr lands
-    // on peers' barInbox via the window's IPC mapping.
-    {
-      uint8_t* symkDevBase = nullptr;
-      size_t symkDevBaseSize = ncclSymDevBase::size_symk(ncclTeamLsa(comm).nRanks);
-      ncclWindow_vidmem* symkWinDev = nullptr;
-      ncclWindow_vidmem* symkWinDevHost = nullptr;
-      NCCLCHECKGOTO(pcclMemAlloc((void**)&symkDevBase, symkDevBaseSize), ret, fail_symkdev);
-      NCCLCHECKGOTO(ncclDevrWindowRegisterInGroup(
-          comm, symkDevBase, symkDevBaseSize, NCCL_WIN_COLL_SYMMETRIC, &symkWinDev), ret, fail_symkdev);
-      NCCLCHECKGOTO(ncclShadowPoolToHost(&comm->devrState.shadows, symkWinDev, &symkWinDevHost), ret, fail_symkdev);
-      symk->symkWin = (struct ncclDevrWindow*)symkWinDevHost->winHost;
-      HGGCCHECKGOTO(hggcMemset(symk->symkWin->userPtr, 0, symkDevBaseSize), ret, exit);
-      {
-        char* selfSlot = (char*)symkWinDevHost->lsaFlatBase
-                         + (size_t)symkWinDevHost->lsaRank * comm->devrState.bigSize;
-        symk->kcomm.base = (struct ncclSymDevBase*)selfSlot;
-      }
-      goto symkdev_ok;
-    fail_symkdev:
-      if (symkDevBase) pcclMemFree(symkDevBase);
-      goto exit;
-    symkdev_ok:;
-    }
-    NCCLCHECKGOTO(ncclCeInit(comm), ret, exit);
     symk->initialized = true;
   }
 exit:
-  symk->initInProgress = false;
   return ret;
 }
 
@@ -291,12 +267,7 @@ ncclResult_t ncclSymkFinalize(struct pcclComm* comm) {
   struct ncclSymkState* symk = &comm->symkState;
   if (symk->initialized) {
     NCCLCHECKIGNORE(ncclDevCommDestroy(comm, &symk->kcomm.devComm), ret);
-    if (symk->symkWin) {
-      void* userPtr = symk->symkWin->userPtr;
-      NCCLCHECKIGNORE(ncclCommWindowDeregister(comm, symk->symkWin->vidmem), ret);
-      NCCLCHECKIGNORE(pcclMemFree(userPtr), ret);
-      symk->symkWin = nullptr;
-    }
+    symk->initialized = false;
   }
   return ret;
 }
@@ -322,7 +293,7 @@ static bool ncclSymkImplemented(ncclFunc_t coll, int/*ncclDevRedOp_t*/ red, nccl
     return true;
   case ncclFuncAllReduce:
   case ncclFuncReduceScatter:
-    if (red == ncclDevSum) {
+    if (red == ncclDevSum || (coll == ncclFuncReduceScatter && red == ncclDevSumPostDiv)) {
       return isFloat && ty != ncclFloat64;
     }
   default:
@@ -361,7 +332,7 @@ static bool ncclSymkBeneficial(int nRanks, ncclFunc_t coll, bool isICNSTopo, siz
 
 static void ncclSymkApplySpecialCases(int nRanks, ncclFunc_t coll, bool isICNSTopo,
                                       size_t nBusBytes, uint32_t* kmask) {
-  char const* name = pcclGetEnvWithDualPrefix("PCCL_SYM_KERNEL");
+  char const* name = ncclGetEnv("PCCL_SYM_KERNEL");
   bool isUserSetKernel = (name != nullptr || pcclParamSymKernelId() >= 0);
   if (isUserSetKernel || !isICNSTopo) return;
 
@@ -384,12 +355,12 @@ static void ncclSymkApplySpecialCases(int nRanks, ncclFunc_t coll, bool isICNSTo
   }
 }
 
-static uint32_t ncclSymkMask(struct pcclComm* comm, ncclFunc_t coll, int/*ncclDevRedOp_t*/ red, ncclDataType_t ty, size_t nElts) {
+static uint32_t ncclSymkMask(struct pcclComm* comm, ncclFunc_t coll, int/*ncclDevRedOp_t*/ red,
+                            ncclDataType_t ty, size_t nElts, size_t nEltsActual) {
   uint32_t kmask = kernelMask_coll(coll);
   kmask &= kernelMask_user();
-  // A forced kernel skips the auto-selection policy below; only the hard
-  // correctness limits still apply.
   bool isUserSetKernel = kernelMask_user() != (1u<<(int)ncclSymkKernelId_Count)-1;
+  if ((ty == ncclFloat8e4m3 || ty == ncclFloat8e5m2) && comm->minCompCap < 89) kmask = 0;
 
   size_t nBytes = nElts*ncclTypeSize(ty);
   size_t nBusBytes = (coll == ncclFuncAllReduce ? 1 : comm->nRanks)*nBytes;
@@ -398,22 +369,19 @@ static uint32_t ncclSymkMask(struct pcclComm* comm, ncclFunc_t coll, int/*ncclDe
   // unrolled-chunk indices with 32-bit ints, which overflow past these sizes.
   if (nBusBytes >= (size_t(2)<<30)) kmask &= ~kernelMask_LL;
   if (nBusBytes >= 32*(size_t(2)<<30)) kmask = 0;
+  if (ncclTeamLsa(comm).nRanks < comm->nRanks) kmask = 0;
 
-  bool isICNSTopo = (comm->topo->nodes[NVS].count > 0);
-
-  // Hard eligibility for the 2D kernel. The kernel itself derives nGroups as
-  // nRanks/8, so only keep it when the rank count can form full 8-rank groups.
+  // The 2D kernel requires full 8-rank groups, even under force.
   if (comm->nRanks % ncclSymkAg2DGroupSize != 0)
     kmask &= ~(1u<<ncclSymkKernelId_AllGather_ST_2D);
 
-  // Auto-selection policy from here on: whether symmetric is worth it and which
-  // kernel is fastest.
   if (!isUserSetKernel) {
+    bool isICNSTopo = (comm->topo->nodes[NVS].count > 0);
+    // Apply tuning thresholds to the actual per-work size, not cell padding.
+    nBusBytes = (coll == ncclFuncAllReduce ? 1 : comm->nRanks)*nEltsActual*ncclTypeSize(ty);
     if (!ncclSymkBeneficial(comm->nRanks, coll, isICNSTopo, nBusBytes)) kmask = 0;
     ncclSymkApplySpecialCases(comm->nRanks, coll, isICNSTopo, nBusBytes, &kmask);
-    // Below ~1MB the 2D kernel is latency-bound (3 barriers vs the flat ring's 2),
-    // yet the cost model's peakBw bonus would still pick it in the 512KB..1MB
-    // window that LL does not cover.
+    // Below 1 MiB, the 2D kernel's extra barrier outweighs its bandwidth bonus.
     if (coll == ncclFuncAllGather && nBusBytes < 1_MB)
       kmask &= ~(1u<<ncclSymkKernelId_AllGather_ST_2D);
   }
@@ -429,19 +397,23 @@ bool ncclSymkAvailable(struct pcclComm* comm, ncclFunc_t coll, int/*ncclDevRedOp
     return false;
   if (!ncclSymkImplemented(coll, red, ty))
     return false;
-  return (ncclSymkMask(comm, coll, red, ty, nElts) != 0);
+  return (ncclSymkMask(comm, coll, red, ty, nElts, nElts) != 0);
 }
 
 ncclResult_t ncclSymkPickKernel(
     struct pcclComm* comm, ncclFunc_t coll, int/*ncclDevRedOp_t*/ red, ncclDataType_t ty,
-    size_t nEltsTotal, size_t nEltsMax, int nWorks, ncclSymRegType_t winRegType,
+    size_t nEltsTotal, size_t nEltsMax, size_t nEltsActualMax, int nWorks, ncclSymRegType_t winRegType,
     float* estTimeUs, ncclSymkKernelId* kernelId, int* nBlocks, int* nWarps, bool* forced
   ) {
-  uint32_t kmask = ncclSymkMask(comm, coll, red, ty, nEltsMax);
+  uint32_t kmask = ncclSymkMask(comm, coll, red, ty, nEltsMax, nEltsActualMax);
 
   *forced = !(kernelMask_user() == (1<<(int)ncclSymkKernelId_Count)-1);
-  // LL bodies don't unpack per-work; multi-task batches require non-LL.
   if (nWorks > 1) kmask &= ~kernelMask_LL;
+  constexpr int maxWarps = ncclSymkMaxThreads/WARP_SIZE;
+  int64_t userWarps = pcclParamSymWarps();
+  *nWarps = userWarps > 0 && userWarps <= maxWarps ? int(userWarps) : maxWarps;
+  if (userWarps > 0 && userWarps != maxWarps) kmask &= ~kernelMask_LL;
+  if (userWarps > maxWarps) kmask = 0;
 
   // LD/ST require registered windows; otherwise fall back to LL.
   if (coll == ncclFuncAllReduce) {
@@ -453,15 +425,18 @@ ncclResult_t ncclSymkPickKernel(
   }
 
   bool isICNSTopo = (comm->topo->nodes[NVS].count > 0);
+  size_t nBytes = nEltsTotal*ncclTypeSize(ty);
   ncclSymkKernelId bestKernel = ncclSymkKernelId_Count;
   float bestTime = 1.e30f;
   int bestBlocks = 999;
-  size_t nBytes = nEltsTotal*ncclTypeSize(ty);
 
   constexpr float smPenalty = .025f; // 2.5% percent increase in time per SM
   uint32_t kmaskRemain = kmask;
   while (kmaskRemain != 0) {
     ncclSymkKernelId k = (ncclSymkKernelId)popFirstOneBit(&kmaskRemain);
+    int index = ncclSymkGetKernelIndex(k, red, ty);
+    if (index < 0 || index >= ncclSymkKernelCount || ncclSymkKernelList[index] == nullptr ||
+        ncclSymkKernelRequirements[index] > comm->minCompCap) continue;
     float kTime;
     int kBlocks;
     queryModel(comm, k, nBytes, &kTime, &kBlocks, isICNSTopo);
@@ -473,9 +448,9 @@ ncclResult_t ncclSymkPickKernel(
   }
 
   *kernelId = bestKernel;
-  *estTimeUs = kmask==0 || kernelMask_user() == (1<<ncclSymkKernelId_Count)-1 ? bestTime : 0.0f;
+  *estTimeUs = bestKernel == ncclSymkKernelId_Count ||
+               kernelMask_user() == (1<<ncclSymkKernelId_Count)-1 ? bestTime : 0.0f;
   *nBlocks = bestBlocks;
-  *nWarps = (pcclParamSymWarps() > 0 && pcclParamSymWarps() <= DEFAULT_SYM_WARPS) ? pcclParamSymWarps() : DEFAULT_SYM_WARPS;
   return ncclSuccess;
 }
 
@@ -486,7 +461,7 @@ const char* ncclSymkKernelIdToString(int kernelId) {
   return kernelName[kernelId];
 }
 
-ncclResult_t ncclSymkMakeDevWork(struct pcclComm* comm, struct ncclTaskColl* task, struct pcclSymkDevWork* outDevWork) {
+ncclResult_t ncclSymkMakeDevWork(struct pcclComm* comm, struct ncclTaskColl* task, struct ncclSymkDevWork* outDevWork) {
   outDevWork->rootRank = task->root;
   outDevWork->redOpArg = task->opDev.scalarArg;
   outDevWork->nElts = task->count;

@@ -14,6 +14,7 @@
 #include "ext_kernel_plugin.h"
 #include "proxy.h"
 #include "register.h"
+#include "argcheck.h"
 #include "graph.h"
 #include "profiler.h"
 #include "strongstream.h"
@@ -279,7 +280,9 @@ struct ncclKernelPlan {
   struct ncclKernelPlan* next;
 
   bool persistent; // aka captured in a graph
+  bool graphReclaimOwned; // A created graph UserObject owns the persistent reclaimer and its refs.
   bool isHostCbEnq;
+  bool reclaimQueued; // reclaimer is on callbackQueue: reclaimPlan, not groupCleanup, frees the plan
   bool isSymColl;
   bool isCeColl;
   bool isRma;
@@ -301,6 +304,7 @@ struct ncclKernelPlan {
   bool hasProxyOps; // does any channel have a non-empty proxyOpQueue
   int threadPerBlock;
 
+  uint32_t workFifoProduced;
   int collOpCount; // Number of collectives in this plan.
   int nWorkBatches; // Number of work batches.
   size_t workBytes; // Sum size of all work (in the fifo) in bytes.
@@ -344,14 +348,11 @@ struct ncclKernelPlanner {
   bool persistent;
   bool isCeColl;
   bool isExtKernel;
-  // Sequential counter used to stamp a distinct kernelIdx per plan in uploadWork.
-  // Reset to 0 at the start of each launch (ncclLaunchPrepare) and advanced once
-  // per uploadWork call. A group is split into multiple plans (each plan == one
-  // launch == one kernel); Phase B runs uploadWork for every plan before Phase C
-  // launches any, so comm->kernelNum stays fixed during Phase B and a naive
-  // kernelNum+1 stamps the same value on every plan. Adding this per-launch offset
-  // makes plan i get kernelNum+1+i, matching the launch order (== FIFO slot+1), so
-  // the PCCL_DUMP_WORK_ELEMS trace shows sequential kernelIdx instead of duplicates.
+  bool launchBeforeDone;
+  bool launchFinished;
+  bool deviceStreamAcquired;
+  bool hostStreamAcquired;
+  // Symk and legacy plans share the monitor sequence without sharing completion counters.
   uint64_t uploadKernelSeq;
 
   // The list of user streams aggregated over all tasks present.
@@ -410,7 +411,13 @@ typedef enum ncclGroupTaskType {
 } ncclGroupTaskType_t;
 
 struct KernelInfoMonitor {
-  ncclDevKernelArgs1K kernelArgs;
+  ncclDevKernelArgsStorage<(4<<10)> kernelArgs;
+  // Symk arguments are not ncclDevKernelArgs, so the dump decodes an entry from these launch fields.
+  uint64_t kernelIdx; // launch order, begin from 1
+  uint64_t channelMask;
+  size_t argsBytes;
+  uint16_t symFuncIndex;
+  bool isSymColl;
 };
 
 struct pcclComm {
@@ -528,7 +535,8 @@ struct pcclComm {
   // Host copy of the devComm (to free HGGC allocs)
   struct ncclKernelCommAndChannels hostDevComm;
 
-  uint32_t workArgsBytes; // max size of kernel args
+  uint32_t workArgsBytes; // max size of ordinary kernel args
+  uint32_t symkWorkArgsBytes; // max size of symmetric kernel args
   uint32_t workFifoBytes; // size of workFifoBuf, power of 2
   void* workFifoBuf;
   void* workFifoBufDev;
@@ -537,6 +545,7 @@ struct pcclComm {
   // Monotonic number of bytes (mod 1<<32) sent to fifo.
   uint32_t workFifoProduced;
   uint32_t workFifoProducedLastRecorded;
+  uint32_t workFifoProducedLastSubmitted;
   uint32_t workFifoConsumed;
 
   // Intra-process sync
@@ -572,6 +581,7 @@ struct pcclComm {
 
   // Queue of things for the main thread to do
   struct ncclIntruQueueMpsc<struct ncclCommCallback, &ncclCommCallback::next> callbackQueue;
+  struct ncclIntruQueue<struct ncclArgsInfo, &ncclArgsInfo::next> argsInfoQueue;
 
   int algoEnable[NCCL_NUM_FUNCTIONS*NCCL_NUM_ALGORITHMS];
   ncclTuner_t* tuner;
@@ -639,7 +649,6 @@ struct pcclComm {
   struct ncclMemoryPool memPool_ncclTaskRma;
   struct ncclMemoryPool memPool_ncclProxyOp;
   struct ncclMemoryPool memPool_ncclKernelPlan;
-  struct ncclMemoryPool memPool_kernelSymkArgs;
   struct ncclKernelPlanner planner;
 
   // initState is to more conveniently reclaim resources when errors happen.
@@ -733,7 +742,7 @@ inline ncclResult_t ncclCommPollEventCallbacks(ncclComm_t comm, bool waitSome) {
   }
 finish:
   HGGCCHECK(hggcThreadExchangeStreamCaptureMode(&mode));
-  return ncclSuccess;
+  return result;
 }
 
 inline void ncclCommIntraBarrierIn(ncclComm_t comm, uint32_t x) {
@@ -753,22 +762,27 @@ inline void ncclCommIntraBarrierIn(ncclComm_t comm, uint32_t x) {
   }
 }
 
-// returns sum of x values contributed to ncclCommIntraBarrierIn(comm, x)
-inline uint32_t ncclCommIntraBarrierOut(ncclComm_t comm) {
+inline ncclResult_t ncclCommIntraBarrierOut(ncclComm_t comm, bool* groupAbortFlag, uint32_t* sum) {
   ncclComm_t comm0 = comm->intraComm0;
+  if (__atomic_load_n(groupAbortFlag, __ATOMIC_ACQUIRE) ||
+      __atomic_load_n(comm->abortFlag, __ATOMIC_ACQUIRE) ||
+      __atomic_load_n(comm0->abortFlag, __ATOMIC_ACQUIRE)) return ncclInternalError;
   comm->intraBarrierPhase ^= 1;
   uint32_t phase = comm->intraBarrierPhase;
   uint64_t gate = __atomic_load_n(&comm0->intraBarrierGate, __ATOMIC_RELAXED);
   if ((gate & 1) != phase) {
     uint64_t t0 = clockNano();
     do {
-      // Spin vigorously for first 5us.
+      if (__atomic_load_n(groupAbortFlag, __ATOMIC_ACQUIRE) ||
+          __atomic_load_n(comm->abortFlag, __ATOMIC_ACQUIRE) ||
+          __atomic_load_n(comm0->abortFlag, __ATOMIC_ACQUIRE)) return ncclInternalError;
       if (clockNano()-t0 >= 5*1000) sched_yield();
       gate = __atomic_load_n(&comm0->intraBarrierGate, __ATOMIC_RELAXED);
     } while ((gate & 1) != phase);
   }
   if (comm->intraRanks != 1) __atomic_thread_fence(__ATOMIC_ACQUIRE);
-  return gate>>32;
+  *sum = gate>>32;
+  return ncclSuccess;
 }
 
 // Scrambles the bits of non-builtin values of ncclRedOp_t according to the

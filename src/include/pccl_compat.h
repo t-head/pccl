@@ -74,12 +74,15 @@
 #define ncclGin_SignalAdd                        pcclGin_SignalAdd
 #define ncclGin_SignalInc                        pcclGin_SignalInc
 #define ncclLLA2AHandle                          pcclLLA2AHandle
+#define ncclLLA2ASession                         pcclLLA2ASession
+#define ncclLsaBarrierSession                    pcclLsaBarrierSession
 #define ncclMultimemHandle_t                     pcclMultimemHandle_t
 #define ncclNetDeviceHandle_t                    pcclNetDeviceHandle_t
 #define ncclNetDeviceHandle_v11_t                pcclNetDeviceHandle_v11_t
 #define ncclNetDeviceType                        pcclNetDeviceType
 #define ncclSegmentWindow                        pcclSegmentWindow
 #define ncclTeam                                 pcclTeam
+#define ncclTeamTagLsa                           pcclTeamTagLsa
 #define ncclTeamRequirements                     pcclTeamRequirements
 #define ncclTeam_t                               pcclTeam_t
 #define ncclWindow_vidmem                        pcclWindow_vidmem

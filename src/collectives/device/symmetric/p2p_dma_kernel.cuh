@@ -110,6 +110,13 @@ __global__ void pcclP2pDmaOkiRound(struct pcclP2pDmaArgs args, ltOkiQP_t* qps, u
   // One thread owns each (slot, die) queue, including all peers folded onto it.
   struct pcclP2pDmaMboxCell* myMbox =
       (struct pcclP2pDmaMboxCell*)::add4G((void*)mbox, (int)(rank * stride4G));
+  // A zero-byte batch still waits for its receiver before reusing the done slot.
+  for (int i = tid; i < args.nSend; i += blockDim.x) {
+    if (sends[i].bytes == 0 && sends[i].peer != rank) {
+      (void)p2pDmaMboxWaitOffset(&myMbox[sends[i].peer * opsPerPeer + sends[i].k], sends[i].seq, args.abortFlag);
+    }
+  }
+  __syncthreads();
   int nSlots = p2pDmaSlotCount(qpSlots);
   int nQueues = nSlots * DIE_NUM;
   for (int qIdx = tid; qIdx < nQueues; qIdx += blockDim.x) {

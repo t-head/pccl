@@ -204,9 +204,9 @@ void rasStateMonitorAtHost() {
           /* pending work(s) completed */
           currentDevIndex[c] != rasComm->lastDevIndex[c]) {
         rasComm->lastUpdateTime = currentTime;
-        if ((rasComm->hangFlag & (1 << c)) > 0) {
+        if ((rasComm->hangFlag & (1ULL << c)) > 0) {
           // clear hang flag cause current channel got back to normal from timeout status (maybe after a long work)
-          rasComm->hangFlag &= ~(1 << c);
+          rasComm->hangFlag &= ~(1ULL << c);
         }
         if (currentDevIndex[c] != rasComm->lastDevIndex[c]) {
           VERBOSE(NCCL_RAS, "RAS %ld work(s) newly completed, comm %p, rank %d, nranks %d, commhash %lx, channel %d, equeued %ld, completed %ld",
@@ -218,12 +218,12 @@ void rasStateMonitorAtHost() {
       }
 
       // timeout
-      if ((currentHostIndex[c] != currentDevIndex[c]) && (currentDevIndex[c] == rasComm->lastDevIndex[c]) && (currentTime-rasComm->lastUpdateTime > rasComm->timeout) && ((rasComm->hangFlag & (1 << c)) == 0)) {
+      if ((currentHostIndex[c] != currentDevIndex[c]) && (currentDevIndex[c] == rasComm->lastDevIndex[c]) && (currentTime-rasComm->lastUpdateTime > rasComm->timeout) && ((rasComm->hangFlag & (1ULL << c)) == 0)) {
         snprintf(infoStr, STATE_DUMP_LINE_LENGTH-1, "RAS no pending work(s) completed over %.2f seconds, comm %p, rank %d, nranks %d, commhash %lx, channel %d, enqueued %ld, completed %ld, datetime %s",
                   (currentTime-rasComm->lastUpdateTime)/1e9, comm, comm->rank, comm->nRanks, comm->commHash, c, currentHostIndex[c], currentDevIndex[c], getDateTime(timeStr));
         rasStateMonitorRecord(comm, infoStr);
         currentMaxDevIndex = std::max(currentMaxDevIndex, currentDevIndex[c]+1);
-        rasComm->hangFlag |= (1 << c);
+        rasComm->hangFlag |= (1ULL << c);
         detectTimeout = true;
       }
     }
