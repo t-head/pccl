@@ -53,7 +53,7 @@ def saved_review_state(api, number):
     return reviewer_state.read_pr_assignments(api, number)
 
 
-def module_approval(api, pr, roster, skill, record, approvals):
+def module_approval(api, pr, roster, record, approvals):
     history = api.pages(f"/issues/{pr['number']}/timeline")
     required = routing.required_reviewers(pr, roster, history)
     if not required:
@@ -63,11 +63,10 @@ def module_approval(api, pr, roster, skill, record, approvals):
     required_summary = "\n\nRequired reviewers: " + ", ".join(f"@{api.login(user)}" for user in sorted(required))
     classification = record["classification"]
     if (not classification or classification.get("pr_number") != pr["number"] or
-            classification.get("head_sha") != pr["head"]["sha"]):
-        return False, "Waiting for module classification of the current commit; rerun reviewer routing" + required_summary, {}
-    files = routing.fetch_pr_diff(api, pr)
-    if classification.get("input_fingerprint") != routing.classification_fingerprint(pr, files, roster, skill):
-        return False, "Module classification is stale. Rerun reviewer routing" + required_summary, {}
+            classification.get("head_sha") != pr["head"]["sha"] or
+            ("base_ref" in classification and classification["base_ref"] != pr["base"]["ref"])):
+        return (False, "Waiting for module classification of the current PR head and target; rerun reviewer routing" +
+                required_summary, {})
     requirements = routing.review_requirements(pr, record, roster, required)
     if not any({"Reviewer", "Maintainer"} <= roles for roles in requirements.values()):
         return (False, "Invite a same-module Reviewer and Maintainer; author exemptions count" +
@@ -114,10 +113,10 @@ def refresh(api, number):
         return
     publish_status(api, sha, "pending", "Checking required reviewers' approvals")
     try:
-        roster, skill = routing.load_config()
+        roster, _ = routing.load_config()
         approved = routing.current_approvals(pr, api.pages(f"/pulls/{number}/reviews"))
         record = saved_review_state(api, number)
-        ready, reason, pending = module_approval(api, pr, roster, skill, record, approved)
+        ready, reason, pending = module_approval(api, pr, roster, record, approved)
         if ready:
             verify_review_trigger(api, sha)
         description = ("Awaiting " + "; ".join(f"{role} approval: {', '.join(users)}"

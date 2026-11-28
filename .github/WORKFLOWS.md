@@ -184,10 +184,23 @@ and default rotation choices. The [classification prompt](skills/pccl-review-ass
 selects at most two modules in priority order, without a line-count threshold. Keep each
 module's Maintainer separate from its Reviewer list.
 
-When deploying this policy to `main`, let in-flight updates finish, then run
-`gh workflow run review-routing.yml --ref main -f pr_number=NUMBER` for each open,
-ready PR targeting `main` or `release/*`. Existing invitation history becomes authoritative.
+The gate checks saved classification freshness using the PR number and current HEAD,
+plus the target branch name when present in the saved record. Older records without
+that name retain their saved modules and need no refresh solely for the missing field.
+Changes to the classification prompt, module descriptions, PR title or description,
+or the target branch tip do not invalidate the classification. PR pushes and target
+branch changes trigger routing; title-only and description-only edits do not.
+Records with a target branch reject a changed target.
+
+Before saving assignments, routing rechecks the complete file list, available patches,
+PR identity, HEAD, target branch and classification policy. Title and description edits
+or an advancing target tip with an unchanged diff do not discard an in-flight classification.
+An incomplete individual patch is omitted with a manual-review notice; an incomplete
+file list still stops routing. During invitation updates, HEAD, base SHA, target and
+PR lifecycle changes still stop the update rather than applying an outdated plan.
+
+To refresh an invalid saved classification for an open, ready PR targeting `main` or
+`release/*`, run `gh workflow run review-routing.yml --ref main -f pr_number=NUMBER`.
 After successfully publishing the concise module summary, routing removes its old
 per-person assignment notices.
-Check the invited people and wait for the new gate verdict before merging. The same
-command refreshes an invalid saved classification.
+Check the invited people and wait for the new gate verdict before merging.

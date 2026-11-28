@@ -29,6 +29,7 @@ jobs:
     if: >-
       github.repository == 't-head/pccl' &&
       !github.event.pull_request.draft &&
+      (github.event.action != 'edited' || github.event.changes.base != null) &&
       (github.event_name != 'workflow_dispatch' || github.ref == 'refs/heads/main')
     runs-on: ubuntu-24.04
     timeout-minutes: 10
