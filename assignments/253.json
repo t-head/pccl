@@ -1,17 +1,17 @@
 {
   "classification": {
     "base_sha": "b98c56cb64ffcb14d72308aacafde9e025364d24",
-    "head_sha": "80242892c55923bc9cc13dbdce979ba385db372c",
-    "input_fingerprint": "35105452d8cc21e160fab1f35f647bf861f0e7bba7f66bd644f24be745126327",
+    "head_sha": "1dff1ed0856d4c2ec9464fd7357c517ee371d18b",
+    "input_fingerprint": "2a4fbcbeb703b51715f45817e6d12d277df691ccbd6d628f259af5a3a0938400",
     "pr_number": 253,
     "proposal": {
       "additional_modules": [],
       "modules": [
         "workflow"
       ],
-      "reason": "Main functional change is review-routing withdrawal behavior in contribution workflow automation: .github/scripts/review_automation.py adds withdraw_review_requests() and pending_review_requests() to preserve bot/team requests while withdrawing only managed pending humans, with snapshot/history conflict checks and fail-closed rerun errors. .github/scripts/reviewer_api.py adds GitHub.graphql() and GraphQLError for typed GraphQL reads/mutation with bounded redacted diagnostics. This is review-policy automation logic, so workflow takes priority; no independent CI/build/runtime PCCL module contract change is evidenced."
+      "reason": "Primary change is in review/approval automation behavior owned by workflow: .github/scripts/review_automation.py adds typed GraphQL fallback (withdraw_review_requests, pending_review_requests) with snapshot/history conflict checks for reviewer-withdrawal handling, and .github/scripts/maintainer_approval.py changes freshness gating to pr_number+head_sha+base_ref. .github/scripts/reviewer_api.py adds graphql() and GraphQLError to support that control flow. Evidence points to reviewer assignment/approval policy logic rather than CI execution or runtime library modules."
     },
-    "run_number": 69
+    "run_number": 71
   },
   "reviewers": {
     "workflow": 333277982
