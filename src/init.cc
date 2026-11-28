@@ -1406,7 +1406,8 @@ static ncclResult_t initTransportsRank(ncclComm_t comm, ncclComm_t parent, uint6
   ringGraph->minChannels = 1;
   ringGraph->maxChannels = MAXCHANNELS/2;
   NCCLCHECKGOTO(ncclTopoCompute(comm->topo, ringGraph), res, fail);
-  if (comm->channelShuffle && minCompCap == 89) NCCLCHECKGOTO(pcclShuffleChannel(comm, ringGraph, nranks), res, fail);
+  if (comm->channelShuffle && minCompCap == 89)
+    NCCLCHECKGOTO(pcclShuffleChannel(comm, ringGraph, comm->localRanks), res, fail);
   NCCLCHECKGOTO(ncclTopoPrintGraph(comm->topo, ringGraph), res, fail);
 
   treeGraph->id = 1;
@@ -1418,6 +1419,10 @@ static ncclResult_t initTransportsRank(ncclComm_t comm, ncclComm_t parent, uint6
   treeGraph->maxChannels = (algoEnableNum == 1 && algoTreeEnable) ? MAXCHANNELS/2 : ringGraph->nChannels ;
   NCCLCHECKGOTO(ncclTopoCompute(comm->topo, treeGraph), res, fail);
   NCCLCHECKGOTO(ncclTopoPrintGraph(comm->topo, treeGraph), res, fail);
+
+  if (comm->channelShuffle && minCompCap == 80 && (ringGraph->nGraphChannels == 0 || treeGraph->nGraphChannels == 0)) {
+    comm->channelShuffle = false;
+  }
 
   fcGraph->id = 3;
   fcGraph->pattern = NCCL_TOPO_PATTERN_FC;

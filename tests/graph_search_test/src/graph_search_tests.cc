@@ -312,7 +312,9 @@ class graphNetDevTest : public ::testing::Test {
       system->nodes[NET].nodes[n].id = NCCL_TOPO_ID(n, 0);
       system->nodes[NET].nodes[n].net.dev = n;
     }
+    graph->pattern = NCCL_TOPO_PATTERN_RING;
     graph->nChannels = graph->nGraphChannels = 4;
+    for (int c=0; c<MAXCHANNELS; c++) graph->channelMap[c] = c%graph->nChannels;
     for (int c=0; c<MAXCHANNELS; c++) graph->proxyDevs[c] = -1;
     for (int c=0; c<graph->nChannels; c++) {
       graph->intra[c*3] = 0;
@@ -371,6 +373,45 @@ TEST_F(graphNetDevTest, NonMnnvlRepeatedChannelUsesMappedProxy) {
   comm->MNNVL = 0;
   graph->proxyDevs[4] = 6;
   ExpectNetDev(4, 0);
+}
+
+TEST_F(graphNetDevTest, ShuffledChannelUsesMappedNetAndProxy) {
+  for (int c=0; c<comm->nChannels; c++) graph->channelMap[c] = c/2;
+  system->nodes[NET].nodes[1].id = NCCL_TOPO_ID(0, 1);
+  graph->inter[4] = graph->inter[5] = NCCL_TOPO_ID(0, 1);
+  int64_t netId = -1;
+  int netDev = -1, proxyRank = -1;
+  ASSERT_EQ(ncclTopoGetNetDev(comm, 2, graph, 4, 12, &netId, &netDev, &proxyRank), ncclSuccess);
+  EXPECT_EQ(netId, NCCL_TOPO_ID(0, 1));
+  EXPECT_EQ(netDev, 1);
+  EXPECT_EQ(proxyRank, 2);
+}
+
+TEST_F(graphNetDevTest, MismatchedSenderUsesPath) {
+  graph->intra[0] = 2;
+  graph->intra[2] = 0;
+  system->nodes[GPU].nodes[1].paths[NET][0].type = PATH_PIX;
+  for (int pattern : {NCCL_TOPO_PATTERN_SPLIT_TREE, NCCL_TOPO_PATTERN_BALANCED_TREE}) {
+    graph->pattern = pattern;
+    ExpectNetDev(0, 2);
+  }
+}
+
+TEST_F(graphNetDevTest, MismatchedNetUsesPath) {
+  graph->pattern = NCCL_TOPO_PATTERN_TREE;
+  graph->intra[0] = 2;
+  graph->intra[2] = 0;
+  system->nodes[NET].nodes[1].id = NCCL_TOPO_ID(0, 1);
+  graph->inter[1] = NCCL_TOPO_ID(0, 1);
+  graph->proxyDevs[0] = 6;
+  // Match the sender so only the NIC check rejects the cached proxy.
+  ncclTopoLink link = {};
+  link.remNode = &system->nodes[GPU].nodes[0];
+  auto& path = system->nodes[GPU].nodes[1].paths[NET][0];
+  path.type = PATH_PXN;
+  path.count = 1;
+  path.list[0] = &link;
+  ExpectNetDev(0, 0);
 }
 
 TEST_F(graphNetDevTest, UnrecordedProxyUsesPath) {
