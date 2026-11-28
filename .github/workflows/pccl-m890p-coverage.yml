@@ -27,7 +27,7 @@ jobs:
       github.repository == 't-head/pccl' &&
       (github.ref == 'refs/heads/main' || (github.event_name == 'push' &&
        github.ref == 'refs/heads/codex/pccl-m890p-coverage-on-demand'))
-    name: Select all one- and two-node M890P CX8 daily Cases
+    name: Select one- and two-node M890P CX8 functional and unit Cases
     runs-on: ubuntu-24.04
     timeout-minutes: 15
     outputs:
@@ -38,15 +38,14 @@ jobs:
         with:
           persist-credentials: false
       - id: selection
-        name: Generate and verify the exact daily full selection
+        name: Generate and verify the coverage Case selection
         shell: bash
         run: |
           set -euo pipefail
           python3 -B -m unittest discover -s tests/host_coverage -v
-          bash tests/xtest/generate_m890p_daily.sh full \
-            "$PCCL_REVISION" "$PCCL_TESTS_REVISION" "$RUNNER_TEMP/m890p-cases"
           python3 -S -B .github/workflows/scripts/pccl_m890p_coverage.py prepare \
-            --input "$RUNNER_TEMP/m890p-cases" --output coverage-selection
+            --source-revision "$PCCL_REVISION" --runner-revision "$PCCL_TESTS_REVISION" \
+            --output coverage-selection
       - uses: actions/upload-artifact@v4
         with:
           name: ${{ env.COVERAGE_KEY }}-selection
@@ -83,8 +82,8 @@ jobs:
           set -eo pipefail
           mkdir -p "$GITHUB_WORKSPACE/coverage-build" /workspace/source
           exec > >(tee "$GITHUB_WORKSPACE/coverage-build/build.log") 2>&1
-          apt-get update
-          apt-get install -y --no-install-recommends build-essential g++-13 libnuma-dev libibverbs-dev wget python3-venv
+          bash pccl/.github/workflows/scripts/pccl_m890p_coverage_apt.sh \
+            build-essential g++-13 libnuma-dev libibverbs-dev wget python3-venv
           bash pccl/.github/workflows/scripts/install_hpn_sdk.sh
           source /usr/local/PPU_SDK/envsetup.sh
           export PATH="/usr/local/openmpi/bin:$PATH"
@@ -267,8 +266,7 @@ jobs:
             shared="/mnt/wl_nas/devops/$COVERAGE_KEY"
             src=/workspace/source/pccl
             if ! python3 -m venv /workspace/m890p-coverage-tools; then
-              apt-get update
-              apt-get install -y --no-install-recommends python3-venv
+              bash "$src/.github/workflows/scripts/pccl_m890p_coverage_apt.sh" python3-venv
               python3 -m venv --clear /workspace/m890p-coverage-tools
             fi
             python=/workspace/m890p-coverage-tools/bin/python
@@ -331,8 +329,7 @@ jobs:
           (cd coverage-download && printf '%s  runtime.tar.gz\n' "$RUNTIME_SHA" | sha256sum --check -)
           mkdir coverage-runtime
           tar -xzf coverage-download/runtime.tar.gz -C coverage-runtime
-          apt-get update
-          apt-get install -y --no-install-recommends gcc-13 python3-venv
+          bash pccl/.github/workflows/scripts/pccl_m890p_coverage_apt.sh gcc-13 python3-venv
           python3 -m venv "$RUNNER_TEMP/gcovr"
           export PATH="$RUNNER_TEMP/gcovr/bin:$PATH"
           python -m pip install --disable-pip-version-check --index-url https://pypi.org/simple gcovr==8.4

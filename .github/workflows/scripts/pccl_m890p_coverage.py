@@ -21,12 +21,20 @@ SOURCE = Path(__file__).resolve().parents[3]
 sys.path.insert(0, str(SOURCE / "tests/xtest"))
 import artifact_cache
 import case_group_cache
+import generate_cases
 import group_cases
 import run_cases
 
 SELECTOR = "board-type=ZW-M890P,nic-type=cx8"
 NODES = {1, 2}
 MAX_CASES = 500
+# Reuse the full definitions for these correctness suites without inheriting
+# the dedicated benchmark suites in the Daily Full matrix.
+COVERAGE_FAMILIES = (
+    "postsil_daily_shm", "postsil_unit_test_shm", "pccl_fun_rdma_shm",
+    "register_test_shm", "sanity_m890p_register", "sym_test_shm", "f8_test_shm",
+    "device_api_shm", "commabort_test_shm",
+)
 GROUP_ID = re.compile(r"g[0-9]{3}")
 MATRIX_FIELDS = ("id", "nodes", "cards_per_node", "node_selector", "rack_policy",
                  "rack_count", "cross_rack", "case_count")
@@ -65,12 +73,22 @@ def manifest(directory):
     return groups
 
 
-def prepare(inputs, output):
-    plan = group_cases.build_plan(inputs, MAX_CASES, allowed_nodes=NODES)
-    group_cases.write_plan(plan, output, inputs)
+def prepare(source_revision, runner_revision, output):
+    lists = SOURCE / "tests/xtest/test_lists"
+    bundle = generate_cases.combine_bundles([
+        generate_cases.generate_bundle(lists / f"{family}.json", lists / "suites.json",
+                                       source_revision, runner_revision, profile="full", platform="m890p")
+        for family in COVERAGE_FAMILIES
+    ])
+    with tempfile.TemporaryDirectory(prefix="m890p-coverage-cases-") as temp:
+        inputs = Path(temp) / "input"
+        generate_cases.write_bundle(bundle, inputs, lists / "envs")
+        plan = group_cases.build_plan(inputs, MAX_CASES, allowed_nodes=NODES)
+        group_cases.write_plan(plan, output, inputs)
+        expected = {case_key(case) for case in run_cases.load_inputs(inputs, "standard")["cases"]
+                    if case["suite_spec"]["nodes"] in NODES}
+
     groups = manifest(output)
-    expected = {case_key(case) for case in run_cases.load_inputs(inputs, "standard")["cases"]
-                if case["suite_spec"]["nodes"] in NODES}
     counts = Counter()
     selected = set()
     for group in groups:
@@ -80,7 +98,7 @@ def prepare(inputs, output):
         counts[group["nodes"]] += len(cases)
         selected.update(map(case_key, cases))
     if selected != expected:
-        raise ValueError("The grouped selection does not equal the full 1- and 2-node selection")
+        raise ValueError("The grouped selection does not match the intended 1- and 2-node coverage Cases")
     outputs = {"groups_sha256": case_group_cache.tree_sha256(output),
                "groups": json.dumps({"include": [{field: group[field] for field in MATRIX_FIELDS}
                                                  for group in groups]}, separators=(",", ":"))}
@@ -310,7 +328,8 @@ def main():
     parser = argparse.ArgumentParser(description=__doc__)
     sub = parser.add_subparsers(dest="command", required=True)
     prepare_parser = sub.add_parser("prepare")
-    prepare_parser.add_argument("--input", type=Path, required=True)
+    prepare_parser.add_argument("--source-revision", required=True)
+    prepare_parser.add_argument("--runner-revision", required=True)
     prepare_parser.add_argument("--output", type=Path, required=True)
     sub.add_parser("binaries")
     run_parser = sub.add_parser("run-group")
@@ -325,7 +344,7 @@ def main():
     report.add_argument("--execution-result", required=True)
     args = parser.parse_args()
     if args.command == "prepare":
-        prepare(args.input, args.output)
+        prepare(args.source_revision, args.runner_revision, args.output)
         return 0
     if args.command == "binaries":
         print("\n".join(run_cases.DEVICE_WRAPPER_BINARIES))

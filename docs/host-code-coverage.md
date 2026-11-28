@@ -10,19 +10,23 @@ remains manual-only.
 
 ## Scope and execution
 
-- Use the same M890P `full` definitions and grouping as daily, restricted to
-  **1 or 2 nodes** with the CX8 selector. Keep the Case commands, validation,
-  card allocations and rack placement. This includes the existing two-rack
-  Cases; there is no additional RDMA, Socket, or ICN/MNNVL acceptance check.
-- At the current selection revision (`ec92aca`), the matrix is **7,783 Cases**:
-  5,859 single-node and 1,924 two-node (9 cross-rack). The selection is generated
-  from the checked-out definitions, not a fixed list. It excludes 810E and all
-  Cases that require more than 2 nodes.
+- Use a coverage-only list of functional and unit Case families from the M890P
+  `full` definitions, restricted to **1 or 2 nodes** with the CX8 selector.
+  Exclude `op_perf_shm`, `op_perf_shm_2_rack`, `op_perf_rdma_shm`,
+  `local_register_perf_shm`, `symetric_perf_shm`, and `copyengine_perf_shm`.
+  The existing `postsil_daily_shm`, Device API, and two-node functional
+  Cases retain their commands, validation, and resource policies. There is
+  no additional RDMA, Socket, or ICN/MNNVL acceptance check.
+- With the current definitions, the matrix is **7,587 Cases**: 5,721
+  single-node and 1,866 two-node. The six excluded performance families
+  account for 196 Cases, including all 9 former cross-rack Cases. The plan
+  is generated from the checked-out definitions; no 810E or larger-node
+  Cases are included.
 - The workflow builds one instrumented PCCL runtime on a CPU runner
   (`HOST_GCOV=1 GCOV=0 DEBUG=0`, GNU coverage instrumentation, atomic counters,
   `-O0`) and builds the normal daily benchmarks and native test executables
   against it. PPU kernels keep their release optimizations. The build and Case
-  inputs are checksummed and staged once on NAS. The current 20-group matrix
+  inputs are checksummed and staged once on NAS. The current 18-group matrix
   runs at most 4 groups in parallel, with up to 500 Cases per group.
 - The existing xTest CSV executor runs and checks each group. Benchmark
   wrappers verify the loaded PCCL library and write GCOV data in independent
@@ -37,6 +41,14 @@ The report covers PCCL host source under `src/`. Device code, tests, benchmark
 code, external SDK headers, generated files outside `src/`, and the bundled
 DOCA GPUNetIO vendor tree are not in the coverage denominator. Instrumented
 run timings are **not** performance baseline data.
+
+Coverage dependency setup tries the image's APT sources first. If the index
+refresh fails, it waits 15 seconds before each fallback (Aliyun, Tsinghua,
+then USTC). APT is configured for two download retries. Each refresh uses
+fresh indexes and has a two-minute timeout; the install uses the same sources
+and indexes as the successful refresh and has a five-minute timeout.
+Signature and hash checks stay enabled, and the fallback does not change
+the system source configuration.
 
 ## Artifacts and incomplete runs
 

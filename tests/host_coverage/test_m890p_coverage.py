@@ -1,5 +1,6 @@
-"""Test the full M890P selection, isolated counters, and report reconciliation."""
+"""Test the M890P coverage selection, isolated counters, and report reconciliation."""
 
+from collections import Counter
 import csv
 import json
 import os
@@ -19,17 +20,26 @@ import pccl_m890p_coverage as coverage
 
 
 class CoverageSelectionTest(unittest.TestCase):
-    def test_builds_full_selection_without_changing_daily_commands_or_layout(self):
+    def test_excludes_only_dedicated_performance_cases_and_preserves_the_rest(self):
+        excluded_counts = {
+            "op_perf_shm_single_node_suite": 27, "op_perf_shm_multi_nodes2_suite": 9,
+            "op_perf_shm_2_rack_icn8_suite": 9, "op_perf_rdma_shm_multi_nodes2_suite": 6,
+            "local_register_perf_shm_single_node_suite": 45, "local_register_perf_shm_multi_nodes2_suite": 15,
+            "symetric_perf_shm_single_node_suite": 45, "symetric_perf_shm_multi_nodes2_suite": 15,
+            "copyengine_perf_shm_single_node_suite": 21, "copyengine_perf_shm_multi_nodes2_suite": 4,
+        }
         with tempfile.TemporaryDirectory() as temp:
             root = Path(temp)
             source, selected = root / "daily", root / "coverage"
-            subprocess.run(["bash", ROOT / "tests/xtest/generate_m890p_daily.sh", "full", "a" * 40,
-                            coverage.artifact_cache.PCCL_TESTS_REVISION, source],
+            revision, runner = "a" * 40, coverage.artifact_cache.PCCL_TESTS_REVISION
+            subprocess.run(["bash", ROOT / "tests/xtest/generate_m890p_daily.sh", "full", revision, runner, source],
                            stdout=subprocess.DEVNULL, check=True)
-            with patch.dict(os.environ, {"GITHUB_OUTPUT": str(root / "outputs")}):
-                coverage.prepare(source, selected)
+            subprocess.run([sys.executable, "-S", "-B", SCRIPTS / "pccl_m890p_coverage.py", "prepare",
+                            "--source-revision", revision, "--runner-revision", runner, "--output", selected],
+                           env={**os.environ, "GITHUB_OUTPUT": str(root / "outputs")}, check=True)
             daily = {coverage.case_key(case): case for case in coverage.run_cases.load_inputs(
                 source, "standard")["cases"] if case["suite_spec"]["nodes"] in (1, 2)}
+            expected = {key: case for key, case in daily.items() if case["suite"] not in excluded_counts}
             cases = {}
             groups = coverage.manifest(selected)
             for group in groups:
@@ -41,12 +51,13 @@ class CoverageSelectionTest(unittest.TestCase):
                     self.assertEqual(case["suite_spec"]["nodes"], group["nodes"])
                     self.assertEqual(coverage.group_cases._rack_policy(case),
                                      (group["rack_policy"], group["rack_count"]))
-            self.assertEqual(cases, daily)
-            self.assertTrue(any(group["cross_rack"] for group in groups))
-            self.assertEqual({group["nodes"] for group in groups}, {1, 2})
+            self.assertEqual(cases, expected)
+            self.assertEqual(Counter(daily[key]["suite"] for key in daily.keys() - cases.keys()), excluded_counts)
+            self.assertEqual(Counter(case["suite_spec"]["nodes"] for case in cases.values()), {1: 5721, 2: 1866})
+            self.assertFalse(any(group["cross_rack"] for group in groups))
             matrix = json.loads(dict(line.split("=", 1) for line in
                                       (root / "outputs").read_text().splitlines())["groups"])["include"]
-            self.assertEqual(sum(group["case_count"] for group in matrix), len(daily))
+            self.assertEqual(sum(group["case_count"] for group in matrix), len(expected))
 
 
 class CoverageEvidenceTest(unittest.TestCase):
