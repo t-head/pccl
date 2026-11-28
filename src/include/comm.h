@@ -410,7 +410,7 @@ typedef enum ncclGroupTaskType {
 } ncclGroupTaskType_t;
 
 struct KernelInfoMonitor {
-  ncclDevKernelArgs1K kernelArgs;
+  ncclDevKernelArgs4K kernelArgs;
 };
 
 struct pcclComm {
