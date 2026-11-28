@@ -1,0 +1,19 @@
+{
+  "classification": {
+    "base_sha": "b98c56cb64ffcb14d72308aacafde9e025364d24",
+    "head_sha": "fd10911ca1d3a881184756a84a20e77e5c60a62b",
+    "input_fingerprint": "388887aada2c793158f4795497c1c427e4bc82d8e361f952135fa747e2a971ae",
+    "pr_number": 252,
+    "proposal": {
+      "additional_modules": [],
+      "modules": [
+        "ci"
+      ],
+      "reason": "Main change is CI workflow documentation relocation: `.github/docs/ci.md` is added with the full CI gates/PPU/daily-run/CSV/artifact-cache guidance, and `.github/WORKFLOWS.md` now links to it. This is a CI-scope documentation reorganization (operators/test workflow guidance), not a change to review-routing policy, module catalog, scripts, or workflow execution logic. `ci` takes priority because the substantive content preserved and moved is CI behavior guidance; the `WORKFLOWS.md` edit is a mechanical pointer update supporting that same CI-owned content."
+    },
+    "run_number": 66
+  },
+  "reviewers": {
+    "ci": 333302477
+  }
+}
