@@ -1,17 +1,17 @@
 {
   "classification": {
     "base_sha": "b98c56cb64ffcb14d72308aacafde9e025364d24",
-    "head_sha": "f4c0babb8c74247d5f31bbcad8acf944a9ce2fda",
-    "input_fingerprint": "3c42752e50186e52287d04925210809f16eee36247c4cc433b481e378cae77fc",
+    "head_sha": "a99e8e975bfcefde4664eec980b42a1563b2f2d7",
+    "input_fingerprint": "e7970c570b593a0a7a1302cbe30647f665c746f9d297aa97f0d5354224af2ca6",
     "pr_number": 253,
     "proposal": {
       "additional_modules": [],
       "modules": [
         "workflow"
       ],
-      "reason": "Main change is review-routing behavior, owned by workflow: .github/scripts/review_automation.py adds withdraw_review_requests()/pending_review_requests() GraphQL fallback logic to safely remove only automated pending requests when REST 422 bot-resolution occurs, with snapshot/history conflict checks and explicit failures; this is reviewer-assignment/approval automation, not PCCL runtime. Freshness gating is also workflow policy: .github/scripts/maintainer_approval.py now validates saved classification by pr_number+head_sha and optional base_ref (dropping diff-fingerprint refetch), while review_automation.py persists base_ref in classify(); .github/WORKFLOWS.md documents that boundary. No independent CI/build/runtime module contract changes are evidenced."
+      "reason": "Main change is review-routing policy/automation behavior, owned by workflow: .github/scripts/review_automation.py adds typed withdrawal fallback (withdraw_review_requests, pending_review_requests) and updates classification freshness/fingerprinting rules; .github/scripts/maintainer_approval.py aligns gate freshness checks to PR head/target; .github/workflows/review-routing.yml changes edited-event routing conditions; and .github/scripts/reviewer_api.py adds GraphQL error/API support used by routing. These are substantive reviewer assignment/approval workflow semantics, not PCCL runtime module behavior or CI test orchestration."
     },
-    "run_number": 77
+    "run_number": 78
   },
   "reviewers": {
     "workflow": 333277982
