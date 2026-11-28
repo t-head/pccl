@@ -2,15 +2,16 @@
   "classification": {
     "base_sha": "553701b1a4a7d738627763f1a4af3670500023a9",
     "head_sha": "b1f8144d49b1318e249307ef6dcdc240b4670f96",
-    "input_fingerprint": "63e4af3381a3e54a690ff6cb17f78bb16e216c510dcbebfe8d866227f971e078",
+    "input_fingerprint": "04efe7d2dbcf0213d7c73442bcf612d32e172d3569ccb93d9d849d06456c2d66",
     "pr_number": 167,
     "proposal": {
       "additional_modules": [],
       "modules": [
         "copy-engine"
       ],
-      "reason": "Main change is CE/OKI DMA execution policy: src/init.cc reassigns OKI QP/ring IDs (reserve ring 0, move local/remote queue mapping) and enables OKI only when rank-wide feature bits match, while src/ce_coll.cc switches CE batch launch to OKI-ring mode and adds stream channel hinting behavior for memcpy/capture. This is copy-engine-owned queue/stream partitioning and DMA synchronization behavior; enqueue.cc and peerInfo plumbing are supporting wiring for that same CE/OKI path, not an independent module contract change."
-    }
+      "reason": "Main change is CE/ltOki DMA queue isolation and execution correctness, which is owned by copy-engine. Evidence: src/init.cc remaps ltOki QP queueId/ring reservation and CE stream ring hints (pcclCeHintMemcpyStream, useOkiRings), and src/ce_coll.cc switches batch-op stream-group behavior based on OKI-ring usage plus stream-hinting rules under capture; this directly changes CE/DMA stream/queue ownership and submission semantics. src/enqueue.cc and src/include/transport.h are supporting call-site/handshake wiring for the same CE/OKI feature, not an independent module policy change."
+    },
+    "run_number": 74
   },
   "reviewers": {
     "communicator": 340404662,
