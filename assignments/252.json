@@ -1,19 +1,21 @@
 {
   "classification": {
     "base_sha": "b98c56cb64ffcb14d72308aacafde9e025364d24",
-    "head_sha": "fd10911ca1d3a881184756a84a20e77e5c60a62b",
-    "input_fingerprint": "388887aada2c793158f4795497c1c427e4bc82d8e361f952135fa747e2a971ae",
+    "head_sha": "181e5630291e71aa2e9b68040c8b2a0ef469b98b",
+    "input_fingerprint": "77e612290fd754207e53363498ee792858caf8dadd5236a8e3bba88ce14dc8c4",
     "pr_number": 252,
     "proposal": {
       "additional_modules": [],
       "modules": [
+        "workflow",
         "ci"
       ],
-      "reason": "Main change is CI workflow documentation relocation: `.github/docs/ci.md` is added with the full CI gates/PPU/daily-run/CSV/artifact-cache guidance, and `.github/WORKFLOWS.md` now links to it. This is a CI-scope documentation reorganization (operators/test workflow guidance), not a change to review-routing policy, module catalog, scripts, or workflow execution logic. `ci` takes priority because the substantive content preserved and moved is CI behavior guidance; the `WORKFLOWS.md` edit is a mechanical pointer update supporting that same CI-owned content."
+      "reason": "Primary is workflow: .github/WORKFLOWS.md is restructured into module-owned guide links and .github/docs/review.md now holds the review-routing/invitation/gate/squash-policy content, which is workflow-owned review-process behavior documentation. Secondary is ci: .github/docs/ci.md is an independently substantive CI-operations guide split (PCCL Tests Gate flow, source-sanity/daily workflows, CSV case validation, artifact/NAS cache rules) requiring ci expertise. No library/runtime module behavior is changed."
     },
-    "run_number": 66
+    "run_number": 67
   },
   "reviewers": {
-    "ci": 333302477
+    "ci": 333302477,
+    "workflow": 333277982
   }
 }
