@@ -2,16 +2,16 @@
   "classification": {
     "base_sha": "b98c56cb64ffcb14d72308aacafde9e025364d24",
     "head_sha": "a678ffc557d9f21537052f6561a664e73a85d5dd",
-    "input_fingerprint": "362e037c2bcb5b01aa662506cd5d42ae7b2948cc0f54aca52dbdcc63f5814a31",
+    "input_fingerprint": "df52c6a5cf2353e4986586c611059716ceaa5ba76cbf4cb3754f4e550f04d077",
     "pr_number": 253,
     "proposal": {
       "additional_modules": [],
       "modules": [
         "workflow"
       ],
-      "reason": "Main change is review-routing policy/automation behavior, owned by workflow: .github/scripts/review_automation.py adds typed reviewer-withdrawal fallback (withdraw_review_requests, pending_review_requests), patch-omission handling, and updated classification/routing freshness checks; .github/scripts/maintainer_approval.py aligns gate staleness rules to PR head/target. .github/workflows/review-routing.yml only adjusts when this review-routing workflow runs (skip title/body-only edits), which is workflow policy/orchestration rather than ci test execution."
+      "reason": "Main change is to reviewer-routing/review-gate behavior, owned by workflow: .github/scripts/review_automation.py changes classification freshness keys (pr/head/base_ref), excludes title/body from routing fingerprints and snapshot checks, allows patch_omitted fallback, and adds typed GraphQL withdrawal logic for pending review requests; .github/scripts/maintainer_approval.py aligns gate staleness checks to PR head/target only; .github/workflows/review-routing.yml skips title/body-only edited events. These are review policy/automation contract updates, not PCCL runtime modules or CI test orchestration."
     },
-    "run_number": 81
+    "run_number": 82
   },
   "reviewers": {
     "workflow": 333277982
