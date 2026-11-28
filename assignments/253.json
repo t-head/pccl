@@ -2,16 +2,16 @@
   "classification": {
     "base_sha": "b98c56cb64ffcb14d72308aacafde9e025364d24",
     "head_sha": "f4c0babb8c74247d5f31bbcad8acf944a9ce2fda",
-    "input_fingerprint": "0e8bd397bc8fe90f8db6869e190cf0e6b1eb60f0b448b4295aa2a0e73338f1a3",
+    "input_fingerprint": "3c42752e50186e52287d04925210809f16eee36247c4cc433b481e378cae77fc",
     "pr_number": 253,
     "proposal": {
       "additional_modules": [],
       "modules": [
         "workflow"
       ],
-      "reason": "Main change is review-routing policy/automation behavior, so workflow owns it over any runtime module. Evidence: .github/scripts/review_automation.py adds typed review-request withdrawal with REST->GraphQL fallback, snapshot/conflict checks, and classification freshness keyed to pr_number+head_sha with optional base_ref; .github/scripts/maintainer_approval.py enforces the new freshness gate and removes diff-fingerprint revalidation; .github/scripts/reviewer_api.py adds GraphQL client/error handling; .github/WORKFLOWS.md documents the updated gate boundary and refresh policy."
+      "reason": "Main change is review-routing behavior, owned by workflow: .github/scripts/review_automation.py adds withdraw_review_requests()/pending_review_requests() GraphQL fallback logic to safely remove only automated pending requests when REST 422 bot-resolution occurs, with snapshot/history conflict checks and explicit failures; this is reviewer-assignment/approval automation, not PCCL runtime. Freshness gating is also workflow policy: .github/scripts/maintainer_approval.py now validates saved classification by pr_number+head_sha and optional base_ref (dropping diff-fingerprint refetch), while review_automation.py persists base_ref in classify(); .github/WORKFLOWS.md documents that boundary. No independent CI/build/runtime module contract changes are evidenced."
     },
-    "run_number": 73
+    "run_number": 77
   },
   "reviewers": {
     "workflow": 333277982
