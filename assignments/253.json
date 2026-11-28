@@ -1,17 +1,17 @@
 {
   "classification": {
     "base_sha": "b98c56cb64ffcb14d72308aacafde9e025364d24",
-    "head_sha": "a99e8e975bfcefde4664eec980b42a1563b2f2d7",
-    "input_fingerprint": "e7970c570b593a0a7a1302cbe30647f665c746f9d297aa97f0d5354224af2ca6",
+    "head_sha": "a678ffc557d9f21537052f6561a664e73a85d5dd",
+    "input_fingerprint": "362e037c2bcb5b01aa662506cd5d42ae7b2948cc0f54aca52dbdcc63f5814a31",
     "pr_number": 253,
     "proposal": {
       "additional_modules": [],
       "modules": [
         "workflow"
       ],
-      "reason": "Main change is review-routing policy/automation behavior, owned by workflow: .github/scripts/review_automation.py adds typed withdrawal fallback (withdraw_review_requests/pending_review_requests), changes classification freshness/fingerprint inputs, and treats patch_omitted files as manual-review data instead of hard failure; .github/scripts/maintainer_approval.py aligns gate freshness checks to PR head/target; .github/workflows/review-routing.yml skips title/body-only edited events. These are contribution/review workflow rules and assignment mechanics, not PCCL runtime module behavior."
+      "reason": "Main change is review-routing policy/automation behavior, owned by workflow: .github/scripts/review_automation.py adds typed reviewer-withdrawal fallback (withdraw_review_requests, pending_review_requests), patch-omission handling, and updated classification/routing freshness checks; .github/scripts/maintainer_approval.py aligns gate staleness rules to PR head/target. .github/workflows/review-routing.yml only adjusts when this review-routing workflow runs (skip title/body-only edits), which is workflow policy/orchestration rather than ci test execution."
     },
-    "run_number": 79
+    "run_number": 81
   },
   "reviewers": {
     "workflow": 333277982
