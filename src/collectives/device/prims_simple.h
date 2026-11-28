@@ -10,14 +10,15 @@
 #define NCCL_PRIMS_SIMPLE_H_
 #include "prims_simple_base.h"
 // Implementation of primitive types
-template <typename T, int NRECV, int NSEND, class FUNC, int UNROLL, int SLICESPERCHUNK, int SLICESTEPS, int DIRECT, int P2P>
-class Primitives<T, FUNC, ProtoSimple<UNROLL, SLICESPERCHUNK, SLICESTEPS>, NRECV, NSEND, DIRECT, P2P>:
-    public PrimitivesSimpleBase<T, NRECV, NSEND, FUNC, UNROLL, SLICESPERCHUNK, SLICESTEPS, DIRECT,
-     ProtoSimple<UNROLL, SLICESPERCHUNK, SLICESTEPS>,
-     Primitives<T, FUNC, ProtoSimple<UNROLL, SLICESPERCHUNK, SLICESTEPS>, NRECV, NSEND, DIRECT, P2P>, P2P> {
+template <typename T, typename Fan, typename RedOp, int SlicePerChunk, int StepPerSlice, int Unroll, int Direct, int P2p, bool isNetOffload>
+class Primitives<T, RedOp, Fan, Direct, ProtoSimple<SlicePerChunk, StepPerSlice, Unroll>, P2p, isNetOffload>:
+    public PrimitivesSimpleBase<T, Fan, RedOp, SlicePerChunk, StepPerSlice, Unroll, Direct,
+     ProtoSimple<SlicePerChunk, StepPerSlice, Unroll>,
+     Primitives<T, RedOp, Fan, Direct, ProtoSimple<SlicePerChunk, StepPerSlice, Unroll>, P2p, isNetOffload>, P2p> {
 
  private:
-  static constexpr int StepPerSlice = 1;
+  // The PAT templates specialize SlicePerChunk/StepPerSlice to 1 already, so the
+  // template parameters double as the PAT step granularity.
   const T* inputBuf;
   T* outputBuf;
   int flags;
@@ -28,17 +29,19 @@ class Primitives<T, FUNC, ProtoSimple<UNROLL, SLICESPERCHUNK, SLICESTEPS>, NRECV
   }
 
  public:
+  static_assert(!isNetOffload, "isNetOffload is not implemented on PPU");
+
   __device__ __forceinline__ Primitives(
-      const int tid, const int nworkers, int* recvPeers, int* sendPeers,
+      const int tid, const int nthreads, int* recvPeers, int* sendPeers,
       T* directBuff, struct ncclKernelComm* comm, uint64_t redOpArg, struct ncclShmemGroup* ptrs,
       int group, uint8_t connIndexRecv = 0, uint8_t connIndexSend = 0, struct ncclDevWorkColl* collWork = nullptr,
-      struct ncclDevWorkP2p* p2pWork=nullptr, const uint64_t ncclSteps=NCCL_STEPS, bool noRed=false,
+      struct ncclDevWorkP2p* p2pWork=nullptr, int stepSize_=0, const uint64_t ncclSteps=NCCL_STEPS, bool noRed=false,
       const T* inputBuf = nullptr, T* outputBuf = nullptr, int mode = primsModeDefault
-    ): 
-    PrimitivesSimpleBase<T, NRECV, NSEND, FUNC, UNROLL, SLICESPERCHUNK, SLICESTEPS, DIRECT,
-    ProtoSimple<UNROLL, SLICESPERCHUNK, SLICESTEPS>,
-    Primitives<T, FUNC, ProtoSimple<UNROLL, SLICESPERCHUNK, SLICESTEPS>, NRECV, NSEND, DIRECT, P2P>, P2P>
-    (tid, nworkers, recvPeers, sendPeers, directBuff, comm, redOpArg, ptrs, group, connIndexRecv, connIndexSend, collWork, p2pWork, ncclSteps, noRed, mode),
+    ):
+    PrimitivesSimpleBase<T, Fan, RedOp, SlicePerChunk, StepPerSlice, Unroll, Direct,
+    ProtoSimple<SlicePerChunk, StepPerSlice, Unroll>,
+    Primitives<T, RedOp, Fan, Direct, ProtoSimple<SlicePerChunk, StepPerSlice, Unroll>, P2p, isNetOffload>, P2p>
+    (tid, nthreads, recvPeers, sendPeers, directBuff, comm, redOpArg, ptrs, group, connIndexRecv, connIndexSend, collWork, p2pWork, stepSize_, ncclSteps, noRed, mode),
     inputBuf(inputBuf), outputBuf(outputBuf), flags(0) {
     if (mode == primsModePatRs || mode == primsModePatAg) {
       const int roles[5] = { ROLE_WAIT_RECV, ROLE_POST_RECV, ROLE_WAIT_SEND, ROLE_POST_SEND, ROLE_SRC | ROLE_DST };
@@ -148,7 +151,7 @@ class Primitives<T, FUNC, ProtoSimple<UNROLL, SLICESPERCHUNK, SLICESTEPS>, NRECV
 
     int workSize = getShmemPtr(this->getComm())->aborted ? 0 : nelem;
 
-    ReduceOrCopyMulti<UNROLL, FUNC, T, 1, 1, 1, 2>
+    ReduceOrCopyMulti<Unroll, RedOp, T, 1, 1, 1, 2>
       (this->getTid(), this->getNthreads(), this->getRedOp(), false, false, 1, srcs, nDsts, dsts, workSize);
 
     // Store conn step here inside the two barriers to make sure next reload will see the update.
@@ -245,7 +248,7 @@ class Primitives<T, FUNC, ProtoSimple<UNROLL, SLICESPERCHUNK, SLICESTEPS>, NRECV
     if (ps->recvDim < 0) { srcs++; nSrcs--; } // No peer to receive from, drop one source
     int workSize = getShmemPtr(this->getComm())->aborted ? 0 : nelem;
 
-    ReduceOrCopyMulti<UNROLL, FUNC, T, 1, 2, 1, 1>
+    ReduceOrCopyMulti<Unroll, RedOp, T, 1, 2, 1, 1>
       (this->getTid(), this->getNthreads(), this->getRedOp(), false, false, nSrcs, srcs, 1, dsts, workSize);
 
     // Store conn step here inside the two barriers to make sure next reload will see the update.

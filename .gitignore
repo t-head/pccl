@@ -44,3 +44,8 @@ docs/examples/**/alltoall_hybrid
 tests/graph_search_test/3rd_party/
 tests/graph_search_test/build/
 tests/unit_test/build/
+
+# NO_TSM flavor build output (same nature as build/)
+build_notsm/
+# macOS metadata
+.DS_Store

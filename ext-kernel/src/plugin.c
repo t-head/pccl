@@ -198,14 +198,14 @@ cleanup:
   goto exit;
 }
 
-ncclResult_t pluginAvailCheck(const struct pcclExtTaskColl* task, const void* params, bool* usingExtKernel) {
+ncclResult_t pluginAvailCheck(const struct pcclExtTaskColl_v2* task, const void* params, bool* usingExtKernel) {
   *usingExtKernel = false;
 
   if (task->func != ncclFuncAllReduce && task->func != ncclFuncAllGather && task->func != ncclFuncReduceScatter)
     return ncclSuccess;
-  if (task->func == ncclFuncAllReduce && task->op != ncclDevSum)
+  if (task->func == ncclFuncAllReduce && task->op != pcclExtDevSum)
     return ncclSuccess;
-  if (task->func == ncclFuncReduceScatter && task->op != ncclDevSum)
+  if (task->func == ncclFuncReduceScatter && task->op != pcclExtDevSum)
     return ncclSuccess;
 
   const struct extKernelHostParams* hostParams = reinterpret_cast<const struct extKernelHostParams*>(&reinterpret_cast<const struct extKernelParams*>(params)->hostParams);
@@ -263,7 +263,7 @@ ncclResult_t pluginAvailCheck(const struct pcclExtTaskColl* task, const void* pa
   return ncclSuccess;
 }
 
-ncclResult_t pluginBuildParams(const struct pcclExtTaskColl* task, void* params) {
+ncclResult_t pluginBuildParams(const struct pcclExtTaskColl_v2* task, void* params) {
   struct extKernelDevParams* devParams = reinterpret_cast<struct extKernelParams*>(params)->devParams;
   struct extKernelHostParams* hostParams = &reinterpret_cast<struct extKernelParams*>(params)->hostParams;
 
@@ -488,7 +488,7 @@ ncclResult_t pluginDestroy(void* params) {
 
 #define PLUGIN_NAME "CustomCollectives"
 
-pcclExtKernel_v1_t pcclExtKernelPlugin_v1 = {
+pcclExtKernel_v2_t pcclExtKernelPlugin_v2 = {
   .name = PLUGIN_NAME,
   .kernelPluginInit = pluginInit,
   .kernelPluginConfigWorkspace = pluginConfigWorkspace,

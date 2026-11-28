@@ -11,21 +11,28 @@
 #define NCCL_LL128_FLAGTHREAD (NCCL_LL128_LINEELEMS-1)
 #define REG_PHASE_NUM 2
 
-template <typename T, class FUNC, int NRECV, int NSEND, int DIRECT, int P2P>
-class Primitives<T, FUNC, ProtoLL128, NRECV, NSEND, DIRECT, P2P>:
-    public PrimitivesWithoutDirect<T, Primitives<T, FUNC, ProtoLL128, NRECV, NSEND, DIRECT, P2P>> {
+template<typename T, typename RedOp, typename Fan, int Direct, int P2p, bool isNetOffload>
+class Primitives<T, RedOp, Fan, Direct, ProtoLL128, P2p, isNetOffload>:
+  public PrimitivesWithoutDirect<Primitives<T, RedOp, Fan, Direct, ProtoLL128, P2p, isNetOffload>> {
+
  private:
-  const int tid;
-  const int nthreads;
-  const int wid;
+  static constexpr int MaxRecv = Fan::MaxRecv, MaxSend = Fan::MaxSend;
+  static constexpr int Input = 0, Output = 1;
+
+  static_assert(!isNetOffload, "isNetOffload is not implemented on PPU");
+
+  RedOp redOp;
+  const int tid; // thread index in primitives group
+  const int nthreads; // thread count in primitives group
+  const int wid; // lane index in warp
   const int stepSize;
-  const int warp;
+  const int warp; // warp index in primitives group
   const bool flagThread;
-  int nrecv = 0;
-  int nsend = 0;
+  Fan fan;
+  T* userBufs[2];
   struct ncclConnInfo* recvConn = NULL;
   volatile uint64_t* recvConnHeadPtr = NULL;
-  uint64_t recvConnHead = 0;
+  uint64_t recvConnHead;
 
   struct ncclConnInfo* sendConn = NULL;
   volatile int* sendConnFifoPtr = NULL;
@@ -35,16 +42,15 @@ class Primitives<T, FUNC, ProtoLL128, NRECV, NSEND, DIRECT, P2P>:
   uint64_t sendConnHead;
   uint64_t sendConnHeadCache; // Cache last seen value
 
-  int recvPeer[NRECV];
-  int sendPeer[NSEND];
-  uint64_t recvStep[NRECV];
-  uint64_t sendStep[NSEND];
-  uint64_t* recvBuff[NRECV];
-  uint64_t* sendBuff[NSEND];
-  struct ncclKernelComm* comm;
+  uint64_t recvStep[MaxRecv];
+  uint64_t sendStep[MaxSend];
+  uint64_t* recvBuff[MaxRecv];
+  uint64_t* sendBuff[MaxSend];
 
+  struct ncclKernelComm* comm;
   volatile uint64_t* shmem;
-  FUNC redOp;
+  int recvPeer[MaxRecv];
+  int sendPeer[MaxSend];
 
   inline __device__ int recvOffset(int i) { return (recvStep[i]%NCCL_STEPS)*stepSize; }
   inline __device__ int sendOffset(int i) { return (sendStep[i]%NCCL_STEPS)*stepSize; }
@@ -53,13 +59,13 @@ class Primitives<T, FUNC, ProtoLL128, NRECV, NSEND, DIRECT, P2P>:
   inline __device__ uint64_t recvFlag(int i) { return recvStep[i]+1; }
   inline __device__ uint64_t sendFlag(int i) { return sendStep[i]+1; }
 
-    inline __device__ void barrier() {
-      if (NSEND>NRECV) {
-        __ppu_barrier_sync(1, nthreads);
-      } else {
-        __ppu_barrier_sync(2, nthreads);
-      }
+  inline __device__ void barrier() {
+    if (MaxSend>MaxRecv) {
+      __ppu_barrier_sync(1, nthreads);
+    } else {
+      __ppu_barrier_sync(2, nthreads);
     }
+  }
 
   uint32_t spins = 0;
   uint32_t hangSpins = 0;
@@ -79,9 +85,6 @@ class Primitives<T, FUNC, ProtoLL128, NRECV, NSEND, DIRECT, P2P>:
     }
   }
 
-  inline __device__ void incRecv(int i) {
-    recvStep[i] += 1;
-  }
   inline __device__ void postRecv() {
     if (recvConnHeadPtr) {
       recvConnHead += 1;
@@ -89,9 +92,6 @@ class Primitives<T, FUNC, ProtoLL128, NRECV, NSEND, DIRECT, P2P>:
     }
   }
 
-  inline __device__ void incSend(int i) {
-    sendStep[i] += 1;
-  }
   inline __device__ void postSend() {
     if (sendConnTailPtr) {
       __threadfence();
@@ -201,8 +201,9 @@ class Primitives<T, FUNC, ProtoLL128, NRECV, NSEND, DIRECT, P2P>:
 
   #define WARP_MASK 0xffffffff
 
-  template <int ELEMS_PER_THREAD, int RECV, int SEND, int SRC, int DST>
+  template <int ELEMS_PER_THREAD, int RECV, int SEND, int SrcBuf, int DstBuf>
   __device__ __forceinline__ void recvReduceSendCopy(uint64_t(&v)[ELEMS_PER_THREAD], int ll128Offset, bool postOp) {
+    constexpr int SRC = SrcBuf != -1 ? 1 : 0;
     uint64_t vr[ELEMS_PER_THREAD];
 
     __syncwarp();
@@ -229,25 +230,28 @@ class Primitives<T, FUNC, ProtoLL128, NRECV, NSEND, DIRECT, P2P>:
       // By deferring register shuffle here we've overlapped spinning on first
       // peer's data with memory loads of src data.
       loadRegsFinish(v);
-      #pragma unroll
-      for (int u=0; u<ELEMS_PER_THREAD; u+=2) {
-        v[u] = MULTI<FUNC, T>().preOp(redOp, v[u]);
-        if (!flagThread)
-          v[u+1] = MULTI<FUNC, T>().preOp(redOp, v[u+1]);
+      if (SrcBuf == Input) {
+        #pragma unroll
+        for (int u=0; u<ELEMS_PER_THREAD; u+=2) {
+          v[u] = applyPreOp(redOp, v[u]);
+          if (!flagThread)
+            v[u+1] = applyPreOp(redOp, v[u+1]);
+        }
       }
     }
     /************************ Recv rest *********************/
     if (RECV) {
       { // Consume data from first recv
-        uint64_t* ptr = recvPtr(0)+ll128Offset;
         #pragma unroll
         for (int u=0; u<ELEMS_PER_THREAD; u+=2) {
-          v[u] = SRC ? MULTI<FUNC, T>()(redOp, vr[u], v[u]) : vr[u];
-          v[u+1] = SRC ? MULTI<FUNC, T>()(redOp, vr[u+1], v[u+1]) : vr[u+1];
+          v[u]   = SRC ? applyReduce(redOp, vr[u], v[u]) : vr[u];
+          v[u+1] = SRC ? applyReduce(redOp, vr[u+1], v[u+1]) : vr[u+1];
         }
       }
 
-      for (int i=1; i<NRECV && i<nrecv; i++) {
+      // Yes, for some template arguments this code will be unreachable.  That's fine.
+      // coverity[dead_error_line]
+      for (int i=1; i<MaxRecv && i<fan.nrecv(); i++) {
         uint64_t flag = recvFlag(i);
         uint64_t* ptr = recvPtr(i)+ll128Offset;
         bool needReload;
@@ -265,23 +269,25 @@ class Primitives<T, FUNC, ProtoLL128, NRECV, NSEND, DIRECT, P2P>:
 
         #pragma unroll
         for (int u=0; u<ELEMS_PER_THREAD; u+=2) {
-          v[u] = MULTI<FUNC, T>()(redOp, vr[u], v[u]);
-          v[u+1] = MULTI<FUNC, T>()(redOp, vr[u+1], v[u+1]);
+          v[u]   = applyReduce(redOp, vr[u], v[u]);
+          v[u+1] = applyReduce(redOp, vr[u+1], v[u+1]);
         }
       }
     }
     /********************** End Recv ************************/
-    if (postOp && !FuncTraits<FUNC>::IsPostOpIdentity) {
+    if (postOp) {
       #pragma unroll
       for (int u=0; u<ELEMS_PER_THREAD; u+=2) {
-        v[u]   = MULTI<FUNC, T>().postOp(redOp, v[u]);
-        v[u+1] = MULTI<FUNC, T>().postOp(redOp, v[u+1]);
+        v[u]   = applyPostOp(redOp, v[u]);
+        v[u+1] = applyPostOp(redOp, v[u+1]);
       }
     }
 
     /************************ Send **************************/
     if (SEND) {
-      for (int i=1; i<NSEND && i<nsend; i++) {
+      // Yes, for some template arguments this code will be unreachable.  That's fine.
+      // coverity[dead_error_line]
+      for (int i=1; i<MaxSend && i<fan.nsend(); i++) {
         uint64_t flag = sendFlag(i);
         uint64_t* ptr = sendPtr(i)+ll128Offset;
         #pragma unroll
@@ -302,15 +308,18 @@ class Primitives<T, FUNC, ProtoLL128, NRECV, NSEND, DIRECT, P2P>:
   static constexpr int WireWordPerSlice = WARP_SIZE*NCCL_LL128_SHMEM_ELEMS_PER_THREAD;
   static constexpr int DataEltPerSlice = (WireWordPerSlice - WireWordPerSlice/NCCL_LL128_LINEELEMS)*(sizeof(uint64_t)/sizeof(T));
 
-  template <int RECV, int SEND, int SRC, int DST>
-  __device__ __forceinline__ void GenericOp(const T* srcPtr, T* dstPtr, int nelem, bool postOp) {
+  template <int RECV, int SEND, int SrcBuf, int DstBuf>
+  __device__ __forceinline__ void GenericOp(intptr_t srcIx, intptr_t dstIx, int nelem, bool postOp) {
+    constexpr int SRC = SrcBuf != -1 ? 1 : 0;
+    constexpr int DST = DstBuf != -1 ? 1 : 0;
+    T const *srcPtr = SrcBuf == -1 ? nullptr : userBufs[SrcBuf] + srcIx;
+    T       *dstPtr = DstBuf == -1 ? nullptr : userBufs[DstBuf] + dstIx;
     int wireOffset = WireWordPerSlice*warp + 2*wid;
     const int nwarps = nthreads/WARP_SIZE;
     nelem = nelem < 0 ? 0 : nelem;
 
     if (SEND) waitSend(divUp(nelem, DataEltPerSlice)*WireWordPerSlice*sizeof(uint64_t));
     barrier();
-
     nelem -= DataEltPerSlice*warp;
     srcPtr += DataEltPerSlice*warp;
     dstPtr += DataEltPerSlice*warp;
@@ -318,7 +327,7 @@ class Primitives<T, FUNC, ProtoLL128, NRECV, NSEND, DIRECT, P2P>:
       const int eltInSlice = min(nelem, DataEltPerSlice);
       uint64_t regs[NCCL_LL128_SHMEM_ELEMS_PER_THREAD];
       if (SRC) loadRegsBegin(regs, srcPtr, eltInSlice);
-      recvReduceSendCopy<NCCL_LL128_SHMEM_ELEMS_PER_THREAD, RECV, SEND, SRC, DST>(regs, wireOffset, postOp);
+      recvReduceSendCopy<NCCL_LL128_SHMEM_ELEMS_PER_THREAD, RECV, SEND, SrcBuf, DstBuf>(regs, wireOffset, postOp);
       if (DST) storeRegs(dstPtr, regs, eltInSlice);
 
       wireOffset += WireWordPerSlice*nwarps;
@@ -328,12 +337,16 @@ class Primitives<T, FUNC, ProtoLL128, NRECV, NSEND, DIRECT, P2P>:
     }
 
     barrier();
-    FOR_SEND(incSend); if (SEND) postSend();
-    FOR_RECV(incRecv); if (RECV) postRecv();
+    if (SEND) for (int i=0; i < MaxSend; i++) sendStep[i] += 1;
+    if (SEND) postSend();
+    if (RECV) for (int i=0; i < MaxRecv; i++) recvStep[i] += 1;
+    if (RECV) postRecv();
   }
 
   template <int RECV, int SEND, int SRC, int DST>
-  __device__ __forceinline__ void ScatterGatherOp(const T* srcPtr, T* dstPtr, int totalElem, int peerElem, int rankOffset) {
+  __device__ __forceinline__ void ScatterGatherOp(intptr_t inpIx, intptr_t outIx, int totalElem, int peerElem, int rankOffset) {
+    const T* srcPtr = SRC ? userBufs[Input] + inpIx : nullptr;
+    T* dstPtr = DST ? userBufs[Output] + outIx : nullptr;
     const int nwarps = nthreads/WARP_SIZE;
     peerElem = peerElem < 0 ? 0 : peerElem;
 
@@ -356,9 +369,9 @@ class Primitives<T, FUNC, ProtoLL128, NRECV, NSEND, DIRECT, P2P>:
             loadRegsFinish(regs[0]);
             #pragma unroll
             for (int u=0; u<NCCL_LL128_SHMEM_ELEMS_PER_THREAD; u+=2) {
-              regs[0][u] = MULTI<FUNC, T>().preOp(redOp, regs[0][u]);
+              regs[0][u] = MULTI<RedOp, T>().preOp(redOp, regs[0][u]);
               if (!flagThread)
-                regs[0][u+1] = MULTI<FUNC, T>().preOp(redOp, regs[0][u+1]);
+                regs[0][u+1] = MULTI<RedOp, T>().preOp(redOp, regs[0][u+1]);
             }
           }
           uint64_t flag = sendFlag(0);
@@ -369,7 +382,7 @@ class Primitives<T, FUNC, ProtoLL128, NRECV, NSEND, DIRECT, P2P>:
           }
         }
 
-        for (int i = 1; i < NSEND; i++) {
+        for (int i = 1; i < MaxSend; i++) {
           int peerOffset = sendPeer[i] * peerElem + warpOffset;
           int peerRemainSize = min(peerElem - warpOffset, totalElem - peerOffset);
           if (peerRemainSize > 0) {
@@ -381,9 +394,9 @@ class Primitives<T, FUNC, ProtoLL128, NRECV, NSEND, DIRECT, P2P>:
               loadRegsFinish(regs[i%2]);
               #pragma unroll
               for (int u=0; u<NCCL_LL128_SHMEM_ELEMS_PER_THREAD; u+=2) {
-                regs[i%2][u] = MULTI<FUNC, T>().preOp(redOp, regs[i%2][u]);
+                regs[i%2][u] = MULTI<RedOp, T>().preOp(redOp, regs[i%2][u]);
                 if (!flagThread)
-                  regs[i%2][u+1] = MULTI<FUNC, T>().preOp(redOp, regs[i%2][u+1]);
+                  regs[i%2][u+1] = MULTI<RedOp, T>().preOp(redOp, regs[i%2][u+1]);
               }
             }
             uint64_t flag = sendFlag(i);
@@ -395,7 +408,7 @@ class Primitives<T, FUNC, ProtoLL128, NRECV, NSEND, DIRECT, P2P>:
           }
         }
       } else if (RECV) {
-        for (int i = 0; i < NRECV; i++) {
+        for (int i = 0; i < MaxRecv; i++) {
           int peerOffset = recvPeer[i] * peerElem + warpOffset;
           int peerRemainSize = min(peerElem - warpOffset, totalElem - peerOffset);
           if (peerRemainSize > 0) {
@@ -422,18 +435,23 @@ class Primitives<T, FUNC, ProtoLL128, NRECV, NSEND, DIRECT, P2P>:
     }
 
     barrier();
-    FOR_SEND(incSend); if (SEND) postSend();
-    FOR_RECV(incRecv); if (RECV) postRecv();
+    if (SEND) {
+      for (int i=0; i<MaxSend; i++) sendStep[i] += 1;
+      postSend();
+    }
+    if (RECV) {
+      for (int i=0; i<MaxRecv; i++) recvStep[i] += 1;
+      postRecv();
+    }
   }
 
   __device__ __forceinline__ void loadRecvConn(struct ncclConnInfo* conn, int i) {
     recvBuff[i] = (uint64_t*)conn->buffs[NCCL_PROTO_LL128];
     recvStep[i] = conn->step;
     if (wid == i) recvConn = conn;
-    nrecv++;
   }
   __device__ __forceinline__ void loadRecvSync() {
-    if (tid >= nthreads-WARP_SIZE && wid < nrecv) {
+    if (tid >= nthreads-WARP_SIZE && wid < fan.nrecv()) {
       recvConnHeadPtr = recvConn->head;
       recvConnHead = recvConn->step;
     }
@@ -443,16 +461,15 @@ class Primitives<T, FUNC, ProtoLL128, NRECV, NSEND, DIRECT, P2P>:
     sendBuff[i] = (uint64_t*)conn->buffs[NCCL_PROTO_LL128];
     sendStep[i] = conn->step;
     if (wid == i) sendConn = conn;
-    nsend++;
   }
   __device__ __forceinline__ void loadSendSync() {
-    if (tid < nsend) {
+    if (tid < fan.nsend()) {
       sendConnHeadPtr = sendConn->head;
       sendConnHeadCache = volatileLoadU64(sendConnHeadPtr);
       sendConnHead = sendConn->step;
       sendConnFifoPtr = sendConn->sizesFifo;
     }
-    if (tid >= nthreads-WARP_SIZE && wid<nsend) {
+    if (tid >= nthreads-WARP_SIZE && wid<fan.nsend()) {
       if (sendConn->sizesFifo) {
         sendConnTailPtr = sendConn->tail;
         sendConnTail = sendConn->step;
@@ -469,76 +486,103 @@ class Primitives<T, FUNC, ProtoLL128, NRECV, NSEND, DIRECT, P2P>:
       const int ncclSteps=NCCL_STEPS, bool noRed=false
   ):
   // WR: fix potential double preOp for up/down tree.
-  redOp(noRed ? RedOpIdentityArg<FUNC>::value() : redOpArg),
-  comm(comm), tid(tid), nthreads(nthreads), wid(tid%WARP_SIZE), warp(tid/WARP_SIZE),
-  flagThread((tid%8)==7), stepSize(comm->buffSizes[NCCL_PROTO_LL128]/NCCL_STEPS/sizeof(uint64_t)),
-
-  shmem(getShmemPtr(comm)->data+(threadIdx.x/WARP_SIZE)*NCCL_LL128_SHMEM_ELEMS_PER_THREAD*WARP_SIZE) {
+  redOp(noRed ? RedOpIdentityArg<RedOp>::value() : redOpArg),
+  tid(tid), nthreads(nthreads), wid(tid%WARP_SIZE),
+  stepSize(comm->buffSizes[NCCL_PROTO_LL128]/NCCL_STEPS/sizeof(uint64_t)),
+  warp(tid/WARP_SIZE), flagThread((tid%8)==7),
+  comm(comm), shmem(getShmemPtr(comm)->data+(threadIdx.x/WARP_SIZE)*NCCL_LL128_SHMEM_ELEMS_PER_THREAD*WARP_SIZE) {
     // Make sure step is updated before we read it.
     barrier();
 
-    for (int i=0; i<NRECV && recvPeers[i] >= 0; i++) {
-      recvPeer[i] = recvPeers[i];
-      loadRecvConn(&getShmemPtr(comm)->channel.peers[recvPeers[i]]->recv[connIndexRecv], i);
+    // Count locally, then publish once into `fan` (see prims_ll.h).
+    int nrecv = 0, nsend = 0;
+    while (nrecv < MaxRecv && recvPeers[nrecv] >= 0) {
+      recvPeer[nrecv] = recvPeers[nrecv];
+      loadRecvConn(&getShmemPtr(comm)->channel.peers[recvPeers[nrecv]]->recv[connIndexRecv], nrecv);
+      nrecv++;
     }
-    for (int i=0; i<NSEND && sendPeers[i] >= 0; i++) {
-      sendPeer[i] = sendPeers[i];
-      loadSendConn(&getShmemPtr(comm)->channel.peers[sendPeers[i]]->send[connIndexSend], i);
+    while (nsend < MaxSend && sendPeers[nsend] >= 0) {
+      sendPeer[nsend] = sendPeers[nsend];
+      loadSendConn(&getShmemPtr(comm)->channel.peers[sendPeers[nsend]]->send[connIndexSend], nsend);
+      nsend++;
     }
+    this->fan = Fan(nrecv, nsend);
+    // Coverity reports recvConn and sendConn being possibly NULL at this point but that won't actually
+    // happen given the two "while" loops just above.
+    // coverity[var_deref_model:FALSE]
     loadRecvSync();
+    // coverity[var_deref_model:FALSE]
     loadSendSync();
   }
 
-  __device__ void send(const T* src, int nelem) {
-    return GenericOp<0, 1, 1, 0>(src, NULL, nelem, false);
+  // Must be called by every thread of the group; see prims_ll.h.
+  __device__ void setDataPtrs(void const* inputBuf, void* outputBuf) {
+    userBufs[Input] = (T*)inputBuf;
+    userBufs[Output] = (T*)outputBuf;
   }
 
-  __device__ void recv(T* dst, int nelem, bool postOp=false) {
-    return GenericOp<1, 0, 0, 1>(NULL, dst, nelem, postOp);
+  __device__ void moveDataPtrs(intptr_t delta) {
+    userBufs[Input] += delta;
+    userBufs[Output] += delta;
   }
 
-  __device__ void recvReduceSend(const T* src, int nelem) {
-    return GenericOp<1, 1, 1, 0>(src, NULL, nelem, false);
+  __device__ void send(intptr_t inpIx, int eltN) {
+    return GenericOp<0, 1, Input, -1>(inpIx, -1, eltN, false);
   }
 
-  __device__ void recvReduceCopy(const T* src, T* dst, int nelem, bool postOp=false) {
-    return GenericOp<1, 0, 1, 1>(src, dst, nelem, postOp);
+  // See prims_ll.h: needed because the pointer era spelled this as
+  // `send(thisOutput+off, n)`.
+  __device__ void sendFromOutput(intptr_t outIx, int eltN) {
+    return GenericOp<0, 1, Output, -1>(outIx, -1, eltN, false);
   }
 
-  __device__ void copySend(const T* src, T* dst, int nelem, bool postOp=false) {
-    return GenericOp<0, 1, 1, 1>(src, dst, nelem, postOp);
+  __device__ void recv(intptr_t outIx, int eltN, bool postOp=false) {
+    return GenericOp<1, 0, -1, Output>(-1, outIx, eltN, postOp);
   }
 
-  __device__ void recvCopySend(T* dst, int nelem, bool postOp=false) {
-    return GenericOp<1, 1, 0, 1>(NULL, dst, nelem, postOp);
+  __device__ void recvReduceSend(intptr_t inpIx, int eltN) {
+    return GenericOp<1, 1, Input, -1>(inpIx, -1, eltN, false);
   }
 
-  __device__ void recvReduceCopySend(const T* src, T* dst, int nelem, bool postOp=false) {
-    return GenericOp<1, 1, 1, 1>(src, dst, nelem, postOp);
+  __device__ void recvReduceCopy(intptr_t inpIx, intptr_t outIx, int eltN, bool postOp=false) {
+    return GenericOp<1, 0, Input, Output>(inpIx, outIx, eltN, postOp);
+  }
+
+  __device__ void copySend(intptr_t inpIx, intptr_t outIx, int eltN, bool postOp=false) {
+    return GenericOp<0, 1, Input, Output>(inpIx, outIx, eltN, postOp);
+  }
+
+  __device__ void recvCopySend(intptr_t outIx, int eltN, bool postOp=false) {
+    return GenericOp<1, 1, -1, Output>(-1, outIx, eltN, postOp);
+  }
+
+  __device__ void recvReduceCopySend(intptr_t inpIx, intptr_t outIx, int eltN, bool postOp=false) {
+    return GenericOp<1, 1, Input, Output>(inpIx, outIx, eltN, postOp);
   }
 
 #ifdef KERNEL_LOOPBACK
-  __device__ void sendRecvLoopback(const T* src, T* dst, int nelem) {
-    return GenericOp<0, 0, 1, 1>(src, dst, nelem, false);
+  __device__ void sendRecvLoopback(intptr_t inpIx, intptr_t outIx, int nelem) {
+    return GenericOp<0, 0, Input, Output>(inpIx, outIx, nelem, false);
   }
 #endif
 
   __device__ __forceinline__ void
-  scatter(const T* src, int totalElem, int peerElem, int rankOffset) {
-    ScatterGatherOp<0, 1, 1, 0>(src, NULL, totalElem, peerElem, rankOffset);
+  scatter(intptr_t inpIx, int totalElem, int peerElem, int rankOffset) {
+    ScatterGatherOp<0, 1, 1, 0>(inpIx, -1, totalElem, peerElem, rankOffset);
   }
 
   __device__ __forceinline__ void
-  gather(T* dst, int totalElem, int peerElem, int rankOffset) {
-    ScatterGatherOp<1, 0, 0, 1>(NULL, dst, totalElem, peerElem, rankOffset);
+  gather(intptr_t outIx, int totalElem, int peerElem, int rankOffset) {
+    ScatterGatherOp<1, 0, 0, 1>(-1, outIx, totalElem, peerElem, rankOffset);
   }
 
   __device__ __forceinline__ ~Primitives() {
     // Save steps for the next operation
-    if (tid >= nthreads-WARP_SIZE && wid < nrecv)
+    if (tid >= nthreads-WARP_SIZE && wid < fan.nrecv())
       volatileStoreU64(reinterpret_cast<volatile uint64_t*>(&recvConn->step), recvConnHead);
-    if (tid < nsend)
+    if (tid < fan.nsend())
       volatileStoreU64(reinterpret_cast<volatile uint64_t*>(&sendConn->step), sendConnHead);
+    // Ensure all steps written back
     barrier();
   }
 };
