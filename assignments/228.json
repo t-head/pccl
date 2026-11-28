@@ -2,15 +2,16 @@
   "classification": {
     "base_sha": "4620d52ab5ddcd700954bd03a41ecd81a39e38dd",
     "head_sha": "39e34e114136c073bc4fed12bf368ec16f441112",
-    "input_fingerprint": "471d926d33109ae087bfec0b164f9b37fc5cc829d599425f8e084a603fbf02f1",
+    "input_fingerprint": "95ec247149dcfcd1fe3a77779ad942b0c2b53001d263a8e52fbbd0d3d3bb254d",
     "pr_number": 228,
     "proposal": {
       "additional_modules": [],
       "modules": [
         "graph-search"
       ],
-      "reason": "Main change is to logical graph channel/ring behavior, so graph-search owns it: src/graph/connect.cc rewires ring reversal timing into ncclTopoPostset, preserves per-algorithm channelMap during channel copy/shuffle, and fixes compCap80 channel remap math; src/graph/search.cc switches ncclTopoGetNetDev to graph->channelMap and only reuses cached proxyDevs when sender+NIC match, otherwise recomputes path. src/include/graph.h adds channelMap/ringReverse to support that contract. init.cc changes are feature setup for the same graph logic, not an independent communicator/network policy change."
-    }
+      "reason": "Main change is in logical graph channel/ring construction and mapping, owned by graph-search: src/graph/connect.cc adds ringReverse propagation, applies reversal post node assignment, preserves per-algorithm channelMap through copy/shuffle, and fixes compCap80/89 channel remapping semantics. src/graph/search.cc switches net/proxy lookup to graph->channelMap and validates cached proxy by sender+NIC before path fallback, which is part of graph channel/rank connection logic. src/init.cc and tests are supporting wiring/validation for this graph behavior, not an independent module policy change."
+    },
+    "run_number": 75
   },
   "reviewers": {
     "network": 341355176
